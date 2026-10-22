@@ -339,7 +339,7 @@ Installs that keep telemetry in CNPG set retention under `core.observabilityRete
 
 `defaultDays` is optional. Leave it unset and each dataset keeps its own window. Set it to cap raw CNPG telemetry at that many days. A per-dataset value may be shorter. The ceiling takes effect on the next `DataRetentionWorker` run. Migrations install the per-dataset values until that run. Capacity forecasts stay on `capacityForecastsDays`. Hourly rollups never go below 7 days, because their refresh window is 5 days. Chunk intervals must stay smaller than the applied retention. Continuous-aggregate refresh windows stay strictly inside the source retention.
 
-Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored in StarRocks. `ocsfNetworkActivityDays` is the remaining CNPG hypertable in that family.
+Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored only in StarRocks. Migration `20261019160000` dropped `platform.ocsf_network_activity`, so `ocsfNetworkActivityDays` and `ocsfNetworkActivityChunkIntervalHours` no longer govern a live CNPG hypertable and `defaultDays` does not apply to them. They remain for the older migration that still reads them.
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
@@ -350,7 +350,7 @@ Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored in Star
 | `core.observabilityRetention.otelMetricsDays` | OTel metrics retention | `30` |
 | `core.observabilityRetention.otelMetricPointsDays` | OTel metric point retention | `30` |
 | `core.observabilityRetention.ocsfEventsDays` | OCSF event retention | `14` |
-| `core.observabilityRetention.ocsfNetworkActivityDays` | OCSF network activity retention | `90` |
+| `core.observabilityRetention.ocsfNetworkActivityDays` | Read only by an older migration. The CNPG network activity table no longer exists | `90` |
 | `core.observabilityRetention.rawMetricsDays` | Raw host metric retention (`cpu`, `memory`, `disk`, `process`) | `7` |
 | `core.observabilityRetention.timeseriesMetricsDays` | Raw `timeseries_metrics` retention | `7` |
 | `core.observabilityRetention.capacityForecastsDays` | Capacity forecast retention. Not capped by `defaultDays` | `395` |
@@ -360,7 +360,7 @@ Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored in Star
 | `core.observabilityRetention.otelMetricsChunkIntervalHours` | Chunk interval for new OTel metric chunks | `24` |
 | `core.observabilityRetention.otelMetricPointsChunkIntervalHours` | Chunk interval for new OTel metric point chunks | `6` |
 | `core.observabilityRetention.ocsfEventsChunkIntervalHours` | Chunk interval for new OCSF event chunks | `6` |
-| `core.observabilityRetention.ocsfNetworkActivityChunkIntervalHours` | Chunk interval for new network activity chunks | `24` |
+| `core.observabilityRetention.ocsfNetworkActivityChunkIntervalHours` | Read only by an older migration. The CNPG network activity table no longer exists | `24` |
 | `core.observabilityRetention.rawMetricsChunkIntervalHours` | Chunk interval for new raw host-metric chunks | `24` |
 | `core.observabilityRetention.capacityForecastsChunkIntervalHours` | Chunk interval for new capacity forecast chunks | `24` |
 

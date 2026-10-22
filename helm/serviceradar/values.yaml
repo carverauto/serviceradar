@@ -472,9 +472,9 @@ core:
     #
     # defaultDays is an optional ceiling for raw CNPG telemetry. Leave it unset
     # and each dataset keeps its own window. When set, DataRetentionWorker caps
-    # traces, logs, metrics, events, timeseries, raw host metrics, network
-    # activity, and trace summaries at this many days on its next run. A
-    # per-dataset value may be shorter. Capacity forecasts are not capped.
+    # traces, logs, metrics, events, timeseries, raw host metrics, and trace
+    # summaries at this many days on its next run. A per-dataset value may be
+    # shorter. Capacity forecasts are not capped.
     # Hourly rollups never go below 7 days. StarRocks warehouse TTLs are
     # unchanged.
     # defaultDays: 7

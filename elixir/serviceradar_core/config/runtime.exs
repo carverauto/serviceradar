@@ -646,17 +646,11 @@ if config_env() == :prod do
   ocsf_events_chunk_interval_hours =
     "SERVICERADAR_OCSF_EVENTS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
 
-  ocsf_network_activity_retention_days =
-    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
-
   raw_metrics_retention_days =
     "SERVICERADAR_RAW_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
 
   capacity_forecasts_retention_days =
     "SERVICERADAR_CAPACITY_FORECASTS_RETENTION_DAYS" |> parse_int_env.(395) |> max(1)
-
-  ocsf_network_activity_chunk_interval_hours =
-    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
 
   raw_metrics_chunk_interval_hours =
     "SERVICERADAR_RAW_METRICS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
@@ -1306,7 +1300,6 @@ if config_env() == :prod do
     otel_metrics_retention_days: otel_metrics_retention_days,
     otel_metric_points_retention_days: otel_metric_points_retention_days,
     ocsf_events_retention_days: ocsf_events_retention_days,
-    ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
     raw_metrics_retention_days: raw_metrics_retention_days,
     capacity_forecasts_retention_days: capacity_forecasts_retention_days,
     cnpg_telemetry_default_days: cnpg_telemetry_default_days,
@@ -1319,7 +1312,6 @@ if config_env() == :prod do
     otel_metrics_chunk_interval_hours: otel_metrics_chunk_interval_hours,
     otel_metric_points_chunk_interval_hours: otel_metric_points_chunk_interval_hours,
     ocsf_events_chunk_interval_hours: ocsf_events_chunk_interval_hours,
-    ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
     raw_metrics_chunk_interval_hours: raw_metrics_chunk_interval_hours,
     capacity_forecasts_chunk_interval_hours: capacity_forecasts_chunk_interval_hours,
     sweep_host_result_retention_days:

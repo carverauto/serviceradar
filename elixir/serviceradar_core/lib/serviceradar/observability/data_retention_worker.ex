@@ -28,7 +28,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_ocsf_events_retention_days 14
   @default_capacity_forecasts_retention_days 395
   @default_raw_metrics_retention_days 7
-  @default_ocsf_network_activity_retention_days 90
   @default_timeseries_metrics_retention_days 7
   # Raw timeseries_metrics is the largest table and is only small once
   # compressed, so chunk size and the lag before compression set the disk
@@ -46,7 +45,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_ocsf_events_chunk_interval_hours 6
   @default_capacity_forecasts_chunk_interval_hours 24
   @default_raw_metrics_chunk_interval_hours 24
-  @default_ocsf_network_activity_chunk_interval_hours 24
   # Raw CNPG telemetry a small install can cap with one value. Capacity
   # forecasts stay on their own window: a short telemetry ceiling must not
   # discard the forecast horizon. Hourly rollups are included, then floored
@@ -58,7 +56,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     :otel_metrics_retention_days,
     :otel_metric_points_retention_days,
     :ocsf_events_retention_days,
-    :ocsf_network_activity_retention_days,
     :timeseries_metrics_retention_days,
     :raw_metrics_retention_days,
     :hourly_rollup_retention_days
@@ -76,9 +73,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
      @default_otel_metric_points_chunk_interval_hours},
     {"ocsf_events", :ocsf_events_retention_days, @default_ocsf_events_retention_days,
      :ocsf_events_chunk_interval_hours, @default_ocsf_events_chunk_interval_hours},
-    {"ocsf_network_activity", :ocsf_network_activity_retention_days,
-     @default_ocsf_network_activity_retention_days, :ocsf_network_activity_chunk_interval_hours,
-     @default_ocsf_network_activity_chunk_interval_hours},
     {"capacity_forecasts", :capacity_forecasts_retention_days,
      @default_capacity_forecasts_retention_days, :capacity_forecasts_chunk_interval_hours,
      @default_capacity_forecasts_chunk_interval_hours},
@@ -217,13 +211,13 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   def telemetry_retention_days(config) when is_list(config) do
     tables =
       Map.new(@timescale_tables, fn {table, key, default, _chunk_key, _chunk_default} ->
-        {table, configured_retention_days(config, key, default)}
+        {table, retention_days(config, key, default)}
       end)
 
     Map.put(
       tables,
       "otel_trace_summaries",
-      configured_retention_days(
+      retention_days(
         config,
         :trace_summary_retention_days,
         @default_trace_summary_retention_days
@@ -260,10 +254,15 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     end)
   end
 
-  # Applies `:cnpg_telemetry_default_days` when it is a positive integer and
-  # the key is raw telemetry. Capacity forecasts stay on their own window.
-  @spec configured_retention_days(keyword(), atom(), pos_integer()) :: pos_integer()
-  defp configured_retention_days(config, key, default) when is_list(config) and is_atom(key) do
+  @doc """
+  Retention, in days, for one worker retention key.
+
+  Applies `:cnpg_telemetry_default_days` when it is a positive integer and
+  the key is raw telemetry. Capacity forecasts stay on their own window.
+  The cold tier reads hot retention through this function.
+  """
+  @spec retention_days(keyword(), atom(), pos_integer()) :: pos_integer()
+  def retention_days(config, key, default) when is_list(config) and is_atom(key) do
     configured =
       config
       |> Keyword.get(key, default)
@@ -385,12 +384,11 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       |> positive_integer(@default_timeseries_metrics_compress_after_hours)
 
     retention_days =
-      config
-      |> Keyword.get(
+      retention_days(
+        config,
         :timeseries_metrics_retention_days,
         @default_timeseries_metrics_retention_days
       )
-      |> positive_integer(@default_timeseries_metrics_retention_days)
 
     if compress_after_hours >= retention_days * 24 do
       Logger.warning(
@@ -531,7 +529,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   def cagg_refresh_policy_specs(config \\ []) do
     Enum.map(@cagg_refresh_policies, fn {view, retention_key, retention_default,
                                          default_start_hours, end_offset, schedule_interval} ->
-      retention_days = configured_retention_days(config, retention_key, retention_default)
+      retention_days = retention_days(config, retention_key, retention_default)
 
       start_offset_hours = clamp_cagg_start_offset_hours(default_start_hours, retention_days)
 
@@ -637,7 +635,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @spec hourly_rollup_retention_days(keyword()) :: pos_integer()
   def hourly_rollup_retention_days(config) do
     configured =
-      configured_retention_days(
+      retention_days(
         config,
         :hourly_rollup_retention_days,
         @default_hourly_rollup_retention_days
