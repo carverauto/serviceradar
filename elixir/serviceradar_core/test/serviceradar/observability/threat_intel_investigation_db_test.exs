@@ -118,9 +118,9 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
 
     # Two rows share an evaluation time, so the IP tie-breaker decides the order.
     rows = [
-      {"192.0.2.201", now, 9},
-      {"192.0.2.202", now, nil},
-      {"192.0.2.203", DateTime.shift(now, second: -5), 3}
+      {"192.0.2.250", now, 9},
+      {"192.0.2.251", now, nil},
+      {"192.0.2.252", DateTime.shift(now, second: -5), 3}
     ]
 
     for {ip, at, severity} <- rows do
@@ -138,7 +138,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
     assert {:ok, %{rows: first, next_cursor: cursor}} =
              ThreatIntelInvestigation.list_current_matches(scope, source: source, limit: 2)
 
-    assert Enum.map(first, & &1.observed_ip) == ["192.0.2.201", "192.0.2.202"]
+    assert Enum.map(first, & &1.observed_ip) == ["192.0.2.250", "192.0.2.251"]
     assert is_binary(cursor)
 
     assert {:ok, %{rows: second, next_cursor: nil}} =
@@ -148,7 +148,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
                cursor: cursor
              )
 
-    assert Enum.map(second, & &1.observed_ip) == ["192.0.2.203"]
+    assert Enum.map(second, & &1.observed_ip) == ["192.0.2.252"]
 
     # Severity order puts unknown severity last and pages the same way.
     assert {:ok, %{rows: by_severity, next_cursor: severity_cursor}} =
@@ -158,9 +158,9 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
                limit: 2
              )
 
-    assert Enum.map(by_severity, & &1.observed_ip) == ["192.0.2.201", "192.0.2.203"]
+    assert Enum.map(by_severity, & &1.observed_ip) == ["192.0.2.250", "192.0.2.252"]
 
-    assert {:ok, %{rows: [%{observed_ip: "192.0.2.202"}]}} =
+    assert {:ok, %{rows: [%{observed_ip: "192.0.2.251"}]}} =
              ThreatIntelInvestigation.list_current_matches(scope,
                source: source,
                sort: "severity",
@@ -168,7 +168,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
                cursor: severity_cursor
              )
 
-    assert {:ok, %{rows: [%{observed_ip: "192.0.2.201"}]}} =
+    assert {:ok, %{rows: [%{observed_ip: "192.0.2.250"}]}} =
              ThreatIntelInvestigation.list_current_matches(scope,
                source: source,
                min_severity: "5"

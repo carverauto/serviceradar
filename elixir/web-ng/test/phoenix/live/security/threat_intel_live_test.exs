@@ -46,6 +46,13 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
            )
   end
 
+  test "the first HTTP render paints the requested view", %{conn: conn} do
+    html = conn |> get(~p"/security/threat-intel?#{[view: "inventory"]}") |> html_response(200)
+
+    assert html =~ "Imported indicators"
+    refute html =~ "Current matches"
+  end
+
   test "viewer can open investigation but not settings", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
     conn = log_in_user(conn, user)

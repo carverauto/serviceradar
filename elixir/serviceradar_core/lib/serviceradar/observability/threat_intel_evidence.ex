@@ -211,6 +211,7 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
     with [address, prefix] <- String.split(text, "/", parts: 2),
          {:ok, parsed} <- :inet.parse_address(String.to_charlist(address)),
          {bits, ""} <- Integer.parse(prefix),
+         true <- bits in 0..max_prefix(parsed),
          true <- network_address?(parsed, bits) do
       {:ok, text}
     else
@@ -218,15 +219,19 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
     end
   end
 
+  defp max_prefix(parsed) when tuple_size(parsed) == 4, do: 32
+  defp max_prefix(_parsed), do: 128
+
   defp network_address?(parsed, bits) do
-    {width, total} = if tuple_size(parsed) == 4, do: {8, 32}, else: {16, 128}
+    total = max_prefix(parsed)
+    width = div(total, tuple_size(parsed))
 
     value =
       parsed
       |> Tuple.to_list()
       |> Enum.reduce(0, fn part, acc -> Bitwise.bor(Bitwise.bsl(acc, width), part) end)
 
-    bits >= 0 and bits <= total and Bitwise.band(value, Bitwise.bsl(1, total - bits) - 1) == 0
+    Bitwise.band(value, Bitwise.bsl(1, total - bits) - 1) == 0
   end
 
   defp host_as_cidr({:ok, ip}), do: {:ok, ip}
