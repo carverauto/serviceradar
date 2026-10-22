@@ -734,8 +734,22 @@ spec:
           value: {{ default 3 $observabilityRetention.otelTracesDays | quote }}
         - name: SERVICERADAR_LOGS_RETENTION_DAYS
           value: {{ default 30 $observabilityRetention.logsDays | quote }}
+        - name: SERVICERADAR_OTEL_METRICS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.otelMetricsDays | quote }}
+        - name: SERVICERADAR_OTEL_METRIC_POINTS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.otelMetricPointsDays | quote }}
+        - name: SERVICERADAR_OCSF_EVENTS_RETENTION_DAYS
+          value: {{ default 14 $observabilityRetention.ocsfEventsDays | quote }}
+        - name: SERVICERADAR_RAW_METRICS_RETENTION_DAYS
+          value: {{ default 7 $observabilityRetention.rawMetricsDays | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTS_RETENTION_DAYS
+          value: {{ default 395 $observabilityRetention.capacityForecastsDays | quote }}
         - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS
           value: {{ default 90 $observabilityRetention.ocsfNetworkActivityDays | quote }}
+        {{- if $observabilityRetention.defaultDays }}
+        - name: SERVICERADAR_CNPG_TELEMETRY_DEFAULT_DAYS
+          value: {{ $observabilityRetention.defaultDays | quote }}
+        {{- end }}
         - name: SERVICERADAR_TIMESERIES_METRICS_RETENTION_DAYS
           value: {{ default 7 $observabilityRetention.timeseriesMetricsDays | quote }}
         - name: SERVICERADAR_TIMESERIES_METRICS_COMPRESS_AFTER_HOURS
@@ -750,6 +764,16 @@ spec:
           value: {{ default 24 $observabilityRetention.logsChunkIntervalHours | quote }}
         - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS
           value: {{ default 24 $observabilityRetention.ocsfNetworkActivityChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OTEL_METRICS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.otelMetricsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OTEL_METRIC_POINTS_CHUNK_INTERVAL_HOURS
+          value: {{ default 6 $observabilityRetention.otelMetricPointsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OCSF_EVENTS_CHUNK_INTERVAL_HOURS
+          value: {{ default 6 $observabilityRetention.ocsfEventsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_RAW_METRICS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.rawMetricsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.capacityForecastsChunkIntervalHours | quote }}
         - name: SERVICERADAR_OBSERVABILITY_RETENTION_BATCH_SIZE
           value: {{ default 50000 $observabilityRetention.batchSize | quote }}
         - name: SERVICERADAR_OBSERVABILITY_RETENTION_CRON

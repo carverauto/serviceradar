@@ -17,6 +17,7 @@ defmodule ServiceRadar.ColdTier.Registry do
   """
 
   alias ServiceRadar.ColdTier.Registry.Table
+  alias ServiceRadar.Observability.DataRetentionWorker
 
   @schema "platform"
   @layout_version "v1"
@@ -310,15 +311,14 @@ defmodule ServiceRadar.ColdTier.Registry do
   @doc """
   Hot retention window in days for a registry table.
 
-  Reads the same configuration the retention worker consumes so there is a
-  single retention-window authority.
+  Reads the same configuration, and applies the same telemetry ceiling, as
+  the retention worker so there is a single retention-window authority.
   """
   @spec hot_retention_days(Table.t()) :: pos_integer()
   def hot_retention_days(%Table{} = entry) do
     :serviceradar_core
-    |> Application.get_env(ServiceRadar.Observability.DataRetentionWorker, [])
-    |> Keyword.get(entry.retention_config_key, entry.default_hot_days)
-    |> positive_integer(entry.default_hot_days)
+    |> Application.get_env(DataRetentionWorker, [])
+    |> DataRetentionWorker.retention_days(entry.retention_config_key, entry.default_hot_days)
   end
 
   @doc """
@@ -383,7 +383,4 @@ defmodule ServiceRadar.ColdTier.Registry do
   def layout_version, do: @layout_version
 
   defp quote_ident(name), do: ~s("#{name}")
-
-  defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value
-  defp positive_integer(_value, default), do: default
 end

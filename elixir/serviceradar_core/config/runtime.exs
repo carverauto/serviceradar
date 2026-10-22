@@ -646,6 +646,32 @@ if config_env() == :prod do
   ocsf_events_chunk_interval_hours =
     "SERVICERADAR_OCSF_EVENTS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
 
+  raw_metrics_retention_days =
+    "SERVICERADAR_RAW_METRICS_RETENTION_DAYS" |> parse_int_env.(7) |> max(1)
+
+  capacity_forecasts_retention_days =
+    "SERVICERADAR_CAPACITY_FORECASTS_RETENTION_DAYS" |> parse_int_env.(395) |> max(1)
+
+  raw_metrics_chunk_interval_hours =
+    "SERVICERADAR_RAW_METRICS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
+
+  capacity_forecasts_chunk_interval_hours =
+    "SERVICERADAR_CAPACITY_FORECASTS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
+
+  # Missing, blank, or non-positive means no ceiling. The worker then keeps
+  # each dataset's own window. A positive value caps raw CNPG telemetry.
+  cnpg_telemetry_default_days =
+    case System.get_env("SERVICERADAR_CNPG_TELEMETRY_DEFAULT_DAYS") do
+      value when value in [nil, ""] ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {int, ""} when int > 0 -> int
+          _ -> nil
+        end
+    end
+
   netflow_security_refresh_reschedule_seconds =
     "NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS"
     |> System.get_env()
@@ -1284,6 +1310,9 @@ if config_env() == :prod do
     otel_metrics_retention_days: otel_metrics_retention_days,
     otel_metric_points_retention_days: otel_metric_points_retention_days,
     ocsf_events_retention_days: ocsf_events_retention_days,
+    raw_metrics_retention_days: raw_metrics_retention_days,
+    capacity_forecasts_retention_days: capacity_forecasts_retention_days,
+    cnpg_telemetry_default_days: cnpg_telemetry_default_days,
     timeseries_metrics_retention_days: timeseries_metrics_retention_days,
     timeseries_metrics_compress_after_hours: timeseries_metrics_compress_after_hours,
     timeseries_metrics_chunk_interval_hours: timeseries_metrics_chunk_interval_hours,
@@ -1293,6 +1322,8 @@ if config_env() == :prod do
     otel_metrics_chunk_interval_hours: otel_metrics_chunk_interval_hours,
     otel_metric_points_chunk_interval_hours: otel_metric_points_chunk_interval_hours,
     ocsf_events_chunk_interval_hours: ocsf_events_chunk_interval_hours,
+    raw_metrics_chunk_interval_hours: raw_metrics_chunk_interval_hours,
+    capacity_forecasts_chunk_interval_hours: capacity_forecasts_chunk_interval_hours,
     sweep_host_result_retention_days:
       "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
     sweep_execution_retention_days:

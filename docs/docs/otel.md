@@ -422,7 +422,8 @@ and the `/api/v2` JSON:API indexes read them from there, retained by the `otel`
 Data retention, seeded from `STARROCKS_RETENTION_DAYS_OTEL` and
 `STARROCKS_RETENTION_DAYS_TRACES` (see `README-Docker.md`), instead
 of the defaults below. Retention for tables that stay on CNPG is enforced by the daily
-`DataRetentionWorker` (03:17); defaults below are per-deployment configurable.
+`DataRetentionWorker` (03:17); defaults below are per-deployment configurable through
+`core.observabilityRetention` (see "CNPG telemetry retention" in the Helm chart README).
 
 | Table | Contents | Default retention |
 |---|---|---|

@@ -45,6 +45,51 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_ocsf_events_chunk_interval_hours 6
   @default_capacity_forecasts_chunk_interval_hours 24
   @default_raw_metrics_chunk_interval_hours 24
+  # Raw CNPG telemetry a small install can cap with one value. Capacity
+  # forecasts stay on their own window: a short telemetry ceiling must not
+  # discard the forecast horizon. Hourly rollups are included, then floored
+  # at the refresh window below.
+  @cnpg_telemetry_ceiling_keys [
+    :trace_summary_retention_days,
+    :otel_traces_retention_days,
+    :logs_retention_days,
+    :otel_metrics_retention_days,
+    :otel_metric_points_retention_days,
+    :ocsf_events_retention_days,
+    :timeseries_metrics_retention_days,
+    :raw_metrics_retention_days,
+    :hourly_rollup_retention_days
+  ]
+  # {table, retention_key, retention_default, chunk_key, chunk_default}
+  @timescale_tables [
+    {"otel_traces", :otel_traces_retention_days, @default_otel_traces_retention_days,
+     :otel_traces_chunk_interval_hours, @default_otel_traces_chunk_interval_hours},
+    {"logs", :logs_retention_days, @default_logs_retention_days, :logs_chunk_interval_hours,
+     @default_logs_chunk_interval_hours},
+    {"otel_metrics", :otel_metrics_retention_days, @default_otel_metrics_retention_days,
+     :otel_metrics_chunk_interval_hours, @default_otel_metrics_chunk_interval_hours},
+    {"otel_metric_points", :otel_metric_points_retention_days,
+     @default_otel_metric_points_retention_days, :otel_metric_points_chunk_interval_hours,
+     @default_otel_metric_points_chunk_interval_hours},
+    {"ocsf_events", :ocsf_events_retention_days, @default_ocsf_events_retention_days,
+     :ocsf_events_chunk_interval_hours, @default_ocsf_events_chunk_interval_hours},
+    {"capacity_forecasts", :capacity_forecasts_retention_days,
+     @default_capacity_forecasts_retention_days, :capacity_forecasts_chunk_interval_hours,
+     @default_capacity_forecasts_chunk_interval_hours},
+    {"timeseries_metrics", :timeseries_metrics_retention_days,
+     @default_timeseries_metrics_retention_days, :timeseries_metrics_chunk_interval_hours,
+     @default_timeseries_metrics_chunk_interval_hours},
+    {"cpu_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+    {"cpu_cluster_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+    {"disk_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+    {"memory_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
+    {"process_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
+     :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours}
+  ]
   @default_trace_summary_retention_days 3
   @default_sweep_host_result_retention_days 7
   @default_sweep_execution_retention_days 30
@@ -155,6 +200,32 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   end
 
   @doc """
+  Retention, in days, that the next reconciliation applies to each raw
+  telemetry hypertable and to `otel_trace_summaries`.
+
+  `:cnpg_telemetry_default_days`, when a positive integer, is a ceiling on
+  raw telemetry. A per-table value may be shorter. Capacity forecasts are
+  not capped by that ceiling.
+  """
+  @spec telemetry_retention_days(keyword()) :: %{String.t() => pos_integer()}
+  def telemetry_retention_days(config) when is_list(config) do
+    tables =
+      Map.new(@timescale_tables, fn {table, key, default, _chunk_key, _chunk_default} ->
+        {table, retention_days(config, key, default)}
+      end)
+
+    Map.put(
+      tables,
+      "otel_trace_summaries",
+      retention_days(
+        config,
+        :trace_summary_retention_days,
+        @default_trace_summary_retention_days
+      )
+    )
+  end
+
+  @doc """
   Reconcile retention and chunk interval for the raw telemetry hypertables.
 
   `timeseries_metrics` takes its chunk interval from
@@ -165,55 +236,45 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @spec reconcile_timescale_tables(keyword()) :: :ok
   def reconcile_timescale_tables(config) do
     reconcile_cagg_refresh_windows(config)
+    applied = telemetry_retention_days(config)
 
-    Enum.each(
-      [
-        {"otel_traces", :otel_traces_retention_days, @default_otel_traces_retention_days,
-         :otel_traces_chunk_interval_hours, @default_otel_traces_chunk_interval_hours},
-        {"logs", :logs_retention_days, @default_logs_retention_days, :logs_chunk_interval_hours,
-         @default_logs_chunk_interval_hours},
-        {"otel_metrics", :otel_metrics_retention_days, @default_otel_metrics_retention_days,
-         :otel_metrics_chunk_interval_hours, @default_otel_metrics_chunk_interval_hours},
-        {"otel_metric_points", :otel_metric_points_retention_days,
-         @default_otel_metric_points_retention_days, :otel_metric_points_chunk_interval_hours,
-         @default_otel_metric_points_chunk_interval_hours},
-        {"ocsf_events", :ocsf_events_retention_days, @default_ocsf_events_retention_days,
-         :ocsf_events_chunk_interval_hours, @default_ocsf_events_chunk_interval_hours},
-        {"capacity_forecasts", :capacity_forecasts_retention_days,
-         @default_capacity_forecasts_retention_days, :capacity_forecasts_chunk_interval_hours,
-         @default_capacity_forecasts_chunk_interval_hours},
-        {"timeseries_metrics", :timeseries_metrics_retention_days,
-         @default_timeseries_metrics_retention_days, :timeseries_metrics_chunk_interval_hours,
-         @default_timeseries_metrics_chunk_interval_hours},
-        {"cpu_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
-         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
-        {"cpu_cluster_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
-         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
-        {"disk_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
-         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
-        {"memory_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
-         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours},
-        {"process_metrics", :raw_metrics_retention_days, @default_raw_metrics_retention_days,
-         :raw_metrics_chunk_interval_hours, @default_raw_metrics_chunk_interval_hours}
-      ],
-      fn {table_name, retention_key, retention_default, chunk_key, chunk_default} ->
-        retention_days =
-          config
-          |> Keyword.get(retention_key, retention_default)
-          |> positive_integer(retention_default)
+    Enum.each(@timescale_tables, fn {table_name, _key, _default, chunk_key, chunk_default} ->
+      retention_days = Map.fetch!(applied, table_name)
 
-        chunk_hours =
-          config |> Keyword.get(chunk_key, chunk_default) |> positive_integer(chunk_default)
+      chunk_hours =
+        config |> Keyword.get(chunk_key, chunk_default) |> positive_integer(chunk_default)
 
-        # All in-DB policy DDL goes through the cold-tier fence: unfenced
-        # tables keep today's remove+add behavior; fenced (offloaded) tables
-        # get their in-DB policy removed so only the gated drop below can
-        # ever discard data.
-        RetentionFence.reconcile_policy(table_name, retention_days)
-        set_chunk_interval(table_name, chunk_hours)
-        drop_expired_chunks(table_name, retention_days)
-      end
-    )
+      # All in-DB policy DDL goes through the cold-tier fence: unfenced
+      # tables keep today's remove+add behavior; fenced (offloaded) tables
+      # get their in-DB policy removed so only the gated drop below can
+      # ever discard data.
+      RetentionFence.reconcile_policy(table_name, retention_days)
+      set_chunk_interval(table_name, chunk_hours)
+      drop_expired_chunks(table_name, retention_days)
+    end)
+  end
+
+  @doc """
+  Retention, in days, for one worker retention key.
+
+  Applies `:cnpg_telemetry_default_days` when it is a positive integer and
+  the key is raw telemetry. Capacity forecasts stay on their own window.
+  The cold tier reads hot retention through this function.
+  """
+  @spec retention_days(keyword(), atom(), pos_integer()) :: pos_integer()
+  def retention_days(config, key, default) when is_list(config) and is_atom(key) do
+    configured =
+      config
+      |> Keyword.get(key, default)
+      |> positive_integer(default)
+
+    ceiling = Keyword.get(config, :cnpg_telemetry_default_days)
+
+    if key in @cnpg_telemetry_ceiling_keys and is_integer(ceiling) and ceiling > 0 do
+      min(configured, ceiling)
+    else
+      configured
+    end
   end
 
   defp alert_on_undrained_cold_tier do
@@ -323,12 +384,11 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       |> positive_integer(@default_timeseries_metrics_compress_after_hours)
 
     retention_days =
-      config
-      |> Keyword.get(
+      retention_days(
+        config,
         :timeseries_metrics_retention_days,
         @default_timeseries_metrics_retention_days
       )
-      |> positive_integer(@default_timeseries_metrics_retention_days)
 
     if compress_after_hours >= retention_days * 24 do
       Logger.warning(
@@ -469,10 +529,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   def cagg_refresh_policy_specs(config \\ []) do
     Enum.map(@cagg_refresh_policies, fn {view, retention_key, retention_default,
                                          default_start_hours, end_offset, schedule_interval} ->
-      retention_days =
-        config
-        |> Keyword.get(retention_key, retention_default)
-        |> positive_integer(retention_default)
+      retention_days = retention_days(config, retention_key, retention_default)
 
       start_offset_hours = clamp_cagg_start_offset_hours(default_start_hours, retention_days)
 
@@ -570,11 +627,19 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     """
   end
 
-  defp hourly_rollup_retention_days(config) do
+  @doc """
+  Hourly rollup retention after the telemetry ceiling and the refresh-window
+  floor. The floor stays at #{@min_hourly_rollup_retention_days} days so a
+  short ceiling cannot make the refresh recompute dropped raw buckets.
+  """
+  @spec hourly_rollup_retention_days(keyword()) :: pos_integer()
+  def hourly_rollup_retention_days(config) do
     configured =
-      config
-      |> Keyword.get(:hourly_rollup_retention_days, @default_hourly_rollup_retention_days)
-      |> positive_integer(@default_hourly_rollup_retention_days)
+      retention_days(
+        config,
+        :hourly_rollup_retention_days,
+        @default_hourly_rollup_retention_days
+      )
 
     if configured < @min_hourly_rollup_retention_days do
       Logger.warning("Hourly rollup retention is below the rollup refresh window; clamping",
@@ -844,7 +909,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
   defp prune_trace_summaries(config, batch_size) do
     retention_days =
-      Keyword.get(config, :trace_summary_retention_days, @default_trace_summary_retention_days)
+      Map.fetch!(telemetry_retention_days(config), "otel_trace_summaries")
 
     prune_by_timestamp(
       "otel_trace_summaries",

@@ -107,6 +107,37 @@ defmodule ServiceRadar.ColdTier.RegistryTest do
     end
   end
 
+  test "hot_retention_days applies the CNPG telemetry ceiling the worker applies" do
+    events = Registry.fetch!("ocsf_events")
+    original = Application.get_env(:serviceradar_core, DataRetentionWorker)
+
+    try do
+      Application.put_env(:serviceradar_core, DataRetentionWorker,
+        ocsf_events_retention_days: 14,
+        cnpg_telemetry_default_days: 7
+      )
+
+      assert Registry.hot_retention_days(events) == 7
+
+      Application.put_env(:serviceradar_core, DataRetentionWorker,
+        ocsf_events_retention_days: 5,
+        cnpg_telemetry_default_days: 7
+      )
+
+      assert Registry.hot_retention_days(events) == 5
+
+      Application.put_env(:serviceradar_core, DataRetentionWorker, ocsf_events_retention_days: 14)
+
+      assert Registry.hot_retention_days(events) == 14
+    after
+      if original do
+        Application.put_env(:serviceradar_core, DataRetentionWorker, original)
+      else
+        Application.delete_env(:serviceradar_core, DataRetentionWorker)
+      end
+    end
+  end
+
   test "cold tier is disabled without deployment configuration" do
     original = Application.get_env(:serviceradar_core, ServiceRadar.ColdTier)
 
