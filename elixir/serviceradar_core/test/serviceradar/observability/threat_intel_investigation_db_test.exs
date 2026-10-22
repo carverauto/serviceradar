@@ -255,7 +255,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
 
     assert contained.indicator =~ "198.51.100.128"
 
-    assert {:error, :invalid_ip} =
+    assert {:error, :invalid_cidr} =
              ThreatIntelEvidence.page_indicators(scope, source: source, indicator: "not-an-ip")
 
     assert {:ok, %{rows: []}} = ThreatIntelEvidence.page_retrohunt_findings(scope, source: source)
