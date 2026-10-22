@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       |> SRQLPage.sync_from_params(params, uri, @list_opts)
 
     if connected?(socket) do
-      {:noreply, start_load(socket)}
+      {:noreply, socket |> assign(:tab_loading, true) |> start_load()}
     else
       {:noreply, socket}
     end
