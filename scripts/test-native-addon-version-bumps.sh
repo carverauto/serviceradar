@@ -154,4 +154,37 @@ expect_failure \
   "bumblebee native add-on payload changed but addons/bumblebee-scan/addon.yaml stayed at 0.1.0" \
   scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
 
+# A git failure reading the base manifest (for example, a failed promisor fetch
+# in a blobless clone or a corrupt object) must fail closed rather than treating
+# the existing add-on as newly added.
+real_git="$(command -v git)"
+mkdir -p "${fixture}/git-shim"
+cat >"${fixture}/git-shim/git" <<EOF
+#!/usr/bin/env bash
+if [[ "\${1:-}" == "show" && "\${2:-}" == "${base_commit}:"* ]]; then
+  echo "fatal: simulated git show failure for \${2}" >&2
+  exit 128
+fi
+exec "${real_git}" "\$@"
+EOF
+chmod +x "${fixture}/git-shim/git"
+expect_failure \
+  "failed to read ${base_commit}:addons/bumblebee-scan/addon.yaml" \
+  env PATH="${fixture}/git-shim:${PATH}" \
+  scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
+
+printf 'package bumblebee\n' >go/pkg/bumblebee/runner.go
+git add go/pkg/bumblebee/runner.go
+git commit -qm "restore bumblebee scanner payload"
+scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
+
+# A genuinely new add-on whose manifest does not exist at base_commit must still
+# pass when introduced with a valid manifest version at HEAD.
+mkdir -p addons/workload-identity rust/workload-identity/src
+printf 'version: 0.1.0\n' >addons/workload-identity/addon.yaml
+printf 'fn main() {}\n' >rust/workload-identity/src/main.rs
+git add addons/workload-identity/addon.yaml rust/workload-identity/src/main.rs
+git commit -qm "introduce workload-identity add-on"
+scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD >/dev/null
+
 echo "native add-on version gate tests passed"

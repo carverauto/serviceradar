@@ -41,22 +41,54 @@ EOF
   exit 1
 fi
 
+git_show_optional() {
+  local ref="$1" path="$2" err output
+  if ! err="$(git cat-file -e "${ref}:${path}" 2>&1)"; then
+    case "${err}" in
+      *"does not exist in"*|*"but not in"*|*"Not a valid object name"*)
+        return 0
+        ;;
+      *)
+        echo "error: failed to inspect ${ref}:${path}: ${err:-git cat-file -e exited non-zero}" >&2
+        return 1
+        ;;
+    esac
+  fi
+
+  if ! output="$(git show "${ref}:${path}" 2>&1)"; then
+    echo "error: failed to read ${ref}:${path}: ${output:-git show exited non-zero}" >&2
+    return 1
+  fi
+
+  printf '%s\n' "${output}"
+}
+
 version_from_yaml() {
-  local ref="$1" path="$2"
-  git show "${ref}:${path}" 2>/dev/null |
-    awk -F: '/^[[:space:]]*version[[:space:]]*:/ {
+  local ref="$1" path="$2" content
+  if ! content="$(git_show_optional "${ref}" "${path}")"; then
+    return 1
+  fi
+  if [[ -z "${content}" ]]; then
+    return 0
+  fi
+  awk -F: '/^[[:space:]]*version[[:space:]]*:/ {
       value=$2
       gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
       gsub(/^["'\'']|["'\'']$/, "", value)
       print value
       exit
-    }'
+    }' <<<"${content}"
 }
 
 version_from_toml() {
-  local ref="$1" path="$2"
-  git show "${ref}:${path}" 2>/dev/null |
-    awk -F= '
+  local ref="$1" path="$2" content
+  if ! content="$(git_show_optional "${ref}" "${path}")"; then
+    return 1
+  fi
+  if [[ -z "${content}" ]]; then
+    return 0
+  fi
+  awk -F= '
       /^[[:space:]]*\[package\][[:space:]]*$/ { in_package=1; next }
       /^[[:space:]]*\[/ && in_package { exit }
       in_package && /^[[:space:]]*version[[:space:]]*=/ {
@@ -66,13 +98,18 @@ version_from_toml() {
         print value
         exit
       }
-    '
+    ' <<<"${content}"
 }
 
 version_from_bazel_constant() {
-  local ref="$1" path="$2" constant="$3"
-  git show "${ref}:${path}" 2>/dev/null |
-    awk -F= -v constant="${constant}" '
+  local ref="$1" path="$2" constant="$3" content
+  if ! content="$(git_show_optional "${ref}" "${path}")"; then
+    return 1
+  fi
+  if [[ -z "${content}" ]]; then
+    return 0
+  fi
+  awk -F= -v constant="${constant}" '
       $1 ~ "^[[:space:]]*" constant "[[:space:]]*$" {
         value=$2
         gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
@@ -80,7 +117,7 @@ version_from_bazel_constant() {
         print value
         exit
       }
-    '
+    ' <<<"${content}"
 }
 
 addon_ids() {
@@ -243,22 +280,19 @@ path_is_test_only() {
 }
 
 inventory_stanza() {
-  local ref="$1" addon="$2"
-  python3 - "${ref}" "${addon}" <<'PY'
-import subprocess
+  local ref="$1" addon="$2" inventory_data
+  if ! inventory_data="$(git_show_optional "${ref}" "build/native_addons/addon_inventory.bzl")"; then
+    return 1
+  fi
+  if [[ -z "${inventory_data}" ]]; then
+    return 0
+  fi
+  INVENTORY_DATA="${inventory_data}" python3 - "${addon}" <<'PY'
+import os
 import sys
 
-ref, addon = sys.argv[1:3]
-try:
-    data = subprocess.check_output(
-        ["git", "show", f"{ref}:build/native_addons/addon_inventory.bzl"],
-        stderr=subprocess.DEVNULL,
-        text=True,
-    )
-except subprocess.CalledProcessError:
-    sys.exit(0)
-
-lines = data.splitlines()
+addon = sys.argv[1]
+lines = os.environ["INVENTORY_DATA"].splitlines()
 needle = f'"addon_id": "{addon}"'
 line_index = next((i for i, line in enumerate(lines) if needle in line), None)
 if line_index is None:
@@ -281,8 +315,10 @@ PY
 }
 
 inventory_stanza_changed() {
-  local addon="$1"
-  [[ "$(inventory_stanza "${BASE_REF}" "${addon}")" != "$(inventory_stanza "${HEAD_REF}" "${addon}")" ]]
+  local addon="$1" base_stanza head_stanza
+  base_stanza="$(inventory_stanza "${BASE_REF}" "${addon}")" || exit 1
+  head_stanza="$(inventory_stanza "${HEAD_REF}" "${addon}")" || exit 1
+  [[ "${base_stanza}" != "${head_stanza}" ]]
 }
 
 # True when the addon_inventory.bzl diff introduces new or modified bundle
@@ -306,9 +342,9 @@ inventory_adds_content() {
 
 version_changed() {
   local addon="$1" manifest old_version new_version
-  manifest="$(manifest_path "${addon}")"
-  old_version="$(version_from_yaml "${BASE_REF}" "${manifest}" || true)"
-  new_version="$(version_from_yaml "${HEAD_REF}" "${manifest}" || true)"
+  manifest="$(manifest_path "${addon}")" || exit 1
+  old_version="$(version_from_yaml "${BASE_REF}" "${manifest}")" || exit 1
+  new_version="$(version_from_yaml "${HEAD_REF}" "${manifest}")" || exit 1
 
   [[ -n "${new_version}" && "${old_version}" != "${new_version}" ]]
 }
@@ -399,8 +435,8 @@ while IFS= read -r addon; do
   [[ -n "${addon}" ]] || continue
 
   manifest="$(manifest_path "${addon}")"
-  old_version="$(version_from_yaml "${BASE_REF}" "${manifest}" || true)"
-  new_version="$(version_from_yaml "${HEAD_REF}" "${manifest}" || true)"
+  old_version="$(version_from_yaml "${BASE_REF}" "${manifest}")"
+  new_version="$(version_from_yaml "${HEAD_REF}" "${manifest}")"
 
   if [[ -z "${new_version}" ]]; then
     echo "error: ${manifest} has no version at ${HEAD_REF}" >&2
@@ -443,12 +479,12 @@ while IFS= read -r addon; do
   [[ -n "${addon}" ]] || continue
 
   manifest="$(manifest_path "${addon}")"
-  addon_version="$(version_from_yaml "${HEAD_REF}" "${manifest}" || true)"
+  addon_version="$(version_from_yaml "${HEAD_REF}" "${manifest}")"
 
   bazel_path="$(bazel_version_path "${addon}" 2>/dev/null || true)"
   if [[ -n "${bazel_path}" ]]; then
     bazel_constant="$(bazel_version_constant "${addon}")"
-    bazel_version="$(version_from_bazel_constant "${HEAD_REF}" "${bazel_path}" "${bazel_constant}" || true)"
+    bazel_version="$(version_from_bazel_constant "${HEAD_REF}" "${bazel_path}" "${bazel_constant}")"
 
     if [[ -z "${addon_version}" || -z "${bazel_version}" ]]; then
       echo "error: unable to read ${addon} Bazel version source" >&2
