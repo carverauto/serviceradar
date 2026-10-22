@@ -144,6 +144,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
       live(conn, ~p"/security/threat-intel?#{[view: "indicator_matches", source: source]}")
 
     assert has_element?(memberships, ~s([data-testid="threat-intel-membership"]), ip)
+    assert has_element?(memberships, "time#threat-intel-membership-0-evaluated[datetime]")
 
     {:ok, objects, _html} = live(conn, ~p"/security/threat-intel?#{[view: "objects", source: source]}")
     assert has_element?(objects, ~s([data-testid="threat-intel-empty"]))
