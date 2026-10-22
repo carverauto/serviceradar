@@ -38,6 +38,13 @@ indicator CIDRs. Expired cache or indicator rows are excluded unless you ask
 for `stale:true`. Provider pulse context is omitted unless an unambiguous
 source-object relationship exists.
 
+The Attributed Flows page marks each flow row with its current IOC matches
+(source and destination combined into one summary per flow) and links matched
+endpoints to `/security/threat-intel`. **IOC unknown** means the cache lookup
+failed, not that the flow is clean. On Attributed Flows and the NetFlow
+explorer, the **IOC matches** button adds or removes `threat_matched:true` in
+the query.
+
 Interactive threat-aware flow queries require a bounded time window and
 default to `last_24h`. Longer searches belong on the retrohunt job, not a
 synchronous browser query.

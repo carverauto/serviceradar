@@ -5,8 +5,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   import ServiceRadarWebNGWeb.MetricWindowComponents, only: [metric_window_controls: 1]
 
   alias ServiceRadar.Observability.IpRdnsCache
+  alias ServiceRadar.Observability.ThreatIntelInvestigation
   alias ServiceRadarWebNGWeb.MetricWindowComponents
   alias ServiceRadarWebNGWeb.NetFlow.EnrichmentExpiry
+  alias ServiceRadarWebNGWeb.Observability.ThreatIntelLinks
   alias ServiceRadarWebNGWeb.SRQL.Builder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -26,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       |> assign(:page_title, "Attributed Flows")
       |> assign(:current_path, "/observability/flows/attributed")
       |> assign(:time_window, "last_24h")
+      |> assign(:ioc_only?, false)
       |> assign(:filter, @default_filter)
       |> assign(:page, 1)
       |> assign(:page_size, @default_page_size)
@@ -100,6 +103,11 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   def handle_event("set_filter", %{"filter" => filter}, socket) do
     {:noreply, push_patch(socket, to: attributed_patch_path(socket, filter, 1))}
+  end
+
+  def handle_event("toggle_ioc_only", _params, socket) do
+    query = ThreatIntelLinks.toggle_threat_matched(socket.assigns.srql.query)
+    {:noreply, push_patch(socket, to: patch_path(socket.assigns.filter, 1, socket.assigns.page_size, query))}
   end
 
   def handle_event("attributed_set_range", %{"range" => range}, socket) do
@@ -217,7 +225,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   defp load_flows_data(srql_module, scope, query, page, page_size, filter, time) do
-    summary = fetch_summary(srql_module, scope, time)
+    summary = fetch_summary(srql_module, scope, time, ThreatIntelLinks.threat_matched?(query))
     total_for_filter = summary_count(summary, filter)
     page_count = page_count(total_for_filter, page_size)
     # Clamp only against a trustworthy count. With zero known rows (empty or
@@ -230,6 +238,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       srql_module
       |> fetch_flows(scope, query, page, page_size)
       |> enrich_rows_with_rdns(scope)
+      |> enrich_rows_with_threat(scope)
 
     %{
       summary: summary,
@@ -257,16 +266,22 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     socket
     |> assign(:srql, srql)
     |> assign(:time_window, time_from_query(query))
+    |> assign(:ioc_only?, ThreatIntelLinks.threat_matched?(query))
   end
 
-  @doc "The summary cards' query: flow count and bytes per attribution status over `time`."
-  @spec summary_query(String.t()) :: String.t()
-  def summary_query(time) do
-    ~s|in:attributed_flows time:#{time} stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
+  @doc """
+  The summary cards' query: flow count and bytes per attribution status over
+  `time`, narrowed to flows with a current IOC match when `ioc_only?`.
+  """
+  @spec summary_query(String.t(), boolean()) :: String.t()
+  def summary_query(time, ioc_only? \\ false) do
+    threat = if ioc_only?, do: " threat_matched:true", else: ""
+
+    ~s|in:attributed_flows time:#{time}#{threat} stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
   end
 
-  defp fetch_summary(srql_module, scope, time) do
-    case srql_module.query(summary_query(time), %{scope: scope}) do
+  defp fetch_summary(srql_module, scope, time, ioc_only?) do
+    case srql_module.query(summary_query(time, ioc_only?), %{scope: scope}) do
       {:ok, %{"results" => rows}} when is_list(rows) ->
         summarize_stat_rows(rows)
 
@@ -369,6 +384,25 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           destination_hostname: Map.get(rdns_map, row.destination)
       }
     end)
+  end
+
+  # One batched current-match lookup for the page's distinct endpoints. A failed
+  # lookup marks the rows unavailable rather than claiming "No IOC".
+  defp enrich_rows_with_threat([], _scope), do: []
+
+  defp enrich_rows_with_threat(rows, scope) do
+    ips = Enum.flat_map(rows, &[&1.source, &1.destination])
+
+    case ThreatIntelInvestigation.endpoint_summaries(scope, ips) do
+      {:ok, summaries} ->
+        Enum.map(rows, fn row ->
+          %{row | threat: ThreatIntelInvestigation.flow_summary(summaries, row.source, row.destination)}
+        end)
+
+      {:error, reason} ->
+        Logger.warning("Attributed flow threat-intel lookup failed: #{inspect(reason)}")
+        Enum.map(rows, &%{&1 | threat: :unavailable})
+    end
   end
 
   defp rdns_map_for_ips([], _scope), do: %{}
@@ -542,8 +576,15 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp attributed_patch_path(socket, filter, page) do
     page_size = socket.assigns.page_size
-    time = time_from_query(socket.assigns.srql.query)
-    patch_path(filter, page, page_size, query_for_filter(filter, page_size, time))
+    current = socket.assigns.srql.query
+    query = query_for_filter(filter, page_size, time_from_query(current))
+
+    query =
+      if ThreatIntelLinks.threat_matched?(current),
+        do: ThreatIntelLinks.toggle_threat_matched(query),
+        else: query
+
+    patch_path(filter, page, page_size, query)
   end
 
   defp patch_attributed_window(socket, range) do
@@ -694,6 +735,17 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                   event="attributed_set_range"
                   custom_event="attributed_custom_range"
                 />
+                <.ui_button
+                  id="attributed-ioc-filter"
+                  type="button"
+                  variant={if @ioc_only?, do: "primary", else: "ghost"}
+                  size="sm"
+                  phx-click="toggle_ioc_only"
+                  aria-pressed={to_string(@ioc_only?)}
+                  title="Show only flows with a current threat-intel (IOC) match"
+                >
+                  <.icon name="hero-shield-exclamation" class="size-4" /> IOC matches
+                </.ui_button>
                 <.ui_button
                   type="button"
                   variant={if @live?, do: "primary", else: "ghost"}
@@ -937,9 +989,15 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     """
   end
 
+  defp threat_badge(%{threat: :unavailable} = assigns) do
+    ~H"""
+    <.ui_badge variant="warning" size="xs" title="Threat-intel lookup failed">IOC unknown</.ui_badge>
+    """
+  end
+
   defp threat_badge(assigns) do
     ~H"""
-    <.ui_badge variant="error" size="xs">
+    <.ui_badge variant="error" size="xs" title={threat_label(@threat)}>
       IOC {display(@threat.match_count)}
     </.ui_badge>
     """
@@ -1020,8 +1078,20 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <.detail_item
             label="Threat Intel"
             value={threat_label(@flow.threat)}
-            subvalue={threat_sources(@flow.threat)}
+            subvalue={threat_detail(@flow.threat)}
           />
+        </div>
+
+        <div :if={is_map(@flow.threat)} class="mt-3 flex flex-wrap gap-2">
+          <.ui_button
+            :for={{side, ip} <- threat_endpoints(@flow)}
+            id={"attributed-flow-investigate-#{side}"}
+            href={ThreatIntelLinks.investigation_path(ip: ip)}
+            variant="ghost"
+            size="xs"
+          >
+            <.icon name="hero-shield-exclamation" class="size-4" /> Investigate {side} {ip}
+          </.ui_button>
         </div>
 
         <div class="sr-ui-modal-action">
@@ -1146,6 +1216,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp uid_label(uid), do: "UID #{uid}"
 
   defp threat_label(nil), do: "No IOC match"
+  defp threat_label(:unavailable), do: "Threat-intel lookup unavailable"
 
   defp threat_label(%{match_count: count, max_severity: severity}) do
     severity_label =
@@ -1154,12 +1225,26 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         value -> "severity #{value}"
       end
 
-    "#{count} #{pluralize(count, "match", "matches")}, #{severity_label}"
+    "#{count} indicator #{pluralize(count, "match", "matches")}, #{severity_label}"
   end
 
-  defp threat_sources(nil), do: nil
-  defp threat_sources(%{sources: []}), do: nil
-  defp threat_sources(%{sources: sources}), do: Enum.join(sources, ", ")
+  defp threat_detail(%{source: source, destination: destination, sources: sources}) do
+    sides =
+      [source && "source", destination && "destination"]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(" and ")
+
+    Enum.join(Enum.reject(["Matched on #{sides}", Enum.join(sources, ", ")], &(&1 == "")), " · ")
+  end
+
+  defp threat_detail(_threat), do: nil
+
+  defp threat_endpoints(%{threat: %{source: source, destination: destination}} = flow) do
+    Enum.reject(
+      [source && {"source", flow.source}, destination && {"destination", flow.destination}],
+      &is_nil/1
+    )
+  end
 
   defp protocol_name(protocol, _num) when is_binary(protocol) and protocol != "", do: String.upcase(protocol)
   defp protocol_name(_protocol, 1), do: "ICMP"

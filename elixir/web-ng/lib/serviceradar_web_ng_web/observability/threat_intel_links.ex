@@ -34,6 +34,33 @@ defmodule ServiceRadarWebNGWeb.Observability.ThreatIntelLinks do
     ~s(#{entity} threat_observed_ip:"#{escape_srql_value(ip)}" time:last_24h sort:time:desc)
   end
 
+  @doc """
+  True when an SRQL flow query is narrowed to flows with a current IOC match.
+  """
+  @spec threat_matched?(term()) :: boolean()
+  def threat_matched?(query) when is_binary(query) do
+    Regex.match?(~r/(?:^|\s)threat_matched:"?(?:true|t|yes|1)"?(?=\s|$)/i, query)
+  end
+
+  def threat_matched?(_query), do: false
+
+  @doc """
+  Adds `threat_matched:true` to an SRQL flow query, or removes every
+  `threat_matched` token when the query is already narrowed to IOC matches.
+  """
+  @spec toggle_threat_matched(term()) :: String.t()
+  def toggle_threat_matched(query) do
+    query = to_string(query || "")
+
+    stripped =
+      ~r/(?:^|\s)threat_matched:(?:"[^"]*"|\S+)/i
+      |> Regex.replace(query, "")
+      |> String.replace(~r/\s+/, " ")
+      |> String.trim()
+
+    if threat_matched?(query), do: stripped, else: String.trim(stripped <> " threat_matched:true")
+  end
+
   @spec investigation_path(keyword()) :: String.t()
   def investigation_path(params \\ []) do
     query =

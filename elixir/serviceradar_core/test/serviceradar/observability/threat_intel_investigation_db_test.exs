@@ -72,6 +72,43 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
     assert stale.stale
   end
 
+  test "endpoint summaries return live matched endpoints only", %{actor: actor} do
+    source = unique_source("summary")
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    scope = %{actor: actor}
+    {live_ip, _} = unique_host()
+    expired_ip = "198.51.100.#{rem(System.unique_integer([:positive]), 200) + 20}"
+    unmatched_ip = "203.0.113.#{rem(System.unique_integer([:positive]), 200) + 20}"
+
+    for {ip, matched, expires_at} <- [
+          {live_ip, true, DateTime.shift(now, hour: 1)},
+          {expired_ip, true, DateTime.shift(now, minute: -1)},
+          {unmatched_ip, false, DateTime.shift(now, hour: 1)}
+        ] do
+      insert_cache!(actor, %{
+        ip: ip,
+        matched: matched,
+        match_count: if(matched, do: 2, else: 0),
+        max_severity: 5,
+        sources: [source],
+        looked_up_at: now,
+        expires_at: expires_at
+      })
+    end
+
+    assert {:ok, summaries} =
+             ThreatIntelInvestigation.endpoint_summaries(scope, [
+               live_ip,
+               expired_ip,
+               unmatched_ip,
+               live_ip,
+               "not-an-ip"
+             ])
+
+    assert Map.keys(summaries) == [live_ip]
+    assert %{match_count: 2, max_severity: 5, sources: [^source]} = summaries[live_ip]
+  end
+
   defp insert_indicator!(actor, attrs) do
     ThreatIntelIndicator
     |> Ash.Changeset.for_create(:upsert, Map.put_new(attrs, :indicator_type, "cidr"))
