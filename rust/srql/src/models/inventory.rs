@@ -38,6 +38,8 @@ pub struct AgentRow {
     pub status: String,
     pub superseded_by: Option<String>,
     pub superseded_at: Option<DateTime<Utc>>,
+    pub display_name: Option<String>,
+    pub description: Option<String>,
 }
 
 impl AgentRow {
@@ -72,6 +74,8 @@ impl AgentRow {
             "status": self.status,
             "superseded_by": self.superseded_by,
             "superseded_at": self.superseded_at,
+            "display_name": self.display_name,
+            "description": self.description,
         })
     }
 }

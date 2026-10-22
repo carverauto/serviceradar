@@ -6,12 +6,15 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
   - Agent registration and CRUD
   - State machine transitions (connecting → connected → degraded → disconnected → unavailable)
   - Read actions (by_uid, by_gateway, connected, by_status)
-  - Calculations (type_name, display_name, is_online, status_color)
+  - Calculations (type_name, is_online, status_color)
+  - Operator display name and description
   - Policy enforcement
   """
   use ServiceRadarWebNG.DataCase, async: false
   use ServiceRadarWebNG.AshTestHelpers
 
+  alias Ash.Error.Forbidden
+  alias Ash.Error.Invalid
   alias ServiceRadar.Infrastructure.Agent
 
   require Ash.Query
@@ -408,40 +411,68 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
       end
     end
 
-    test "display_name uses name, then host, then uid", %{gateway: gateway} do
-      actor = viewer_actor()
+    test "listed_name prefers the operator label, then the reported name, then the host, then the uid",
+         %{gateway: gateway} do
+      operator = operator_actor()
 
-      # Agent with name
-      agent_named =
+      named =
         agent_fixture(gateway, %{
-          uid: "agent-display-named",
-          name: "My Custom Agent",
-          host: "192.168.1.100"
+          name: "Gateway Reported",
+          host: "192.0.2.10"
         })
 
-      {:ok, [loaded]} =
-        Agent
-        |> Ash.Query.filter(uid == ^agent_named.uid)
-        |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor)
+      assert Agent.listed_name(named) == "Gateway Reported"
 
-      assert loaded.display_name == "My Custom Agent"
+      assert Agent.listed_name(%{
+               "display_name" => "North Sensor",
+               "name" => "Gateway Reported",
+               "host" => "192.0.2.10",
+               "uid" => named.uid
+             }) == "North Sensor"
 
-      # Agent without name but with host
-      agent_host =
+      assert Agent.listed_name(%{"host" => "192.0.2.11", "uid" => "agent-host-only"}) ==
+               "192.0.2.11"
+
+      assert Agent.listed_name(%{"uid" => "agent-uid-only"}) == "agent-uid-only"
+      assert Agent.listed_name(%{}) == "—"
+
+      {:ok, labeled} =
+        named
+        |> Ash.Changeset.for_update(
+          :edit_details,
+          %{display_name: "  North Sensor  ", description: " Synthetic lab note "},
+          actor: operator
+        )
+        |> Ash.update()
+
+      assert labeled.display_name == "North Sensor"
+      assert labeled.description == "Synthetic lab note"
+      assert labeled.uid == named.uid
+      assert Agent.listed_name(labeled) == "North Sensor"
+
+      {:ok, cleared} =
+        labeled
+        |> Ash.Changeset.for_update(
+          :edit_details,
+          %{display_name: "   ", description: ""},
+          actor: operator
+        )
+        |> Ash.update()
+
+      assert cleared.display_name == nil
+      assert cleared.description == nil
+      assert Agent.listed_name(cleared) == "Gateway Reported"
+
+      host_only =
         agent_fixture(gateway, %{
-          uid: "agent-display-host",
           name: nil,
-          host: "192.168.1.101"
+          host: "192.0.2.11"
         })
 
-      {:ok, [loaded]} =
-        Agent
-        |> Ash.Query.filter(uid == ^agent_host.uid)
-        |> Ash.Query.load(:display_name)
-        |> Ash.read(actor: actor)
+      assert Agent.listed_name(host_only) == "192.0.2.11"
 
-      assert loaded.display_name == "192.168.1.101"
+      uid_only = agent_fixture(gateway, %{name: nil, host: nil})
+      assert Agent.listed_name(uid_only) == uid_only.uid
     end
 
     test "status_color returns correct colors for each status", %{
@@ -469,6 +500,89 @@ defmodule ServiceRadar.Infrastructure.AgentTest do
         |> Ash.read(actor: actor)
 
       assert loaded.status_color == "green"
+    end
+  end
+
+  describe "operator details" do
+    setup do
+      gateway = gateway_fixture()
+      {:ok, gateway: gateway}
+    end
+
+    test "gateway sync leaves the operator label and note in place", %{gateway: gateway} do
+      operator = operator_actor()
+
+      agent =
+        agent_fixture(gateway, %{
+          name: "Gateway Reported",
+          host: "192.0.2.10"
+        })
+
+      {:ok, labeled} =
+        agent
+        |> Ash.Changeset.for_update(
+          :edit_details,
+          %{display_name: "North Sensor", description: "Synthetic lab note"},
+          actor: operator
+        )
+        |> Ash.update()
+
+      {:ok, synced} =
+        labeled
+        |> Ash.Changeset.for_update(
+          :gateway_sync,
+          %{name: "gateway-reported", host: "host01.example.com"},
+          actor: system_actor()
+        )
+        |> Ash.update()
+
+      assert synced.uid == agent.uid
+      assert synced.name == "gateway-reported"
+      assert synced.host == "host01.example.com"
+      assert synced.display_name == "North Sensor"
+      assert synced.description == "Synthetic lab note"
+    end
+
+    test "a viewer cannot set the operator label", %{gateway: gateway} do
+      agent = agent_fixture(gateway, %{name: "Gateway Reported"})
+
+      assert {:error, %Forbidden{}} =
+               agent
+               |> Ash.Changeset.for_update(
+                 :edit_details,
+                 %{display_name: "North Sensor", description: "Synthetic lab note"},
+                 actor: viewer_actor()
+               )
+               |> Ash.update()
+
+      {:ok, reloaded} =
+        Agent
+        |> Ash.Query.filter(uid == ^agent.uid)
+        |> Ash.read_one(actor: system_actor())
+
+      assert reloaded.display_name == nil
+      assert reloaded.description == nil
+      assert reloaded.name == "Gateway Reported"
+    end
+
+    test "edit_details rejects a display name longer than 200 characters", %{gateway: gateway} do
+      agent = agent_fixture(gateway, %{name: "Gateway Reported"})
+
+      assert {:error, %Invalid{}} =
+               agent
+               |> Ash.Changeset.for_update(
+                 :edit_details,
+                 %{display_name: String.duplicate("n", 201)},
+                 actor: operator_actor()
+               )
+               |> Ash.update()
+
+      {:ok, reloaded} =
+        Agent
+        |> Ash.Query.filter(uid == ^agent.uid)
+        |> Ash.read_one(actor: system_actor())
+
+      assert reloaded.display_name == nil
     end
   end
 end
