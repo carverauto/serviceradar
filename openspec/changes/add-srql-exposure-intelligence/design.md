@@ -8,7 +8,7 @@ What exists today:
 |---|---|---|---|
 | Device x package x CVE applicability decision | CNPG `platform.endpoint_vulnerability_assessments` | `(device_uid, package_identity_key, cve_id)`; version-independent package identity | `in:endpoint_vulnerability_assessments`, `in:devices cve:` / `kev:` (EXISTS) |
 | KEV, exploit, CVSS on the assessment; EPSS when the payload carries it | same row (`kev`, `exploit_available`, `cvss_score`, `metadata.epss_score`) | as above | as above |
-| Device fleet ordinal (`uid -> integer`) | CNPG `platform.device_fleet_ordinals`, allocated lazily for endpoint-inventory devices, tombstoned on merge | `ordinal` from a sequence | none |
+| Device fleet ordinal (`uid -> integer`) | CNPG `platform.device_fleet_ordinals`, allocated lazily for every non-service device, tombstoned on merge | `ordinal` from a sequence | none |
 | Network flows | StarRocks `serviceradar.ocsf_network_activity` (the only flow store) | flow id; `device_uid` is the **exporter**, not an endpoint | `in:flows` |
 | Process attribution on flows | same table (`pid`, `comm`, `container_id`, `workload_identity`) | flow id | `in:attributed_flows` |
 | Socket ownership and host peer evidence | leases, an in-memory ownership index and per-process connection summaries (`host_connection_summaries`), as specified by the merged change `stream-flow-attribution-via-ownership-index` (#5753); being implemented | `(partition, proto, ip, port)`; summaries per `(agent, owner, local endpoint, peer endpoint, proto, direction)` | none |
@@ -22,9 +22,10 @@ The gaps that block the six operator questions are:
 - nothing maps a flow endpoint or a host peer to a device;
 - nothing maps a process to the package that owns its executable (#5752);
 - matching is a full hourly recompute that cannot emit deltas (#5748);
-- about 97% of "active" match rows on a lab deployment are orphans (#5749), so any count built on them would be wrong;
 - host connection summaries (#5753) are stored, but nothing joins them to devices, exposure or flows, and nothing records whether an agent's capture was complete for an interval;
 - there is no current-state exposure store next to flows.
+
+A pre-fix lab measurement for #5749 found about 97% of "active" match rows were orphans. The 2026-10-22 read-only follow-up, after a successful matcher completion, found no active orphan matches and an actionable assessment count rounded to zero (nearest hundred). See *Task 0.2: read-only cleanup follow-up*.
 
 ## Goals / Non-Goals
 
@@ -253,9 +254,12 @@ carries an `as_of` for each source it read.
 
 - **`device_ord`.** Reuse `platform.device_fleet_ordinals` (u32 range, sequence-allocated,
   never reused, tombstoned on merge).
-  - Allocation widens from endpoint-inventory devices to every non-service device the
-    address publisher emits, so agentless devices can carry network evidence and act as
-    blast-radius members.
+  - Allocation covers every non-service device, widened from endpoint-inventory
+    devices, so agentless devices the address publisher emits can carry network
+    evidence and act as blast-radius members. A read-only lab transaction found no
+    live, non-service device missing a non-tombstoned ordinal. The maximum allocated
+    ordinal, rounded up, was below 0.4 million; more than 99.99% of the u32 range
+    remained (Task 0.7).
   - When a merge or deletion tombstones an ordinal, the publisher emits a `device_retired`
     transition with a new `transition_seq` `R`, drawn in the transaction that tombstones the
     ordinal and recorded on the ordinal row (`retired_seq`); it is greater than every
@@ -667,8 +671,8 @@ snapshots.
     published. It also emits `RETIRED(device_ord, retired_seq)` for every tombstoned
     ordinal. It then emits `SNAPSHOT_END(G, V)`.
   - A snapshot row is compared with the stored row on sequence, state and content.
-    A greater sequence applies the source after-image. An equal sequence with matching
-    content changes only `snapshot_generation`. An equal-sequence state or content
+    A greater sequence applies the source after-image. An equal sequence with equal
+    state and equal content changes only `snapshot_generation`. An equal-sequence state or content
     mismatch is counted and repaired through a new source transition, drawn under the
     full fact-key serialization after re-reading the current source state and locking
     any existing assessment. Repair never changes content under an existing sequence.
@@ -1077,9 +1081,11 @@ Refresh budgets:
 
 ## Risks / Trade-offs
 
-- **Exposure is only as right as the assessments.** With #5749 unfixed, about 97% of
-  "active" rows on a lab deployment are orphans. Phase 0 gates on #5749 and on a
-  reconciliation that can fail.
+- **Exposure is only as right as the assessments.** A pre-fix #5749 measurement found
+  about 97% of "active" rows on a lab deployment were orphans. The 2026-10-22
+  read-only follow-up, after a successful matcher completion, found no active orphan
+  matches, and the actionable count rounded to zero (nearest hundred). Phase 0 still
+  gates on a reconciliation that can fail.
 - **Evidence write amplification.** Network evidence is written per flow side and host
   evidence per summary row, each budgeted against its own source. Mitigation:
   pre-aggregation per batch, Phase 0 measurement gates, and an async view over flows as the
