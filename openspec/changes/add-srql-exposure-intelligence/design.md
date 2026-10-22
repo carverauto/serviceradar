@@ -738,6 +738,76 @@ The StarRocks-required exception is recorded in `AGENTS.md` (task 0.9).
 Every entity is listed in the `EntityAccess` map under one canonical name; the new
 entities have no aliases. Unknown-entity passthrough must not skip the gate.
 
+### Decision 18: Executable ownership is resolved by netprobe, by inode
+
+This settles how #5752 implements Decision 9.
+
+**Privilege.** Netprobe starts as root to load eBPF and then drops to the service user.
+Without a capability, that user cannot read `/proc/<pid>/exe` or `/proc/<pid>/root` of a
+process owned by another user, and those are the listeners that matter (sshd, web servers).
+Netprobe therefore keeps exactly one capability after the drop: `CAP_SYS_PTRACE`, in the
+permitted and effective sets only. It sets `PR_SET_KEEPCAPS` across `setuid`, reduces the
+permitted and effective sets to `CAP_SYS_PTRACE`, leaves the inheritable and ambient sets
+empty, and clears `PR_SET_KEEPCAPS` again. The service unit adds `CAP_SYS_PTRACE` to its
+bounding set and not to its ambient set. Netprobe uses it only for ptrace-read access to
+procfs. The same access lets the listener snapshot read the socket descriptors of
+processes owned by other users.
+
+**Resolution.** For a process, netprobe stats `/proc/<pid>/exe` for the executable's
+`(dev, inode)`, which works for a deleted or replaced binary. It reads the package
+databases inside the process's own root (`/proc/<pid>/root`), so a containerized process
+resolves against its image's package database and reports `source_scope = container`.
+Supported databases are dpkg (`status` plus `info/*.list`), apk (`installed`) and the rpm
+sqlite backend (`rpmdb.sqlite`). The older rpm BerkeleyDB and NDB backends are reported as
+`UNSUPPORTED_DB`. A package owns the executable when one of its listed paths, resolved
+inside the process root with symlinks followed but never allowed to leave that root, has the
+executable's `(dev, inode)`. Comparing inodes, not path strings, handles merged `/usr`
+layouts and other directory symlinks. It also means that a binary whose package was
+upgraded or removed while the process kept running is never attributed to the package that
+now owns its path.
+
+**Cost.** Results are cached per executable `(dev, inode)`. The cache holds the file's mtime
+and size and the database's modification time, so an entry is re-resolved after a reused
+inode or a package change. The cache and the number of cached package-database indexes are
+bounded. Resolution runs on netprobe's existing budgeted process-metadata path, so it
+happens at most once per executable inode and never once per connection or per event.
+
+**States.** `ExecutableOwnership.resolution_state` is one of:
+- `RESOLVED`: a supported database lists a path with the executable's inode.
+- `NOT_FOUND`: supported databases were read and no package owns the inode.
+- `UNKNOWN`: the answer could not be determined, for example because the process exited,
+  the binary was deleted or replaced, the root has no package database, or an rpm
+  write-ahead log is pending.
+- `NOT_PERMITTED`: procfs or the root denied access.
+- `UNSUPPORTED_DB`: the only package database present has an unsupported format.
+
+A closed `detail` vocabulary names the reason. Only `RESOLVED` carries a package. No state
+is ever filled in from the process name or the command line.
+
+**Wire.** `ExecutableOwnership` in `proto/agent/netprobe/v1` carries:
+- the resolution state and detail;
+- the package identity fields `EndpointPackageAssessmentIdentity` uses: `source_scope`,
+  `package_type`, `package_manager`, `namespace`, `release`, `ecosystem`,
+  `binary_package`, `source_package` and `architecture`;
+- the installed version;
+- provenance: the resolver (`dpkg`, `rpm` or `apk`), the executable path, `dev` and `inode`.
+
+Netprobe fills the identity fields from the database it read and from the root's
+`os-release`. It does not compute the `pkgid:v1:` key. Core derives the key by matching the
+reference to the device's current inventory package on `source_scope`, `package_manager`,
+`binary_package`, `architecture` and the installed version, and then taking that package's
+identity. A reference with no matching inventory package stays `package_unknown`
+(`pkg_ord = 0`).
+
+**Placement.** Until #5738 lands the lease and summary messages of
+`stream-flow-attribution-via-ownership-index`, netprobe attaches `ExecutableOwnership` to
+`FlowAttributionEvent` and `ProcessSnapshotEntry`, the current owner fields. Core carries it
+through the existing attribution path. #5738 moves the same message onto lease owner records
+and connection summary rows. Neither step adds a CNPG table.
+
+Language package managers (pip, npm and similar) are not consulted. They own scripts, not
+the executable the kernel runs, which is the interpreter from an OS package.
+
 ## Capacity model
 
 | Quantity | Target | Basis |

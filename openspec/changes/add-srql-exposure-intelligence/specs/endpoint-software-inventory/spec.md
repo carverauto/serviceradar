@@ -43,7 +43,7 @@ The matcher SHALL publish an assessment transition on JetStream whenever an asse
 - **THEN** the transaction that committed later carries the higher `transition_seq`
 
 ### Requirement: Running Executables Resolve To Owning Packages
-The agent SHALL resolve the executable of each listening or attributed process to its owning installed package. It SHALL use the package manager's file ownership, or container image layer metadata when available, and SHALL resolve once per executable inode and cache the result, never once per connection. The resolved inventory package reference SHALL be attached to ownership lease owner records and to connection summary rows. An unresolved executable SHALL be reported as unknown and SHALL NOT be guessed from the process name or command line.
+The agent SHALL resolve the executable of each listening or attributed process to its owning installed package. It SHALL use the package manager's file ownership read inside the process's own root filesystem, so a containerized process resolves against its image's package database. A package SHALL own the executable only when one of its listed paths, resolved inside that root, has the executable's device and inode. The agent SHALL resolve once per executable inode and cache the result, never once per connection. The resolved inventory package reference SHALL be attached to ownership lease owner records and to connection summary rows. The reference SHALL carry a resolution state (`RESOLVED`, `NOT_FOUND`, `UNKNOWN`, `NOT_PERMITTED` or `UNSUPPORTED_DB`), and only a `RESOLVED` reference SHALL name a package. An unresolved executable SHALL NOT be guessed from the process name or command line.
 
 #### Scenario: Listener resolves to its package
 - **GIVEN** a process listening on TCP 22 whose executable is installed by an inventory package
@@ -58,4 +58,14 @@ The agent SHALL resolve the executable of each listening or attributed process t
 #### Scenario: Unowned executable stays unknown
 - **GIVEN** an executable that no package manager owns
 - **WHEN** it is resolved
-- **THEN** the package reference is unknown, and no name-based guess is made
+- **THEN** the reference state is `NOT_FOUND`, it names no package, and no name-based guess is made
+
+#### Scenario: Replaced binary is not attributed to the new package
+- **GIVEN** a process still running a binary whose package was upgraded, so the installed path now holds a different inode
+- **WHEN** it is resolved
+- **THEN** the reference state is `UNKNOWN` and it names no package
+
+#### Scenario: Unsupported package database is reported
+- **GIVEN** a host whose only rpm database uses the BerkeleyDB backend
+- **WHEN** an executable is resolved
+- **THEN** the reference state is `UNSUPPORTED_DB` and it names no package
