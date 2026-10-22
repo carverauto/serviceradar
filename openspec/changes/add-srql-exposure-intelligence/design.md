@@ -444,8 +444,9 @@ endpoints. SRQL resolves the matched set exactly as the flow threat filters do: 
 ### Decision 9: Listening processes resolve to packages
 
 "Vulnerable listening process" requires a `(device, process) -> package identity` link.
-#5752 resolves an executable to its owning package once per executable inode, and attaches
-the inventory package reference to:
+#5752 resolves an executable to its owning package once per executable inode in its process
+root, and attaches the inventory package reference to the current owner fields
+(`FlowAttributionEvent` and `ProcessSnapshotEntry`). #5738 carries the same message onto:
 
 - ownership lease owner records, so flows attributed through the index carry it;
 - connection summary rows.
@@ -766,20 +767,24 @@ layouts and other directory symlinks. It also means that a binary whose package 
 upgraded or removed while the process kept running is never attributed to the package that
 now owns its path.
 
-**Cost.** Results are cached per executable `(dev, inode)`. The cache holds the file's mtime
-and size and the database's modification time, so an entry is re-resolved after a reused
-inode or a package change. The cache and the number of cached package-database indexes are
-bounded. Resolution runs on netprobe's existing budgeted process-metadata path, so it
-happens at most once per executable inode and never once per connection or per event.
+**Cost.** Results are cached per (process root, executable `dev`, `inode`). The cache holds
+the file's mtime and size and that root's package-database state, so an entry is re-resolved
+after a reused inode or a package change in that root. The cache and the number of cached
+package-database indexes are bounded. Resolution runs on netprobe's existing budgeted
+process-metadata path, so it happens at most once per executable inode in its process root
+and never once per connection or per event.
 
-**States.** `ExecutableOwnership.resolution_state` is one of:
-- `RESOLVED`: a supported database lists a path with the executable's inode.
-- `NOT_FOUND`: supported databases were read and no package owns the inode.
-- `UNKNOWN`: the answer could not be determined, for example because the process exited,
-  the binary was deleted or replaced, the root has no package database, or an rpm
-  write-ahead log is pending.
-- `NOT_PERMITTED`: procfs or the root denied access.
-- `UNSUPPORTED_DB`: the only package database present has an unsupported format.
+**States.** `ExecutableOwnership.resolution_state` is the first of these that applies, in
+this order:
+1. `NOT_PERMITTED`: procfs or the root denied access.
+2. `UNKNOWN`: the process exited; or the kernel reports the executable deleted (its file was
+   unlinked or replaced, for example by a package upgrade or removal, while the process kept
+   running, whether or not a package ever owned it); or the root has no package database; or
+   a database was unreadable, changing, truncated, or has a pending rpm write-ahead log.
+3. `UNSUPPORTED_DB`: the only package database present has an unsupported format.
+4. `RESOLVED`: a supported database lists a path with the executable's `(dev, inode)`.
+5. `NOT_FOUND`: the executable is still linked on disk, every present database is supported
+   and was read completely, and no listed path has its inode.
 
 A closed `detail` vocabulary names the reason. Only `RESOLVED` carries a package. No state
 is ever filled in from the process name or the command line.
@@ -793,11 +798,14 @@ is ever filled in from the process name or the command line.
 - provenance: the resolver (`dpkg`, `rpm` or `apk`), the executable path, `dev` and `inode`.
 
 Netprobe fills the identity fields from the database it read and from the root's
-`os-release`. It does not compute the `pkgid:v1:` key. Core derives the key by matching the
-reference to the device's current inventory package on `source_scope`, `package_manager`,
-`binary_package`, `architecture` and the installed version, and then taking that package's
-identity. A reference with no matching inventory package stays `package_unknown`
-(`pkg_ord = 0`).
+`os-release`, with the inventory producer's conventions: `namespace` from the os-release
+`ID`, `release` in the package-URL distro form, and `source_package` as the package-URL
+`source` qualifier would carry it, otherwise the binary name. It does not compute the
+`pkgid:v1:` key. Core does not match the reference against inventory rows. It derives
+`package_identity_key` by applying `EndpointPackageAssessmentIdentity` to the reference's
+identity fields, the same derivation the matcher applies to inventory packages. The
+installed version is evidence and is not part of the key, so an upgrade does not change the
+key. A reference whose key has no assessment simply has no exposure facts.
 
 **Placement.** Until #5738 lands the lease and summary messages of
 `stream-flow-attribution-via-ownership-index`, netprobe attaches `ExecutableOwnership` to
