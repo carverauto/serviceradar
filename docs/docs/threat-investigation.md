@@ -49,6 +49,17 @@ Interactive threat-aware flow queries require a bounded time window and
 default to `last_24h`. Longer searches belong on the retrohunt job, not a
 synchronous browser query.
 
+### Retrohunt
+
+A retrohunt matches every active OTX IP/CIDR indicator against the flow
+endpoints retained for the **Retrohunt Window** and stores what it finds as
+historical evidence. It does not run on its own by default: press
+**Retrohunt Now** in **Settings -> Networks -> Threat Intel**, or set
+**Retrohunt Schedule** to daily or weekly. A scheduled run is queued one
+interval after the latest run started, and never while another retrohunt job
+is still pending. Each run re-reads the whole window, so prefer the weekly
+cadence on large flow volumes.
+
 Requires `observability.netflow.view`. Feed mutations stay behind
 `plugins.assign`.
 

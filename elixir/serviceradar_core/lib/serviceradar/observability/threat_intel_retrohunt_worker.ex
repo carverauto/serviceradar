@@ -1,10 +1,15 @@
 defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
   @moduledoc """
-  Operator-triggered retroactive hunts for imported OTX indicators.
+  Retroactive hunts for imported OTX indicators.
 
   The first supported path matches active OTX CIDR indicators against retained
   canonical NetFlow source and destination IPs. Domain/DNS matching remains a
   later slice once the canonical DNS aggregate source is selected.
+
+  Runs are manual (`enqueue_manual/1`, the settings "Retrohunt now" action)
+  unless `NetflowSettings.otx_retrohunt_interval_seconds` is set, in which case
+  `ensure_scheduled/1`, called by the NetFlow security scheduler, queues one
+  `scheduled` run per interval measured from the latest run's start.
   """
 
   use Oban.Worker,
@@ -15,6 +20,8 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       fields: [:worker, :args],
       states: :incomplete
     ]
+
+  import Ecto.Query, only: [where: 3]
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Actors.SystemActor
@@ -55,6 +62,94 @@ defmodule ServiceRadar.Observability.ThreatIntelRetrohuntWorker do
       |> ObanSupport.safe_insert()
     else
       {:error, :oban_unavailable}
+    end
+  end
+
+  @doc """
+  Queues the next scheduled retrohunt when a schedule is configured.
+
+  Any incomplete retrohunt job (manual, scheduled, or a batch continuation)
+  means a run is already pending, so nothing is queued.
+  """
+  @spec ensure_scheduled(keyword()) ::
+          {:ok, Oban.Job.t()}
+          | {:ok, :already_scheduled}
+          | {:ok, :disabled}
+          | {:error, term()}
+  def ensure_scheduled(_opts \\ []) do
+    if ObanSupport.available?() do
+      settings = load_settings(SystemActor.system(:threat_intel_retrohunt_scheduler))
+      schedule(settings, scheduled_interval(settings))
+    else
+      {:error, :oban_unavailable}
+    end
+  end
+
+  defp schedule(_settings, nil), do: {:ok, :disabled}
+
+  defp schedule(settings, interval) do
+    with 0 <- incomplete_job_count(),
+         {:ok, last_started_at} <- latest_run_started_at(@default_source),
+         {:schedule_in, seconds} <-
+           schedule_decision(interval, last_started_at, DateTime.utc_now()) do
+      %{
+        "source" => @default_source,
+        "triggered_by" => "scheduled",
+        "window_seconds" => settings_window(settings)
+      }
+      |> new(schedule_in: seconds)
+      |> ObanSupport.safe_insert()
+    else
+      count when is_integer(count) -> {:ok, :already_scheduled}
+      :disabled -> {:ok, :disabled}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc """
+  When the next scheduled run is due: `interval` seconds after the latest run
+  started, immediately when there has never been a run, and never when no
+  positive interval is configured.
+  """
+  @spec schedule_decision(term(), DateTime.t() | nil, DateTime.t()) ::
+          :disabled | {:schedule_in, pos_integer()}
+  def schedule_decision(interval, _last_started_at, _now)
+      when not is_integer(interval) or interval <= 0, do: :disabled
+
+  def schedule_decision(_interval, nil, _now), do: {:schedule_in, 1}
+
+  def schedule_decision(interval, %DateTime{} = last_started_at, %DateTime{} = now) do
+    due_at = DateTime.shift(last_started_at, second: interval)
+    {:schedule_in, max(DateTime.diff(due_at, now, :second), 1)}
+  end
+
+  defp scheduled_interval(%NetflowSettings{otx_retrohunt_interval_seconds: seconds})
+       when is_integer(seconds) and seconds > 0, do: seconds
+
+  defp scheduled_interval(_settings), do: nil
+
+  defp incomplete_job_count do
+    Oban.Job
+    |> where([j], j.worker == ^Oban.Worker.to_string(__MODULE__))
+    |> where([j], j.state in ["available", "scheduled", "executing", "retryable"])
+    |> Repo.aggregate(:count, prefix: ObanSupport.prefix())
+  end
+
+  defp latest_run_started_at(source) do
+    sql = "SELECT max(started_at) FROM platform.otx_retrohunt_runs WHERE source = $1"
+
+    case SQL.query(Repo, sql, [source]) do
+      {:ok, %Postgrex.Result{rows: [[nil]]}} ->
+        {:ok, nil}
+
+      {:ok, %Postgrex.Result{rows: [[%NaiveDateTime{} = at]]}} ->
+        {:ok, DateTime.from_naive!(at, "Etc/UTC")}
+
+      {:ok, %Postgrex.Result{rows: [[%DateTime{} = at]]}} ->
+        {:ok, at}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

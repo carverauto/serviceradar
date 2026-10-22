@@ -7,6 +7,7 @@ defmodule ServiceRadar.Observability.NetflowSecurityScheduler do
     workers: [
       ServiceRadar.Observability.ThreatIntelFeedRefreshWorker,
       ServiceRadar.Observability.ThreatIntelOTXSyncWorker,
+      ServiceRadar.Observability.ThreatIntelRetrohuntWorker,
       ServiceRadar.Observability.NetflowSecurityRefreshWorker,
       ServiceRadar.PrefixTags.ThreatIntelMaterializeWorker,
       ServiceRadar.PrefixTags.DnsPolicyMaterializeWorker

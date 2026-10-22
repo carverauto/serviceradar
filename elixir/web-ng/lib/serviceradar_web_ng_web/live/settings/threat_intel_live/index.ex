@@ -56,8 +56,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
     "otx_modified_since" => "",
     "otx_raw_payload_archive_enabled" => "false",
     "otx_retrohunt_window_seconds" => "7776000",
+    "otx_retrohunt_interval_seconds" => "",
     "threat_intel_match_window_seconds" => "86400"
   }
+  @retrohunt_schedules [{"", "Manual only"}, {"86400", "Daily"}, {"604800", "Weekly"}]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -469,7 +471,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
               </div>
 
               <div class="rounded-xl border border-sr-line bg-sr-surface p-4">
-                <div class="mb-3 text-sm font-semibold">Retrohunt Runs</div>
+                <div class="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <div class="text-sm font-semibold">Retrohunt Runs</div>
+                  <div id="settings-threat-intel-retrohunt-schedule" class="text-xs text-sr-muted">
+                    {retrohunt_schedule_label(@otx_settings_form["otx_retrohunt_interval_seconds"])}
+                  </div>
+                </div>
                 <%= if @retrohunt_runs == [] do %>
                   <div class="rounded-lg border border-dashed border-sr-line p-4 text-sm text-sr-muted">
                     No retrohunt runs recorded.
@@ -783,6 +790,24 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
                       value={@otx_settings_form["otx_retrohunt_window_seconds"]}
                       min="3600"
                     />
+                    <div>
+                      <label for="otx-retrohunt-schedule" class="text-sm font-medium text-sr-ink">
+                        Retrohunt Schedule
+                      </label>
+                      <select
+                        id="otx-retrohunt-schedule"
+                        name="settings[otx_retrohunt_interval_seconds]"
+                        class={ui_field_class(class: "w-full")}
+                      >
+                        <option
+                          :for={{value, label} <- retrohunt_schedules()}
+                          value={value}
+                          selected={@otx_settings_form["otx_retrohunt_interval_seconds"] == value}
+                        >
+                          {label}
+                        </option>
+                      </select>
+                    </div>
                   </div>
 
                   <div>
@@ -1252,6 +1277,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       "otx_modified_since" => settings.otx_modified_since || "",
       "otx_raw_payload_archive_enabled" => settings.otx_raw_payload_archive_enabled |> truthy() |> to_string(),
       "otx_retrohunt_window_seconds" => to_string(settings.otx_retrohunt_window_seconds || 7_776_000),
+      "otx_retrohunt_interval_seconds" => to_string(settings.otx_retrohunt_interval_seconds || ""),
       "threat_intel_match_window_seconds" => to_string(settings.threat_intel_match_window_seconds || 86_400)
     }
   end
@@ -1275,6 +1301,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
       otx_modified_since: blank_to_nil(Map.get(params, "otx_modified_since")),
       otx_raw_payload_archive_enabled: truthy_param?(Map.get(params, "otx_raw_payload_archive_enabled")),
       otx_retrohunt_window_seconds: to_int(Map.get(params, "otx_retrohunt_window_seconds"), 7_776_000),
+      otx_retrohunt_interval_seconds: retrohunt_interval_param(Map.get(params, "otx_retrohunt_interval_seconds")),
       threat_intel_match_window_seconds: to_int(Map.get(params, "threat_intel_match_window_seconds"), 86_400),
       otx_credential_secret_id: blank_to_nil(Map.get(params, "otx_credential_secret_id"))
     }
@@ -1283,6 +1310,24 @@ defmodule ServiceRadarWebNGWeb.Settings.ThreatIntelLive.Index do
   end
 
   defp build_otx_settings_attrs(_params), do: %{}
+
+  defp retrohunt_schedules, do: @retrohunt_schedules
+
+  # Only the offered cadences are accepted; anything else keeps retrohunt manual.
+  defp retrohunt_interval_param(value) do
+    case List.keyfind(@retrohunt_schedules, to_string(value || ""), 0) do
+      {"", _label} -> nil
+      {seconds, _label} -> String.to_integer(seconds)
+      nil -> nil
+    end
+  end
+
+  defp retrohunt_schedule_label(value) do
+    case List.keyfind(@retrohunt_schedules, to_string(value || ""), 0) do
+      {seconds, label} when seconds != "" -> "Scheduled: #{String.downcase(label)}"
+      _ -> "Manual only: runs when Retrohunt Now is pressed"
+    end
+  end
 
   defp netflow_findings_summary(scope) do
     now = DateTime.utc_now()
