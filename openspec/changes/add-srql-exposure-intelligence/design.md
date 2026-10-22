@@ -767,9 +767,10 @@ inventoried; this is intended, not a miss. Supported databases are dpkg (`status
 BerkeleyDB and NDB backends are reported as `UNSUPPORTED_DB` only when no supported database
 is present; a root with `rpmdb.sqlite` next to a leftover BerkeleyDB `Packages` file reads
 the sqlite database. A package owns the executable when one of its listed paths, resolved
-inside the process root with symlinks followed but never allowed to leave that root, has the
-executable's `(dev, inode)`. Comparing inodes, not path strings, handles merged `/usr`
-layouts and other directory symlinks. It also means that a binary whose package was
+inside the process root with directory symlinks followed but never allowed to leave that
+root, has the executable's `(dev, inode)`. A listed path whose final component is itself a
+symlink owns nothing; the file it points to is listed by its own package. Comparing inodes,
+not path strings, handles merged `/usr` layouts and other directory symlinks. It also means that a binary whose package was
 upgraded or removed while the process kept running is never attributed to the package that
 now owns its path.
 
@@ -783,14 +784,16 @@ per event.
 **States.** `ExecutableOwnership.resolution_state` is the first of these that applies, in
 this order:
 1. `NOT_PERMITTED`: procfs or the root denied access.
-2. `UNKNOWN`: the process exited; or the kernel reports the executable deleted (its file was
+2. `UNKNOWN`: the process exited; or a procfs or root read failed other than by an access
+   denial; or the kernel reports the executable deleted (its file was
    unlinked or replaced, for example by a package upgrade or removal, while the process kept
    running, whether or not a package ever owned it); or the root has no package database; or
    a database was unreadable, changing, truncated, or has a pending rpm write-ahead log.
-3. `UNSUPPORTED_DB`: the only package database present has an unsupported format.
+3. `UNSUPPORTED_DB`: no supported database is present, and an unsupported one is.
 4. `RESOLVED`: a supported database lists a path with the executable's `(dev, inode)`.
-5. `NOT_FOUND`: the executable is still linked on disk, every present database is supported
-   and was read completely, and no listed path has its inode.
+5. `NOT_FOUND`: the executable is still linked on disk, every supported database present
+   was read completely, and no listed path has its inode, even if an unsupported database is
+   also present.
 
 A closed `detail` vocabulary names the reason. Only `RESOLVED` carries a package. No state
 is ever filled in from the process name or the command line.
@@ -814,16 +817,20 @@ debian/alpine/rpm namespace default applies only to a package URL without a name
 
 | Database | `package_type`, `package_manager`, `ecosystem` | `namespace` | `release` | `binary_package` / `source_package` | `architecture` | Installed version |
 |---|---|---|---|---|---|---|
-| dpkg | `deb`, `dpkg`, `deb` | os-release `ID`, else `linux` | `VERSION_CODENAME`, else `VERSION_ID` | package name / the `Source` field's package name when present, else the binary name | `Architecture` | the status `Version` |
-| apk | `apk`, `apk`, `apk` | `ID`, else `alpine` | `VERSION_ID` | the lower-cased package name for both (apk URLs carry `origin`, not `source`) | `A` | the installed version |
-| rpm | `rpm`, `rpm`, `rpm` | `ID` mapped `sles` to `suse` and `mariner`/`azurelinux` to `azurelinux`; empty when `ID` is unset (no default) | `<raw ID>-<VERSION_ID, else BUILD_ID>` when `ID` is set; the version alone when `ID` is empty; empty when both version fields are empty | package name / the binary name (rpm URLs carry `sourcerpm`, not `source`) | the rpm arch | `<version>-<release>` |
+| dpkg | `deb`, `dpkg`, empty | os-release `ID`, else `linux` | `VERSION_CODENAME`, else `VERSION_ID` | package name / the `Source` field's package name when present, else the binary name | `Architecture` | the status `Version` |
+| apk | `apk`, `apk`, empty | `ID`, else `alpine` | `VERSION_ID` | the lower-cased package name for both (apk URLs carry `origin`, not `source`) | `A` | the installed version |
+| rpm | `rpm`, `rpm`, empty | `ID` mapped `sles` to `suse` and `mariner`/`azurelinux` to `azurelinux`; empty when `ID` is unset (no default) | `<raw ID>-<VERSION_ID, else BUILD_ID>` when `ID` is set; the version alone when `ID` is empty; empty when both version fields are empty | package name / the binary name (rpm URLs carry `sourcerpm`, not `source`) | the rpm arch | `<version>-<release>` |
 
 `architecture` is empty only when the database records none, and `source_scope` follows the
-resolution rule above.
+resolution rule above. `ecosystem` is empty because the endpoint inventory stores no
+ecosystem for OS packages, so the matcher hashes it as absent.
 
 Netprobe does not compute the `pkgid:v1:` key. Core does not match the reference against inventory rows. It derives
 `package_identity_key` by applying `EndpointPackageAssessmentIdentity` to the reference's
-identity fields, the same derivation the matcher applies to inventory packages. The
+identity fields, the same derivation the matcher applies to inventory packages. Before
+hashing, core treats every blank identity field (for example an empty `namespace`,
+`release`, `architecture`, `ecosystem` or `source_package`) as the absent component (nil),
+as the matcher's package-URL parse does. The
 installed version is evidence and is not part of the key, so an upgrade does not change the
 key. A reference whose derived key matches no assessment simply has no exposure facts.
 
