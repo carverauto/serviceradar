@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Observability.ThreatIntelEvidence
   alias ServiceRadar.Observability.ThreatIntelInvestigation
 
   test "rejects non-IP input before querying" do
@@ -92,6 +93,28 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
 
       assert {:error, :invalid_cursor} =
                Keyset.decode(Keyset.encode(["x", "not-a-uuid"]), [:string, :uuid])
+    end
+  end
+
+  test "indicator filters accept only addresses PostgreSQL takes as cidr" do
+    for accepted <- [
+          "198.51.100.0/24",
+          "198.51.100.10/32",
+          "198.51.100.10",
+          "2001:db8::/32",
+          "0.0.0.0/0"
+        ] do
+      assert {:ok, ^accepted} = ThreatIntelEvidence.parse_address(accepted, :cidr)
+    end
+
+    for rejected <- [
+          "198.51.100.10/24",
+          "198.51.100.1/31",
+          "2001:db8::1/64",
+          "198.51.100.0/33",
+          "not-an-ip"
+        ] do
+      assert {:error, :invalid_cidr} = ThreatIntelEvidence.parse_address(rejected, :cidr)
     end
   end
 end
