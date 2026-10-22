@@ -14,7 +14,7 @@
 //!
 //! Format reference: <https://www.sqlite.org/fileformat2.html>.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::ffi::OsString;
 use std::fs::File;
 use std::io;
@@ -73,8 +73,6 @@ struct Wal {
     pages: HashMap<u32, u64>,
     /// The database size in pages after the last committed transaction.
     page_count: u32,
-    /// The highest page number written by a committed frame.
-    highest_page: u32,
 }
 
 impl SqliteDatabase {
@@ -102,7 +100,9 @@ impl SqliteDatabase {
         let file_pages = u32::try_from(file_len / page_size as u64)
             .map_err(|_| SqliteError::Malformed("page count"))?;
         let page_count = match &wal {
-            Some(wal) if wal.page_count > file_pages.max(wal.highest_page) => {
+            Some(wal)
+                if u64::from(wal.page_count) > u64::from(file_pages) + wal.pages.len() as u64 =>
+            {
                 return Err(SqliteError::Malformed("write-ahead log database size"));
             }
             Some(wal) => wal.page_count,
@@ -146,10 +146,9 @@ impl SqliteDatabase {
         mut visit: impl FnMut(i64, Vec<Value>) -> bool,
     ) -> Result<()> {
         let mut stack = vec![root_page];
-        let mut visited: u64 = 0;
+        let mut visited = HashSet::new();
         while let Some(page_number) = stack.pop() {
-            visited += 1;
-            if visited > u64::from(self.page_count) {
+            if !visited.insert(page_number) || visited.len() as u64 > u64::from(self.page_count) {
                 return Err(SqliteError::Malformed("b-tree cycle"));
             }
             let page = self.read_page(page_number)?;
@@ -301,7 +300,6 @@ impl Wal {
         let mut pending: Vec<(u32, u64)> = Vec::new();
         let mut pages = HashMap::new();
         let mut page_count = None;
-        let mut highest_page = 0;
         let mut frame = vec![0u8; WAL_FRAME_HEADER_LEN + page_size];
         let mut offset = WAL_HEADER_LEN as u64;
         while offset + frame_len <= len {
@@ -318,10 +316,7 @@ impl Wal {
             pending.push((be_u32(&frame, 0), offset + WAL_FRAME_HEADER_LEN as u64));
             let commit_size = be_u32(&frame, 4);
             if commit_size > 0 {
-                for (page, frame_offset) in pending.drain(..) {
-                    highest_page = highest_page.max(page);
-                    pages.insert(page, frame_offset);
-                }
+                pages.extend(pending.drain(..));
                 page_count = Some(commit_size);
             }
             offset += frame_len;
@@ -331,7 +326,6 @@ impl Wal {
             file,
             pages,
             page_count,
-            highest_page,
         }))
     }
 }
@@ -496,10 +490,12 @@ mod tests {
         ));
     }
 
-    /// A commit frame's database size (bytes 4..8 of its frame header) larger than every
-    /// page that exists must be rejected before it bounds the b-tree walk. The committed
-    /// fixture was written by real SQLite; only the size field is rewritten, and that
-    /// frame's checksum is recomputed so the frame is still accepted as committed.
+    /// A commit frame's database size (bytes 4..8 of its frame header) larger than the
+    /// main file's pages plus the pages the log stores must be rejected before it bounds
+    /// the b-tree walk, even when the frame's own page number (bytes 0..4) claims that
+    /// size. The committed fixture was written by real SQLite; only those two fields are
+    /// rewritten, and that frame's checksum is recomputed so the frame is still accepted
+    /// as committed.
     #[test]
     fn rejects_a_committed_database_size_beyond_existing_pages() {
         let dir = tempfile::tempdir().unwrap();
@@ -530,7 +526,9 @@ mod tests {
                 be_u32(&wal, commit - frame_len + 20),
             )
         };
-        wal[commit + 4..commit + 8].copy_from_slice(&u32::MAX.to_be_bytes());
+        let largest_page_number = 0xffff_fffe_u32.to_be_bytes();
+        wal[commit..commit + 4].copy_from_slice(&largest_page_number);
+        wal[commit + 4..commit + 8].copy_from_slice(&largest_page_number);
         let checksum = wal_checksum(big_endian, previous, &wal[commit..commit + 8]);
         let checksum = wal_checksum(
             big_endian,
@@ -544,6 +542,27 @@ mod tests {
         assert!(matches!(
             SqliteDatabase::open(&path),
             Err(SqliteError::Malformed("write-ahead log database size"))
+        ));
+    }
+
+    /// A b-tree page that names itself as a child (page 1 rewritten as an interior table
+    /// page, type 0x05 at offset 100, with no cells and right child 1) is a cycle and
+    /// must fail on the first repeat, not after one visit per page in the file.
+    #[test]
+    fn rejects_a_self_referencing_b_tree_page() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("rpmdb.sqlite");
+        let mut database =
+            include_bytes!("../../testdata/executable_ownership/rpmdb.sqlite").to_vec();
+        database[HEADER_LEN] = PAGE_TABLE_INTERIOR;
+        database[HEADER_LEN + 3..HEADER_LEN + 5].copy_from_slice(&0u16.to_be_bytes());
+        database[HEADER_LEN + 8..HEADER_LEN + 12].copy_from_slice(&1u32.to_be_bytes());
+        std::fs::write(&path, &database).unwrap();
+
+        let database = SqliteDatabase::open(&path).unwrap();
+        assert!(matches!(
+            database.table_root_page("Packages"),
+            Err(SqliteError::Malformed("b-tree cycle"))
         ));
     }
 }
