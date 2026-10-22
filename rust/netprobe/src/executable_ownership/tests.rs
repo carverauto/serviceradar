@@ -534,3 +534,30 @@ fn resolution_happens_once_per_executable_inode_until_the_database_changes() {
         }
     );
 }
+
+/// A FIFO opened for reading blocks until a writer appears (fifo(7)). One planted as a
+/// process root's `/etc/os-release` must not stall os-release discovery: it is skipped as
+/// unreadable and the `/usr/lib/os-release` fallback is used. Before regular files were
+/// required, this test hung in open(2).
+#[test]
+fn os_release_skips_a_fifo_instead_of_blocking() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("rootfs");
+    fs::create_dir_all(root.join("etc")).unwrap();
+    fs::create_dir_all(root.join("usr/lib")).unwrap();
+    fs::write(root.join("usr/lib/os-release"), "ID=exampleos\n").unwrap();
+    let fifo = std::ffi::CString::new(
+        root.join("etc/os-release")
+            .into_os_string()
+            .into_encoded_bytes(),
+    )
+    .unwrap();
+    // SAFETY: `fifo` is a valid NUL-terminated path that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
+
+    let started = Instant::now();
+    let os = package_db::OsRelease::read(&root_path::RootFs::new(&root));
+
+    assert_eq!(os.id, "exampleos");
+    assert!(started.elapsed() < Duration::from_secs(5));
+}

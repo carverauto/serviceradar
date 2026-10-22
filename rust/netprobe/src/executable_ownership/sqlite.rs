@@ -22,6 +22,8 @@ use std::io;
 use std::os::unix::fs::FileExt;
 use std::path::Path;
 
+use super::root_path::open_regular;
+
 const HEADER_MAGIC: &[u8; 16] = b"SQLite format 3\0";
 const HEADER_LEN: usize = 100;
 const PAGE_TABLE_INTERIOR: u8 = 0x05;
@@ -77,7 +79,7 @@ struct Wal {
 
 impl SqliteDatabase {
     pub fn open(path: &Path) -> Result<Self> {
-        let file = File::open(path)?;
+        let file = open_regular(path)?;
         let file_len = file.metadata()?.len();
         let mut header = [0u8; HEADER_LEN];
         read_exact_at(&file, &mut header, 0)?;
@@ -282,7 +284,7 @@ impl Wal {
     /// Reads the committed frames of `path`. A missing log, or one whose header is not a
     /// valid WAL header for this page size, contributes nothing, as for SQLite itself.
     fn open(path: &Path, page_size: usize) -> Result<Option<Self>> {
-        let file = match File::open(path) {
+        let file = match open_regular(path) {
             Ok(file) => file,
             Err(err) if err.kind() == io::ErrorKind::NotFound => return Ok(None),
             Err(err) => return Err(err.into()),

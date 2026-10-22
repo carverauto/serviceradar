@@ -9,7 +9,7 @@
 use std::collections::VecDeque;
 use std::ffi::OsString;
 use std::fs::{self, File};
-use std::io;
+use std::io::{self, Read};
 use std::path::{Component, Path, PathBuf};
 
 /// Symlinks followed per resolution before giving up, as the kernel's own limit.
@@ -66,12 +66,35 @@ impl RootFs {
     }
 
     pub fn open(&self, inner: &str) -> io::Result<File> {
-        File::open(self.resolve(inner)?)
+        open_regular(&self.resolve(inner)?)
     }
 
-    pub fn read_to_string(&self, inner: &str) -> io::Result<String> {
-        fs::read_to_string(self.resolve(inner)?)
+    /// Reads at most `limit` bytes of `inner` as UTF-8.
+    pub fn read_to_string(&self, inner: &str, limit: u64) -> io::Result<String> {
+        let mut contents = String::new();
+        open_regular(&self.resolve(inner)?)?
+            .take(limit)
+            .read_to_string(&mut contents)?;
+        Ok(contents)
     }
+}
+
+/// Opens `path` for reading only if it is a regular file. The open does not block, so a
+/// FIFO planted in a process root cannot stall the caller, and a device such as
+/// `/dev/zero` is refused before it can be read without end.
+pub(crate) fn open_regular(path: &Path) -> io::Result<File> {
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(target_os = "linux")]
+    std::os::unix::fs::OpenOptionsExt::custom_flags(&mut options, libc::O_NONBLOCK);
+    let file = options.open(path)?;
+    if !file.metadata()?.is_file() {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "not a regular file",
+        ));
+    }
+    Ok(file)
 }
 
 /// Appends the normal and `..` components of `path`; the root and `.` add nothing.

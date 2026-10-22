@@ -7,7 +7,8 @@
 //! match a reference to the inventory package.
 
 use std::collections::HashMap;
-use std::io::{self, BufRead, BufReader};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
 use super::root_path::RootFs;
@@ -27,7 +28,7 @@ impl OsRelease {
     pub fn read(root: &RootFs) -> Self {
         let contents = ["/etc/os-release", "/usr/lib/os-release"]
             .iter()
-            .find_map(|path| root.read_to_string(path).ok())
+            .find_map(|path| root.read_to_string(path, MAX_OS_RELEASE_BYTES).ok())
             .unwrap_or_default();
         let fields = parse_os_release(&contents);
         let get = |key: &str| fields.get(key).cloned().unwrap_or_default();
@@ -38,6 +39,22 @@ impl OsRelease {
             build_id: get("BUILD_ID"),
         }
     }
+}
+
+/// Largest `os-release` prefix read; a real one is a few hundred bytes.
+const MAX_OS_RELEASE_BYTES: u64 = 64 * 1024;
+/// Largest dpkg status, dpkg file list or apk installed database read. A larger one is
+/// unreadable rather than silently truncated.
+const MAX_TEXT_DATABASE_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Line reader over at most one byte more than `MAX_TEXT_DATABASE_BYTES`, so
+/// `exceeds_text_database_cap` can tell a file that was cut short.
+fn text_database_reader(file: File) -> BufReader<io::Take<File>> {
+    BufReader::new(file.take(MAX_TEXT_DATABASE_BYTES + 1))
+}
+
+fn exceeds_text_database_cap(reader: &BufReader<io::Take<File>>) -> bool {
+    reader.get_ref().limit() == 0
 }
 
 fn parse_os_release(contents: &str) -> HashMap<String, String> {
@@ -88,7 +105,8 @@ pub fn read_dpkg(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> D
     let release = non_empty_or(&os.version_codename, &os.version_id);
 
     let mut stanza: HashMap<String, String> = HashMap::new();
-    for line in BufReader::new(status).lines() {
+    let mut status = text_database_reader(status);
+    for line in (&mut status).lines() {
         let Ok(line) = line else {
             return DatabaseOutcome::Unreadable;
         };
@@ -108,6 +126,9 @@ pub fn read_dpkg(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> D
         if let Some((key, value)) = line.split_once(':') {
             stanza.insert(key.trim().to_string(), value.trim().to_string());
         }
+    }
+    if exceeds_text_database_cap(&status) {
+        return DatabaseOutcome::Unreadable;
     }
     if !stanza.is_empty()
         && let Some(outcome) = add_dpkg_package(root, &stanza, &namespace, &release, sink)
@@ -175,14 +196,17 @@ fn add_dpkg_package(
             Err(_) => return Some(DatabaseOutcome::Unreadable),
         }
     }
-    let list = list?;
-    for line in BufReader::new(list).lines() {
+    let mut list = text_database_reader(list?);
+    for line in (&mut list).lines() {
         let Ok(path) = line else {
             return Some(DatabaseOutcome::Unreadable);
         };
         if path.starts_with('/') && path != "/." && !sink.add_path(index, &path) {
             return Some(DatabaseOutcome::Read);
         }
+    }
+    if exceeds_text_database_cap(&list) {
+        return Some(DatabaseOutcome::Unreadable);
     }
     None
 }
@@ -198,7 +222,8 @@ pub fn read_apk(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
     let mut current: Option<u32> = None;
     let mut pending = ApkRecord::default();
     let mut dir = String::new();
-    for line in BufReader::new(installed).lines() {
+    let mut installed = text_database_reader(installed);
+    for line in (&mut installed).lines() {
         let Ok(line) = line else {
             return DatabaseOutcome::Unreadable;
         };
@@ -244,6 +269,9 @@ pub fn read_apk(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
             }
             _ => {}
         }
+    }
+    if exceeds_text_database_cap(&installed) {
+        return DatabaseOutcome::Unreadable;
     }
     DatabaseOutcome::Read
 }
