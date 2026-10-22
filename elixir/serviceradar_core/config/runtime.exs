@@ -13,6 +13,7 @@ alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
+alias ServiceRadar.Inventory.ExposureTransitionRelay
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
 alias ServiceRadar.Jobs.SecurityEventsRetentionWorker
@@ -125,6 +126,12 @@ if is_map(callback_deployment) do
   # custody input is missing or malformed.
   verifier_config =
     "SERVICERADAR_AUTOMATION_CALLBACK_HMAC_KEYRING_FILE"
+    # Netprobe native add-on package — signed artifact refs for the package seeder.
+    # native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;
+    # deployments pass them here (as JSON) + the published version so
+    # NetprobeAddonPackageSeeder can approve an assignable package. Without artifacts the
+    # seeder stages the manifest version (visible, not assignable); version/oci refs are only
+    # set when their env vars are present (version otherwise defaults to the in-image manifest).
     |> System.get_env()
     |> RuntimeConfig.load_verifier_file!()
 
@@ -165,10 +172,10 @@ if is_map(callback_deployment) do
     automation_callback_origin: callback_origin
 end
 
-# Netprobe native add-on package — signed artifact refs for the package seeder.
+# OTEL collector native add-on package — signed artifact refs for the package seeder.
 # native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;
 # deployments pass them here (as JSON) + the published version so
-# NetprobeAddonPackageSeeder can approve an assignable package. Without artifacts the
+# OtelCollectorAddonPackageSeeder can approve an assignable package. Without artifacts the
 # seeder stages the manifest version (visible, not assignable); version/oci refs are only
 # set when their env vars are present (version otherwise defaults to the in-image manifest).
 
@@ -203,13 +210,6 @@ netprobe_addon_config =
     v when is_binary(v) and v != "" -> Keyword.put(netprobe_addon_config, :source_oci_digest, v)
     _ -> netprobe_addon_config
   end
-
-# OTEL collector native add-on package — signed artifact refs for the package seeder.
-# native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;
-# deployments pass them here (as JSON) + the published version so
-# OtelCollectorAddonPackageSeeder can approve an assignable package. Without artifacts the
-# seeder stages the manifest version (visible, not assignable); version/oci refs are only
-# set when their env vars are present (version otherwise defaults to the in-image manifest).
 
 otel_collector_addon_artifacts =
   case System.get_env("SERVICERADAR_OTEL_COLLECTOR_ADDON_ARTIFACTS") do
@@ -1160,6 +1160,16 @@ if config_env() == :prod do
       "memory" -> :memory
       _ -> :file
     end
+
+  # Exposure transition stream size (EXPOSURE_TRANSITIONS, created by the relay
+  # on its first publish). Unset or blank means 1 GiB; an invalid value fails
+  # boot naming the variable.
+  config :serviceradar_core, ExposureTransitionRelay,
+    max_bytes:
+      StateBucketSizing.bytes_from_env!(
+        "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES",
+        ExposureTransitionRelay.default_max_bytes()
+      )
 
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
 

@@ -114,11 +114,13 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		allowedMTR       = "mtr.results.ingest"
 		allowedEvent     = "events.example"
 		allowedWarehouse = "metrics.event_writer.warehouse"
+		allowedExposure  = "vulnerability.assessment.transitions.7"
+		allowedExpMetric = "metrics.exposure_transitions"
 		denied           = "zz.not.allowed"
 	)
 
 	received := make(map[string]chan struct{})
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, denied} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedExposure, allowedExpMetric, denied} {
 		ch := make(chan struct{}, 1)
 		received[subject] = ch
 
@@ -131,7 +133,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("flush subscriptions: %v", err)
 	}
 
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, denied} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedExposure, allowedExpMetric, denied} {
 		if err := core.Publish(subject, []byte(`{"synthetic":true}`)); err != nil {
 			t.Fatalf("publish %s: %v", subject, err)
 		}
@@ -147,7 +149,7 @@ func TestCoreCanPublishToChartSubjects(t *testing.T) {
 		t.Fatalf("expected a permissions violation for %s, got %v", denied, coreErrs.all())
 	}
 
-	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse} {
+	for _, subject := range []string{allowedScan, allowedMTR, allowedEvent, allowedWarehouse, allowedExposure, allowedExpMetric} {
 		select {
 		case <-received[subject]:
 		case <-time.After(5 * time.Second):

@@ -827,6 +827,91 @@ Refresh budgets:
 | A rule's expected exporter misses a contact that another exporter reports | Network evidence is keyed by `exporter_ord`; the coverage-gap check counts only the rule's exporters, so the gap is still raised for the expected exporter. |
 | Watermark growth | Kept permanently (about 24 bytes per key ever seen). Deferred: revisit a retirement-scoped expiry if the key count exceeds the capacity model by an order of magnitude. |
 
+## Implementation record: matcher transitions and incremental matching (#5748, task 0.1)
+
+**Producer.** Triggers on `platform.endpoint_vulnerability_assessments` own the outbox, so
+every writer (matcher upsert, absence resolution, unconfirmed marking, Ash actions, row
+deletion) is covered in the transaction that changes the row:
+
+- a `BEFORE INSERT OR UPDATE` row trigger decides whether the write is a transition (the
+  actionable predicate is entered or left, or an actionable row's installed version, KEV,
+  exploit, CVSS, severity or fixed version changed) and, if so, draws `transition_seq` from
+  `platform.exposure_transition_seq` while the row is locked and stores it in the
+  trigger-owned column `last_transition_seq` (with `exposed_at`, the start of the current
+  actionable episode);
+- `AFTER` row triggers, which fire only for rows actually written, insert one
+  `platform.exposure_transition_outbox` row: the complete after-image as JSON
+  (`schema_version` 1), `transition_xid = pg_current_xact_id()`, the changed fields, the
+  reason (`entered_actionable`, `left_actionable`, `actionable_attributes_changed`,
+  `assessment_deleted`, `assessment_key_changed`) and the device, CVE, package and
+  package-version ordinals, allocated in that transaction;
+- deleting a row that was ever published (or is actionable) draws a new sequence, publishes
+  `resolved` and records `platform.exposure_fact_watermarks`; re-creating the key as
+  actionable deletes the watermark in the same transaction.
+
+Rows that were actionable before the outbox existed carry `last_transition_seq` NULL until
+their next transition. The snapshot (task 1.6) treats NULL as sequence 0, so any real
+transition supersedes it. `device_ord` is read from `platform.device_fleet_ordinals`
+without locking the device row; a device with no ordinal is published with `device_ord`
+null for the ingestion boundary to count and drop.
+
+**Transport.** `ExposureTransitionRelay` (a coordinator child) publishes outbox rows oldest
+first to `vulnerability.assessment.transitions.<bucket>`, where the bucket (0-15) hashes the
+device uid, with `Nats-Msg-Id = exposure-transition-<transition_seq>`, and deletes a row
+only after its PubAck. The relay creates the `EXPOSURE_TRANSITIONS` stream (limits, file,
+R1, `max_age` 7 days, 2-minute duplicate window, `max_bytes` from the JetStream sizing
+profile: 1 GiB small, 2 GiB medium, 8 GiB large, 32 MiB tenant-2g) when nothing captures
+the subject. It publishes `exposure_transition_outbox_oldest_age_seconds`,
+`exposure_transition_outbox_pending` and `exposure_transitions_relayed` on
+`metrics.exposure_transitions`, and records a health state change for
+`exposure_transition_outbox` when the oldest row crosses 10 minutes. The EventWriter
+consumer (task 1.4) attaches to this producer-owned stream; it must not create it.
+
+This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequence,
+`transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and
+package-version dictionaries and the CVE ordinal function) and 1.3 (the transitions subject,
+its stream limits and the core publish permission). Device retirement (`retired_seq`,
+task 1.5), the snapshot (1.6) and the `exposure.dimensions.*` subjects remain open.
+
+**Incremental matching.** The hourly full recompute is replaced by a run every 5 minutes
+that evaluates only devices whose inputs changed:
+
+- triggers queue a device when any writer changes its current package rows, or advances its
+  current complete scan while one of its active assessments is unconfirmed;
+- triggers record an advisory when its content, coordinates or package assertions change;
+  the run maps changed advisories to devices through the matcher's own candidate-discovery
+  keys (PURL, vendor/product name, CPE vendor/product or `cpe_any`, Ubuntu product lookup
+  key, explicit source-package scope), stored per fleet-deduplicated endpoint package, plus
+  devices that already hold a match or assessment for an affected CVE;
+- promoting a feed generation re-evaluates the advisories whose assertions it made current,
+  because the loader rewrites changed advisories in place and promotion changes no row;
+- a full pass still runs on first start, every 24 hours, when the feed state (enabled set,
+  success and generation presence, assertion freshness) changes, or when more than 5,000
+  advisories changed at once.
+
+An inventory or advisory change therefore reaches the assessment, and its transition, within
+one run interval plus the run time. Evaluating each distinct package version once across
+the fleet (#5748 item 4) is not part of this change.
+
+**Measurements** (scratch CNPG database; synthetic fleets of 13 and 1,000 hosts with 1,000
+current packages each; server-side execution times, rounded):
+
+| Quantity | 13 hosts | 1,000 hosts |
+|---|---|---|
+| Devices evaluated per idle hour | 0 (was 13, hourly) | 0 (was 1,000, hourly) |
+| DB time of one idle run (5 small reads and the finding drain) | under 1 ms | under 1 ms |
+| Finding-drain read with nothing pending | under 1 ms (was about 1 ms) | under 1 ms (was about 130 ms, a full scan) |
+| Full pass: reading every current package | about 10 ms | about 0.2-0.3 s |
+| Full pass: unchanged assessment upsert, with / without the sequence trigger | about 25 / 15 ms | about 1.9 / 1.3 s (about 4 us per row) |
+| Transition write (outbox row and ordinals) | about 0.1 ms each | about 0.09 ms each (10k KEV flips: 0.55 s to 1.4 s) |
+| Change capture on a promoted 1,000-package scan | about 25 ms added | about 20-40 ms added |
+| 100 changed advisory keys to affected devices | about 2 ms | about 15 ms |
+
+Full passes drop from 24 a day to 1. The lab measurement in #5745 (about 50 s wall clock
+per 13-host pass, most of it outside the database) now applies once a day and, between full
+passes, only to the devices a change reaches. Elixir wall time was not re-measured here;
+the integration suite asserts which devices each run evaluates.
+
 ## Open Questions
 
 1. Approval to extend the StarRocks-required exception in `AGENTS.md` to exposure

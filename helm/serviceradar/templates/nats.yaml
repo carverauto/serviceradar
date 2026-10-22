@@ -335,6 +335,13 @@ spec:
                       # a PubAck, so a missing entry denies every sample and
                       # the broker logs a permissions violation.
                       "metrics.event_writer.warehouse",
+                      # Exposure transitions (ExposureTransitionRelay), relayed
+                      # from the assessment outbox into the EXPOSURE_TRANSITIONS
+                      # stream, and the relay's outbox health metrics. Both
+                      # publishes wait for a PubAck, so a missing entry leaves
+                      # transitions in the outbox and fires its age alert.
+                      "vulnerability.assessment.transitions.>",
+                      "metrics.exposure_transitions",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"

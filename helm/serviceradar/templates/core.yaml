@@ -528,6 +528,8 @@ spec:
         {{- end }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.notifications.stream "suffix" "MAX_BYTES") }}
           value: {{ $coreJs.notifications.maxBytes | quote }}
+        - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $coreJs.exposureTransitions.stream "suffix" "MAX_BYTES") }}
+          value: {{ $coreJs.exposureTransitions.maxBytes | quote }}
         - name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES
           value: {{ $coreJs.threatIntel.maxBytes | quote }}
 
