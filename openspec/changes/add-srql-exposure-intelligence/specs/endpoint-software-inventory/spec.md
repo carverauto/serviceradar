@@ -43,19 +43,34 @@ The matcher SHALL publish an assessment transition on JetStream whenever an asse
 - **THEN** the transaction that committed later carries the higher `transition_seq`
 
 ### Requirement: Running Executables Resolve To Owning Packages
-The agent SHALL resolve the executable of each listening or attributed process to its owning installed package. It SHALL use the package manager's file ownership, or container image layer metadata when available, and SHALL resolve once per executable inode and cache the result, never once per connection. The resolved inventory package reference SHALL be attached to ownership lease owner records and to connection summary rows. An unresolved executable SHALL be reported as unknown and SHALL NOT be guessed from the process name or command line.
+The agent SHALL resolve the executable of each listening or attributed process to its owning installed package. It SHALL use the package manager's file ownership read inside the process's own root filesystem, so a containerized process resolves against its image's package database. A package SHALL own the executable only when one of its listed paths, resolved inside that root, has the executable's device and inode. Directory symlinks inside that root SHALL be followed; a listed path whose final component is itself a symlink SHALL own nothing, because the file it points to is listed by its own package. The agent SHALL cache each result keyed by process root, executable device and inode, valid while the file's mtime and size and that root's package-database state are unchanged, SHALL neither use nor store a cache entry for a read where the kernel reports the executable deleted, and SHALL resolve once per cache entry, never once per connection. The resolved inventory package reference SHALL be carried by every message that reports a process owner: ownership lease owner records and connection summary rows (from `stream-flow-attribution-via-ownership-index`, landing in #5738), and, until those exist, `FlowAttributionEvent` and `ProcessSnapshotEntry`. The reference SHALL carry a resolution state, which SHALL be the first that applies in this order: `NOT_PERMITTED` when procfs or the root denied access; `UNKNOWN` when the process exited, or a procfs or root read failed other than by an access denial, or the kernel reports the executable deleted (its file was unlinked or replaced, for example by a package upgrade or removal, while the process kept running, whether or not a package ever owned it), or the root has no package database, or a database was unreadable, changing, truncated, or has a pending rpm write-ahead log; `UNSUPPORTED_DB` when no supported package database is present and an unsupported one is; `RESOLVED` when a supported database lists a path with the executable's device and inode; `NOT_FOUND` when the executable is still linked on disk, every supported database present was read completely, and no listed path has its inode, even if an unsupported database is also present. Only a `RESOLVED` reference SHALL name a package. An unresolved executable SHALL NOT be guessed from the process name or command line.
 
 #### Scenario: Listener resolves to its package
 - **GIVEN** a process listening on TCP 22 whose executable is installed by an inventory package
-- **WHEN** netprobe emits the listener lease and the connection summaries
+- **WHEN** netprobe emits the flow attribution event and the listener snapshot entry
 - **THEN** both carry that package's inventory reference
 
+#### Scenario: Lease and summary carry the reference once they exist
+- **GIVEN** the ownership lease and connection summary messages of `stream-flow-attribution-via-ownership-index` exist
+- **WHEN** netprobe emits a lease owner record or a connection summary row for a resolved process
+- **THEN** it carries the same inventory package reference
+
 #### Scenario: Resolution is cached per inode
-- **GIVEN** 1,000 connections handled by the same executable inode in an interval
+- **GIVEN** 1,000 connections handled by the same executable inode in one process root in an interval, while the executable stays linked on disk and the file's mtime and size and that root's package-database state are unchanged
 - **WHEN** they are summarized
 - **THEN** package ownership is resolved at most once for that inode
 
 #### Scenario: Unowned executable stays unknown
-- **GIVEN** an executable that no package manager owns
+- **GIVEN** an executable that is still linked on disk, in a root where every supported package database present was read completely (an unsupported one may also be present), and no listed path has its inode
 - **WHEN** it is resolved
-- **THEN** the package reference is unknown, and no name-based guess is made
+- **THEN** the reference state is `NOT_FOUND`, it names no package, and no name-based guess is made
+
+#### Scenario: Replaced binary is not attributed to the new package
+- **GIVEN** a process still running a binary whose package was upgraded, so the installed path now holds a different inode and the kernel reports the running executable deleted
+- **WHEN** it is resolved
+- **THEN** the reference state is `UNKNOWN` and it names no package
+
+#### Scenario: Unsupported package database is reported
+- **GIVEN** a host with no supported package database whose rpm database uses the BerkeleyDB backend
+- **WHEN** an executable is resolved
+- **THEN** the reference state is `UNSUPPORTED_DB` and it names no package

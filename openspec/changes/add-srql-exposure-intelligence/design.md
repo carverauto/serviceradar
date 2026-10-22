@@ -444,8 +444,9 @@ endpoints. SRQL resolves the matched set exactly as the flow threat filters do: 
 ### Decision 9: Listening processes resolve to packages
 
 "Vulnerable listening process" requires a `(device, process) -> package identity` link.
-#5752 resolves an executable to its owning package once per executable inode, and attaches
-the inventory package reference to:
+#5752 resolves an executable to its owning package once per cache entry (Decision 18), and
+attaches the inventory package reference to the current owner fields
+(`FlowAttributionEvent` and `ProcessSnapshotEntry`). #5738 carries the same message onto:
 
 - ownership lease owner records, so flows attributed through the index carry it;
 - connection summary rows.
@@ -737,6 +738,111 @@ The StarRocks-required exception is recorded in `AGENTS.md` (task 0.9).
 
 Every entity is listed in the `EntityAccess` map under one canonical name; the new
 entities have no aliases. Unknown-entity passthrough must not skip the gate.
+
+### Decision 18: Executable ownership is resolved by netprobe, by inode
+
+This settles how #5752 implements Decision 9.
+
+**Privilege.** Netprobe starts as root to load eBPF and then drops to the service user.
+Without a capability, that user cannot read `/proc/<pid>/exe` or `/proc/<pid>/root` of a
+process owned by another user, and those are the listeners that matter (sshd, web servers).
+Netprobe therefore keeps exactly one capability after the drop: `CAP_SYS_PTRACE`, in the
+permitted and effective sets only. It sets `PR_SET_KEEPCAPS` across `setuid`, reduces the
+permitted and effective sets to `CAP_SYS_PTRACE`, leaves the inheritable and ambient sets
+empty, and clears `PR_SET_KEEPCAPS` again. The service unit adds `CAP_SYS_PTRACE` to its
+bounding set and not to its ambient set. Capabilities are per thread, and netprobe's tokio
+workers and eBPF reader threads start before the drop and lose all capabilities in the
+`setuid`. The dropping thread therefore keeps `CAP_SYS_PTRACE` and spawns one dedicated
+executor thread, which inherits it and runs every ownership resolution; no other thread
+holds it. Netprobe uses it only for ptrace-read access to procfs.
+
+**Resolution.** For a process, netprobe stats `/proc/<pid>/exe` for the executable's
+`(dev, inode)`, which works for a deleted or replaced binary. It reads the package
+databases inside the process's own root (`/proc/<pid>/root`), so a containerized process
+resolves against its image's package database. `source_scope` is `host` for a process in
+the host root and `container` otherwise. Inventory rows are host-scoped, so a containerized process's reference deliberately never
+joins host exposure facts and stays `package_unknown` until container packages are
+inventoried; this is intended, not a miss. Supported databases are dpkg (`status` plus
+`info/*.list`), apk (`installed`) and the rpm sqlite backend (`rpmdb.sqlite`). The older rpm
+BerkeleyDB and NDB backends are reported as `UNSUPPORTED_DB` only when no supported database
+is present; a root with `rpmdb.sqlite` next to a leftover BerkeleyDB `Packages` file reads
+the sqlite database. A package owns the executable when one of its listed paths, resolved
+inside the process root with directory symlinks followed but never allowed to leave that
+root, has the executable's `(dev, inode)`. A listed path whose final component is itself a
+symlink owns nothing; the file it points to is listed by its own package. Comparing inodes,
+not path strings, handles merged `/usr` layouts and other directory symlinks. It also means that a binary whose package was
+upgraded or removed while the process kept running is never attributed to the package that
+now owns its path.
+
+**Cost.** Results are cached per (process root, executable `dev`, `inode`). An entry is valid
+while the file's mtime and size and that root's package-database state are unchanged; a
+reused inode or a package change in that root re-resolves it. A read where the kernel
+reports the executable deleted neither uses nor stores a cache entry. The cache and the number of
+cached package-database indexes are bounded. Resolution runs on netprobe's existing budgeted
+process-metadata path, so it happens once per cache entry and never once per connection or
+per event.
+
+**States.** `ExecutableOwnership.resolution_state` is the first of these that applies, in
+this order:
+1. `NOT_PERMITTED`: procfs or the root denied access.
+2. `UNKNOWN`: the process exited; or a procfs or root read failed other than by an access
+   denial; or the kernel reports the executable deleted (its file was
+   unlinked or replaced, for example by a package upgrade or removal, while the process kept
+   running, whether or not a package ever owned it); or the root has no package database; or
+   a database was unreadable, changing, truncated, or has a pending rpm write-ahead log.
+3. `UNSUPPORTED_DB`: no supported database is present, and an unsupported one is.
+4. `RESOLVED`: a supported database lists a path with the executable's `(dev, inode)`.
+5. `NOT_FOUND`: the executable is still linked on disk, every supported database present
+   was read completely, and no listed path has its inode, even if an unsupported database is
+   also present.
+
+A closed `detail` vocabulary names the reason. Only `RESOLVED` carries a package. No state
+is ever filled in from the process name or the command line.
+
+**Wire.** `ExecutableOwnership` in `proto/agent/netprobe/v1` carries:
+- the resolution state and detail;
+- the package identity fields `EndpointPackageAssessmentIdentity` uses: `source_scope`,
+  `package_type`, `package_manager`, `namespace`, `release`, `ecosystem`,
+  `binary_package`, `source_package` and `architecture`;
+- the installed version;
+- provenance: the resolver, the executable path, `dev` and `inode`. The resolver names
+  which database answered (`dpkg`, `rpm` or `apk`) and is distinct from `package_type`
+  (`deb` for dpkg).
+
+Netprobe fills the identity fields from the database it read and from the root's
+`os-release`, mirroring the live endpoint inventory producer, the ScaLibr add-on
+(`go/pkg/scalibrinventory`), whose package URLs come from osv-scalibr. Those URLs carry a
+namespace (the os-release `ID`; rpm maps `sles` to `suse` and `mariner`/`azurelinux` to
+`azurelinux`) and a `distro` qualifier, so core's canonicalization keeps them; its
+debian/alpine/rpm namespace default applies only to a package URL without a namespace.
+
+| Database | `package_type`, `package_manager`, `ecosystem` | `namespace` | `release` | `binary_package` / `source_package` | `architecture` | Installed version |
+|---|---|---|---|---|---|---|
+| dpkg | `deb`, `dpkg`, empty | os-release `ID`, else `linux` | `VERSION_CODENAME`, else `VERSION_ID` | package name / the `Source` field's package name when present, else the binary name | `Architecture` | the status `Version` |
+| apk | `apk`, `apk`, empty | `ID`, else `alpine` | `VERSION_ID` | the lower-cased package name for both (apk URLs carry `origin`, not `source`) | `A` | the installed version |
+| rpm | `rpm`, `rpm`, empty | `ID` mapped `sles` to `suse` and `mariner`/`azurelinux` to `azurelinux`; empty when `ID` is unset (no default) | `<raw ID>-<VERSION_ID, else BUILD_ID>` when `ID` is set; the version alone when `ID` is empty; empty when both version fields are empty | package name / the binary name (rpm URLs carry `sourcerpm`, not `source`) | the rpm arch | `<version>-<release>` |
+
+`architecture` is empty only when the database records none, and `source_scope` follows the
+resolution rule above. `ecosystem` is empty because the endpoint inventory stores no
+ecosystem for OS packages, so the matcher hashes it as absent.
+
+Netprobe does not compute the `pkgid:v1:` key. Core does not match the reference against inventory rows. It derives
+`package_identity_key` by applying `EndpointPackageAssessmentIdentity` to the reference's
+identity fields, the same derivation the matcher applies to inventory packages. Before
+hashing, core treats every blank identity field (for example an empty `namespace`,
+`release`, `architecture`, `ecosystem` or `source_package`) as the absent component (nil),
+as the matcher's package-URL parse does. The
+installed version is evidence and is not part of the key, so an upgrade does not change the
+key. A reference whose derived key matches no assessment simply has no exposure facts.
+
+**Placement.** Until #5738 lands the lease and summary messages of
+`stream-flow-attribution-via-ownership-index`, netprobe attaches `ExecutableOwnership` to
+`FlowAttributionEvent` and `ProcessSnapshotEntry`, the current owner fields. Core carries it
+through the existing attribution path. #5738 moves the same message onto lease owner records
+and connection summary rows. Neither step adds a CNPG table.
+
+Language package managers (pip, npm and similar) are not consulted. They own scripts, not
+the executable the kernel runs, which is the interpreter from an OS package.
 
 ## Capacity model
 
