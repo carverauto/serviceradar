@@ -469,10 +469,24 @@ core:
     # High-volume raw tables. Retention is reconciled at runtime and by the
     # migration job on upgrade; chunk intervals affect newly-created Timescale
     # chunks and should stay smaller than the retention window.
+    #
+    # defaultDays is an optional ceiling for raw CNPG telemetry. Leave it unset
+    # and each dataset keeps its own window. When set, DataRetentionWorker caps
+    # traces, logs, metrics, events, timeseries, raw host metrics, network
+    # activity, and trace summaries at this many days on its next run. A
+    # per-dataset value may be shorter. Capacity forecasts are not capped.
+    # Hourly rollups never go below 7 days. StarRocks warehouse TTLs are
+    # unchanged.
+    # defaultDays: 7
     traceSummaryDays: 3
     otelTracesDays: 3
     logsDays: 30
     ocsfNetworkActivityDays: 90
+    otelMetricsDays: 30
+    otelMetricPointsDays: 30
+    ocsfEventsDays: 14
+    rawMetricsDays: 7
+    capacityForecastsDays: 395
     # Raw timeseries_metrics (SNMP/interface counters). The hourly rollups
     # refresh their last 5 days from it, so keep this above 5.
     timeseriesMetricsDays: 7
@@ -493,6 +507,11 @@ core:
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 24
     ocsfNetworkActivityChunkIntervalHours: 24
+    otelMetricsChunkIntervalHours: 24
+    otelMetricPointsChunkIntervalHours: 6
+    ocsfEventsChunkIntervalHours: 6
+    rawMetricsChunkIntervalHours: 24
+    capacityForecastsChunkIntervalHours: 24
     batchSize: 50000
     cron: "17 3 * * *"
     sweepHostResultDays: 7

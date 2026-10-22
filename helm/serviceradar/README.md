@@ -333,6 +333,37 @@ for the failure mode and recovery instructions.
 - When SPIRE mode is enabled, the SPIRE server now stays internal by default (`spire.server.serviceType=ClusterIP`), the SPIRE health port is not published unless you explicitly set `spire.server.exposeHealthPort=true`, and kubelet verification stays enabled unless you explicitly set `spire.agent.skipKubeletVerification=true`.
 - The SPIRE controller manager sidecar can be disabled with `--set spire.controllerManager.enabled=false` if you do not need webhook-managed entries.
 
+### CNPG telemetry retention
+
+Installs that keep telemetry in CNPG set retention under `core.observabilityRetention`. `DataRetentionWorker` reconciles the Timescale policies on its nightly run. When StarRocks is enabled it remains the telemetry store, and `analytics.starrocks.retentionDays` is unchanged by these keys.
+
+`defaultDays` is optional. Leave it unset and each dataset keeps its own window. Set it to cap raw CNPG telemetry at that many days. A per-dataset value may be shorter. The ceiling takes effect on the next `DataRetentionWorker` run. Migrations install the per-dataset values until that run. Capacity forecasts stay on `capacityForecastsDays`. Hourly rollups never go below 7 days, because their refresh window is 5 days. Chunk intervals must stay smaller than the applied retention. Continuous-aggregate refresh windows stay strictly inside the source retention.
+
+Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored in StarRocks. `ocsfNetworkActivityDays` is the remaining CNPG hypertable in that family.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `core.observabilityRetention.defaultDays` | Optional ceiling, in days, for raw CNPG telemetry. Omit it to leave each dataset on its own window | unset |
+| `core.observabilityRetention.traceSummaryDays` | Trace summary row retention | `3` |
+| `core.observabilityRetention.otelTracesDays` | Raw span retention | `3` |
+| `core.observabilityRetention.logsDays` | Log retention | `30` |
+| `core.observabilityRetention.otelMetricsDays` | OTel metrics retention | `30` |
+| `core.observabilityRetention.otelMetricPointsDays` | OTel metric point retention | `30` |
+| `core.observabilityRetention.ocsfEventsDays` | OCSF event retention | `14` |
+| `core.observabilityRetention.ocsfNetworkActivityDays` | OCSF network activity retention | `90` |
+| `core.observabilityRetention.rawMetricsDays` | Raw host metric retention (`cpu`, `memory`, `disk`, `process`) | `7` |
+| `core.observabilityRetention.timeseriesMetricsDays` | Raw `timeseries_metrics` retention | `7` |
+| `core.observabilityRetention.capacityForecastsDays` | Capacity forecast retention. Not capped by `defaultDays` | `395` |
+| `core.observabilityRetention.hourlyRollupDays` | Hourly rollup retention. Floored at 7 days | `395` |
+| `core.observabilityRetention.otelTracesChunkIntervalHours` | Chunk interval for new trace chunks | `6` |
+| `core.observabilityRetention.logsChunkIntervalHours` | Chunk interval for new log chunks | `24` |
+| `core.observabilityRetention.otelMetricsChunkIntervalHours` | Chunk interval for new OTel metric chunks | `24` |
+| `core.observabilityRetention.otelMetricPointsChunkIntervalHours` | Chunk interval for new OTel metric point chunks | `6` |
+| `core.observabilityRetention.ocsfEventsChunkIntervalHours` | Chunk interval for new OCSF event chunks | `6` |
+| `core.observabilityRetention.ocsfNetworkActivityChunkIntervalHours` | Chunk interval for new network activity chunks | `24` |
+| `core.observabilityRetention.rawMetricsChunkIntervalHours` | Chunk interval for new raw host-metric chunks | `24` |
+| `core.observabilityRetention.capacityForecastsChunkIntervalHours` | Chunk interval for new capacity forecast chunks | `24` |
+
 ### MTR Automation Rollout
 
 Automated MTR is **on by default** on core-elx:
