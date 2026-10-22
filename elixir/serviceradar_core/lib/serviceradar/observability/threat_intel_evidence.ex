@@ -146,7 +146,22 @@ defmodule ServiceRadar.Observability.ThreatIntelEvidence do
   defp filter_object_indicator(query, nil), do: query
 
   defp filter_object_indicator(query, indicator) do
-    Ash.Query.filter(query, fragment("(?->>'indicator') = ?", metadata, ^indicator))
+    host = host_address(indicator)
+
+    Ash.Query.filter(
+      query,
+      fragment("(?->>'indicator') IN (?::text, ?::text)", metadata, ^indicator, ^host)
+    )
+  end
+
+  defp host_address(indicator) do
+    with [address, prefix] <- String.split(indicator, "/", parts: 2),
+         {:ok, parsed} <- :inet.parse_address(String.to_charlist(address)),
+         true <- prefix == if(tuple_size(parsed) == 4, do: "32", else: "128") do
+      address
+    else
+      _ -> indicator
+    end
   end
 
   defp filter_finding(query, _field, nil), do: query
