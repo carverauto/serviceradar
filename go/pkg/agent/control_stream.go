@@ -1816,10 +1816,11 @@ func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.Comm
 
 	p.server.mu.RLock()
 	stageCfg := releaseStageConfig{
-		RuntimeRoot:     "",
-		GatewayAddr:     p.server.config.GatewayAddr,
-		GatewaySecurity: p.server.config.GatewaySecurity,
-		CommandID:       cmd.CommandId,
+		RuntimeRoot:      "",
+		GatewayAddr:      p.server.config.GatewayAddr,
+		GatewaySecurity:  p.server.config.GatewaySecurity,
+		CommandID:        cmd.CommandId,
+		SigningPublicKey: embeddedReleaseSigningPublicKey(),
 	}
 	p.server.mu.RUnlock()
 

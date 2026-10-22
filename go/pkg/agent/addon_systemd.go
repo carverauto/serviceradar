@@ -135,6 +135,7 @@ type AddonSystemdInstallRequest struct {
 	ArtifactPath      string               // path to the staged artifact archive ("" -> default staging location)
 	ArtifactSHA256    string               // expected artifact SHA256 digest
 	Signature         string               // Ed25519 signature of the artifact
+	SigningPublicKey  string               // verification trust root ("" -> embedded release key)
 	Units             []string             // unit file names in the bundle (".service"/".timer")
 	Enable            string               // the unit to `enable --now` (must be one of Units)
 	Resources         agentaddon.Resources // manifest CPU/memory/task limits applied to Enable via a drop-in
@@ -289,6 +290,10 @@ func (h systemHost) relabelPrivilegedAddonExecutables(privRoot, addonID string) 
 // enables (--now) the primary unit. On any failure it removes newly installed units,
 // drop-ins, and rolls the privileged current symlink back to its previous target.
 func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallRequest) error {
+	if strings.TrimSpace(req.SigningPublicKey) == "" {
+		req.SigningPublicKey = embeddedReleaseSigningPublicKey()
+	}
+
 	return trustedSystemHost().installUnits(ctx, req)
 }
 
@@ -357,7 +362,7 @@ func readVerifiedAddonArtifact(req AddonSystemdInstallRequest) ([]byte, string, 
 	if !hashutil.EqualSHA256(wantSHA, sum) {
 		return nil, "", ErrAddonArtifactHashMismatch
 	}
-	if err := verifyAddonArtifactSignature(data, req.Signature); err != nil {
+	if err := verifyAddonArtifactSignature(data, req.Signature, req.SigningPublicKey); err != nil {
 		return nil, "", err
 	}
 	return data, wantSHA, nil

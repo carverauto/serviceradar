@@ -86,7 +86,7 @@ func TestPreInstallFailureRestoresPreviousStateConfig(t *testing.T) {
 		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
 		ArtifactObjectKey: key,
 		ArtifactSha256:    sha256Hex(tgz),
-	}); err != nil {
+	}, ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := applyStagedAddonRuntimeConfig(runtimeRoot, &proto.AddonAssignmentConfig{
@@ -127,7 +127,7 @@ func TestPreInstallFailureRestoresPreviousStateConfig(t *testing.T) {
 				BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-bumblebee-scan",
 				ArtifactObjectKey: v2key,
 				ArtifactSha256:    sha256Hex(v2),
-			}); err != nil {
+			}, ""); err != nil {
 				return "", addonDeliveryPermanentFailure, err
 			}
 			return "", addonDeliverySucceeded, nil
@@ -211,7 +211,7 @@ func applyBumblebeeUpgradeWithInstallError(t *testing.T, installErr error) (*Pus
 			ArtifactObjectKey: key,
 			ArtifactSha256:    sha256Hex(tgz),
 		}
-		if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+		if _, err := stageAddonArtifact(context.Background(), store, root, a, ""); err != nil {
 			t.Fatalf("stage %s: %v", version, err)
 		}
 	}

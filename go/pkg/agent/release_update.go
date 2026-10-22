@@ -133,13 +133,16 @@ var (
 //go:embed release_signing_key.txt
 var releaseSigningPublicKeyPEM string
 
-// ReleaseSigningPublicKey is the trusted key used for managed release verification.
+// embeddedReleaseSigningPublicKey returns the trusted key used for managed
+// release verification, parsed from the embedded committed source file.
 //
-// Still a package-level var rather than a const: the tests reassign it to exercise the unset and
-// wrong-key paths.
-//
-//nolint:gochecknoglobals // Reassigned by tests; embedded default above.
-var ReleaseSigningPublicKey = parseEmbeddedSigningKey(releaseSigningPublicKeyPEM)
+// Production entry points pass it explicitly (via
+// releaseStageConfig.SigningPublicKey, stageAddonArtifact's key argument, or
+// AddonSystemdInstallRequest.SigningPublicKey); tests pass their own key, or
+// "" to exercise the environment-fallback and unset paths.
+func embeddedReleaseSigningPublicKey() string {
+	return parseEmbeddedSigningKey(releaseSigningPublicKeyPEM)
+}
 
 // parseEmbeddedSigningKey returns the first meaningful line of the embedded key file.
 //
@@ -228,6 +231,10 @@ type releaseStageConfig struct {
 	// transient artifact download failures. Zero means the release defaults.
 	DownloadInitialBackoff time.Duration
 	DownloadMaxBackoff     time.Duration
+	// SigningPublicKey is the release verification trust root. Production
+	// passes embeddedReleaseSigningPublicKey(); "" falls back to the
+	// SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY environment variable.
+	SigningPublicKey string
 }
 
 // downloadBackoff returns the initial and maximum retry backoff for transient
@@ -253,7 +260,7 @@ func stageAgentRelease(ctx context.Context, payload releaseUpdatePayload, cfg re
 	if err != nil {
 		return releaseStageResult{}, fmt.Errorf("marshal manifest: %w", err)
 	}
-	if err := verifyReleaseManifestSignature(manifestJSON, payload.Signature); err != nil {
+	if err := verifyReleaseManifestSignature(manifestJSON, payload.Signature, cfg.SigningPublicKey); err != nil {
 		return releaseStageResult{}, err
 	}
 
@@ -736,8 +743,8 @@ func normalizeReleaseCapabilities(capabilities []string) []string {
 	return normalized
 }
 
-func verifyReleaseManifestSignature(manifestJSON []byte, signature string) error {
-	publicKey, err := releaseVerificationKey()
+func verifyReleaseManifestSignature(manifestJSON []byte, signature, signingPublicKey string) error {
+	publicKey, err := releaseVerificationKey(signingPublicKey)
 	if err != nil {
 		return err
 	}
@@ -751,8 +758,10 @@ func verifyReleaseManifestSignature(manifestJSON []byte, signature string) error
 	return nil
 }
 
-func releaseVerificationKey() (ed25519.PublicKey, error) {
-	keyValue := strings.TrimSpace(ReleaseSigningPublicKey)
+// releaseVerificationKey resolves the verification key: the injected
+// candidate wins, then the environment fallback, else the key is unset.
+func releaseVerificationKey(candidate string) (ed25519.PublicKey, error) {
+	keyValue := strings.TrimSpace(candidate)
 	if keyValue == "" {
 		keyValue = strings.TrimSpace(os.Getenv(releasePublicKeyEnv))
 	}

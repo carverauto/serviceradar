@@ -167,8 +167,9 @@ func stageAddonArtifact(
 	downloader ObjectStore,
 	root string,
 	a *proto.AddonAssignmentConfig,
+	signingPublicKey string,
 ) (string, error) {
-	return stageAddonArtifactWithClient(ctx, downloader, nil, root, a)
+	return stageAddonArtifactWithClient(ctx, downloader, nil, root, a, signingPublicKey)
 }
 
 // stageAddonArtifactWithClient is stageAddonArtifact with an optional gateway HTTP
@@ -184,6 +185,7 @@ func stageAddonArtifactWithClient(
 	httpClient *http.Client,
 	root string,
 	a *proto.AddonAssignmentConfig,
+	signingPublicKey string,
 ) (string, error) {
 	objectKey := strings.TrimSpace(a.GetArtifactObjectKey())
 	wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256()))
@@ -227,7 +229,7 @@ func stageAddonArtifactWithClient(
 	// finalized by the build/signing pipeline (add-native-addon-build-signing); until
 	// then the caller decides whether to allow an unsigned artifact through.
 	if sig := strings.TrimSpace(a.GetArtifactSignature()); sig != "" {
-		if err := verifyAddonArtifactSignature(data, sig); err != nil {
+		if err := verifyAddonArtifactSignature(data, sig, signingPublicKey); err != nil {
 			return "", err
 		}
 	}
@@ -851,8 +853,8 @@ func downloadAddonArtifactHTTP(ctx context.Context, client *http.Client, downloa
 // verifyAddonArtifactSignature verifies an ed25519 signature over the artifact bytes
 // using the agent release trust root (reused per the 3425 decision to share the
 // existing signing key); the build/signing pipeline finalizes key management.
-func verifyAddonArtifactSignature(data []byte, signature string) error {
-	key, err := releaseVerificationKey()
+func verifyAddonArtifactSignature(data []byte, signature, signingPublicKey string) error {
+	key, err := releaseVerificationKey(signingPublicKey)
 	if err != nil {
 		return fmt.Errorf("addon signature verification key: %w", err)
 	}

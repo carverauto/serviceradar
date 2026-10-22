@@ -156,7 +156,7 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 	httpClient := p.gatewayAddonHTTPClient(a)
 
 	root := resolveAddonArtifactRoot("")
-	resolved, err := stageAddonArtifactWithClient(ctx, store, httpClient, root, a)
+	resolved, err := stageAddonArtifactWithClient(ctx, store, httpClient, root, a, embeddedReleaseSigningPublicKey())
 	if err != nil {
 		return "", err
 	}
