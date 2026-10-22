@@ -1,6 +1,7 @@
 defmodule ServiceRadar.EventWriter.Processors.FlowAttributionObservationsTest do
   use ExUnit.Case, async: true
 
+  alias Serviceradar.Agent.Netprobe.V1.ExecutableOwnership
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.Schema
@@ -37,6 +38,15 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionObservationsTest do
         redacted_cmdline: ["server", "--listen"],
         container_id: "abc123",
         workload_identity: %{pod_name: "web-0", pod_namespace: "shop"},
+        executable_ownership: %ExecutableOwnership{
+          resolution_state: :EXECUTABLE_OWNERSHIP_STATE_RESOLVED,
+          source_scope: "container",
+          package_type: "apk",
+          package_manager: "apk",
+          binary_package: "example-server",
+          installed_version: "1.0.0-r0",
+          resolver: :EXECUTABLE_OWNERSHIP_RESOLVER_APK
+        },
         observed_at_unix_nano: 1_790_000_000_000_000_000
       },
       overrides
@@ -95,6 +105,12 @@ defmodule ServiceRadar.EventWriter.Processors.FlowAttributionObservationsTest do
              "pod_name" => "web-0",
              "pod_namespace" => "shop"
            }
+
+    assert %{
+             "resolution_state" => "resolved",
+             "binary_package" => "example-server",
+             "package_identity_key" => "pkgid:v1:" <> _
+           } = Jason.decode!(row["executable_ownership"])
   end
 
   test "a failed load fails the batch so JetStream redelivers it" do

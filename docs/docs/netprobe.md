@@ -216,6 +216,12 @@ Workload Identity -> base agent -> agent-gateway -> core (CNPG workload_identity
 k8s-inventory -> NATS -> EventWriter -> public_endpoints_current (VIP mapping)
 ```
 
+Each observation also keeps netprobe's `executable_ownership` reference in the
+`executable_ownership` column of `flow_process_attribution_observations`: the
+resolution state, and for a resolved executable the owning package and the
+`package_identity_key` core derives for it, the same key the vulnerability matcher
+uses for that inventory package.
+
 The join happens centrally so ServiceRadar can retain enough host evidence for
 delayed NetFlow batches and can enrich the same flow record with workload identity,
 public VIP ownership, reverse DNS, service-port mapping, threat intelligence, and

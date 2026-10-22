@@ -112,14 +112,16 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   }
 
   # priv/starrocks/0026: every column of flow_process_attribution_observations
-  # under the same name, as built by FlowAttribution.EventRows. comm, cmdline and
-  # workload_identity come from the edge and are truncated UTF-8-safely to their
-  # column widths so no observation is filtered out of a Stream Load batch.
+  # under the same name, as built by FlowAttribution.EventRows. comm, cmdline,
+  # workload_identity and executable_ownership come from the edge and are truncated
+  # UTF-8-safely to their column widths so no observation is filtered out of a Stream
+  # Load batch.
   @observation_limits %{
     comm: 256,
     cmdline: 65_533,
     container_id: 256,
-    workload_identity: 1_048_576
+    workload_identity: 1_048_576,
+    executable_ownership: 65_533
   }
 
   @spec encode(dataset(), [map()]) :: [map()]
@@ -161,7 +163,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
       "uid" => value(row, :uid),
       "container_id" => observation_bounded(:container_id, value(row, :container_id)),
       "workload_identity" =>
-        observation_bounded(:workload_identity, json_text(value(row, :workload_identity)))
+        observation_bounded(:workload_identity, json_text(value(row, :workload_identity))),
+      "executable_ownership" =>
+        observation_bounded(:executable_ownership, json_text(value(row, :executable_ownership)))
     }
   end
 

@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS serviceradar.flow_process_attribution_observations (
   cmdline VARCHAR(65533),
   uid BIGINT,
   container_id VARCHAR(256),
-  workload_identity VARCHAR(1048576)
+  workload_identity VARCHAR(1048576),
+  executable_ownership VARCHAR(65533)
 )
 DUPLICATE KEY (observed_at, `partition`, proto, local_ip)
 PARTITION BY date_trunc('day', observed_at)
