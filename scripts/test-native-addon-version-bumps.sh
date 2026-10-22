@@ -8,7 +8,7 @@ fi
 
 guard_source="$1"
 fixture="$(mktemp -d "${TMPDIR:-/tmp}/native-addon-version-gate.XXXXXX")"
-trap 'rm -rf "${fixture}"' EXIT
+trap 'rm -rf "${fixture}" "${fixture}-corrupt"' EXIT
 
 expect_failure() {
   local expected="$1" output
@@ -61,7 +61,7 @@ printf 'version: 0.1.0\n' >addons/otel-collector/addon.yaml
 printf '[package]\nname = "otel-addon"\nversion = "0.1.0"\n' >rust/otel-addon/Cargo.toml
 mkdir -p rust/otel/src
 printf 'pub fn collector() {}\n' >rust/otel/src/lib.rs
-printf 'version: 0.1.0\n' >addons/bumblebee-scan/addon.yaml
+printf 'name: bumblebee-scan\nversion: 0.1.0\n' >addons/bumblebee-scan/addon.yaml
 printf 'package bumblebee\n' >go/pkg/bumblebee/runner.go
 git add .
 git commit -qm "base"
@@ -153,6 +153,21 @@ git commit -qm "change bumblebee scanner payload"
 expect_failure \
   "bumblebee native add-on payload changed but addons/bumblebee-scan/addon.yaml stayed at 0.1.0" \
   scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
+
+# An unreadable tree object on the path to an existing manifest must fail
+# closed rather than look like the add-on is absent at both refs. The tree is
+# unchanged between base and head, so git diff never opens it.
+corrupt_repo="${fixture}-corrupt"
+cp -R "${fixture}" "${corrupt_repo}"
+bumblebee_tree="$(git rev-parse "${base_commit}:addons/bumblebee-scan")"
+rm -f "${corrupt_repo}/.git/objects/${bumblebee_tree:0:2}/${bumblebee_tree:2}"
+(
+  cd "${corrupt_repo}"
+  expect_failure \
+    "failed to inspect ${base_commit}:addons/bumblebee-scan/addon.yaml" \
+    scripts/check-native-addon-version-bumps.sh "${base_commit}" HEAD
+)
+rm -rf "${corrupt_repo}"
 
 # A git failure reading the base manifest (for example, a failed promisor fetch
 # in a blobless clone or a corrupt object) must fail closed rather than treating

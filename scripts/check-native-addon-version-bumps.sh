@@ -42,17 +42,13 @@ EOF
 fi
 
 git_show_optional() {
-  local ref="$1" path="$2" err output
-  if ! err="$(git cat-file -e "${ref}:${path}" 2>&1)"; then
-    case "${err}" in
-      *"does not exist in"*|*"but not in"*|*"Not a valid object name"*)
-        return 0
-        ;;
-      *)
-        echo "error: failed to inspect ${ref}:${path}: ${err:-git cat-file -e exited non-zero}" >&2
-        return 1
-        ;;
-    esac
+  local ref="$1" path="$2" listing output
+  if ! listing="$(git ls-tree --name-only "${ref}" -- "${path}" 2>&1)"; then
+    echo "error: failed to inspect ${ref}:${path}: ${listing:-git ls-tree exited non-zero}" >&2
+    return 1
+  fi
+  if [[ -z "${listing}" ]]; then
+    return 0
   fi
 
   if ! output="$(git show "${ref}:${path}" 2>&1)"; then
