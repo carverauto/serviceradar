@@ -1,7 +1,23 @@
 defmodule ServiceRadar.FlowAttribution.EventRows do
   @moduledoc false
 
+  alias Serviceradar.Agent.Netprobe.V1.ExecutableOwnership
   alias Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent
+  alias ServiceRadar.Inventory.EndpointPackageAssessmentIdentity
+
+  # The package identity fields of an ExecutableOwnership reference, the inputs of the
+  # assessment identity derivation (add-srql-exposure-intelligence, design Decision 18).
+  @package_fields [
+    :package_type,
+    :package_manager,
+    :namespace,
+    :release,
+    :ecosystem,
+    :binary_package,
+    :source_package,
+    :architecture,
+    :installed_version
+  ]
 
   @spec from_event(FlowAttributionEvent.t() | term(), String.t() | nil, String.t() | nil) ::
           map() | nil
@@ -23,7 +39,8 @@ defmodule ServiceRadar.FlowAttribution.EventRows do
         cmdline: cmdline_to_string(event.redacted_cmdline),
         uid: zero_to_nil(event.uid),
         container_id: blank_to_nil(event.container_id),
-        workload_identity: workload_identity_to_map(event.workload_identity)
+        workload_identity: workload_identity_to_map(event.workload_identity),
+        executable_ownership: executable_ownership_to_map(event.executable_ownership)
       })
     else
       _ -> nil
@@ -75,6 +92,58 @@ defmodule ServiceRadar.FlowAttribution.EventRows do
     |> Map.new()
     |> empty_map_to_nil()
   end
+
+  # Only a RESOLVED reference names a package, so package fields of any other state are
+  # dropped. Core derives the package identity key here with the same derivation the
+  # matcher applies to inventory packages; netprobe never sends one.
+  defp executable_ownership_to_map(%ExecutableOwnership{} = ownership) do
+    state = enum_suffix(ownership.resolution_state, "EXECUTABLE_OWNERSHIP_STATE_")
+
+    reference = %{
+      "resolution_state" => state,
+      "detail" => blank_to_nil(ownership.detail),
+      "source_scope" => blank_to_nil(ownership.source_scope),
+      "resolver" => enum_suffix(ownership.resolver, "EXECUTABLE_OWNERSHIP_RESOLVER_"),
+      "executable_path" => blank_to_nil(ownership.executable_path),
+      "executable_dev" => zero_to_nil(ownership.executable_dev),
+      "executable_inode" => zero_to_nil(ownership.executable_inode)
+    }
+
+    reference
+    |> Map.merge(resolved_package(state, ownership))
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+    |> empty_map_to_nil()
+  end
+
+  defp executable_ownership_to_map(_ownership), do: nil
+
+  defp resolved_package("resolved", ownership) do
+    package =
+      Map.new(@package_fields, fn field ->
+        {field, blank_to_nil(Map.get(ownership, field))}
+      end)
+
+    identity_key =
+      package
+      |> Map.put(:source_scope, blank_to_nil(ownership.source_scope))
+      |> EndpointPackageAssessmentIdentity.key()
+
+    package
+    |> Map.new(fn {field, value} -> {Atom.to_string(field), value} end)
+    |> Map.put("package_identity_key", identity_key)
+  end
+
+  defp resolved_package(_state, _ownership), do: %{}
+
+  defp enum_suffix(value, prefix) when is_atom(value) and not is_nil(value) do
+    case value |> Atom.to_string() |> String.replace_prefix(prefix, "") do
+      "UNSPECIFIED" -> nil
+      suffix -> String.downcase(suffix)
+    end
+  end
+
+  defp enum_suffix(_value, _prefix), do: nil
 
   defp empty_map_to_nil(value) when value == %{}, do: nil
   defp empty_map_to_nil(value) when is_map(value), do: value

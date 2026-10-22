@@ -84,7 +84,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.66"
+NETPROBE_VERSION = "0.2.67"
 
 cargo_build_script(
     name = "build_script",
@@ -141,6 +141,9 @@ rust_binary(
         # happened to loaded_tcp_attribution_test. The binary never reads it -- cfg(test)
         # -- this only makes the file visible to rustc.
         "testdata/libpcap_reference_programs.tsv",
+        # The synthetic rpm sqlite database read by `include_bytes!` in the #[cfg(test)]
+        # executable_ownership tests; declared here for the same reason.
+        "testdata/executable_ownership/rpmdb.sqlite",
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",

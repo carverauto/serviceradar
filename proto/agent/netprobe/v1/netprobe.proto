@@ -323,6 +323,69 @@ message WorkloadIdentity {
   map<string, string> annotations = 15;
 }
 
+// ExecutableOwnershipState says whether netprobe found the installed package
+// that owns a process's executable. Only RESOLVED names a package; every other
+// state leaves the package fields empty and is never filled in from the
+// process name or command line.
+enum ExecutableOwnershipState {
+  EXECUTABLE_OWNERSHIP_STATE_UNSPECIFIED = 0;
+  // A supported package database lists a path whose device and inode equal
+  // the running executable's.
+  EXECUTABLE_OWNERSHIP_STATE_RESOLVED = 1;
+  // The answer could not be determined: the process exited, the binary was
+  // deleted or replaced, the root has no package database, or the database
+  // was changing. `detail` names the reason.
+  EXECUTABLE_OWNERSHIP_STATE_UNKNOWN = 2;
+  // procfs or the process root denied access.
+  EXECUTABLE_OWNERSHIP_STATE_NOT_PERMITTED = 3;
+  // Supported package databases were read and no package owns the inode.
+  EXECUTABLE_OWNERSHIP_STATE_NOT_FOUND = 4;
+  // The only package database present uses an unsupported format, such as
+  // the rpm BerkeleyDB or NDB backend.
+  EXECUTABLE_OWNERSHIP_STATE_UNSUPPORTED_DB = 5;
+}
+
+// ExecutableOwnershipResolver names the package database that answered.
+enum ExecutableOwnershipResolver {
+  EXECUTABLE_OWNERSHIP_RESOLVER_UNSPECIFIED = 0;
+  EXECUTABLE_OWNERSHIP_RESOLVER_DPKG = 1;
+  EXECUTABLE_OWNERSHIP_RESOLVER_RPM = 2;
+  EXECUTABLE_OWNERSHIP_RESOLVER_APK = 3;
+}
+
+// ExecutableOwnership is the inventory package reference for the executable a
+// process runs (add-srql-exposure-intelligence, design Decision 18). It is
+// resolved once per executable (dev, inode) inside the process's own root, so
+// a containerized process resolves against its image's package database.
+//
+// The package fields are the inputs of core's package identity derivation;
+// netprobe never computes the identity key itself. Core derives it by matching
+// the reference to the device's current inventory package.
+message ExecutableOwnership {
+  ExecutableOwnershipState resolution_state = 1;
+  // Closed vocabulary naming why the state is not RESOLVED, for example
+  // "process_exited", "executable_replaced", "executable_deleted",
+  // "no_package_database", "rpmdb_wal_pending", "rpm_berkeleydb".
+  string detail = 2;
+  // "host" for a process in the host root, "container" otherwise.
+  string source_scope = 3;
+  string package_type = 4;
+  string package_manager = 5;
+  string namespace = 6;
+  string release = 7;
+  string ecosystem = 8;
+  string binary_package = 9;
+  string source_package = 10;
+  string architecture = 11;
+  string installed_version = 12;
+  // Provenance.
+  ExecutableOwnershipResolver resolver = 13;
+  // The executable path as the process root sees it.
+  string executable_path = 14;
+  uint64 executable_dev = 15;
+  uint64 executable_inode = 16;
+}
+
 message FlowAttributionEvent {
   string local_ip = 1;
   uint32 local_port = 2;
@@ -344,6 +407,7 @@ message FlowAttributionEvent {
   string source = 18;
   uint64 external_flow_id = 19;
   WorkloadIdentity workload_identity = 20;
+  ExecutableOwnership executable_ownership = 21;
 }
 
 // FlowAttributionEventBatch is the wire payload the agent ships to the
@@ -386,6 +450,7 @@ message ProcessSnapshotEntry {
   repeated string redacted_cmdline = 9;
   string container_id = 10;
   WorkloadIdentity workload_identity = 11;
+  ExecutableOwnership executable_ownership = 12;
 }
 
 message ExternalFlowRecord {
