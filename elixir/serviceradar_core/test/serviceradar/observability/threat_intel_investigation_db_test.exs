@@ -299,6 +299,31 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
     assert {:ok, %{rows: []}} = ThreatIntelEvidence.page_retrohunt_findings(scope, source: source)
   end
 
+  test "object filter matches a masked host to its bare address but not a network to its base",
+       %{actor: actor} do
+    source = unique_source("object-filter")
+    scope = %{actor: actor}
+
+    insert_source_object!(actor, source, "pulse-host", "198.51.100.10")
+    insert_source_object!(actor, source, "pulse-base-host", "198.51.100.0")
+    insert_source_object!(actor, source, "pulse-network", "198.51.100.0/24")
+
+    object_ids = fn indicator ->
+      assert {:ok, %{rows: rows}} =
+               ThreatIntelEvidence.page_source_objects(scope,
+                 source: source,
+                 indicator: indicator
+               )
+
+      rows |> Enum.map(& &1.object_id) |> Enum.sort()
+    end
+
+    assert object_ids.("198.51.100.10/32") == ["pulse-host"]
+    assert object_ids.("198.51.100.10") == ["pulse-host"]
+    assert object_ids.("198.51.100.0/24") == ["pulse-network"]
+    assert object_ids.("198.51.100.0/32") == ["pulse-base-host"]
+  end
+
   defp insert_source_object!(actor, source, object_id, indicator) do
     ThreatIntelSourceObject
     |> Ash.Changeset.for_create(:upsert, %{
