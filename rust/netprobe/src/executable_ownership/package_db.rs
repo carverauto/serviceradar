@@ -167,12 +167,18 @@ fn add_dpkg_package(
     // Multi-Arch: same packages keep their list under "<name>:<arch>.list".
     let qualified = format!("/var/lib/dpkg/info/{name}:{architecture}.list");
     let plain = format!("/var/lib/dpkg/info/{name}.list");
-    let Some(list) = [qualified, plain]
-        .iter()
-        .find_map(|path| root.open(path).ok())
-    else {
-        return None;
-    };
+    let mut list = None;
+    for path in [qualified, plain] {
+        match root.open(&path) {
+            Ok(file) => {
+                list = Some(file);
+                break;
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return Some(DatabaseOutcome::Unreadable),
+        }
+    }
+    let list = list?;
     for line in BufReader::new(list).lines() {
         let Ok(path) = line else {
             return Some(DatabaseOutcome::Unreadable);

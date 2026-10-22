@@ -330,7 +330,7 @@ fn unowned_executable_is_not_found_and_names_no_package() {
 
 #[test]
 fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
-    let cases: [PrecedenceCase; 6] = [
+    let cases: [PrecedenceCase; 7] = [
         (
             "berkeleydb",
             |root| write(&root.join("var/lib/rpm/Packages"), b"\0\0\0\0"),
@@ -376,6 +376,25 @@ fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
                     &root.join("var/lib/dpkg/info/example-daemon.list"),
                     b"/.\n/usr/lib/example\xff\n/usr/sbin/exampled\n",
                 );
+            },
+            OwnershipState::Unknown,
+            DETAIL_PACKAGE_DATABASE_UNREADABLE,
+        ),
+        (
+            "dpkg file list cannot be opened",
+            |root| {
+                dpkg(
+                    root,
+                    &[(
+                        "example-daemon",
+                        "2.0-1",
+                        "example-daemon",
+                        &["/usr/sbin/exampled"],
+                    )],
+                );
+                let list = root.join("var/lib/dpkg/info/example-daemon.list");
+                fs::remove_file(&list).unwrap();
+                symlink("example-daemon.list", &list).unwrap();
             },
             OwnershipState::Unknown,
             DETAIL_PACKAGE_DATABASE_UNREADABLE,
