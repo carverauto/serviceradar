@@ -36,6 +36,11 @@
   `in:attributed_flows`.
 - [ ] 3.4 Project bounded source/destination threat summaries without multiplying
   one flow into multiple result rows.
+  - Web-ng flow views (attributed flows and the NetFlow explorer) now project a
+    per-flow source/destination summary from one batched live-cache lookup per
+    page (`ThreatIntelInvestigation.endpoint_summaries/2` + `flow_summary/3`),
+    and both views offer an `IOC matches` (`threat_matched:true`) filter. Still
+    open: SRQL API rows do not carry `src_threat_*`/`dst_threat_*` columns.
 - [x] 3.5 Require/default a bounded time range for interactive threat-aware flow
   queries and route longer searches through retrohunt.
 - [x] 3.6 Parameterize every threat filter and reject unsupported operators, sort

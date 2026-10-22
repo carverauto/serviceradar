@@ -23,10 +23,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadar.Observability.OtelPubSub
+  alias ServiceRadar.Observability.ThreatIntelInvestigation
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNG.AlertActions
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.Components.PrefixTagChips
   alias ServiceRadarWebNGWeb.Components.ServicePicker
   alias ServiceRadarWebNGWeb.LogLive.EventSummary
@@ -45,6 +45,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.Observability.ServiceFilter
+  alias ServiceRadarWebNGWeb.Observability.ThreatIntelLinks
   alias ServiceRadarWebNGWeb.ObservabilityPaths
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
   alias ServiceRadarWebNGWeb.Stats
@@ -52,8 +53,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   require Ash.Query
   require Logger
-
-  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
   @default_limit 20
   @max_limit 100
@@ -4068,6 +4067,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
             }
           >
             Compact
+          </.ui_button>
+
+          <.ui_button
+            id="netflows-ioc-filter"
+            size="xs"
+            variant="ghost"
+            active={ThreatIntelLinks.threat_matched?(@query)}
+            class="rounded-full"
+            title="Show only flows with a current threat-intel (IOC) match"
+            patch={
+              netflow_talker_cidr_patch(
+                @base_path,
+                ThreatIntelLinks.toggle_threat_matched(@query),
+                @limit,
+                patch_opts
+              )
+            }
+          >
+            IOC matches
           </.ui_button>
         </div>
       </div>
@@ -8447,7 +8465,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       NetflowRuntime.run_concurrently([
         {:summary, fn -> maybe_load_netflow_summary(socket, srql_module, scope) end, empty_netflow_summary()},
         {:top_talkers, fn -> load_netflow_top_talkers(srql_module, query, scope, talker_cidr) end, []},
-        {:threat_map, fn -> load_netflow_threat_map(netflows) end, %{}},
+        {:threat_map, fn -> load_netflow_threat_map(netflows, scope) end, %{}},
         {:top_ports, fn -> load_netflow_top_ports(srql_module, query, scope) end, []},
         {:timeseries, fn -> load_netflow_timeseries(srql_module, query, scope) end, %{bucket_seconds: 300, points: []}},
         {:frequent_talkers_packets, fn -> load_netflow_frequent_talkers_packets(srql_module, query, scope) end, []},
@@ -9284,50 +9302,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp load_netflow_threat_map(flows) when is_list(flows) do
+  defp load_netflow_threat_map(flows, scope) when is_list(flows) do
     ips =
       flows
       |> Enum.flat_map(fn flow -> [netflow_addr(flow, :src), netflow_addr(flow, :dst)] end)
       |> Enum.map(&to_string/1)
       |> Enum.map(&String.trim/1)
       |> Enum.reject(&(&1 in ["", "—", "-", "Unknown"]))
-      |> Enum.uniq()
-      |> Enum.take(400)
 
-    threat_map_for_ips(ips)
-  end
+    case ThreatIntelInvestigation.endpoint_summaries(scope, ips) do
+      {:ok, summaries} ->
+        summaries
 
-  defp load_netflow_threat_map(_flows), do: %{}
-
-  defp threat_map_for_ips([]), do: %{}
-
-  @sobelow_skip ["SQL.Query"]
-  defp threat_map_for_ips(ips) when is_list(ips) do
-    sql = """
-    SELECT ip, match_count, max_severity, sources
-    FROM platform.ip_threat_intel_cache
-    WHERE ip = ANY($1::text[])
-      AND matched = true
-      AND expires_at > now()
-    """
-
-    case Repo.query(sql, [ips]) do
-      {:ok, %{rows: rows}} ->
-        Map.new(rows, fn [ip, match_count, max_severity, sources] ->
-          {ip,
-           %{
-             match_count: to_int(match_count),
-             max_severity: to_int(max_severity),
-             sources: sources |> List.wrap() |> Enum.map(&to_string/1) |> Enum.reject(&(&1 == ""))
-           }}
-        end)
-
-      _ ->
+      {:error, reason} ->
+        Logger.warning("NetFlow threat-intel lookup failed: #{inspect(reason)}")
         %{}
     end
-  rescue
-    _ -> %{}
   end
+
+  defp load_netflow_threat_map(_flows, _scope), do: %{}
 
   defp sanitize_srql_for_stats(query), do: NFQuery.flows_sanitize_for_stats(to_string(query))
 
