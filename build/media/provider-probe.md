@@ -64,6 +64,7 @@ response is an unresolved operation, not permission to adopt an existing resourc
    endpoint type privately; a passing E3 result is not evidence for another type.
 3. Create one explicitly region-scoped bootstrap key with
    `linode-cli object-storage keys-create --label <fresh-label> --regions <region> --json`.
+   Use a compact label such as `vms-<run_id>-boot`; keep purpose suffixes short.
    Capture its response directly into a private mode-0600 file. Never list or read
    existing access keys. Record only its returned key ID in the operator journal.
 4. Supply that new key only to the immediate `linode-cli obj` child environment
@@ -127,7 +128,7 @@ kubectl --context <context> -n <namespace> logs job/<fresh-job-name> --limit-byt
 
 The JSON result and process exit code are both evidence. A Job that terminates
 without a result, times out, or exits nonzero has not passed. Missing checks were
-not executed. `unsupported`, `failed`, and `incomplete` are not passes.
+not executed. `not_confirmed`, `unsupported`, `failed`, and `incomplete` are not passes.
 
 After the Job stops, use a private copy of
 [provider-probe-recovery.yaml](provider-probe-recovery.yaml) with the same PVC and
@@ -154,7 +155,7 @@ after retrieval; no sleep container or retrieval deadline is required.
 | Checksum rejection | Intentionally wrong signed `Content-MD5` receives `BadDigest`; no object remains |
 | Multipart | 5 MiB first part plus 4 KiB tail; completion, full SHA-256 and a 32-byte cross-part range |
 | Abort | Separate 5 MiB upload aborted; exact upload returns `NoSuchUpload`; no completed object |
-| Encryption | Both small and multipart HEAD responses identify `AES256`; missing evidence is unsupported |
+| Default SSE-S3 evidence | Both small and multipart HEAD responses identify `AES256`; missing evidence is `not_confirmed` |
 | Cleanup | Exact owned uploads absent and exact owned objects absent after deletion; no unresolved version/initiation receipts |
 
 There are at most 80 diagnostic requests plus 30 cleanup requests. Diagnostics
@@ -205,10 +206,50 @@ permissions include operations such as object deletion and bucket creation/listi
 The diagnostic does not try to modify bucket policy, lifecycle or versioning, or
 pretend these administration denials were measured. It always reports
 `recorder_credentials: unsupported`, `policy_enforcement: not_tested` and
-`object_lock: not_tested`. Cloud provisioning, storage-broker credentials, object
-lock/retention, key revocation behavior, capability revocation races, and provider
+`object_lock: not_tested`. It also reports `explicit_sse_s3: not_tested`: uploads
+do not request `x-amz-server-side-encryption`, so a missing HEAD response header
+does not prove that an explicit SSE-S3 request would fail or that provider disks
+lack encryption. `atomic_no_overwrite: not_tested` records that neither PUT nor
+multipart completion sends `If-None-Match: *`. An earlier HEAD 404 is collision
+hygiene for the isolated run, not an atomic archive-write guarantee.
+
+Cloud provisioning, storage-broker credentials, object
+lock/retention, in-flight capability revocation races, and provider
 outage recovery require separate work. Default encryption is verified on newly
 written objects because provider rollout and endpoint capabilities can differ.
+
+Akamai documents a phased E2/E3 default SSE-S3 rollout from October 6 through
+November 16, 2026. Objects uploaded before enablement are not retroactively
+encrypted; its guidance requires checking the individual object's HEAD response.
+An endpoint type or calendar date alone cannot establish object encryption.
+See the [SSE-S3 guide](https://techdocs.akamai.com/cloud-computing/docs/default-encryption-at-rest-sse-s3)
+and [rollout announcement](https://techdocs.akamai.com/cloud-computing/changelog/sep-28-2026-obj).
+
+## Initial live exercise: partial evidence
+
+The initial authorized exercise verified private access, intended object-role
+denials, signed checksum rejection, conditional reads, and bounded range/hash
+checks using invented bytes. It did not complete the multipart test: the probe's
+receipt parser rejected a legal unreserved tilde in an opaque upload ID. The
+parser now admits that character within its existing length bound, and a wholly
+invented receipt exercises completion, abort and cleanup through the TLS fixture.
+Other unsupported receipt forms still fail closed and preserve pending authority.
+This is a bounded diagnostic parser, not a general S3 XML implementation.
+
+The live HEAD response did not attest default SSE-S3. Explicit encryption requests
+and atomic no-overwrite remain untested. A synthetic regression fix is not a live
+multipart pass; the overall live evidence remains partial and Cloud readiness is
+unestablished.
+
+Cleanup was completed before investigating or changing the parser. The operator
+reconciled the sole pending initiation to its exact test key and upload ID,
+aborted it, and verified `NoSuchUpload`. Both fresh buckets were verified empty
+of objects, versions, delete markers and uploads, removed non-recursively, and
+verified absent. All four created keys were revoked; their signed requests
+returned `InvalidAccessKeyId` afterward. The Job and its Pod, credential Secret,
+runtime ConfigMap, recovery Pod, PVC, PV and backing storage volume were removed
+and absence rechecked. Credential files were then removed. Exact operational
+receipts remain private; no live identifiers or response captures belong here.
 
 Primary references:
 

@@ -126,6 +126,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          cloud_ready: false,
          recorder_credentials: :unsupported,
          policy_enforcement: :not_tested,
+         explicit_sse_s3: :not_tested,
+         atomic_no_overwrite: :not_tested,
          object_lock: :not_tested
        }}
     end
@@ -288,7 +290,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          :ok <- journal(state),
          {:ok, r, state} <- request(state, :a, :writer, :post, key, "uploads"),
          {:ok, state} <- expect(state, r, [200]) do
-      case Regex.run(~r/<UploadId>([A-Za-z0-9+\/=._-]{1,1024})<\/UploadId>/, r.body) do
+      # Admit bounded URL tokens, including every RFC3986 unreserved character.
+      # Other XML/text forms stay pending for exact operator reconciliation.
+      case Regex.run(~r/<UploadId>([A-Za-z0-9+\/=._~-]{1,1024})<\/UploadId>/, r.body) do
         [_, id] ->
           upload = %{key: key, id: id}
           state = %{state | pending_uploads: List.delete(state.pending_uploads, key), uploads: [upload | state.uploads]}
@@ -546,7 +550,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   defp valid_etag?(etag), do: is_binary(etag) and Regex.match?(~r/^"[a-zA-Z0-9-]+"$/, etag)
 
   defp encryption(response),
-    do: if(header(response, "x-amz-server-side-encryption") == "AES256", do: :passed, else: :unsupported)
+    do: if(header(response, "x-amz-server-side-encryption") == "AES256", do: :passed, else: :not_confirmed)
 
   defp failure(reason) when reason in [:checksum_not_proven, :condition_not_proven, :condition_not_enforced],
     do: :unsupported

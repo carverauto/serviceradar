@@ -57,7 +57,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
   test "real TLS workflow checks bytes, denies unsafe roles, aborts and cleans exact owned objects", ctx do
     path = Path.join(ctx.tmp_dir, "cleanup.json")
 
-    assert {:ok, %{status: :passed, checks: checks, recorder_credentials: :unsupported}} =
+    assert {:ok,
+            %{
+              status: :passed,
+              checks: checks,
+              recorder_credentials: :unsupported,
+              explicit_sse_s3: :not_tested,
+              atomic_no_overwrite: :not_tested
+            }} =
              ProviderProbe.run(ctx.config, path)
 
     assert checks.range_identity_hash == :passed
@@ -87,8 +94,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
     assert {:error, :eexist} = ProviderProbe.run(ctx.config, path)
   end
 
-  test "missing encryption is unsupported and a 200 range fallback is a failure, both still clean", ctx do
-    for mode <- [:no_encryption, :range_fallback] do
+  test "missing default-encryption evidence and a 200 range fallback fail, both still clean", ctx do
+    for mode <- [:no_encryption_header, :range_fallback] do
       Agent.update(ctx.store, &%{&1 | mode: mode})
 
       assert {:ok, %{status: :failed, checks: checks}} =
@@ -96,8 +103,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
 
       assert checks.cleanup == :passed
 
-      if mode == :no_encryption,
-        do: assert(checks.encryption == :unsupported),
+      if mode == :no_encryption_header,
+        do: assert(checks.encryption == :not_confirmed and checks.multipart_encryption == :not_confirmed),
         else: assert(checks.range_identity_hash == :failed)
 
       assert Agent.get(ctx.store, & &1.objects) == %{}
@@ -323,7 +330,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
   end
 
   defp route(state, _, path, %{"uploads" => _}, _, _) do
-    id = "invented-upload-#{map_size(state.uploads)}"
+    id = "invented~receipt-#{map_size(state.uploads)}.+/="
 
     {{200, %{}, "<InitiateMultipartUploadResult><UploadId>#{id}</UploadId></InitiateMultipartUploadResult>"},
      put_in(state.uploads[id], %{path: path, parts: %{}})}
@@ -374,7 +381,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
         output = %{"etag" => etag, "content-length" => to_string(byte_size(bytes))}
 
         output =
-          if(state.mode == :no_encryption, do: output, else: Map.put(output, "x-amz-server-side-encryption", "AES256"))
+          if(state.mode == :no_encryption_header,
+            do: output,
+            else: Map.put(output, "x-amz-server-side-encryption", "AES256")
+          )
 
         cond do
           headers["if-match"] && headers["if-match"] != etag ->

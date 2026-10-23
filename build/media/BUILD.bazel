@@ -16,12 +16,14 @@ oci_push(
     image = "//docker/images:core_elx_image_amd64",
     remote_tags = "//docker/images:core_elx_image_amd64_commit_tag",
     repository = "registry.carverauto.dev/serviceradar/serviceradar-core-elx",
+    tags = ["manual"],
 )
 
 # These providers supply client runtime binaries; they execute no build action.
 # Register explicitly for this launcher. Linux image actions retain RBE tools.
 toolchain(
     name = "provider_probe_crane_runtime",
+    tags = ["manual"],
     target_compatible_with = [
         "@platforms//cpu:aarch64",
         "@platforms//os:macos",
@@ -32,6 +34,7 @@ toolchain(
 
 toolchain(
     name = "provider_probe_jq_runtime",
+    tags = ["manual"],
     target_compatible_with = [
         "@platforms//cpu:aarch64",
         "@platforms//os:macos",
