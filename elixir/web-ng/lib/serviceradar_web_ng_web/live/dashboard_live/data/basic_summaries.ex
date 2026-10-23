@@ -9,17 +9,22 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.BasicSummaries do
           sql = """
           SELECT
             COUNT(*)::bigint AS total,
-            COUNT(*) FILTER (WHERE is_available = true)::bigint AS available
+            COUNT(*) FILTER (WHERE is_available = true)::bigint AS available,
+            COUNT(*) FILTER (WHERE is_available = false)::bigint AS unavailable
           FROM platform.ocsf_devices
           WHERE deleted_at IS NULL
+            AND source_retired_at IS NULL
+            AND COALESCE(metadata->>'identity_state', '') NOT IN ('source_retired', 'superseded')
             AND is_active = true
           """
 
           case ServiceRadarWebNG.Repo.query(sql, []) do
-            {:ok, %{rows: [[total, available]]}} ->
-              total = to_int(total)
-              available = to_int(available)
-              %{total: total, available: available, unavailable: max(total - available, 0)}
+            {:ok, %{rows: [[total, available, unavailable]]}} ->
+              %{
+                total: to_int(total),
+                available: to_int(available),
+                unavailable: to_int(unavailable)
+              }
 
             _ ->
               empty_device_summary()
