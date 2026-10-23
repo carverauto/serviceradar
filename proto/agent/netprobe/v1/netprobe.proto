@@ -364,8 +364,9 @@ enum ExecutableOwnershipResolver {
 message ExecutableOwnership {
   ExecutableOwnershipState resolution_state = 1;
   // Closed vocabulary naming why the state is not RESOLVED, for example
-  // "process_exited", "executable_replaced", "executable_deleted",
-  // "no_package_database", "rpmdb_wal_pending", "rpm_berkeleydb".
+  // "process_exited", "executable_deleted", "no_package_database",
+  // "package_database_unreadable", "rpm_berkeleydb". A committed rpm
+  // write-ahead log is part of the database and is not a detail.
   string detail = 2;
   // "host" for a process in the host root, "container" otherwise.
   string source_scope = 3;

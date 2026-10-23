@@ -7,8 +7,8 @@
 //! match a reference to the inventory package.
 
 use std::collections::HashMap;
-use std::fs;
-use std::io::{self, BufRead, BufReader};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read};
 use std::path::Path;
 
 use super::root_path::RootFs;
@@ -28,7 +28,7 @@ impl OsRelease {
     pub fn read(root: &RootFs) -> Self {
         let contents = ["/etc/os-release", "/usr/lib/os-release"]
             .iter()
-            .find_map(|path| root.read_to_string(path).ok())
+            .find_map(|path| root.read_to_string(path, MAX_OS_RELEASE_BYTES).ok())
             .unwrap_or_default();
         let fields = parse_os_release(&contents);
         let get = |key: &str| fields.get(key).cloned().unwrap_or_default();
@@ -39,6 +39,22 @@ impl OsRelease {
             build_id: get("BUILD_ID"),
         }
     }
+}
+
+/// Largest `os-release` prefix read; a real one is a few hundred bytes.
+const MAX_OS_RELEASE_BYTES: u64 = 64 * 1024;
+/// Largest dpkg status, dpkg file list or apk installed database read. A larger one is
+/// unreadable rather than silently truncated.
+const MAX_TEXT_DATABASE_BYTES: u64 = 256 * 1024 * 1024;
+
+/// Line reader over at most one byte more than `MAX_TEXT_DATABASE_BYTES`, so
+/// `exceeds_text_database_cap` can tell a file that was cut short.
+fn text_database_reader(file: File) -> BufReader<io::Take<File>> {
+    BufReader::new(file.take(MAX_TEXT_DATABASE_BYTES + 1))
+}
+
+fn exceeds_text_database_cap(reader: &BufReader<io::Take<File>>) -> bool {
+    reader.get_ref().limit() == 0
 }
 
 fn parse_os_release(contents: &str) -> HashMap<String, String> {
@@ -65,8 +81,6 @@ pub enum DatabaseOutcome {
     Read,
     /// The database is present but could not be parsed.
     Unreadable,
-    /// The rpm sqlite backend has a pending write-ahead log.
-    WalPending,
     /// Only the rpm BerkeleyDB backend is present.
     RpmBerkeleyDb,
     /// Only the rpm NDB backend is present.
@@ -75,8 +89,8 @@ pub enum DatabaseOutcome {
 
 /// Receives each installed package and the paths it installs.
 pub trait PackageSink {
-    /// Registers a package and returns its index for `add_path`.
-    fn add_package(&mut self, package: OwningPackage, resolver: PackageResolver) -> u32;
+    /// Registers a package and returns its index for `add_path`, or `None` to stop reading.
+    fn add_package(&mut self, package: OwningPackage, resolver: PackageResolver) -> Option<u32>;
     /// Records that `package` installs `path`. Returns `false` to stop reading.
     fn add_path(&mut self, package: u32, path: &str) -> bool;
 }
@@ -91,13 +105,16 @@ pub fn read_dpkg(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> D
     let release = non_empty_or(&os.version_codename, &os.version_id);
 
     let mut stanza: HashMap<String, String> = HashMap::new();
-    for line in BufReader::new(status).lines() {
+    let mut status = text_database_reader(status);
+    for line in (&mut status).lines() {
         let Ok(line) = line else {
             return DatabaseOutcome::Unreadable;
         };
         if line.trim().is_empty() {
-            if !stanza.is_empty() && !add_dpkg_package(root, &stanza, &namespace, &release, sink) {
-                return DatabaseOutcome::Read;
+            if !stanza.is_empty()
+                && let Some(outcome) = add_dpkg_package(root, &stanza, &namespace, &release, sink)
+            {
+                return outcome;
             }
             stanza.clear();
             continue;
@@ -110,27 +127,33 @@ pub fn read_dpkg(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> D
             stanza.insert(key.trim().to_string(), value.trim().to_string());
         }
     }
-    if !stanza.is_empty() {
-        add_dpkg_package(root, &stanza, &namespace, &release, sink);
+    if exceeds_text_database_cap(&status) {
+        return DatabaseOutcome::Unreadable;
+    }
+    if !stanza.is_empty()
+        && let Some(outcome) = add_dpkg_package(root, &stanza, &namespace, &release, sink)
+    {
+        return outcome;
     }
     DatabaseOutcome::Read
 }
 
-/// Returns `false` when the sink asked to stop.
+/// Returns the database outcome when reading must stop: the sink asked to stop, or a file
+/// list could not be read to the end.
 fn add_dpkg_package(
     root: &RootFs,
     stanza: &HashMap<String, String>,
     namespace: &str,
     release: &str,
     sink: &mut dyn PackageSink,
-) -> bool {
+) -> Option<DatabaseOutcome> {
     let field = |key: &str| stanza.get(key).map(String::as_str).unwrap_or_default();
     let name = field("Package");
     let version = field("Version");
     // "want flag status": only "installed" packages own files on disk.
     let installed = field("Status").split_whitespace().nth(2) == Some("installed");
     if name.is_empty() || version.is_empty() || !installed {
-        return true;
+        return None;
     }
     let architecture = field("Architecture");
     let source = field("Source")
@@ -139,12 +162,13 @@ fn add_dpkg_package(
         .filter(|source| !source.is_empty())
         .unwrap_or(name);
 
-    let index = sink.add_package(
+    let Some(index) = sink.add_package(
         OwningPackage {
             package_type: "deb".to_string(),
             package_manager: "dpkg".to_string(),
-            // The endpoint inventory stores no ecosystem for OS packages, so an empty
-            // value is what the assessment identity hashes.
+            // The endpoint inventory stores no ecosystem for OS packages; core maps this blank
+            // value to an absent (nil) component before deriving the package identity key, as
+            // it does for every blank identity field.
             ecosystem: String::new(),
             namespace: namespace.to_string(),
             release: release.to_string(),
@@ -154,26 +178,37 @@ fn add_dpkg_package(
             installed_version: version.to_string(),
         },
         PackageResolver::Dpkg,
-    );
+    ) else {
+        return Some(DatabaseOutcome::Read);
+    };
 
     // Multi-Arch: same packages keep their list under "<name>:<arch>.list".
     let qualified = format!("/var/lib/dpkg/info/{name}:{architecture}.list");
     let plain = format!("/var/lib/dpkg/info/{name}.list");
-    let Some(list) = [qualified, plain]
-        .iter()
-        .find_map(|path| root.open(path).ok())
-    else {
-        return true;
-    };
-    for line in BufReader::new(list).lines() {
-        let Ok(path) = line else {
-            break;
-        };
-        if path.starts_with('/') && path != "/." && !sink.add_path(index, &path) {
-            return false;
+    let mut list = None;
+    for path in [qualified, plain] {
+        match root.open(&path) {
+            Ok(file) => {
+                list = Some(file);
+                break;
+            }
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {}
+            Err(_) => return Some(DatabaseOutcome::Unreadable),
         }
     }
-    true
+    let mut list = text_database_reader(list?);
+    for line in (&mut list).lines() {
+        let Ok(path) = line else {
+            return Some(DatabaseOutcome::Unreadable);
+        };
+        if path.starts_with('/') && path != "/." && !sink.add_path(index, &path) {
+            return Some(DatabaseOutcome::Read);
+        }
+    }
+    if exceeds_text_database_cap(&list) {
+        return Some(DatabaseOutcome::Unreadable);
+    }
+    None
 }
 
 pub fn read_apk(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> DatabaseOutcome {
@@ -187,7 +222,8 @@ pub fn read_apk(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
     let mut current: Option<u32> = None;
     let mut pending = ApkRecord::default();
     let mut dir = String::new();
-    for line in BufReader::new(installed).lines() {
+    let mut installed = text_database_reader(installed);
+    for line in (&mut installed).lines() {
         let Ok(line) = line else {
             return DatabaseOutcome::Unreadable;
         };
@@ -212,10 +248,12 @@ pub fn read_apk(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
                         if pending.name.is_empty() || pending.version.is_empty() {
                             continue;
                         }
-                        let index = sink.add_package(
+                        let Some(index) = sink.add_package(
                             pending.to_package(&namespace, &os.version_id),
                             PackageResolver::Apk,
-                        );
+                        ) else {
+                            return DatabaseOutcome::Read;
+                        };
                         current = Some(index);
                         index
                     }
@@ -231,6 +269,9 @@ pub fn read_apk(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
             }
             _ => {}
         }
+    }
+    if exceeds_text_database_cap(&installed) {
+        return DatabaseOutcome::Unreadable;
     }
     DatabaseOutcome::Read
 }
@@ -250,8 +291,9 @@ impl ApkRecord {
         OwningPackage {
             package_type: "apk".to_string(),
             package_manager: "apk".to_string(),
-            // The endpoint inventory stores no ecosystem for OS packages, so an empty
-            // value is what the assessment identity hashes.
+            // The endpoint inventory stores no ecosystem for OS packages; core maps this blank
+            // value to an absent (nil) component before deriving the package identity key, as
+            // it does for every blank identity field.
             ecosystem: String::new(),
             namespace: namespace.to_string(),
             release: release.to_string(),
@@ -272,9 +314,6 @@ pub fn read_rpm(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
     let mut outcome = DatabaseOutcome::Absent;
     for directory in RPM_DIRECTORIES {
         if let Ok(sqlite) = root.resolve(&format!("{directory}/rpmdb.sqlite")) {
-            if wal_pending(&sqlite) {
-                return DatabaseOutcome::WalPending;
-            }
             return match read_rpm_sqlite(&sqlite, os, sink) {
                 Ok(()) => DatabaseOutcome::Read,
                 Err(_) => DatabaseOutcome::Unreadable,
@@ -289,14 +328,6 @@ pub fn read_rpm(root: &RootFs, os: &OsRelease, sink: &mut dyn PackageSink) -> Da
     outcome
 }
 
-/// SQLite deletes the write-ahead log when the last connection closes, so a non-empty
-/// log means a transaction is open or was interrupted and the main file may be stale.
-fn wal_pending(database: &Path) -> bool {
-    let mut wal = database.as_os_str().to_owned();
-    wal.push("-wal");
-    fs::metadata(Path::new(&wal)).is_ok_and(|metadata| metadata.len() > 0)
-}
-
 fn read_rpm_sqlite(
     path: &Path,
     os: &OsRelease,
@@ -308,24 +339,27 @@ fn read_rpm_sqlite(
     };
     let namespace = rpm_namespace(&os.id);
     let release = rpm_distro(os);
+    let mut malformed = false;
     database.scan_table(root_page, |_, columns| {
         let Some(Value::Blob(blob)) = columns.into_iter().find(|v| matches!(v, Value::Blob(_)))
         else {
             return true;
         };
         let Some(package) = rpm_header::parse(&blob) else {
-            return true;
+            malformed = true;
+            return false;
         };
         // gpg-pubkey pseudo-packages install no files.
         if package.executable_paths.is_empty() {
             return true;
         }
-        let index = sink.add_package(
+        let Some(index) = sink.add_package(
             OwningPackage {
                 package_type: "rpm".to_string(),
                 package_manager: "rpm".to_string(),
-                // The endpoint inventory stores no ecosystem for OS packages, so an empty
-                // value is what the assessment identity hashes.
+                // The endpoint inventory stores no ecosystem for OS packages; core maps this blank
+                // value to an absent (nil) component before deriving the package identity key, as
+                // it does for every blank identity field.
                 ecosystem: String::new(),
                 namespace: namespace.clone(),
                 release: release.clone(),
@@ -337,12 +371,18 @@ fn read_rpm_sqlite(
                 installed_version: package.version,
             },
             PackageResolver::Rpm,
-        );
+        ) else {
+            return false;
+        };
         package
             .executable_paths
             .iter()
             .all(|path| sink.add_path(index, path))
-    })
+    })?;
+    if malformed {
+        return Err(super::sqlite::SqliteError::Malformed("rpm header"));
+    }
+    Ok(())
 }
 
 fn rpm_namespace(id: &str) -> String {

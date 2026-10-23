@@ -10,6 +10,12 @@ use std::time::{Duration, Instant};
 use super::*;
 
 const RPMDB_FIXTURE: &[u8] = include_bytes!("../../testdata/executable_ownership/rpmdb.sqlite");
+// A WAL-mode copy taken while its last transaction (example-late) was still only in the
+// write-ahead log, as SQLite itself left the two files.
+const RPMDB_WAL_MAIN_FIXTURE: &[u8] =
+    include_bytes!("../../testdata/executable_ownership/rpmdb_wal.sqlite");
+const RPMDB_WAL_LOG_FIXTURE: &[u8] =
+    include_bytes!("../../testdata/executable_ownership/rpmdb_wal.sqlite-wal");
 
 /// One precedence case: name, root setup, expected state and detail.
 type PrecedenceCase = (&'static str, fn(&Path), OwnershipState, &'static str);
@@ -329,8 +335,8 @@ fn unowned_executable_is_not_found_and_names_no_package() {
 }
 
 #[test]
-fn unsupported_and_incomplete_databases_are_never_reported_as_unowned() {
-    let cases: [PrecedenceCase; 4] = [
+fn unsupported_and_incomplete_databases_are_reported_by_precedence() {
+    let cases: [PrecedenceCase; 6] = [
         (
             "berkeleydb",
             |root| write(&root.join("var/lib/rpm/Packages"), b"\0\0\0\0"),
@@ -344,14 +350,60 @@ fn unsupported_and_incomplete_databases_are_never_reported_as_unowned() {
             DETAIL_RPM_NDB,
         ),
         (
-            "wal pending",
+            "dpkg read with a leftover berkeleydb",
             |root| {
-                // The executable is listed in the main file, but a transaction is open.
-                write(&root.join("var/lib/rpm/rpmdb.sqlite"), RPMDB_FIXTURE);
-                write(&root.join("var/lib/rpm/rpmdb.sqlite-wal"), b"pending");
+                dpkg(
+                    root,
+                    &[(
+                        "example-docs",
+                        "1.0-1",
+                        "example-docs",
+                        &["/usr/share/doc/example/README"],
+                    )],
+                );
+                write(&root.join("var/lib/rpm/Packages"), b"\0\0\0\0");
+            },
+            OwnershipState::NotFound,
+            DETAIL_NOT_OWNED,
+        ),
+        (
+            "dpkg file list unreadable before the executable",
+            |root| {
+                dpkg(
+                    root,
+                    &[(
+                        "example-daemon",
+                        "2.0-1",
+                        "example-daemon",
+                        &["/usr/sbin/exampled"],
+                    )],
+                );
+                write(
+                    &root.join("var/lib/dpkg/info/example-daemon.list"),
+                    b"/.\n/usr/lib/example\xff\n/usr/sbin/exampled\n",
+                );
             },
             OwnershipState::Unknown,
-            DETAIL_RPMDB_WAL_PENDING,
+            DETAIL_PACKAGE_DATABASE_UNREADABLE,
+        ),
+        (
+            "dpkg file list cannot be opened",
+            |root| {
+                dpkg(
+                    root,
+                    &[(
+                        "example-daemon",
+                        "2.0-1",
+                        "example-daemon",
+                        &["/usr/sbin/exampled"],
+                    )],
+                );
+                let list = root.join("var/lib/dpkg/info/example-daemon.list");
+                fs::remove_file(&list).unwrap();
+                symlink("example-daemon.list", &list).unwrap();
+            },
+            OwnershipState::Unknown,
+            DETAIL_PACKAGE_DATABASE_UNREADABLE,
         ),
         (
             "no database",
@@ -372,6 +424,40 @@ fn unsupported_and_incomplete_databases_are_never_reported_as_unowned() {
         assert_eq!((record.state, record.detail), (state, detail), "{name}");
         assert_eq!(record.package, None, "{name}");
     }
+}
+
+#[test]
+fn rpm_packages_committed_only_to_the_write_ahead_log_resolve() {
+    let fixture = Fixture::new();
+    let host = fixture.root("host");
+    os_release(&host, "ID=rhel\nVERSION_ID=9.4\n");
+    write(
+        &host.join("var/lib/rpm/rpmdb.sqlite"),
+        RPMDB_WAL_MAIN_FIXTURE,
+    );
+    write_executable(&host.join("usr/bin/examplelate"));
+    write_executable(&host.join("usr/sbin/exampled"));
+    fixture.process(10, &host, &host.join("usr/bin/examplelate"));
+    fixture.process(11, &host, &host.join("usr/sbin/exampled"));
+
+    // The main file alone predates the transaction that installed example-late.
+    let before = fixture.resolver().resolve(10);
+    assert_eq!(before.state, OwnershipState::NotFound);
+
+    // rpm keeps its write-ahead log after a checkpoint, so a non-empty log is normal.
+    write(
+        &host.join("var/lib/rpm/rpmdb.sqlite-wal"),
+        RPMDB_WAL_LOG_FIXTURE,
+    );
+    let mut resolver = fixture.resolver();
+    let late = resolver.resolve(10);
+    let checkpointed = resolver.resolve(11);
+
+    assert_eq!(late.state, OwnershipState::Resolved);
+    assert_eq!(package(&late).binary_package, "example-late");
+    assert_eq!(package(&late).installed_version, "3.0.0-1.el9");
+    assert_eq!(checkpointed.state, OwnershipState::Resolved);
+    assert_eq!(package(&checkpointed).binary_package, "exampled");
 }
 
 #[test]
@@ -447,4 +533,31 @@ fn resolution_happens_once_per_executable_inode_until_the_database_changes() {
             index_builds: 1,
         }
     );
+}
+
+/// A FIFO opened for reading blocks until a writer appears (fifo(7)). One planted as a
+/// process root's `/etc/os-release` must not stall os-release discovery: it is skipped as
+/// unreadable and the `/usr/lib/os-release` fallback is used. Before regular files were
+/// required, this test hung in open(2).
+#[test]
+fn os_release_skips_a_fifo_instead_of_blocking() {
+    let dir = tempfile::tempdir().unwrap();
+    let root = dir.path().join("rootfs");
+    fs::create_dir_all(root.join("etc")).unwrap();
+    fs::create_dir_all(root.join("usr/lib")).unwrap();
+    fs::write(root.join("usr/lib/os-release"), "ID=exampleos\n").unwrap();
+    let fifo = std::ffi::CString::new(
+        root.join("etc/os-release")
+            .into_os_string()
+            .into_encoded_bytes(),
+    )
+    .unwrap();
+    // SAFETY: `fifo` is a valid NUL-terminated path that outlives the call.
+    assert_eq!(unsafe { libc::mkfifo(fifo.as_ptr(), 0o644) }, 0);
+
+    let started = Instant::now();
+    let os = package_db::OsRelease::read(&root_path::RootFs::new(&root));
+
+    assert_eq!(os.id, "exampleos");
+    assert!(started.elapsed() < Duration::from_secs(5));
 }

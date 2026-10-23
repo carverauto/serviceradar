@@ -13,10 +13,16 @@ The database exercises:
   * FILEMODES filtering (configuration and documentation files are not executable);
   * a package with no files (gpg-pubkey).
 
+It also writes rpmdb_wal.sqlite and rpmdb_wal.sqlite-wal: a WAL-mode database copied
+while its last transaction (example-late) was committed only to the write-ahead log, so
+the reader must apply WAL frames to see it. exampled was checkpointed into the main file
+before that.
+
 Regenerate with: python3 generate_rpmdb_fixture.py (from this directory).
 """
 
 import os
+import shutil
 import sqlite3
 import struct
 
@@ -89,15 +95,48 @@ def packages():
         )
 
 
+CREATE = "CREATE TABLE 'Packages' (hnum INTEGER PRIMARY KEY AUTOINCREMENT,blob BLOB NOT NULL)"
+
+
+def write_wal_pair(directory):
+    scratch = os.path.join(directory, "rpmdb_wal.scratch.sqlite")
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(scratch + suffix):
+            os.remove(scratch + suffix)
+    db = sqlite3.connect(scratch)
+    db.execute("PRAGMA page_size = 4096")
+    db.execute("PRAGMA journal_mode = WAL")
+    db.execute("PRAGMA wal_autocheckpoint = 0")
+    db.execute(CREATE)
+    db.execute(
+        "INSERT INTO Packages (blob) VALUES (?)",
+        (header("exampled", "2.4.1", "3.el9", "x86_64", [("/usr/sbin/exampled", EXEC)]),),
+    )
+    db.commit()
+    db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    db.execute(
+        "INSERT INTO Packages (blob) VALUES (?)",
+        (header("example-late", "3.0.0", "1.el9", "x86_64", [("/usr/bin/examplelate", EXEC)]),),
+    )
+    db.commit()
+    # Copy while the connection is open: closing would checkpoint and delete the log.
+    shutil.copyfile(scratch, os.path.join(directory, "rpmdb_wal.sqlite"))
+    shutil.copyfile(scratch + "-wal", os.path.join(directory, "rpmdb_wal.sqlite-wal"))
+    db.close()
+    for suffix in ("", "-wal", "-shm"):
+        if os.path.exists(scratch + suffix):
+            os.remove(scratch + suffix)
+
+
 def main():
-    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "rpmdb.sqlite")
+    directory = os.path.dirname(os.path.abspath(__file__))
+    write_wal_pair(directory)
+    out = os.path.join(directory, "rpmdb.sqlite")
     if os.path.exists(out):
         os.remove(out)
     db = sqlite3.connect(out)
     db.execute("PRAGMA page_size = 4096")
-    db.execute(
-        "CREATE TABLE 'Packages' (hnum INTEGER PRIMARY KEY AUTOINCREMENT,blob BLOB NOT NULL)"
-    )
+    db.execute(CREATE)
     db.executemany("INSERT INTO Packages (blob) VALUES (?)", ((blob,) for blob in packages()))
     db.commit()
     db.execute("VACUUM")

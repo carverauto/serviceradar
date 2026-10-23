@@ -84,7 +84,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.67"
+NETPROBE_VERSION = "0.2.68"
 
 cargo_build_script(
     name = "build_script",
@@ -144,6 +144,8 @@ rust_binary(
         # The synthetic rpm sqlite database read by `include_bytes!` in the #[cfg(test)]
         # executable_ownership tests; declared here for the same reason.
         "testdata/executable_ownership/rpmdb.sqlite",
+        "testdata/executable_ownership/rpmdb_wal.sqlite",
+        "testdata/executable_ownership/rpmdb_wal.sqlite-wal",
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",

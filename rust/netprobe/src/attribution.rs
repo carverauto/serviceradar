@@ -318,6 +318,10 @@ struct SocketInventory {
 #[cfg(target_os = "linux")]
 impl SocketInventory {
     fn update(&mut self, flow: &AttributedFlow) {
+        self.update_at(flow, Instant::now());
+    }
+
+    fn update_at(&mut self, flow: &AttributedFlow, now: Instant) {
         let Some((local_ip, local_port, _, _)) = endpoints(&flow.flow, flow.pid.local_endpoint)
         else {
             return;
@@ -358,27 +362,48 @@ impl SocketInventory {
             workload_identity: None,
             executable_ownership: executable_ownership(process),
         };
-        let now = Instant::now();
+        let owner = ProcessDetailsCacheKey {
+            tgid: flow.pid.tgid,
+            uid: flow.pid.uid,
+            gid: flow.pid.gid,
+            process_generation_ns: flow.pid.process_generation_ns,
+        };
 
         match self.entries.get_mut(&key) {
-            Some(cached) if cached.entry == entry => {
-                cached.last_seen = now;
-            }
             Some(cached) => {
-                if prefer_snapshot_entry(&entry, &cached.entry) {
-                    cached.entry = entry;
+                cached.last_seen = now;
+                if cached.observe(owner, entry, now) {
                     self.dirty = true;
                 }
-                cached.last_seen = now;
             }
             None => {
-                self.entries.insert(
-                    key,
-                    CachedProcessSocket {
-                        entry,
-                        last_seen: now,
-                    },
-                );
+                let mut cached = CachedProcessSocket {
+                    entry: entry.clone(),
+                    published_key: owner,
+                    candidates: Vec::new(),
+                    last_seen: now,
+                };
+                cached.observe(owner, entry, now);
+                self.entries.insert(key, cached);
+                self.dirty = true;
+            }
+        }
+    }
+
+    /// Applies process details read after a listener was inventoried to the rows that
+    /// process owns, so the next snapshot carries them.
+    fn refresh_process(&mut self, owner: &ProcessDetailsCacheKey, details: &ProcessDetails) {
+        self.refresh_process_at(owner, details, Instant::now());
+    }
+
+    fn refresh_process_at(
+        &mut self,
+        owner: &ProcessDetailsCacheKey,
+        details: &ProcessDetails,
+        now: Instant,
+    ) {
+        for cached in self.entries.values_mut() {
+            if cached.refresh_candidate(owner, details, now) {
                 self.dirty = true;
             }
         }
@@ -407,7 +432,11 @@ impl SocketInventory {
             return false;
         };
 
-        cached.last_seen = Instant::now();
+        let now = Instant::now();
+        cached.last_seen = now;
+        if cached.note_owner_seen(ProcessDetailsCacheKey::from(record), now) {
+            self.dirty = true;
+        }
         true
     }
 
@@ -434,7 +463,15 @@ impl SocketInventory {
     }
 
     fn snapshot_if_dirty(&mut self, observed_at_unix_nano: i64) -> Option<ProcessSnapshot> {
-        self.prune(Instant::now());
+        self.snapshot_if_dirty_at(observed_at_unix_nano, Instant::now())
+    }
+
+    fn snapshot_if_dirty_at(
+        &mut self,
+        observed_at_unix_nano: i64,
+        now: Instant,
+    ) -> Option<ProcessSnapshot> {
+        self.prune(now);
         if !self.dirty {
             return None;
         }
@@ -456,9 +493,14 @@ impl SocketInventory {
 
     fn prune(&mut self, now: Instant) {
         let len_before = self.entries.len();
-        self.entries
-            .retain(|_, entry| now.duration_since(entry.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL);
-        if self.entries.len() != len_before {
+        let mut ownership_changed = false;
+        self.entries.retain(|_, entry| {
+            if entry.expire_candidates(now) {
+                ownership_changed = true;
+            }
+            now.duration_since(entry.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL
+        });
+        if self.entries.len() != len_before || ownership_changed {
             self.dirty = true;
         }
     }
@@ -504,9 +546,207 @@ fn prefer_snapshot_entry(candidate: &ProcessSnapshotEntry, current: &ProcessSnap
 }
 
 #[cfg(target_os = "linux")]
+fn winning_candidate(
+    candidates: &[ListenerCandidate],
+) -> Option<(ProcessDetailsCacheKey, ProcessSnapshotEntry)> {
+    let first = candidates.first()?;
+    let mut key = first.key;
+    let mut entry = first.entry.clone();
+    for candidate in candidates.iter().skip(1) {
+        if prefer_snapshot_entry(&candidate.entry, &entry) {
+            key = candidate.key;
+            entry = candidate.entry.clone();
+        }
+    }
+    Some((key, entry))
+}
+
+#[cfg(target_os = "linux")]
+struct ListenerCandidate {
+    key: ProcessDetailsCacheKey,
+    entry: ProcessSnapshotEntry,
+    /// Last observation or detail refresh. Independent of the socket row, which
+    /// other workers keep alive.
+    last_seen: Instant,
+}
+
+#[cfg(target_os = "linux")]
 struct CachedProcessSocket {
     entry: ProcessSnapshotEntry,
+    published_key: ProcessDetailsCacheKey,
+    candidates: Vec<ListenerCandidate>,
     last_seen: Instant,
+}
+
+#[cfg(target_os = "linux")]
+impl CachedProcessSocket {
+    fn observe(
+        &mut self,
+        owner: ProcessDetailsCacheKey,
+        entry: ProcessSnapshotEntry,
+        now: Instant,
+    ) -> bool {
+        let changed = self.expire_candidates(now);
+        if self.candidates.iter().any(|candidate| {
+            candidate.key.tgid == owner.tgid
+                && candidate.key.process_generation_ns > owner.process_generation_ns
+        }) {
+            return changed;
+        }
+
+        let published_retired = self.published_key.tgid == owner.tgid
+            && self.published_key.process_generation_ns < owner.process_generation_ns;
+        self.candidates.retain(|candidate| {
+            candidate.key.tgid != owner.tgid
+                || candidate.key.process_generation_ns >= owner.process_generation_ns
+        });
+        if let Some(candidate) = self
+            .candidates
+            .iter_mut()
+            .find(|candidate| candidate.key == owner)
+        {
+            candidate.last_seen = now;
+            if prefer_snapshot_entry(&entry, &candidate.entry) {
+                candidate.entry = entry.clone();
+            }
+        } else {
+            self.candidates.push(ListenerCandidate {
+                key: owner,
+                entry: entry.clone(),
+                last_seen: now,
+            });
+        }
+
+        if published_retired {
+            return self.install_winner() || changed;
+        }
+        if self.entry == entry || !prefer_snapshot_entry(&entry, &self.entry) {
+            return changed;
+        }
+        self.entry = entry;
+        self.published_key = owner;
+        true
+    }
+
+    /// Repeat listen events arrive as inventory touches. Count that process as
+    /// seen, then retire every other candidate outside the inventory lifetime.
+    fn note_owner_seen(&mut self, owner: ProcessDetailsCacheKey, now: Instant) -> bool {
+        if let Some(candidate) = self
+            .candidates
+            .iter_mut()
+            .find(|candidate| candidate.key == owner)
+        {
+            candidate.last_seen = now;
+        }
+        self.expire_candidates(now)
+    }
+
+    /// The socket lifetime is not a candidate lifetime. A shared listener stays
+    /// in the inventory while successive workers are observed; each worker is
+    /// kept only for `FLOW_ATTRIBUTION_CACHE_TTL` after its own observation or
+    /// detail refresh. The published row follows the candidates that remain.
+    fn expire_candidates(&mut self, now: Instant) -> bool {
+        let before = self.candidates.len();
+        self.candidates.retain(|candidate| {
+            now.duration_since(candidate.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL
+        });
+        if self.candidates.len() == before {
+            return false;
+        }
+        if self
+            .candidates
+            .iter()
+            .any(|candidate| candidate.key == self.published_key)
+        {
+            return false;
+        }
+        if self.candidates.is_empty() {
+            return self.clear_retired_owner();
+        }
+        self.install_winner()
+    }
+
+    fn clear_retired_owner(&mut self) -> bool {
+        if self.entry.pid == 0
+            && self.entry.tgid == 0
+            && self.entry.uid == 0
+            && self.entry.gid == 0
+            && self.entry.comm.is_empty()
+            && self.entry.redacted_cmdline.is_empty()
+            && self.entry.container_id.is_empty()
+            && self.entry.workload_identity.is_none()
+            && self.entry.executable_ownership.is_none()
+        {
+            return false;
+        }
+        self.entry.pid = 0;
+        self.entry.tgid = 0;
+        self.entry.uid = 0;
+        self.entry.gid = 0;
+        self.entry.comm.clear();
+        self.entry.redacted_cmdline.clear();
+        self.entry.container_id.clear();
+        self.entry.workload_identity = None;
+        self.entry.executable_ownership = None;
+        self.published_key = ProcessDetailsCacheKey {
+            tgid: 0,
+            uid: 0,
+            gid: 0,
+            process_generation_ns: 0,
+        };
+        true
+    }
+
+    fn install_winner(&mut self) -> bool {
+        let Some((key, entry)) = winning_candidate(&self.candidates) else {
+            return false;
+        };
+        let changed = self.entry != entry;
+        self.published_key = key;
+        if changed {
+            self.entry = entry;
+        }
+        changed
+    }
+
+    fn refresh_candidate(
+        &mut self,
+        owner: &ProcessDetailsCacheKey,
+        details: &ProcessDetails,
+        now: Instant,
+    ) -> bool {
+        // Expire before accepting this refresh. A detail read that arrives after
+        // the candidate's inventory lifetime must not put that worker back.
+        let changed = self.expire_candidates(now);
+        let Some(index) = self
+            .candidates
+            .iter()
+            .position(|candidate| candidate.key == *owner)
+        else {
+            return changed;
+        };
+        self.candidates[index].last_seen = now;
+        let mut entry = self.candidates[index].entry.clone();
+        entry.uid = details.uid;
+        entry.gid = details.gid;
+        entry.comm = details.comm.clone();
+        entry.redacted_cmdline = cap_redacted_cmdline_ref(&details.cmdline);
+        entry.container_id = details.container_id.clone().unwrap_or_default();
+        if let Some(ownership) = executable_ownership(Some(details)) {
+            entry.executable_ownership = Some(ownership);
+        }
+        if prefer_snapshot_entry(&entry, &self.candidates[index].entry) {
+            self.candidates[index].entry = entry.clone();
+        } else {
+            entry = self.candidates[index].entry.clone();
+        }
+        if !prefer_snapshot_entry(&entry, &self.entry) {
+            return changed;
+        }
+        self.entry = entry;
+        self.published_key = *owner;
+        true
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -1319,7 +1559,11 @@ impl AyaAttributionReader {
     }
 
     fn process_pending_metadata(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
-        self.metadata.process_pending()
+        let updated = self.metadata.process_pending();
+        for (owner, details) in &updated {
+            self.socket_inventory.refresh_process(owner, details);
+        }
+        updated
     }
 
     fn metadata_cache_len(&self) -> usize {
@@ -1358,6 +1602,8 @@ impl AyaAttributionReader {
         }
         metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
         record_ownership_metrics(metrics, &self.metadata.procfs);
+        self.socket_inventory
+            .refresh_process(&ProcessDetailsCacheKey::from(record), &details);
 
         apply_process_details_to_event(Arc::make_mut(&mut cached.event), &details)
     }
@@ -1389,7 +1635,15 @@ fn record_ownership_metrics(metrics: &Metrics, procfs: &ProcfsEnricher) {
 
 #[cfg(target_os = "linux")]
 fn process_metadata_complete(event: &FlowAttributionEvent) -> bool {
-    !event.redacted_cmdline.is_empty() && !event.container_id.is_empty()
+    !event.redacted_cmdline.is_empty()
+        && !event.container_id.is_empty()
+        && event
+            .executable_ownership
+            .as_ref()
+            .is_some_and(|ownership| {
+                ownership.resolution_state
+                    != crate::proto::netprobe::ExecutableOwnershipState::Unknown as i32
+            })
 }
 
 #[cfg(target_os = "linux")]
@@ -2946,6 +3200,8 @@ mod tests {
     use std::fs;
     #[cfg(target_os = "linux")]
     use std::sync::Arc;
+    #[cfg(target_os = "linux")]
+    use std::time::{Duration, Instant};
 
     use std::collections::HashMap;
 
@@ -2961,12 +3217,13 @@ mod tests {
     use super::{
         AttributionExpiryQueue, CachedAttribution, EVENT_UDP_RECV, EVENT_UDP_SEND,
         FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
-        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, FlowAttributionCache,
-        MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory,
-        TCP_CLOSE_STATE, TCP_LISTEN_STATE, UdpRoleInventory, attribution_event_fingerprint,
-        attribution_flow_key_from_record, insert_cached_attribution, likely_service_side_record,
-        maybe_emit_cached_attribution, process_details_from_record, process_metadata_complete,
-        prune_attribution_cache, refresh_enriched_attributions, touch_closed_cached_attribution,
+        FLOW_ATTRIBUTION_CACHE_TTL, FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A,
+        FlowAttributionCache, MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey,
+        SocketInventory, TCP_CLOSE_STATE, TCP_LISTEN_STATE, UdpRoleInventory,
+        attribution_event_fingerprint, attribution_flow_key_from_record, insert_cached_attribution,
+        likely_service_side_record, maybe_emit_cached_attribution, process_details_from_record,
+        process_metadata_complete, prune_attribution_cache, refresh_enriched_attributions,
+        touch_closed_cached_attribution,
     };
     use crate::af_xdp_classifier::FlowKey;
     #[cfg(target_os = "linux")]
@@ -3441,9 +3698,25 @@ mod tests {
         };
 
         let event = flow_attribution_event(&flow, 1).unwrap();
+        // The listener is inventoried before procfs is read, as on a cold-read miss; the
+        // details read later reach the listener row.
         let mut inventory = SocketInventory::default();
-        inventory.update(&flow);
-        let snapshot = inventory.snapshot_if_dirty(1).unwrap();
+        inventory.update(&AttributedFlow {
+            process: None,
+            ..flow.clone()
+        });
+        let cold = inventory.snapshot_if_dirty(1).unwrap();
+        assert_eq!(cold.entries[0].executable_ownership, None);
+        inventory.refresh_process(
+            &ProcessDetailsCacheKey {
+                tgid: 123,
+                uid: 0,
+                gid: 0,
+                process_generation_ns: 1,
+            },
+            flow.process.as_ref().unwrap(),
+        );
+        let snapshot = inventory.snapshot_if_dirty(2).unwrap();
 
         for ownership in [
             event.executable_ownership.as_ref(),
@@ -3458,6 +3731,216 @@ mod tests {
             assert_eq!(ownership.installed_version, "2.4.1-3");
             assert_eq!(ownership.executable_path, "/usr/sbin/exampled");
         }
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_late_container_ownership_survives_shared_listener() {
+        let port = 443;
+        let container_id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let mut inventory = SocketInventory::default();
+        inventory.update(&shared_listener(port, 200, 1, "app", None, None));
+        inventory.update(&shared_listener(port, 100, 1, "k3s-agent", None, None));
+
+        let cold = inventory.snapshot_if_dirty(1).unwrap();
+        assert_eq!(cold.entries.len(), 1);
+        assert_eq!(cold.entries[0].pid, 100);
+        assert!(cold.entries[0].container_id.is_empty());
+        assert!(cold.entries[0].executable_ownership.is_none());
+
+        inventory.refresh_process(
+            &listener_key(200, 1),
+            &listener_details(200, 1, "app", Some(container_id), Some("widget")),
+        );
+        let with_container = inventory.snapshot_if_dirty(2).unwrap();
+        assert_eq!(with_container.entries.len(), 1);
+        assert_eq!(with_container.entries[0].pid, 200);
+        assert_eq!(with_container.entries[0].container_id, container_id);
+        assert_eq!(
+            with_container.entries[0]
+                .executable_ownership
+                .as_ref()
+                .expect("container package")
+                .binary_package,
+            "widget"
+        );
+
+        inventory.refresh_process(
+            &listener_key(100, 1),
+            &listener_details(100, 1, "k3s-agent", None, Some("k3s-host")),
+        );
+        assert!(inventory.snapshot_if_dirty(3).is_none());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_generation_advance_drops_stale_ownership() {
+        let port = 22;
+        let mut inventory = SocketInventory::default();
+        inventory.update(&shared_listener(port, 50, 1, "app", None, None));
+        inventory.update(&shared_listener(port, 50, 2, "app", None, None));
+        let cold = inventory.snapshot_if_dirty(1).unwrap();
+        assert!(cold.entries[0].executable_ownership.is_none());
+
+        inventory.refresh_process(
+            &listener_key(50, 1),
+            &listener_details(50, 1, "app", None, Some("old-pkg")),
+        );
+        assert!(inventory.snapshot_if_dirty(2).is_none());
+
+        inventory.refresh_process(
+            &listener_key(50, 2),
+            &listener_details(50, 2, "app", None, Some("new-pkg")),
+        );
+        let current = inventory.snapshot_if_dirty(3).unwrap();
+        assert_eq!(
+            current.entries[0]
+                .executable_ownership
+                .as_ref()
+                .expect("new generation package")
+                .binary_package,
+            "new-pkg"
+        );
+
+        inventory.refresh_process(
+            &listener_key(50, 1),
+            &listener_details(50, 1, "app", Some("container"), Some("old-pkg")),
+        );
+        inventory.update(&shared_listener(
+            port,
+            50,
+            1,
+            "app",
+            Some("container"),
+            Some("old-pkg"),
+        ));
+        assert!(inventory.snapshot_if_dirty(4).is_none());
+
+        let mut replaced = SocketInventory::default();
+        replaced.update(&shared_listener(
+            port,
+            50,
+            1,
+            "app",
+            Some("container"),
+            Some("old-pkg"),
+        ));
+        let enriched = replaced.snapshot_if_dirty(1).unwrap();
+        assert_eq!(enriched.entries[0].container_id, "container");
+        assert_eq!(
+            enriched.entries[0]
+                .executable_ownership
+                .as_ref()
+                .expect("old generation package")
+                .binary_package,
+            "old-pkg"
+        );
+
+        replaced.update(&shared_listener(port, 50, 2, "app", None, None));
+        let advanced = replaced.snapshot_if_dirty(2).unwrap();
+        assert!(advanced.entries[0].container_id.is_empty());
+        assert!(advanced.entries[0].executable_ownership.is_none());
+
+        replaced.refresh_process(
+            &listener_key(50, 1),
+            &listener_details(50, 1, "app", Some("container"), Some("old-pkg")),
+        );
+        assert!(replaced.snapshot_if_dirty(3).is_none());
+
+        replaced.refresh_process(
+            &listener_key(50, 2),
+            &listener_details(50, 2, "app", None, Some("new-pkg")),
+        );
+        let refreshed = replaced.snapshot_if_dirty(4).unwrap();
+        assert_eq!(
+            refreshed.entries[0]
+                .executable_ownership
+                .as_ref()
+                .expect("replacement generation package")
+                .binary_package,
+            "new-pkg"
+        );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_retires_stale_candidates_while_the_socket_stays_active() {
+        // Oracle: FLOW_ATTRIBUTION_CACHE_TTL, the same lifetime that drops an idle
+        // listen socket. A worker last seen before that window must not be able to
+        // take the row; a worker seen inside it must. The wrong behavior is the
+        // stale worker's package replacing the current row, or the socket
+        // disappearing while a worker is still being observed.
+        let port = 9443;
+        let start = Instant::now();
+        let later = start + FLOW_ATTRIBUTION_CACHE_TTL + Duration::from_secs(30);
+        let recent = later - Duration::from_secs(20);
+        let old_container = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let recent_container = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+        let mut inventory = SocketInventory::default();
+
+        inventory.update_at(
+            &shared_listener(port, 10, 1, "old-worker", None, Some("old-pkg")),
+            start,
+        );
+        inventory.update_at(
+            &shared_listener(port, 20, 1, "current-worker", None, Some("current-pkg")),
+            start + Duration::from_secs(1),
+        );
+        let first = inventory
+            .snapshot_if_dirty_at(1, start + Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(first.entries.len(), 1);
+        assert_eq!(first.entries[0].pid, 20);
+        assert_eq!(package_name(&first.entries[0]), "current-pkg");
+
+        inventory.update_at(
+            &shared_listener(port, 30, 1, "recent-worker", None, Some("recent-pkg")),
+            recent,
+        );
+        inventory.update_at(
+            &shared_listener(port, 20, 1, "current-worker", None, Some("current-pkg")),
+            later,
+        );
+        let current = inventory.snapshot_if_dirty_at(2, later).unwrap();
+        assert_eq!(current.entries.len(), 1);
+        assert_eq!(current.entries[0].pid, 20);
+        assert_eq!(package_name(&current.entries[0]), "current-pkg");
+
+        inventory.refresh_process_at(
+            &listener_key(10, 1),
+            &listener_details(10, 1, "old-worker", Some(old_container), Some("old-pkg")),
+            later,
+        );
+        assert!(
+            inventory.snapshot_if_dirty_at(3, later).is_none(),
+            "a worker outside the inventory lifetime must not replace the row"
+        );
+
+        inventory.refresh_process_at(
+            &listener_key(30, 1),
+            &listener_details(
+                30,
+                1,
+                "recent-worker",
+                Some(recent_container),
+                Some("recent-pkg"),
+            ),
+            later,
+        );
+        let shared = inventory.snapshot_if_dirty_at(4, later).unwrap();
+        assert_eq!(shared.entries.len(), 1);
+        assert_eq!(shared.entries[0].pid, 30);
+        assert_eq!(shared.entries[0].container_id, recent_container);
+        assert_eq!(package_name(&shared.entries[0]), "recent-pkg");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn package_name(entry: &crate::proto::netprobe::ProcessSnapshotEntry) -> &str {
+        &entry
+            .executable_ownership
+            .as_ref()
+            .expect("package ownership")
+            .binary_package
     }
 
     #[test]
@@ -3901,7 +4384,9 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn process_metadata_complete_requires_cmdline_and_container() {
+    fn process_metadata_complete_requires_cmdline_container_and_final_ownership() {
+        use crate::proto::netprobe::{ExecutableOwnership, ExecutableOwnershipState};
+
         let process = ProcessDetailsCacheKey {
             tgid: 123,
             uid: 1000,
@@ -3916,7 +4401,25 @@ mod tests {
         assert!(!process_metadata_complete(&entry.event));
 
         Arc::make_mut(&mut entry.event).container_id = "container".to_string();
-        assert!(process_metadata_complete(&entry.event));
+        assert!(!process_metadata_complete(&entry.event));
+
+        let ownership = |state: ExecutableOwnershipState| ExecutableOwnership {
+            resolution_state: state as i32,
+            ..ExecutableOwnership::default()
+        };
+        Arc::make_mut(&mut entry.event).executable_ownership =
+            Some(ownership(ExecutableOwnershipState::Unknown));
+        assert!(!process_metadata_complete(&entry.event));
+
+        for state in [
+            ExecutableOwnershipState::Resolved,
+            ExecutableOwnershipState::NotPermitted,
+            ExecutableOwnershipState::NotFound,
+            ExecutableOwnershipState::UnsupportedDb,
+        ] {
+            Arc::make_mut(&mut entry.event).executable_ownership = Some(ownership(state));
+            assert!(process_metadata_complete(&entry.event), "{state:?}");
+        }
     }
 
     #[test]
@@ -4429,6 +4932,93 @@ mod tests {
         let mut record = flow_record(IPPROTO_UDP, local_port, remote_port);
         record.event_kind = event_kind;
         record
+    }
+
+    #[cfg(target_os = "linux")]
+    fn listener_key(tgid: u32, generation: u64) -> ProcessDetailsCacheKey {
+        ProcessDetailsCacheKey {
+            tgid,
+            uid: 1000,
+            gid: 1000,
+            process_generation_ns: generation,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn listener_details(
+        pid: u32,
+        generation: u64,
+        comm: &str,
+        container_id: Option<&str>,
+        package: Option<&str>,
+    ) -> ProcessDetails {
+        use crate::executable_ownership::{
+            ExecutableOwnershipRecord, OwnershipState, OwningPackage, PackageResolver,
+        };
+
+        ProcessDetails {
+            pid,
+            tgid: pid,
+            uid: 1000,
+            gid: 1000,
+            comm: comm.to_string(),
+            cmdline: vec![format!("/usr/bin/{comm}")],
+            container_id: container_id.map(str::to_string),
+            last_seen_ns: 0,
+            process_generation_ns: generation,
+            executable: package.map(|name| ExecutableOwnershipRecord {
+                state: OwnershipState::Resolved,
+                detail: "",
+                source_scope: "test",
+                package: Some(Arc::new(OwningPackage {
+                    binary_package: name.to_string(),
+                    installed_version: "1".to_string(),
+                    ..OwningPackage::default()
+                })),
+                resolver: Some(PackageResolver::Dpkg),
+                executable_path: format!("/usr/bin/{name}"),
+                dev: 1,
+                inode: u64::from(pid),
+            }),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn shared_listener(
+        local_port: u16,
+        pid: u32,
+        generation: u64,
+        comm: &str,
+        container_id: Option<&str>,
+        package: Option<&str>,
+    ) -> AttributedFlow {
+        let process = listener_details(pid, generation, comm, container_id, package);
+        AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: local_port,
+                endpoint_b_port: 0,
+                endpoint_a_addr: ipv4([192, 0, 2, 10]),
+                endpoint_b_addr: [0; 16],
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid,
+                tgid: pid,
+                uid: 1000,
+                gid: 1000,
+                socket_address: 0xfeed,
+                last_seen_ns: 0,
+                process_generation_ns: generation,
+                old_state: 1,
+                new_state: TCP_LISTEN_STATE,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: Some(process),
+        }
     }
 
     #[cfg(target_os = "linux")]

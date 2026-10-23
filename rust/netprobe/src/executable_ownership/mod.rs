@@ -37,11 +37,14 @@ use root_path::RootFs;
 const MAX_CACHED_EXECUTABLES: usize = 4096;
 /// Process roots (the host plus distinct containers) whose package index is kept.
 const MAX_ROOT_INDEXES: usize = 32;
-/// Package-database paths read per index build; a larger database is indexed partially
-/// and misses are then reported as unknown rather than unowned.
+/// Package-database paths read per index build; a larger database truncates the index,
+/// and every executable in that root is then `Unknown` (`package_index_truncated`) until
+/// the next re-index, per Decision 18's state order.
 const MAX_INDEXED_PATHS: usize = 2_000_000;
 /// Executables indexed per root.
 const MAX_INDEXED_EXECUTABLES: usize = 262_144;
+/// Package records indexed per root.
+const MAX_INDEXED_PACKAGES: usize = 65_536;
 /// A root whose package database keeps changing is re-indexed at most this often.
 const MIN_REINDEX_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -58,7 +61,6 @@ pub const DETAIL_NO_PACKAGE_DATABASE: &str = "no_package_database";
 pub const DETAIL_PACKAGE_DATABASE_UNREADABLE: &str = "package_database_unreadable";
 pub const DETAIL_PACKAGE_DATABASE_CHANGING: &str = "package_database_changing";
 pub const DETAIL_PACKAGE_INDEX_TRUNCATED: &str = "package_index_truncated";
-pub const DETAIL_RPMDB_WAL_PENDING: &str = "rpmdb_wal_pending";
 pub const DETAIL_RPM_BERKELEYDB: &str = "rpm_berkeleydb";
 pub const DETAIL_RPM_NDB: &str = "rpm_ndb";
 
@@ -251,7 +253,6 @@ struct RootIndex {
     read_any: bool,
     unreadable: bool,
     truncated: bool,
-    wal_pending: bool,
     unsupported: Option<&'static str>,
 }
 
@@ -285,15 +286,14 @@ impl RootIndex {
             packages: builder.packages,
             read_any: outcomes.contains(&DatabaseOutcome::Read),
             unreadable: outcomes.contains(&DatabaseOutcome::Unreadable),
-            wal_pending: outcomes.contains(&DatabaseOutcome::WalPending),
             unsupported,
         }
     }
 
     /// Classifies an executable against this index, in the precedence of design
     /// Decision 18: anything that leaves the answer undetermined is `Unknown`; an
-    /// unsupported database is `UnsupportedDb` unless a supported one owns the inode;
-    /// `NotFound` needs every present database supported and read completely.
+    /// unsupported database is `UnsupportedDb` only when no supported one was read;
+    /// otherwise an inode no read database lists is `NotFound`.
     fn classify(
         &self,
         executable: FileId,
@@ -307,15 +307,13 @@ impl RootIndex {
         }
         match (self.owners.get(&executable), self.unsupported) {
             (Some(package), _) => (OwnershipState::Resolved, "", Some(*package)),
-            (None, Some(detail)) => (OwnershipState::UnsupportedDb, detail, None),
-            (None, None) => (OwnershipState::NotFound, DETAIL_NOT_OWNED, None),
+            (None, Some(detail)) if !self.read_any => (OwnershipState::UnsupportedDb, detail, None),
+            (None, _) => (OwnershipState::NotFound, DETAIL_NOT_OWNED, None),
         }
     }
 
     fn incomplete(&self) -> Option<&'static str> {
-        if self.wal_pending {
-            Some(DETAIL_RPMDB_WAL_PENDING)
-        } else if self.unreadable {
+        if self.unreadable {
             Some(DETAIL_PACKAGE_DATABASE_UNREADABLE)
         } else if self.truncated {
             Some(DETAIL_PACKAGE_INDEX_TRUNCATED)
@@ -370,9 +368,13 @@ impl<'a> IndexBuilder<'a> {
 }
 
 impl PackageSink for IndexBuilder<'_> {
-    fn add_package(&mut self, package: OwningPackage, resolver: PackageResolver) -> u32 {
+    fn add_package(&mut self, package: OwningPackage, resolver: PackageResolver) -> Option<u32> {
+        if self.packages.len() >= MAX_INDEXED_PACKAGES {
+            self.truncated = true;
+            return None;
+        }
         self.packages.push((Arc::new(package), resolver));
-        u32::try_from(self.packages.len() - 1).unwrap_or(u32::MAX)
+        u32::try_from(self.packages.len() - 1).ok()
     }
 
     fn add_path(&mut self, package: u32, path: &str) -> bool {
