@@ -158,10 +158,11 @@ event, on a running shard and after a rebuild alike (Decision 2).
 
 Wire format: extend `FlowAttributionEvent` with `lease_op`, `first_seen_unix_nano`,
 `last_seen_unix_nano`, `ttl_seconds`, and `closed`, and add `AddressLease` and
-`snapshot_complete` to `FlowAttributionEventBatch`. The `flow-attribution` delivery source,
-retained delivery, and gateway path are unchanged. During rollout, an event without `lease_op`
-(an old netprobe) is applied as an `OPEN` with a 10-minute TTL. This is only a decoding default
-for mixed versions; nothing is dual-written.
+`snapshot_complete` to `FlowAttributionEventBatch`. The `flow-attribution` delivery source
+and retained delivery stay the existing path. Agent and gateway relays must preserve the new
+fields before a new producer is enabled; the wire-compatibility section is the check. During
+rollout, the new decoder applies an event without `lease_op` (an old netprobe) as an `OPEN`
+with a 10-minute TTL. This is only a decoding default for mixed versions; nothing is dual-written.
 
 ### 2. A central endpoint ownership index, sharded by key
 
@@ -812,10 +813,14 @@ Decision 10 (2026-10-22) is the no-overlap cutover and rollback order for that s
 approval is of the plan only and does not authorize deployment.
 
 1. Ship netprobe and agent lease emission, the ownership publisher and stream, the index, and
-   on-ingest attribution together, with the correlator deleted in the same release.
-2. While old netprobe versions roll forward, their events decode as `OPEN` with a 10-minute TTL
-   (Decision 1). Their heartbeats keep those leases alive until the agent upgrades.
-3. Drop `flow_process_attribution_observations` and remove `flows.attribution.observations`
+   on-ingest attribution in the same release, with the correlator deleted in that release.
+   Enable them only in the Decision 10 order: a candidate netprobe stays stopped until every
+   relay and central consumer on its route is compatible.
+2. While old netprobe versions roll forward against the new core, their events decode as
+   `OPEN` with a 10-minute TTL (Decision 1). Their heartbeats keep those leases alive until
+   the agent upgrades.
+3. After the old correlator and observation consumers are stopped, drop
+   `flow_process_attribution_observations` and remove `flows.attribution.observations`
    from the `flows` stream, the NATS permissions and the EventWriter config. Create
    `flow_ownership_leases` and the `flow_ownership` stream.
 4. Run the post-rollout verification against the lab.
@@ -827,7 +832,7 @@ heartbeats. A candidate netprobe stays stopped while its route or core is the pr
 release. The correlator works again once 30 minutes of new observations have arrived. Flows
 written while this change was live remain attributed. The dropped observation table is
 recreated by its DDL. No decode or drop fallback, new producer mode, mixed central writers,
-or dual-write is part of recovery.
+dual-write, CNPG fallback, backfill, or warehouse rescan is part of recovery.
 
 ## Open Questions
 
