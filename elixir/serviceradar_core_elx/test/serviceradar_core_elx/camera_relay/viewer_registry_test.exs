@@ -9,7 +9,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
 
     def request_close(relay_session_id, opts) do
       send(opts[:test_pid], {:request_close, relay_session_id, opts})
-      {:ok, %{id: relay_session_id, status: :closing}}
+      {:ok, %{id: relay_session_id, status: Keyword.get(opts, :status, :closing)}}
     end
   end
 
@@ -28,8 +28,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
   defmodule SessionTrackerStub do
     @moduledoc false
 
-    def sync_viewer_count(relay_session_id, viewer_count) do
+    def sync_viewer_count(relay_session_id, viewer_count, attrs \\ %{}) do
       send(test_pid(), {:sync_viewer_count, relay_session_id, viewer_count})
+
+      if attrs[:released_viewer_id] do
+        send(test_pid(), {:released_viewer, relay_session_id, attrs.released_viewer_id})
+      end
+
       :ok
     end
 
@@ -52,6 +57,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     @moduledoc false
 
     defdelegate sync_viewer_count(relay_session_id, viewer_count), to: SessionTrackerStub
+    defdelegate sync_viewer_count(relay_session_id, viewer_count, attrs), to: SessionTrackerStub
     defdelegate mark_closing(relay_session_id, attrs), to: SessionTrackerStub
 
     def fetch_session(relay_session_id) do
@@ -206,7 +212,29 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     assert_receive {:request_close, ^relay_session_id, opts}, 500
     assert opts[:reason] == "viewer idle timeout"
     assert opts[:test_pid] == self()
+    assert_receive {:released_viewer, ^relay_session_id, ^viewer_id}
     assert_receive {:mark_closing, ^relay_session_id, %{close_reason: "viewer idle timeout", viewer_count: 0}}
+  end
+
+  test "a retained ingest is not marked closing and idle close retries after consumers drain" do
+    relay_session_id = "relay-retained-example"
+    viewer_id = "viewer-retained-example"
+    test_pid = self()
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{state | session_closer_opts: [test_pid: test_pid, status: :active]}
+    end)
+
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_leave(relay_session_id, viewer_id)
+    assert_receive {:request_close, ^relay_session_id, _}, 500
+    refute_receive {:mark_closing, ^relay_session_id, _}, 50
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{state | session_closer_opts: [test_pid: test_pid, status: :closing]}
+    end)
+
+    assert_receive {:mark_closing, ^relay_session_id, _}, 500
   end
 
   test "does not crash when idle close raises during a stale relay transition" do

@@ -54,8 +54,8 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
     GenServer.cast(__MODULE__, {:mark_closing, relay_session_id, attrs})
   end
 
-  def sync_viewer_count(relay_session_id, viewer_count) when is_binary(relay_session_id) do
-    GenServer.cast(__MODULE__, {:sync_viewer_count, relay_session_id, viewer_count})
+  def sync_viewer_count(relay_session_id, viewer_count, attrs \\ %{}) when is_binary(relay_session_id) do
+    GenServer.cast(__MODULE__, {:sync_viewer_count, relay_session_id, viewer_count, attrs})
   end
 
   @doc """
@@ -139,10 +139,12 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
                sync_module(state).activate_session(
                  session.relay_session_id,
                  session.media_ingest_id,
-                 %{
-                   lease_expires_at_unix: session.lease_expires_at_unix,
-                   viewer_count: session.viewer_count
-                 },
+                 session
+                 |> Map.take([:agent_id, :gateway_id, :camera_source_id, :stream_profile_id])
+                 |> Map.merge(%{
+                   viewer_count: session.viewer_count,
+                   viewer_ids: current_viewer_ids(state, relay_session_id)
+                 }),
                  sync_opts(state)
                ) do
           log_session(:info, "Core camera relay opened", session)
@@ -262,7 +264,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   end
 
   @impl true
-  def handle_cast({:sync_viewer_count, relay_session_id, viewer_count}, state) do
+  def handle_cast({:sync_viewer_count, relay_session_id, viewer_count, attrs}, state) do
     case Map.get(state.sessions, relay_session_id) do
       nil ->
         {:noreply, state}
@@ -290,7 +292,9 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
             relay_session_id,
             session.media_ingest_id,
             %{
-              lease_expires_at_unix: session.lease_expires_at_unix,
+              renew_ingest?: false,
+              viewer_ids: current_viewer_ids(state, relay_session_id),
+              released_viewer_id: Map.get(attrs, :released_viewer_id),
               viewer_count: normalized_viewer_count
             },
             sync_opts(state)
@@ -464,7 +468,8 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
            relay_session_id,
            media_ingest_id,
            %{
-             lease_expires_at_unix: updated.lease_expires_at_unix,
+             renew_ingest?: true,
+             viewer_ids: current_viewer_ids(state, relay_session_id),
              viewer_count: updated.viewer_count
            },
            sync_opts(state)
@@ -715,6 +720,14 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
   # Called for every chunk inside this tracker's handle_call. The viewer count
   # is a table read in ViewerRegistry; still, a source that raises or exits
   # must not take the tracker (and every relay session it holds) down with it.
+  defp current_viewer_ids(state, relay_session_id) do
+    viewer_registry(state).viewer_ids(relay_session_id)
+  rescue
+    _error -> []
+  catch
+    :exit, _reason -> []
+  end
+
   defp current_viewer_count(state, relay_session_id) do
     viewer_registry(state).viewer_count(relay_session_id)
   rescue

@@ -79,9 +79,14 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
     assert core_node == node()
 
     assert_receive {:activate_session, ^relay_session_id, media_ingest_id,
-                    %{viewer_count: 0, lease_expires_at_unix: lease_expires_at_unix}}
+                    %{
+                      viewer_count: 0,
+                      agent_id: "agent-1",
+                      gateway_id: "gateway-1",
+                      camera_source_id: "camera-1",
+                      stream_profile_id: "main"
+                    }}
 
-    assert is_integer(lease_expires_at_unix)
     assert open_response.media_ingest_id == media_ingest_id
 
     assert %{
@@ -122,10 +127,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
     assert heartbeat_ack.accepted == true
     assert heartbeat_ack.message == "core heartbeat accepted"
 
-    assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id,
-                    %{lease_expires_at_unix: renewed_lease, viewer_count: 0}}
-
-    assert is_integer(renewed_lease)
+    assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id, %{renew_ingest?: true, viewer_count: 0}}
 
     assert {:ok, %Camera.CloseRelaySessionResponse{} = close_response} =
              CameraMediaIngressSession.close_relay_session(

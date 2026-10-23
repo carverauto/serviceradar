@@ -181,6 +181,8 @@ ASYNC_INTEGRATION_SRCS = [
 ]
 
 SERIAL_INTEGRATION_MODULE_COUNTS = {
+    "test/serviceradar/camera/relay_session_lifecycle_test.exs": 1,
+    "test/serviceradar/camera/relay_session_manager_test.exs": 1,
     "test/integration/camera_ingest_ownership_integration_test.exs": 1,
     "test/integration/advisory_feed_loader_integration_test.exs": 1,
     "test/integration/advisory_feed_loader_products_integration_test.exs": 1,

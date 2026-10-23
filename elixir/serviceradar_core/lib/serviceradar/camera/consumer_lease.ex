@@ -11,6 +11,8 @@ defmodule ServiceRadar.Camera.ConsumerLease do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  import Ash.Expr
+
   postgres do
     table "camera_consumer_leases"
     schema "platform"
@@ -18,6 +20,7 @@ defmodule ServiceRadar.Camera.ConsumerLease do
 
     custom_indexes do
       index [:ingest_owner_id, :owner_epoch, :expires_at]
+      index [:expires_at, :id]
     end
 
     check_constraints do
@@ -66,6 +69,10 @@ defmodule ServiceRadar.Camera.ConsumerLease do
       allow_nil? false
       define_attribute? false
     end
+  end
+
+  calculations do
+    calculate :database_now, :utc_datetime_usec, expr(fragment("clock_timestamp()"))
   end
 
   identities do

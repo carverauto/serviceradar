@@ -97,6 +97,7 @@ filegroup(
 
 exports_files([
     "camera_ingest_schema.exs",
+    "camera_consumer_expiry_schema.exs",
     "alert_evaluation_schema.exs",
     "world_snapshots.exs",
     "benchmark_runner.py",

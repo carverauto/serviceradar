@@ -17,7 +17,7 @@ def _impl(ctx):
     elixir_home = elixir.elixir_home if elixir.elixir_home != None else elixir.release_dir.path
 
     ctx.actions.run_shell(
-        inputs = libraries + [
+        inputs = libraries + ctx.files.srcs + [
             ctx.file.generator,
             otp.release_dir,
             otp.version_file,
@@ -29,12 +29,13 @@ def _impl(ctx):
         command = """set -euo pipefail
 export PATH="$PWD/{otp}/bin:$PWD/{elixir}/bin:$PATH"
 export ERL_LIBS="$PWD/{libraries}"
-"$PWD/{elixir}/bin/elixir" {generator} {outputs}
+"$PWD/{elixir}/bin/elixir" {generator} {outputs} {sources}
 """.format(
             otp = otp.erlang_home,
             elixir = elixir_home,
             libraries = library_path,
             generator = shell.quote(ctx.file.generator.path),
+            sources = " ".join([shell.quote(source.path) for source in ctx.files.srcs]),
             outputs = " ".join([shell.quote(output.path) for output in ctx.outputs.outs]),
         ),
         mnemonic = "WorldSchemaSnapshots",
@@ -49,6 +50,7 @@ world_snapshots = rule(
         "app": attr.label(mandatory = True, providers = [ErlangAppInfo]),
         "generator": attr.label(mandatory = True, allow_single_file = [".exs"]),
         "outs": attr.output_list(mandatory = True),
+        "srcs": attr.label_list(allow_files = True),
     },
     toolchains = [Label("@rules_elixir//:toolchain_type")],
 )

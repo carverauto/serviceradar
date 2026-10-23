@@ -111,7 +111,14 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
     assert String.starts_with?(session.media_ingest_id, "core-media-")
 
     assert_receive {:activate_session, ^relay_session_id, media_ingest_id,
-                    %{lease_expires_at_unix: lease_expires_at_unix, viewer_count: 1}}
+                    %{
+                      agent_id: "agent-1",
+                      gateway_id: "gateway-1",
+                      camera_source_id: "camera-1",
+                      stream_profile_id: "main",
+                      viewer_count: 1,
+                      viewer_ids: [^viewer_id]
+                    }}
 
     assert_receive_telemetry(
       [:serviceradar, :camera_relay, :session, :opened],
@@ -134,7 +141,6 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
                     }}
 
     assert media_ingest_id == session.media_ingest_id
-    assert is_integer(lease_expires_at_unix)
 
     assert {:ok, updated} =
              CameraMediaSessionTracker.record_chunk(session.relay_session_id, session.media_ingest_id, %{
@@ -173,8 +179,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
       :heartbeat_session,
       ^relay_session_id,
       ^media_ingest_id,
-      # lease present, no viewers
-      %{lease_expires_at_unix: _, viewer_count: 0}
+      %{renew_ingest?: false, viewer_count: 0, viewer_ids: [], released_viewer_id: ^viewer_id}
     }
 
     assert_receive {:camera_relay_state, %{relay_session_id: ^relay_session_id, viewer_count: 0, termination_kind: nil}}
@@ -189,9 +194,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
     assert heartbeated.sent_bytes == 20
 
     assert_receive {:heartbeat_session, ^relay_session_id, ^media_ingest_id,
-                    %{lease_expires_at_unix: renewed_lease, viewer_count: 0}}
-
-    assert is_integer(renewed_lease)
+                    %{renew_ingest?: true, viewer_count: 0, viewer_ids: []}}
 
     assert :ok = CameraMediaSessionTracker.close_session(session.relay_session_id, session.media_ingest_id)
     assert_receive {:close_session, ^relay_session_id, ^media_ingest_id, %{close_reason: nil, viewer_count: 0}}
@@ -297,7 +300,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTrackerTest do
       ^relay_session_id,
       ^media_ingest_id,
       # lease present, no viewers
-      %{lease_expires_at_unix: _, viewer_count: 0}
+      %{viewer_count: 0, viewer_ids: []}
     }
   end
 

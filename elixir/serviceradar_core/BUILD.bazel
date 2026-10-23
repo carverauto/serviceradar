@@ -44,6 +44,29 @@ write_source_files(
     tags = ["manual"],
 )
 
+# Incremental consumer cleanup index, generated against the committed initial snapshot.
+ash_schema(
+    name = "camera_consumer_expiry_schema",
+    srcs = ["priv/resource_snapshots/repo/platform.camera_consumer_leases/20261023063000.json"],
+    outs = [
+        "generated_camera_expiry/consumer.json",
+        "generated_camera_expiry/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_consumer_expiry_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_consumer_expiry_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_consumer_leases/20261023082000.json": ":generated_camera_expiry/consumer.json",
+        "priv/repo/migrations/20261023082000_index_camera_consumer_expiry.exs": ":generated_camera_expiry/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.
