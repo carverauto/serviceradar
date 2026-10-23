@@ -1,5 +1,6 @@
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
+load("//build:camera_browser_fixture.bzl", "camera_browser_fixture")
 load("//build:elixir_quality.bzl", "elixir_quality")
 load(
     "//build:elixir_release.bzl",
@@ -199,6 +200,18 @@ ex_unit_tests(
     data = glob(["config/**", "test/support/**"]) + ["//third_party/membrane:media_test_tools"],
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
+    target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
+)
+
+# Synthetic bytes cross the production packaging and recovered-spool boundaries
+# before becoming declared inputs of the pinned Chromium acceptance target.
+camera_browser_fixture(
+    name = "recording_browser_fixture",
+    testonly = True,
+    app = ":erlang_app",
+    generator = "test/fixtures/camera_browser_fixture.exs",
+    media_tools = "//third_party/membrane:media_test_tools",
+    out = "recording_browser_fixture.json",
     target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
 )
 
