@@ -14,11 +14,11 @@ preservation, and optional accelerated search and derived video. Cloud delivery
 also needs a provisioning and security contract with the SaaS control plane.
 
 The original `add-camera-recording-storage` and
-`add-recording-playback-lifecycle` proposals are already committed on staging;
-their implementation checklists are unchecked. This proposal consolidates them
-and preserves their acceptance contracts. It removes their pending directories
-rather than archiving unimplemented work as shipped. Their source is preserved in
-Git at `b103f2604aeb3e3281df6e9247035ab5d035eea3`.
+`add-recording-playback-lifecycle` proposals were committed on staging through
+`b103f2604aeb3e3281df6e9247035ab5d035eea3`, with unchecked implementation
+checklists. This proposal consolidates them and preserves their acceptance
+contracts. It removes their pending directories rather than archiving
+unimplemented work as shipped. Their source remains in that Git revision.
 [PRD traceability](prd-traceability.md) records the disposition of every FR.
 
 ## What Changes
