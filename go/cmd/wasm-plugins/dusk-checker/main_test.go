@@ -278,3 +278,138 @@ type slowHTTPDoerFunc func(sdk.HTTPRequest) (*sdk.HTTPResponse, error)
 func (f slowHTTPDoerFunc) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	return f(req)
 }
+
+type recordingWS struct {
+	messages [][]byte
+	timeouts []time.Duration
+	closed   bool
+}
+
+func (r *recordingWS) Recv(buf []byte, timeout time.Duration) (int, error) {
+	r.timeouts = append(r.timeouts, timeout)
+	if len(r.messages) == 0 {
+		return 0, errors.New("no more messages")
+	}
+	msg := r.messages[0]
+	r.messages = r.messages[1:]
+	copy(buf, msg)
+	return len(msg), nil
+}
+
+func (r *recordingWS) Close() error {
+	r.closed = true
+	return nil
+}
+
+func acceptedBlockFrame(height string) []byte {
+	payload := `{"Content-Location":"/on/blocks/accepted"}{"header":{"height":` + height +
+		`,"hash":"abcdef0123456789","timestamp":1778270000}}`
+	return append([]byte{0, 0, 0, 42}, []byte(payload)...)
+}
+
+func TestRunDuskCheckSubMillisecondBudgetStaysOneMillisecondOnHost(t *testing.T) {
+	var dialTimeout time.Duration
+	var sessionTimeout time.Duration
+	gotDial := false
+	gotSession := false
+
+	for i := 0; i < 100 && (!gotDial || !gotSession); i++ {
+		ws := &recordingWS{messages: [][]byte{[]byte("session-subms")}}
+		_ = runDuskCheck(
+			Config{NodeAddress: "127.0.0.1:8080", Timeout: "500us"},
+			func(_ string, timeout time.Duration) (webSocketConn, error) {
+				if !gotDial {
+					dialTimeout = timeout
+					gotDial = true
+				}
+				return ws, nil
+			},
+			&fakeHTTP{},
+		)
+		if len(ws.timeouts) > 0 && !gotSession {
+			sessionTimeout = ws.timeouts[0]
+			gotSession = true
+		}
+	}
+
+	if !gotDial || !gotSession {
+		t.Fatalf("500us budget never reached dial=%v session recv=%v", gotDial, gotSession)
+	}
+	// Host websocket timeouts are whole milliseconds. 0ms is rewritten to the
+	// assignment deadline (10s), which overruns the Wasm module context.
+	if dialTimeout != time.Millisecond {
+		t.Fatalf("dial timeout = %v, want 1ms so the host does not expand it", dialTimeout)
+	}
+	if sessionTimeout != time.Millisecond {
+		t.Fatalf("session recv timeout = %v, want 1ms so the host does not expand it", sessionTimeout)
+	}
+}
+
+func TestReadNextBlockSubMillisecondRecvStaysOneMillisecond(t *testing.T) {
+	frame := acceptedBlockFrame("7")
+	var timeouts []time.Duration
+	var block blockData
+	var err error
+
+	for i := 0; i < 50 && len(timeouts) < 2; i++ {
+		ws := &recordingWS{messages: [][]byte{{0, 0}, frame}}
+		block, err = readNextBlock(ws, 500*time.Microsecond)
+		timeouts = ws.timeouts
+	}
+
+	if len(timeouts) < 2 {
+		t.Fatal("parse-skip loop never issued a second recv inside a 500us budget")
+	}
+	for i, timeout := range timeouts {
+		if timeout != time.Millisecond {
+			t.Fatalf("recv[%d] timeout = %v, want 1ms so the host does not expand it", i, timeout)
+		}
+	}
+	if err != nil {
+		t.Fatalf("readNextBlock: %v", err)
+	}
+	if block.Height != 7 {
+		t.Fatalf("height = %d", block.Height)
+	}
+}
+
+func TestRunDuskCheckBlockWaitUsesRemainingCheckDeadline(t *testing.T) {
+	ws := &recordingWS{messages: [][]byte{
+		[]byte("session-block-wait"),
+		acceptedBlockFrame("11"),
+	}}
+	httpClient := &fakeHTTP{}
+
+	result := runDuskCheck(
+		Config{NodeAddress: "127.0.0.1:8080", Timeout: "8s"},
+		func(_ string, timeout time.Duration) (webSocketConn, error) {
+			if timeout <= 0 || timeout > 2*time.Second {
+				t.Fatalf("dial timeout = %v, want a handshake step of at most 2s", timeout)
+			}
+			return ws, nil
+		},
+		httpClient,
+	)
+
+	if result.Status != sdk.StatusOK {
+		t.Fatalf("status = %s, summary = %q", result.Status, result.Summary)
+	}
+	if len(ws.timeouts) != 2 {
+		t.Fatalf("recv timeouts = %v", ws.timeouts)
+	}
+	if ws.timeouts[0] <= 0 || ws.timeouts[0] > 2*time.Second {
+		t.Fatalf("session timeout = %v, want a handshake step of at most 2s", ws.timeouts[0])
+	}
+	if len(httpClient.requests) != 1 {
+		t.Fatalf("subscription requests = %d", len(httpClient.requests))
+	}
+	if got := httpClient.requests[0].TimeoutMS; got <= 0 || got > 2000 {
+		t.Fatalf("subscribe TimeoutMS = %d, want a handshake step of at most 2000ms", got)
+	}
+	// Dusk accepted blocks are about 10s apart. The wait may use whatever is
+	// left of the 8s check deadline; a 5s or three-quarter cap warns early.
+	blockWait := ws.timeouts[1]
+	if blockWait <= 6*time.Second || blockWait > 8*time.Second {
+		t.Fatalf("block wait = %v, want the time still left on the 8s check deadline", blockWait)
+	}
+}

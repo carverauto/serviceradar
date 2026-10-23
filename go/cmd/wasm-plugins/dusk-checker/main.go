@@ -17,7 +17,6 @@ const (
 	defaultTimeout          = 8 * time.Second
 	maxTimeout              = 8 * time.Second
 	maxHandshakeStepTimeout = 2 * time.Second
-	maxBlockWaitTimeout     = 5 * time.Second
 	defaultWebSocketPath    = "/on"
 	defaultSubscriptionPath = "/on/blocks/accepted"
 	lengthPrefixSize        = 4
@@ -124,7 +123,7 @@ func runDuskCheck(cfg Config, dial func(string, time.Duration) (webSocketConn, e
 			WithDetails(encodeCheckDetails(details))
 	}
 
-	conn, err := dial(wsURL, dialTimeout)
+	conn, err := dial(wsURL, hostStepTimeout(dialTimeout))
 	if err != nil {
 		details.FailedStage = "websocket_connect"
 		details.Error = err.Error()
@@ -246,18 +245,14 @@ func boundedBlockWaitTimeout(deadline time.Time, totalTimeout time.Duration) (ti
 	if remaining <= 0 {
 		return 0, fmt.Errorf("check budget exhausted (%s)", totalTimeout)
 	}
+	return remaining, nil
+}
 
-	limit := (totalTimeout * 3) / 4
-	if limit <= 0 {
-		limit = remaining
+func hostStepTimeout(timeout time.Duration) time.Duration {
+	if timeout > 0 && timeout < time.Millisecond {
+		return time.Millisecond
 	}
-	if limit > maxBlockWaitTimeout {
-		limit = maxBlockWaitTimeout
-	}
-	if remaining < limit {
-		limit = remaining
-	}
-	return limit, nil
+	return timeout
 }
 
 func duskURLs(cfg Config) (string, string, error) {
@@ -319,7 +314,7 @@ func cleanPluginPath(raw, fallback string) string {
 
 func readSessionID(conn webSocketConn, timeout time.Duration) (string, error) {
 	buf := make([]byte, 4096)
-	n, err := conn.Recv(buf, timeout)
+	n, err := conn.Recv(buf, hostStepTimeout(timeout))
 	if err != nil {
 		return "", err
 	}
@@ -331,10 +326,6 @@ func readSessionID(conn webSocketConn, timeout time.Duration) (string, error) {
 }
 
 func subscribeToBlocks(client httpDoer, subscribeURL, sessionID string, timeout time.Duration) error {
-	timeoutMS := int(timeout.Milliseconds())
-	if timeout > 0 && timeoutMS <= 0 {
-		timeoutMS = 1
-	}
 	resp, err := client.Do(sdk.HTTPRequest{
 		Method: http.MethodGet,
 		URL:    subscribeURL,
@@ -342,7 +333,7 @@ func subscribeToBlocks(client httpDoer, subscribeURL, sessionID string, timeout 
 			"Rusk-Version":    "1.0",
 			"Rusk-Session-Id": sessionID,
 		},
-		TimeoutMS: timeoutMS,
+		TimeoutMS: int(hostStepTimeout(timeout).Milliseconds()),
 	})
 	if err != nil {
 		return err
@@ -374,7 +365,7 @@ func readNextBlock(conn webSocketConn, timeout time.Duration) (blockData, error)
 		}
 
 		buf := make([]byte, 64*1024)
-		n, err := conn.Recv(buf, remaining)
+		n, err := conn.Recv(buf, hostStepTimeout(remaining))
 		if err != nil {
 			return blockData{}, err
 		}
