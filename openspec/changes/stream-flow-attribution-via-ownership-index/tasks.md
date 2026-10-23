@@ -18,7 +18,7 @@
 
 ## 2. Agent and core ingest
 - [ ] 2.1 Agent push loop (`go/pkg/agent/push_loop_flow_attribution.go`): carry lease ops, address leases and snapshots in the existing retained batches; batch window default 5 s.
-- [ ] 2.2 Core admission lane: reply after JetStream acknowledges every message of the unit; make worker count configurable (default 1); update lane tests for the modified requirement.
+- [ ] 2.2 Consume the core-admission owner's reviewed change for whole-unit JetStream acknowledgement and a configurable worker count (default 1). This workstream supplies publisher completion and retry contracts plus integration tests. It does not edit `admission/`, `StatusHandler`, or gateway StatusBuffer. The implementation plan in design.md is the boundary; P7 cannot release until that dependency is satisfied.
 - [ ] 2.3 Ownership publisher: normalize addresses, compute buckets on `(partition, ip)`, derive node-SNAT peer entries from registered agent node IPs, split by bucket under the existing row and byte caps. Decode events without `lease_op` as `OPEN` with a 10-minute TTL.
 - [ ] 2.4 Create the `flow_ownership` stream (`flows.ownership.<bucket>`, 256 concrete leaves, `max_age` 2 hours, `discard: new`) with flow-owned limits. Assert no subject overlap with the `flows` stream, and refuse to start a shard when `max_age` is below lease TTL plus the larger of renewal period and history horizon plus margin.
 - [ ] 2.5 Helm: NATS permissions for core publish and EventWriter subscribe on `flows.ownership.*`, and stream sizing values.
