@@ -100,6 +100,7 @@ exports_files([
     "camera_consumer_expiry_schema.exs",
     "camera_recorder_schema.exs",
     "camera_recording_block_schema.exs",
+    "camera_archive_binding_schema.exs",
     "alert_evaluation_schema.exs",
     "world_snapshots.exs",
     "benchmark_runner.py",

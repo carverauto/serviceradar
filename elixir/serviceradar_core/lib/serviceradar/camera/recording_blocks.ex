@@ -14,6 +14,7 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   import Ash.Expr
 
   alias Ash.Error.Query.InvalidArgument
+  alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingDescriptor
@@ -86,6 +87,30 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
         opts
       )
     end
+  end
+
+  @doc "Bind an unqualified destination once; this grants neither upload access nor archive availability."
+  def bind_archive(lease, binding_id, destination_sha256, opts \\ []) do
+    with_current_upload(
+      lease,
+      fn block ->
+        case ArchiveBinding |> Ash.Query.filter(id == ^binding_id) |> Ash.read_one(opts) do
+          {:ok, %ArchiveBinding{destination_sha256: ^destination_sha256}} ->
+            case block.archive_binding_id do
+              nil -> update(block, :bind_archive, %{archive_binding_id: binding_id}, opts)
+              ^binding_id -> {:ok, block}
+              _ -> {:error, :archive_binding_conflict}
+            end
+
+          {:ok, _} ->
+            {:error, :archive_binding_mismatch}
+
+          {:error, _} = error ->
+            error
+        end
+      end,
+      opts
+    )
   end
 
   def release_upload(lease, opts \\ []) do

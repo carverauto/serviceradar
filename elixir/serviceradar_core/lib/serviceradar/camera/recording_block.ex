@@ -18,6 +18,10 @@ defmodule ServiceRadar.Camera.RecordingBlock do
     schema "platform"
     repo ServiceRadar.Repo
 
+    references do
+      reference :archive_binding, on_delete: :restrict
+    end
+
     check_constraints do
       check_constraint :recorder_epoch, "camera_block_counters_valid",
         check:
@@ -71,6 +75,13 @@ defmodule ServiceRadar.Camera.RecordingBlock do
       accept []
       change set_attribute(:state, :sealed)
     end
+
+    update :bind_archive do
+      accept [:archive_binding_id]
+      validate present(:archive_binding_id)
+      validate changing(:archive_binding_id, from: nil)
+      validate attribute_equals(:state, :uploading)
+    end
   end
 
   policies do
@@ -96,6 +107,7 @@ defmodule ServiceRadar.Camera.RecordingBlock do
     attribute :relay_session_id, :uuid, allow_nil?: false
     attribute :media_ingest_id, :string, allow_nil?: false, constraints: [max_length: 128]
     attribute :storage_id, :uuid, allow_nil?: false
+    attribute :archive_binding_id, :uuid
     attribute :clock, :map, allow_nil?: false
     attribute :descriptor, :map
     attribute :descriptor_sha256, :string, constraints: [min_length: 64, max_length: 64]
@@ -113,6 +125,8 @@ defmodule ServiceRadar.Camera.RecordingBlock do
   end
 
   relationships do
+    belongs_to :archive_binding, ServiceRadar.Camera.ArchiveBinding, define_attribute?: false
+
     belongs_to :camera_source, ServiceRadar.Camera.Source,
       allow_nil?: false,
       define_attribute?: false

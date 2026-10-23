@@ -33,8 +33,9 @@ duration in the database receipt, as recorder admission already does. No externa
 I/O belongs inside either transaction fence.
 
 This slice has only `open_local`, `sealed` and `uploading` states. An upload lease
-does not mean any object exists. Object upload, immutable destination binding,
-multipart reconciliation, archive verification and index availability are still
+does not mean any object exists. [Immutable destination binding](archive-binding.md)
+retains a provisioning identity without enabling storage access. Object upload,
+multipart reconciliation, archive verification and index availability remain
 separate work. No credential reference or retention/deletion authority is added.
 
 A local seal followed by a crash before database freeze remains unavailable for
