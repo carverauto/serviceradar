@@ -1,0 +1,23 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+# gazelle:ignore
+# Data and logical runfile paths are part of the executable test.
+go_test(
+    name = "stream_doctor_av_drift_test",
+    size = "medium",
+    srcs = ["stream_doctor_test.go"],
+    data = [
+        "//third_party/membrane:media_test_tools",
+        "@stream_doctor_linux_x64//:daemon",
+    ],
+    env = {
+        "STREAM_DOCTOR_RUNFILE": "$(rlocationpath @stream_doctor_linux_x64//:daemon)",
+    },
+    # Local HTTP/RTMP sockets work; the daemon cannot fetch runtime dependencies.
+    exec_properties = {"test.network": "off"},
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
+)

@@ -915,11 +915,11 @@ use_repo(npm, "web_ng_npm")
 # Reuse the version and integrity already recorded in js/cli/package-lock.json.
 npm.npm_import(
     name = "cli_yaml",
-    package = "yaml",
-    version = "2.9.0",
     integrity = "sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==",
     link_packages = {"js/cli": ["yaml"]},
+    package = "yaml",
     root_package = "js/cli",
+    version = "2.9.0",
 )
 use_repo(npm, "cli_yaml", "cli_yaml__links")
 
@@ -927,11 +927,11 @@ use_repo(npm, "cli_yaml", "cli_yaml__links")
 # pinned by assets/component/bun.lock, without a bunx runtime fetch.
 npm.npm_import(
     name = "web_ng_typescript",
-    package = "typescript",
-    version = "5.9.3",
     integrity = "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==",
     link_packages = {"elixir/web-ng/assets": ["typescript"]},
+    package = "typescript",
     root_package = "elixir/web-ng/assets",
+    version = "5.9.3",
 )
 use_repo(npm, "web_ng_typescript", "web_ng_typescript__links")
 
@@ -945,6 +945,16 @@ http_file = use_repo_rule(
 http_archive = use_repo_rule(
     "@bazel_tools//tools/build_defs/repo:http.bzl",
     "http_archive",
+)
+
+# Stream Doctor's isolated A/V diagnostic; never linked into product releases.
+# The npm provenance names upstream tag v0.1.0 / a38e67b27414eb50c8ff4c23836a6791658e53e5.
+http_archive(
+    name = "stream_doctor_linux_x64",
+    build_file_content = 'filegroup(name = "daemon", srcs = ["bin/stream_doctor"], testonly = True, visibility = ["//visibility:public"])',
+    integrity = "sha512-1ycj8VtIxHscd6lFoKRppnHVQSpdsWq1gOzhU87UamWlX7MPbnd9B9j1lMapdjRVTAUJbN5D5psK+KcMH8x08A==",
+    strip_prefix = "package",
+    urls = ["https://registry.npmjs.org/@stream-doctor/linux-x64/-/linux-x64-0.1.0.tgz"],
 )
 
 # The provider acceptance test consumes a real CLI as a declared input. Pin the
