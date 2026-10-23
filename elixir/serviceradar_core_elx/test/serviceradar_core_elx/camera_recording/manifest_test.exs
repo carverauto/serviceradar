@@ -121,4 +121,43 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
     assert {:error, :invalid_manifest} = Manifest.decode(bytes, %{})
     assert {:error, :invalid_manifest} = Manifest.decode(bytes <> String.duplicate(" ", 2_097_152), ctx.snapshot.identity)
   end
+
+  test "remote metadata must obey fragment count, byte and time bounds independently of local spool admission", ctx do
+    {:ok, bytes} = Manifest.encode(ctx.snapshot, ctx.format, @receipts)
+    manifest = Jason.decode!(bytes)
+    first = hd(manifest["fragments"])
+
+    # Keep every other field internally consistent so another validation rule
+    # cannot mask a missing bound on metadata recovered from an archive.
+    single = %{
+      manifest
+      | "fragments" => [first],
+        "media" => %{manifest["media"] | "length" => first["length"], "sha256" => first["sha256"]}
+    }
+
+    assert {:ok, _} = Manifest.decode(Jason.encode!(single), ctx.snapshot.identity)
+
+    excessive =
+      Enum.map(0..4096, fn sequence ->
+        %{first | "sequence" => sequence, "offset" => sequence, "length" => 1, "start_ns" => sequence, "duration_ns" => 1}
+      end)
+
+    mutations = [
+      %{single | "fragments" => []},
+      %{single | "fragments" => excessive, "media" => %{single["media"] | "length" => 4097}},
+      %{
+        single
+        | "fragments" => [%{first | "length" => 33_554_433}],
+          "media" => %{single["media"] | "length" => 33_554_433}
+      },
+      %{single | "fragments" => [%{first | "duration_ns" => 0}]},
+      %{single | "fragments" => [%{first | "duration_ns" => -1}]},
+      %{single | "fragments" => [%{first | "duration_ns" => 60_000_000_001}]},
+      %{single | "fragments" => [%{first | "start_ns" => 9_223_372_036_854_775_807, "duration_ns" => 1}]}
+    ]
+
+    for invalid <- mutations do
+      assert {:error, :invalid_manifest} = Manifest.decode(Jason.encode!(invalid), ctx.snapshot.identity)
+    end
+  end
 end
