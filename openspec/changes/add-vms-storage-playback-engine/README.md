@@ -5,12 +5,16 @@
 Foundation PR #5950 merged with all 20 checks passing, including guarded database
 CI. The runtime pass is in its own review proxy, which is fixing closure of
 ambiguous legacy relay sessions. This follow-on branch adds retained block
-authority and conditional-write/encryption diagnostics. Reconcile the runtime
-proxy's fixes before submitting it, and execute the additional guarded database
+authority, immutable archive destinations and conditional-write/encryption
+diagnostics. Reconcile the runtime proxy's fixes before submitting it, and
+execute the additional guarded database
 tests. A recorder freezes exact block metadata before releasing its claim; a
-later uploader receives a separate lease for that frozen block. No uploader or
-archive index is implemented yet. Recording stays disabled and no runtime rollout
-has occurred. The combined archive sweep and Chromium playback checks pass.
+later uploader receives a separate lease for that frozen block and binds its
+destination once under that lease. Destination registration remains unqualified;
+it grants no credentials or storage operations. No uploader or archive index is
+implemented yet. Recording stays disabled and no runtime rollout has occurred.
+The combined archive sweep passes with the binding addition; Chromium playback
+checks pass for the unchanged media format from the preceding checkpoint.
 The operator has confirmed the agent-to-gateway-to-core live RTSP path works.
 Preserve that path; live viewing does not establish archive durability or seeking.
 
@@ -39,10 +43,11 @@ Preserve that path; live viewing does not establish archive durability or seekin
 | Recorder exclusion | Retained claims carry a separate recorder epoch, authenticated ingress ID, provisioned storage UUID and durable sequence counter. The first claim pass passes nine focused RBE checks in [c9dcd2fe](https://carverauto.buildbuddy.io/invocation/c9dcd2fe-fde4-43d6-a328-b8b344ec4be7). The relay-expiry correction passes core quality, core-elx units and integration selection in [bd3031f3](https://carverauto.buildbuddy.io/invocation/bd3031f3-d0a2-49f1-a9e6-c60156d8a4f9) | A passing guarded run after the repair is still required before competing-claimant, expiry-rollback, or Worker restart races count as proved |
 | Provider access | Authenticated bounded ranges pass real TLS/CONNECT, response-status, object-identity, byte/header/deadline tests in [eedb3bc5](https://carverauto.buildbuddy.io/invocation/eedb3bc5-2d1a-41ed-8c64-ab3cd22d74a0). Deliberately accepting HTTP 200 failed the control | Actual endpoint capability/security probes, gateway authorization and measured request cost |
 | Historical block authority | Nine focused targets pass in [27053d5a](https://carverauto.buildbuddy.io/invocation/27053d5a-0d1c-45ae-9fda-2e9a412a4b16), including 206 core-elx cases, eight media cases, quality, integration selection/topology and Helm migration checks. Weakening the shared descriptor bounds fails two manifest cases in [1c617b24](https://carverauto.buildbuddy.io/invocation/1c617b24-b950-4ef8-9bbf-58881832e059); restored source passes | Guarded DB execution of reservation, freeze, upload takeover and expiry rollback; immutable upload and publication remain unimplemented. [Authority boundary](block-authority.md) |
+| Immutable archive destination | Six focused targets pass in [f6c00dae](https://carverauto.buildbuddy.io/invocation/f6c00dae-99ab-4c6c-907d-a30a0d00ab4e), including the owning unit shard (1,022 executed, one skipped, 555 excluded), quality, registration, selection and Helm migration checks. Allowing an unexpected input field fails the contract case in [4c35622e](https://carverauto.buildbuddy.io/invocation/4c35622e-1396-4beb-bded-45596214e4ae); the parser is restored byte-for-byte and generator replay is identical | Guarded DB execution of immutable registration, bind-once references, expiry rollback and restrictive deletion; qualification and actual storage operations remain absent. [Binding contract](archive-binding.md) |
 | Provider diagnostic | Sixteen synthetic TLS protocol cases, release startup and quality pass in [373125cd](https://carverauto.buildbuddy.io/invocation/373125cd-3ffc-4b55-9618-359fb128eb2c). Separate negative controls reject missing conditional headers, missing explicit encryption headers and HTTP 200 completion errors. The earlier second live exercise verified private access, roles, conditional reads, checksums, multipart completion/hash/cross-part range and abort; all temporary resources from both exercises were removed and absence rechecked | The live result remains failed because default SSE-S3 was not confirmed. Explicit SSE-S3 and atomic no-overwrite now have synthetic diagnostic coverage but remain untested against the provider. Policy/Object Lock are untested; broad provider keys are not recorder credentials. [Operator runbook](../../../build/media/provider-probe.md) |
 | A/V diagnostic | Stream Doctor measured 3 ms control drift and 503 ms with a 500 ms injected delay; removing the delay made the fault assertion fail. Integrated target passes in [90139de1](https://carverauto.buildbuddy.io/invocation/90139de1-7abd-4d0d-8489-6fb40a65f9ea), using the verified cached result | Product audio support and RTSP fault coverage; [scope, bounds and fresh-run evidence](stream-doctor.md) |
 | Foundation validation | [PR #5950](https://github.com/carverauto/serviceradar/pull/5950) merged with all 20 checks passing. The final fix passes 199 core-elx and six media tests in [edd24097](https://carverauto.buildbuddy.io/invocation/edd24097-fb2c-4898-ad3e-daae1bf87952). Core Integration executes all 12 targets in [681ba460](https://carverauto.buildbuddy.io/invocation/681ba460-25c3-4cdb-af7a-94a14e169724), with successful fixture teardown and lease release | This PR does not contain the runtime claim/Worker or historical block cases |
-| Combined archive sweep | After foundation reconciliation and integration of block authority and provider diagnostics, `make test` passes 436 targets, with two Swift platform skips, in [538cba06](https://carverauto.buildbuddy.io/invocation/538cba06-da7b-4c2b-9533-c319bd790a87). Fifty-nine targets execute; the remainder use verified cache results. Strict OpenSpec validation also passes | Runtime proxy fixes must be reconciled and revalidated. Guarded database CI remains separate; the unit sweep does not execute its bodies |
+| Combined archive sweep | With retained block authority, provider diagnostics and immutable archive bindings, `make test` passes 436 targets, with two Swift platform skips, in [abf4ea8c](https://carverauto.buildbuddy.io/invocation/abf4ea8c-db03-4b5c-a670-84883b4be8ac). Fifty-five targets execute; the remainder use verified cache results. Strict OpenSpec validation also passes | Runtime proxy fixes must be reconciled and revalidated. Guarded database CI remains separate; the unit sweep does not execute its bodies |
 
 Local spool tests cover committed reads after writer exit, interrupted-tail
 recovery, corruption rejection, immutable sealing, stale snapshots, independent
@@ -66,11 +71,11 @@ quality passes in
 [37fc8ef4](https://carverauto.buildbuddy.io/invocation/37fc8ef4-4bb1-431d-a549-aa79e16cdd4c).
 Those guarded bodies have not been re-executed, so the unit sweep and that failed
 run do not prove the repaired races. Additional runtime lifecycle, manager,
-reaper, recorder-claim, Worker and historical block scenarios have been compiled
-and selected but still need their own sanctioned Core Integration run; the unit
-sweep cannot establish those concurrency contracts. The owner and consumer tables
-are additive, but the runtime pass changes live relay ownership and closure. It
-has not been deployed.
+reaper, recorder-claim, Worker, historical block and archive-binding scenarios
+have been compiled and selected but still need their own sanctioned Core
+Integration run; the unit sweep cannot establish those concurrency contracts.
+The owner and consumer tables are additive, but the runtime pass changes live
+relay ownership and closure. It has not been deployed.
 
 ## Next agent prompt
 
@@ -79,12 +84,21 @@ diff before editing. Reuse `CameraRecording.Packaging` and `CameraRecording.Spoo
 for recorder-lifetime integration. The foundation review-proxy fixes are preserved
 in the combined runtime branch. Complete runtime proxy/CI validation and reconcile
 its legacy-close fix into this follow-on branch. Validate the retained block
-authority in guarded DB CI before building on it; releasing a current claim must
-not turn a stale recorder into a valid publisher. Then implement immutable upload,
-verification and index publication. The manifest currently validates metadata only.
+authority and immutable binding in guarded DB CI before building on them;
+releasing a current claim must not turn a stale recorder into a valid publisher,
+and a destination change must not retarget a retained block. Then implement
+immutable upload, verification and index publication. The manifest currently
+validates metadata only.
 Baseline-only admission does not establish
 other codec support. Live provider probe completion and guarded database race
 tests remain independent gates.
+
+Persist exact bounded remote-operation intent before dispatch; a timeout leaves
+reconciliation work, not proof of cancellation. Keep provider I/O outside CNPG
+transactions and credentials behind the isolated storage boundary. Recovery
+needs manifest encoding from the frozen descriptor, not a reconstructed native
+packaging snapshot. Publication also needs its own terminal fence: the existing
+`with_current_upload/3` deliberately requires `:uploading` after its callback.
 Update this handoff with concise measured evidence and the next incomplete gate;
 keep the authoritative checklist in `tasks.md`. Every implementation PR uses
 Treehouse and no-mistakes. Do not close #4913 or #4915 until their acceptance passes.

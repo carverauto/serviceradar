@@ -473,3 +473,41 @@ Explicit AES256 request headers are signed, and HEAD must attest encryption on
 each tested object. That establishes neither a bucket policy rejecting plaintext
 uploads nor safe recorder credentials. Synthetic TLS tests qualify the diagnostic
 only; no provider capability or Cloud readiness follows from their passing.
+
+### Keep destination identity canonical and immutable
+
+When: archive-binding pass. Verdict: sound, medium confidence for endpoint syntax;
+high confidence for immutable identity.
+
+Version 1 accepts canonical HTTPS DNS origins on implicit port 443, without a
+trailing slash, and bounded ASCII allocation, region and bucket tokens. It rejects
+equivalent-looking URLs instead of normalizing an already registered identity.
+Custom-port S3 deployments need a deliberate contract extension; syntax alone
+does not establish DNS or egress safety.
+
+One provisioning reference and generation owns exactly eleven input fields.
+Product derives the local UUID and ordered-JSON SHA-256. An identical provisioning
+retry succeeds; changed content at the same generation fails without rewriting
+history. A new destination needs a new generation, while credential rotation
+changes neither that identity nor old blocks. The synthetic golden digest owns
+the serialization contract.
+
+### Separate destination registration from storage authority
+
+When: archive-binding pass. Verdict: sound, high confidence.
+
+Registration can retain a destination before provider qualification exists.
+Every row remains unqualified in this pass, with no activation or credential API.
+Persisting identity therefore cannot enable an upload. Qualification, credential
+generations and SaaS reconciliation remain separate contracts.
+
+### Bind a retained block through its existing upload fence
+
+When: archive-binding pass. Verdict: sound, high confidence.
+
+A nullable restrictive foreign key binds a frozen block once under the existing
+upload coordinator's token, epoch, descriptor and original deadline. Later leases
+retain the destination; expiry rolls back a pending bind. Ash's atomic
+changing-from-null validation also rejects replacement from a stale resource
+struct. This reuses the block's row-lock owner rather than adding another lease
+or table, and does not treat a local fence as cancellation of remote I/O.
