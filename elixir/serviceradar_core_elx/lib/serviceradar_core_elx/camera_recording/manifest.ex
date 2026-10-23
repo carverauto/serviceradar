@@ -22,9 +22,21 @@ defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
   @max_json_bytes 2_097_152
 
   @doc "Encode a sealed internal snapshot and actual init descriptor with storage receipts."
-  def encode(snapshot, format, %{init: init_receipt, media: media_receipt}) do
+  def encode(snapshot, format, receipts) do
     case RecordingDescriptor.from_snapshot(snapshot, format) do
-      {:ok, descriptor} ->
+      {:ok, descriptor} -> encode_descriptor(descriptor, receipts)
+      _ -> {:error, :invalid_manifest}
+    end
+  end
+
+  @doc """
+  Encode a persisted frozen descriptor with storage receipts, without a live
+  packager or local spool. Validates metadata only: the caller still owns remote
+  byte verification, publication fencing and access authorization.
+  """
+  def encode_descriptor(descriptor, %{init: init_receipt, media: media_receipt}) do
+    case RecordingDescriptor.validate(descriptor) do
+      :ok ->
         manifest =
           descriptor
           |> Map.update!("init", &object(&1, init_receipt))
@@ -44,7 +56,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
     end
   end
 
-  def encode(_, _, _), do: {:error, :invalid_manifest}
+  def encode_descriptor(_, _), do: {:error, :invalid_manifest}
 
   @doc "Decode a bounded manifest and require the caller's exact persisted identity."
   def decode(bytes, expected_identity) when is_binary(bytes) and byte_size(bytes) <= @max_json_bytes do

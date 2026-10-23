@@ -1,6 +1,7 @@
 defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadarCoreElx.CameraRecording.Manifest
   alias ServiceRadarCoreElx.CameraRecording.Spool
 
@@ -12,6 +13,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
     clock: %{clock_epoch: "invented-clock", timebase: 90_000, dts_source: :pts_no_reordering, utc_mapping: :unknown}
   }
   @receipts %{init: %{etag: ~s("invented-init")}, media: %{version_id: "invented-version"}}
+  # Independently calculated from the invented v1 JSON fields in this fixture,
+  # sorted by key with no whitespace. Pins wire bytes, including null receipts.
+  @manifest_sha256 "5ce6ca5b1221647c1fc485860885fce041d0fbc4952582c5d653accf0bce1d67"
+  @block_key "a5a5a38bcfbd45c06b6e518631ba078562e446bd32ecff9f6918b00aacc6012c"
 
   setup do
     root = Path.join(System.tmp_dir!(), "recording-manifest-#{System.unique_integer([:positive, :monotonic])}")
@@ -41,7 +46,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
       codecs: %{avc1: %{profile: 66, compatibility: 192, level: 10}}
     }
 
-    %{open: open, snapshot: snapshot, format: format}
+    {:ok, descriptor} = RecordingDescriptor.from_snapshot(snapshot, format)
+    persisted = descriptor |> Jason.encode!() |> Jason.decode!()
+
+    %{open: open, snapshot: snapshot, format: format, descriptor: persisted}
   end
 
   test "recovered committed ranges produce a portable deterministic recovery manifest", ctx do
@@ -73,6 +81,21 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
     refute Jason.decode!(next_bytes)["media"]["key"] == manifest["media"]["key"]
   end
 
+  test "persisted descriptors preserve v1 bytes, identity and receipts without a live packager", ctx do
+    expected_identity = @identity |> Jason.encode!() |> Jason.decode!()
+    assert {:ok, bytes} = Manifest.encode_descriptor(ctx.descriptor, @receipts)
+    assert {:ok, ^bytes} = Manifest.encode(ctx.snapshot, ctx.format, @receipts)
+    assert Base.encode16(:crypto.hash(:sha256, bytes), case: :lower) == @manifest_sha256
+    manifest = Jason.decode!(bytes)
+    assert manifest["identity"] == expected_identity
+    assert manifest["init"]["key"] == "recordings/v1/#{@block_key}/init.mp4"
+    assert manifest["media"]["key"] == "recordings/v1/#{@block_key}/media.m4s"
+    assert manifest["init"]["etag"] == ~s("invented-init")
+    assert manifest["init"]["version_id"] == nil
+    assert manifest["media"]["etag"] == nil
+    assert manifest["media"]["version_id"] == "invented-version"
+  end
+
   test "open blocks, mismatched init descriptors and unbound storage identities are refused", ctx do
     assert {:error, :invalid_manifest} = Manifest.encode(ctx.open, ctx.format, @receipts)
 
@@ -90,8 +113,42 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
     assert {:error, :invalid_manifest} =
              Manifest.encode(ctx.snapshot, ctx.format, put_in(@receipts.init.etag, "\"unsafe\"\n"))
 
+    format = ctx.format
+
     assert {:error, :invalid_manifest} =
-             Manifest.encode(ctx.snapshot, put_in(ctx.format.codecs.avc1.profile, 100), @receipts)
+             Manifest.encode(ctx.snapshot, put_in(format.codecs.avc1.profile, 100), @receipts)
+
+    for receipts <- [
+          nil,
+          %{},
+          %{init: nil, media: []},
+          %{init: %{}, media: %{}},
+          put_in(@receipts.media.version_id, "null"),
+          put_in(@receipts.media.version_id, String.duplicate("v", 1025)),
+          put_in(@receipts.init.etag, ~s(W/"weak")),
+          put_in(@receipts.init.etag, "\"unsafe\"\n")
+        ] do
+      assert {:error, :invalid_manifest} = Manifest.encode_descriptor(ctx.descriptor, receipts)
+    end
+
+    # Validate before decorating: a receipt must not erase an invalid input key.
+    descriptor = ctx.descriptor
+
+    for invalid <- [
+          put_in(descriptor["init"]["key"], "invented-foreign-key"),
+          nil,
+          [],
+          %{},
+          Map.delete(descriptor, "init"),
+          put_in(descriptor["media"], nil),
+          put_in(descriptor["fragments"], [nil]),
+          put_in(descriptor["version"], 2),
+          Map.put(descriptor, "authorization", "invented-claim"),
+          put_in(descriptor["format"]["codec"], "avc1.64000a"),
+          put_in(descriptor["identity"]["clock"]["utc_mapping"], %{})
+        ] do
+      assert {:error, :invalid_manifest} = Manifest.encode_descriptor(invalid, @receipts)
+    end
   end
 
   test "recovery rejects unsupported schemas, substituted paths and inconsistent fragment maps", ctx do
@@ -158,6 +215,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
 
     for invalid <- mutations do
       assert {:error, :invalid_manifest} = Manifest.decode(Jason.encode!(invalid), ctx.snapshot.identity)
+
+      descriptor =
+        invalid
+        |> Map.update!("init", &Map.take(&1, ~w(length sha256)))
+        |> Map.update!("media", &Map.take(&1, ~w(length sha256)))
+
+      assert {:error, :invalid_manifest} = Manifest.encode_descriptor(descriptor, @receipts)
     end
   end
 end
