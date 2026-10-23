@@ -222,6 +222,33 @@ defmodule ServiceRadar.Camera.IngestOwnershipIntegrationTest do
 
     assert result == {:error, :publication_rejected}
     assert {:ok, %{display_name: nil}} = Source.get_by_id(ctx.source.id, ctx.opts)
+
+    nested_result =
+      IngestOwnership.with_source_profile(
+        ctx.source.id,
+        ctx.profile.id,
+        fn _owner ->
+          {:error, :publication_rejected} =
+            IngestOwnership.with_current_owner(
+              owner,
+              fn _owner ->
+                {:ok, _source} =
+                  Source.update_source(ctx.source, %{display_name: "must rollback"}, ctx.opts)
+
+                send(self(), :nested_publication_write_executed)
+                {:error, :publication_rejected}
+              end,
+              ctx.opts
+            )
+
+          {:ok, :handled}
+        end,
+        ctx.opts
+      )
+
+    assert_receive :nested_publication_write_executed
+    assert nested_result == {:error, :publication_rejected}
+    assert {:ok, %{display_name: nil}} = Source.get_by_id(ctx.source.id, ctx.opts)
   end
 
   test "consumer admission and idle close serialize with publication on the owner row", ctx do
