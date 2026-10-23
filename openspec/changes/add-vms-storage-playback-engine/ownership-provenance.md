@@ -1,11 +1,13 @@
 # Ingest ownership and provenance audit
 
-## Shipped camera path
+## Pre-change camera path
 
-The implementation baseline is staging commit `f58d52400d`. The operator has
-validated live camera transport, not recording or archive durability.
+The audit baseline is staging commit `f58d52400d`. The operator has validated
+live camera transport, not recording or archive durability. The table records
+that baseline. This pass now serializes source/profile opens through
+`Camera.IngestOwnership` and consults consumer leases before idle close.
 
-| Boundary | Current owner | Recording consequence |
+| Boundary | Baseline owner | Recording consequence |
 | --- | --- | --- |
 | RTSP to encoded access units | `go/pkg/agent/camera_relay_rtsp.go` | One AnnexB H.264 access unit per chunk; PTS uses the RTP clock and DTS currently copies PTS |
 | Authenticated agent uplink | `serviceradar_agent_gateway/camera_media_server.ex` and `media_identity.ex` | Preserve certificate-bound agent identity and session/ingest checks |
@@ -16,8 +18,12 @@ validated live camera transport, not recording or archive durability.
 
 The existing uplink lease token is required to be nonempty by the gateway but is
 not carried through the core activation check. It is not proof of recorder
-ownership. The Go deduplication key is a relay session ID, so two independently
-created relay sessions can still open two upstream pulls for the same profile.
+ownership. The Go deduplication key is a relay session ID. At the audit baseline,
+two independently created relay sessions could open two upstream pulls for the
+same profile. New admissions now fail while more than one unexpired legacy
+session is live. Already authenticated active sessions may keep heartbeating
+until one remains, and that exception does not grant a recorder an ownership
+handle.
 
 The current camera wire format carries no declared timebase, UTC mapping,
 uncertainty, or clock epoch. The H.264 RTP timebase is established by the current
@@ -41,10 +47,16 @@ transaction fence, including a database-time recheck before commit. Media I/O is
 outside that transaction: immutable epoch-qualified object identities and a
 second fenced publication check prevent stale uploads from replacing new media.
 
-The resources and API are implemented; relay/viewer integration and execution of
-the committed database race tests remain separate gates. Registry entries and
-process discovery do not replace the database fence. Expired consumer cleanup
-must be bounded and must preserve owner epoch history.
+Relay open, heartbeat, viewer renewal and idle close now use that fence.
+Ambiguous pre-existing relays stay refused except one exact close: a persisted
+active session with a nonempty authenticated `media_ingest_id` can be reserved
+without adoption and without retiring a different owner. Requested, opening, and
+active sessions with an empty ingress id keep the original ambiguity refusal. A non-force close
+still retains active viewers and unexpired consumers. Raised or exited idle
+closes stay retryable while the session is locally tracked and viewer-empty.
+Execution of the committed database race tests remains a separate gate.
+Registry entries and process discovery do not replace the database fence.
+Expired consumer cleanup must be bounded and must preserve owner epoch history.
 
 ## What #4905 actually supplies
 
