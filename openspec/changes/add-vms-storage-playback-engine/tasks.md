@@ -1,11 +1,12 @@
 # Implementation and validation plan
 
-All implementation work is pending. A merged planning PR does not complete any
-runtime, cloud or live acceptance task below.
+Implementation is in progress. [The handoff](README.md) owns the current pickup
+point and evidence. A merged planning PR does not complete any runtime, cloud
+or live acceptance task below.
 
 ## 0. Review and feasibility gates
 
-- [ ] 0.1 Approve consolidated scope, PRD dispositions and cross-repository ownership; leave #4913/#4915 open until acceptance.
+- [x] 0.1 Approve consolidated scope, PRD dispositions and cross-repository ownership; leave #4913/#4915 open until acceptance.
 - [ ] 0.2 Audit existing relay/agent ownership and #4905 record provenance; specify recorder fencing and one-ingest behavior.
 - [ ] 0.3 Pin media libraries; prove H.264 CMAF packaging, init/byte map, keyframe bounds, browser seek and reconnect using synthetic RTSP.
 - [ ] 0.4 Measure audio/HEVC capability and clock uncertainty; select supported codec/profile/browser matrix and synchronization tolerance.
