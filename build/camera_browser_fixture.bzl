@@ -43,6 +43,7 @@ export ERL_LIBS="$PWD/{libraries}"
         ),
         mnemonic = "CameraBrowserFixture",
         progress_message = "Packaging and recovering synthetic camera media for Chromium",
+        execution_requirements = {"timeout": "120"},
     )
 
     return [DefaultInfo(files = depset([ctx.outputs.out]))]
