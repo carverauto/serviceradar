@@ -2,6 +2,26 @@
 
 ## Sound, medium confidence
 
+### Isolate the A/V diagnostic and bound its cost
+
+When: Stream Doctor feasibility pass.
+
+The diagnostic runs the upstream integrity-pinned Linux/x86-64 daemon in a
+test-only process. Its bundled dependencies differ from the product's pins, so
+the test does not change the shared media stack. Two sequential cases share one
+daemon but use separate viewers and metric collectors. Ten decoded samples from
+an 18-second synthetic source must appear within finite deadlines; missing data
+cannot count as zero drift.
+
+The plan required a working delayed-stream control but did not choose tolerances
+or resource limits. The test uses the upstream example's 50 ms quality tolerance
+and a 500 ms injected delay. It allows 1 GiB of sampled scratch space because
+the fixed daemon runtime expands to about 481 MiB. The watchdog is not a hard
+filesystem quota. These are sound diagnostic settings with measured separation
+between control and fault, not production synchronization or capacity promises.
+Long-term drift, ARM64 support and ServiceRadar's own audio path need separate
+proof. [The diagnostic evidence](stream-doctor.md) owns exact pins and bounds.
+
 ### A bounded connection per object range
 
 When: authenticated range transport pass.

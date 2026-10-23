@@ -12,7 +12,7 @@ or live acceptance task below.
 - [ ] 0.4 Measure audio/HEVC capability and clock uncertainty; select supported codec/profile/browser matrix and synchronization tolerance.
 - [ ] 0.5 Validate provider endpoint range/checksum/multipart/policy/lock capabilities and private access probes.
 - [ ] 0.6 Measure block/index/WAL/cache/object request costs; choose format bounds and service objectives instead of assuming PRD KPIs.
-- [ ] 0.7 Evaluate stream-doctor's supported A/V-drift scenario in a Bazel/RBE test target with synthetic media; prove a deliberately delayed stream fails.
+- [x] 0.7 Evaluate stream-doctor's supported A/V-drift scenario in a Bazel/RBE test target with synthetic media; prove a deliberately delayed stream fails. See `stream-doctor.md`; this validates the diagnostic, not ServiceRadar audio or RTSP behavior.
 - [ ] 0.8 Specify versioned runtime/cloud and GPU job/result contracts, capability negotiation and invalid/unauthorized input behavior.
 
 ## 1. Recording and immediate playback
