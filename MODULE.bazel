@@ -798,6 +798,7 @@ use_repo(
     "com_github_nats_io_nats_go",
     "com_github_nats_io_nats_server_v2",
     "com_github_nats_io_nkeys",
+    "com_github_pion_rtcp",
     "com_github_pion_rtp",
     "com_github_pkg_sftp",
     "com_github_rs_zerolog",
