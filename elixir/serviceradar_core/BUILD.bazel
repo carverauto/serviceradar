@@ -67,7 +67,7 @@ write_source_files(
     tags = ["manual"],
 )
 
-# The generator operates on an isolated Ash domain, so unrelated resource drift
+# Generate only the recorder claim's Ash schema.
 ash_schema(
     name = "camera_recorder_schema",
     outs = ["generated_camera_recorder/claim.json", "generated_camera_recorder/migration.exs"],
