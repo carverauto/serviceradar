@@ -7,7 +7,7 @@ or live acceptance task below.
 ## 0. Review and feasibility gates
 
 - [x] 0.1 Approve consolidated scope, PRD dispositions and cross-repository ownership; leave #4913/#4915 open until acceptance.
-- [ ] 0.2 Audit existing relay/agent ownership and #4905 record provenance; specify recorder fencing and one-ingest behavior.
+- [x] 0.2 Audit existing relay/agent ownership and #4905 record provenance; specify recorder fencing and one-ingest behavior. See `ownership-provenance.md`; runtime integration and DB races remain separate gates.
 - [ ] 0.3 Pin media libraries; prove H.264 CMAF packaging, init/byte map, keyframe bounds, browser seek and reconnect using synthetic RTSP.
 - [ ] 0.4 Measure audio/HEVC capability and clock uncertainty; select supported codec/profile/browser matrix and synchronization tolerance.
 - [ ] 0.5 Validate provider endpoint range/checksum/multipart/policy/lock capabilities and private access probes.

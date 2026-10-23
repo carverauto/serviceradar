@@ -26,6 +26,14 @@ of the narrower recorder/playback/delete roles needed here. Existing generic
 bucket deletion purges objects, so VMS resources must be classified and excluded
 until their preservation workflow authorizes deletion.
 
+Akamai's documented limited keys still allow bucket creation/listing, and their
+`read_write` role includes deletion and lifecycle/versioning changes. For this
+provider, keep bucket keys in the storage service and give recorders narrowly
+authorized object-upload operations. A limited key alone cannot establish the
+required no-provisioning/no-retention-authority recorder boundary. Direct worker
+credentials require separate evidence that the endpoint enforces the narrower
+actions. See [Akamai access-key permissions](https://techdocs.akamai.com/cloud-computing/docs/manage-access-keys).
+
 ## C1. Provisioning and private storage
 
 Before enabling hosted recording, the control plane creates or explicitly adopts
@@ -96,6 +104,15 @@ resources and availability checks. Validate CPU architecture, CUDA/driver/runtim
 model backend, memory, decode/encode support and container image digest on the
 actual hardware. GPU presence alone proves none of those. No hostnames from a
 live cluster are baked into charts.
+
+Capability reports distinguish physical devices, MIG partitions and time-sliced
+shares. A scheduler resource count is not a measurement of dedicated compute or
+memory. NVIDIA time-slicing provides no memory or fault isolation between its
+replicas, so shared units cannot satisfy a contract requiring those properties.
+Admission and metering must name the sharing class and verified model capacity;
+requesting multiple shared units does not promise proportional compute. Validate
+the device plugin, container toolkit and an actual worker workload, not node
+readiness alone. See [NVIDIA GPU sharing](https://docs.nvidia.com/datacenter/cloud-native/gpu-operator/latest/gpu-sharing.html).
 
 The existing [multi-pool commercial work #112](https://github.com/carverauto/serviceradar-control/issues/112)
 is a dependency for pricing/authorizing separate hosted GPU pools, not a reason
