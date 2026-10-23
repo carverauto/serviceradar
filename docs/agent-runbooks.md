@@ -806,8 +806,10 @@ file. A push of `staging` compares that commit with itself: a clean tree
 passes, and a duplicate that has just landed fails.
 
 Helm `core.migrations.expectedVersion` tracks the newest migration version.
-`//helm/serviceradar:migrations_expected_version_test` names the value to
-commit. Leave the chart value for that test to set.
+`//helm/serviceradar:migrations_expected_version_test` checks that value;
+it does not update the chart. The author must update the chart value when
+changing the newest migration version. See `protected_paths` in
+`.no-mistakes.yaml` for the automatic gate commit restrictions.
 
 ### Recovery when two versions already landed
 
