@@ -79,6 +79,10 @@ defmodule ServiceRadarCoreElx.MixProject do
       # re-add hackney without resolving the h2/chatterbox module clash.
       {:swoosh, "~> 1.26", override: true},
       {:membrane_core, "1.2.6"},
+      {:membrane_h26x_plugin, "0.10.9"},
+      {:membrane_mp4_plugin, "0.36.10"},
+      {:membrane_h264_format, "0.6.1"},
+      {:membrane_cmaf_format, "0.7.2"},
       {:membrane_webrtc_plugin, "~> 0.26.3"},
       # Keep transitive MPEG-TS deps on Elixir 1.19-compatible releases without
       # patching vendored Boombox or upstream Hex packages. Boombox still needs

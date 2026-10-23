@@ -17,6 +17,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   every committed fragment, discards only incomplete journal records and media
   beyond the committed high-water mark, and rejects complete corrupt records.
   Sealing journals the whole-block digest and permanently prevents further append.
+  Fragment entries retain optional `tail_duration_source: :previous_sample`
+  provenance as a JSON string when the packager inferred its final sample's duration.
   """
 
   @identity_keys ~w(source_id profile recorder_epoch block_sequence)a
@@ -178,25 +180,42 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   defp fragment_entry(_spool, payload, _timing) when not is_binary(payload) or byte_size(payload) == 0,
     do: {:error, :invalid_fragment}
 
-  defp fragment_entry(spool, payload, %{start_ns: start, duration_ns: duration})
+  defp fragment_entry(spool, payload, %{start_ns: start, duration_ns: duration} = timing)
        when is_integer(start) and start >= 0 and is_integer(duration) and duration > 0 and
               start + duration <= 9_223_372_036_854_775_807 do
-    with :ok <- check_capacity(spool, byte_size(payload), duration),
+    with {:ok, duration_source} <- tail_duration_source(timing),
+         :ok <- check_capacity(spool, byte_size(payload), duration),
          true <- contiguous?(spool.entries, start) || {:error, :discontinuity} do
       {:ok,
-       %{
-         "type" => "fragment",
-         "sequence" => length(spool.entries),
-         "offset" => spool.high_water,
-         "length" => byte_size(payload),
-         "start_ns" => start,
-         "duration_ns" => duration,
-         "sha256" => digest(payload)
-       }}
+       Map.merge(
+         %{
+           "type" => "fragment",
+           "sequence" => length(spool.entries),
+           "offset" => spool.high_water,
+           "length" => byte_size(payload),
+           "start_ns" => start,
+           "duration_ns" => duration,
+           "sha256" => digest(payload)
+         },
+         duration_source
+       )}
     end
   end
 
   defp fragment_entry(_spool, _payload, _timing), do: {:error, :invalid_timing}
+
+  defp tail_duration_source(timing) do
+    case Map.fetch(timing, :tail_duration_source) do
+      :error ->
+        {:ok, %{}}
+
+      {:ok, source} when source in [:previous_sample, "previous_sample"] ->
+        {:ok, %{"tail_duration_source" => "previous_sample"}}
+
+      {:ok, _source} ->
+        {:error, :invalid_tail_duration_source}
+    end
+  end
 
   defp check_capacity(spool, size, duration) do
     cond do
@@ -276,10 +295,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
          spool
        )
        when is_integer(offset) and offset >= 0 and is_integer(length) and length > 0 do
+    timing =
+      case Map.fetch(record, "tail_duration_source") do
+        {:ok, source} -> %{start_ns: start, duration_ns: duration, tail_duration_source: source}
+        :error -> %{start_ns: start, duration_ns: duration}
+      end
+
     with true <- offset == spool.high_water || {:error, :invalid_offset},
          true <- length <= spool.limits.max_fragment_bytes || {:error, :fragment_too_large},
          {:ok, payload} <- read_verified(Path.join(spool.directory, "media.m4s"), offset, length, sha256),
-         {:ok, ^record} <- fragment_entry(spool, payload, %{start_ns: start, duration_ns: duration}) do
+         {:ok, ^record} <- fragment_entry(spool, payload, timing) do
       {:ok,
        %{
          spool

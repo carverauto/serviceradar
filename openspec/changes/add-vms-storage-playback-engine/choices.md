@@ -66,6 +66,21 @@ or filesystem work. This is sound because immutable object names isolate stale
 uploads, while the database controls which objects become available. Integration
 tests for the actual database races remain a required gate.
 
+### Provisional packaging capacity
+
+When: bounded CMAF packaging pass.
+
+The packager initially admits at most 1 MiB per access unit, 8 MiB of buffered
+media, 1,024 buffered samples and an 8 MiB fragment. Its target segment duration
+is two seconds, with independent five-second media and ten-second wall-clock
+keyframe bounds. Trusted configuration may adjust them within finite ceilings.
+These are experiment settings, not a claim about deployed camera capacity.
+
+The plan required bounded work but did not choose initial values. This is sound
+because each bound can stop only its recorder and measurements can replace the
+defaults before live capacity acceptance. The separate byte, sample and time
+limits prevent a missing keyframe from growing memory or waiting indefinitely.
+
 ### Local journal format and provisional sizing
 
 When: local spool pass.
@@ -91,6 +106,46 @@ support file and directory sync. The guarantee covers the local node only;
 another node cannot recover footage that never reached an archive.
 
 ## Sound, high confidence
+
+### Baseline-only admission without fabricated decode timestamps
+
+When: bounded CMAF packaging pass.
+
+The first recorder accepts baseline or constrained-baseline H.264, one complete
+AnnexB access unit per call, and an explicit clock epoch and tick rate. It rejects
+other profiles, unequal PTS/DTS, timestamp resets and changed codec initialization.
+Equal timestamps alone cannot establish that a camera never reorders frames.
+The existing wire does not carry an independently established decode clock for
+B-frames, so other profiles need a later clock and codec contract.
+
+The plan allowed a narrow admission contract while codec compatibility remained
+unproved. Restricting admission is sound because unsupported footage fails
+explicitly without changing the already working live stream. Reconnect and
+configuration changes require a new packager instance and recording epoch.
+
+### Complete segment bytes own the fragment contract
+
+When: bounded CMAF packaging pass.
+
+One owning process pushes one access unit and consumes its returned events before
+pushing another. Ordered pipeline events acknowledge that unit only after parsing,
+muxing and the output sink. This bounds work without a second unbounded mailbox.
+The caller owns storage receipts; the packager returns init and fragment bytes,
+hashes, independently decodable sample boundaries and verified media timing.
+
+The existing pins are retained: h26x 0.10.9 and MP4 0.36.10 with their format
+packages. MP4 0.36.10 does not reset its chunk-duration accumulator in the
+whole-video-segment path, so its `last_chunk?` metadata can remain false for a
+complete segment. The sink uses only whole-segment mode and verifies the parsed
+sample table, keyframe flag and exact media length instead of trusting that flag.
+This is sound because the emitted bytes define the storage boundary; an
+independent parser and decoder can reject an incorrect boundary.
+
+When end-of-stream flushes a tail, the pinned muxer infers the final sample's
+duration from the preceding sample. The packager rejects a one-sample tail and
+labels the remaining inference `previous_sample`; the journal and recovered map
+preserve that qualifier. Nanosecond durations subtract converted endpoints so
+rounding cannot introduce a one-nanosecond gap between adjacent fragments.
 
 ### Preserve unknown clock mappings
 
