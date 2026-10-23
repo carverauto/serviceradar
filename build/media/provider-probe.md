@@ -27,6 +27,21 @@ CONNECT proxy with no success headers. It exercises the actual production
 release and invokes its entry point with no deployment credentials; invalid input
 must produce one redacted JSON result and exit 1.
 
+On Darwin/arm64, publish only this image with the declared launcher below. Keep
+the RBE execution platform first. The two explicit runtime toolchains resolve
+the existing pinned Darwin crane/jq binaries only for the launcher's Darwin
+target platform; Linux image production retains its RBE toolchains. Registry
+authentication and signing remain client operations outside build actions.
+
+```text
+bazel run --config=remote --stamp --extra_execution_platforms=//build/rbe:rbe_platform,//build/platforms:darwin_aarch64 --extra_toolchains=//build/media:provider_probe_crane_runtime,//build/media:provider_probe_jq_runtime //build/media:provider_probe_push
+```
+
+The launcher publishes only the stamped commit tag, never `latest` or a release
+tag. Check that this tag does not already exist before publishing, then sign and
+verify the new digest with the deployment's current signing identity. Do not
+copy OCI layouts or patch generated launchers out of Bazel's output tree.
+
 Req 0.7.5 signs requests without sending them. A private, bounded Mint 1.11.0
 transport handles diagnostic S3 writes and metadata requests; production
 `EgressClient` handles all range reads. No request follows redirects. This does

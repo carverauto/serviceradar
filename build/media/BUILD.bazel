@@ -1,8 +1,43 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@rules_oci//oci:defs.bzl", "oci_push")
 
 alias(
     name = "provider_probe_image",
     actual = "//docker/images:core_elx_image_amd64",
+)
+
+# Only this launcher needs native Darwin tools; the image remains Linux/RBE.
+oci_push(
+    name = "provider_probe_push",
+    exec_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+    image = "//docker/images:core_elx_image_amd64",
+    remote_tags = "//docker/images:core_elx_image_amd64_commit_tag",
+    repository = "registry.carverauto.dev/serviceradar/serviceradar-core-elx",
+)
+
+# These providers supply client runtime binaries; they execute no build action.
+# Register explicitly for this launcher. Linux image actions retain RBE tools.
+toolchain(
+    name = "provider_probe_crane_runtime",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+    toolchain = "@@rules_oci++oci+oci_crane_darwin_arm64//:crane_toolchain",
+    toolchain_type = "@rules_oci//oci:crane_toolchain_type",
+)
+
+toolchain(
+    name = "provider_probe_jq_runtime",
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+    toolchain = "@@aspect_bazel_lib++toolchains+jq_darwin_arm64//:jq_toolchain",
+    toolchain_type = "@aspect_bazel_lib//lib:jq_toolchain_type",
 )
 
 exports_files([
