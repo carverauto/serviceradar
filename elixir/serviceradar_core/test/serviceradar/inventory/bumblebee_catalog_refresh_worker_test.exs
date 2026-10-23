@@ -138,6 +138,71 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
     assert_rescheduled!("success")
   end
 
+  test "snapshot catalog_version comes from the downloaded files, not seeded metadata", %{
+    actor: actor,
+    insert_job: insert_job
+  } do
+    unique = System.unique_integer([:positive])
+
+    catalog_body =
+      Jason.encode!(%{
+        "catalog_version" => "from-files-#{unique}",
+        "schema_version" => "serviceradar.bumblebee.catalog.v1",
+        "entries" => [
+          %{
+            "id" => "pkg-label-#{unique}",
+            "ecosystem" => "npm",
+            "package_name" => "left-pad",
+            "severity" => "high",
+            "affected_versions" => ["1.0.0"]
+          }
+        ]
+      })
+
+    Application.put_env(:serviceradar_core, BumblebeeCatalogRefreshWorker,
+      enabled: true,
+      timeout_ms: 50,
+      failure_reschedule_seconds: 900,
+      download_source: fn _url, _timeout -> {:ok, catalog_body} end,
+      materialize_catalog: fn snapshot_ref, entries, metadata ->
+        {:ok,
+         %{
+           "object_key" => "bumblebee/catalogs/#{snapshot_ref}/catalog.json",
+           "content_sha256" => "sha-label-#{unique}",
+           "object_size_bytes" => length(entries) + map_size(metadata),
+           "entry_count" => length(entries)
+         }}
+      end,
+      push_config: fn :bumblebee -> :ok end,
+      insert_job: insert_job
+    )
+
+    source =
+      create_source!(actor,
+        enabled: true,
+        url: "https://catalog.example.invalid/bumblebee-label-#{unique}.json",
+        metadata: %{
+          "catalog_version" => "stale-seed-#{unique}",
+          # Two URLs drive the bundled (merged_catalog) path; a single-URL
+          # source returns the parser result without merging.
+          "catalog_urls" => [
+            "https://catalog.example.invalid/bumblebee-label-#{unique}-a.json",
+            "https://catalog.example.invalid/bumblebee-label-#{unique}-b.json"
+          ]
+        }
+      )
+
+    assert :ok = BumblebeeCatalogRefreshWorker.perform(%Oban.Job{args: %{"force" => true}})
+
+    assert %OcsfEvent{} =
+             event =
+             find_catalog_event!(actor, source.id, "bumblebee_catalog_refresh_success")
+
+    assert event.unmapped["catalog_version"] == "from-files-#{unique}"
+
+    assert_rescheduled!("success")
+  end
+
   test "failed refresh preserves last active snapshot", %{actor: actor} do
     source = create_source!(actor, enabled: true, url: "https://127.0.0.1:1/bumblebee.json")
     active = actor |> create_snapshot!(source, "candidate") |> promote_snapshot!(actor)
@@ -456,7 +521,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorkerTest do
       pinned_revision: "rev-#{unique}",
       refresh_cron: "0 0 * * *",
       enabled: Keyword.get(opts, :enabled, true),
-      metadata: %{}
+      metadata: Keyword.get(opts, :metadata, %{})
     }
 
     BumblebeeCatalogSource

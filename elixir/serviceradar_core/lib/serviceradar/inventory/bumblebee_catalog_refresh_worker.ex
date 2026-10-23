@@ -270,8 +270,10 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
 
     %{
       entries: entries,
+      # The downloaded files' own version wins over seeded source metadata,
+      # so a snapshot is labeled by what was actually downloaded.
       catalog_version:
-        fetch_map_value(metadata, "catalog_version") || common_value(parsed_catalog_versions) ||
+        common_value(parsed_catalog_versions) || fetch_map_value(metadata, "catalog_version") ||
           bundled_catalog_version(source),
       schema_version: common_value(parsed_schema_versions) || "mixed",
       metadata:

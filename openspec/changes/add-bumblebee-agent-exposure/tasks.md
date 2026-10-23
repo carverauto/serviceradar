@@ -1,6 +1,6 @@
 ## 1. Specification And Design
 - [x] 1.1 Package Bumblebee through a root-owned scheduled scanner service while keeping `serviceradar-agent` non-root.
-- [x] 1.2 Vendor and pin the upstream Bumblebee scanner implementation in ServiceRadar builds. The seeded catalog source is pinned to `v0.1.1+c24089804ee66ece4bec6f14638cb98985389cdb`.
+- [x] 1.2 Vendor and pin the upstream Bumblebee scanner implementation in ServiceRadar builds. The seeded threat-intel catalog pin is the Catalog Refresh default in the Bumblebee exposure docs.
 
 ## 2. Catalog Sync
 - [x] 2.1 Add Elixir migrations for platform-scoped exposure catalog snapshots, catalog entries, device-linked postures, finding state, and sync audit state.
