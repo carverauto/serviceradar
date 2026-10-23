@@ -107,7 +107,7 @@ sequenceDiagram
   C-->>W: SDP offer, returned before ICE gathering finishes
   W->>W: mint browser TURN credential for this viewer
   W-->>B: offer + ice_servers + remote_ice_candidates so far
-  C->>T: allocate relay after the offer; candidates trickle
+  C->>T: allocate relay after the offer, candidates trickle
   B->>W: answer, browser candidates, and GET polls for late ones
   W-->>B: gathered remote_ice_candidates (at most 64)
   B->>B: addIceCandidate, which installs the TURN permission
