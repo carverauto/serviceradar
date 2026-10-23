@@ -318,6 +318,10 @@ struct SocketInventory {
 #[cfg(target_os = "linux")]
 impl SocketInventory {
     fn update(&mut self, flow: &AttributedFlow) {
+        self.update_at(flow, Instant::now());
+    }
+
+    fn update_at(&mut self, flow: &AttributedFlow, now: Instant) {
         let Some((local_ip, local_port, _, _)) = endpoints(&flow.flow, flow.pid.local_endpoint)
         else {
             return;
@@ -364,12 +368,11 @@ impl SocketInventory {
             gid: flow.pid.gid,
             process_generation_ns: flow.pid.process_generation_ns,
         };
-        let now = Instant::now();
 
         match self.entries.get_mut(&key) {
             Some(cached) => {
                 cached.last_seen = now;
-                if cached.observe(owner, entry) {
+                if cached.observe(owner, entry, now) {
                     self.dirty = true;
                 }
             }
@@ -380,7 +383,7 @@ impl SocketInventory {
                     candidates: Vec::new(),
                     last_seen: now,
                 };
-                cached.observe(owner, entry);
+                cached.observe(owner, entry, now);
                 self.entries.insert(key, cached);
                 self.dirty = true;
             }
@@ -390,8 +393,17 @@ impl SocketInventory {
     /// Applies process details read after a listener was inventoried to the rows that
     /// process owns, so the next snapshot carries them.
     fn refresh_process(&mut self, owner: &ProcessDetailsCacheKey, details: &ProcessDetails) {
+        self.refresh_process_at(owner, details, Instant::now());
+    }
+
+    fn refresh_process_at(
+        &mut self,
+        owner: &ProcessDetailsCacheKey,
+        details: &ProcessDetails,
+        now: Instant,
+    ) {
         for cached in self.entries.values_mut() {
-            if cached.refresh_candidate(owner, details) {
+            if cached.refresh_candidate(owner, details, now) {
                 self.dirty = true;
             }
         }
@@ -420,7 +432,11 @@ impl SocketInventory {
             return false;
         };
 
-        cached.last_seen = Instant::now();
+        let now = Instant::now();
+        cached.last_seen = now;
+        if cached.note_owner_seen(ProcessDetailsCacheKey::from(record), now) {
+            self.dirty = true;
+        }
         true
     }
 
@@ -447,7 +463,15 @@ impl SocketInventory {
     }
 
     fn snapshot_if_dirty(&mut self, observed_at_unix_nano: i64) -> Option<ProcessSnapshot> {
-        self.prune(Instant::now());
+        self.snapshot_if_dirty_at(observed_at_unix_nano, Instant::now())
+    }
+
+    fn snapshot_if_dirty_at(
+        &mut self,
+        observed_at_unix_nano: i64,
+        now: Instant,
+    ) -> Option<ProcessSnapshot> {
+        self.prune(now);
         if !self.dirty {
             return None;
         }
@@ -469,9 +493,14 @@ impl SocketInventory {
 
     fn prune(&mut self, now: Instant) {
         let len_before = self.entries.len();
-        self.entries
-            .retain(|_, entry| now.duration_since(entry.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL);
-        if self.entries.len() != len_before {
+        let mut ownership_changed = false;
+        self.entries.retain(|_, entry| {
+            if entry.expire_candidates(now) {
+                ownership_changed = true;
+            }
+            now.duration_since(entry.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL
+        });
+        if self.entries.len() != len_before || ownership_changed {
             self.dirty = true;
         }
     }
@@ -536,6 +565,9 @@ fn winning_candidate(
 struct ListenerCandidate {
     key: ProcessDetailsCacheKey,
     entry: ProcessSnapshotEntry,
+    /// Last observation or detail refresh. Independent of the socket row, which
+    /// other workers keep alive.
+    last_seen: Instant,
 }
 
 #[cfg(target_os = "linux")]
@@ -548,12 +580,18 @@ struct CachedProcessSocket {
 
 #[cfg(target_os = "linux")]
 impl CachedProcessSocket {
-    fn observe(&mut self, owner: ProcessDetailsCacheKey, entry: ProcessSnapshotEntry) -> bool {
+    fn observe(
+        &mut self,
+        owner: ProcessDetailsCacheKey,
+        entry: ProcessSnapshotEntry,
+        now: Instant,
+    ) -> bool {
+        let changed = self.expire_candidates(now);
         if self.candidates.iter().any(|candidate| {
             candidate.key.tgid == owner.tgid
                 && candidate.key.process_generation_ns > owner.process_generation_ns
         }) {
-            return false;
+            return changed;
         }
 
         let published_retired = self.published_key.tgid == owner.tgid
@@ -567,6 +605,7 @@ impl CachedProcessSocket {
             .iter_mut()
             .find(|candidate| candidate.key == owner)
         {
+            candidate.last_seen = now;
             if prefer_snapshot_entry(&entry, &candidate.entry) {
                 candidate.entry = entry.clone();
             }
@@ -574,17 +613,87 @@ impl CachedProcessSocket {
             self.candidates.push(ListenerCandidate {
                 key: owner,
                 entry: entry.clone(),
+                last_seen: now,
             });
         }
 
         if published_retired {
-            return self.install_winner();
+            return self.install_winner() || changed;
         }
         if self.entry == entry || !prefer_snapshot_entry(&entry, &self.entry) {
-            return false;
+            return changed;
         }
         self.entry = entry;
         self.published_key = owner;
+        true
+    }
+
+    /// Repeat listen events arrive as inventory touches. Count that process as
+    /// seen, then retire every other candidate outside the inventory lifetime.
+    fn note_owner_seen(&mut self, owner: ProcessDetailsCacheKey, now: Instant) -> bool {
+        if let Some(candidate) = self
+            .candidates
+            .iter_mut()
+            .find(|candidate| candidate.key == owner)
+        {
+            candidate.last_seen = now;
+        }
+        self.expire_candidates(now)
+    }
+
+    /// The socket lifetime is not a candidate lifetime. A shared listener stays
+    /// in the inventory while successive workers are observed; each worker is
+    /// kept only for `FLOW_ATTRIBUTION_CACHE_TTL` after its own observation or
+    /// detail refresh. The published row follows the candidates that remain.
+    fn expire_candidates(&mut self, now: Instant) -> bool {
+        let before = self.candidates.len();
+        self.candidates.retain(|candidate| {
+            now.duration_since(candidate.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL
+        });
+        if self.candidates.len() == before {
+            return false;
+        }
+        if self
+            .candidates
+            .iter()
+            .any(|candidate| candidate.key == self.published_key)
+        {
+            return false;
+        }
+        if self.candidates.is_empty() {
+            return self.clear_retired_owner();
+        }
+        self.install_winner()
+    }
+
+    fn clear_retired_owner(&mut self) -> bool {
+        if self.entry.pid == 0
+            && self.entry.tgid == 0
+            && self.entry.uid == 0
+            && self.entry.gid == 0
+            && self.entry.comm.is_empty()
+            && self.entry.redacted_cmdline.is_empty()
+            && self.entry.container_id.is_empty()
+            && self.entry.workload_identity.is_none()
+            && self.entry.executable_ownership.is_none()
+        {
+            return false;
+        }
+        self.entry.pid = 0;
+        self.entry.tgid = 0;
+        self.entry.uid = 0;
+        self.entry.gid = 0;
+        self.entry.comm.clear();
+        self.entry.redacted_cmdline.clear();
+        self.entry.container_id.clear();
+        self.entry.workload_identity = None;
+        self.entry.executable_ownership = None;
+        self.published_key = ProcessDetailsCacheKey {
+            tgid: 0,
+            uid: 0,
+            gid: 0,
+            process_generation_ns: 0,
+        };
         true
     }
 
@@ -604,14 +713,19 @@ impl CachedProcessSocket {
         &mut self,
         owner: &ProcessDetailsCacheKey,
         details: &ProcessDetails,
+        now: Instant,
     ) -> bool {
+        // Expire before accepting this refresh. A detail read that arrives after
+        // the candidate's inventory lifetime must not put that worker back.
+        let changed = self.expire_candidates(now);
         let Some(index) = self
             .candidates
             .iter()
             .position(|candidate| candidate.key == *owner)
         else {
-            return false;
+            return changed;
         };
+        self.candidates[index].last_seen = now;
         let mut entry = self.candidates[index].entry.clone();
         entry.uid = details.uid;
         entry.gid = details.gid;
@@ -627,7 +741,7 @@ impl CachedProcessSocket {
             entry = self.candidates[index].entry.clone();
         }
         if !prefer_snapshot_entry(&entry, &self.entry) {
-            return false;
+            return changed;
         }
         self.entry = entry;
         self.published_key = *owner;
@@ -3086,6 +3200,8 @@ mod tests {
     use std::fs;
     #[cfg(target_os = "linux")]
     use std::sync::Arc;
+    #[cfg(target_os = "linux")]
+    use std::time::{Duration, Instant};
 
     use std::collections::HashMap;
 
@@ -3101,8 +3217,9 @@ mod tests {
     use super::{
         AttributionExpiryQueue, CachedAttribution, EVENT_UDP_RECV, EVENT_UDP_SEND,
         FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
-        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, FlowAttributionCache,
-        MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory,
+        FLOW_ATTRIBUTION_CACHE_TTL, FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A,
+        FlowAttributionCache, MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey,
+        SocketInventory,
         TCP_CLOSE_STATE, TCP_LISTEN_STATE, UdpRoleInventory, attribution_event_fingerprint,
         attribution_flow_key_from_record, insert_cached_attribution, likely_service_side_record,
         maybe_emit_cached_attribution, process_details_from_record, process_metadata_complete,
@@ -3743,6 +3860,87 @@ mod tests {
                 .binary_package,
             "new-pkg"
         );
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_retires_stale_candidates_while_the_socket_stays_active() {
+        // Oracle: FLOW_ATTRIBUTION_CACHE_TTL, the same lifetime that drops an idle
+        // listen socket. A worker last seen before that window must not be able to
+        // take the row; a worker seen inside it must. The wrong behavior is the
+        // stale worker's package replacing the current row, or the socket
+        // disappearing while a worker is still being observed.
+        let port = 9443;
+        let start = Instant::now();
+        let later = start + FLOW_ATTRIBUTION_CACHE_TTL + Duration::from_secs(30);
+        let recent = later - Duration::from_secs(20);
+        let old_container = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let recent_container = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+        let mut inventory = SocketInventory::default();
+
+        inventory.update_at(
+            &shared_listener(port, 10, 1, "old-worker", None, Some("old-pkg")),
+            start,
+        );
+        inventory.update_at(
+            &shared_listener(port, 20, 1, "current-worker", None, Some("current-pkg")),
+            start + Duration::from_secs(1),
+        );
+        let first = inventory
+            .snapshot_if_dirty_at(1, start + Duration::from_secs(1))
+            .unwrap();
+        assert_eq!(first.entries.len(), 1);
+        assert_eq!(first.entries[0].pid, 20);
+        assert_eq!(package_name(&first.entries[0]), "current-pkg");
+
+        inventory.update_at(
+            &shared_listener(port, 30, 1, "recent-worker", None, Some("recent-pkg")),
+            recent,
+        );
+        inventory.update_at(
+            &shared_listener(port, 20, 1, "current-worker", None, Some("current-pkg")),
+            later,
+        );
+        let current = inventory.snapshot_if_dirty_at(2, later).unwrap();
+        assert_eq!(current.entries.len(), 1);
+        assert_eq!(current.entries[0].pid, 20);
+        assert_eq!(package_name(&current.entries[0]), "current-pkg");
+
+        inventory.refresh_process_at(
+            &listener_key(10, 1),
+            &listener_details(10, 1, "old-worker", Some(old_container), Some("old-pkg")),
+            later,
+        );
+        assert!(
+            inventory.snapshot_if_dirty_at(3, later).is_none(),
+            "a worker outside the inventory lifetime must not replace the row"
+        );
+
+        inventory.refresh_process_at(
+            &listener_key(30, 1),
+            &listener_details(
+                30,
+                1,
+                "recent-worker",
+                Some(recent_container),
+                Some("recent-pkg"),
+            ),
+            later,
+        );
+        let shared = inventory.snapshot_if_dirty_at(4, later).unwrap();
+        assert_eq!(shared.entries.len(), 1);
+        assert_eq!(shared.entries[0].pid, 30);
+        assert_eq!(shared.entries[0].container_id, recent_container);
+        assert_eq!(package_name(&shared.entries[0]), "recent-pkg");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn package_name(entry: &crate::proto::netprobe::ProcessSnapshotEntry) -> &str {
+        &entry
+            .executable_ownership
+            .as_ref()
+            .expect("package ownership")
+            .binary_package
     }
 
     #[test]
