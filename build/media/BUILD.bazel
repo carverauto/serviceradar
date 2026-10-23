@@ -1,5 +1,31 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 
+alias(
+    name = "provider_probe_image",
+    actual = "//docker/images:core_elx_image_amd64",
+)
+
+exports_files([
+    "provider-probe-job.yaml",
+    "provider-probe-recovery.yaml",
+])
+
+go_test(
+    name = "provider_probe_release_startup_test",
+    size = "medium",
+    srcs = ["provider_probe_startup_test.go"],
+    data = ["//elixir/serviceradar_core_elx:release_tar"],
+    env = {
+        "PROBE_RELEASE_RUNFILE": "$(rlocationpath //elixir/serviceradar_core_elx:release_tar)",
+    },
+    exec_properties = {"test.network": "off"},
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
+)
+
 # gazelle:ignore
 # Data and logical runfile paths are part of the executable test.
 go_test(

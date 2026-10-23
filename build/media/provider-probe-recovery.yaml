@@ -1,0 +1,67 @@
+# Create only after the probe Job has stopped and released its PVC mount.
+# Replace names and the image digest with the matching run's operator receipts.
+# This finite reader has no credentials or network work. Preserve its logs privately.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: example-vms-probe-recovery
+spec:
+  restartPolicy: Never
+  activeDeadlineSeconds: 300
+  automountServiceAccountToken: false
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  containers:
+    - name: journal
+      image: registry.example.com/serviceradar-core-elx@sha256:REPLACE_WITH_BUILT_DIGEST
+      command: [/usr/bin/head]
+      args: [-c, "2097152", /probe-state/cleanup.json]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 100m
+          memory: 32Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      volumeMounts:
+        - name: state
+          mountPath: /probe-state
+          readOnly: true
+    - name: pending-journal
+      image: registry.example.com/serviceradar-core-elx@sha256:REPLACE_WITH_BUILT_DIGEST
+      command: [/usr/bin/head]
+      # Absence of .next is normal. Preserve its separate log and exit status;
+      # never append a missing-file diagnostic to the primary receipt stream.
+      args: [-c, "2097152", /probe-state/cleanup.json.next]
+      resources:
+        requests:
+          cpu: 10m
+          memory: 16Mi
+        limits:
+          cpu: 100m
+          memory: 32Mi
+      securityContext:
+        allowPrivilegeEscalation: false
+        readOnlyRootFilesystem: true
+        capabilities:
+          drop: [ALL]
+      volumeMounts:
+        - name: state
+          mountPath: /probe-state
+          readOnly: true
+  volumes:
+    - name: state
+      persistentVolumeClaim:
+        claimName: example-vms-probe-receipts
+        readOnly: true

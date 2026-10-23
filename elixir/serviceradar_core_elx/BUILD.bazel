@@ -1,4 +1,5 @@
 load("@rules_elixir//:elixir_tests.bzl", "ex_unit_tests")
+load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_app.bzl", "mix_app")
 load("//build:camera_browser_fixture.bzl", "camera_browser_fixture")
 load("//build:elixir_quality.bzl", "elixir_quality")
@@ -177,7 +178,13 @@ elixir_release(
 # config/runtime.exs from disk.
 ex_unit_tests(
     name = "unit_tests",
-    srcs = glob(["test/**/*_test.exs"], exclude = ["test/serviceradar_core_elx/camera_recording/packaging_test.exs"]),
+    srcs = glob(
+        ["test/**/*_test.exs"],
+        exclude = [
+            "test/serviceradar_core_elx/camera_recording/packaging_test.exs",
+            "test/serviceradar_core_elx/camera_recording/provider_probe_test.exs",
+        ],
+    ),
     config_loader = "//build:elixir_test_config_loader.exs",
     data = glob(
         [
@@ -193,14 +200,28 @@ ex_unit_tests(
     deps = [":erlang_app"],
 )
 
+ex_unit_test(
+    name = "provider_probe_test",
+    size = "medium",
+    srcs = ["test/serviceradar_core_elx/camera_recording/provider_probe_test.exs"],
+    exec_properties = {"test.network": "off"},
+    deps = [":erlang_app"],
+)
+
 ex_unit_tests(
     name = "recording_media_tests",
     srcs = ["test/serviceradar_core_elx/camera_recording/packaging_test.exs"],
     config_loader = "//build:elixir_test_config_loader.exs",
-    data = glob(["config/**", "test/support/**"]) + ["//third_party/membrane:media_test_tools"],
+    data = glob([
+        "config/**",
+        "test/support/**",
+    ]) + ["//third_party/membrane:media_test_tools"],
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
-    target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
 )
 
 # Synthetic bytes cross the production packaging and recovered-spool boundaries
