@@ -19,6 +19,31 @@ load("//build:world_snapshots.bzl", ash_schema = "world_snapshots")
 
 package(default_visibility = ["//visibility:public"])
 
+# Owns the initial camera ingest schema and its committed Ash snapshots. Future
+# revisions need new incremental migration targets, never a rewrite of this base.
+ash_schema(
+    name = "camera_ingest_schema",
+    outs = [
+        "generated_camera_ingest/owner.json",
+        "generated_camera_ingest/consumer.json",
+        "generated_camera_ingest/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_ingest_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_ingest_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_ingest_owners/20261023063000.json": ":generated_camera_ingest/owner.json",
+        "priv/resource_snapshots/repo/platform.camera_consumer_leases/20261023063000.json": ":generated_camera_ingest/consumer.json",
+        "priv/repo/migrations/20261023063000_add_camera_ingest_ownership.exs": ":generated_camera_ingest/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.
