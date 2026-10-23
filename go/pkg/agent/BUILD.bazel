@@ -419,6 +419,21 @@ go_test(
 )
 
 go_test(
+    name = "dusk_checker_runtime_test",
+    srcs = ["dusk_checker_runtime_test.go"],
+    data = ["//build/wasm_plugins:dusk_checker_wasm"],
+    embed = [":agent"],
+    # TinyGo produces the guest, then the agent host drives it against a local
+    # RUES stand-in. Wildcard CI does not need that compile on every run.
+    tags = ["manual"],
+    timeout = "eternal",
+    deps = [
+        "//go/pkg/logger",
+        "@com_github_gorilla_websocket//:websocket",
+    ],
+)
+
+go_test(
     name = "plugin_partial_ack_grpc_test",
     srcs = ["push_loop_plugin_partial_ack_grpc_test.go"],
     embed = [":agent"],
