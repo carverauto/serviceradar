@@ -606,6 +606,27 @@ ex_unit_test(
     deps = [":erlang_app"],
 )
 
+# Small corpus by default; set OWNERSHIP_SPIKE_KEYS=2500000 for the Phase 0 experiment.
+# Passing verifies the corpus and queries, not the printed capacity verdict.
+[ex_unit_test(
+    name = "ownership_store_spike_" + profile + "_test",
+    size = "large",
+    srcs = ["bench/ownership_store_spike_test.exs"],
+    data = ["bench/bench_test_helper.exs"],
+    elixir_opts = [
+        "-r",
+        "bench/bench_test_helper.exs",
+    ],
+    # A fresh VM per profile prevents a previous ETS deletion from changing the baseline.
+    env = {"OWNERSHIP_SPIKE_PROFILE": profile},
+    tags = ["benchmark"],
+    deps = [":erlang_app"],
+) for profile in [
+    "single",
+    "mixed",
+    "reuse",
+]]
+
 # A real web-node -> registry-node RPC regression. The general test helper
 # deliberately excludes :cluster, so this target owns the explicit opt-in and
 # keeps the test visible to tests(//...).
