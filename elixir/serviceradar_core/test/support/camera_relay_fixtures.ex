@@ -56,7 +56,7 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     RelaySessionLifecycle.activate_session(
       session.id,
       ingest_id,
-      Map.merge(assignment, attrs),
+      Map.merge(assignment, attrs_map(attrs)),
       ctx.opts
     )
   end
@@ -70,7 +70,7 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
       lease_expires_at: DateTime.shift(DateTime.utc_now(), second: 30)
     }
 
-    {:ok, session} = RelaySession.create_session(Map.merge(defaults, attrs), ctx.opts)
+    {:ok, session} = RelaySession.create_session(Map.merge(defaults, attrs_map(attrs)), ctx.opts)
 
     {:ok, session} =
       RelaySession.activate(session, %{media_ingest_id: Ecto.UUID.generate()}, ctx.opts)
@@ -103,6 +103,9 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
   def sessions(ctx) do
     RelaySession |> Ash.Query.filter(camera_source_id == ^ctx.source.id) |> Ash.read!(ctx.opts)
   end
+
+  defp attrs_map(attrs) when is_list(attrs), do: Map.new(attrs)
+  defp attrs_map(attrs) when is_map(attrs), do: attrs
 
   defp cleanup(source_id) do
     id = Ecto.UUID.dump!(source_id)

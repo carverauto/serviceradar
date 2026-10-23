@@ -109,14 +109,15 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
   end
 
   test "activation during command dispatch is not regressed to opening", ctx do
+    command_id = Ecto.UUID.generate()
+
     dispatch = fn _, payload, _, _ ->
       {:ok, reserved} = RelaySession.get_by_id(payload.relay_session_id, ctx.opts)
       assert {:ok, %{status: :active}} = Fixtures.activate(ctx, reserved, "media-example")
-      {:ok, "command-example"}
+      {:ok, command_id}
     end
 
-    assert {:ok,
-            %{status: :active, command_id: "command-example", media_ingest_id: "media-example"}} =
+    assert {:ok, %{status: :active, command_id: ^command_id, media_ingest_id: "media-example"}} =
              Fixtures.open(ctx, dispatch_open: dispatch)
   end
 

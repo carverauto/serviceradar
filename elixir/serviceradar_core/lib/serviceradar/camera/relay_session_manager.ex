@@ -346,8 +346,14 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
 
   defp read_ash_opts(opts, actor) do
     case Keyword.get(opts, :scope) do
-      nil -> [actor: actor]
-      scope -> [scope: scope]
+      nil ->
+        [actor: actor]
+
+      %{user: user} = scope when is_map(scope) and not is_struct(scope) and not is_nil(user) ->
+        [scope: Map.put(scope, :actor, scope[:actor] || user)]
+
+      scope ->
+        [scope: scope]
     end
   end
 
