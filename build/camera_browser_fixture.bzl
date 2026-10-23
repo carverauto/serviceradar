@@ -1,4 +1,4 @@
-"""Generate browser media from the production packager and recovered spool."""
+"""Generate declared synthetic camera media for browser acceptance."""
 
 load("@bazel_skylib//lib:shell.bzl", "shell")
 load("@rules_erlang//:erlang_app_info.bzl", "ErlangAppInfo", "flat_deps")
@@ -20,7 +20,7 @@ def _impl(ctx):
         fail("Expected one pinned FFmpeg executable")
 
     ctx.actions.run_shell(
-        inputs = libraries + ctx.files.media_tools + [
+        inputs = libraries + ctx.files.media_tools + ctx.files.srcs + [
             ctx.file.generator,
             otp.release_dir,
             otp.version_file,
@@ -32,17 +32,18 @@ def _impl(ctx):
         command = """set -euo pipefail
 export PATH="$PWD/{otp}/bin:$PWD/{elixir}/bin:$PATH"
 export ERL_LIBS="$PWD/{libraries}"
-"$PWD/{elixir}/bin/elixir" {generator} {ffmpeg} {output}
+"$PWD/{elixir}/bin/elixir" {requires} {generator} {ffmpeg} {output}
 """.format(
             otp = otp.erlang_home,
             elixir = elixir_home,
             libraries = library_path,
             generator = shell.quote(ctx.file.generator.path),
+            requires = " ".join(["-r " + shell.quote(f.path) for f in ctx.files.srcs]),
             ffmpeg = shell.quote(ffmpeg[0].path),
             output = shell.quote(ctx.outputs.out.path),
         ),
         mnemonic = "CameraBrowserFixture",
-        progress_message = "Packaging and recovering synthetic camera media for Chromium",
+        progress_message = "Generating synthetic camera media: %s" % ctx.label,
         execution_requirements = {"timeout": "120"},
     )
 
@@ -53,6 +54,7 @@ camera_browser_fixture = rule(
     attrs = {
         "app": attr.label(mandatory = True, providers = [ErlangAppInfo]),
         "generator": attr.label(mandatory = True, allow_single_file = [".exs"]),
+        "srcs": attr.label_list(allow_files = [".ex", ".exs"]),
         "media_tools": attr.label(mandatory = True, allow_files = True),
         "out": attr.output(mandatory = True),
     },
