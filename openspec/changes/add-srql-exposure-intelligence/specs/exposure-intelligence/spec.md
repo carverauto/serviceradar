@@ -359,7 +359,7 @@ The evaluator SHALL record every evaluated candidate that does not become a sign
 - **THEN** a zero candidate count and a high `coverage_unknown` count are distinguishable
 
 ### Requirement: Exposure State Is A Primary Key Fact Table Fed By Assessment Transitions
-The system SHALL store current exposure in a StarRocks Primary Key table keyed `(device_ord, cve_ord, pkg_ord)`. The table SHALL be written only by an EventWriter processor from assessment transitions consumed from JetStream. Each transition SHALL carry the complete after-image of every fact column except the snapshot generation, never only the changed fields, and SHALL be applied only when its `transition_seq`, which increases per fact in commit order, is greater than the stored one, so that duplicate or reordered transitions converge to the latest complete state. Each fact SHALL record the `transition_xid` of the transaction that produced its state. Resolution SHALL be a state change, never a delete. Deletion and retirement SHALL arrive as transitions with a new, greater `transition_seq` and an explicit `resolved` or `retired` state, never at the key's last sequence. A device retirement SHALL set every fact of the ordinal to `retired` and record the ordinal permanently as retired; any transition for a retired ordinal SHALL be dropped and counted at the ingestion boundary, including one for a fact that was never delivered before the retirement. A resolved or retired fact SHALL remain as a tombstone, and its key, state and `transition_seq` SHALL be kept permanently as the fact's sequence watermark. A compaction SHALL clear only the payload columns of tombstones resolved more than 7 days ago. Correctness SHALL NOT depend on a delivery horizon. The age of the oldest unrelayed outbox row (bound 10 minutes) and the transitions stream's message age (`max_age` 7 days) SHALL be bounded, and exceeding either SHALL raise a health alert.
+The system SHALL store current exposure in a StarRocks Primary Key table keyed `(device_ord, cve_ord, pkg_ord)`. The table SHALL be written only by an EventWriter processor from assessment transitions consumed from JetStream. Each transition SHALL carry the complete after-image of every fact column except the snapshot generation, never only the changed fields, and SHALL apply when its `transition_seq`, which increases per fact in commit order, is greater than the stored one. An equal sequence MAY replay only the identical producer after-image; changed content SHALL require a new sequence. The producer SHALL preserve this invariant. Older sequences SHALL be rejected, so duplicate or reordered transitions converge to the latest complete state. Conditional live loads SHALL list every event-owned column and omit the snapshot generation, preserving any existing marker and defaulting it to zero on insert. Each fact SHALL record the `transition_xid` of the transaction that produced its state. Resolution SHALL be a state change, never a delete. Deletion and retirement SHALL arrive as transitions with a new, greater `transition_seq` and an explicit `resolved` or `retired` state, never at the key's last sequence. A device retirement SHALL set every fact of the ordinal to `retired` and record the ordinal permanently as retired; any transition for a retired ordinal SHALL be dropped and counted at the ingestion boundary, including one for a fact that was never delivered before the retirement. A resolved or retired fact SHALL remain as a tombstone, and its key, state and `transition_seq` SHALL be kept permanently as the fact's sequence watermark. A compaction SHALL clear only the payload columns of tombstones resolved more than 7 days ago, preserving sequence, transaction and snapshot markers. An identical terminal replay MAY restore compacted payload but SHALL NOT reactivate the fact. Correctness SHALL NOT depend on a delivery horizon. The age of the oldest unrelayed outbox row (bound 10 minutes) and the transitions stream's message age (`max_age` 7 days) SHALL be bounded, and exceeding either SHALL raise a health alert.
 
 #### Scenario: Reordered transitions keep the newest state
 - **GIVEN** transitions with sequence 10 (resolved) and 9 (active) for the same fact are delivered in the order 10, 9
@@ -368,7 +368,18 @@ The system SHALL store current exposure in a StarRocks Primary Key table keyed `
 
 #### Scenario: Redelivery is idempotent
 - **WHEN** the same transition is delivered twice
-- **THEN** the fact is unchanged by the second delivery
+- **THEN** its logical state, sequence and snapshot marker are unchanged by the second delivery
+
+#### Scenario: Identical live replay preserves a snapshot marker
+- **GIVEN** an active fact at sequence 11 already marked by snapshot generation 7
+- **WHEN** the identical live after-image at sequence 11 is replayed
+- **THEN** the fact stays at sequence 11 and snapshot generation 7
+
+#### Scenario: Terminal replay after compaction stays resolved
+- **GIVEN** a resolved fact at sequence 11 whose payload has been compacted
+- **WHEN** its identical terminal producer after-image is replayed
+- **THEN** it remains resolved at sequence 11 with its snapshot marker preserved
+- **AND** restored payload may be cleared by the next compaction
 
 #### Scenario: Arbitrarily delayed older transition does not resurrect a resolved fact
 - **GIVEN** a fact resolved at sequence 11 thirty days ago, whose tombstone payload has been compacted
@@ -404,7 +415,7 @@ Roaring bitmap sets of devices (per CVE, per severity and KEV flag, and per devi
 - **THEN** they are equal
 
 ### Requirement: Exposure Identifiers Use Collision-Free Dictionaries
-Device ordinals SHALL come from `platform.device_fleet_ordinals`. CVE ordinals for identifiers of the form `CVE-YYYY-N` with N below 10^7 SHALL be `YYYY * 10^7 + N`; every other advisory identifier SHALL receive an ordinal of at least 10^12 from a sequence dictionary. Package identity and package-version ordinals SHALL come from sequence dictionaries. Hash-derived ordinals, including `bitmap_hash`, SHALL NOT be used. Ordinals SHALL be allocated by the producer before publishing, never by EventWriter.
+Device ordinals SHALL come from `platform.device_fleet_ordinals`. Every warehouse device/exporter ordinal column SHALL use BIGINT while producers and ingestion boundaries retain the source u32 bounds of 1 through 4294967295; zero SHALL be allowed only for an explicitly defined sentinel. CVE ordinals for identifiers of the form `CVE-YYYY-N` with N below 10^7 SHALL be `YYYY * 10^7 + N`; every other advisory identifier SHALL receive an ordinal of at least 10^12 from a sequence dictionary. Package identity and package-version ordinals SHALL come from sequence dictionaries. Hash-derived ordinals, including `bitmap_hash`, SHALL NOT be used. Ordinals SHALL be allocated by the producer before publishing, never by EventWriter.
 
 #### Scenario: Deterministic CVE ordinal
 - **WHEN** `CVE-2024-0001` is mapped
@@ -481,7 +492,9 @@ Exposure queries SHALL obtain device names, VLAN, owner, device tags and the age
 - **AND** names are not silently left empty
 
 ### Requirement: Exposure Is Rebuildable And Reconciled Against The Assessment Store
-The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. The snapshot SHALL also emit a terminal watermark for every other fact key CNPG knows in `V`, including keys whose assessment row was deleted, which carry the new sequence the deleting transaction drew, and a retirement marker for every tombstoned ordinal. A snapshot row SHALL be compared with the stored row on `(transition_seq, state)`: a greater sequence SHALL be applied; an equal sequence with an equal state SHALL change only the snapshot generation; an equal sequence with a different state SHALL be counted as a mismatch and the snapshot's state applied. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL resolve exactly the facts the snapshot did not touch whose `transition_xid` is visible in `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of each fact's `(cve_ord, pkg_ord, transition_seq)` and a content hash of its actionable attributes (state, installed package version, severity, CVSS, KEV, exploit and fix flags) between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
+The system SHALL rebuild exposure facts through a generation snapshot of all actionable assessments, read in one transaction whose database snapshot `V` (`pg_current_snapshot()`) is recorded and carried on the end marker. Snapshot upserts SHALL carry each assessment's last `transition_seq` and `transition_xid`. The snapshot SHALL also emit a terminal watermark for every other fact key CNPG knows in `V`, including keys whose assessment row was deleted, which carry the new sequence the deleting transaction drew, and a retirement marker for every tombstoned ordinal. A snapshot row SHALL be compared with the stored row on sequence, state and content: a greater sequence SHALL be applied; an equal sequence with equal state and equal content SHALL change only the snapshot generation. An equal-sequence state or content mismatch SHALL be counted and repaired by re-reading the current source state under the full fact-key serialization, locking any existing assessment, and publishing its after-image with a new sequence. Deleted keys SHALL use the source watermark repair path. Repair SHALL NOT change content under an existing sequence. Transitions whose transaction is not visible in `V` SHALL be applied as live transitions in any arrival order. Live transitions SHALL NOT change a fact's snapshot generation. On the end marker, the system SHALL reconcile facts the snapshot did not touch whose `transition_xid` is visible in `V`, using the same source-locked repair path and a new sequence for any resolution still required after the source recheck. It SHALL preserve changes committed after `V`. A sequence threshold SHALL NOT be used as the fence. The system SHALL also run a daily per-device reconciliation that compares actionable counts and an order-independent digest of each fact's `(cve_ord, pkg_ord, transition_seq)` and a content hash of its actionable attributes (state, installed package version, severity, CVSS, KEV, exploit and fix flags) between CNPG and StarRocks, re-snapshot every mismatched device, and export mismatch counts.
+
+Every assessment creation, update, deletion and snapshot repair SHALL serialize on the full fact key, including when no assessment row exists, and SHALL lock any existing assessment before drawing a transition sequence. A repair SHALL re-read the current assessment and watermark under that serialization. If neither exists and the warehouse fact still requires resolution, the repair SHALL atomically record a terminal watermark and a complete terminal outbox after-image in CNPG, then publish through JetStream. The repair SHALL allocate a new `transition_seq` greater than the stored warehouse fact's `transition_seq`. The terminal outbox after-image SHALL separately record the repair transaction's `transition_xid`; `transition_seq` SHALL NOT be compared with `transition_xid`. If a source record exists after the recheck, the repair SHALL use its current state through the normal repair path. A later creation of the same fact key SHALL obtain the same serialization, draw a sequence greater than the terminal watermark's, and remove that watermark in the same transaction as its new assessment transition. Repair SHALL NOT depend on locking an absent assessment row or writing directly to StarRocks.
 
 #### Scenario: Snapshot removes stale facts and keeps live updates
 - **GIVEN** StarRocks holds a fact that CNPG no longer considers actionable
@@ -502,6 +515,25 @@ The system SHALL rebuild exposure facts through a generation snapshot of all act
 - **WHEN** snapshot generation G completes
 - **THEN** the fact is resolved at sequence 11
 
+#### Scenario: Snapshot resolves a fact absent from both source stores
+- **GIVEN** the warehouse holds an active fact at sequence 10 whose transaction is visible in `V`
+- **AND** the snapshot did not touch the fact and CNPG has neither an assessment nor a watermark for its key
+- **WHEN** the end-marker repair rechecks the source under the full fact-key serialization
+- **THEN** it atomically records a terminal watermark and outbox transition at a new sequence greater than 10
+- **AND** JetStream delivery resolves the warehouse fact without changing sequence 10's after-image
+
+#### Scenario: Re-creation after missing-source repair wins in either delivery order
+- **GIVEN** a missing-source repair commits a terminal watermark and transition at sequence 11
+- **WHEN** a new actionable assessment for the same fact key obtains the same serialization and commits at sequence 12
+- **THEN** its transaction removes the terminal watermark
+- **AND** delivery of the two transitions in either order leaves the fact active at sequence 12
+
+#### Scenario: Source recheck preserves an assessment created before repair
+- **GIVEN** the snapshot did not touch an active warehouse fact
+- **AND** a new actionable assessment for that key commits after `V` but before repair obtains the fact-key serialization
+- **WHEN** repair rechecks the assessment and watermark
+- **THEN** it uses the current assessment through the normal repair path and does not publish an absent-source resolution
+
 #### Scenario: Transaction in flight during the snapshot keeps its result
 - **GIVEN** a resolving transaction for an active fact has drawn its `transition_seq` but has not committed when the snapshot records `V`
 - **AND** the snapshot therefore reads the assessment as active and upserts it with the previous sequence
@@ -512,6 +544,12 @@ The system SHALL rebuild exposure facts through a generation snapshot of all act
 - **GIVEN** a fact is deleted from StarRocks out of band
 - **WHEN** the daily reconciliation runs
 - **THEN** a mismatch is counted for that device, and a per-device snapshot restores the fact
+
+#### Scenario: Equal-sequence content drift is repaired under a new sequence
+- **GIVEN** CNPG and StarRocks hold sequence 11 for one fact but disagree on its KEV flag
+- **WHEN** a snapshot detects the mismatch
+- **THEN** the mismatch is counted and the current source state is re-read under its lock
+- **AND** a new transition above sequence 11 repairs the fact without changing sequence 11's after-image
 
 #### Scenario: Reconciliation detects attribute-only drift
 - **GIVEN** an active fact whose KEV flag changed from false to true at sequence 11 in CNPG
