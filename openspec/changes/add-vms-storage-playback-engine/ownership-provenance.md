@@ -54,7 +54,7 @@ without adoption and without retiring a different owner. Requested, opening, and
 active sessions with an empty ingress id keep the original ambiguity refusal. A non-force close
 still retains active viewers and unexpired consumers. Raised or exited idle
 closes stay retryable while the session is locally tracked and viewer-empty.
-Execution of the committed database race tests remains a separate gate.
+Guarded execution of these ownership races is recorded in [the handoff](README.md).
 Registry entries and process discovery do not replace the database fence.
 Expired consumer cleanup must be bounded and must preserve owner epoch history.
 
