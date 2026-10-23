@@ -47,11 +47,19 @@ var errScannerOutputTooLarge = errors.New("scanner output exceeds configured lim
 
 type Runner struct {
 	cfg Config
+
+	// buildVersion is the ServiceRadar add-on build version (the
+	// `version:` in addons/bumblebee-scan/addon.yaml), stamped into the
+	// scanner binary at build time. It — not the vendored upstream scanner
+	// tag — is what ScanPayload.ScannerVersion reports, so a stored scan
+	// result identifies the build that produced it. Empty means an
+	// unstamped dev build; the payload then omits scanner_version.
+	buildVersion string
 }
 
-func NewRunner(cfg Config) *Runner {
+func NewRunner(cfg Config, buildVersion string) *Runner {
 	applyDefaults(&cfg)
-	return &Runner{cfg: cfg}
+	return &Runner{cfg: cfg, buildVersion: buildVersion}
 }
 
 func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
@@ -99,7 +107,8 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		return payload, nil
 	}
 
-	payload.ScannerVersion = upstream.Version
+	payload.ScannerVersion = r.buildVersion
+	payload.Metadata["upstream_scanner_version"] = upstream.Version
 	rootCoverageRequired := rootCoverageRequired(r.cfg)
 
 	for _, root := range roots {

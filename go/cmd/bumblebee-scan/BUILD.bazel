@@ -1,8 +1,11 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
 
 go_library(
     name = "bumblebee_scan_lib",
-    srcs = ["main.go"],
+    srcs = [
+        "main.go",
+        "version.go",
+    ],
     importpath = "github.com/carverauto/serviceradar/go/cmd/bumblebee-scan",
     visibility = ["//visibility:private"],
     deps = ["//go/pkg/bumblebee"],
@@ -12,4 +15,12 @@ go_binary(
     name = "bumblebee_scan",
     embed = [":bumblebee_scan_lib"],
     visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "bumblebee_scan_test",
+    srcs = ["version_test.go"],
+    data = ["//addons/bumblebee-scan:addon.yaml"],
+    embed = [":bumblebee_scan_lib"],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
 )

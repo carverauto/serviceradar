@@ -46,7 +46,7 @@ func run(ctx context.Context, configPath string) error {
 		return err
 	}
 
-	runner := bumblebee.NewRunner(cfg)
+	runner := bumblebee.NewRunner(cfg, addonVersion)
 	payload, err := runner.Run(ctx)
 	if err != nil {
 		return err
