@@ -20,6 +20,10 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
   @disagreements_table "source_fact_disagreements"
   @prefix "platform"
 
+  # Before SourceFacts read an absent key as absent, every update without an explicit
+  # source instance was stored under this one. See retire_legacy_instance_facts/2.
+  @legacy_instance "nil"
+
   @spec ingest_resolved([{map(), String.t()}], keyword()) :: :ok
   def ingest_resolved(resolved_updates, opts \\ [])
 
@@ -27,15 +31,16 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     authorities = load_authorities()
 
-    resolved_updates
-    |> Enum.group_by(fn {_update, device_uid} -> device_uid end)
-    |> Enum.each(fn {device_uid, pairs} ->
+    by_device = Enum.group_by(resolved_updates, fn {_update, device_uid} -> device_uid end)
+
+    Enum.each(by_device, fn {device_uid, pairs} ->
       Enum.each(pairs, fn {update, _} ->
         persist_update_facts(device_uid, update, now)
       end)
-
-      reconcile_device(device_uid, authorities, now)
     end)
+
+    retire_legacy_instance_facts(resolved_updates, now)
+    Enum.each(Map.keys(by_device), &reconcile_device(&1, authorities, now))
 
     :ok
   rescue
@@ -166,13 +171,13 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
       )
 
     Enum.each(rows, fn row ->
-      update = %{
-        source: "armis",
-        source_instance: "default",
-        metadata: stringify_keys(row.metadata || %{})
-      }
+      # The instance comes from the device's metadata, as it does for a sync update,
+      # so backfilled facts land under the integration's instance and match its
+      # authority row.
+      update = %{source: "armis", metadata: stringify_keys(row.metadata || %{})}
 
       persist_update_facts(row.uid, update, now)
+      retire_legacy_instance_facts([{update, row.uid}], now)
       reconcile_device(row.uid, authorities, now)
     end)
 
@@ -213,6 +218,31 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
     |> Enum.reject(&MapSet.member?(reported_keys, &1))
     |> Enum.each(fn fact_key ->
       mark_absent(device_uid, source, instance, fact_key, now)
+    end)
+  end
+
+  # Facts a source stored under the legacy "nil" instance are superseded once the same
+  # source reports for that device under its real instance. Marking them absent keeps a
+  # stale twin from competing with the source's own facts. It is one statement per
+  # source per batch, and it touches nothing once a deployment has healed.
+  defp retire_legacy_instance_facts(resolved_updates, now) do
+    resolved_updates
+    |> Enum.map(fn {update, device_uid} ->
+      {SourceFacts.source(update), SourceFacts.source_instance(update), device_uid}
+    end)
+    |> Enum.reject(fn {_source, instance, _device_uid} -> instance == @legacy_instance end)
+    |> Enum.group_by(fn {source, _instance, _device_uid} -> source end, &elem(&1, 2))
+    |> Enum.each(fn {source, device_uids} ->
+      device_uids = Enum.uniq(device_uids)
+
+      Repo.update_all(
+        from(f in DeviceSourceFact,
+          where:
+            f.device_uid in ^device_uids and f.source == ^source and
+              f.source_instance == ^@legacy_instance and f.present == true
+        ),
+        set: [present: false, updated_at: now]
+      )
     end)
   end
 

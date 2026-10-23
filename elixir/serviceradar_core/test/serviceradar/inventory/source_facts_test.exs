@@ -134,6 +134,37 @@ defmodule ServiceRadar.Inventory.SourceFactsTest do
     assert left.compare_hash == right.compare_hash
   end
 
+  describe "source and instance of a sync update" do
+    @integration_id "5d2c7a91-4b3e-4f6a-9c8d-1e2f3a4b5c6d"
+
+    test "an integration's update takes its integration source id as instance" do
+      update = %{source: "armis", metadata: %{"sync_service_id" => @integration_id}}
+
+      assert SourceFacts.source_instance(update) == @integration_id
+    end
+
+    test "an explicit instance still wins over metadata" do
+      update = %{
+        "source_instance" => "assignment-7",
+        "metadata" => %{"sync_service_id" => @integration_id}
+      }
+
+      assert SourceFacts.source_instance(update) == "assignment-7"
+    end
+
+    test "an update that names no instance is the default instance, not \"nil\"" do
+      assert SourceFacts.source_instance(%{source: "armis", metadata: %{}}) == "default"
+      assert SourceFacts.source_instance(%{"source" => "armis"}) == "default"
+    end
+
+    test "an update that names no source falls back to its plugin discovery source" do
+      update = %{metadata: %{"plugin_discovery_source" => "example-plugin"}}
+
+      assert SourceFacts.source(update) == "example-plugin"
+      assert SourceFacts.source(%{metadata: %{}}) == "unknown"
+    end
+  end
+
   describe "externally reported facts" do
     test "a valid label is recorded under the api: prefix" do
       assert SourceFacts.api_source("example-nms") == {:ok, "api:example-nms"}

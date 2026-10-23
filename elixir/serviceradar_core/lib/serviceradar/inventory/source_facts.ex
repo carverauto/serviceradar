@@ -168,6 +168,8 @@ defmodule ServiceRadar.Inventory.SourceFacts do
       string_field(update, :source_instance),
       string_field(metadata, :source_instance),
       string_field(metadata, :integration_source_id),
+      # Integration sync updates carry their integration source's id under this key.
+      string_field(metadata, :sync_service_id),
       string_field(update, :agent_id)
     ]) || "default"
   end
@@ -326,19 +328,19 @@ defmodule ServiceRadar.Inventory.SourceFacts do
 
   defp parse_explicit_value("switch_port_attachment", value) when is_map(value) do
     hostname =
-      first_present([value_field(value, :switch_hostname), value_field(value, :hostname)])
+      first_present([string_field(value, :switch_hostname), string_field(value, :hostname)])
 
-    port = first_present([value_field(value, :port), value_field(value, :if_name)])
+    port = first_present([string_field(value, :port), string_field(value, :if_name)])
 
     if hostname && port do
       build_attachment_fact(%{
         "switch_hostname" => hostname,
         "port" => port,
-        "switch_device_uid" => value_field(value, :switch_device_uid),
-        "if_alias" => value_field(value, :if_alias),
+        "switch_device_uid" => string_field(value, :switch_device_uid),
+        "if_alias" => string_field(value, :if_alias),
         "vlan_id" => vlan_id_string(Map.get(value, "vlan_id") || Map.get(value, :vlan_id)),
-        "vlan_name" => value_field(value, :vlan_name),
-        "raw" => value_field(value, :raw) || hostname <> ":" <> port
+        "vlan_name" => string_field(value, :vlan_name),
+        "raw" => string_field(value, :raw) || hostname <> ":" <> port
       })
     end
   end
@@ -498,8 +500,13 @@ defmodule ServiceRadar.Inventory.SourceFacts do
 
   defp map_field(_map, _key), do: %{}
 
+  # nil is an atom, so it is matched before the atom clause: an absent key reads as
+  # absent, not as the string "nil".
   defp string_field(map, key) when is_map(map) do
     case Map.get(map, key) || Map.get(map, to_string(key)) do
+      nil ->
+        nil
+
       value when is_binary(value) ->
         trimmed = String.trim(value)
         if trimmed == "", do: nil, else: trimmed
@@ -513,20 +520,6 @@ defmodule ServiceRadar.Inventory.SourceFacts do
   end
 
   defp string_field(_map, _key), do: nil
-
-  # string_field/2 reads an absent key as "nil", because nil is an atom. A fact
-  # value must read it as absent, or a missing port would be recorded as the
-  # port "nil".
-  defp value_field(map, key) do
-    case Map.get(map, key) || Map.get(map, to_string(key)) do
-      value when is_binary(value) ->
-        trimmed = String.trim(value)
-        if trimmed == "", do: nil, else: trimmed
-
-      _other ->
-        nil
-    end
-  end
 
   defp first_present(values), do: Enum.find(values, &(is_binary(&1) and &1 != ""))
 end
