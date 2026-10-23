@@ -511,3 +511,21 @@ retain the destination; expiry rolls back a pending bind. Ash's atomic
 changing-from-null validation also rejects replacement from a stale resource
 struct. This reuses the block's row-lock owner rather than adding another lease
 or table, and does not treat a local fence as cancellation of remote I/O.
+
+### Encode recovery metadata from the retained descriptor
+
+When: persisted-descriptor manifest pass. Verdict: sound, high confidence.
+
+After restart, a publisher has the frozen descriptor rather than the live
+packager's native initialization structure. `Manifest.encode_descriptor/2`
+validates that whole descriptor before attaching storage receipts; the existing
+snapshot encoder delegates to the same path. This preserves v1 bytes and object
+keys without another format validator or a fabricated packaging snapshot.
+Encoding still establishes neither remote byte integrity nor publication authority.
+
+An independently calculated digest and object-key constant guard compatibility.
+Negative controls also verify the actual invalid-input paths. One existing
+unsupported-profile test updated the outer test context instead of its format;
+correcting the operand preserves the assertion and makes it fail when the codec
+guard is deliberately weakened. The new descriptor mutations use the same
+correct local-root pattern. Every earlier assertion remains.
