@@ -80,10 +80,11 @@ motion state that can be unknown (absence of analysis is not no motion).
 An open Ash block row names the provisioned storage UUID and owner epoch, not a
 node, hostname, PID, unrelated volume, or user-supplied URL. That UUID follows
 the storage lifetime, as recorded in [choices.md](choices.md). The local append
-file and journal are fsynced to a declared durability boundary. Publish only complete fragments below
-the committed readable high-water mark. Separate bounded read workers/ETS
-snapshots serve media; a packer GenServer serializes append state, not every
-viewer byte. Do not rewrite the full JSONB map for each fragment.
+file and journal are fsynced to a declared durability boundary. Publish only
+complete fragments below the committed readable high-water mark. Separate
+bounded read workers/ETS snapshots serve media; a packer GenServer serializes
+append state, not every viewer byte. Do not rewrite the full JSONB map for each
+fragment.
 
 State is explicit:
 

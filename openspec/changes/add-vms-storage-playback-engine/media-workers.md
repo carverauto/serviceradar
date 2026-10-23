@@ -44,7 +44,7 @@ do not enqueue every compressed frame as a durable job.
 | Candidate | Proposed use | Gate / cost |
 | --- | --- | --- |
 | [membrane_mp4_plugin](https://github.com/membraneframework/membrane_mp4_plugin) | Core CMAF/fMP4 packaging, parsing and remux/export | Needed to package encoded access units, not an AI feature. Validate custom sink initialization/segment contract, seek and reconnect; no decode required for compatible remux |
-| [stream-doctor](https://github.com/membraneframework/stream-doctor) | Experimental CI A/V-drift probe | Upstream labels it an early proof of concept: RTMP-to-HLS with one drift metric. Evaluate adapter and pinned daemon/SDK on RBE; do not claim RTSP/WebRTC, chaos or general playback coverage |
+| [stream-doctor](https://github.com/membraneframework/stream-doctor) | Experimental CI A/V-drift probe | Proved only for upstream RTMP-to-HLS drift. Pins, bounds and the RBE result live in [stream-doctor.md](stream-doctor.md). RTSP, WebRTC, chaos and product playback stay out of scope |
 | [membrane_whisper_plugin](https://github.com/membraneframework/membrane_whisper_plugin) | Opt-in audio transcription worker | Produces speech transcripts; verify timestamp granularity, chunk overlap, languages, model/runtime and ARM64/GPU backend. Do not infer acceleration from the plugin name |
 | [membrane_smelter_plugin](https://github.com/membraneframework/membrane_smelter_plugin) | Optional multi-camera composition, layouts and derived exports | Multiple inputs become a new rendered output. Benchmark decode/render/encode, memory and latency. Package native dependencies reproducibly; do not copy runtime binary-download setup |
 | [membrane_ffmpeg_video_filter_plugin](https://github.com/membraneframework/membrane_ffmpeg_video_filter_plugin) | Optional burned-in text such as camera/location/time | Upstream currently implements TextOverlay on raw video. Decode/filter/encode is extra work; an image/logo overlay is not established support |
@@ -52,7 +52,9 @@ do not enqueue every compressed frame as a durable job.
 Pin dependency/artifact versions and digests during P0. Use Bazel targets and
 approved dependency-fetching paths; runtime external artifact downloads use
 ServiceRadar.HTTP.EgressClient. Validate native libraries, licensing and backend
-compatibility before any release claim. This proposal installs no dependencies.
+compatibility before any release claim. Product Hex dependencies are unchanged.
+The test-only Stream Doctor archive is the exception;
+[stream-doctor.md](stream-doctor.md) owns its pin.
 
 ## Labels and branding
 
