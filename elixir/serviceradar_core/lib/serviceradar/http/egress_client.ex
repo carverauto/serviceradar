@@ -4,12 +4,13 @@ defmodule ServiceRadar.HTTP.EgressClient do
 
   Every fetch of an external host belongs here -- `download_to_file/3` for
   artifacts and databases, `fetch_body/2` for raw datasets, `fetch_json/2`
-  for JSON APIs, and `head/2` for revalidating an artifact's validators.
+  for JSON APIs, `head/2` for revalidating an artifact's validators, and
+  `fetch_range/3` for one authorized byte interval of an immutable object.
   `fetch_body/2` always returns bytes; unlike `Req`, it never infers a decoder
   from Content-Type. The shared `ServiceRadar.Finch` pool connects directly
   and never uses the proxy, so a request on it to an external host bypasses
   the egress allowlist and is refused wherever a default-deny NetworkPolicy
-  admits only the proxy.
+  admits only the proxy. `ServiceRadar.HTTP.EgressProxy` owns that split.
 
   Full downloads use OTP's `:httpc`, preserving their streaming and redirect
   contracts. `fetch_range/3` uses a dedicated passive Mint connection because
@@ -18,33 +19,31 @@ defmodule ServiceRadar.HTTP.EgressClient do
   neither uses the direct-only shared Finch pool.
 
   Smokescreen embeds `elazarl/goproxy`, which answers `CONNECT` with the 19
-  bytes `HTTP/1.0 200 OK\\r\\n\\r\\n` and no headers at all. Mint 1.10.0 started
-  framing the CONNECT response correctly ("Fix CONNECT response framing ... in
-  tunnel proxies"), so `Mint.HTTP1` now completes that response -- and a
-  completed response goes through the generic rule in `Mint.HTTP1.request_done/1`:
-  an HTTP/1.0 response carrying no `connection: keep-alive` closes the
-  connection. Mint therefore closes the tunnel socket it is about to hand to
-  `Mint.TunnelProxy.upgrade_connection/3`, which then upgrades a socket that is
-  already shut.
+  bytes `HTTP/1.0 200 OK\\r\\n\\r\\n` and no headers at all. Mint 1.10.0 framed
+  that response and then applied the generic rule in `Mint.HTTP1.request_done/1`:
+  an HTTP/1.0 response carrying no `connection: keep-alive` closed the
+  connection. It therefore closed the tunnel socket before
+  `Mint.TunnelProxy.upgrade_connection/3` could upgrade it.
 
-  The error that reaches the operator names none of this. `ssl:connect/3` -- the
-  socket-upgrade arity -- wraps its body in `try ... catch error:{badmatch, _}
+  Operators saw that failure as `{:dtls_upgrade, :notsup}`. `ssl:connect/3` --
+  the socket-upgrade arity -- wraps its body in `try ... catch error:{badmatch, _}
   -> {error, {dtls_upgrade, notsup}}`, and `tls_socket:upgrade/4` opens with
   `ok = setopts(...)`. On a closed socket `setopts` returns `{error, einval}`,
-  the match fails, and OTP reports the failure as `{:dtls_upgrade, :notsup}` --
-  which mentions neither the proxy nor the closed socket, and is not about DTLS.
+  the match fails, and OTP reports `{:dtls_upgrade, :notsup}` -- which mentions
+  neither the proxy nor the closed socket, and is not about DTLS.
 
   RFC 9110 section 9.3.6 is explicit that a 2xx response to `CONNECT` establishes
   a tunnel, so HTTP/1.0 connection-close semantics must not be applied to it.
-  Mint 1.9.3 left the socket open and this worked; 1.10.0 closes it. Pinning back
-  is not available: 1.10.0 carries the fixes for CVE-2026-82728 and
-  CVE-2026-82729. See `third_party/hex/BUILD.bazel` for the workspace dependency
-  resolution policy.
+  Mint 1.9.3 left the socket open. Mint 1.10.0 closed it, and pinning back was
+  unavailable: 1.10.0 carries the fixes for CVE-2026-82728 and CVE-2026-82729.
+  See `third_party/hex/BUILD.bazel` for the workspace dependency resolution
+  policy.
 
   `:httpc` performs its own CONNECT and accepts the HTTP/1.0 reply. Mint 1.11.0,
-  pinned in the workspace, also preserves successful CONNECT tunnels regardless
-  of that response's HTTP version. The range API's socket tests exercise this
-  reply, actual response status, TLS trust, and bounded response delivery.
+  pinned in the workspace, preserves successful CONNECT tunnels regardless of
+  that response's HTTP version. Full downloads stay on `:httpc`. The range API
+  uses Mint; its socket tests exercise this reply, actual response status, TLS
+  trust, and bounded response delivery.
   """
 
   alias ServiceRadar.Edge.ReleaseFetchPolicy

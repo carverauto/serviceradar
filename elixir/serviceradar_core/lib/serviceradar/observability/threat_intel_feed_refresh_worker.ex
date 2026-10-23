@@ -174,8 +174,7 @@ defmodule ServiceRadar.Observability.ThreatIntelFeedRefreshWorker do
       :ok
   end
 
-  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
-  # SERVICERADAR_EGRESS_PROXY.
+  # EgressClient, not the shared Finch pool (`ServiceRadar.HTTP.EgressProxy`).
   defp download_feed(url, timeout_ms) do
     with :ok <- OutboundFeedPolicy.validate(url),
          {:ok, %Req.Response{status: 200, body: body}} when is_binary(body) <-

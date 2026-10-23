@@ -6136,8 +6136,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp fetch_arin_asn(_), do: {:error, :invalid_asn}
 
-  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
-  # SERVICERADAR_EGRESS_PROXY. Decodes a 200 body; other statuses pass through.
+  # EgressClient, not the shared Finch pool (`ServiceRadar.HTTP.EgressProxy`).
+  # Decodes a 200 body; other statuses pass through.
   defp arin_http_get(url) do
     opts = [receive_timeout: 8_000, headers: [{"accept", "application/json"}]]
 

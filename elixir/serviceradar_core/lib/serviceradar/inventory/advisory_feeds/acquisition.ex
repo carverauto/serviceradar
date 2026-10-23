@@ -575,9 +575,9 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Acquisition do
     end
   end
 
-  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
-  # SERVICERADAR_EGRESS_PROXY. No per-request retry: a failed lookup fails this
-  # acquisition, like any other download failure here.
+  # EgressClient, not the shared Finch pool (`ServiceRadar.HTTP.EgressProxy`).
+  # No per-request retry: a failed lookup fails this acquisition, like any
+  # other download failure here.
   defp default_get_json(url, headers) do
     opts = [
       headers: [{"user-agent", @user_agent} | headers],

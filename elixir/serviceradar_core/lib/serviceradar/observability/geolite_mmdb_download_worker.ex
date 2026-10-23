@@ -248,9 +248,9 @@ defmodule ServiceRadar.Observability.GeoLiteMmdbDownloadWorker do
   # test/serviceradar/http/egress_client_test.exs. Takes EgressClient options.
   @doc false
   def download_file(url, dest_path, opts) when is_binary(url) and is_binary(dest_path) do
-    # EgressClient, not the shared Finch pool: the pool cannot tunnel through
-    # SERVICERADAR_EGRESS_PROXY. It streams to disk, so a large MMDB is never
-    # held in memory, and only a complete 200 replaces the file.
+    # EgressClient, not the shared Finch pool (`ServiceRadar.HTTP.EgressProxy`).
+    # It streams to disk, so a large MMDB is never held in memory, and only a
+    # complete 200 replaces the file.
     case EgressClient.download_to_file(url, dest_path, opts) do
       {:ok, _} = ok ->
         Logger.info("GeoLite MMDB updated: #{Path.basename(dest_path)}", file: dest_path)

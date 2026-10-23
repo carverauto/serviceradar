@@ -69,10 +69,9 @@ defmodule ServiceRadar.HTTP.EgressProxyTest do
       end
     end
 
-    # Mint cannot tunnel through a goproxy-style CONNECT reply (see
-    # ServiceRadar.HTTP.EgressClient), so a proxy on the shared pool fails every
-    # request made on it -- and would also send in-cluster targets to a proxy
-    # that denies them. External hosts go through EgressClient instead.
+    # The shared pool never receives the egress proxy. It serves in-cluster and
+    # operator-configured targets that the proxy may deny
+    # (`ServiceRadar.HTTP.EgressProxy`). External hosts go through EgressClient.
     test "a configured egress proxy is never installed on the shared pool" do
       previous = Application.fetch_env(:serviceradar_core, :egress_proxy)
 
