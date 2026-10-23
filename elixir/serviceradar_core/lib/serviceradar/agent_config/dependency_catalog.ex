@@ -13,6 +13,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
   alias ServiceRadar.AgentConfig.Compilers.VisibilityCompiler
+  alias ServiceRadar.AgentConfig.ConfigInstance
+  alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentConfig.DependencyResolvers
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Integrations.IntegrationSource
@@ -277,6 +279,16 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         VisibilityProfile,
         :visibility,
         VisibilityCompiler
+      ),
+      config_server_entry(
+        :config_instance_config,
+        ConfigInstance,
+        :bumblebee,
+        ConfigServer,
+        action_names: [:create, :update, :destroy],
+        affected_agents: {DependencyResolvers, :config_instance_agents, []},
+        description:
+          "Compiled ConfigInstance rows (such as Bumblebee and endpoint inventory) invalidate ConfigServer and push to the target agent or fleet."
       )
     ]
   end
@@ -311,6 +323,20 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
     apply(module, function, [record | extra_args])
   end
 
+  @doc "Resolves the effective config_type for a catalog entry and record."
+  @spec effective_config_type(entry(), map() | struct()) :: atom()
+  def effective_config_type(%Entry{resource: ConfigInstance, config_type: default}, record) do
+    case value(record, :config_type) || value(record, "config_type") do
+      config_type when is_atom(config_type) and not is_nil(config_type) ->
+        if known_config_type?(config_type), do: config_type, else: default
+
+      _ ->
+        default
+    end
+  end
+
+  def effective_config_type(%Entry{config_type: config_type}, _record), do: config_type
+
   @doc "Builds redacted diagnostics for a cataloged resource change."
   @spec diagnostics(entry(), map() | struct()) :: map()
   def diagnostics(%Entry{} = entry, record, opts \\ []) do
@@ -319,7 +345,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
       resource: inspect(entry.resource),
       resource_id: resource_value(record, [:id, "id"]),
       resource_name: resource_value(record, [:name, "name", :uid, "uid"]),
-      config_type: entry.config_type,
+      config_type: effective_config_type(entry, record),
       generator: inspect(entry.generator),
       dispatch: entry.dispatch,
       affected_agents:
@@ -360,6 +386,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
     Enum.uniq(
       compiler_source_resources() ++
         [
+          ConfigInstance,
           IntegrationSource,
           ServiceCheck,
           PluginAssignment,

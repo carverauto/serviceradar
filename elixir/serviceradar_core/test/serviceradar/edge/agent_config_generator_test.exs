@@ -219,6 +219,73 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert config.bumblebee_config.enabled
     end
 
+    test "marks ConfigInstance delivered on changed config delivery, skips not_modified polls, and invalidates cache on update",
+         %{
+           actor: actor,
+           agent_uid: agent_uid,
+           unique_id: unique_id
+         } do
+      create_active_bumblebee_snapshot!(actor, unique_id)
+
+      instance =
+        create_bumblebee_config_instance!(actor, agent_uid, %{
+          "enabled" => true,
+          "scan_profile" => "workstations",
+          "cadence" => "6h"
+        })
+
+      assert instance.delivery_count == 0
+      assert is_nil(instance.last_delivered_at)
+
+      assert {:ok, config} =
+               AgentConfigGenerator.get_config_if_changed(agent_uid, @default_partition, "")
+
+      delivered = Ash.get!(ConfigInstance, instance.id, actor: actor)
+      assert delivered.delivery_count == 1
+      assert %DateTime{} = delivered.last_delivered_at
+
+      assert :not_modified =
+               AgentConfigGenerator.get_config_if_changed(
+                 agent_uid,
+                 @default_partition,
+                 config.config_version
+               )
+
+      unchanged = Ash.get!(ConfigInstance, instance.id, actor: actor)
+      assert unchanged.delivery_count == 1
+
+      updated_instance =
+        delivered
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            compiled_config: %{
+              "enabled" => true,
+              "scan_profile" => "servers",
+              "cadence" => "12h"
+            }
+          },
+          actor: actor
+        )
+        |> Ash.update!(actor: actor)
+
+      ServiceRadar.TestSupport.drain_dependency_dispatcher_tasks()
+
+      assert {:ok, next_config} =
+               AgentConfigGenerator.get_config_if_changed(
+                 agent_uid,
+                 @default_partition,
+                 config.config_version
+               )
+
+      next_payload = Jason.decode!(next_config.config_json)
+      assert next_payload["bumblebee"]["scan_profile"] == "servers"
+      assert next_payload["bumblebee"]["cadence"] == "12h"
+
+      redelivered = Ash.get!(ConfigInstance, updated_instance.id, actor: actor)
+      assert redelivered.delivery_count == 2
+    end
+
     test "excludes disabled checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       {:ok, _agent} = create_connected_agent(actor, agent_uid)
 

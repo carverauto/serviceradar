@@ -9,7 +9,8 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
   use Ash.Resource,
     domain: ServiceRadar.AgentConfig,
     data_layer: AshPostgres.DataLayer,
-    authorizers: [Ash.Policy.Authorizer]
+    authorizers: [Ash.Policy.Authorizer],
+    notifiers: [ServiceRadar.AgentConfig.DependencyNotifier]
 
   alias ServiceRadar.AgentConfig.Changes.ComputeConfigHash
   alias ServiceRadar.AgentConfig.Changes.IncrementVersion

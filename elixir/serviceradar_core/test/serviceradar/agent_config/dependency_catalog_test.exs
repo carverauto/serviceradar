@@ -2,6 +2,7 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
   use ExUnit.Case, async: false
 
   alias Ash.Notifier.Notification
+  alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.AgentConfig.DependencyCatalog
   alias ServiceRadar.AgentConfig.DependencyCatalog.Entry
   alias ServiceRadar.AgentConfig.DependencyDiagnostics
@@ -36,6 +37,11 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
     @moduledoc false
     def invalidate(config_type) do
       send(self(), {:invalidate, config_type})
+      :ok
+    end
+
+    def invalidate(config_type, agents) do
+      send(self(), {:invalidate, config_type, agents})
       :ok
     end
   end
@@ -323,6 +329,53 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
         notification |> DependencyCatalog.for_notification() |> Enum.map(& &1.config_type)
 
       assert Enum.sort(config_types) == [:mapper, :snmp]
+    end
+
+    test "ConfigInstance create/update/destroy invalidates the instance config_type for its target agent or fleet, while mark_delivered is ignored" do
+      agent_notification = %Notification{
+        resource: ConfigInstance,
+        action: %{type: :create, name: :create},
+        data: %{config_type: :bumblebee, agent_id: "agent-bumblebee"}
+      }
+
+      assert {:ok, [agent_diagnostic]} =
+               DependencyDispatcher.dispatch(agent_notification,
+                 command_bus: CommandBus,
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
+               )
+
+      assert_received {:invalidate, :bumblebee, ["agent-bumblebee"]}
+      assert agent_diagnostic.dependency_id == :config_instance_config
+      assert agent_diagnostic.config_type == :bumblebee
+      assert agent_diagnostic.affected_agents == ["agent-bumblebee"]
+      assert agent_diagnostic.affected_agent_count == 1
+
+      fleet_notification = %Notification{
+        resource: ConfigInstance,
+        action: %{type: :update, name: :update},
+        data: %{config_type: :endpoint_inventory, agent_id: nil}
+      }
+
+      assert {:ok, [fleet_diagnostic]} =
+               DependencyDispatcher.dispatch(fleet_notification,
+                 command_bus: CommandBus,
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
+               )
+
+      assert_received {:invalidate, :endpoint_inventory}
+      assert fleet_diagnostic.config_type == :endpoint_inventory
+      assert fleet_diagnostic.affected_agents == :all_online
+      assert fleet_diagnostic.affected_agent_count == :all_online
+
+      mark_delivered_notification = %Notification{
+        resource: ConfigInstance,
+        action: %{type: :update, name: :mark_delivered},
+        data: %{config_type: :bumblebee, agent_id: "agent-bumblebee"}
+      }
+
+      assert [] = DependencyCatalog.for_notification(mark_delivered_notification)
     end
   end
 

@@ -51,18 +51,19 @@ defmodule ServiceRadar.AgentConfig.DependencyDispatcher do
     config_server = Keyword.get(opts, :config_server, ConfigServer)
     diagnostics = Keyword.get(opts, :diagnostics, DependencyDiagnostics)
     affected_agents = affected_agents(entry, notification)
+    config_type = DependencyCatalog.effective_config_type(entry, notification.data)
     base_diagnostic = build_diagnostic(entry, notification, affected_agents)
 
     result =
       case entry.dispatch do
         :push_affected_agents ->
-          push_affected_agents(command_bus, entry.config_type, affected_agents)
+          push_affected_agents(command_bus, config_type, affected_agents)
 
         :push_config_for_type ->
-          command_bus.push_config_for_type(entry.config_type)
+          command_bus.push_config_for_type(config_type)
 
         :invalidate_config_type ->
-          invalidate(config_server, entry.config_type, affected_agents)
+          invalidate(config_server, config_type, affected_agents)
       end
 
     diagnostic = Map.put(base_diagnostic, :result, normalize_result(result))

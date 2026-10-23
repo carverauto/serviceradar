@@ -198,6 +198,7 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
       config: compiled_config,
       hash: instance.content_hash || Compiler.content_hash(compiled_config),
       version: instance.version || 1,
+      config_instance_id: instance.id,
       cached_at: DateTime.utc_now()
     }
   end
