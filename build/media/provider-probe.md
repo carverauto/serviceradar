@@ -154,9 +154,24 @@ after retrieval; no sleep container or retrieval deadline is required.
 | Conditional read | Wrong `If-Match` receives 412 |
 | Checksum rejection | Intentionally wrong signed `Content-MD5` receives `BadDigest`; no object remains |
 | Multipart | 5 MiB first part plus 4 KiB tail; completion, full SHA-256 and a 32-byte cross-part range |
-| Abort | Separate 5 MiB upload aborted; exact upload returns `NoSuchUpload`; no completed object |
+| Conditional PUT | Signed `If-None-Match: *` rejects different bytes at an existing key with `412 PreconditionFailed`; incumbent identity/hash unchanged; two concurrent writers to a fresh key produce exactly one success and one rejection |
+| Conditional multipart completion | The same incumbent and two-writer checks on `CompleteMultipartUpload`; HTTP 200 with an embedded error never counts as completion |
+| Abort | Each losing upload is aborted and its exact ID returns `NoSuchUpload`; the incumbent/winner still has its expected identity and bytes |
 | Default SSE-S3 evidence | Both small and multipart HEAD responses identify `AES256`; missing evidence is `not_confirmed` |
+| Explicit SSE-S3 | Signed `AES256` request on PUT and multipart initiation, followed by per-object HEAD attestation and verified bytes; reported separately for each operation |
 | Cleanup | Exact owned uploads absent and exact owned objects absent after deletion; no unresolved version/initiation receipts |
+
+The large multipart control remains independent of conditional writes and explicit
+encryption. Additional multipart cases use one 64 KiB final part: they qualify the
+commit/encryption operation, while the large control owns minimum-part and
+cross-part evidence. Conditional checks do not use HEAD absence as their success
+criterion. A `412` alone is insufficient: the incumbent must remain intact.
+Two successes, ambiguous responses, transport failures and unexpected status codes
+fail the affected check; a `409` does not trigger an automatic retry or a pass.
+One writer pair is exercised per operation; this does not prove behavior across
+all possible concurrent request orderings.
+Later skipped checks remain `not_tested`. An explicit request with no HEAD
+encryption attestation is `not_confirmed`, not proof of unsupported encryption.
 
 There are at most 80 diagnostic requests plus 30 cleanup requests. Diagnostics
 have 15 minutes, cleanup 3 minutes, and each HTTP request 30 seconds across connect,
@@ -169,10 +184,38 @@ are application body limits, not a claim about exact TLS wire bytes. No media is
 downloaded or captured. The Job is limited to 2 CPUs, 512 MiB RAM, and 128 MiB
 ephemeral storage in addition to its receipt PVC.
 
+The combined successful path is budgeted as follows; the TLS fixture checks the
+actual request counts and keeps charged bodies below a conservative 20 MiB bound:
+
+| Work | Requests |
+| --- | ---: |
+| Existing private/role/checksum/range and large multipart controls | 39 |
+| Conditional PUT incumbent and two-writer checks | 8 |
+| Conditional multipart incumbent, two-writer and loser-abort checks | 18 |
+| Explicit SSE-S3 PUT and multipart | 10 |
+| Diagnostic total | 75 |
+| Cleanup of seven completed object keys | 21 |
+
+Only two HTTP requests may be in flight. The caller reserves both requests and
+their complete byte ceilings before starting either worker, collects both
+outcomes, and alone updates the journal. Per-request deadlines include time spent
+waiting to start. No worker owns a separate budget or cleanup receipt.
+
+Failed denials retain their cleanup authority. Verified terminal denials followed
+by HEAD absence remove only that exact object's receipt. An ignored bad checksum
+can leave one additional object while the remaining checks continue: eight
+objects plus at most two unresolved uploads require at most 28 cleanup requests.
+Ambiguous initiation, timeout, version drift or exhausted cleanup bounds leave
+receipts unresolved and cleanup incomplete; the operator must reconcile them.
+The 2 MiB cleanup reserve exceeds 30 management-response ceilings. These limits
+do not bound provider storage fees after an interrupted run; exact recovery still
+belongs to the operator.
+
 ## Exact cleanup and interruption
 
-Before each write, the probe checks that its exact key is absent and persists
-cleanup authority. Upload initiation additionally records a pending receipt before
+Before first writing a new key, the probe checks that the exact key is absent and
+persists cleanup authority. Conditional incumbent checks reuse only keys already
+owned by this run. Upload initiation additionally records a pending receipt before
 the request and the returned upload ID before sending parts. Journal replacement
 uses an exclusive temporary file, file sync, rename and parent directory sync
 before the next remote write. A crash can leave
@@ -206,12 +249,20 @@ permissions include operations such as object deletion and bucket creation/listi
 The diagnostic does not try to modify bucket policy, lifecycle or versioning, or
 pretend these administration denials were measured. It always reports
 `recorder_credentials: unsupported`, `policy_enforcement: not_tested` and
-`object_lock: not_tested`. It also reports `explicit_sse_s3: not_tested`: uploads
-do not request `x-amz-server-side-encryption`, so a missing HEAD response header
-does not prove that an explicit SSE-S3 request would fail or that provider disks
-lack encryption. `atomic_no_overwrite: not_tested` records that neither PUT nor
-multipart completion sends `If-None-Match: *`. An earlier HEAD 404 is collision
-hygiene for the isolated run, not an atomic archive-write guarantee.
+`object_lock: not_tested`. `atomic_no_overwrite` summarizes separately measured
+`conditional_put` and `conditional_multipart` checks. `explicit_sse_s3` summarizes
+`explicit_sse_s3_put` and `explicit_sse_s3_multipart`. A passing encryption check
+attests the tested object; it does not establish a policy rejecting unencrypted
+uploads. Missing HEAD evidence does not establish whether provider disks lack
+encryption. An earlier HEAD 404 remains collision hygiene for the isolated run,
+not an atomic archive-write guarantee.
+
+The candidate conditional-write semantics come from the
+[AWS conditional-write contract](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html).
+They are not evidence that an Akamai endpoint supports those operations. Synthetic
+TLS results qualify the diagnostic, not the provider. Conditional writes and
+explicit SSE-S3 have not yet been exercised against the real provider; the two
+historical exercises below do not establish either capability.
 
 Cloud provisioning, storage-broker credentials, object
 lock/retention, in-flight capability revocation races, and provider

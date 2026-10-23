@@ -20,6 +20,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   @total_bytes 64 * 1_024 * 1_024
   @part_bytes 5 * 1_024 * 1_024
   @management_bytes 16_384
+  @conditional_headers [{"if-none-match", "*"}]
+  @encryption_headers [{"x-amz-server-side-encryption", "AES256"}]
 
   def main do
     Logger.configure(level: :none)
@@ -88,7 +90,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
       requests: 0,
       bytes: 0,
       deadline: now() + @run_ms,
-      checks: %{},
+      checks: %{
+        conditional_put: :not_tested,
+        conditional_multipart: :not_tested,
+        multipart_abort: :not_tested,
+        explicit_sse_s3_put: :not_tested,
+        explicit_sse_s3_multipart: :not_tested
+      },
       failures: %{},
       request_limit: @requests,
       byte_limit: @total_bytes - 2 * 1_024 * 1_024,
@@ -100,6 +108,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          :ok <- File.chmod(journal_path, 0o600),
          :ok <- journal(state) do
       state = execute_steps(state)
+      diagnostic_requests = state.requests
 
       state =
         cleanup(%{
@@ -122,12 +131,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          checks: state.checks,
          failures: state.failures,
          requests: state.requests,
+         diagnostic_requests: diagnostic_requests,
+         cleanup_requests: state.requests - diagnostic_requests,
          body_budget_charged_bytes: state.bytes,
          cloud_ready: false,
          recorder_credentials: :unsupported,
          policy_enforcement: :not_tested,
-         explicit_sse_s3: :not_tested,
-         atomic_no_overwrite: :not_tested,
+         explicit_sse_s3: capability(state, [:explicit_sse_s3_put, :explicit_sse_s3_multipart]),
+         atomic_no_overwrite: capability(state, [:conditional_put, :conditional_multipart]),
          object_lock: :not_tested
        }}
     end
@@ -145,7 +156,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
         {:range_identity_hash, &ranges/1},
         {:checksum_rejection, &checksum/1},
         {:multipart, &multipart/1},
-        {:multipart_abort, &abort_probe/1}
+        {:conditional_put, &conditional_put/1},
+        {:conditional_multipart, &conditional_multipart/1},
+        {:explicit_sse_s3_put, &explicit_put/1},
+        {:explicit_sse_s3_multipart, &explicit_multipart/1}
       ],
       state,
       fn {name, operation}, current ->
@@ -156,7 +170,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
           {:error, reason, next} ->
             next = %{next | failures: Map.put(next.failures, name, safe_reason(reason))}
             status = failure(reason)
-            {if(status == :unsupported, do: :cont, else: :halt), check(next, name, status)}
+            {if(status in [:unsupported, :not_confirmed], do: :cont, else: :halt), check(next, name, status)}
         end
       end
     )
@@ -238,7 +252,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          {:ok, state} <-
            verify(state, r.status == 400 and String.contains?(r.body, "<Code>BadDigest</Code>"), :checksum_not_proven),
          {:ok, r, state} <- request(state, :a, :writer, :head, "bad-checksum") do
-      expect(state, r, [404])
+      with {:ok, state} <- expect(state, r, [404]), do: forget_object(state, :a, "bad-checksum")
     end
   end
 
@@ -256,9 +270,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
              upload_query(upload),
              "<CompleteMultipartUpload>" <> part_xml(1, first) <> part_xml(2, last) <> "</CompleteMultipartUpload>"
            ),
-         {:ok, state} <- expect(state, r, [200]),
-         {:ok, state} <-
-           verify(state, String.contains?(r.body, "<CompleteMultipartUploadResult"), :multipart_completion_unproven),
+         {:ok, state} <- completed(state, r),
          {:ok, r, state} <- request(state, :a, :writer, :head, "multipart"),
          {:ok, state} <- expect(state, r, [200]),
          size = @part_bytes + 4096,
@@ -271,24 +283,131 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          {:ok, r, state} <- range(state, "multipart", @part_bytes - 16, @part_bytes + 15, size, etag),
          {:ok, state} <-
            verify(state, r.body == :binary.copy(<<90>>, 16) <> binary_part(tail(), 0, 16), :part_boundary_mismatch) do
+      state = put_in(state.receipts[:multipart_etag], etag)
       {:ok, %{state | uploads: List.delete(state.uploads, upload)}}
     end
   end
 
-  defp abort_probe(state) do
-    with {:ok, upload, state} <- initiate(state, "aborted"),
-         {:ok, _, state} <- part(state, upload, 1, part()),
-         {:ok, state} <- abort(state, upload),
-         {:ok, r, state} <- request(state, :a, :writer, :head, "aborted") do
-      expect(state, r, [404])
+  defp conditional_put(state) do
+    with {:ok, r, state} <- request(state, :a, :writer, :put, "small", nil, contender(), headers: @conditional_headers),
+         {:ok, state} <- precondition_failed(state, r),
+         {:ok, _, state} <- verified_object(state, "small", small(), state.receipts.small_etag),
+         {:ok, state} <- own(state, :a, "put-race"),
+         {:ok, responses, state} <- race(state, "put-race", [{:put, nil, small()}, {:put, nil, contender()}]),
+         {:ok, winner, state} <- winner(state, responses, :put),
+         {:ok, _, state} <- verified_object(state, "put-race", Enum.at([small(), contender()], winner)) do
+      {:ok, state}
     end
   end
 
-  defp initiate(state, key) do
-    with {:ok, state} <- own(state, :a, key),
+  defp conditional_multipart(state) do
+    with {:ok, upload, body, state} <- short_upload(state, "multipart", contender()),
+         {:ok, r, state} <-
+           request(state, :a, :writer, :post, upload.key, upload_query(upload), body, headers: @conditional_headers),
+         {:ok, state} <- precondition_failed(state, r),
+         {:ok, state} <- abort(state, upload),
+         {:ok, _, state} <- verified_object(state, "multipart", part() <> tail(), state.receipts.multipart_etag),
+         {:ok, left, left_body, state} <- short_upload(state, "multipart-race", small()),
+         {:ok, right, right_body, state} <- short_upload(state, "multipart-race", contender()),
+         {:ok, responses, state} <-
+           race(state, "multipart-race", [
+             {:post, upload_query(left), left_body},
+             {:post, upload_query(right), right_body}
+           ]),
+         {:ok, winner, state} <- winner(state, responses, :post),
+         uploads = [left, right],
+         state = %{state | uploads: List.delete(state.uploads, Enum.at(uploads, winner))},
+         {:ok, state} <- abort(state, Enum.at(uploads, 1 - winner)),
+         {:ok, _, state} <- verified_object(state, "multipart-race", Enum.at([small(), contender()], winner)) do
+      {:ok, check(state, :multipart_abort, :passed)}
+    end
+  end
+
+  defp explicit_put(state) do
+    with {:ok, state} <- own(state, :a, "explicit-put"),
+         {:ok, r, state} <- request(state, :a, :writer, :put, "explicit-put", nil, small(), headers: @encryption_headers),
+         {:ok, state} <- expect(state, r, [200]),
+         {:ok, r, state} <- verified_object(state, "explicit-put", small()) do
+      verify(state, encryption(r) == :passed, :encryption_not_confirmed)
+    end
+  end
+
+  defp explicit_multipart(state) do
+    with {:ok, upload, body, state} <- short_upload(state, "explicit-multipart", small(), @encryption_headers),
+         {:ok, r, state} <- request(state, :a, :writer, :post, upload.key, upload_query(upload), body),
+         {:ok, state} <- completed(state, r),
+         state = %{state | uploads: List.delete(state.uploads, upload)},
+         {:ok, r, state} <- verified_object(state, "explicit-multipart", small()) do
+      verify(state, encryption(r) == :passed, :encryption_not_confirmed)
+    end
+  end
+
+  defp short_upload(state, key, bytes, headers \\ []) do
+    with {:ok, upload, state} <- initiate(state, key, headers),
+         {:ok, etag, state} <- part(state, upload, 1, bytes) do
+      {:ok, upload, "<CompleteMultipartUpload>" <> part_xml(1, etag) <> "</CompleteMultipartUpload>", state}
+    end
+  end
+
+  defp verified_object(state, key, bytes, expected_etag \\ nil) do
+    size = byte_size(bytes)
+
+    with {:ok, head, state} <- request(state, :a, :reader, :head, key),
+         {:ok, state} <- expect(state, head, [200]),
+         etag = header(head, "etag"),
+         {:ok, state} <-
+           verify(state, valid_etag?(etag) and (is_nil(expected_etag) or etag == expected_etag), :identity_mismatch),
+         {:ok, state} <- verify(state, header(head, "content-length") == to_string(size), :size_mismatch),
+         {:ok, r, state} <- range(state, key, 0, size - 1, size, etag),
+         {:ok, state} <- verify(state, digest(r.body) == digest(bytes), :hash_mismatch) do
+      {:ok, head, state}
+    end
+  end
+
+  defp completed(state, response) do
+    verify(
+      state,
+      response.status == 200 and String.contains?(response.body, "<CompleteMultipartUploadResult") and
+        not String.contains?(response.body, "<Error"),
+      :multipart_completion_unproven
+    )
+  end
+
+  defp precondition_failed(state, response) do
+    verify(
+      state,
+      response.status == 412 and String.contains?(response.body, "<Code>PreconditionFailed</Code>"),
+      if(response.status == 200, do: :conditional_write_not_enforced, else: :conditional_write_unproven)
+    )
+  end
+
+  defp winner(state, responses, method) do
+    outcomes =
+      Enum.map(responses, fn
+        {:ok, %{status: 200} = response} ->
+          if(method == :put or match?({:ok, _}, completed(state, response)), do: :created, else: :invalid)
+
+        {:ok, response} ->
+          if(match?({:ok, _}, precondition_failed(state, response)), do: :rejected, else: :invalid)
+
+        _ ->
+          :invalid
+      end)
+
+    case outcomes do
+      [:created, :rejected] -> {:ok, 0, state}
+      [:rejected, :created] -> {:ok, 1, state}
+      _ -> {:error, :conditional_race_unproven, state}
+    end
+  end
+
+  defp initiate(state, key, headers \\ []) do
+    owned = %{bucket: :a, key: key} in state.objects
+
+    with {:ok, state} <- if(owned, do: {:ok, state}, else: own(state, :a, key)),
          state = %{state | pending_uploads: [key | state.pending_uploads]},
          :ok <- journal(state),
-         {:ok, r, state} <- request(state, :a, :writer, :post, key, "uploads"),
+         {:ok, r, state} <- request(state, :a, :writer, :post, key, "uploads", nil, headers: headers),
          {:ok, state} <- expect(state, r, [200]) do
       # Admit bounded URL tokens, including every RFC3986 unreserved character.
       # Other XML/text forms stay pending for exact operator reconciliation.
@@ -341,7 +460,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          {:ok, r, state} <- request(state, bucket, role, :put, key, nil, "invented denied write"),
          {:ok, state} <- expect(state, r, [403]),
          {:ok, r, state} <- request(state, bucket, :writer, :head, key) do
-      expect(state, r, [404])
+      with {:ok, state} <- expect(state, r, [404]), do: forget_object(state, bucket, key)
     end
   end
 
@@ -352,6 +471,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
       :ok = journal(state)
       {:ok, state}
     end
+  end
+
+  defp forget_object(state, bucket, key) do
+    state = %{state | objects: List.delete(state.objects, %{bucket: bucket, key: key})}
+    :ok = journal(state)
+    {:ok, state}
   end
 
   defp range(state, key, first, last, size, etag) do
@@ -369,13 +494,57 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   end
 
   defp request(state, bucket, role, method, key, query \\ nil, body \\ nil, options \\ []) do
+    with {:ok, prepared, state} <- prepare(state, bucket, role, method, key, query, body, options) do
+      finish(state, prepared, perform(state.config, prepared))
+    end
+  end
+
+  # Only the caller reserves requests/bytes and owns the journal. The two tasks
+  # hold signed requests, never independent copies of mutable cleanup authority.
+  defp race(state, key, [{left_method, left_query, left_body}, {right_method, right_query, right_body}]) do
+    with {:ok, left, state} <-
+           prepare(state, :a, :writer, left_method, key, left_query, left_body, headers: @conditional_headers),
+         {:ok, right, state} <-
+           prepare(state, :a, :writer, right_method, key, right_query, right_body, headers: @conditional_headers) do
+      {:ok, supervisor} = Task.Supervisor.start_link()
+
+      results =
+        try do
+          supervisor
+          |> Task.Supervisor.async_stream_nolink([left, right], &perform(state.config, &1),
+            max_concurrency: 2,
+            ordered: true,
+            timeout: :infinity
+          )
+          |> Enum.to_list()
+        after
+          Supervisor.stop(supervisor)
+        end
+
+      {responses, state} = Enum.map_reduce(Enum.zip([left, right], results), state, &collect_response/2)
+
+      {:ok, responses, state}
+    end
+  end
+
+  defp collect_response({prepared, result}, state) do
+    case finish(state, prepared, task_response(result)) do
+      {:ok, response, next} -> {{:ok, response}, next}
+      {:error, reason, next} -> {{:error, reason}, next}
+    end
+  end
+
+  defp task_response({:ok, response}), do: response
+  defp task_response(_), do: {:error, :transport_error}
+
+  defp prepare(state, bucket, role, method, key, query, body, options) do
     headers = Keyword.get(options, :headers, [])
     range = Keyword.get(options, :range)
-    timeout = min(@request_ms, state.deadline - now())
+    deadline = min(state.deadline, now() + @request_ms)
     sent = byte_size(body || "")
     limit = if(range, do: elem(range, 1) - elem(range, 0) + 1, else: @management_bytes)
 
-    if timeout <= 0 or state.requests >= state.request_limit or state.bytes + sent + limit > state.byte_limit do
+    if deadline <= now() or state.requests >= state.request_limit or state.bytes + sent + limit > state.byte_limit do
       {:error, :budget_exhausted, state}
     else
       config = state.config
@@ -388,17 +557,47 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
       # consumed network bytes, even when its body is deliberately discarded.
       state = %{state | requests: state.requests + 1, bytes: state.bytes + sent + limit}
 
-      case ProviderProbeHTTP.request(config, method, url, headers, body, timeout, limit, range) do
-        {:ok, r} ->
-          state = %{state | bytes: state.bytes - limit + byte_size(r.body)}
-          state = remember_version(state, bucket, key, method, r)
-          {:ok, r, state}
-
-        {:error, reason} ->
-          {:error, reason, state}
-      end
+      {:ok,
+       %{
+         bucket: bucket,
+         key: key,
+         method: method,
+         url: url,
+         headers: headers,
+         body: body,
+         deadline: deadline,
+         limit: limit,
+         range: range
+       }, state}
     end
   end
+
+  defp perform(config, prepared) do
+    timeout = prepared.deadline - now()
+
+    if timeout > 0 do
+      ProviderProbeHTTP.request(
+        config,
+        prepared.method,
+        prepared.url,
+        prepared.headers,
+        prepared.body,
+        timeout,
+        prepared.limit,
+        prepared.range
+      )
+    else
+      {:error, :request_timeout}
+    end
+  end
+
+  defp finish(state, prepared, {:ok, response}) do
+    state = %{state | bytes: state.bytes - prepared.limit + byte_size(response.body)}
+    state = remember_version(state, prepared.bucket, prepared.key, prepared.method, response)
+    {:ok, response, state}
+  end
+
+  defp finish(state, _, {:error, reason}), do: {:error, reason, state}
 
   defp object_url(config, bucket, key, query) do
     bucket_name = if(bucket == :a, do: config.bucket_a, else: config.bucket_b)
@@ -540,6 +739,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   defp verify(state, _, reason), do: {:error, reason, state}
   defp check(state, name, result), do: put_in(state.checks[name], result)
 
+  defp capability(state, names) do
+    results = Enum.map(names, &Map.fetch!(state.checks, &1))
+    Enum.find([:failed, :unsupported, :not_confirmed, :not_tested], :passed, &(&1 in results))
+  end
+
   defp header(response, key) do
     case Req.Response.get_header(response, key) do
       [value] -> value
@@ -555,11 +759,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   defp failure(reason) when reason in [:checksum_not_proven, :condition_not_proven, :condition_not_enforced],
     do: :unsupported
 
+  defp failure(:encryption_not_confirmed), do: :not_confirmed
   defp failure(_), do: :failed
   defp safe_reason(reason) when is_atom(reason), do: reason
   defp safe_reason({:http_status, status}) when is_integer(status), do: %{http_status: status}
   defp safe_reason(_), do: :transport_error
   defp small, do: :binary.copy(<<0, 17, 34, 51, 68, 85, 102, 119>>, 8192)
+  defp contender, do: :binary.copy(<<211>>, 65_536)
   defp part, do: :binary.copy(<<90>>, @part_bytes)
   defp tail, do: :binary.copy("tail", 1024)
   defp digest(bytes), do: :crypto.hash(:sha256, bytes)

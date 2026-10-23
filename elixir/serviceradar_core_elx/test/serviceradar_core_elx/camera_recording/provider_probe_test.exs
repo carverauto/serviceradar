@@ -20,7 +20,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
         client_chain: %{root: alg, intermediates: [], peer: alg}
       })
 
-    {:ok, store} = Agent.start_link(fn -> %{objects: %{}, uploads: %{}, requests: [], mode: :normal} end)
+    {:ok, store} = Agent.start_link(fn -> %{objects: %{}, uploads: %{}, requests: [], races: %{}, mode: :normal} end)
     {:ok, listener} = :ssl.listen(0, certs.server_config ++ [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
     {:ok, {_, port}} = :ssl.sockname(listener)
     server = spawn_link(fn -> accept(listener, store) end)
@@ -62,18 +62,44 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
               status: :passed,
               checks: checks,
               recorder_credentials: :unsupported,
-              explicit_sse_s3: :not_tested,
-              atomic_no_overwrite: :not_tested
+              explicit_sse_s3: :passed,
+              atomic_no_overwrite: :passed,
+              diagnostic_requests: 75,
+              cleanup_requests: 21,
+              body_budget_charged_bytes: body_bytes
             }} =
              ProviderProbe.run(ctx.config, path)
 
-    assert checks.range_identity_hash == :passed
-    assert checks.multipart == :passed
-    assert checks.multipart_abort == :passed
-    assert checks.cleanup == :passed
-    assert %{objects: objects, uploads: uploads, requests: requests} = Agent.get(ctx.store, & &1)
-    assert objects == %{}
-    assert uploads == %{}
+    assert %{
+             range_identity_hash: :passed,
+             multipart: :passed,
+             multipart_abort: :passed,
+             conditional_put: :passed,
+             conditional_multipart: :passed,
+             explicit_sse_s3_put: :passed,
+             explicit_sse_s3_multipart: :passed,
+             cleanup: :passed
+           } = checks
+
+    assert body_bytes < 20 * 1_024 * 1_024
+    assert %{objects: objects, uploads: uploads, requests: requests, races: races} = Agent.get(ctx.store, & &1)
+    assert {objects, uploads} == {%{}, %{}}
+    assert Enum.sort(Enum.map(races, fn {_, arrivals} -> length(arrivals) end)) == [2, 2]
+
+    for {method, target, headers} <- requests do
+      for name <- ["if-none-match", "x-amz-server-side-encryption"], Map.has_key?(headers, name) do
+        assert headers[name] == if(name == "if-none-match", do: "*", else: "AES256")
+        assert [_, signed] = Regex.run(~r/SignedHeaders=([^,]+)/, headers["authorization"])
+        assert name in String.split(signed, ";")
+      end
+
+      if target =~ "/explicit-" and (method == "PUT" or target =~ "?uploads") and not (target =~ "uploadId=") do
+        assert headers["x-amz-server-side-encryption"] == "AES256"
+      end
+    end
+
+    assert Enum.count(requests, fn {method, _, h} -> method == "PUT" and h["if-none-match"] == "*" end) == 3
+    assert Enum.count(requests, fn {method, _, h} -> method == "POST" and h["if-none-match"] == "*" end) == 3
 
     assert Enum.any?(requests, fn {method, _, headers} ->
              method == "GET" and headers["range"] == "bytes=5242864-5242895"
@@ -103,11 +129,70 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
 
       assert checks.cleanup == :passed
 
-      if mode == :no_encryption_header,
-        do: assert(checks.encryption == :not_confirmed and checks.multipart_encryption == :not_confirmed),
-        else: assert(checks.range_identity_hash == :failed)
+      if mode == :no_encryption_header do
+        assert checks.encryption == :not_confirmed and checks.multipart_encryption == :not_confirmed
+        assert checks.explicit_sse_s3_put == :not_confirmed and checks.explicit_sse_s3_multipart == :not_confirmed
+      else
+        assert checks.range_identity_hash == :failed
+      end
 
       assert Agent.get(ctx.store, & &1.objects) == %{}
+    end
+  end
+
+  for {mode, check} <- [
+        ignore_put_condition: :conditional_put,
+        corrupt_put_precondition: :conditional_put,
+        race_put_double_success: :conditional_put,
+        ignore_multipart_condition: :conditional_multipart,
+        corrupt_multipart_precondition: :conditional_multipart,
+        race_multipart_double_success: :conditional_multipart
+      ] do
+    @tag mode: mode, check: check
+    test "#{mode} fails the conditional contract and cleans its actual artifacts", ctx do
+      Agent.update(ctx.store, &%{&1 | mode: ctx.mode})
+
+      assert {:ok, %{status: :failed, checks: checks, diagnostic_requests: diagnostics, cleanup_requests: cleanup}} =
+               ProviderProbe.run(ctx.config, Path.join(ctx.tmp_dir, "cleanup.json"))
+
+      assert checks[ctx.check] == :failed
+      assert checks.cleanup == :passed
+      assert diagnostics <= 80 and cleanup <= 30
+      assert Agent.get(ctx.store, &{&1.objects, &1.uploads}) == {%{}, %{}}
+    end
+  end
+
+  test "an embedded completion error in HTTP 200 is not a successful upload", ctx do
+    Agent.update(ctx.store, &%{&1 | mode: :embedded_error})
+
+    assert {:ok,
+            %{
+              status: :failed,
+              checks: %{multipart: :failed, cleanup: :passed},
+              failures: %{multipart: :multipart_completion_unproven}
+            }} =
+             ProviderProbe.run(ctx.config, Path.join(ctx.tmp_dir, "cleanup.json"))
+
+    assert Agent.get(ctx.store, &{&1.objects, &1.uploads}) == {%{}, %{}}
+  end
+
+  test "ambiguous initiation and denied cleanup retain exact durable authority", ctx do
+    for mode <- [:ambiguous_initiation, :cleanup_denied] do
+      Agent.update(ctx.store, &%{&1 | mode: mode, objects: %{}, uploads: %{}, races: %{}})
+      path = Path.join(ctx.tmp_dir, to_string(mode))
+
+      assert {:ok, %{status: :failed, checks: %{cleanup: :incomplete}, cleanup_requests: count}} =
+               ProviderProbe.run(ctx.config, path)
+
+      assert count <= 30
+      receipt = Jason.decode!(File.read!(path))
+
+      if mode == :ambiguous_initiation do
+        assert receipt["pending_uploads"] == ["multipart"]
+        assert map_size(Agent.get(ctx.store, & &1.uploads)) == 1
+      else
+        assert receipt["objects"] != [] and receipt["uploads"] != []
+      end
     end
   end
 
@@ -174,21 +259,27 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
   defp proxy_accept(listener, origin_port) do
     case :gen_tcp.accept(listener) do
       {:ok, client} ->
-        with {:ok, request} <- :gen_tcp.recv(client, 0, 2_000),
-             true <- String.starts_with?(request, "CONNECT localhost:#{origin_port} "),
-             {:ok, origin} <- :gen_tcp.connect({127, 0, 0, 1}, origin_port, [:binary, active: true], 2_000) do
-          :ok = :gen_tcp.send(client, "HTTP/1.0 200 OK\r\n\r\n")
-          :ok = :inet.setopts(client, active: true)
-          bridge(client, origin)
-          :gen_tcp.close(origin)
-        end
-
-        :gen_tcp.close(client)
+        pid = spawn_link(fn -> receive do: ({:socket, socket} -> proxy_socket(socket, origin_port)) end)
+        :ok = :gen_tcp.controlling_process(client, pid)
+        send(pid, {:socket, client})
         proxy_accept(listener, origin_port)
 
       _ ->
         :ok
     end
+  end
+
+  defp proxy_socket(client, origin_port) do
+    with {:ok, request} <- :gen_tcp.recv(client, 0, 2_000),
+         true <- String.starts_with?(request, "CONNECT localhost:#{origin_port} "),
+         {:ok, origin} <- :gen_tcp.connect({127, 0, 0, 1}, origin_port, [:binary, active: true], 2_000) do
+      :ok = :gen_tcp.send(client, "HTTP/1.0 200 OK\r\n\r\n")
+      :ok = :inet.setopts(client, active: true)
+      bridge(client, origin)
+      :gen_tcp.close(origin)
+    end
+
+    :gen_tcp.close(client)
   end
 
   defp bridge(client, origin) do
@@ -214,8 +305,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
   defp accept(listener, store) do
     case :ssl.transport_accept(listener) do
       {:ok, socket} ->
-        serve_socket(socket, store)
-
+        pid = spawn_link(fn -> receive do: ({:socket, socket} -> serve_socket(socket, store)) end)
+        :ok = :ssl.controlling_process(socket, pid)
+        send(pid, {:socket, socket})
         accept(listener, store)
 
       _ ->
@@ -226,11 +318,37 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
   defp serve_socket(socket, store) do
     with {:ok, socket} <- :ssl.handshake(socket, 2_000),
          {:ok, method, target, headers, body} <- read_request(socket, "") do
+      await_contender(store, method, target)
       response = Agent.get_and_update(store, &serve(&1, method, target, headers, body))
       send_response(socket, method, response)
     end
 
     :ssl.close(socket)
+  end
+
+  # Neither racing request can receive its response before both have arrived
+  # through independent TLS/CONNECT sockets. The store still serializes commits.
+  defp await_contender(store, method, target) do
+    path = URI.parse(target).path
+
+    if (method == "PUT" and String.ends_with?(path, "/put-race")) or
+         (method == "POST" and String.ends_with?(path, "/multipart-race") and String.contains?(target, "uploadId=")) do
+      caller = self()
+
+      arrivals =
+        Agent.get_and_update(store, fn state ->
+          arrivals = [caller | Map.get(state.races, path, [])]
+          {arrivals, put_in(state.races[path], arrivals)}
+        end)
+
+      if length(arrivals) == 2, do: Enum.each(arrivals, &send(&1, {:contenders, path}))
+
+      receive do
+        {:contenders, ^path} -> :ok
+      after
+        5_000 -> raise "the second conditional writer never reached the fixture"
+      end
+    end
   end
 
   defp read_request(socket, bytes) do
@@ -331,45 +449,85 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
 
   defp route(state, _, path, %{"uploads" => _}, _, _) do
     id = "invented~receipt-#{map_size(state.uploads)}.+/="
+    receipt = if(state.mode == :ambiguous_initiation, do: "invented&amp;opaque", else: id)
 
-    {{200, %{}, "<InitiateMultipartUploadResult><UploadId>#{id}</UploadId></InitiateMultipartUploadResult>"},
+    {{200, %{}, "<InitiateMultipartUploadResult><UploadId>#{receipt}</UploadId></InitiateMultipartUploadResult>"},
      put_in(state.uploads[id], %{path: path, parts: %{}})}
   end
 
-  defp route(state, method, path, %{"uploadId" => _} = query, _, body),
-    do: multipart_request(state, method, path, query, body)
+  defp route(state, method, path, %{"uploadId" => _} = query, headers, body),
+    do: multipart_request(state, method, path, query, headers, body)
 
-  defp route(%{mode: :ignore_checksum} = state, "PUT", path, _, _, body),
+  defp route(%{mode: :ignore_checksum} = state, "PUT", path, _, %{"content-md5" => _}, body),
     do: {{200, %{}, ""}, put_in(state.objects[path], body)}
 
   defp route(state, "PUT", _, _, %{"content-md5" => _}, _),
     do: {{400, %{}, "<Error><Code>BadDigest</Code></Error>"}, state}
 
-  defp route(state, "PUT", path, _, _, body), do: {{200, %{}, ""}, put_in(state.objects[path], body)}
+  defp route(state, "PUT", path, _, headers, body) do
+    if headers["if-none-match"] == "*" and Map.has_key?(state.objects, path) and
+         state.mode != :ignore_put_condition and
+         not (state.mode == :race_put_double_success and String.ends_with?(path, "/put-race")) do
+      state = if state.mode == :corrupt_put_precondition, do: put_in(state.objects[path], body), else: state
+      {precondition_response(), state}
+    else
+      {{200, %{}, ""}, put_in(state.objects[path], body)}
+    end
+  end
+
+  defp route(%{mode: :cleanup_denied} = state, "DELETE", _, _, _, _), do: {{403, %{}, ""}, state}
   defp route(state, "DELETE", path, _, _, _), do: {{204, %{}, ""}, %{state | objects: Map.delete(state.objects, path)}}
   defp route(state, method, path, _, headers, _) when method in ["HEAD", "GET"], do: {get(state, path, headers), state}
 
-  defp multipart_request(state, method, path, query, body) do
-    id = query["uploadId"]
-
-    cond do
-      not Map.has_key?(state.uploads, id) ->
-        {{404, %{}, "<Error><Code>NoSuchUpload</Code></Error>"}, state}
-
-      method == "PUT" ->
-        {{200, %{"etag" => ~s("part-#{query["partNumber"]}")}, ""},
-         put_in(state.uploads[id].parts[query["partNumber"]], body)}
-
-      method == "DELETE" ->
-        {{204, %{}, ""}, %{state | uploads: Map.delete(state.uploads, id)}}
-
-      method == "POST" ->
-        bytes = state.uploads[id].parts["1"] <> state.uploads[id].parts["2"]
-
-        {{200, %{}, "<CompleteMultipartUploadResult/>"},
-         %{state | objects: Map.put(state.objects, path, bytes), uploads: Map.delete(state.uploads, id)}}
+  defp multipart_request(state, method, path, query, headers, body) do
+    if Map.has_key?(state.uploads, query["uploadId"]) do
+      multipart_operation(state, method, path, query, headers, body)
+    else
+      {{404, %{}, "<Error><Code>NoSuchUpload</Code></Error>"}, state}
     end
   end
+
+  defp multipart_operation(state, "PUT", _, query, _, body) do
+    {{200, %{"etag" => ~s("part-#{query["partNumber"]}")}, ""},
+     put_in(state.uploads[query["uploadId"]].parts[query["partNumber"]], body)}
+  end
+
+  defp multipart_operation(%{mode: :cleanup_denied} = state, "DELETE", _, _, _, _), do: {{403, %{}, ""}, state}
+
+  defp multipart_operation(state, "DELETE", _, query, _, _),
+    do: {{204, %{}, ""}, %{state | uploads: Map.delete(state.uploads, query["uploadId"])}}
+
+  defp multipart_operation(%{mode: :embedded_error} = state, "POST", path, query, _, _) do
+    {{200, %{}, "<Error><Code>InternalError</Code><Message>Not a <CompleteMultipartUploadResult/></Message></Error>"},
+     complete_upload(state, path, query["uploadId"])}
+  end
+
+  defp multipart_operation(state, "POST", path, query, headers, _) do
+    if headers["if-none-match"] == "*" and Map.has_key?(state.objects, path) and
+         state.mode != :ignore_multipart_condition and
+         not (state.mode == :race_multipart_double_success and String.ends_with?(path, "/multipart-race")) do
+      state =
+        if(state.mode == :corrupt_multipart_precondition,
+          do: complete_upload(state, path, query["uploadId"]),
+          else: state
+        )
+
+      {precondition_response(), state}
+    else
+      {{200, %{}, "<CompleteMultipartUploadResult/>"}, complete_upload(state, path, query["uploadId"])}
+    end
+  end
+
+  defp complete_upload(state, path, id) do
+    bytes =
+      state.uploads[id].parts
+      |> Enum.sort_by(fn {number, _} -> String.to_integer(number) end)
+      |> Enum.map_join(fn {_, bytes} -> bytes end)
+
+    %{state | objects: Map.put(state.objects, path, bytes), uploads: Map.delete(state.uploads, id)}
+  end
+
+  defp precondition_response, do: {412, %{}, "<Error><Code>PreconditionFailed</Code></Error>"}
 
   defp get(state, path, headers) do
     case Map.fetch(state.objects, path) do
@@ -377,7 +535,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
         {404, %{}, ""}
 
       {:ok, bytes} ->
-        etag = ~s("invented-etag")
+        etag = ~s("#{Base.encode16(:crypto.hash(:sha256, bytes))}")
         output = %{"etag" => etag, "content-length" => to_string(byte_size(bytes))}
 
         output =
