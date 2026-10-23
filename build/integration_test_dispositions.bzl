@@ -269,6 +269,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/inventory/availability_capture_integration_test.exs": 1,
     "test/serviceradar/inventory/availability_shadow_integration_test.exs": 1,
     "test/serviceradar/inventory/bumblebee_catalog_refresh_worker_test.exs": 1,
+    "test/serviceradar/inventory/bumblebee_catalog_source_seeder_test.exs": 1,
     "test/serviceradar/inventory/device_cleanup_settings_action_test.exs": 1,
     "test/serviceradar/inventory/device_cleanup_worker_purge_test.exs": 1,
     "test/serviceradar/inventory/device_identifier_cache_invalidation_test.exs": 1,
