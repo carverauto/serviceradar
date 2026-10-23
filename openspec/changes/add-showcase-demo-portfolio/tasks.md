@@ -115,6 +115,6 @@ proposals. Their checklists are maintained by their own issues, not duplicated h
 | [#4910](https://github.com/carverauto/serviceradar/issues/4910) | `add-shared-spatial-resources` |
 | [#4911](https://github.com/carverauto/serviceradar/issues/4911) | `add-spatial-observation-ingestion` |
 | [#4912](https://github.com/carverauto/serviceradar/issues/4912) | `add-spatial-history-projection` |
-| [#4913](https://github.com/carverauto/serviceradar/issues/4913) | `add-camera-recording-storage` |
+| [#4913](https://github.com/carverauto/serviceradar/issues/4913) | `add-vms-storage-playback-engine` |
 | [#4914](https://github.com/carverauto/serviceradar/issues/4914) | `add-edge-recording-archive` |
-| [#4915](https://github.com/carverauto/serviceradar/issues/4915) | `add-recording-playback-lifecycle` |
+| [#4915](https://github.com/carverauto/serviceradar/issues/4915) | `add-vms-storage-playback-engine` |
