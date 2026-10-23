@@ -24,9 +24,6 @@ import (
 	"github.com/bazelbuild/rules_go/go/runfiles"
 )
 
-// The generated addonVersion is an intentional build output derived from
-// addon.yaml; guard the derivation so a manifest format change cannot
-// silently ship an empty or stale scanner build version.
 func TestAddonVersionMatchesManifest(t *testing.T) {
 	path, err := runfiles.Rlocation("_main/addons/bumblebee-scan/addon.yaml")
 	if err != nil {
