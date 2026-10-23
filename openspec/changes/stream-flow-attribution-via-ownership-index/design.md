@@ -594,6 +594,44 @@ heartbeats reach the previous central release. The previous correlator needs a f
 30-minute observation window; this is a recovery delay, not an immediate restoration of
 attribution coverage.
 
+### 11. Approved: a diagnostics prerequisite for the lab gates
+
+**Status: approved by the coordinator on 2026-10-22.** Decision 10 and the implementation
+sequence landed in PR #5934. This decision changes only the sequencing needed to obtain
+Phase 0 evidence; it does not waive any numeric gate or authorize a rollout.
+
+The read-only warehouse source retains repeated endpoint sightings but not `event_kind`,
+socket direction, close/state transitions or listener-coverage relationships. Those fields
+cannot be reconstructed from port-number heuristics. The available metric probe did not
+find centrally retained attribution-record or cache-entry series. Therefore it cannot prove
+the accepted/outbound split in task 0.1 or the full connection-summary key counts in 0.4.
+
+Permit a separate, bounded diagnostics-only netprobe change before implementation tasks
+1.x. It observes the existing socket lifecycle and owner cache while preserving the
+existing attribution payloads and delivery behavior. Its measurements must use the exact
+Decision 1 listener-coverage/promotion rules and Decision 9 full summary keys; it must not
+substitute raw sighting counts or approximate port classifications. Coordinate ownership of
+the touched netprobe files with #5752 before implementation.
+
+The diagnostics report aggregate counts only: covered accepts, outbound and promoted keys,
+projected OPEN/CLOSE/RENEW events, active local keys, history-depth distribution within the
+15-minute horizon, full summary-key counts per interval, and cap-reaching intervals. Keep
+diagnostic state bounded; a truncated cache, overflow, restart or incomplete warm-up marks
+the affected measurement window incomplete instead of making it look cheaper. Saturated
+summary counts may report an explicit lower bound above the cap, never an exact count.
+Use the existing metrics path through JetStream, with bounded labels and no socket,
+process, executable, address or package identifiers as metric labels. Persist only rounded,
+anonymous aggregate results in this change.
+
+The coordinator separately schedules any lab rollout. Record the observed window duration,
+coverage and incomplete windows, and review that evidence against tasks 0.1 and 0.4 before
+starting runtime implementation. The diagnostics are not ownership leases, production
+connection summaries, a replacement attribution writer, or a fallback producer mode.
+The 5 events/s, 200 bytes/key, 2-minute replay and summary-cap gates remain unchanged.
+Exposure task 0.5 also remains open; these diagnostics do not supply its missing address
+intervals or mapped evidence batches.
+
+
 ## Implementation plan
 
 This is the first, documentation-only PR of the #5738 implementation. The shared
@@ -635,6 +673,9 @@ continues. Existing observations may lack the lifecycle/owner information needed
 exact projection; document that limitation rather than counting repeated sightings as
 connections or claiming a missing measurement passed. A successful pre-aggregation proxy
 from the exposure spike does not satisfy any of these gates.
+
+Approved Decision 11 permits the bounded diagnostics prerequisite within P1 to obtain its
+missing lab measurements. It does not permit P2-P8 runtime implementation to bypass P1.
 
 ### Wire compatibility and retained delivery
 
@@ -721,6 +762,61 @@ coordinator in the exposure change before starting those tasks. This implementat
 does not silently move or waive that gate. If the measured network ratio exceeds 25%, its
 approved async-view fallback must be selected before exposure 3.x; a failed host ratio
 requires its own design review.
+
+## Phase 0 preflight evidence (2026-10-22)
+
+No Phase 0 task is checked off by these preliminary results. Lab tasks 0.1 and 0.4 lack the
+inputs described in Decision 11. The complete store/history and replay gates still
+need measurement, and no default history cap has been selected from lab data.
+
+### Synthetic ETS memory floor
+
+The executable experiment lives in
+`elixir/serviceradar_core/bench/ownership_store_spike_test.exs`. Each profile ran in its own
+fresh OTP 28 VM on remote Bazel with 2.5M keys, approximately 20k interned owners (one per
+128 keys), and 1,000-key lookup batches. All addresses, owners and distributions were invented.
+Keys were 80% endpoint, 15% exact-peer and 5% relaxed-peer, with packed IPv6 addresses.
+Histories contain 32-byte intervals within the 15-minute horizon, including an active interval.
+
+| Synthetic history profile | Mean depth | Memory floor per key | Populate rate | Lookup rate |
+| --- | --- | --- | --- | --- |
+| One interval per key | 1.0 | ~160 bytes | ~0.6M keys/s | ~0.8M keys/s |
+| 90% depth 1, 9% depth 4, 1% depth 32 | 1.6 | ~190 bytes | ~0.9M keys/s | ~1.0M keys/s |
+| 70% depth 1, 25% depth 4, 5% depth 32 | 3.3 | ~270 bytes | ~0.5M keys/s | ~0.6M keys/s |
+
+The reuse stress profile exceeds 200 bytes/key by about 70 bytes (~35%) before a complete
+shard exists. The lighter profiles are lower bounds, not passing store results. The experiment
+includes the key/history ETS table and both directions of owner interning. It adds the larger
+of the observed VM binary-memory growth and the known off-heap binary payload to ETS word
+accounting, so large history and owner binaries are not omitted. Whole-VM growth is also
+reported, but no claim about resident process memory or allocator fragmentation is made.
+
+Missing costs include expiry, snapshot membership, address-presence indexes, owner reclamation,
+owner enrichment, concurrent access, shard placement and notification bookkeeping. The compact
+intervals also omit connected-peer context stored outside the lookup key. Rates are single-run
+table-level observations, including fixture/request construction; they are not distributed
+lookup throughput, a production apply rate, or replay readiness. No JetStream replay was run,
+and task 0.3 cannot be inferred by multiplying the populate rate by an event count.
+
+All three corpus checks passed: keys did not collide, current and historical intervals resolved,
+and expired/missing intervals returned no owner. A passing ExUnit result verifies the experiment;
+the printed `memory_floor_gate` is the separate capacity verdict. No Rust implementation is
+selected from these assumed distributions alone. Decision 2's Rust fallback remains the approved
+choice if the complete, representative ETS store exceeds the gate.
+
+Reproduce the scale run (small 25k-key corpora run by default in the benchmark targets):
+
+```sh
+bazel test -c opt --config=remote \
+  //elixir/serviceradar_core:ownership_store_spike_single_test \
+  //elixir/serviceradar_core:ownership_store_spike_mixed_test \
+  //elixir/serviceradar_core:ownership_store_spike_reuse_test \
+  --test_env=OWNERSHIP_SPIKE_KEYS=2500000 --test_output=all --test_timeout=600
+```
+
+Validation: [remote scale invocation](https://carverauto.buildbuddy.io/invocation/858965ae-f166-492f-9e2f-9ee9fe45817c).
+An earlier combined-VM calibration was superseded because delayed cleanup from one profile
+could contaminate the next profile's memory baseline.
 
 ## Known edge cases and deferred decisions
 
