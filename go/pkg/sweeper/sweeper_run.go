@@ -241,23 +241,34 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	tcpCaps := scannerCapabilities(tcpScanner)
 	tcpConnectCaps := scannerCapabilities(tcpConnectScanner)
 
-	s.logger.Info().
-		Int("icmpTargets", len(icmpTargets)).
-		Int("tcpTargets", len(tcpTargets)).
-		Int("tcpConnectTargets", len(tcpConnectTargets)).
-		Int("ipv4Targets", routeSummary.ipv4Targets).
-		Int("ipv6Targets", routeSummary.ipv6Targets).
-		Int("ipv6TCPConnectFallbackTargets", routeSummary.ipv6TCPConnectFallbackTargets).
-		Bool("icmpScannerAvailable", icmpScanner != nil).
-		Bool("tcpScannerAvailable", tcpScanner != nil).
-		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
-		Bool("icmpIPv4Available", icmpCaps.ICMPv4).
-		Bool("icmpIPv6Available", icmpCaps.ICMPv6).
-		Bool("tcpRawSYNIPv4Available", tcpCaps.RawSYNIPv4).
-		Bool("tcpRawSYNIPv6Available", tcpCaps.RawSYNIPv6).
-		Bool("tcpConnectIPv4Available", tcpConnectCaps.TCPConnectIPv4).
-		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
-		Msg("Starting sweep")
+	// An empty config still finishes the run so previous results are pruned.
+	// It must not claim that a scan started. A configured network that
+	// expands to zero hosts is a real sweep and keeps the start log.
+	nothingToScan := len(s.config.Networks) == 0 && len(s.config.DeviceTargets) == 0
+	if nothingToScan {
+		s.logger.Info().
+			Int("networkCount", 0).
+			Int("deviceTargetCount", 0).
+			Msg("Nothing to scan")
+	} else {
+		s.logger.Info().
+			Int("icmpTargets", len(icmpTargets)).
+			Int("tcpTargets", len(tcpTargets)).
+			Int("tcpConnectTargets", len(tcpConnectTargets)).
+			Int("ipv4Targets", routeSummary.ipv4Targets).
+			Int("ipv6Targets", routeSummary.ipv6Targets).
+			Int("ipv6TCPConnectFallbackTargets", routeSummary.ipv6TCPConnectFallbackTargets).
+			Bool("icmpScannerAvailable", icmpScanner != nil).
+			Bool("tcpScannerAvailable", tcpScanner != nil).
+			Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
+			Bool("icmpIPv4Available", icmpCaps.ICMPv4).
+			Bool("icmpIPv6Available", icmpCaps.ICMPv6).
+			Bool("tcpRawSYNIPv4Available", tcpCaps.RawSYNIPv4).
+			Bool("tcpRawSYNIPv6Available", tcpCaps.RawSYNIPv6).
+			Bool("tcpConnectIPv4Available", tcpConnectCaps.TCPConnectIPv4).
+			Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
+			Msg("Starting sweep")
+	}
 
 	bannerPhase := s.startBannerGrabPhase(ctx)
 	finishedBannerPhase := false
@@ -309,7 +320,9 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 	// Finalize and process aggregated device results
 	s.finalizeDeviceAggregators(ctx)
 
-	s.logger.Info().Msg("Sweep completed successfully")
+	if !nothingToScan {
+		s.logger.Info().Msg("Sweep completed successfully")
+	}
 
 	return s.completeSuccessfulSweep(ctx, startedAt, false)
 }
