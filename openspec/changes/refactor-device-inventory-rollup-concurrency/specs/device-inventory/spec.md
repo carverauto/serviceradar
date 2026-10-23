@@ -8,13 +8,13 @@ Each transaction that mutates rollup-relevant device state SHALL apply its state
 - **GIVEN** transaction A has inserted an active device into `platform.ocsf_devices` and remains open before committing
 - **WHEN** transaction B (mapping to a different rollup shard) inserts an active device into `platform.ocsf_devices`
 - **THEN** transaction B SHALL complete its `INSERT` and commit without waiting for transaction A to release a global advisory lock or a singleton counter row lock
-- **AND** after both transactions commit, `SUM(count)` across shards for `key = 'total'` SHALL include both devices
+- **AND** after both transactions commit, `SUM(value)` across shards for `key = 'total'` SHALL include both devices
 
 #### Scenario: Deletions and type or vendor transitions across shards preserve exact net sums
 - **GIVEN** an active device was inserted in transaction A (recording `+1` for its type and vendor on shard `s1`)
 - **WHEN** a later transaction B on shard `s2` updates the device's `type` or `vendor_name` or soft-deletes the device
-- **THEN** shard `s2` SHALL record the `-1` delta without clamping the per-shard counter at zero
-- **AND** `in:devices rollup_stats:inventory_summary` SHALL report the net `SUM(count)` across all shards, omitting any `type` or `vendor_name` whose net count across shards is `<= 0`
+- **THEN** shard `s2` SHALL record the `-1` delta on `value` or `count` without deleting that shard row when the shard total is `<= 0`
+- **AND** `in:devices rollup_stats:inventory_summary` SHALL report `SUM(value)` for status keys and `SUM(count)` for type and vendor, omitting any `type` or `vendor_name` whose net count across shards is `<= 0`
 
 ### Requirement: Column-Scoped Inventory Rollup Update Trigger
 The `trg_ocsf_devices_inventory_rollup_update` trigger on `platform.ocsf_devices` SHALL fire only when at least one rollup-relevant column (`deleted_at`, `source_retired_at`, `is_available`, `type`, or `vendor_name`) is targeted by an `UPDATE` statement.

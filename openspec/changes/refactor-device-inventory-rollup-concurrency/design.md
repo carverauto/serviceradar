@@ -2,10 +2,10 @@
 
 ### 1. Inventory of Rollup Tables, Triggers, and Functions
 
-#### Rollup Tables (`elixir/serviceradar_core/priv/repo/baseline/platform_schema.sql:4619-4642`)
-- `platform.device_inventory_counts (key text PRIMARY KEY, count bigint NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now())` — stores three singleton rows: `key IN ('total', 'available', 'unavailable')`.
-- `platform.device_inventory_type_counts (type text PRIMARY KEY, count bigint NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now())` — stores one row per normalized device `type` (`COALESCE(NULLIF(BTRIM(type), ''), 'Unknown')`).
-- `platform.device_inventory_vendor_counts (vendor_name text PRIMARY KEY, count bigint NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now())` — stores one row per normalized `vendor_name` (`COALESCE(NULLIF(BTRIM(vendor_name), ''), 'Unknown')`).
+#### Rollup Tables (`elixir/serviceradar_core/priv/repo/migrations/20260305110000_add_device_inventory_rollup_tables.exs`, also `platform_schema.sql:6280-6306`)
+- `platform.device_inventory_counts (key text PRIMARY KEY, value bigint NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now())` — three singleton rows: `key IN ('total', 'available', 'unavailable')`. The counter column is `value`, not `count`.
+- `platform.device_inventory_type_counts (type text PRIMARY KEY, count bigint NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now())` — one row per normalized device `type` (`COALESCE(NULLIF(trim(type), ''), 'Unknown')`).
+- `platform.device_inventory_vendor_counts (vendor_name text PRIMARY KEY, count bigint NOT NULL DEFAULT 0, updated_at timestamptz NOT NULL DEFAULT now())` — one row per normalized `vendor_name` (`COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown')`).
 
 #### Triggers on `platform.ocsf_devices`
 Inspection of `pg_trigger` on a fully migrated schema (`mix serviceradar.db.migrate`) shows 15 user triggers on `platform.ocsf_devices`:
@@ -30,50 +30,41 @@ Inspection of `pg_trigger` on a fully migrated schema (`mix serviceradar.db.migr
 
 #### Historical Evolution of the Rollup Triggers
 1. `20260305110000_add_device_inventory_rollup_tables.exs`: Introduced `platform.device_inventory_counts`, `device_inventory_type_counts`, `device_inventory_vendor_counts`, `refresh_device_inventory_rollups()`, and a `FOR EACH ROW` trigger `trg_ocsf_devices_inventory_rollup` calling `update_device_inventory_counts_row(...)`.
-2. `20260306001000_optimize_device_inventory_rollup_bulk_sync.exs`: Added the transaction-local `current_setting('platform.skip_inventory_rollup', true) = 'on'` bypass in `trg_ocsf_devices_inventory_rollup()` so bulk sync batches exceeding 1,000 devices could skip per-row updates and call `refresh_device_inventory_rollups()` afterward.
-3. `20261005120000_mark_source_retired_devices.exs`: Excluded `source_retired_at IS NOT NULL` devices from active rollup counts.
-4. `20261019150000_batch_device_inventory_rollups.exs`: Replaced the `FOR EACH ROW` trigger with three `FOR EACH STATEMENT` transition-table triggers (`_insert`, `_update`, `_delete`) that populate transaction-local temporary tables (`pg_temp.device_inventory_rollup_count_deltas`, `pg_temp.device_inventory_rollup_type_deltas`, `pg_temp.device_inventory_rollup_vendor_deltas`) and call `platform.apply_device_inventory_rollup_deltas()`.
+2. `20260306001000_optimize_device_inventory_rollup_bulk_sync.exs`: Added the transaction-local `current_setting('platform.skip_inventory_rollup', true) = 'on'` bypass in `trg_ocsf_devices_inventory_rollup()` and a `TRUNCATE`-based `refresh_device_inventory_rollups()`.
+3. `20261005120000_mark_source_retired_devices.exs`: Excluded `source_retired_at IS NOT NULL` devices from active rollup counts and replaced `refresh_device_inventory_rollups()` with the current three-`TRUNCATE` body. That function does not take an advisory lock.
+4. `20261019150000_batch_device_inventory_rollups.exs`: Replaced the row trigger with three `FOR EACH STATEMENT` transition-table triggers. Each function aggregates the transition table with a CTE and, on a non-zero delta, takes the advisory lock and upserts counters inline. There is no `platform.apply_device_inventory_rollup_deltas()` and no `pg_temp` delta table. The sequential batch measurement lives in `docs/device-inventory-rollup-performance.md`.
 
 #### Why `20261019150000_batch_device_inventory_rollups.exs` Still Serializes Concurrent Transactions
-While statement-level transition tables reduced the overhead of a multi-row `INSERT` *within a single statement*, `platform.apply_device_inventory_rollup_deltas()` still serializes **across concurrent transactions** for three reasons:
-1. **Global Transaction-Scoped Advisory Lock**: `apply_device_inventory_rollup_deltas()` executes:
-   ```sql
-   PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
-   ```
-   `pg_advisory_xact_lock` is an exclusive lock held until the enclosing transaction commits or rolls back. Once a transaction executes `INSERT INTO platform.ocsf_devices`, no other transaction can complete `apply_device_inventory_rollup_deltas()` or `refresh_device_inventory_rollups()` until the first transaction finishes all remaining statements and commits.
-2. **Singleton Counter Row Contention**: Even without the advisory lock, every active device insert updates `device_inventory_counts WHERE key = 'total'` and either `key = 'available'` or `key = 'unavailable'`, plus the matching `type` and `vendor_name` rows. Updating a row in PostgreSQL holds a `FOR NO KEY UPDATE` tuple lock until transaction end.
-3. **Unfiltered `AFTER UPDATE` Transition Table Materialization**: `trg_ocsf_devices_inventory_rollup_update` is declared as `AFTER UPDATE ON platform.ocsf_devices` without an `OF <column_list>` clause. Every `UPDATE` on `platform.ocsf_devices` (including `last_seen` heartbeats, `metadata` merges, `ip` updates, `identity_revision` bumps, and `availability_state` transitions) forces PostgreSQL to materialize `inventory_old` and `inventory_new` tuplestores and execute the three delta-aggregation CTE joins.
+Statement-level transition tables reduced the cost of a multi-row statement. The three trigger functions still serialize concurrent transactions:
+1. **Global transaction-scoped advisory lock.** Each function, on its first non-zero delta, executes `PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0))`. That exclusive lock is held until the enclosing transaction commits or rolls back, so a later statement in the same transaction keeps every other device write behind it. `refresh_device_inventory_rollups()` does not take this lock. A refresh still blocks writers because each `TRUNCATE` needs `AccessExclusiveLock` on a rollup table.
+2. **Singleton counter rows.** Even without the advisory lock, an active insert upserts `device_inventory_counts` for `key = 'total'` and either `'available'` or `'unavailable'` (`ON CONFLICT (key) DO UPDATE` of `value`), plus the matching type and vendor rows (`count`). Those row locks last until transaction end.
+3. **Unfiltered `AFTER UPDATE` transition tables.** `trg_ocsf_devices_inventory_rollup_update` is `AFTER UPDATE ON platform.ocsf_devices` with no `OF` column list. Every update, including `last_seen`, `metadata`, `ip`, `identity_revision`, and `availability_state`, materializes `inventory_old` and `inventory_new` and runs the delta CTEs. A zero net change takes no advisory lock.
 
 ---
 
 ### 2. Inventory of All Writers and Readers
 
 #### Writers to `platform.ocsf_devices` and `platform.device_inventory_*`
-1. **Sync Ingestion (`ServiceRadar.Inventory.Sync.DeviceWrites`, `elixir/serviceradar_core/lib/serviceradar/inventory/sync/device_writes.ex`)**:
-   - `upsert_devices_with_ips/5` (`device_writes.ex:1663-1695`) runs inside the `SyncIngestor` transaction (`sync_ingestor.ex:254`).
-   - When `length(existing_devices) <= 1_000` (`@default_inventory_rollup_bulk_refresh_threshold`, `device_writes.ex:28,1697-1699`), `set_local_skip_inventory_rollup/0` is **not** called. The `Repo.insert_all(Device, chunk, on_conflict: ...)` call fires `trg_ocsf_devices_inventory_rollup_insert` mid-transaction, acquiring the global rollup lock and holding it while the rest of `SyncIngestor` processes device identifiers, aliases, interfaces, and sightings.
-   - When `length(existing_devices) > 1_000`, `set_local_skip_inventory_rollup/0` (`device_writes.ex:1701-1709`) sets `SET LOCAL platform.skip_inventory_rollup = 'on'`, and after the main transaction commits, `SyncIngestor` calls `DeviceWrites.refresh_inventory_rollups/0` (`device_writes.ex:1722-1736`).
-   - **Lock Key Mismatch & `TRUNCATE` Reader Blocking**: `DeviceWrites.refresh_inventory_rollups/0` acquires `pg_advisory_xact_lock(2_026_030_601)` (`@inventory_rollup_refresh_lock_key`, `device_writes.ex:29,1726`) and then invokes `SELECT platform.refresh_device_inventory_rollups()`. Inside SQL, `refresh_device_inventory_rollups()` acquires a *different* advisory lock key (`hashtextextended('serviceradar:device-inventory-rollup', 0)` = `-1913561502452284797`) and immediately runs:
-     ```sql
-     TRUNCATE TABLE
-       platform.device_inventory_counts,
-       platform.device_inventory_type_counts,
-       platform.device_inventory_vendor_counts;
-     ```
-     `TRUNCATE TABLE` acquires `AccessExclusiveLock` on all three rollup tables and their indexes for the duration of the subsequent three full-table `COUNT(*)` / `GROUP BY` scans of `platform.ocsf_devices`, blocking all concurrent `SELECT` queries against the rollup tables.
-2. **Ash `ServiceRadar.Inventory.Device` Actions (`elixir/serviceradar_core/lib/serviceradar/inventory/device.ex`)**:
-   - `:create`, `:update`, `:gateway_sync`, `:gateway_restore`, `:restore`, `:soft_delete`, `:retire_source`, `:clear_source_retired`, `:touch_last_seen`.
-   - Callers include `ServiceRadar.Inventory.AgentGatewaySync` (`agent_gateway_sync.ex:76,204,225`), manual device creation/editing in `web-ng`, remediation (`ServiceRadar.Inventory.Remediation.AgentLinks`, `agent_links.ex:266`), and DIRE (`ServiceRadar.Inventory.IdentityReconciler`, `identity_reconciler.ex:863,1152`). None of these set `platform.skip_inventory_rollup`.
-3. **Canonical Fact & Metadata Writers (`elixir/serviceradar_core/lib/serviceradar/inventory/changes/`)**:
-   - `MergeDeviceFacts` (`merge_device_facts.ex:136`), `RemoveDeviceFacts` (`remove_device_facts.ex:109`), and `MergeDeviceMetadata` (`merge_device_metadata.ex:66`) execute `UPDATE platform.ocsf_devices` inside transaction boundaries.
-4. **Availability & Lifecycle Workers**:
-   - `ServiceRadar.Inventory.Availability.ResolverWorker` / `ExpiryWorker` / `CaptureBackfillWorker` (`capture_backfill_worker.ex:43,125` — sets `skip_inventory_rollup = 'on'` in `backfill_merged_batch/2` at line 125, but not in `backfill_single_batch/2` at line 43).
-   - `ServiceRadar.Jobs.DeviceCleanupWorker` (batch soft-delete / expiry of stale ephemeral devices).
+1. **Sync ingestion (`ServiceRadar.Inventory.Sync.DeviceWrites`)**:
+   - `bulk_upsert_devices/4` (`device_writes.ex:93-96`) sets `refresh_rollups?` from `inventory_rollup_bulk_refresh_required?/1`. The default threshold is `10_000` (`@default_inventory_rollup_bulk_refresh_threshold`, `device_writes.ex:40`), overridable with `:inventory_rollup_bulk_refresh_threshold`.
+   - At or below that threshold the statement triggers run inside the upsert. Fenced callers invoke this inside `Identity.Fence.fenced_write/3`, so a taken advisory lock is held until that transaction commits.
+   - Above the threshold, `with_inventory_rollup_bypassed/1` (`device_writes.ex:1700-1704`) sets `SET LOCAL platform.skip_inventory_rollup = 'on'` around the write. After the batches finish, `SyncIngestor` calls `DeviceWrites.maybe_refresh_inventory_rollups/2` (`sync_ingestor.ex:82`).
+   - **Separate refresh lock and `TRUNCATE`.** `refresh_inventory_rollups_in_transaction/0` (`device_writes.ex:1722-1724`) takes `pg_advisory_xact_lock(20_240_306)` (`@inventory_rollup_refresh_lock_key`, `device_writes.ex:30`) and then `SELECT platform.refresh_device_inventory_rollups()`. The SQL function, last replaced in `20261005120000_mark_source_retired_devices.exs`, does not take the trigger advisory lock. It runs three separate `TRUNCATE TABLE` statements, one per rollup table, then full-table `COUNT(*)` / `GROUP BY` scans. Each `TRUNCATE` takes `AccessExclusiveLock` and blocks concurrent `SELECT`s of that table. `mapper_results_ingestor.ex` also calls `maybe_refresh_inventory_rollups/2`.
+2. **Ash `ServiceRadar.Inventory.Device` (`device.ex`)**:
+   - Actions that write devices include `:create`, `:update`, `:gateway_sync`, `:gateway_restore`, `:restore`, `:soft_delete`, `:set_availability`, `:touch`, `:bump_identity_revision`, `:merge_metadata`, `:write_facts`, and `:remove_facts`. There is no `:retire_source`, `:clear_source_retired`, or `:touch_last_seen` action.
+   - Callers include `ServiceRadar.Edge.AgentGatewaySync` (`elixir/serviceradar_core/lib/serviceradar/edge/agent_gateway_sync.ex`), web-ng device edits, and `ServiceRadar.Inventory.Remediation.AgentLinks`. DIRE's public module is a facade (`identity_reconciler.ex`); device writes go through `ServiceRadar.Inventory.Identity`.
+3. **Fact and metadata writers (`elixir/serviceradar_core/lib/serviceradar/inventory/changes/`)**:
+   - `MergeDeviceFacts` (`merge_device_facts.ex:136`), `RemoveDeviceFacts` (`remove_device_facts.ex:109`), and `MergeDeviceMetadata` (`merge_device_metadata.ex:66`) run `UPDATE platform.ocsf_devices`.
+4. **Availability and lifecycle workers**:
+   - `ServiceRadar.Inventory.Availability.ResolverWorker` and `ExpiryWorker` do not set `platform.skip_inventory_rollup`.
+   - `CaptureBackfillWorker.run_pages/4` sets it for every page (`capture_backfill_worker.ex:125`), including the `availability_state` projection update. There is no `backfill_merged_batch/2` or `backfill_single_batch/2`.
+   - `ServiceRadar.Inventory.DeviceCleanupWorker` soft-deletes and expires devices.
+   - Production setters of `platform.skip_inventory_rollup` are only `DeviceWrites.with_inventory_rollup_bypassed/1` and `CaptureBackfillWorker.run_pages/4`.
 
 #### Readers of `platform.device_inventory_*`
-- **SRQL (`rust/srql/src/query/devices/stats/rollup.rs:28-140`)**:
-  - `execute_inventory_summary_rollup` (triggered by `in:devices rollup_stats:inventory_summary`) is the **sole production reader** of `device_inventory_counts`, `device_inventory_type_counts`, and `device_inventory_vendor_counts`.
-  - Consumed by `ServiceRadarWebNG.DeviceLive.IndexData.Stats` (the `/devices` header summary cards and vendor/type facets) and `ServiceRadarWebNG.DashboardLive.Data.BasicSummaries`.
+- **SRQL (`rust/srql/src/query/devices/stats/rollup.rs:21-51`)**:
+  - `build_rollup_stats_query/1` for `in:devices rollup_stats:inventory_summary` is the production reader of the three rollup tables. Status keys read `device_inventory_counts.value`. Type and vendor rows read `count`.
+  - `ServiceRadarWebNGWeb.DeviceLive.IndexData.Stats` loads that query for the `/devices` summary (`index_data/stats.ex`).
 
 ---
 
@@ -127,7 +118,7 @@ We measured concurrent device inserts against a fully migrated scratch database 
   - Preserve sub-5ms SRQL read latency for `in:devices rollup_stats:inventory_summary` regardless of total device fleet size.
 - **Non-Goals**:
   - Changing the external SRQL response contract of `in:devices rollup_stats:inventory_summary`.
-  - Removing the `platform.skip_inventory_rollup` GUC used by >1,000-row bulk sync batches and async `DataCase` sandbox owners (`openspec/changes/parallelize-core-integration-tests`).
+  - Removing the `platform.skip_inventory_rollup` GUC used by bulk sync batches above the default `10_000`-row threshold and by async `DataCase` sandbox owners (`openspec/changes/parallelize-core-integration-tests`).
 
 ---
 
@@ -149,8 +140,8 @@ We evaluated three candidate designs:
   ```sql
   v_shard := mod(abs(hashtextextended(pg_current_xact_id()::text, 0)), 64)::smallint;
   ```
-- **Removing `pg_advisory_xact_lock` from `apply_device_inventory_rollup_deltas()`**: The global advisory lock was originally added in `20261019150000_batch_device_inventory_rollups.exs` to prevent deadlocks when two concurrent transactions updated multiple keys in `device_inventory_counts`, `device_inventory_type_counts`, and `device_inventory_vendor_counts`. Ordering each statement's `INSERT ... ON CONFLICT (key, shard) DO UPDATE` source query by `ORDER BY key` (and `ORDER BY type`, `ORDER BY vendor_name`) already guarantees a strict global lock acquisition order `(table, key, shard)` whenever two transactions happen to land on the same `shard` (`1/64` probability), making deadlocks impossible without a global advisory lock.
-- **Note on signed shard counts**: Within an individual shard `1..63`, a `DELETE` or `UPDATE` of a device originally inserted by a different transaction can decrement that shard's counter below `0` while the sum across all shards (`SUM(count)`) remains `>= 0`. Therefore, individual shard rows MUST allow signed `bigint` values (`count bigint NOT NULL DEFAULT 0`, removing `GREATEST(..., 0)` per-shard clamping during incremental deltas), while the SRQL reader and `refresh_device_inventory_rollups()` enforce `HAVING SUM(count) > 0` (and `GREATEST(SUM(count), 0)`).
+- **Do not take `pg_advisory_xact_lock` in the new `apply_device_inventory_rollup_deltas()`**. Today the lock sits inline in each of the three trigger functions (`20261019150000_batch_device_inventory_rollups.exs`). It was added because an upsert runs the update and insert triggers as separate statements, so key order inside one trigger does not by itself order locks across both. The new function orders `INSERT ... ON CONFLICT DO UPDATE` by `key`, then `type`, then `vendor_name`, and every caller uses that same order, so two transactions that land on one shard (`1/64`) take row locks in one order.
+- **Signed per-shard counts**: A later transaction can decrement a shard other than the one that inserted the device, including shard `0`. The sum across shards stays `>= 0` while one shard's `value` or `count` goes below `0`. Status rows already store signed `value` with no clamp. Type and vendor triggers `DELETE` rows `WHERE count <= 0` after a negative delta. Incremental shard updates must not do that delete. SRQL reports `GREATEST(SUM(value), 0)` for status keys and `HAVING SUM(count) > 0` for type and vendor. `refresh_device_inventory_rollups()` compacts back to `shard = 0`.
 
 ### Decision 2: Narrow `trg_ocsf_devices_inventory_rollup_update` to Rollup-Relevant Columns
 
@@ -179,16 +170,16 @@ Instead of `TRUNCATE TABLE` (which takes `AccessExclusiveLock` and blocks SRQL r
 1. Acquire `pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0))` solely to serialize concurrent full refreshes against each other.
 2. Delete non-zero shards (`DELETE FROM platform.device_inventory_counts WHERE shard <> 0`, and likewise for `type_counts` and `vendor_counts`) and stale keys not present in the recomputed aggregate.
 3. Upsert the canonical totals into `shard = 0` via `INSERT ... ON CONFLICT (..., shard) DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()`.
-4. Remove the redundant and mismatched `pg_advisory_xact_lock(2_026_030_601)` call in `ServiceRadar.Inventory.Sync.DeviceWrites.refresh_inventory_rollups/0` so `SELECT platform.refresh_device_inventory_rollups()` is the single authority for refresh locking.
+4. Remove `pg_advisory_xact_lock(20_240_306)` from `ServiceRadar.Inventory.Sync.DeviceWrites.refresh_inventory_rollups_in_transaction/0` so `SELECT platform.refresh_device_inventory_rollups()` is the only refresh lock.
 
 Because `DELETE` and `INSERT ... ON CONFLICT DO UPDATE` acquire only `RowExclusiveLock`, concurrent SRQL `SELECT` queries (`AccessShareLock`) never block during a full refresh, and MVCC ensures readers see a consistent snapshot before, during, and after the refresh transaction.
 
-### Decision 4: Aggregate Shards in SRQL `execute_inventory_summary_rollup`
+### Decision 4: Aggregate Shards in SRQL `build_rollup_stats_query/1`
 
-Update `rust/srql/src/query/devices/stats/rollup.rs` to sum across shards:
+Update `rust/srql/src/query/devices/stats/rollup.rs` to sum across shards. The status column stays `value`:
 - Counts query:
   ```sql
-  SELECT key, GREATEST(COALESCE(SUM(count), 0), 0)::bigint AS count
+  SELECT key, GREATEST(COALESCE(SUM(value), 0), 0)::bigint AS count
   FROM platform.device_inventory_counts
   GROUP BY key
   ```
@@ -208,28 +199,28 @@ Update `rust/srql/src/query/devices/stats/rollup.rs` to sum across shards:
   HAVING SUM(count) > 0
   ORDER BY count DESC, vendor_name ASC
   ```
-Because both the pre-migration schema (1 row per key) and the post-migration schema (`<= 64` rows per key) return identical results under `SUM(count) ... GROUP BY ...`, the SRQL query change is backward- and forward-compatible with the schema migration during rolling deploys.
+`SUM(value) GROUP BY key` and `SUM(count) GROUP BY type` or `vendor_name` return the same totals for one row per key and for up to 64 shard rows per key, so the SRQL change is safe to deploy before the schema migration.
 
 ---
 
 ## Risks / Trade-offs
 
 - **Risk: Concurrent incremental trigger write vs. concurrent full `refresh_device_inventory_rollups()`**
-  - *Mitigation*: Full refreshes only run after bulk sync batches exceeding 1,000 devices (which set `skip_inventory_rollup = 'on'`). During `refresh_device_inventory_rollups()`, the refresh transaction snapshots `ocsf_devices` under MVCC and writes `shard = 0` while deleting `shard <> 0`. If a small concurrent transaction commits a delta into `shard = k` right before `refresh_device_inventory_rollups()` starts, its row is already included in the `ocsf_devices` scan; if it is in flight concurrently, locking shards in deterministic order (`DELETE ... WHERE shard <> 0` after the `ocsf_devices` scan) bounds the conflict window to the final millisecond of the refresh transaction.
+  - *Mitigation*: Full refreshes run after bulk sync batches above the default `10_000` device threshold (those batches set `skip_inventory_rollup = 'on'`). During `refresh_device_inventory_rollups()`, the refresh transaction snapshots `ocsf_devices` under MVCC and writes `shard = 0` while deleting `shard <> 0`. If a small concurrent transaction commits a delta into `shard = k` right before `refresh_device_inventory_rollups()` starts, its row is already included in the `ocsf_devices` scan; if it is in flight concurrently, locking shards in deterministic order (`DELETE ... WHERE shard <> 0` after the `ocsf_devices` scan) bounds the conflict window to the final millisecond of the refresh transaction.
 - **Risk: Signed per-shard counts when devices change type/vendor or are deleted on a different shard**
-  - *Mitigation*: Drop the `GREATEST(..., 0)` clamp and `WHERE count <= 0` delete inside incremental `apply_device_inventory_rollup_deltas()` so negative deltas on a shard are preserved accurately; `HAVING SUM(count) > 0` in `rollup.rs` and periodic `refresh_device_inventory_rollups()` compaction collapse all shards back into `shard = 0`.
+  - *Mitigation*: Do not copy the type/vendor `DELETE ... WHERE count <= 0` into sharded incremental updates. Status `value` is already unclamped. `GREATEST(SUM(value), 0)` and `HAVING SUM(count) > 0` in `rollup.rs`, plus `refresh_device_inventory_rollups()`, collapse shards back to `shard = 0`.
 
 ## Migration Plan
 
-1. Deploy the SRQL `GROUP BY` / `SUM(count)` query update in `rust/srql/src/query/devices/stats/rollup.rs` (fully compatible with the existing single-row-per-key schema).
+1. Deploy the SRQL `SUM(value)` / `SUM(count)` `GROUP BY` update in `rust/srql/src/query/devices/stats/rollup.rs` (compatible with the existing single-row-per-key schema).
 2. Run a database migration that:
    - Adds `shard smallint NOT NULL DEFAULT 0 CHECK (shard >= 0 AND shard < 64)` to `device_inventory_counts`, `device_inventory_type_counts`, and `device_inventory_vendor_counts`, replacing each single-column primary key with `(key, shard)`, `(type, shard)`, and `(vendor_name, shard)`.
-   - Replaces `platform.apply_device_inventory_rollup_deltas()` with the sharded, advisory-lock-free implementation using deterministic `ORDER BY` key ordering.
+   - Adds `platform.apply_device_inventory_rollup_deltas()` and points the three statement triggers at it. The function is sharded, takes no advisory lock, and orders keys deterministically. It writes status deltas to `value` and type/vendor deltas to `count`.
    - Replaces `platform.refresh_device_inventory_rollups()` with the `DELETE` + `UPSERT` (`shard = 0`) implementation (no `TRUNCATE TABLE`).
    - Recreates `trg_ocsf_devices_inventory_rollup_update` with `AFTER UPDATE OF deleted_at, source_retired_at, is_available, type, vendor_name`.
-3. Update `ServiceRadar.Inventory.Sync.DeviceWrites.refresh_inventory_rollups/0` to call `SELECT platform.refresh_device_inventory_rollups()` directly without the mismatched `2_026_030_601` advisory lock.
+3. Update `ServiceRadar.Inventory.Sync.DeviceWrites.refresh_inventory_rollups_in_transaction/0` to call `SELECT platform.refresh_device_inventory_rollups()` without `pg_advisory_xact_lock(20_240_306)`.
 4. **Rollback**: Revert the trigger and function definitions to `shard = 0` and collapse `shard <> 0` rows via `SELECT platform.refresh_device_inventory_rollups()` before dropping the `shard` column.
 
 ## Open Questions
 
-- Should `platform.refresh_device_inventory_rollups()` also be scheduled as a lightweight daily/hourly Oban maintenance job to compact non-zero shards back into `shard = 0` during periods without >1,000-device bulk syncs, even though 64 shards cap the maximum row count at `64 * distinct_keys`?
+- Should `platform.refresh_device_inventory_rollups()` also be scheduled as a lightweight daily/hourly Oban maintenance job to compact non-zero shards back into `shard = 0` during periods without bulk syncs above the `10_000` threshold, even though 64 shards cap the maximum row count at `64 * distinct_keys`?
