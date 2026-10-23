@@ -26,8 +26,18 @@ load("//build/tla:tlc.bzl", "tlc_test")
         ("prefix_safe", "pass"),
         ("prefix_nonvacuity", "violation:NeverAcceptsPopulated"),
         ("prefix_deadline", "violation:NeverExpiresUnpublished"),
-    ] + [("prefix_" + bug, "violation:CertifiedPrefix") for bug in [
-        "startup", "nested", "early_remove", "missing_barrier", "failed_barrier",
-        "late_loss", "missing_receipt", "contradiction", "restart",
+    ] + [(
+        "prefix_" + bug,
+        "violation:CertifiedPrefix",
+    ) for bug in [
+        "startup",
+        "nested",
+        "early_remove",
+        "missing_barrier",
+        "failed_barrier",
+        "late_loss",
+        "missing_receipt",
+        "contradiction",
+        "restart",
     ]]
 ]

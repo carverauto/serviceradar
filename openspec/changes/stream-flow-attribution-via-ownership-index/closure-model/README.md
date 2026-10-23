@@ -22,18 +22,20 @@ order exercise nested pending-slot overwrite; this is not a model of Linux
 task-generation acquisition. The
 abstract barrier settles tracked source callbacks and latent prefix failures,
 but does not deliver queued records to the consumer. Source proof must justify
-that abstraction independently. The deadline permits two abstract closing ticks;
-expiry rejects capture. This checks refusal after expiry, not clock fairness or
-a real-time completion bound. Operations may remain pending indefinitely and
+that abstraction independently. The deadline permits two abstract closing ticks.
+The second tick marks capture expired and unusable. The deadline target witnesses
+that expiry while a completed record is still unpublished. It does not check clock
+fairness or a real-time completion bound. Operations may remain pending indefinitely and
 cannot yield a successful receipt. Restart changes the session token; absent,
 old, or contradictory terminal delivery cannot certify the new session.
 
 Unsafe configurations each require the named invariant violation. A parse
 error, different violation, or missing counterexample fails the Bazel target.
-The safe configurations explore all modeled interleavings. Nonvacuity targets
-require reachable acceptance, including publication of an actual operation;
-the deadline target requires refusal while a completed record is still
-unpublished. None supplies a kernel proof by injecting a synthetic receipt.
+The safe configurations explore all modeled interleavings. Bracket nonvacuity
+requires a reachable accepted classification. Prefix nonvacuity requires
+reachable acceptance after an actual operation was published. The deadline
+target requires expiry while a completed record is still unpublished. None
+supplies a kernel proof by injecting a synthetic receipt.
 
 The two models are checked separately; their composition is unproven. Prefix
 closure alone does not place completion before an interval cutoff. The bounds

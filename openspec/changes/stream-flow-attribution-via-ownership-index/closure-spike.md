@@ -80,9 +80,9 @@ safe models exhausted 185 and 446 distinct states. Named counterexamples cover
 callback-time substitution, startup frames, nested ticket overwrite, retirement
 before publication, absent or failed barriers, delayed loss, missing or conflicting
 receipts, and receipt reuse after restart. A separate witness exhibits identical
-E=1 and X=2 observations with C=1 or C=2 in different intervals. Populated acceptance
-and deadline rejection are both reachable, so the safety checks do not merely reject
-every capture.
+E=1 and X=2 observations with C=1 or C=2 in different intervals. Populated acceptance,
+and expiry while a completed record is still unpublished, are both reachable, so the
+safety checks do not merely reject every capture.
 
 The integrated branch's [focused check][integrated-run] passed all sixteen targets
 from cache. The [full repository unit gate][unit-run] passed 447 targets and skipped

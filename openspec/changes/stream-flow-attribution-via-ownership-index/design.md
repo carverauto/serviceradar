@@ -539,9 +539,9 @@ ownership index never reads them, and attribution never depends on them.
   Connection count means distinct socket lifetimes for TCP and successful message operations
   for UDP/ICMP, not packets or batched API calls. Successful zero-length UDP counts; failed
   operations and receive peeks do not.
-- **Interval**: default 60 s, aligned per agent. A key with no connection in the interval emits
-  nothing. TCP connections contribute in every interval they overlap, including idle
-  connections. Datagram keys contribute only in intervals with successful message activity.
+- **Interval**: default 60 s, aligned per agent. TCP connections contribute in every interval
+  they overlap, including idle connections. Datagram keys contribute only in intervals with
+  successful message activity. Any other key emits nothing.
 - **Budget**: a per-agent cap N on summary rows per interval (default 2,000, minimum 16). Below
   the cap nothing is aggregated. Over the cap, netprobe degrades in stages, applying each stage
   to the lowest-count rows first and stopping as soon as the interval fits:
@@ -564,9 +564,10 @@ ownership index never reads them, and attribution never depends on them.
   `attribution` retention dataset. Rows are never updated or deleted individually.
 
 Volume is bounded by the budget, not by connection count: at most 2,000 rows per agent per
-minute, about 33 rows/s. Full keys make rows roughly one per connection per minute below the
-cap. With an assumed median of 200-600 distinct full keys per host per minute, 20k hosts
-produce about 67k-200k rows/s (about 6-17B rows/day), and the strict cap bounds the worst case
+minute, about 33 rows/s. Below the cap there is one row per distinct full key per minute.
+TCP keys include idle sockets; datagram keys require successful message activity in that
+minute (Decision 12). With an assumed median of 200-600 distinct full keys per host per
+minute, 20k hosts produce about 67k-200k rows/s (about 6-17B rows/day), and the strict cap bounds the worst case
 at about 670k rows/s. Busy listeners reach the cap and degrade to `peer_ip` or `service` rows. Phase 0 measures the per-host
 distribution on the lab before this is sized.
 
@@ -816,14 +817,15 @@ The source review found two independent closure failures:
 These are properties of [trampoline teardown][closure-trampoline] and the
 [x86 return/callback sequence][closure-x86], not failures that a longer grace period fixes.
 
-**Approved next step:** a bounded closure spike before expanding the runtime. Its
-candidate design accounts for operations at entry and successful completion, retains
-exit delivery through the cutoff, and establishes a source-reviewed completion barrier
+**Spike result:** the bounded investigation approved as the next step is recorded in
+[closure-spike.md](closure-spike.md). No examined mechanism met the obligations below.
+A future proof must account for operations at entry and successful completion, retain
+exit delivery through the cutoff, and establish a source-reviewed completion barrier
 before issuing the terminal receipt. Pending, nested, missing or truncated operation
 state must make coverage unavailable. It must not silently move a completion across an
 interval boundary, discard the last interval, or treat a timeout as a barrier.
 
-The spike must establish all of the following before implementation resumes:
+Before implementation resumes, that proof must still establish all of the following:
 
 1. A finite cutoff that preserves or explicitly rejects every pending completion and
    every unorderable source failure, including a task paused around an exit callback.
@@ -845,9 +847,9 @@ load/attach API. A raw syscall shim or dependency change, and any restriction of
 eligible kernel population, must return as a concrete decision with spike evidence.
 Neither a sentinel alone nor a successful `close()` solves the pending-exit failure.
 
-Until this closure gate is satisfied, the collector is exploratory and the Phase 0
-measurements remain unavailable for acceptance. Complete the already-authorized source,
-projection and transport checks; do not label the prerequisite ready or start P2-P8.
+Until this closure gate is satisfied, the collector stays exploratory and Phase 0
+measurements remain unavailable for acceptance. Tasks 0.6-0.8 stay exploratory. Do not
+label the prerequisite ready or start P2-P8. The recorded investigation is task 0.9 only.
 
 [closure-trampoline]: https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/refs/tags/v6.8/kernel/bpf/trampoline.c
 [closure-x86]: https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/refs/tags/v6.8/arch/x86/net/bpf_jit_comp.c
