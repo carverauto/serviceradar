@@ -2,10 +2,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   @moduledoc """
   Owns one bounded local recording block under an independent consumer lease.
 
-  Start with a fenced `:owner`, its `:pipeline` pid and an existing private
-  `:spool_root`. The worker asynchronously acquires its recorder lease, attaches
+  Start with a fenced `:owner`, its `:media_ingest_id` and an existing private
+  `:spool_root`. The deployment must configure `:camera_recording_storage_id` as
+  the UUID of that storage lifetime. The worker claims exclusive recording rights
+  with a fresh token and resolves the existing managed pipeline before attaching.
+  The worker asynchronously acquires its recorder lease, attaches
   to that pipeline and owns Packaging/Spool. Its clock maps H264 90 kHz media
-  ticks to an explicit relay epoch; capture UTC remains unknown.
+  ticks to an explicit recorder epoch; capture UTC remains unknown. Restarting
+  recording never asserts clock continuity through an unobserved interval.
 
   No media or filesystem work runs in the global relay manager. Lease receipts
   establish a conservative monotonic deadline using the request's start time.
@@ -26,10 +30,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.IngestOwnership
+  alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadarCoreElx.CameraRecording.Inbox
   alias ServiceRadarCoreElx.CameraRecording.Packaging
   alias ServiceRadarCoreElx.CameraRecording.Spool
+  alias ServiceRadarCoreElx.CameraRelay.PipelineManager
 
   @lease_ms 30_000
 
@@ -45,11 +51,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   @impl true
   def init(opts) do
     Process.flag(:trap_exit, true)
-    pipeline = Keyword.fetch!(opts, :pipeline)
+    owner = Keyword.fetch!(opts, :owner)
+    media_ingest_id = Keyword.fetch!(opts, :media_ingest_id)
 
-    if ServiceRadarCoreElx.CameraRecording.Supervisor.enabled?() and is_pid(pipeline) and node(pipeline) == node() do
+    with true <- ServiceRadarCoreElx.CameraRecording.Supervisor.enabled?() || {:error, :recording_disabled},
+         {:ok, storage_id} <- Ecto.UUID.cast(Application.get_env(:serviceradar_core_elx, :camera_recording_storage_id)),
+         {:ok, pipeline} <- PipelineManager.recording_pipeline(owner.relay_session_id, media_ingest_id) do
       state = %{
-        owner: Keyword.fetch!(opts, :owner),
+        owner: owner,
+        media_ingest_id: media_ingest_id,
+        storage_id: storage_id,
+        claim_token: Ecto.UUID.generate(),
+        block_sequence: nil,
         pipeline: pipeline,
         monitor: Process.monitor(pipeline),
         root: Keyword.fetch!(opts, :spool_root),
@@ -57,7 +70,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
         inbox_opts: Keyword.get(opts, :inbox, []),
         spool_limits: Keyword.get(opts, :spool_limits, %{}),
         actor: SystemActor.system(:camera_recording),
-        consumer: nil,
+        claim: nil,
         inbox: nil,
         packager: nil,
         spool: nil,
@@ -69,7 +82,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
 
       {:ok, state, {:continue, :acquire}}
     else
-      {:stop, :recording_disabled}
+      :error -> {:stop, :recording_storage_identity_required}
+      {:error, reason} -> {:stop, reason}
     end
   end
 
@@ -79,9 +93,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
 
     with {:ok, owner} <- IngestOwnership.with_current_owner(state.owner, &{:ok, &1}, actor: state.actor),
          true <- is_binary(owner.relay_session_id) || {:error, :relay_unbound},
-         {:ok, consumer} <-
-           IngestOwnership.acquire_consumer(owner, :recorder, Ecto.UUID.generate(), @lease_ms, actor: state.actor) do
-      initialize(%{state | owner: owner, consumer: consumer}, deadline(request_start, consumer))
+         {:ok, claim} <-
+           RecorderOwnership.acquire(owner, state.claim_token, state.media_ingest_id, state.storage_id, @lease_ms,
+             actor: state.actor
+           ) do
+      initialize(%{state | owner: owner, claim: claim}, deadline(request_start, claim))
     else
       {:error, reason} -> stop(state, reason)
     end
@@ -129,9 +145,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     request_start = System.monotonic_time(:millisecond)
 
     with :ok <- Inbox.usable(state.inbox),
-         {:ok, consumer} <- IngestOwnership.renew_consumer(state.owner, state.consumer.id, @lease_ms, actor: state.actor),
-         :ok <- Inbox.renew(state.inbox, deadline(request_start, consumer)) do
-      {:noreply, schedule_renewal(%{state | consumer: consumer, timer: nil})}
+         {:ok, claim} <- RecorderOwnership.renew(state.owner, state.claim, @lease_ms, actor: state.actor),
+         :ok <- Inbox.renew(state.inbox, deadline(request_start, claim)) do
+      {:noreply, schedule_renewal(%{state | claim: claim, timer: nil})}
     else
       {:error, reason} -> stop(state, reason)
     end
@@ -149,20 +165,21 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   end
 
   defp initialize(state, deadline_ms) do
-    case Inbox.new(state.pipeline, state.owner.relay_session_id, deadline_ms, state.inbox_opts) do
+    case Inbox.new(state.pipeline, state.owner.relay_session_id, state.media_ingest_id, deadline_ms, state.inbox_opts) do
       {:ok, inbox} ->
         state = %{state | inbox: inbox}
 
         clock = %{
-          clock_epoch: "#{state.owner.relay_session_id}:#{state.owner.epoch}",
+          clock_epoch: "#{state.owner.relay_session_id}:#{state.claim.recorder_epoch}",
           timebase: 90_000,
           dts_source: :pts_no_reordering,
           utc_mapping: :unknown
         }
 
         with :ok <- Inbox.usable(inbox),
+             {:ok, sequence} <- RecorderOwnership.reserve_block(state.owner, state.claim, actor: state.actor),
              {:ok, packager} <- Packaging.start(clock: clock, wait_for_keyframe?: true) do
-          attach(%{state | packager: packager})
+          attach(%{state | packager: packager, block_sequence: sequence})
         else
           {:error, reason} -> stop(state, reason)
         end
@@ -201,8 +218,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     identity = %{
       source_id: state.owner.camera_source_id,
       profile: state.owner.stream_profile_id,
-      recorder_epoch: state.owner.epoch,
-      block_sequence: 0,
+      recorder_epoch: state.claim.recorder_epoch,
+      block_sequence: state.block_sequence,
       clock: init.clock
     }
 
@@ -244,17 +261,17 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
 
   defp seal_committed_tail(state, _reason), do: state
 
-  defp release_consumer(%{consumer: nil}), do: :ok
+  defp release_consumer(%{claim: nil}), do: :ok
 
   defp release_consumer(state) do
     owner = state.owner
-    consumer_id = state.consumer.id
+    claim = state.claim
     actor = state.actor
 
     # This one linked task belongs only to the stopping worker (which traps
     # exits). The worker cap bounds concurrency; a Task.Supervisor start call
     # itself waits indefinitely in Elixir 1.19.1, so it cannot bound teardown.
-    task = Task.async(fn -> release_and_close(owner, consumer_id, actor) end)
+    task = Task.async(fn -> release_and_close(owner, claim, actor) end)
 
     try do
       case Task.yield(task, 1_000) do
@@ -268,9 +285,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     _kind, _reason -> {:error, :cleanup_start_failed}
   end
 
-  defp release_and_close(owner, consumer_id, actor) do
-    case IngestOwnership.release_consumer(owner, consumer_id, actor: actor) do
-      :ok ->
+  defp release_and_close(owner, claim, actor) do
+    case RecorderOwnership.release(owner, claim, actor: actor) do
+      {:ok, :released} ->
         RelaySessionManager.request_close(owner.relay_session_id,
           reason: "recorder detached",
           actor: actor
@@ -289,8 +306,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   defp continuous(previous, sequence) when sequence == previous + 1, do: :ok
   defp continuous(_previous, _sequence), do: {:error, :media_sequence_discontinuity}
 
-  defp deadline(request_start, consumer),
-    do: request_start + max(0, DateTime.diff(consumer.expires_at, consumer.database_now, :millisecond))
+  defp deadline(request_start, claim),
+    do: request_start + max(0, DateTime.diff(claim.lease_expires_at, claim.database_now, :millisecond))
 
   defp schedule_renewal(state) do
     delay = min(5_000, max(1, div(Inbox.remaining_ms(state.inbox), 2)))

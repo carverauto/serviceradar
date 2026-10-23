@@ -68,6 +68,25 @@ write_source_files(
 )
 
 # The generator operates on an isolated Ash domain, so unrelated resource drift
+ash_schema(
+    name = "camera_recorder_schema",
+    outs = ["generated_camera_recorder/claim.json", "generated_camera_recorder/migration.exs"],
+    app = ":erlang_app",
+    generator = "//build:camera_recorder_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_recorder_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recorder_claims/20261023083131.json": ":generated_camera_recorder/claim.json",
+        "priv/repo/migrations/20261023083131_add_camera_recorder_claims.exs": ":generated_camera_recorder/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+# The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.
 ash_schema(

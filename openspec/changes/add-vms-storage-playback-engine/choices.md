@@ -244,6 +244,53 @@ manifest before the index transition. Recovery after the recorder's release
 needs a separate durable historical block authority; a current recorder lease
 alone cannot authorize it.
 
+### Recorder claims and allocated identities are distinct from ingest discovery
+
+When: durable recorder claim pass.
+
+A retained CNPG RecorderClaim row belongs to the unique source/profile ingest
+owner. All claim operations lock ingest owner before claim, atomically manage
+the recorder consumer, and recheck database time before committing. Competing
+live claimants are refused. Each worker generates its token once; it never reads
+back a token to resume another worker's publication rights. Reacquisition after
+release or expiry increments a separate recorder epoch without restarting live
+ingest. A block sequence is reserved durably before filesystem creation; failed
+I/O or crashes burn allocations. File listings never allocate identities.
+Each recording start also labels a fresh clock epoch; it does not assert media
+clock continuity through a recording gap. UTC mapping remains explicitly unknown.
+
+The earlier worker had only local Registry exclusion and a random consumer key.
+Those could admit two trusted workers on separate nodes under one ingest epoch.
+This correction follows the spec's durable ownership requirement. A publication
+must check both original handles through RecorderOwnership.with_current; the
+ingest fence alone does not establish recorder ownership. Short CNPG mutations
+roll back on a lost claim; external writes require immutable identities and a
+later fenced publication. A sealed local snapshot is still not an archive or
+playback authorization.
+
+### Bind recording to managed ingress and provisioned storage
+
+When: durable recorder claim pass.
+
+The existing media_ingest_id now travels from managed Pipeline creation into
+recorder attachment and admission of every access unit. The claim requires an
+active persisted relay with that same ID. Discovery only locates the pipeline;
+neither a PID nor distributed registration grants exclusive ownership.
+
+The current core deployment has no durable recording-volume identity. Runtime
+configuration therefore requires SERVICERADAR_CAMERA_RECORDING_STORAGE_ID, a
+deployment-provisioned UUID passed through the existing core.extraEnv seam.
+There is no hostname, pod, Erlang-node or unrelated-volume fallback. This UUID
+must follow the actual storage across rescheduling and change when that storage
+is replaced. Provisioning and verifying that mapping is a deployment prerequisite;
+this code does not provision a volume or enable recording.
+
+The claim retains its epoch and counter, not a historical block catalogue.
+Recovery of a previous epoch, archive upload/publication after recorder release,
+per-block storage-location history, rotation, and reclamation still need their
+own durable authorization and state transitions. A new claim cannot reuse its
+predecessor's token or silently adopt old local bytes.
+
 ### Admit recording work before mailbox enqueue
 
 When: recorder worker pass.

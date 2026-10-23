@@ -8,8 +8,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
 
   setup do
     previous = Application.get_env(:serviceradar_core_elx, :camera_recording_enabled, false)
+    storage = Application.get_env(:serviceradar_core_elx, :camera_recording_storage_id)
     Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, true)
     on_exit(fn -> Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, previous) end)
+    on_exit(fn -> Application.put_env(:serviceradar_core_elx, :camera_recording_storage_id, storage) end)
     :ok
   end
 
@@ -17,7 +19,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
     cases = [
       {[max_samples: 2, max_bytes: 64], 30_000, 2, :queue_full},
       {[max_samples: 8, max_bytes: 8], 30_000, 1, :queue_full},
-      {[], -1, 0, :lease_expired}
+      {[], -1, 0, :lease_expired},
+      {[], 30_000, 0, :recording_ingest_mismatch}
     ]
 
     for {limits, remaining, accepted, reason} <- cases do
@@ -26,7 +29,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
       assert {:error, :not_recording_producer} = Inbox.offer(inbox, chunk(0))
 
       for sequence <- 1..4 do
-        send(pipeline, {:media_chunk, chunk(sequence)})
+        unit = chunk(sequence)
+        unit = if reason == :recording_ingest_mismatch, do: %{unit | media_ingest_id: "other-ingest"}, else: unit
+        send(pipeline, {:media_chunk, unit})
 
         assert_receive {:camera_relay_viewer_chunk, %{relay_session_id: ^relay, sequence: ^sequence}},
                        1_000
@@ -49,13 +54,22 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
 
     {denied, denied_ref} =
       spawn_monitor(fn ->
-        {:ok, inbox} = Inbox.new(pipeline, relay, System.monotonic_time(:millisecond) + 30_000)
+        {:ok, inbox} = Inbox.new(pipeline, relay, "synthetic-ingest", System.monotonic_time(:millisecond) + 30_000)
         send(parent, {:denied, Membrane.Pipeline.call(pipeline, {:attach_recorder, inbox})})
       end)
 
     assert_receive {:denied, {:error, :recording_attach_refused}}
     assert_receive {:DOWN, ^denied_ref, :process, ^denied, :normal}
     Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, true)
+    Application.put_env(:serviceradar_core_elx, :camera_recording_storage_id, nil)
+
+    assert {:error, :recording_storage_identity_required} =
+             ServiceRadarCoreElx.CameraRecording.Supervisor.start_recorder(
+               owner: %{id: Ecto.UUID.generate(), epoch: 1, relay_session_id: relay},
+               media_ingest_id: "synthetic-ingest",
+               spool_root: "/unused-recording-root"
+             )
+
     {consumer, inbox} = attach_consumer(pipeline, relay, [], 30_000)
     send(pipeline, {:media_chunk, chunk(1)})
     send(pipeline, {:media_chunk, chunk(2)})
@@ -75,7 +89,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
     :ok = RelayPubSub.subscribe_viewer(relay, viewer)
     :ok = RelayPubSub.viewer_join(relay, viewer)
     :sys.get_state(ViewerRegistry)
-    {:ok, _supervisor, pipeline} = Membrane.Pipeline.start(Pipeline, relay_session_id: relay)
+
+    {:ok, _supervisor, pipeline} =
+      Membrane.Pipeline.start(Pipeline, relay_session_id: relay, media_ingest_id: "synthetic-ingest")
+
     on_exit(fn -> Membrane.Pipeline.terminate(pipeline, force?: true) end)
     {pipeline, relay, viewer}
   end
@@ -85,7 +102,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
 
     consumer =
       spawn(fn ->
-        {:ok, inbox} = Inbox.new(pipeline, relay, System.monotonic_time(:millisecond) + remaining, limits)
+        {:ok, inbox} =
+          Inbox.new(pipeline, relay, "synthetic-ingest", System.monotonic_time(:millisecond) + remaining, limits)
+
         :ok = Membrane.Pipeline.call(pipeline, {:attach_recorder, inbox})
         send(parent, {:attached, inbox})
         # Deliberately consume no media: the production admission gate must enforce
@@ -101,6 +120,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
   defp chunk(sequence) do
     %{
       sequence: sequence,
+      media_ingest_id: "synthetic-ingest",
       payload: <<0, 0, 0, 1, 103, 66, 0, 30>>,
       pts: sequence * 6_000,
       dts: sequence * 6_000,

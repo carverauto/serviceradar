@@ -108,6 +108,12 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     id = Ecto.UUID.dump!(source_id)
 
     Repo.query!(
+      "DELETE FROM platform.camera_recorder_claims WHERE ingest_owner_id IN " <>
+        "(SELECT id FROM platform.camera_ingest_owners WHERE camera_source_id = $1)",
+      [id]
+    )
+
+    Repo.query!(
       "DELETE FROM platform.camera_consumer_leases WHERE ingest_owner_id IN " <>
         "(SELECT id FROM platform.camera_ingest_owners WHERE camera_source_id = $1)",
       [id]

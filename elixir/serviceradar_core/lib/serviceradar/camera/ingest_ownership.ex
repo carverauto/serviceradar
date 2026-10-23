@@ -29,12 +29,13 @@ defmodule ServiceRadar.Camera.IngestOwnership do
   alias Ash.Error.Changes.InvalidArgument
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwner
+  alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.StreamProfile
 
   require Ash.Query
 
-  @resources [IngestOwner, ConsumerLease]
+  @resources [IngestOwner, ConsumerLease, RecorderClaim]
   @maximum_ttl_ms 300_000
   @close_grace_ms 5_000
 

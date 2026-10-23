@@ -4,6 +4,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
+  alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source
@@ -11,7 +12,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadarCoreElx.CameraRecording.Spool
   alias ServiceRadarCoreElx.CameraRecording.Supervisor, as: RecordingSupervisor
   alias ServiceRadarCoreElx.CameraRecording.Worker
-  alias ServiceRadarCoreElx.CameraRelay.Pipeline
+  alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
 
@@ -23,14 +24,23 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   setup ctx do
     {:ok, _} = Application.ensure_all_started(:membrane_core)
     previous = Application.get_env(:serviceradar_core_elx, :camera_recording_enabled, false)
+    previous_storage = Application.get_env(:serviceradar_core_elx, :camera_recording_storage_id)
     Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, true)
+
+    Application.put_env(
+      :serviceradar_core_elx,
+      :camera_recording_storage_id,
+      Ecto.UUID.generate()
+    )
 
     on_exit(fn ->
       Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, previous)
+      Application.put_env(:serviceradar_core_elx, :camera_recording_storage_id, previous_storage)
     end)
 
     start_supervised!(RecordingSupervisor)
     start_supervised!(ViewerRegistry)
+    start_supervised!(PipelineManager)
     actor = SystemActor.system(:camera_recording_test)
     key = Ecto.UUID.generate()
 
@@ -56,12 +66,27 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
         actor: actor
       )
 
-    {:ok, _supervisor, pipeline} = Membrane.Pipeline.start(Pipeline, relay_session_id: relay.id)
+    ingest_id = Ecto.UUID.generate()
+
+    {:ok, relay} =
+      RelaySession.activate(
+        relay,
+        %{
+          media_ingest_id: ingest_id,
+          lease_expires_at: DateTime.shift(DateTime.utc_now(), minute: 1)
+        },
+        actor: actor
+      )
+
+    {:ok, %{pipeline_pid: pipeline}} =
+      PipelineManager.open_session(%{relay_session_id: relay.id, media_ingest_id: ingest_id})
+
     on_exit(fn -> Membrane.Pipeline.terminate(pipeline, force?: true) end)
     root = Path.join(ctx.tmp_dir, "spool")
     File.mkdir!(root)
     File.chmod!(root, 0o700)
     media = SyntheticCameraMedia.generate(ctx.tmp_dir, "source")
+    media = %{media | units: Enum.map(media.units, &Map.put(&1, :media_ingest_id, ingest_id))}
 
     %{
       source: source,
@@ -113,6 +138,11 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert [%{id: id}] = consumers(owner, ctx.actor)
     assert id == analysis.id
     assert snapshot.sealed?
+
+    assert %{next_block_sequence: 1, recorder_epoch: epoch, state: :released} =
+             recorder_claim(ctx)
+
+    assert snapshot.identity["recorder_epoch"] == epoch
     assert snapshot.identity["clock"]["utc_mapping"] == "unknown"
     assert List.last(snapshot.entries)["tail_duration_source"] == "previous_sample"
     assert {:ok, recovered} = Spool.recover(snapshot.directory, snapshot.identity)
@@ -145,6 +175,36 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert length(snapshot.entries) == 1
     assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
     assert_live_delivery(ctx, List.last(ctx.media.units))
+
+    # A fresh recorder on the same still-running ingest must allocate a new
+    # generation, preserving the previous immutable directory on this storage.
+    {replacement, replacement_ref} = start_worker(ctx, owner)
+
+    for unit <- Enum.take(ctx.media.units, 45) do
+      unit = %{
+        unit
+        | pts: unit.pts + 450_000,
+          dts: unit.dts + 450_000,
+          sequence: unit.sequence + 75
+      }
+
+      send(ctx.pipeline, {:media_chunk, unit})
+      assert :ok = await_progress(replacement, unit.sequence)
+    end
+
+    send(ctx.pipeline, :end_of_stream)
+
+    assert_receive {:camera_recording, ^replacement,
+                    {:stopped, %{reason: :completed, snapshot: next}}},
+                   5_000
+
+    assert_receive {:DOWN, ^replacement_ref, :process, ^replacement, :normal}, 5_000
+    assert next.identity["recorder_epoch"] == snapshot.identity["recorder_epoch"] + 1
+    assert next.directory != snapshot.directory
+    assert next.identity["clock"]["clock_epoch"] != snapshot.identity["clock"]["clock_epoch"]
+    assert %{next_block_sequence: 1} = recorder_claim(ctx)
+    assert {:ok, _old} = Spool.recover(snapshot.directory, snapshot.identity)
+    assert {:ok, _new} = Spool.recover(next.directory, next.identity)
   end
 
   test "an expired real consumer lease admits no queued work or readable receipt", ctx do
@@ -179,7 +239,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   defp start_worker(ctx, owner, opts \\ []) do
     {:ok, worker} =
       RecordingSupervisor.start_recorder(
-        [owner: owner, pipeline: ctx.pipeline, spool_root: ctx.root, notify: self()] ++ opts
+        [
+          owner: owner,
+          media_ingest_id: ctx.relay.media_ingest_id,
+          spool_root: ctx.root,
+          notify: self()
+        ] ++ opts
       )
 
     ref = Process.monitor(worker)
@@ -194,6 +259,12 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       |> Ash.read(actor: actor)
 
     consumers
+  end
+
+  defp recorder_claim(ctx) do
+    RecorderClaim
+    |> Ash.Query.filter(relay_session_id == ^ctx.relay.id)
+    |> Ash.read_one!(actor: ctx.actor)
   end
 
   defp await_progress(worker, sequence, attempts \\ 100)

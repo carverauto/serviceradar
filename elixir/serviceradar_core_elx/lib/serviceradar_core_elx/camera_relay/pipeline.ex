@@ -50,6 +50,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     {[spec: spec],
      %{
        relay_session_id: relay_session_id,
+       media_ingest_id: Keyword.get(opts, :media_ingest_id),
        recorder: nil,
        viewers: %{},
        analysis_branches: %{},
@@ -76,7 +77,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   @impl true
   def handle_call({:attach_recorder, %Inbox{} = inbox}, %{from: {caller, _}}, state) do
     if ServiceRadarCoreElx.CameraRecording.Supervisor.enabled?() and state.recorder == nil and
-         inbox.worker == caller and inbox.producer == self() and inbox.relay_session_id == state.relay_session_id do
+         inbox.worker == caller and inbox.producer == self() and inbox.relay_session_id == state.relay_session_id and
+         is_binary(state.media_ingest_id) and state.media_ingest_id != "" and
+         inbox.media_ingest_id == state.media_ingest_id do
       monitor = Process.monitor(inbox.worker)
       {[reply: :ok], %{state | recorder: %{inbox: inbox, monitor: monitor}}}
     else

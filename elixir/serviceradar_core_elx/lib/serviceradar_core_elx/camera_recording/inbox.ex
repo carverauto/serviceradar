@@ -13,14 +13,20 @@ defmodule ServiceRadarCoreElx.CameraRecording.Inbox do
   @byte_base 4_294_967_296
   @closed -1
   @draining -2
-  @reasons %{queue_full: -3, lease_expired: -4, unsupported_media: -5, admission_contention: -6}
+  @reasons %{
+    queue_full: -3,
+    lease_expired: -4,
+    unsupported_media: -5,
+    admission_contention: -6,
+    recording_ingest_mismatch: -7
+  }
   @max_access_unit_bytes 1_048_576
   @max_ticks 9_223_372_036_854_775_807
 
-  @enforce_keys [:worker, :producer, :relay_session_id, :id, :counters, :max_bytes, :max_samples]
+  @enforce_keys [:worker, :producer, :relay_session_id, :media_ingest_id, :id, :counters, :max_bytes, :max_samples]
   defstruct @enforce_keys
 
-  def new(producer, relay_session_id, deadline_ms, opts \\ [])
+  def new(producer, relay_session_id, media_ingest_id, deadline_ms, opts \\ [])
       when is_pid(producer) and node(producer) == node() and is_integer(deadline_ms) do
     max_bytes = Keyword.get(opts, :max_bytes, 8_388_608)
     max_samples = Keyword.get(opts, :max_samples, 8)
@@ -34,6 +40,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Inbox do
          worker: self(),
          producer: producer,
          relay_session_id: relay_session_id,
+         media_ingest_id: media_ingest_id,
          id: make_ref(),
          counters: counters,
          max_bytes: max_bytes,
@@ -46,6 +53,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Inbox do
 
   def offer(%__MODULE__{producer: producer} = inbox, chunk) when producer == self() do
     with :ok <- usable(inbox),
+         true <- Map.get(chunk, :media_ingest_id) == inbox.media_ingest_id || {:error, :recording_ingest_mismatch},
          {:ok, unit} <- access_unit(chunk),
          :ok <- reserve(inbox, byte_size(unit.payload), 129) do
       # Avoid retaining a larger decoded transport binary through a small sub-binary.
