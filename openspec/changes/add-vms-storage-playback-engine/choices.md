@@ -557,3 +557,21 @@ transaction. A successful return now means preparation committed; it does not
 authorize the recipient to send bytes. This limits future bulk orchestration to
 calls outside an ambient transaction. The choice is sound because it keeps the
 durable handoff explicit, with no extra process or nested-commit fiction.
+
+### Measure grouping with synthetic GOPs and an independent decoder
+
+When: logical block-byte pass. Verdict: sound, high confidence.
+
+The plan left the finite input shape unspecified. One synthetic two-second GOP
+(a keyframe followed by its dependent frames) is repeated with increasing media
+timestamps. Production packaging makes every fragment; no container bytes or
+fragment metadata are fabricated. A separate decoder must recover all 960
+expected frames after each grouping is stored and recovered. Omitting an append
+was observed to fail this check. Repetition keeps the existing media keeper small
+and bounded, but cannot establish diverse-scene compression or capacity.
+
+Actual spool file lengths and receipt-free encoded descriptor lengths are
+reported in [block-byte-costs.md](block-byte-costs.md). They expose repeated
+per-block bytes without inventing a database or uploader. Future task 0.6 work
+must measure index/WAL, cache and object requests at their real owners before
+turning this grouping comparison into a production size or cost decision.
