@@ -161,8 +161,7 @@ defmodule ServiceRadar.Observability.NetflowProviderDatasetRefreshWorker do
       {:error, e}
   end
 
-  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
-  # SERVICERADAR_EGRESS_PROXY.
+  # EgressClient, not the shared Finch pool (`ServiceRadar.HTTP.EgressProxy`).
   defp default_http_get(url, opts), do: EgressClient.fetch_body(url, opts)
 
   defp parse_provider_payload(body) when is_binary(body), do: Jason.decode(body)

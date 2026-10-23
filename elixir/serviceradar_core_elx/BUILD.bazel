@@ -70,6 +70,10 @@ CORE_ELX_DEPS = [
     "@hexpm//:gun",
     "@hexpm//:libcluster",
     "@hexpm//:membrane_core",
+    "@hexpm//:membrane_cmaf_format",
+    "@hexpm//:membrane_h264_format",
+    "@hexpm//:membrane_h26x_plugin",
+    "@hexpm//:membrane_mp4_plugin",
     "@hexpm//:membrane_mpeg_ts_plugin",
     "@hexpm//:membrane_webrtc_plugin",
     "@hexpm//:mpeg_ts",
@@ -172,7 +176,7 @@ elixir_release(
 # config/runtime.exs from disk.
 ex_unit_tests(
     name = "unit_tests",
-    srcs = glob(["test/**/*_test.exs"]),
+    srcs = glob(["test/**/*_test.exs"], exclude = ["test/serviceradar_core_elx/camera_recording/packaging_test.exs"]),
     config_loader = "//build:elixir_test_config_loader.exs",
     data = glob(
         [
@@ -186,6 +190,16 @@ ex_unit_tests(
     ),
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
+)
+
+ex_unit_tests(
+    name = "recording_media_tests",
+    srcs = ["test/serviceradar_core_elx/camera_recording/packaging_test.exs"],
+    config_loader = "//build:elixir_test_config_loader.exs",
+    data = glob(["config/**", "test/support/**"]) + ["//third_party/membrane:media_test_tools"],
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+    target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
 )
 
 # `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.

@@ -251,9 +251,8 @@ defmodule ServiceRadar.Observability.IpinfoMmdbDownloadWorker do
   # test/serviceradar/http/egress_client_test.exs. Takes EgressClient options.
   @doc false
   def download_file(url, dest_path, opts) when is_binary(url) and is_binary(dest_path) do
-    # EgressClient, not the shared Finch pool: the pool cannot tunnel through
-    # SERVICERADAR_EGRESS_PROXY. Callers log failures without the URL, which
-    # carries the ipinfo token.
+    # EgressClient, not the shared Finch pool (`ServiceRadar.HTTP.EgressProxy`).
+    # Callers log failures without the URL, which carries the ipinfo token.
     case EgressClient.download_to_file(url, dest_path, opts) do
       {:ok, _} = ok ->
         Logger.info("Ipinfo MMDB updated", file: dest_path)

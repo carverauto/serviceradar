@@ -4,7 +4,9 @@ Tracking: [ServiceRadar #4913](https://github.com/carverauto/serviceradar/issues
 and [#4915](https://github.com/carverauto/serviceradar/issues/4915).
 Source: [PRD added 2026-10-23](https://github.com/carverauto/serviceradar/issues/4913#issuecomment-6357595299).
 
-Status: proposed; engineering gates remain open. This is planning only.
+Status: approved in [PR #5945](https://github.com/carverauto/serviceradar/pull/5945);
+implementation is in progress. Engineering and release gates remain open.
+See the [implementation handoff](README.md) for the current pickup point.
 
 ## Why
 

@@ -408,9 +408,9 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
     {:error, reason}
   end
 
-  # EgressClient, not the shared Finch pool: the pool cannot tunnel through
-  # SERVICERADAR_EGRESS_PROXY. :max_bytes stops the transfer once it passes the
-  # cap rather than after the whole body has arrived.
+  # EgressClient, not the shared Finch pool (`ServiceRadar.HTTP.EgressProxy`).
+  # :max_bytes stops the transfer once it passes the cap rather than after the
+  # whole body has arrived.
   defp download_source(url, timeout_ms, max_catalog_bytes) do
     opts = [
       headers: [{"user-agent", "serviceradar"}],

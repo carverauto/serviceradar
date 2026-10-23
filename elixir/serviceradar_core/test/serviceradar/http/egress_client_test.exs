@@ -79,6 +79,156 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
     assert collect_chunks() == @body
   end
 
+  test "range reads verify exact bytes and identity through the HTTP/1.0 CONNECT tunnel", ctx do
+    assert {:ok, %Req.Response{status: 206, body: "bcd"} = response} =
+             EgressClient.fetch_range(
+               "https://localhost/range/valid",
+               {1, 3},
+               range_opts(ctx, headers: [{"authorization", "Bearer synthetic-token"}])
+             )
+
+    assert Req.Response.get_header(response, "content-range") == ["bytes 1-3/9"]
+    assert_receive {:origin_request, request}
+    assert request =~ "range: bytes=1-3\r\n"
+    assert request =~ "if-match: \"synthetic-v1\"\r\n"
+    assert request =~ "accept-encoding: identity\r\n"
+    assert request =~ "authorization: Bearer synthetic-token\r\n"
+    assert collect_chunks() == ""
+
+    assert {:ok, %Req.Response{body: "bcd"}} =
+             EgressClient.fetch_range(
+               "https://localhost/range/split",
+               {1, 3},
+               range_opts(ctx, expected_version: nil)
+             )
+  end
+
+  test "range reads reject fallback statuses, ambiguous framing, encoding and changed objects",
+       ctx do
+    cases = [
+      {"whole", {:http_status, 200}},
+      {"wrong-interval", :invalid_range_response},
+      {"wrong-total", :invalid_range_response},
+      {"missing-range", :invalid_range_response},
+      {"multipart", :invalid_range_response},
+      {"encoded", :invalid_range_response},
+      {"duplicate-range", :invalid_range_response},
+      {"duplicate-etag", :invalid_range_response},
+      {"duplicate-version", :invalid_range_response},
+      {"wrong-length", :invalid_range_response},
+      {"changed-etag", :object_changed},
+      {"missing-etag", :object_changed},
+      {"changed-version", :object_changed}
+    ]
+
+    for {path, reason} <- cases do
+      assert EgressClient.fetch_range("https://localhost/range/#{path}", {1, 3}, range_opts(ctx)) ==
+               {:error, reason},
+             path
+    end
+
+    assert collect_chunks() == ""
+  end
+
+  test "range response headers have a transport size ceiling", ctx do
+    assert {:error, %Mint.HTTPError{reason: {:max_header_list_size_exceeded, _, 16_384}}} =
+             EgressClient.fetch_range(
+               "https://localhost/range/large-headers",
+               {1, 3},
+               range_opts(ctx)
+             )
+  end
+
+  test "range reads never return truncated or oversized bodies", ctx do
+    for {path, reason} <- [
+          {"truncated", :truncated_response},
+          {"short-chunked", :truncated_response},
+          {"oversized", :response_too_large}
+        ] do
+      assert EgressClient.fetch_range("https://localhost/range/#{path}", {1, 3}, range_opts(ctx)) ==
+               {:error, reason},
+             path
+    end
+  end
+
+  test "range reads keep authentication on the requested origin and verify TLS", ctx do
+    assert {:error, {:http_status, 302}} =
+             EgressClient.fetch_range(
+               "https://localhost/cross-host-redirect",
+               {1, 3},
+               range_opts(ctx, headers: [{"authorization", "Bearer synthetic-token"}])
+             )
+
+    assert_receive {:origin_request, request}
+    assert request =~ "GET /cross-host-redirect "
+    refute_receive {:origin_request, _}
+
+    %{client_config: other} = generate_certs()
+
+    assert {:error, _} =
+             EgressClient.fetch_range(
+               "https://localhost/range/valid",
+               {1, 3},
+               range_opts(ctx, cacerts: Keyword.fetch!(other, :cacerts))
+             )
+
+    assert {:ok, %Req.Response{body: "bcd"}} =
+             EgressClient.fetch_range(
+               "https://localhost:#{ctx.origin.port}/range/valid",
+               {1, 3},
+               range_opts(ctx, proxy: nil, expected_etag: nil)
+             )
+  end
+
+  test "range reads enforce a response deadline even when bytes keep arriving", ctx do
+    assert {:error, :timeout} =
+             EgressClient.fetch_range(
+               "https://localhost/range/drip",
+               {1, 3},
+               range_opts(ctx, receive_timeout: 250)
+             )
+  end
+
+  test "range reads require bounded intervals and an unambiguous identity before connecting",
+       ctx do
+    for changes <- [
+          [max_bytes: 2],
+          [max_bytes: nil],
+          [expected_size: 3],
+          [expected_etag: nil, expected_version: nil],
+          [expected_etag: nil, expected_version: "null"],
+          [expected_etag: ~s(W/"synthetic-v1")],
+          [headers: [{"Range", "bytes=0-1,4-5"}]]
+        ] do
+      assert {:error, :invalid_range_request} =
+               EgressClient.fetch_range(
+                 "https://localhost/range/valid",
+                 {1, 3},
+                 range_opts(ctx, changes)
+               )
+    end
+
+    assert {:error, :invalid_range_request} =
+             EgressClient.fetch_range("https://localhost/range/valid", {3, 1}, range_opts(ctx))
+
+    refute_receive {:origin_request, _}
+  end
+
+  defp range_opts(ctx, extra \\ []) do
+    opts(
+      ctx,
+      Keyword.merge(
+        [
+          expected_size: 9,
+          max_bytes: 3,
+          expected_etag: ~s("synthetic-v1"),
+          expected_version: "version-a"
+        ],
+        extra
+      )
+    )
+  end
+
   @tag :tmp_dir
   test "acquires CISA through CONNECT and cleans up failed transfers", ctx do
     use_advisory_staging_dir(ctx.tmp_dir)
@@ -514,38 +664,50 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
     {:ok, listener} = :ssl.listen(0, listen_opts)
     {:ok, {_addr, port}} = :ssl.sockname(listener)
-    pid = spawn_link(fn -> origin_accept(listener) end)
+    owner = self()
+    pid = spawn_link(fn -> origin_accept(listener, owner) end)
 
     %{port: port, stop: fn -> stop(pid, fn -> :ssl.close(listener) end) end}
   end
 
-  defp origin_accept(listener) do
+  defp origin_accept(listener, owner) do
     case :ssl.transport_accept(listener) do
       {:ok, socket} ->
         # Handshake and serve inline: :ssl.recv/3 only works from the socket's
         # controlling process, and transport_accept/handshake leave that as this
         # process. Each test drives one request, so serial accept is enough.
         case :ssl.handshake(socket, 5_000) do
-          {:ok, socket} -> origin_serve(socket)
+          {:ok, socket} -> origin_serve(socket, owner)
           _ -> :ok
         end
 
-        origin_accept(listener)
+        origin_accept(listener, owner)
 
       {:error, :closed} ->
         :ok
 
       {:error, _} ->
-        origin_accept(listener)
+        origin_accept(listener, owner)
     end
   end
 
-  defp origin_serve(socket) do
+  defp origin_serve(socket, owner) do
     case :ssl.recv(socket, 0, 5_000) do
       {:ok, request} ->
         request = to_string(request)
+        send(owner, {:origin_request, request})
 
         cond do
+          String.contains?(request, "/range/split") or String.contains?(request, "/range/drip") ->
+            :ssl.send(socket, range_response_headers("transfer-encoding: chunked\r\n"))
+
+            for byte <- ["b", "c", "d"] do
+              :ssl.send(socket, ["1\r\n", byte, "\r\n"])
+              Process.sleep(if String.contains?(request, "/drip"), do: 180, else: 20)
+            end
+
+            :ssl.send(socket, "0\r\n\r\n")
+
           String.contains?(request, "/stall") ->
             # Deliver a substantial partial body without waiting for the chunked
             # decoder to emit a tiny chunk before the origin stalls.
@@ -583,6 +745,9 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
 
   defp origin_response(request) do
     cond do
+      String.contains?(request, "/range/") ->
+        range_response(request)
+
       String.contains?(request, "/cross-host-redirect") ->
         redirect_response("https://artifact.example.com/echo-headers")
 
@@ -647,6 +812,77 @@ defmodule ServiceRadar.HTTP.EgressClientTest do
       true ->
         "HTTP/1.1 200 OK\r\ncontent-type: application/octet-stream\r\n" <>
           "content-length: #{byte_size(@body)}\r\nconnection: close\r\n\r\n" <> @body
+    end
+  end
+
+  defp range_response_headers(framing \\ "content-length: 3\r\n") do
+    "HTTP/1.1 206 Partial Content\r\n" <>
+      "content-range: bytes 1-3/9\r\netag: \"synthetic-v1\"\r\nx-amz-version-id: version-a\r\n" <>
+      framing <> "connection: close\r\n\r\n"
+  end
+
+  defp range_response(request) do
+    [_, path | _] = String.split(request, " ")
+    response = range_response_headers() <> "bcd"
+
+    case path do
+      "/range/valid" ->
+        response
+
+      "/range/large-headers" ->
+        range_response_headers(
+          "content-length: 3\r\nx-padding: #{String.duplicate("x", 16_384)}\r\n"
+        ) <> "bcd"
+
+      "/range/whole" ->
+        String.replace(response, "206 Partial Content", "200 OK")
+
+      "/range/wrong-interval" ->
+        String.replace(response, "bytes 1-3/9", "bytes 0-2/9")
+
+      "/range/wrong-total" ->
+        String.replace(response, "bytes 1-3/9", "bytes 1-3/10")
+
+      "/range/missing-range" ->
+        String.replace(response, "content-range: bytes 1-3/9\r\n", "")
+
+      "/range/multipart" ->
+        range_response_headers(
+          "content-type: multipart/byteranges; boundary=synthetic\r\ncontent-length: 3\r\n"
+        ) <> "bcd"
+
+      "/range/encoded" ->
+        range_response_headers("content-encoding: gzip\r\ncontent-length: 3\r\n") <> "bcd"
+
+      "/range/duplicate-range" ->
+        range_response_headers("content-range: bytes 1-3/9\r\ncontent-length: 3\r\n") <> "bcd"
+
+      "/range/duplicate-etag" ->
+        range_response_headers("etag: \"synthetic-v1\"\r\ncontent-length: 3\r\n") <> "bcd"
+
+      "/range/duplicate-version" ->
+        range_response_headers("x-amz-version-id: version-a\r\ncontent-length: 3\r\n") <> "bcd"
+
+      "/range/wrong-length" ->
+        range_response_headers("content-length: 4\r\n") <> "bcde"
+
+      "/range/changed-etag" ->
+        String.replace(response, "synthetic-v1", "synthetic-v2")
+
+      "/range/missing-etag" ->
+        String.replace(response, "etag: \"synthetic-v1\"\r\n", "")
+
+      "/range/changed-version" ->
+        String.replace(response, "version-a", "version-b")
+
+      "/range/truncated" ->
+        range_response_headers() <> "bc"
+
+      "/range/short-chunked" ->
+        range_response_headers("transfer-encoding: chunked\r\n") <> "2\r\nbc\r\n0\r\n\r\n"
+
+      "/range/oversized" ->
+        range_response_headers("transfer-encoding: chunked\r\n") <> "4\r\nbcde\r\n0\r\n\r\n"
     end
   end
 

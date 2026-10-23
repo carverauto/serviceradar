@@ -2,6 +2,23 @@
 
 package(default_visibility = ["//visibility:public"])
 
+# Independently inspect and decode synthetic CMAF with the already pinned tools.
+# This is test data, not part of a ServiceRadar runtime image.
+genrule(
+    name = "media_test_tools",
+    srcs = ["@ffmpeg_static_linux_amd64//file"],
+    outs = [
+        "media_test_tools/ffmpeg",
+        "media_test_tools/ffprobe",
+    ],
+    cmd = """
+mkdir -p $(@D)/media_test_tools
+tar -xf $(location @ffmpeg_static_linux_amd64//file) --strip-components=1 -C $(@D)/media_test_tools --wildcards '*/ffmpeg' '*/ffprobe'
+chmod 0755 $(@D)/media_test_tools/ffmpeg $(@D)/media_test_tools/ffprobe
+""",
+    target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
+)
+
 # The archives Bundlex would otherwise fetch from github.com during `mix deps.compile`.
 #
 # //build:mix_app.bzl stages these into BUNDLEX_LOCAL_PRECOMPILED_DIR for any package that
