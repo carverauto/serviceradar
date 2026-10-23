@@ -14,7 +14,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.BasicSummaries do
           FROM platform.ocsf_devices
           WHERE deleted_at IS NULL
             AND source_retired_at IS NULL
-            AND COALESCE(metadata->>'identity_state', '') NOT IN ('source_retired', 'superseded')
             AND is_active = true
           """
 

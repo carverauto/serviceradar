@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert Enum.find(cards, &(&1.title == "Wi-Fi Coverage")).href == "/spatial/field-surveys"
   end
 
-  test "load_inventory excludes retired or superseded devices and does not count NULL availability as unavailable" do
+  test "load_inventory excludes source-retired devices and does not count NULL availability as unavailable" do
     %{device_summary: baseline} = Data.load_inventory(nil)
     unique = System.unique_integer([:positive])
     observed_at = DateTime.truncate(DateTime.utc_now(), :second)
@@ -188,16 +188,6 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         is_active: true,
         is_available: false,
         source_retired_at: observed_at,
-        first_seen_time: observed_at,
-        last_seen_time: observed_at
-      },
-      %{
-        uid: "sr:dash-summary-superseded-#{unique}",
-        type_id: 1,
-        hostname: "site01-superseded-#{unique}",
-        is_active: true,
-        is_available: false,
-        metadata: %{"identity_state" => "superseded"},
         first_seen_time: observed_at,
         last_seen_time: observed_at
       },
