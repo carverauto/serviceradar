@@ -2823,8 +2823,9 @@ type ExecutableOwnership struct {
 	state           protoimpl.MessageState   `protogen:"open.v1"`
 	ResolutionState ExecutableOwnershipState `protobuf:"varint,1,opt,name=resolution_state,json=resolutionState,proto3,enum=serviceradar.agent.netprobe.v1.ExecutableOwnershipState" json:"resolution_state,omitempty"`
 	// Closed vocabulary naming why the state is not RESOLVED, for example
-	// "process_exited", "executable_replaced", "executable_deleted",
-	// "no_package_database", "rpmdb_wal_pending", "rpm_berkeleydb".
+	// "process_exited", "executable_deleted", "no_package_database",
+	// "package_database_unreadable", "rpm_berkeleydb". A committed rpm
+	// write-ahead log is part of the database and is not a detail.
 	Detail string `protobuf:"bytes,2,opt,name=detail,proto3" json:"detail,omitempty"`
 	// "host" for a process in the host root, "container" otherwise.
 	SourceScope      string `protobuf:"bytes,3,opt,name=source_scope,json=sourceScope,proto3" json:"source_scope,omitempty"`

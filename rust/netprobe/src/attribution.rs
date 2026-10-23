@@ -3219,11 +3219,11 @@ mod tests {
         FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
         FLOW_ATTRIBUTION_CACHE_TTL, FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A,
         FlowAttributionCache, MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey,
-        SocketInventory,
-        TCP_CLOSE_STATE, TCP_LISTEN_STATE, UdpRoleInventory, attribution_event_fingerprint,
-        attribution_flow_key_from_record, insert_cached_attribution, likely_service_side_record,
-        maybe_emit_cached_attribution, process_details_from_record, process_metadata_complete,
-        prune_attribution_cache, refresh_enriched_attributions, touch_closed_cached_attribution,
+        SocketInventory, TCP_CLOSE_STATE, TCP_LISTEN_STATE, UdpRoleInventory,
+        attribution_event_fingerprint, attribution_flow_key_from_record, insert_cached_attribution,
+        likely_service_side_record, maybe_emit_cached_attribution, process_details_from_record,
+        process_metadata_complete, prune_attribution_cache, refresh_enriched_attributions,
+        touch_closed_cached_attribution,
     };
     use crate::af_xdp_classifier::FlowKey;
     #[cfg(target_os = "linux")]
