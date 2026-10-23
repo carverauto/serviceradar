@@ -86,14 +86,50 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
 
   def primary(_interfaces), do: nil
 
+  @doc """
+  Whether `address` on `iface` belongs to a network the guest runs for itself
+  rather than one the hypervisor attached it to.
+
+  Hypervisor-attached interfaces (`source` lists `"config"`) are never
+  classified as host-internal. For other interfaces, an address is
+  host-internal when the interface name matches a container/CNI/local-hypervisor
+  bridge prefix (`docker0`, `br-<hex>`, `cni*`, `veth*`, ...), the address lies
+  in Docker's default bridge network (`172.17.0.0/16`), or the address is the
+  first host of its own prefix (`172.18.0.1/16`).
+  """
+  @spec host_internal_address?(map(), term()) :: boolean()
+  def host_internal_address?(iface, address) when is_map(iface) and is_binary(address) do
+    not hypervisor_attached?(iface) and host_internal?(iface, address)
+  end
+
+  def host_internal_address?(_iface, _address), do: false
+
   # Whether `address` on `iface` belongs to a network the guest runs for itself
   # rather than one the hypervisor attached it to. By address role, never by a
   # deployment's numbering: a container/CNI/local-hypervisor bridge name, Docker's
   # default bridge network, or the first host of the address's own prefix (the
   # gateway a host assigns itself on a bridge it creates, `172.18.0.1/16`).
   defp host_internal?(iface, address) do
+    address = address_with_interface_prefix(iface, address)
+
     host_internal_name?(field(iface, :name)) or docker_default_bridge?(address) or
       own_prefix_gateway?(address)
+  end
+
+  defp address_with_interface_prefix(iface, address) do
+    if String.contains?(address, "/") do
+      address
+    else
+      case field(iface, :cidr) do
+        cidr when is_binary(cidr) ->
+          if String.contains?(cidr, "/") and strip_prefix(cidr) == strip_prefix(address),
+            do: String.trim(cidr),
+            else: address
+
+        _ ->
+          address
+      end
+    end
   end
 
   defp hypervisor_attached?(iface) do
