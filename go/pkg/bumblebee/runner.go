@@ -77,14 +77,16 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		AgentID:            r.cfg.AgentID,
 		DeviceUID:          r.cfg.DeviceUID,
 		RunID:              runID,
+		ScannerVersion:     r.buildVersion,
 		CatalogSnapshotRef: catalogSnapshotRef,
 		State:              stateScanFailed,
 		CoverageState:      coverageFailed,
 		LastScanAt:         now,
 		Findings:           []Finding{},
 		Metadata: map[string]any{
-			"catalog_path": r.cfg.CatalogPath,
-			"scan_timeout": r.cfg.ScanTimeout,
+			"catalog_path":             r.cfg.CatalogPath,
+			"scan_timeout":             r.cfg.ScanTimeout,
+			"upstream_scanner_version": upstream.Version,
 		},
 	}
 
@@ -107,8 +109,6 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		return payload, nil
 	}
 
-	payload.ScannerVersion = r.buildVersion
-	payload.Metadata["upstream_scanner_version"] = upstream.Version
 	rootCoverageRequired := rootCoverageRequired(r.cfg)
 
 	for _, root := range roots {
