@@ -5,9 +5,10 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
   Every operation locks ingest owner then recorder claim. The caller retains a
   fresh per-start token; it must never read a token back to impersonate a previous
   worker. A consumer retains ingest, but only this claim grants recording rights.
-  Lease receipts use database time and are capped by the ingest lease. Short CNPG
-  publication callbacks recheck both fences before commit; external I/O belongs
-  outside the transaction and must return through this fence to publish.
+  Lease receipts use database time and are capped by both ingest and relay leases.
+  Short CNPG publication callbacks recheck both fences and the persisted relay
+  before commit; external I/O belongs outside the transaction and must return
+  through this fence to publish.
 
   Reserve a block before touching disk. Allocations are never rolled back merely
   because a subsequent filesystem operation failed. Takeover increments recorder
@@ -16,6 +17,7 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
   """
   import Ash.Expr
 
+  alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RelaySession
@@ -32,12 +34,13 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
       IngestOwnership.with_current_owner(
         ingest,
         fn owner ->
-          with :ok <- active_relay(owner, media_ingest_id, opts),
+          with {:ok, relay} <- active_relay(owner, media_ingest_id, owner.database_now, opts),
                {:ok, initial} <- initialize(owner.id, opts),
                {:ok, previous} <- lock(initial.id, opts),
                :ok <- available(previous, owner, token),
                {:ok, consumer} <-
                  IngestOwnership.acquire_consumer(owner, :recorder, token, ttl_ms, opts),
+               {:ok, consumer} <- cap_consumer(consumer, relay.lease_expires_at, opts),
                {:ok, claim} <-
                  transition(
                    previous,
@@ -69,8 +72,11 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
         ingest,
         claim,
         fn owner, current ->
-          with {:ok, consumer} <-
+          with {:ok, relay} <-
+                 active_relay(owner, current.media_ingest_id, current.database_now, opts),
+               {:ok, consumer} <-
                  IngestOwnership.renew_consumer(owner, current.consumer_id, ttl_ms, opts),
+               {:ok, consumer} <- cap_consumer(consumer, relay.lease_expires_at, opts),
                do: transition(current, %{lease_expires_at: consumer.expires_at}, opts)
         end,
         opts
@@ -102,7 +108,8 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
       ingest,
       fn owner ->
         with {:ok, locked} <- lock_handle(claim, owner, opts),
-             :ok <- active_relay(owner, locked.media_ingest_id, opts),
+             {:ok, _relay} <-
+               active_relay(owner, locked.media_ingest_id, locked.database_now, opts),
              {:ok, result} <- publication_result(fun.(owner, locked)),
              {:ok, _current} <- current(claim, owner, opts) do
           {:ok, result}
@@ -157,6 +164,7 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
            |> Ash.Query.load(:database_now)
            |> Ash.read_one(opts),
          :ok <- matches(claim, current, owner),
+         {:ok, _relay} <- active_relay(owner, current.media_ingest_id, current.database_now, opts),
          do: {:ok, current}
   end
 
@@ -194,7 +202,20 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
     |> Ash.update(Keyword.put(opts, :load, [:database_now]))
   end
 
-  defp active_relay(owner, ingest_id, opts) do
+  # Legacy relay adoption can give the owner a later expiry than the relay.
+  # Both writes remain inside the owner -> claim transaction; no receipt may
+  # promise recording or retention past the persisted media lease.
+  defp cap_consumer(consumer, expiry, opts) do
+    if DateTime.after?(consumer.expires_at, expiry) do
+      consumer
+      |> Ash.Changeset.for_update(:renew, %{expires_at: expiry})
+      |> Ash.update(Keyword.put(opts, :load, [:database_now]))
+    else
+      {:ok, consumer}
+    end
+  end
+
+  defp active_relay(owner, ingest_id, now, opts) do
     with {:ok, %RelaySession{} = relay} <-
            RelaySession.get_by_id(
              owner.relay_session_id,
@@ -205,8 +226,8 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
              relay.camera_source_id == owner.camera_source_id and
              relay.stream_profile_id == owner.stream_profile_id and
              not is_nil(relay.lease_expires_at) and
-             DateTime.after?(relay.lease_expires_at, owner.database_now) do
-      :ok
+             DateTime.after?(relay.lease_expires_at, now) do
+      {:ok, relay}
     else
       {:error, _} = error -> error
       _ -> {:error, :recorder_ingest_mismatch}

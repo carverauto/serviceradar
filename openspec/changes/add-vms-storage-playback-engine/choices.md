@@ -268,6 +268,12 @@ roll back on a lost claim; external writes require immutable identities and a
 later fenced publication. A sealed local snapshot is still not an archive or
 playback authorization.
 
+Legacy relay adoption can extend the owner beyond the existing relay lease.
+Recorder acquisition and renewal therefore cap both claim and consumer receipts
+to that persisted relay expiry. Publication rereads the active relay binding and
+checks its expiry against fresh database time after the callback: the owner lock
+serializes writers, but cannot prevent a relay lease expiring during the work.
+
 ### Bind recording to managed ingress and provisioned storage
 
 When: durable recorder claim pass.

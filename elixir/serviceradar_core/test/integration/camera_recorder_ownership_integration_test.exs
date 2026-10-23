@@ -146,6 +146,74 @@ defmodule ServiceRadar.Camera.RecorderOwnershipIntegrationTest do
              |> Ash.read!(ctx.opts)
   end
 
+  test "a shorter legacy relay caps receipts and rolls back publication after relay expiry",
+       ctx do
+    relay_expiry = DateTime.shift(ctx.owner.database_now, second: 5)
+
+    assert {:ok, relay} =
+             RelaySession.renew_lease(ctx.relay, %{lease_expires_at: relay_expiry}, ctx.opts)
+
+    Fixtures.expire_owner(ctx, ctx.owner)
+
+    # Reuse adopts a still-live relay without extending its media lease.
+    assert {:ok, reused} = Fixtures.open(ctx)
+    assert reused.id == relay.id
+    assert reused.lease_expires_at == relay_expiry
+    owner = Fixtures.owner(ctx)
+    assert DateTime.after?(owner.lease_expires_at, relay_expiry)
+    ctx = %{ctx | owner: owner, relay: reused}
+
+    assert {:ok, claim} = acquire(ctx)
+    assert claim.lease_expires_at == relay_expiry
+    assert {:ok, renewed} = RecorderOwnership.renew(owner, claim, 30_000, ctx.opts)
+    assert renewed.lease_expires_at == relay_expiry
+
+    assert [consumer] =
+             ConsumerLease
+             |> Ash.Query.filter(id == ^claim.consumer_id)
+             |> Ash.read!(ctx.opts)
+
+    assert consumer.expires_at == relay_expiry
+
+    # Recreate a pre-cap persisted claim/consumer. Only the relay expires during
+    # publication, so the claim or owner deadline cannot mask a missing recheck.
+    consumer
+    |> Ash.Changeset.for_update(:renew, %{expires_at: owner.lease_expires_at})
+    |> Ash.update!(ctx.opts)
+
+    legacy_claim =
+      renewed
+      |> Ash.Changeset.for_update(:transition, %{lease_expires_at: owner.lease_expires_at})
+      |> Ash.update!(Keyword.put(ctx.opts, :load, [:database_now]))
+
+    assert DateTime.after?(relay_expiry, legacy_claim.database_now)
+
+    assert {:error, :recorder_ingest_mismatch} =
+             RecorderOwnership.with_current(
+               owner,
+               legacy_claim,
+               fn _owner, current ->
+                 assert DateTime.after?(current.lease_expires_at, relay_expiry)
+
+                 {:ok, _source} =
+                   Source.update_source(ctx.source, %{display_name: "must rollback"}, ctx.opts)
+
+                 send(self(), :relay_publication_write_executed)
+
+                 Process.sleep(
+                   DateTime.diff(relay_expiry, current.database_now, :millisecond) + 100
+                 )
+
+                 :ok
+               end,
+               ctx.opts
+             )
+
+    assert_receive :relay_publication_write_executed
+    assert {:ok, %{display_name: nil}} = Source.get_by_id(ctx.source.id, ctx.opts)
+    assert {:ok, _owner} = IngestOwnership.for_relay(relay.id, ctx.opts)
+  end
+
   defp acquire(ctx, token \\ Ecto.UUID.generate(), ttl \\ 30_000),
     do:
       RecorderOwnership.acquire(
