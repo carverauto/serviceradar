@@ -43,6 +43,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
     end
   end
 
+  @doc "Returns only this node's managed pipeline for the captured media ingress."
+  def recording_pipeline(relay_session_id, media_ingest_id) when is_binary(media_ingest_id) and media_ingest_id != "" do
+    case :ets.lookup(@pipelines_table, relay_session_id) do
+      [{^relay_session_id, pid, ^media_ingest_id}] -> {:ok, pid}
+      _ -> {:error, :recording_ingest_mismatch}
+    end
+  rescue
+    ArgumentError -> {:error, :recording_ingest_mismatch}
+  end
+
   def add_webrtc_viewer(relay_session_id, viewer_session_id, signaling, opts \\ [])
       when is_binary(relay_session_id) and is_binary(viewer_session_id) do
     pipeline_call(
@@ -103,7 +113,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
 
   defp pipeline_pid(relay_session_id) do
     case :ets.lookup(@pipelines_table, relay_session_id) do
-      [{^relay_session_id, pipeline_pid}] -> {:ok, pipeline_pid}
+      [{^relay_session_id, pipeline_pid, _media_ingest_id}] -> {:ok, pipeline_pid}
       [] -> {:error, :not_found}
     end
   rescue
@@ -143,7 +153,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
         {:reply, {:error, :already_exists}, state}
 
       :error ->
-        case Membrane.Pipeline.start(Pipeline, relay_session_id: relay_session_id) do
+        media_ingest_id = Map.get(attrs, :media_ingest_id)
+
+        case Membrane.Pipeline.start(Pipeline, relay_session_id: relay_session_id, media_ingest_id: media_ingest_id) do
           {:ok, supervisor_pid, pipeline_pid} ->
             ref = Process.monitor(pipeline_pid)
 
@@ -154,7 +166,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManager do
               monitor_ref: ref
             }
 
-            true = :ets.insert(@pipelines_table, {relay_session_id, pipeline_pid})
+            true = :ets.insert(@pipelines_table, {relay_session_id, pipeline_pid, media_ingest_id})
             # Lets web-ng send this relay's WebRTC signaling straight to this node.
             :ok = RelayHosts.advertise(relay_session_id, pipeline_pid)
             {:reply, {:ok, session}, put_in(state, [:sessions, relay_session_id], session)}

@@ -9,7 +9,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
 
     def request_close(relay_session_id, opts) do
       send(opts[:test_pid], {:request_close, relay_session_id, opts})
-      {:ok, %{id: relay_session_id, status: :closing}}
+      {:ok, %{id: relay_session_id, status: Keyword.get(opts, :status, :closing)}}
+    end
+  end
+
+  defmodule ScriptedRelaySessionCloserStub do
+    @moduledoc false
+
+    def request_close(relay_session_id, opts) do
+      send(opts[:test_pid], {:request_close, relay_session_id, opts})
+      opts[:close_result].(relay_session_id)
     end
   end
 
@@ -28,8 +37,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
   defmodule SessionTrackerStub do
     @moduledoc false
 
-    def sync_viewer_count(relay_session_id, viewer_count) do
+    def sync_viewer_count(relay_session_id, viewer_count, attrs \\ %{}) do
       send(test_pid(), {:sync_viewer_count, relay_session_id, viewer_count})
+
+      if attrs[:released_viewer_id] do
+        send(test_pid(), {:released_viewer, relay_session_id, attrs.released_viewer_id})
+      end
+
       :ok
     end
 
@@ -48,10 +62,28 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     end
   end
 
+  defmodule DroppedSessionTrackerStub do
+    @moduledoc false
+
+    defdelegate sync_viewer_count(relay_session_id, viewer_count), to: SessionTrackerStub
+    defdelegate sync_viewer_count(relay_session_id, viewer_count, attrs), to: SessionTrackerStub
+    defdelegate mark_closing(relay_session_id, attrs), to: SessionTrackerStub
+
+    def fetch_session(relay_session_id) do
+      send(test_pid(), {:dropped_session, relay_session_id})
+      nil
+    end
+
+    defp test_pid do
+      Application.fetch_env!(:serviceradar_core_elx, :camera_relay_viewer_registry_test_pid)
+    end
+  end
+
   defmodule NonOwnerSessionTrackerStub do
     @moduledoc false
 
     defdelegate sync_viewer_count(relay_session_id, viewer_count), to: SessionTrackerStub
+    defdelegate sync_viewer_count(relay_session_id, viewer_count, attrs), to: SessionTrackerStub
     defdelegate mark_closing(relay_session_id, attrs), to: SessionTrackerStub
 
     def fetch_session(relay_session_id) do
@@ -206,7 +238,29 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     assert_receive {:request_close, ^relay_session_id, opts}, 500
     assert opts[:reason] == "viewer idle timeout"
     assert opts[:test_pid] == self()
+    assert_receive {:released_viewer, ^relay_session_id, ^viewer_id}
     assert_receive {:mark_closing, ^relay_session_id, %{close_reason: "viewer idle timeout", viewer_count: 0}}
+  end
+
+  test "a retained ingest is not marked closing and idle close retries after consumers drain" do
+    relay_session_id = "relay-retained-example"
+    viewer_id = "viewer-retained-example"
+    test_pid = self()
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{state | session_closer_opts: [test_pid: test_pid, status: :active]}
+    end)
+
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_leave(relay_session_id, viewer_id)
+    assert_receive {:request_close, ^relay_session_id, _}, 500
+    refute_receive {:mark_closing, ^relay_session_id, _}, 50
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{state | session_closer_opts: [test_pid: test_pid, status: :closing]}
+    end)
+
+    assert_receive {:mark_closing, ^relay_session_id, _}, 500
   end
 
   test "does not crash when idle close raises during a stale relay transition" do
@@ -250,6 +304,160 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     refute_receive {:mark_closing, ^relay_session_id, _attrs}, 50
   end
 
+  test "retries idle close after a transient refusal and does not retry a missing relay" do
+    refused = "relay-idle-transient-#{System.unique_integer([:positive])}"
+    missing = "relay-idle-missing-#{System.unique_integer([:positive])}"
+    test_pid = self()
+    {:ok, script} = Agent.start_link(fn -> :refuse end)
+    on_exit(fn -> if Process.alive?(script), do: Agent.stop(script) end)
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{
+        state
+        | session_closer: ScriptedRelaySessionCloserStub,
+          session_closer_opts: [
+            test_pid: test_pid,
+            close_result: fn relay_session_id ->
+              if relay_session_id == missing do
+                {:error, :not_found}
+              else
+                Agent.get_and_update(script, fn
+                  :refuse ->
+                    {{:error, :ambiguous_live_relays}, :close}
+
+                  :close ->
+                    {{:ok,
+                      %{
+                        id: relay_session_id,
+                        status: :closing,
+                        close_reason: "viewer idle timeout"
+                      }}, :close}
+                end)
+              end
+            end
+          ]
+      }
+    end)
+
+    :ok = RelayPubSub.viewer_join(refused, "viewer-transient")
+    :ok = RelayPubSub.viewer_leave(refused, "viewer-transient")
+    assert_receive {:request_close, ^refused, _opts}, 500
+    assert_receive {:request_close, ^refused, _opts}, 500
+
+    assert_receive {:mark_closing, ^refused, %{close_reason: "viewer idle timeout", viewer_count: 0}}
+
+    :ok = RelayPubSub.viewer_join(missing, "viewer-missing")
+    :ok = RelayPubSub.viewer_leave(missing, "viewer-missing")
+    assert_receive {:request_close, ^missing, _opts}, 500
+    refute_receive {:request_close, ^missing, _opts}, 200
+    refute_receive {:mark_closing, ^missing, _attrs}, 50
+  end
+
+  test "a raised or exited idle close retries once and a viewer join cancels that retry" do
+    raised = "relay-idle-raise-#{System.unique_integer([:positive])}"
+    exited = "relay-idle-exit-#{System.unique_integer([:positive])}"
+    cancelled = "relay-idle-cancel-failure-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    {:ok, script} =
+      Agent.start_link(fn -> %{raised => :fail, exited => :fail, cancelled => :fail} end)
+
+    on_exit(fn -> if Process.alive?(script), do: Agent.stop(script) end)
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{
+        state
+        | idle_close_ms: 200,
+          session_closer: ScriptedRelaySessionCloserStub,
+          session_closer_opts: [
+            test_pid: test_pid,
+            close_result: fn relay_session_id ->
+              phase =
+                Agent.get_and_update(script, fn phases ->
+                  {Map.get(phases, relay_session_id, :close), Map.put(phases, relay_session_id, :close)}
+                end)
+
+              case phase do
+                :fail when relay_session_id == raised ->
+                  raise "connection not available"
+
+                :fail when relay_session_id == exited ->
+                  exit(:db_connection_lost)
+
+                :fail ->
+                  raise "connection not available"
+
+                :close ->
+                  {:ok,
+                   %{
+                     id: relay_session_id,
+                     status: :closing,
+                     close_reason: "viewer idle timeout"
+                   }}
+              end
+            end
+          ]
+      }
+    end)
+
+    :ok = RelayPubSub.viewer_join(raised, "viewer-raise")
+    :ok = RelayPubSub.viewer_leave(raised, "viewer-raise")
+    assert_receive {:request_close, ^raised, _opts}, 500
+    assert_receive {:request_close, ^raised, _opts}, 500
+    assert_receive {:mark_closing, ^raised, %{close_reason: "viewer idle timeout", viewer_count: 0}}
+
+    :ok = RelayPubSub.viewer_join(exited, "viewer-exit")
+    :ok = RelayPubSub.viewer_leave(exited, "viewer-exit")
+    assert_receive {:request_close, ^exited, _opts}, 500
+    assert_receive {:request_close, ^exited, _opts}, 500
+    assert_receive {:mark_closing, ^exited, %{close_reason: "viewer idle timeout", viewer_count: 0}}
+
+    :ok = RelayPubSub.viewer_join(cancelled, "viewer-cancel-failure")
+    :ok = RelayPubSub.viewer_leave(cancelled, "viewer-cancel-failure")
+    assert_receive {:request_close, ^cancelled, _opts}, 500
+    :ok = RelayPubSub.viewer_join(cancelled, "viewer-cancel-failure")
+    refute_receive {:request_close, ^cancelled, _opts}, 400
+    refute_receive {:mark_closing, ^cancelled, _attrs}, 50
+    assert ViewerRegistry.viewer_count(cancelled) == 1
+  end
+
+  test "a viewer join or a lost local session cancels the idle-close retry" do
+    relay_session_id = "relay-idle-cancel-retry-#{System.unique_integer([:positive])}"
+    viewer_id = "viewer-cancel-retry"
+    untracked = "relay-idle-untracked-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    scripted = fn _relay_session_id -> {:error, :ambiguous_live_relays} end
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{
+        state
+        | idle_close_ms: 200,
+          session_closer: ScriptedRelaySessionCloserStub,
+          session_closer_opts: [test_pid: test_pid, close_result: scripted]
+      }
+    end)
+
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    :ok = RelayPubSub.viewer_leave(relay_session_id, viewer_id)
+    assert_receive {:request_close, ^relay_session_id, _opts}, 500
+    :ok = RelayPubSub.viewer_join(relay_session_id, viewer_id)
+    refute_receive {:request_close, ^relay_session_id, _opts}, 400
+    assert ViewerRegistry.viewer_count(relay_session_id) == 1
+
+    :ok = RelayPubSub.viewer_join(untracked, "viewer-untracked")
+    :ok = RelayPubSub.viewer_leave(untracked, "viewer-untracked")
+    assert_receive {:request_close, ^untracked, _opts}, 500
+    flush_registry(untracked)
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{state | session_tracker: DroppedSessionTrackerStub}
+    end)
+
+    assert_receive {:dropped_session, ^untracked}, 500
+    refute_receive {:request_close, ^untracked, _opts}, 50
+  end
+
   test "cancels idle close if a viewer rejoins before timeout" do
     relay_session_id = "relay-idle-cancel-1"
     viewer_id = "viewer-idle-cancel-1"
@@ -266,6 +474,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     assert_receive {:sync_viewer_count, ^relay_session_id, 1}
     refute_receive {:request_close, ^relay_session_id, _opts}, 200
     refute_receive {:mark_closing, ^relay_session_id, _attrs}, 50
+  end
+
+  defp flush_registry(relay_session_id) do
+    receive do
+      {:fetch_session, ^relay_session_id} -> flush_registry(relay_session_id)
+      {:sync_viewer_count, ^relay_session_id, _count} -> flush_registry(relay_session_id)
+      {:released_viewer, ^relay_session_id, _viewer_id} -> flush_registry(relay_session_id)
+    after
+      0 -> :ok
+    end
   end
 
   defp cancel_close_timers(state) do

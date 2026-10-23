@@ -7,12 +7,12 @@ or live acceptance task below.
 ## 0. Review and feasibility gates
 
 - [x] 0.1 Approve consolidated scope, PRD dispositions and cross-repository ownership; leave #4913/#4915 open until acceptance.
-- [x] 0.2 Audit existing relay/agent ownership and #4905 record provenance; specify recorder fencing and one-ingest behavior. See `ownership-provenance.md`; runtime integration and DB races remain separate gates.
-- [ ] 0.3 Pin media libraries; prove H.264 CMAF packaging, init/byte map, keyframe bounds, browser seek and reconnect using synthetic RTSP.
+- [x] 0.2 Audit existing relay/agent ownership and #4905 record provenance; specify recorder fencing and one-ingest behavior. See `ownership-provenance.md`. Relay integration is in this pass; guarded database execution remains a separate gate.
+- [x] 0.3 Pin media libraries; prove baseline H.264 CMAF packaging, init/byte map, keyframe bounds, Chromium seek and an explicitly restarted synthetic RTSP receiver. See the handoff evidence; other codecs and full authenticated deployment recovery remain separate gates.
 - [ ] 0.4 Measure audio/HEVC capability and clock uncertainty; select supported codec/profile/browser matrix and synchronization tolerance.
-- [ ] 0.5 Validate provider endpoint range/checksum/multipart/policy/lock capabilities and private access probes.
+- [ ] 0.5 Validate provider endpoint range/checksum/multipart/atomic-no-overwrite/policy/lock capabilities, per-object encryption evidence and private access probes.
 - [ ] 0.6 Measure block/index/WAL/cache/object request costs; choose format bounds and service objectives instead of assuming PRD KPIs.
-- [ ] 0.7 Evaluate stream-doctor's supported A/V-drift scenario in a Bazel/RBE test target with synthetic media; prove a deliberately delayed stream fails.
+- [x] 0.7 Evaluate stream-doctor's supported A/V-drift scenario in a Bazel/RBE test target with synthetic media; prove a deliberately delayed stream fails. See `stream-doctor.md`; this validates the diagnostic, not ServiceRadar audio or RTSP behavior.
 - [ ] 0.8 Specify versioned runtime/cloud and GPU job/result contracts, capability negotiation and invalid/unauthorized input behavior.
 
 ## 1. Recording and immediate playback

@@ -19,6 +19,7 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.RelaySession
     resource ServiceRadar.Camera.IngestOwner
     resource ServiceRadar.Camera.ConsumerLease
+    resource ServiceRadar.Camera.RecorderClaim
     resource ServiceRadar.Camera.AnalysisWorker
   end
 

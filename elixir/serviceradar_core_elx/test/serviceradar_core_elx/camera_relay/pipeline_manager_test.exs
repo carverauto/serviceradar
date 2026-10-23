@@ -29,14 +29,24 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     relay_session_id = "relay-host-advertise-1"
     assert RelayHosts.host_node(relay_session_id) == nil
 
-    assert {:ok, _session} = PipelineManager.open_session(%{relay_session_id: relay_session_id})
+    assert {:ok, %{pipeline_pid: pipeline}} =
+             PipelineManager.open_session(%{
+               relay_session_id: relay_session_id,
+               media_ingest_id: "synthetic-managed-ingest"
+             })
+
     assert RelayHosts.host_node(relay_session_id) == node()
+    assert {:ok, ^pipeline} = PipelineManager.recording_pipeline(relay_session_id, "synthetic-managed-ingest")
+    assert {:error, :recording_ingest_mismatch} = PipelineManager.recording_pipeline(relay_session_id, "other-ingest")
 
     assert :ok = PipelineManager.close_session(relay_session_id)
     # :pg drops a member when it sees the process exit; a call to the scope
     # flushes that before the lookup.
     _ = :sys.get_state(:serviceradar_camera_relay_hosts)
     assert RelayHosts.host_node(relay_session_id) == nil
+
+    assert {:error, :recording_ingest_mismatch} =
+             PipelineManager.recording_pipeline(relay_session_id, "synthetic-managed-ingest")
   end
 
   # Removal used to be acknowledged before the child was gone, so re-adding the

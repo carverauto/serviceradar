@@ -6,7 +6,9 @@ defmodule ServiceRadar.Camera.IngestOwnership do
   are acquired with a higher epoch, including when the token is reused. A
   takeover does not inherit consumers or a relay session from the previous epoch.
   Renewing an owner never renews consumers. Consumer expirations cannot exceed
-  the owner expiration.
+  the owner expiration. Cleanup uses the expiry index: superseded consumers
+  remain until that bounded expiration (at most five minutes after acquisition
+  or renewal), without retaining or granting publication rights to the new epoch.
 
   Idle close reserves the current relay by moving the owner to `closing`. Late
   attaches and renewals then fail. The caller may close only the returned
@@ -27,14 +29,106 @@ defmodule ServiceRadar.Camera.IngestOwnership do
   alias Ash.Error.Changes.InvalidArgument
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwner
+  alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.StreamProfile
 
   require Ash.Query
 
-  @resources [IngestOwner, ConsumerLease]
+  @resources [IngestOwner, ConsumerLease, RecorderClaim]
   @maximum_ttl_ms 300_000
   @close_grace_ms 5_000
+
+  @doc "Serializes the short CNPG reservation/adoption of one camera/profile relay."
+  def with_source_profile(source_id, profile_id, fun, opts \\ []) when is_function(fun, 1) do
+    transaction(fn ->
+      with {:ok, %StreamProfile{}} <-
+             StreamProfile.get_for_relay(
+               profile_id,
+               source_id,
+               Keyword.put(caller(opts), :not_found_error?, false)
+             ),
+           {:ok, initialized} <- initialize(source_id, profile_id, opts),
+           {:ok, owner} <- lock_owner(initialized.id, opts) do
+        fun.(owner)
+      else
+        {:ok, nil} -> {:error, :profile_unavailable}
+        {:error, _} = error -> error
+      end
+    end)
+  end
+
+  @doc "Returns the current relay's fence handle; subsequent mutations still recheck it."
+  def for_relay(relay_session_id, opts \\ []) do
+    IngestOwner
+    |> Ash.Query.filter(relay_session_id == ^relay_session_id and state == :active)
+    |> Ash.Query.load(:database_now)
+    |> Ash.read_one(caller(opts))
+    |> case do
+      {:ok, %IngestOwner{} = owner} ->
+        if live?(owner), do: {:ok, owner}, else: {:error, :ownership_lost}
+
+      {:ok, nil} ->
+        {:error, :ownership_lost}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @doc "Reserves an explicit operator stop, invalidating consumer publication rights."
+  def begin_close(lease, opts \\ []) do
+    with_active_owner(
+      lease,
+      &transition(
+        &1,
+        %{state: :closing, lease_expires_at: consumer_expiry(&1, @close_grace_ms)},
+        opts
+      ),
+      opts
+    )
+  end
+
+  @doc "Retires a failed or closed ingest, including expired leases, without resetting its epoch."
+  def retire(%{id: id, epoch: epoch, owner_token: token}, opts \\ []) do
+    transaction(fn ->
+      with {:ok, owner} <- lock_owner(id, opts),
+           true <- owner.epoch == epoch and owner.owner_token == token do
+        transition(owner, %{state: :released, lease_expires_at: owner.database_now}, opts)
+      else
+        false -> {:error, :ownership_lost}
+        {:error, _} = error -> error
+      end
+    end)
+  end
+
+  @doc "Deletes one indexed batch of expired consumers, including superseded epochs."
+  def prune_consumers(opts \\ []) do
+    limit = Keyword.get(opts, :batch_size, 200)
+
+    if is_integer(limit) and limit in 1..500 do
+      query =
+        ConsumerLease
+        |> Ash.Query.filter(expires_at <= fragment("statement_timestamp()"))
+        |> Ash.Query.sort(expires_at: :asc, id: :asc)
+        |> Ash.Query.limit(limit)
+
+      with {:ok, consumers} <- Ash.read(query, caller(opts)) do
+        result =
+          Enum.reduce(consumers, %{deleted: 0, skipped: 0, failed: 0}, fn consumer, acc ->
+            case prune_consumer(consumer, opts) do
+              :ok -> Map.update!(acc, :deleted, &(&1 + 1))
+              {:ok, :skipped} -> Map.update!(acc, :skipped, &(&1 + 1))
+              {:error, _reason} -> Map.update!(acc, :failed, &(&1 + 1))
+            end
+          end)
+
+        {:ok, result}
+      end
+    else
+      {:error, :invalid_batch_size}
+    end
+  end
 
   @doc "Claims a camera/profile, or renews the same still-active owner token."
   def acquire(source_id, profile_id, owner_token, ttl_ms, opts \\ []) do
@@ -94,7 +188,57 @@ defmodule ServiceRadar.Camera.IngestOwnership do
             consumer_key: consumer_key,
             expires_at: consumer_expiry(owner, ttl_ms)
           })
-          |> Ash.create(caller(opts))
+          |> Ash.create(Keyword.put(caller(opts), :load, [:database_now]))
+        end,
+        opts
+      )
+    end
+  end
+
+  @doc """
+  Acquires or renews a consumer set in bounded SQL batches under one live fence.
+
+  Used by the authoritative viewer registry at heartbeat cadence. Total work is
+  proportional to admitted viewers, but each statement is limited to 256 rows;
+  no per-viewer owner locks or receipt loads are needed. The final database-time
+  check rolls all batches back if the owner expires during the transaction.
+  """
+  def acquire_consumers(lease, kind, consumer_keys, ttl_ms, opts \\ [])
+      when is_list(consumer_keys) do
+    with :ok <- valid_ttl(ttl_ms) do
+      with_current_owner(
+        lease,
+        fn owner ->
+          expiry = consumer_expiry(owner, ttl_ms)
+
+          rows =
+            consumer_keys
+            |> Stream.uniq()
+            |> Stream.map(fn key ->
+              %{
+                ingest_owner_id: owner.id,
+                owner_epoch: owner.epoch,
+                kind: kind,
+                consumer_key: key,
+                expires_at: expiry
+              }
+            end)
+
+          case Ash.bulk_create(rows, ConsumerLease, :acquire,
+                 actor: Keyword.get(opts, :actor),
+                 batch_size: 256,
+                 transaction: :all,
+                 max_concurrency: 0,
+                 return_records?: false,
+                 return_errors?: true,
+                 stop_on_error?: true,
+                 upsert?: true,
+                 upsert_identity: :consumer,
+                 upsert_fields: [:expires_at]
+               ) do
+            %Ash.BulkResult{status: :success} -> :ok
+            %Ash.BulkResult{errors: errors} -> {:error, errors || :consumer_sync_failed}
+          end
         end,
         opts
       )
@@ -111,7 +255,7 @@ defmodule ServiceRadar.Camera.IngestOwnership do
                true <- DateTime.after?(consumer.expires_at, owner.database_now) do
             consumer
             |> Ash.Changeset.for_update(:renew, %{expires_at: consumer_expiry(owner, ttl_ms)})
-            |> Ash.update(caller(opts))
+            |> Ash.update(Keyword.put(caller(opts), :load, [:database_now]))
           else
             false -> {:error, :consumer_expired}
             {:error, _} = error -> error
@@ -183,6 +327,30 @@ defmodule ServiceRadar.Camera.IngestOwnership do
   defp with_active_owner(lease, fun, opts) do
     transaction(fn ->
       with {:ok, owner} <- lock_current(lease, [:active], opts), do: fun.(owner)
+    end)
+  end
+
+  defp prune_consumer(consumer, opts) do
+    transaction(fn ->
+      with {:ok, owner} <- lock_owner(consumer.ingest_owner_id, opts),
+           {:ok, current} <-
+             Ash.get(
+               ConsumerLease,
+               consumer.id,
+               Keyword.put(caller(opts), :not_found_error?, false)
+             ) do
+        cond do
+          is_nil(current) ->
+            {:ok, :skipped}
+
+          current.owner_epoch != owner.epoch or
+              not DateTime.after?(current.expires_at, owner.database_now) ->
+            Ash.destroy(current, caller(opts))
+
+          true ->
+            {:ok, :skipped}
+        end
+      end
     end)
   end
 
@@ -280,7 +448,8 @@ defmodule ServiceRadar.Camera.IngestOwnership do
     end
   end
 
-  defp require_idle(owner, opts) do
+  @doc "The current epoch has no unexpired consumer. Does not change the owner."
+  def require_idle(owner, opts \\ []) do
     ConsumerLease
     |> Ash.Query.filter(
       ingest_owner_id == ^owner.id and owner_epoch == ^owner.epoch and
@@ -344,24 +513,38 @@ defmodule ServiceRadar.Camera.IngestOwnership do
 
   defp caller(opts), do: [actor: Keyword.get(opts, :actor)]
 
+  # Nested Ash.transact rolls the parent transaction back before the caller can
+  # turn a refusal into a retained session. The lock is already held, so run there.
   defp transaction(fun) do
-    @resources
-    |> Ash.transact(fn ->
-      case fun.() do
-        {:error, reason} when is_atom(reason) ->
-          {:error,
-           InvalidArgument.exception(
-             field: :ingest_ownership,
-             value: reason,
-             message: "ownership refused"
-           )}
+    if Ash.DataLayer.in_transaction?(IngestOwner) do
+      fun.()
+    else
+      @resources
+      |> Ash.transact(fn ->
+        case fun.() do
+          {:error, reason} = error ->
+            if domain_reason?(reason), do: {:error, ownership_refusal(reason)}, else: error
 
-        result ->
-          result
-      end
-    end)
-    |> transaction_result()
+          result ->
+            result
+        end
+      end)
+      |> transaction_result()
+    end
   end
+
+  defp ownership_refusal(reason) do
+    InvalidArgument.exception(
+      field: :ingest_ownership,
+      value: reason,
+      message: "ownership refused"
+    )
+  end
+
+  defp domain_reason?(reason) when is_atom(reason), do: true
+  defp domain_reason?(%_{}), do: false
+  defp domain_reason?({tag, _}) when is_atom(tag), do: true
+  defp domain_reason?(_reason), do: false
 
   defp transaction_result({:ok, result}), do: result
 

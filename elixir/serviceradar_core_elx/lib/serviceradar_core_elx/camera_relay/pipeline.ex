@@ -13,6 +13,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   use Membrane.Pipeline
 
   alias Membrane.Pad
+  alias ServiceRadarCoreElx.CameraRecording.Inbox
   alias ServiceRadarCoreElx.CameraRelay.AnalysisSink
   alias ServiceRadarCoreElx.CameraRelay.AnnexBToNALU
   alias ServiceRadarCoreElx.CameraRelay.BoomboxOutputBin
@@ -49,6 +50,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     {[spec: spec],
      %{
        relay_session_id: relay_session_id,
+       media_ingest_id: Keyword.get(opts, :media_ingest_id),
+       recorder: nil,
        viewers: %{},
        analysis_branches: %{},
        boombox_branches: %{},
@@ -58,14 +61,32 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
 
   @impl true
   def handle_info({:media_chunk, chunk}, _ctx, state) when is_map(chunk) do
-    {[notify_child: {@source, {:media_chunk, chunk}}], state}
+    {[notify_child: {@source, {:media_chunk, chunk}}], offer_recording(state, chunk)}
   end
 
   def handle_info(:end_of_stream, _ctx, state) do
+    if state.recorder, do: Inbox.finish(state.recorder.inbox)
     {[notify_child: {@source, :end_of_stream}], state}
   end
 
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, _ctx, %{recorder: %{monitor: ref}} = state) do
+    Inbox.cancel(state.recorder.inbox)
+    {[], %{state | recorder: nil}}
+  end
+
   @impl true
+  def handle_call({:attach_recorder, %Inbox{} = inbox}, %{from: {caller, _}}, state) do
+    if ServiceRadarCoreElx.CameraRecording.Supervisor.enabled?() and state.recorder == nil and
+         inbox.worker == caller and inbox.producer == self() and inbox.relay_session_id == state.relay_session_id and
+         is_binary(state.media_ingest_id) and state.media_ingest_id != "" and
+         inbox.media_ingest_id == state.media_ingest_id do
+      monitor = Process.monitor(inbox.worker)
+      {[reply: :ok], %{state | recorder: %{inbox: inbox, monitor: monitor}}}
+    else
+      {[reply: {:error, :recording_attach_refused}], state}
+    end
+  end
+
   def handle_call({:add_webrtc_viewer, viewer_session_id, signaling, opts}, _ctx, state) do
     if Map.has_key?(state.viewers, viewer_session_id) do
       {[reply: {:error, :already_exists}], state}
@@ -264,4 +285,17 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   end
 
   defp crash_group(spec, group), do: {spec, group: group, crash_group_mode: :temporary}
+
+  defp offer_recording(%{recorder: nil} = state, _chunk), do: state
+
+  defp offer_recording(state, chunk) do
+    case Inbox.offer(state.recorder.inbox, chunk) do
+      :ok ->
+        state
+
+      {:error, _reason} ->
+        Process.demonitor(state.recorder.monitor, [:flush])
+        %{state | recorder: nil}
+    end
+  end
 end

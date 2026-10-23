@@ -1,0 +1,99 @@
+# Synthetic template. Replace run names, namespace, image digest and proxy with
+# operator-owned values. Create input.json separately; never commit credentials.
+# Create each resource once. Keep the PVC until exact cleanup is verified.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: example-vms-probe-receipts
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: longhorn
+  resources:
+    requests:
+      storage: 10Mi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: example-vms-probe-runtime
+data:
+  sys.config: "[].\n"
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: example-vms-provider-probe
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1200
+  template:
+    metadata:
+      labels:
+        app: vms-provider-probe
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      nodeSelector:
+        kubernetes.io/arch: amd64
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: probe
+          image: registry.example.com/serviceradar-core-elx@sha256:REPLACE_WITH_BUILT_DIGEST
+          command: [/app/bin/serviceradar_core_elx]
+          args: [eval, "ServiceRadarCoreElx.CameraRecording.ProviderProbe.main()"]
+          env:
+            - name: RELEASE_SYS_CONFIG
+              value: /probe-runtime/sys
+            - name: RELEASE_COOKIE
+              value: unused_probe_cookie
+            - name: ERL_FLAGS
+              value: "+S 2:2 +fnu"
+            - name: ERL_CRASH_DUMP
+              value: /dev/null
+            - name: TMPDIR
+              value: /probe-state
+            - name: VMS_PROBE_INPUT
+              value: /probe-input/input.json
+            - name: VMS_PROBE_JOURNAL
+              value: /probe-state/cleanup.json
+            - name: SERVICERADAR_EGRESS_PROXY
+              value: http://proxy.example.svc.cluster.local:4750
+          resources:
+            requests:
+              cpu: "250m"
+              memory: 256Mi
+            limits:
+              cpu: "2"
+              memory: 512Mi
+              ephemeral-storage: 128Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: input
+              mountPath: /probe-input
+              readOnly: true
+            - name: runtime
+              mountPath: /probe-runtime
+              readOnly: true
+            - name: state
+              mountPath: /probe-state
+      volumes:
+        - name: input
+          secret:
+            secretName: example-vms-probe-input
+            defaultMode: 0440
+        - name: runtime
+          configMap:
+            name: example-vms-probe-runtime
+        - name: state
+          persistentVolumeClaim:
+            claimName: example-vms-probe-receipts

@@ -1,0 +1,87 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+load("@rules_oci//oci:defs.bzl", "oci_push")
+
+alias(
+    name = "provider_probe_image",
+    actual = "//docker/images:core_elx_image_amd64",
+)
+
+# Only this launcher needs native Darwin tools; the image remains Linux/RBE.
+oci_push(
+    name = "provider_probe_push",
+    exec_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+    image = "//docker/images:core_elx_image_amd64",
+    remote_tags = "//docker/images:core_elx_image_amd64_commit_tag",
+    repository = "registry.carverauto.dev/serviceradar/serviceradar-core-elx",
+    tags = ["manual"],
+)
+
+# These providers supply client runtime binaries; they execute no build action.
+# Register explicitly for this launcher. Linux image actions retain RBE tools.
+toolchain(
+    name = "provider_probe_crane_runtime",
+    tags = ["manual"],
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+    toolchain = "@@rules_oci++oci+oci_crane_darwin_arm64//:crane_toolchain",
+    toolchain_type = "@rules_oci//oci:crane_toolchain_type",
+)
+
+toolchain(
+    name = "provider_probe_jq_runtime",
+    tags = ["manual"],
+    target_compatible_with = [
+        "@platforms//cpu:aarch64",
+        "@platforms//os:macos",
+    ],
+    toolchain = "@@aspect_bazel_lib++toolchains+jq_darwin_arm64//:jq_toolchain",
+    toolchain_type = "@aspect_bazel_lib//lib:jq_toolchain_type",
+)
+
+exports_files([
+    "provider-probe-job.yaml",
+    "provider-probe-recovery.yaml",
+])
+
+go_test(
+    name = "provider_probe_release_startup_test",
+    size = "medium",
+    srcs = ["provider_probe_startup_test.go"],
+    data = ["//elixir/serviceradar_core_elx:release_tar"],
+    env = {
+        "PROBE_RELEASE_RUNFILE": "$(rlocationpath //elixir/serviceradar_core_elx:release_tar)",
+    },
+    exec_properties = {"test.network": "off"},
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
+)
+
+# gazelle:ignore
+# Data and logical runfile paths are part of the executable test.
+go_test(
+    name = "stream_doctor_av_drift_test",
+    size = "medium",
+    srcs = ["stream_doctor_test.go"],
+    data = [
+        "//third_party/membrane:media_test_tools",
+        "@stream_doctor_linux_x64//:daemon",
+    ],
+    env = {
+        "STREAM_DOCTOR_RUNFILE": "$(rlocationpath @stream_doctor_linux_x64//:daemon)",
+    },
+    # Local HTTP/RTMP sockets work; the daemon cannot fetch runtime dependencies.
+    exec_properties = {"test.network": "off"},
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:linux",
+    ],
+    deps = ["@io_bazel_rules_go//go/runfiles"],
+)

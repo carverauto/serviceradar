@@ -3,9 +3,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
 
   alias ServiceRadarCoreElx.CameraRecording.Packaging
   alias ServiceRadarCoreElx.CameraRecording.Spool
+  alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
 
   @clock %{clock_epoch: "synthetic-clock-1", timebase: 90_000, dts_source: :pts_no_reordering, utc_mapping: :unknown}
-  @aud <<0, 0, 0, 1, 9>>
   @frame_bytes trunc(64 * 64 * 3 / 2)
 
   setup_all do
@@ -14,10 +14,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     File.mkdir_p!(directory)
     on_exit(fn -> File.rm_rf!(directory) end)
 
-    baseline = generate(directory, "baseline", ["-profile:v", "baseline", "-bf", "0", "-g", "30"])
-    main = generate(directory, "main", ["-profile:v", "main", "-bf", "2", "-g", "30"])
-    long_gop = generate(directory, "long-gop", ["-profile:v", "baseline", "-bf", "0", "-g", "300"])
-    changed = generate(directory, "changed", ["-profile:v", "baseline", "-bf", "0", "-g", "30", "-vf", "scale=96:64"])
+    baseline = SyntheticCameraMedia.generate(directory, "baseline")
+    main = SyntheticCameraMedia.generate(directory, "main", ["-profile:v", "main", "-bf", "2", "-g", "30"])
+    long_gop = SyntheticCameraMedia.generate(directory, "long-gop", ["-g", "300", "-profile:v", "baseline", "-bf", "0"])
+    changed_args = ["-profile:v", "baseline", "-bf", "0", "-g", "30", "-vf", "scale=96:64"]
+    changed = SyntheticCameraMedia.generate(directory, "changed", changed_args)
     %{baseline: baseline, main: main, long_gop: long_gop, changed: changed}
   end
 
@@ -72,6 +73,49 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     assert {:ok, _} = Packaging.push(pipeline, first)
     assert {:error, :non_monotonic_timestamp} = Packaging.push(pipeline, first)
     assert {:error, :non_monotonic_timestamp} = Packaging.finish(pipeline)
+  end
+
+  @tag :tmp_dir
+  test "mid-stream acquisition ignores metadata hints and starts at the next independently decodable IDR", ctx do
+    {:ok, pipeline} = Packaging.start(clock: @clock, wait_for_keyframe?: true)
+    on_exit(fn -> Packaging.stop(pipeline) end)
+    [first | remaining] = Enum.drop(ctx.baseline.units, 15)
+    assert {:ok, []} = Packaging.push(pipeline, Map.put(first, :keyframe, true))
+    events = push_all(pipeline, remaining)
+    assert {:ok, tail} = Packaging.finish(pipeline)
+    assert [{:init, init} | media] = events ++ tail
+    fragments = Enum.map(media, fn {:fragment, fragment} -> fragment end)
+    assert Enum.sum(Enum.map(fragments, & &1.sample_count)) == 45
+    assert hd(fragments).start_ns == 3_000_000_000
+    expected = binary_part(decode(ctx.baseline.path), 30 * @frame_bytes, 45 * @frame_bytes)
+
+    Enum.reduce(fragments, 0, fn fragment, offset ->
+      path = Path.join(ctx.tmp_dir, "acquired-#{offset}.mp4")
+      File.write!(path, init.payload <> fragment.payload)
+      assert_decoded_fragment(path, fragment, expected, offset)
+    end)
+  end
+
+  test "initial dropped units still consume byte, sample and media-time budgets", ctx do
+    [first, second | _] = Enum.drop(ctx.baseline.units, 1)
+
+    limits = [
+      {[max_buffered_bytes: byte_size(first.payload) + byte_size(second.payload) - 1], :initial_acquisition_byte_limit},
+      {[max_buffered_samples: 1], :initial_acquisition_sample_limit},
+      {[max_keyframe_interval_ns: 1], :initial_keyframe_interval_exceeded}
+    ]
+
+    for {options, reason} <- limits do
+      {:ok, pipeline} = Packaging.start([clock: @clock, wait_for_keyframe?: true] ++ options)
+      on_exit(fn -> Packaging.stop(pipeline) end)
+      assert {:ok, []} = Packaging.push(pipeline, first)
+      assert {:error, ^reason} = Packaging.push(pipeline, second)
+    end
+
+    {:ok, timed} = Packaging.start(clock: @clock, wait_for_keyframe?: true, max_keyframe_wait_ms: 200)
+    on_exit(fn -> Packaging.stop(timed) end)
+    assert {:ok, []} = Packaging.push(timed, first)
+    assert_receive {Packaging, ^timed, {:error, :initial_keyframe_wait_exceeded}}, 1_000
   end
 
   test "media, wall-clock and byte bounds independently reject incomplete recording", ctx do
@@ -144,42 +188,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     assert {:error, :stream_configuration_changed} = Packaging.push(pipeline, changed)
   end
 
-  defp generate(directory, name, codec_args) do
-    path = Path.join(directory, name <> ".h264")
-
-    args =
-      [
-        "-nostdin",
-        "-v",
-        "error",
-        "-f",
-        "lavfi",
-        "-i",
-        "testsrc2=size=64x64:rate=15",
-        "-frames:v",
-        "75",
-        "-c:v",
-        "libx264",
-        "-preset",
-        "medium",
-        "-sc_threshold",
-        "0",
-        "-x264-params",
-        "aud=1:repeat-headers=1"
-      ] ++ codec_args ++ ["-f", "h264", path]
-
-    assert {"", 0} = System.cmd(tool("ffmpeg"), args, stderr_to_stdout: true)
-    [<<>> | units] = :binary.split(File.read!(path), @aud, [:global])
-    assert Enum.count(units) == 75
-
-    units =
-      Enum.with_index(units, fn payload, index ->
-        %{payload: @aud <> payload, pts: 90_000 + index * 6_000, dts: 90_000 + index * 6_000}
-      end)
-
-    %{path: path, units: units}
-  end
-
   defp push_all(pipeline, units) do
     Enum.flat_map(units, fn unit ->
       assert {:ok, events} = Packaging.push(pipeline, unit)
@@ -225,7 +233,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
       path
     ]
 
-    assert {output, 0} = System.cmd(tool("ffprobe"), args, stderr_to_stdout: true)
+    assert {output, 0} = System.cmd(SyntheticCameraMedia.tool("ffprobe"), args, stderr_to_stdout: true)
     JSON.decode!(output)
   end
 
@@ -262,10 +270,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
       "pipe:1"
     ]
 
-    assert {raw, 0} = System.cmd(tool("ffmpeg"), args)
+    assert {raw, 0} = System.cmd(SyntheticCameraMedia.tool("ffmpeg"), args)
     raw
   end
 
-  defp tool(name), do: Path.expand("../../third_party/membrane/media_test_tools/#{name}")
   defp digest(bytes), do: :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
 end

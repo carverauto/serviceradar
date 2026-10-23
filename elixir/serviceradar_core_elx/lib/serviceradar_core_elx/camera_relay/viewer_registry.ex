@@ -46,6 +46,9 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
     relay_session_id |> viewers() |> MapSet.size()
   end
 
+  @doc "Current viewer identities for independent lease renewal; reads ETS."
+  def viewer_ids(relay_session_id), do: relay_session_id |> viewers() |> MapSet.to_list()
+
   defp viewers(relay_session_id) do
     case :ets.lookup(@viewers_table, relay_session_id) do
       [{^relay_session_id, viewers}] -> viewers
@@ -131,7 +134,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
     :ok =
       session_tracker(state).sync_viewer_count(
         relay_session_id,
-        viewer_count_from_state(updated, relay_session_id)
+        viewer_count_from_state(updated, relay_session_id),
+        %{released_viewer_id: viewer_id}
       )
 
     {:noreply, maybe_schedule_idle_close(updated, relay_session_id)}
@@ -142,10 +146,13 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
 
     if viewer_count_from_state(state, relay_session_id) == 0 and
          owns_relay_session?(state, relay_session_id) do
-      close_relay_session(state, relay_session_id)
+      case close_relay_session(state, relay_session_id) do
+        :retained -> {:noreply, maybe_schedule_idle_close(state, relay_session_id)}
+        _ -> {:noreply, state}
+      end
+    else
+      {:noreply, state}
     end
-
-    {:noreply, state}
   end
 
   defp viewers_for(state, relay_session_id) do
@@ -223,13 +230,19 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
 
     try do
       case state.session_closer.request_close(relay_session_id, closer_opts) do
-        {:ok, session} ->
+        {:ok, %{status: status} = session} when status in [:closing, "closing"] ->
           :ok =
             session_tracker(state).mark_closing(relay_session_id, %{
               close_reason: Map.get(session, :close_reason) || reason,
               viewer_count: 0
             })
 
+          :ok
+
+        {:ok, %{status: status}} when status in [:requested, :opening, :active] ->
+          :retained
+
+        {:ok, _session} ->
           :ok
 
         {:error, :not_found} ->
@@ -239,18 +252,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
           :ok
 
         {:error, _reason} ->
-          :ok
+          :retained
       end
     rescue
       error ->
         Logger.warning("Ignored camera relay idle close failure for #{relay_session_id}: #{format_close_error(error)}")
 
-        :ok
+        :retained
     catch
       kind, reason ->
         Logger.warning("Ignored camera relay idle close failure for #{relay_session_id}: #{kind}: #{inspect(reason)}")
 
-        :ok
+        :retained
     end
   end
 

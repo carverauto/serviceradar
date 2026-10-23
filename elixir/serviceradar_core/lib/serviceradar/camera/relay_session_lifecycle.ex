@@ -1,217 +1,175 @@
 defmodule ServiceRadar.Camera.RelaySessionLifecycle do
   @moduledoc """
-  Synchronizes media-plane ingress events into persisted camera relay sessions.
+  Synchronizes authenticated media ingress into persisted, fenced camera relays.
+
+  Activation binds all forwarded assignment fields to the stored command.
+  Genuine media heartbeats renew the owner using database time. Viewer-only
+  updates manage independent leases and counts without extending ingest life.
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.RelayOwnership
   alias ServiceRadar.Camera.RelaySession
 
-  @default_actor_component :camera_relay_session_lifecycle
+  @assignment_fields [:agent_id, :gateway_id, :camera_source_id, :stream_profile_id]
 
-  @spec activate_session(String.t(), String.t(), map(), keyword()) ::
-          {:ok, RelaySession.t() | map()} | {:error, term()}
-  def activate_session(relay_session_id, media_ingest_id, attrs \\ %{}, opts \\ []) do
-    with {:ok, session} <- fetch_session(relay_session_id, opts),
-         :ok <- ensure_status(session, [:requested, :opening, :active]),
-         :ok <- ensure_media_ingest_id(session, media_ingest_id) do
-      if Map.get(session, :status) == :active do
-        with {:ok, normalized_attrs} <- lease_attrs(attrs) do
-          renew_lease_session(session, normalized_attrs, opts)
+  def activate_session(id, ingest_id, attrs \\ %{}, opts \\ []) do
+    opts = caller(opts)
+
+    RelayOwnership.with_session(
+      id,
+      fn owner, session ->
+        with :ok <- valid_ingest(ingest_id),
+             :ok <- ensure_status(session, [:requested, :opening, :active]),
+             :ok <- ensure_assignment(session, attrs),
+             :ok <- ensure_ingest(session, ingest_id) do
+          sync_media(owner, session, ingest_id, attrs, opts)
         end
-      else
-        with {:ok, normalized_attrs} <- activation_attrs(media_ingest_id, attrs) do
-          activate_session_record(session, normalized_attrs, opts)
+      end,
+      opts
+    )
+  end
+
+  def heartbeat_session(id, ingest_id, attrs \\ %{}, opts \\ []) do
+    opts = caller(opts)
+
+    RelayOwnership.with_session(
+      id,
+      fn owner, session ->
+        with :ok <- valid_ingest(ingest_id),
+             :ok <- ensure_status(session, [:opening, :active, :closing]),
+             :ok <- ensure_ingest(session, ingest_id) do
+          cond do
+            session.status == :closing ->
+              {:ok, session}
+
+            Map.get(attrs, :renew_ingest?, true) ->
+              sync_media(owner, session, ingest_id, attrs, opts)
+
+            true ->
+              sync_viewers(owner, session, attrs, opts)
+          end
         end
-      end
+      end,
+      opts
+    )
+  end
+
+  def close_session(id, ingest_id, attrs \\ %{}, opts \\ []) do
+    finish_session(id, ingest_id, attrs, :closed, caller(opts))
+  end
+
+  def fail_session(id, ingest_id, attrs \\ %{}, opts \\ []) do
+    finish_session(id, ingest_id, attrs, :failed, caller(opts))
+  end
+
+  defp sync_media(owner, session, ingest_id, attrs, opts) do
+    case RelayOwnership.adopt(owner, session, opts) do
+      {:ok, lease} ->
+        with {:ok, renewed} <- RelayOwnership.renew(lease, opts),
+             :ok <- RelayOwnership.sync_viewers(renewed, attrs, opts) do
+          persist_media(session, ingest_id, renewed.lease_expires_at, attrs, opts)
+        end
+
+      {:error, :ambiguous_live_relays} = error ->
+        if session.status == :active and session.media_ingest_id == ingest_id and
+             is_binary(ingest_id) and ingest_id != "" do
+          # Only pre-existing authenticated streams survive ambiguous upgrade
+          # state; no ownership handle or consumer lease is issued here.
+          expiry = DateTime.shift(owner.database_now, second: 30)
+          persist_media(session, ingest_id, expiry, attrs, opts)
+        else
+          error
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 
-  @spec heartbeat_session(String.t(), String.t(), map(), keyword()) ::
-          {:ok, RelaySession.t() | map()} | {:error, term()}
-  def heartbeat_session(relay_session_id, media_ingest_id, attrs \\ %{}, opts \\ []) do
-    with {:ok, session} <- fetch_session(relay_session_id, opts),
-         :ok <- ensure_status(session, [:opening, :active, :closing, "closing"]),
-         :ok <- ensure_media_ingest_id(session, media_ingest_id) do
-      if closing_session?(session) do
-        {:ok, session}
-      else
-        with {:ok, normalized_attrs} <- lease_attrs(attrs) do
-          renew_lease_session(session, normalized_attrs, opts)
-        end
-      end
+  defp sync_viewers(owner, session, attrs, opts) do
+    if RelayOwnership.current?(owner, session) do
+      with :ok <- RelayOwnership.sync_viewers(owner, attrs, opts),
+           do:
+             RelaySession.renew_lease(
+               session,
+               %{viewer_count: normalize_viewer_count(attrs, session.viewer_count)},
+               opts
+             )
+    else
+      {:error, :ownership_lost}
     end
   end
 
-  @spec close_session(String.t(), String.t(), map(), keyword()) ::
-          {:ok, RelaySession.t() | map()} | {:error, term()}
-  def close_session(relay_session_id, media_ingest_id, attrs \\ %{}, opts \\ []) do
-    with {:ok, session} <- fetch_session(relay_session_id, opts),
-         :ok <- ensure_media_ingest_id(session, media_ingest_id) do
-      case Map.get(session, :status) do
-        status when status in [:closed, :failed] ->
-          {:ok, session}
+  defp persist_media(session, ingest_id, expiry, attrs, opts) do
+    lease = %{
+      lease_expires_at: expiry,
+      viewer_count: normalize_viewer_count(attrs, session.viewer_count)
+    }
 
-        status when status in [:requested, :opening, :active, :closing] ->
-          close_session_record(
-            session,
-            %{
+    if session.status == :active,
+      do: RelaySession.renew_lease(session, lease, opts),
+      else: RelaySession.activate(session, Map.put(lease, :media_ingest_id, ingest_id), opts)
+  end
+
+  defp finish_session(id, ingest_id, attrs, status, opts) do
+    RelayOwnership.with_session(
+      id,
+      fn owner, session ->
+        with :ok <- ensure_ingest(session, ingest_id) do
+          if session.status in [:closed, :failed] do
+            {:ok, session}
+          else
+            updates = %{
               close_reason: close_reason(session, attrs),
               viewer_count: normalize_viewer_count(attrs, 0)
-            },
-            opts
-          )
+            }
 
-        status ->
-          {:error, {:invalid_status, status}}
-      end
-    end
-  end
+            result =
+              if status == :closed,
+                do: RelaySession.mark_closed(session, updates, opts),
+                else:
+                  RelaySession.fail_session(
+                    session,
+                    Map.put(updates, :failure_reason, failure_reason(attrs)),
+                    opts
+                  )
 
-  @spec fail_session(String.t(), String.t(), map(), keyword()) ::
-          {:ok, RelaySession.t() | map()} | {:error, term()}
-  def fail_session(relay_session_id, media_ingest_id, attrs \\ %{}, opts \\ []) do
-    with {:ok, session} <- fetch_session(relay_session_id, opts),
-         :ok <- ensure_media_ingest_id(session, media_ingest_id) do
-      fail_session_record(
-        session,
-        %{
-          failure_reason: failure_reason(attrs),
-          close_reason: close_reason(session, attrs),
-          viewer_count: normalize_viewer_count(attrs, 0)
-        },
-        opts
-      )
-    end
-  end
-
-  defp fetch_session(relay_session_id, opts) do
-    actor = actor(opts)
-    fetcher = Keyword.get(opts, :session_fetcher, &fetch_session_record/2)
-
-    case fetcher.(relay_session_id, actor) do
-      {:ok, nil} -> {:error, :not_found}
-      {:ok, session} -> {:ok, session}
-      {:error, reason} -> {:error, reason}
-    end
-  end
-
-  defp fetch_session_record(relay_session_id, actor) do
-    RelaySession.get_by_id(relay_session_id, actor: actor)
-  end
-
-  defp activate_session_record(session, attrs, opts) do
-    actor = actor(opts)
-    activator = Keyword.get(opts, :activator, &run_activate/3)
-    activator.(session, attrs, actor)
-  end
-
-  defp run_activate(session, attrs, actor) do
-    RelaySession.activate(session, attrs, actor: actor)
-  end
-
-  defp renew_lease_session(session, attrs, opts) do
-    if map_size(attrs) == 0 do
-      {:ok, session}
-    else
-      actor = actor(opts)
-      renewer = Keyword.get(opts, :renewer, &run_renew_lease/3)
-      renewer.(session, attrs, actor)
-    end
-  end
-
-  defp run_renew_lease(session, attrs, actor) do
-    RelaySession.renew_lease(session, attrs, actor: actor)
-  end
-
-  defp close_session_record(session, attrs, opts) do
-    actor = actor(opts)
-    closer = Keyword.get(opts, :closer, &run_close/3)
-    closer.(session, attrs, actor)
-  end
-
-  defp run_close(session, attrs, actor) do
-    RelaySession.mark_closed(session, attrs, actor: actor)
-  end
-
-  defp fail_session_record(session, attrs, opts) do
-    actor = actor(opts)
-    failer = Keyword.get(opts, :failer, &run_fail/3)
-    failer.(session, attrs, actor)
-  end
-
-  defp run_fail(session, attrs, actor) do
-    RelaySession.fail_session(session, attrs, actor: actor)
-  end
-
-  defp activation_attrs(media_ingest_id, attrs) do
-    with {:ok, lease_attrs} <- lease_attrs(attrs) do
-      {:ok, Map.put(lease_attrs, :media_ingest_id, media_ingest_id)}
-    end
-  end
-
-  defp lease_attrs(attrs) when is_map(attrs) do
-    case normalize_lease_expiry(attrs) do
-      {:error, reason} ->
-        {:error, reason}
-
-      {:ok, lease_expires_at} ->
-        viewer_count = normalize_optional_viewer_count(attrs)
-
-        cond do
-          is_nil(lease_expires_at) and is_nil(viewer_count) ->
-            {:ok, %{}}
-
-          is_nil(viewer_count) ->
-            {:ok, %{lease_expires_at: lease_expires_at}}
-
-          is_nil(lease_expires_at) ->
-            {:ok, %{viewer_count: viewer_count}}
-
-          true ->
-            {:ok, %{lease_expires_at: lease_expires_at, viewer_count: viewer_count}}
+            with {:ok, updated} <- result,
+                 {:ok, _retired} <- RelayOwnership.retire_bound(owner, session, opts),
+                 do: {:ok, updated}
+          end
         end
-    end
+      end,
+      opts
+    )
   end
 
-  defp lease_attrs(_attrs), do: {:ok, %{}}
+  defp valid_ingest(id) when is_binary(id) and id != "", do: :ok
+  defp valid_ingest(_), do: {:error, :media_ingest_mismatch}
 
-  defp normalize_lease_expiry(attrs) when is_map(attrs) do
-    cond do
-      match?(%DateTime{}, Map.get(attrs, :lease_expires_at)) ->
-        {:ok, Map.get(attrs, :lease_expires_at)}
+  defp ensure_assignment(session, attrs) do
+    matches? =
+      Enum.all?(@assignment_fields, fn field ->
+        value = Map.get(attrs, field)
+        is_binary(value) and value != "" and value == Map.get(session, field)
+      end)
 
-      is_integer(Map.get(attrs, :lease_expires_at_unix)) ->
-        DateTime.from_unix(Map.get(attrs, :lease_expires_at_unix), :second)
-
-      true ->
-        {:ok, nil}
-    end
+    if matches?, do: :ok, else: {:error, :relay_assignment_mismatch}
   end
 
-  defp normalize_optional_viewer_count(attrs) when is_map(attrs) do
-    value = Map.get(attrs, :viewer_count)
-
-    if is_integer(value) and value >= 0 do
-      value
-    end
+  defp ensure_status(session, statuses) do
+    if session.status in statuses, do: :ok, else: {:error, {:invalid_status, session.status}}
   end
 
-  defp ensure_status(session, allowed_statuses) do
-    if Map.get(session, :status) in allowed_statuses do
-      :ok
-    else
-      {:error, {:invalid_status, Map.get(session, :status)}}
-    end
+  defp ensure_ingest(%{media_ingest_id: stored}, incoming) when stored in [nil, ""] do
+    if is_nil(incoming) or (is_binary(incoming) and incoming != ""),
+      do: :ok,
+      else: {:error, :media_ingest_mismatch}
   end
 
-  defp ensure_media_ingest_id(session, media_ingest_id) do
-    case Map.get(session, :media_ingest_id) do
-      nil -> :ok
-      "" -> :ok
-      ^media_ingest_id -> :ok
-      _other -> {:error, :media_ingest_mismatch}
-    end
-  end
+  defp ensure_ingest(%{media_ingest_id: id}, id), do: :ok
+  defp ensure_ingest(_session, _id), do: {:error, :media_ingest_mismatch}
 
   defp close_reason(session, attrs) when is_map(attrs) do
     existing_reason = existing_close_reason(session)
@@ -283,7 +241,6 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
 
   defp drain_ack_reason?(_value), do: false
 
-  defp actor(opts) do
-    Keyword.get(opts, :actor, SystemActor.system(@default_actor_component))
-  end
+  defp caller(opts),
+    do: [actor: Keyword.get(opts, :actor, SystemActor.system(:camera_relay_session_lifecycle))]
 end

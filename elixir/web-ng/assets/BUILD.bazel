@@ -514,6 +514,13 @@ write_source_files(
 )
 
 js_library(
+    name = "camera_recording_browser_test_lib",
+    testonly = True,
+    srcs = ["camera_recording.playwright.js"],
+    deps = [":node_modules/@playwright/test"],
+)
+
+js_library(
     name = "world_gpu_test_lib",
     srcs = [
         "god_view_world_gpu.playwright.js",

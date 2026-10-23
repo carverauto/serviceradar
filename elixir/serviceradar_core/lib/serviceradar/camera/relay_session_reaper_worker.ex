@@ -19,14 +19,16 @@ defmodule ServiceRadar.Camera.RelaySessionReaperWorker do
     config = Application.get_env(:serviceradar_core, __MODULE__, [])
 
     case RelaySessionReaper.reap(config) do
-      {:ok, %{closed: 0, failed: 0}} ->
+      {:ok, %{closed: 0, failed: 0, consumers: %{deleted: 0, failed: 0}}} ->
         :ok
 
       {:ok, result} ->
         Logger.info("Camera relay session reaper closed stale sessions",
           closed: result.closed,
           skipped: result.skipped,
-          failed: result.failed
+          failed: result.failed,
+          consumers_deleted: result.consumers.deleted,
+          consumers_failed: result.consumers.failed
         )
 
         :ok

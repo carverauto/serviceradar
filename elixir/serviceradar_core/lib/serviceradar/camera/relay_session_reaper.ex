@@ -23,6 +23,8 @@ defmodule ServiceRadar.Camera.RelaySessionReaper do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.IngestOwnership
+  alias ServiceRadar.Camera.RelayOwnership
   alias ServiceRadar.Camera.RelaySession
 
   require Logger
@@ -58,7 +60,8 @@ defmodule ServiceRadar.Camera.RelaySessionReaper do
     lister = Keyword.get(opts, :lister, &list_stale/4)
     batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
 
-    with {:ok, sessions} <- lister.(lease_cutoff, unleased_cutoff, batch_size, actor) do
+    with {:ok, cleanup} <- IngestOwnership.prune_consumers(actor: actor, batch_size: batch_size),
+         {:ok, sessions} <- lister.(lease_cutoff, unleased_cutoff, batch_size, actor) do
       result =
         Enum.reduce(sessions, %{closed: 0, skipped: 0, failed: 0}, fn session, acc ->
           session
@@ -66,7 +69,7 @@ defmodule ServiceRadar.Camera.RelaySessionReaper do
           |> tally(session, acc)
         end)
 
-      {:ok, result}
+      {:ok, Map.put(result, :consumers, cleanup)}
     end
   end
 
@@ -93,6 +96,38 @@ defmodule ServiceRadar.Camera.RelaySessionReaper do
   end
 
   defp close_stale(session, attrs, lease_cutoff, actor) do
+    session.id
+    |> RelayOwnership.with_session(
+      fn owner, current ->
+        result =
+          if current.status == session.status,
+            do: update_stale(current, attrs, lease_cutoff, actor),
+            else: {:skip, :renewed_or_changed}
+
+        case result do
+          {:ok, updated} ->
+            with {:ok, _retired} <- RelayOwnership.retire_bound(owner, current, actor: actor),
+                 do: {:ok, updated}
+
+          {:skip, reason} ->
+            {:ok, {:skip, reason}}
+
+          {:error, _} = error ->
+            error
+        end
+      end,
+      actor: actor
+    )
+    |> case do
+      {:ok, {:skip, reason}} -> {:skip, reason}
+      result -> result
+    end
+  end
+
+  defp update_stale(%{status: status}, _attrs, _cutoff, _actor) when status in [:closed, :failed],
+    do: {:skip, :renewed_or_changed}
+
+  defp update_stale(session, attrs, lease_cutoff, actor) do
     status = session.status
 
     session
