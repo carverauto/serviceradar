@@ -5,8 +5,11 @@ defmodule ServiceRadar.Bench.OwnershipStoreSpikeTest do
   This is an experiment, not the production shard. It measures packed keys,
   32-byte validity intervals, and an interned owner table in a fresh test VM.
   The layouts deliberately omit expiry, snapshot membership, address-presence
-  indexes, owner reclamation and concurrency. A result above 200 bytes per key
-  rejects this layout; a result below it cannot certify the complete store.
+  indexes, owner reclamation and concurrency. The printed `memory_floor_gate`
+  is the capacity verdict, and this test passes when the corpus checks pass.
+  The Phase 0 preflight in
+  `openspec/changes/stream-flow-attribution-via-ownership-index/design.md`
+  owns that verdict.
 
   All workloads are invented. The mixed profile has 90% depth 1, 9% depth 4,
   and 1% depth 32. A reuse stress profile has 70% depth 1, 25% depth 4, and 5%
