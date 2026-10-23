@@ -141,6 +141,41 @@ defmodule ServiceRadar.Infrastructure.Agent do
   @doc "Returns type name for a given type_id"
   def type_name(type_id), do: Map.get(@type_names, type_id, "Unknown")
 
+  @doc """
+  Label shown for an agent.
+
+  The operator-facing display name wins, then the gateway-reported name,
+  then the reported host, then the uid.
+  """
+  def listed_name(agent) when is_map(agent) do
+    first_present([
+      map_field(agent, :display_name),
+      map_field(agent, :name),
+      map_field(agent, :host),
+      map_field(agent, :uid)
+    ])
+  end
+
+  defp map_field(agent, key) do
+    case Map.get(agent, Atom.to_string(key)) do
+      nil -> Map.get(agent, key)
+      value -> value
+    end
+  end
+
+  defp first_present(values) do
+    Enum.find_value(values, "—", &present_label/1)
+  end
+
+  defp present_label(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp present_label(_value), do: nil
+
   @agent_registration_fields [
     :uid,
     :name,
@@ -420,6 +455,14 @@ defmodule ServiceRadar.Infrastructure.Agent do
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
 
+    update :edit_details do
+      description "Set the operator-facing label and note. The uid and enrollment fields stay unchanged."
+
+      accept [:display_name, :description]
+
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
     update :heartbeat do
       description "Update last_seen_time and health status (for connected agents)"
       accept @agent_heartbeat_fields
@@ -640,7 +683,19 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
     attribute :name, :string do
       public? true
-      description "Agent display name"
+      description "Gateway-reported agent name"
+    end
+
+    attribute :display_name, :string do
+      public? true
+      constraints max_length: 200
+      description "Operator-facing label. Does not change the agent uid or enrollment."
+    end
+
+    attribute :description, :string do
+      public? true
+      constraints max_length: 2000
+      description "Operator note about this agent."
     end
 
     attribute :type_id, :integer do
@@ -929,16 +984,6 @@ defmodule ServiceRadar.Infrastructure.Agent do
                   type_id == 9 -> "Remote Access"
                   type_id == 99 -> "Other"
                   true -> "Unknown"
-                end
-              )
-
-    calculate :display_name,
-              :string,
-              expr(
-                cond do
-                  not is_nil(name) -> name
-                  not is_nil(host) -> host
-                  true -> uid
                 end
               )
 

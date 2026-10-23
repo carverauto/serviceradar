@@ -54,7 +54,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:gateway_node_info, nil)
      |> assign(:show_check_modal, false)
      |> assign(:check_form, nil)
-     |> assign(:check_types, @check_types)}
+     |> assign(:check_types, @check_types)
+     |> assign(:details_form, details_form(nil))}
   end
 
   @impl true
@@ -148,8 +149,85 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:config_status, config_status)
      |> assign(:live_agent, live_agent)
      |> assign(:gateway_node_info, gateway_node_info)
+     |> assign(:details_form, details_form(agent))
      |> assign(:srql, %{enabled: false, page_path: "/agents/#{uid}"})}
   end
+
+  @impl true
+  def handle_event("save_agent_details", %{"agent" => params}, socket) do
+    scope = socket.assigns.current_scope
+
+    if RBAC.can?(scope, "settings.edge.manage") do
+      save_agent_details(socket, scope, params)
+    else
+      {:noreply, put_flash(socket, :error, "You cannot edit this agent.")}
+    end
+  end
+
+  defp save_agent_details(socket, scope, params) do
+    case fetch_agent(socket.assigns.agent_uid, scope) do
+      {:ok, %InfrastructureAgent{} = agent} ->
+        submit_agent_details(socket, agent, scope, params)
+
+      {:ok, nil} ->
+        {:noreply, put_flash(socket, :error, "This agent has no stored record to label.")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Agent details could not be saved.")}
+    end
+  end
+
+  defp submit_agent_details(socket, agent, scope, params) do
+    form =
+      AshPhoenix.Form.for_update(agent, :edit_details,
+        domain: ServiceRadar.Infrastructure,
+        as: "agent",
+        scope: scope
+      )
+
+    case AshPhoenix.Form.submit(form, params: params) do
+      {:ok, updated} ->
+        agent_map =
+          socket.assigns.agent
+          |> Map.put("display_name", updated.display_name)
+          |> Map.put("description", updated.description)
+
+        {:noreply,
+         socket
+         |> assign(:agent, agent_map)
+         |> assign(:details_form, details_form(agent_map))
+         |> put_flash(:info, "Agent details saved.")}
+
+      {:error, %AshPhoenix.Form{} = form} ->
+        {:noreply, assign(socket, :details_form, to_form(form))}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Agent details could not be saved.")}
+    end
+  end
+
+  defp fetch_agent(uid, scope) do
+    InfrastructureAgent
+    |> Ash.Query.for_read(:by_uid, %{uid: uid}, scope: scope)
+    |> Ash.read_one(scope: scope)
+  end
+
+  defp details_form(agent) when is_map(agent) do
+    to_form(
+      %{
+        "display_name" => Map.get(agent, "display_name") || "",
+        "description" => Map.get(agent, "description") || ""
+      },
+      as: :agent
+    )
+  end
+
+  defp details_form(_agent) do
+    to_form(%{"display_name" => "", "description" => ""}, as: :agent)
+  end
+
+  defp agent_heading(agent) when is_map(agent), do: InfrastructureAgent.listed_name(agent)
+  defp agent_heading(_agent), do: "Agent Details"
 
   defp lookup_registry_agent(uid) do
     case ServiceRadar.AgentRegistry.lookup(uid) do
@@ -389,7 +467,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-6xl px-4 py-5 sm:px-6">
         <.header>
-          Agent Details
+          {agent_heading(@agent)}
           <:subtitle>
             <span class="font-mono text-xs">{@agent_uid}</span>
           </:subtitle>
@@ -423,6 +501,11 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
             <span class="text-xs text-sr-muted">Agent not currently connected to cluster</span>
           </div>
 
+          <.agent_details_form
+            :if={RBAC.can?(@current_scope, "settings.edge.manage")}
+            form={@details_form}
+            agent_uid={@agent_uid}
+          />
           <.agent_summary agent={@agent} live_agent={@live_agent} />
           <.config_apply_card
             config_status={@config_status}
@@ -540,6 +623,37 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <span class="text-sm font-mono text-xs">{Map.get(@agent, "pid")}</span>
         </div>
       </div>
+
+      <div :if={has_value?(@agent, "description")} class="mt-4 border-t border-sr-line pt-4">
+        <span class="text-xs text-sr-muted uppercase tracking-wider">Description</span>
+        <p class="mt-1 whitespace-pre-wrap text-sm text-sr-ink">{Map.get(@agent, "description")}</p>
+      </div>
+    </div>
+    """
+  end
+
+  attr :form, :map, required: true
+  attr :agent_uid, :string, required: true
+
+  defp agent_details_form(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-sr-line bg-sr-surface p-6">
+      <div class="mb-4">
+        <h2 class="text-sm font-semibold">Label</h2>
+        <p class="mt-1 text-xs text-sr-muted">
+          Shown in the agent list. The agent UID stays <span class="font-mono">{@agent_uid}</span>.
+        </p>
+      </div>
+      <.form
+        for={@form}
+        id="agent-details-form"
+        phx-submit="save_agent_details"
+        class="grid max-w-xl gap-1"
+      >
+        <.input field={@form[:display_name]} type="text" label="Display name" />
+        <.input field={@form[:description]} type="textarea" label="Description" rows="3" />
+        <.ui_button type="submit" size="sm">Save</.ui_button>
+      </.form>
     </div>
     """
   end

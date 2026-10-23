@@ -32,6 +32,8 @@ diesel::table! {
         status -> Text,
         superseded_by -> Nullable<Text>,
         superseded_at -> Nullable<Timestamptz>,
+        display_name -> Nullable<Text>,
+        description -> Nullable<Text>,
     }
 }
 

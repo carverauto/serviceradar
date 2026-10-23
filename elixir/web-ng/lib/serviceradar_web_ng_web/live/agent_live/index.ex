@@ -883,7 +883,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Index do
   end
 
   defp agent_name(agent) do
-    Map.get(agent, "name") || "—"
+    InfrastructureAgent.listed_name(agent)
   end
 
   defp agent_gateway(agent) do

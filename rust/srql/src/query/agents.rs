@@ -688,4 +688,64 @@ mod tests {
             assert_eq!(params.len(), 3, "{field} binds its value: {params:?}");
         }
     }
+
+    #[test]
+    fn agent_query_selects_operator_label_and_note() {
+        // The agent list and detail pages read `in:agents`. The row has to carry
+        // the operator label and note, or those pages fall back to the gateway name.
+        let plan = agent_plan(Vec::new(), true);
+        let (sql, _params) = to_sql_and_params(&plan).expect("agent query");
+
+        assert!(
+            sql.contains("\"display_name\""),
+            "in:agents must select the operator label: {sql}"
+        );
+        assert!(
+            sql.contains("\"description\""),
+            "in:agents must select the operator note: {sql}"
+        );
+    }
+
+    #[test]
+    fn agent_row_json_returns_operator_label_and_note() {
+        let seen = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 10, 22, 17, 11, 46)
+            .single()
+            .expect("timestamp");
+        let row = AgentRow {
+            uid: "agent-1".into(),
+            name: Some("Gateway Reported".into()),
+            type_id: 0,
+            agent_type: None,
+            version: None,
+            vendor_name: None,
+            uid_alt: None,
+            policies: None,
+            gateway_id: None,
+            capabilities: None,
+            host: Some("192.0.2.10".into()),
+            ip: None,
+            first_seen_time: None,
+            last_seen_time: Some(seen),
+            created_time: seen,
+            modified_time: seen,
+            metadata: None,
+            config_source: None,
+            desired_version: None,
+            release_rollout_state: None,
+            last_update_at: None,
+            last_update_error: None,
+            status: "connected".into(),
+            superseded_by: None,
+            superseded_at: None,
+            display_name: Some("North Sensor".into()),
+            description: Some("Synthetic lab note".into()),
+        };
+
+        let json = row.into_json();
+
+        assert_eq!(json["uid"], "agent-1");
+        assert_eq!(json["name"], "Gateway Reported");
+        assert_eq!(json["display_name"], "North Sensor");
+        assert_eq!(json["description"], "Synthetic lab note");
+    }
 }

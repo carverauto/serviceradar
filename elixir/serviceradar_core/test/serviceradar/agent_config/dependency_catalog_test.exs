@@ -245,11 +245,29 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalogTest do
         data: %{uid: "agent-a"}
       }
 
+      label_notification = %Notification{
+        resource: Agent,
+        action: %{type: :update, name: :edit_details},
+        data: %{uid: "agent-a", display_name: "North Sensor"}
+      }
+
       assert [entry] = DependencyCatalog.for_notification(update_notification)
       assert entry.config_type == :agent
       assert DependencyCatalog.affected_agents(entry, update_notification.data) == ["agent-a"]
       assert [] = DependencyCatalog.for_notification(heartbeat_notification)
       assert [] = DependencyCatalog.for_notification(gateway_sync_notification)
+      assert [] = DependencyCatalog.for_notification(label_notification)
+
+      assert {:ok, []} =
+               DependencyDispatcher.dispatch(label_notification,
+                 command_bus: CommandBus,
+                 config_server: ConfigServer,
+                 diagnostics: Diagnostics
+               )
+
+      refute_received {:push_config, "agent-a"}
+      refute_received {:push_config_for_type, :agent}
+      refute_received {:invalidate, :agent}
     end
 
     test "sweep and mapper runtime actions are excluded from config invalidation" do

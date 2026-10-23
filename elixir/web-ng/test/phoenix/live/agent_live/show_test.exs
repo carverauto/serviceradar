@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonStatus
@@ -50,6 +51,45 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
     assert html =~ "Release Management"
     refute html =~ "Roll Out This Agent"
     refute html =~ "Manage Releases"
+    refute html =~ "agent-details-form"
+  end
+
+  test "an edge manager can set a display name and description from the agent page", %{
+    conn: conn
+  } do
+    user = AccountsFixtures.user_fixture(%{role: :admin})
+    unique = System.unique_integer([:positive])
+
+    gateway =
+      gateway_fixture(%{
+        id: "gw-agent-label-#{unique}",
+        component_id: "component-agent-label-#{unique}"
+      })
+
+    agent_fixture(gateway, %{uid: "agent-1", name: "Alpha", host: "192.0.2.10"})
+
+    conn = log_in_user(conn, user)
+    {:ok, lv, _html} = live(conn, ~p"/agents/agent-1")
+
+    assert has_element?(lv, "#agent-details-form")
+    refute has_element?(lv, "input[name='agent[uid]']")
+
+    html =
+      lv
+      |> form("#agent-details-form", %{
+        "agent" => %{"display_name" => "North Sensor", "description" => "Synthetic lab note"}
+      })
+      |> render_submit()
+
+    assert html =~ "North Sensor"
+    assert html =~ "Synthetic lab note"
+    refute has_element?(lv, "input[name='agent[uid]']")
+
+    stored = Ash.get!(Agent, "agent-1", actor: system_actor())
+    assert stored.display_name == "North Sensor"
+    assert stored.description == "Synthetic lab note"
+    assert stored.uid == "agent-1"
+    assert stored.name == "Alpha"
   end
 
   test "operator sees service checks assigned to the agent", %{conn: conn} do
