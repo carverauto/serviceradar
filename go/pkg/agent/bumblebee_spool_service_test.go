@@ -118,7 +118,7 @@ func TestBumblebeeSpoolServiceAddonTelemetryEmitsScanAndFindingEvents(t *testing
 		AgentID:            bumblebeeSpoolTestAgentID,
 		DeviceUID:          "sr:device-1",
 		RunID:              "run-1",
-		ScannerVersion:     "0.1.1",
+		ScannerVersion:     "9.9.9-test",
 		CatalogSnapshotRef: "catalog-sha",
 		State:              "scanned",
 		CoverageState:      "complete",
@@ -166,6 +166,9 @@ func TestBumblebeeSpoolServiceAddonTelemetryEmitsScanAndFindingEvents(t *testing
 		t.Fatalf("scan event activity = %#v/%#v, want 2/Completed", scanEvent["activity_id"], scanEvent["activity_name"])
 	}
 	assertTelemetrySchemaRef(t, batch.Records[0], "ocsf.scan_activity")
+	if got := batch.Records[0].GetMetadata()[sraddon.SignalSchemaMetadataProducerVersion]; got != "9.9.9-test" {
+		t.Fatalf("producer_version = %q, want the scanner-reported build version", got)
+	}
 	assertMetadataVersion(t, scanEvent, "1.9.0-dev")
 	assertServiceRadarMetadata(t, scanEvent, "scan_activity", "sr:device-1")
 
@@ -244,5 +247,35 @@ func assertServiceRadarMetadata(t *testing.T, event map[string]any, ocsfClass st
 	}
 	if device["uid"] != deviceUID {
 		t.Fatalf("device.uid = %#v, want %s", device["uid"], deviceUID)
+	}
+}
+
+func TestBumblebeeSpoolServiceOmitsProducerVersionWhenScannerOmitsVersion(t *testing.T) {
+	payload := bumblebee.ScanPayload{
+		SchemaVersion:      bumblebee.SchemaVersion,
+		AgentID:            bumblebeeSpoolTestAgentID,
+		DeviceUID:          "sr:device-1",
+		RunID:              "run-noversion",
+		State:              "scanned",
+		CoverageState:      "complete",
+		AttemptedRootCount: 1,
+		ScannedRootCount:   1,
+		LastScanAt:         time.Date(2026, 6, 9, 18, 30, 0, 0, time.UTC),
+		Findings:           []bumblebee.Finding{},
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewBumblebeeSpoolService(bumblebeeSpoolTestAgentID, &BumblebeeStatusConfig{SpoolPath: filepath.Join(t.TempDir(), "unused.json")})
+	_, batch := service.AddonTelemetryBatch(&proto.StatusResponse{Available: true, Message: data})
+	require.NotNil(t, batch, "expected telemetry batch")
+	require.NotEmpty(t, batch.Records)
+
+	for _, record := range batch.Records {
+		if got := record.GetMetadata()[sraddon.SignalSchemaMetadataProducerVersion]; got != "" {
+			t.Fatalf("producer_version = %q, want empty when the scanner reports no build version", got)
+		}
 	}
 }

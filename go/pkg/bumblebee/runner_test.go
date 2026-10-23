@@ -1,6 +1,7 @@
 package bumblebee
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -235,5 +236,65 @@ func TestParseFindingsSanitizesSpoolSafeFields(t *testing.T) {
 	}
 	if _, ok := finding.Metadata["uid"]; ok {
 		t.Fatalf("uid leaked into metadata: %#v", finding.Metadata)
+	}
+}
+
+func TestRunDisabledStampsScannerVersion(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Enabled = false
+
+	payload, err := NewRunner(cfg, "0.1.8").Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if payload.State != stateNotScanned {
+		t.Fatalf("state = %q, want %s", payload.State, stateNotScanned)
+	}
+	assertStampedScannerVersion(t, payload, "0.1.8")
+
+	unstamped, err := NewRunner(cfg, "").Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() empty version error = %v", err)
+	}
+	if unstamped.ScannerVersion != "" {
+		t.Fatalf("ScannerVersion = %q, want empty", unstamped.ScannerVersion)
+	}
+	encoded, err := json.Marshal(unstamped)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := decoded["scanner_version"]; ok {
+		t.Fatalf("empty build version must omit scanner_version, got %#v", decoded["scanner_version"])
+	}
+	if got, _ := unstamped.Metadata["upstream_scanner_version"].(string); got != "v0.1.1" {
+		t.Fatalf("upstream_scanner_version = %#v, want v0.1.1", unstamped.Metadata["upstream_scanner_version"])
+	}
+
+	noRoots := DefaultConfig()
+	noRoots.Enabled = true
+	noRoots.IncludeRoot = false
+	noRoots.IncludeHomeRoots = false
+	noRoots.ExplicitRoots = nil
+	zeroRoots, err := NewRunner(noRoots, "0.1.8").Run(context.Background())
+	if err != nil {
+		t.Fatalf("Run() zero roots error = %v", err)
+	}
+	if zeroRoots.State != stateScanFailed || zeroRoots.AttemptedRootCount != 0 {
+		t.Fatalf("zero-root result = state %q attempted %d", zeroRoots.State, zeroRoots.AttemptedRootCount)
+	}
+	assertStampedScannerVersion(t, zeroRoots, "0.1.8")
+}
+
+func assertStampedScannerVersion(t *testing.T, payload *ScanPayload, buildVersion string) {
+	t.Helper()
+	if payload.ScannerVersion != buildVersion {
+		t.Fatalf("ScannerVersion = %q, want %s", payload.ScannerVersion, buildVersion)
+	}
+	if got, _ := payload.Metadata["upstream_scanner_version"].(string); got != "v0.1.1" {
+		t.Fatalf("upstream_scanner_version = %#v, want v0.1.1", payload.Metadata["upstream_scanner_version"])
 	}
 }

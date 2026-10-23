@@ -227,7 +227,7 @@ func (s *BumblebeeSpoolService) bumblebeeScanTelemetryRecord(payload bumblebee.S
 		Payload:              data,
 	}, sraddon.SignalSchemaRef{
 		ProducerID:             bumblebeeTelemetryProducerID,
-		ProducerVersion:        bumblebeeFirstNonEmpty(payload.ScannerVersion, "0.1.1"),
+		ProducerVersion:        payload.ScannerVersion,
 		SchemaID:               "ocsf.scan_activity",
 		SchemaVersion:          "1.0.0",
 		DisplayContractID:      bumblebeeScanActivityDisplayContractID,
@@ -296,7 +296,7 @@ func (s *BumblebeeSpoolService) bumblebeeFindingTelemetryRecord(payload bumblebe
 		Payload:              data,
 	}, sraddon.SignalSchemaRef{
 		ProducerID:             bumblebeeTelemetryProducerID,
-		ProducerVersion:        bumblebeeFirstNonEmpty(payload.ScannerVersion, "0.1.1"),
+		ProducerVersion:        payload.ScannerVersion,
 		SchemaID:               "ocsf.application_security_posture_finding",
 		SchemaVersion:          "1.0.0",
 		DisplayContractID:      bumblebeeFindingDisplayContractID,
