@@ -26,8 +26,8 @@ Preserve that path; live viewing does not establish archive durability or seekin
 | Scope and ownership | Planning PR #5945 merged; operator requested implementation | Runtime and Cloud acceptance remain unchecked |
 | Existing live transport | Operator-confirmed agent/gateway/core live stream | Recorder lifetime, bounded fanout, archive and seek |
 | Local spool and CMAF | RBE: 196 core-elx tests and six media tests, zero failures; format/Credo and Hex checks passed in [35b5d9ce](https://carverauto.buildbuddy.io/invocation/35b5d9ce-82d2-4ebf-8da0-b8e80f715c0c). Independently generated H.264 survives packaging, seal/recovery and independent decoding through committed byte ranges | Archive publication, power-loss/deployment acceptance, synthetic RTSP reconnect and browser seek |
-| Ownership and media | Source audit identified viewer-only teardown, advisory reuse and unfenced relay token; standalone packaging rejects unsupported profiles, clock resets, changed initialization and independent resource bounds | Durable ownership races and independent recorder lifetime |
-| Provider access | Existing full-download egress API rejects partial responses | Explicit authenticated bounded-range contract and actual endpoint capability/security probes |
+| Durable ownership | Ash owner/consumer resources, generated migration and database-time fencing API compile; eight database scenarios are registered in serial integration lane 6 | Execute the actual DB races in the guarded in-cluster workflow; integrate relay lifecycle and independent recorder lifetime |
+| Provider access | Authenticated bounded ranges pass real TLS/CONNECT, response-status, object-identity, byte/header/deadline tests in [eedb3bc5](https://carverauto.buildbuddy.io/invocation/eedb3bc5-2d1a-41ed-8c64-ab3cd22d74a0). Deliberately accepting HTTP 200 failed the control | Actual endpoint capability/security probes, gateway authorization and measured request cost |
 
 Local spool tests cover committed reads after writer exit, interrupted-tail
 recovery, corruption rejection, immutable sealing, stale snapshots, independent
@@ -39,6 +39,11 @@ This establishes fragment random access for the independent decoder; browser
 seeking and transport reconnect remain unproved. No live recording path is
 enabled by this checkpoint. Implementation choices live in
 [choices.md](choices.md).
+
+The ownership database scenarios have been compiled and selected, but their test
+bodies have not yet run. They require the sanctioned in-cluster Core Integration
+workflow; the unit sweep cannot establish those concurrency contracts. The new
+owner and consumer tables are additive and do not yet change live relay behavior.
 
 ## Next agent prompt
 
