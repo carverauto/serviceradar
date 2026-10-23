@@ -3,6 +3,8 @@
 # This is a TinyGo plugin in its own Go module, compiled to wasip1 by
 # //build/wasm_plugins, not by rules_go. Gazelle has no rules_go targets to generate
 # here. See go.mod for the SDK pin.
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
@@ -20,4 +22,21 @@ filegroup(
             "manifest.json",
         ],
     ),
+)
+
+go_library(
+    name = "native_sdk",
+    testonly = True,
+    srcs = glob(["vendor/github.com/carverauto/serviceradar-sdk-go/v2/sdk/*.go"]),
+    importpath = "github.com/carverauto/serviceradar-sdk-go/v2/sdk",
+    visibility = ["//visibility:private"],
+)
+
+go_test(
+    name = "dusk_checker_test",
+    srcs = [
+        "main.go",
+        "main_test.go",
+    ],
+    deps = [":native_sdk"],
 )

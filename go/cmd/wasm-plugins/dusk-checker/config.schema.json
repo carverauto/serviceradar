@@ -7,8 +7,8 @@
     },
     "timeout": {
       "type": "string",
-      "description": "Connection timeout duration (for example 30s, 1m)",
-      "default": "30s"
+      "description": "Total check timeout duration, capped at 8s to stay below the 10s Wasm plugin deadline",
+      "default": "8s"
     },
     "websocket_path": {
       "type": "string",

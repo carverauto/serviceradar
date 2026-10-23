@@ -14,7 +14,9 @@ import (
 )
 
 const (
-	defaultTimeout          = 30 * time.Second
+	defaultTimeout          = 8 * time.Second
+	maxTimeout              = 8 * time.Second
+	maxHandshakeStepTimeout = 2 * time.Second
 	defaultWebSocketPath    = "/on"
 	defaultSubscriptionPath = "/on/blocks/accepted"
 	lengthPrefixSize        = 4
@@ -69,43 +71,128 @@ func run_check() {
 	})
 }
 
+type checkDetails struct {
+	NodeAddress    string   `json:"node_address"`
+	WebSocketURL   string   `json:"websocket_url"`
+	SubscribeURL   string   `json:"subscribe_url"`
+	SessionID      string   `json:"session_id,omitempty"`
+	CompletedSteps []string `json:"completed_steps,omitempty"`
+	FailedStage    string   `json:"failed_stage,omitempty"`
+	Error          string   `json:"error,omitempty"`
+	Timeout        string   `json:"timeout"`
+	BlockHeight    uint64   `json:"block_height,omitempty"`
+	BlockHash      string   `json:"block_hash,omitempty"`
+	BlockTimestamp string   `json:"block_timestamp,omitempty"`
+	BlockAgeSec    float64  `json:"block_age_seconds,omitempty"`
+}
+
+func encodeCheckDetails(details checkDetails) string {
+	data, err := json.Marshal(details)
+	if err != nil {
+		return ""
+	}
+	return string(data)
+}
+
 func runDuskCheck(cfg Config, dial func(string, time.Duration) (webSocketConn, error), client httpDoer) *sdk.Result {
 	if strings.TrimSpace(cfg.NodeAddress) == "" {
 		return sdk.Unknown("Configuration error: node_address is required")
 	}
 
-	timeout := parseTimeout(cfg.Timeout)
+	totalTimeout := parseTimeout(cfg.Timeout)
 	wsURL, subscribeURL, err := duskURLs(cfg)
 	if err != nil {
 		return sdk.Unknown("Configuration error: " + err.Error())
 	}
 
+	deadline := time.Now().Add(totalTimeout)
+	details := checkDetails{
+		NodeAddress:  strings.TrimSpace(cfg.NodeAddress),
+		WebSocketURL: wsURL,
+		SubscribeURL: subscribeURL,
+		Timeout:      totalTimeout.String(),
+	}
+
 	sdk.Log.Debug("Connecting to Dusk RUES stream at " + wsURL)
 
-	conn, err := dial(wsURL, timeout)
+	dialTimeout, err := boundedStepTimeout(deadline, totalTimeout, 3, maxHandshakeStepTimeout)
 	if err != nil {
-		return sdk.Critical(fmt.Sprintf("Failed to connect to Dusk node: %v", err))
+		details.FailedStage = "websocket_connect"
+		details.Error = err.Error()
+		return sdk.Critical(fmt.Sprintf("Failed to connect to Dusk node: %v", err)).
+			WithDetails(encodeCheckDetails(details))
+	}
+
+	conn, err := dial(wsURL, hostStepTimeout(dialTimeout))
+	if err != nil {
+		details.FailedStage = "websocket_connect"
+		details.Error = err.Error()
+		return sdk.Critical(fmt.Sprintf("Failed to connect to Dusk node: %v", err)).
+			WithDetails(encodeCheckDetails(details))
 	}
 	defer conn.Close()
+	details.CompletedSteps = append(details.CompletedSteps, "websocket_connect")
 
-	sessionID, err := readSessionID(conn, timeout)
+	sessionTimeout, err := boundedStepTimeout(deadline, totalTimeout, 3, maxHandshakeStepTimeout)
 	if err != nil {
-		return sdk.Critical(fmt.Sprintf("Failed to read Dusk RUES session id: %v", err))
+		details.FailedStage = "read_session_id"
+		details.Error = err.Error()
+		return sdk.Warning(fmt.Sprintf("Dusk RUES connected, but reading session id timed out: %v", err)).
+			WithDetails(encodeCheckDetails(details))
 	}
 
-	if err := subscribeToBlocks(client, subscribeURL, sessionID, timeout); err != nil {
-		return sdk.Critical(fmt.Sprintf("Failed to subscribe to Dusk accepted blocks: %v", err))
-	}
-
-	block, err := readNextBlock(conn, timeout)
+	sessionID, err := readSessionID(conn, sessionTimeout)
 	if err != nil {
-		return sdk.Critical(fmt.Sprintf("Failed to read Dusk accepted block: %v", err))
+		details.FailedStage = "read_session_id"
+		details.Error = err.Error()
+		return sdk.Warning(fmt.Sprintf("Dusk RUES connected, but failed to read session id: %v", err)).
+			WithDetails(encodeCheckDetails(details))
 	}
+	details.SessionID = sessionID
+	details.CompletedSteps = append(details.CompletedSteps, "read_session_id")
+
+	subTimeout, err := boundedStepTimeout(deadline, totalTimeout, 3, maxHandshakeStepTimeout)
+	if err != nil {
+		details.FailedStage = "subscribe_blocks"
+		details.Error = err.Error()
+		return sdk.Warning(fmt.Sprintf("Dusk RUES session established, but block subscription timed out: %v", err)).
+			WithDetails(encodeCheckDetails(details))
+	}
+
+	if err := subscribeToBlocks(client, subscribeURL, sessionID, subTimeout); err != nil {
+		details.FailedStage = "subscribe_blocks"
+		details.Error = err.Error()
+		return sdk.Warning(fmt.Sprintf("Dusk RUES session established, but failed to subscribe to accepted blocks: %v", err)).
+			WithDetails(encodeCheckDetails(details))
+	}
+	details.CompletedSteps = append(details.CompletedSteps, "subscribe_blocks")
+
+	blockWaitTimeout, err := boundedBlockWaitTimeout(deadline, totalTimeout)
+	if err != nil {
+		details.FailedStage = "read_next_block"
+		details.Error = err.Error()
+		return sdk.Warning(fmt.Sprintf("Dusk RUES subscribed, but no accepted block arrived within check window: %v", err)).
+			WithDetails(encodeCheckDetails(details))
+	}
+
+	block, err := readNextBlock(conn, blockWaitTimeout)
+	if err != nil {
+		details.FailedStage = "read_next_block"
+		details.Error = err.Error()
+		return sdk.Warning(fmt.Sprintf("Dusk RUES subscribed, but no accepted block arrived within check window: %v", err)).
+			WithDetails(encodeCheckDetails(details))
+	}
+	details.CompletedSteps = append(details.CompletedSteps, "read_next_block")
 
 	age := time.Since(block.Timestamp)
 	if age < 0 {
 		age = 0
 	}
+
+	details.BlockHeight = block.Height
+	details.BlockHash = block.Hash
+	details.BlockTimestamp = block.Timestamp.UTC().Format(time.RFC3339)
+	details.BlockAgeSec = age.Seconds()
 
 	summary := fmt.Sprintf(
 		"Block height: %d, hash: %s, timestamp: %s, age: %.1fs",
@@ -117,16 +204,53 @@ func runDuskCheck(cfg Config, dial func(string, time.Duration) (webSocketConn, e
 
 	return sdk.NewResult().
 		WithStatus(sdk.StatusOK).
-		WithSummary(summary)
+		WithSummary(summary).
+		WithDetails(encodeCheckDetails(details))
 }
 
 func parseTimeout(raw string) time.Duration {
 	timeout := defaultTimeout
-	if strings.TrimSpace(raw) == "" {
-		return timeout
+	if trimmed := strings.TrimSpace(raw); trimmed != "" {
+		if parsed, err := time.ParseDuration(trimmed); err == nil && parsed > 0 {
+			timeout = parsed
+		}
 	}
-	if parsed, err := time.ParseDuration(strings.TrimSpace(raw)); err == nil && parsed > 0 {
-		return parsed
+	if timeout > maxTimeout {
+		return maxTimeout
+	}
+	return timeout
+}
+
+func boundedStepTimeout(deadline time.Time, totalTimeout time.Duration, divisor time.Duration, capTimeout time.Duration) (time.Duration, error) {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return 0, fmt.Errorf("check budget exhausted (%s)", totalTimeout)
+	}
+
+	limit := totalTimeout / divisor
+	if limit <= 0 {
+		limit = remaining
+	}
+	if capTimeout > 0 && limit > capTimeout {
+		limit = capTimeout
+	}
+	if remaining < limit {
+		limit = remaining
+	}
+	return limit, nil
+}
+
+func boundedBlockWaitTimeout(deadline time.Time, totalTimeout time.Duration) (time.Duration, error) {
+	remaining := time.Until(deadline)
+	if remaining <= 0 {
+		return 0, fmt.Errorf("check budget exhausted (%s)", totalTimeout)
+	}
+	return remaining, nil
+}
+
+func hostStepTimeout(timeout time.Duration) time.Duration {
+	if timeout > 0 && timeout < time.Millisecond {
+		return time.Millisecond
 	}
 	return timeout
 }
@@ -190,7 +314,7 @@ func cleanPluginPath(raw, fallback string) string {
 
 func readSessionID(conn webSocketConn, timeout time.Duration) (string, error) {
 	buf := make([]byte, 4096)
-	n, err := conn.Recv(buf, timeout)
+	n, err := conn.Recv(buf, hostStepTimeout(timeout))
 	if err != nil {
 		return "", err
 	}
@@ -209,7 +333,7 @@ func subscribeToBlocks(client httpDoer, subscribeURL, sessionID string, timeout 
 			"Rusk-Version":    "1.0",
 			"Rusk-Session-Id": sessionID,
 		},
-		TimeoutMS: int(timeout.Milliseconds()),
+		TimeoutMS: int(hostStepTimeout(timeout).Milliseconds()),
 	})
 	if err != nil {
 		return err
@@ -241,7 +365,7 @@ func readNextBlock(conn webSocketConn, timeout time.Duration) (blockData, error)
 		}
 
 		buf := make([]byte, 64*1024)
-		n, err := conn.Recv(buf, remaining)
+		n, err := conn.Recv(buf, hostStepTimeout(remaining))
 		if err != nil {
 			return blockData{}, err
 		}

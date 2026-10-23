@@ -1,6 +1,6 @@
 id: dusk-checker
 name: Dusk Checker
-version: 1.0.0
+version: 1.0.1
 description: Monitors Dusk blockchain nodes via the RUES accepted-block stream
 entrypoint: run_check
 runtime: wasi-preview1
