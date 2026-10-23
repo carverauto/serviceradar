@@ -198,7 +198,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
   end
 
   defp device_row_is_available(row) when is_map(row) do
-    Map.get(row, "is_available") || Map.get(row, :is_available)
+    case Map.fetch(row, "is_available") do
+      {:ok, value} when is_boolean(value) ->
+        value
+
+      _ ->
+        case Map.fetch(row, :is_available) do
+          {:ok, value} when is_boolean(value) -> value
+          _ -> nil
+        end
+    end
   end
 
   defp device_row_is_available(_), do: nil

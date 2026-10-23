@@ -192,6 +192,8 @@ if db_tests_available? do
         {"availability_source_agent_id", "text"},
         {"management_device_id", "text"},
         {"discovery_sources", "text[]"},
+        {"deleted_at", "timestamptz"},
+        {"source_retired_at", "timestamptz"},
         {"is_available", "boolean"},
         {"metadata", "jsonb"}
       ],

@@ -951,9 +951,9 @@ Each reader below gets one of four dispositions:
 | `index_data/stats.ex`, `index_view/stats.ex:69`, `index_view/filters.ex:15-24` | rollup counts; `is_available:true/false` links | switch to `availability:` links; add an Unknown card |
 | `device_live/availability_components.ex`, `availability_data.ex:154-163` (per-agent tab, primary-source selector) | ledger | **untouched** apart from the added role labels |
 | `device_live/availability_data.ex:104-125` timeline fallback | current bit | switch to state |
-| `device_live/device_tab_runtime.ex:201` | `Map.get(row,"is_available") \|\| Map.get(row,:is_available)` **turns false into nil** | fix |
+| `device_live/device_tab_runtime.ex:200` `device_row_is_available/1` | a boolean `is_available` is kept (string key, then atom); a missing or non-boolean value stays nil | keep |
 | `topology/god_view_stream.ex:2422`, `bitmap_source.ex:233`, `world_health_source.ex:47` | true -> healthy, false -> unavailable, nil -> unknown | keep (already three-valued) |
-| `dashboard_live/data/basic_summaries.ex:12-22` | unavailable = total - available; ignores `source_retired_at` | switch: available, unavailable and unknown from the state rollup; fix the retired filter |
+| `dashboard_live/data/basic_summaries.ex:9-18` | active rows with `deleted_at` and `source_retired_at` null; available is `is_available = true` and unavailable is `is_available = false` (NULL is neither) | switch: available, unavailable and unknown from the state rollup |
 | `dashboard_live/data/service_sparklines.ex:65`, `vulnerable_assets.ex:22` | NULL counts as false | keep |
 | Authored dashboards (`source_queries.ex`, `visuals.ex`, `DashboardPanelChart.jsx`, `DashboardBuilderCanvas.jsx`), `srql/builder.ex`, `srql/catalog.ex` | boolean pivot and allowlists | add `availability`; keep `is_available` |
 | `api/access.ex:166,198`, `controllers/api/device_controller.ex:615,656` | raw value; `status=online/offline` | keep the boolean; add the state, provenance, agent counters and `status=unknown` (read from the state) |

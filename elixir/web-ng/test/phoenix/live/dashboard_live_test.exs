@@ -148,6 +148,68 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert Enum.find(cards, &(&1.title == "Wi-Fi Coverage")).href == "/spatial/field-surveys"
   end
 
+  test "load_inventory excludes source-retired devices and does not count NULL availability as unavailable" do
+    %{device_summary: baseline} = Data.load_inventory(nil)
+    unique = System.unique_integer([:positive])
+    observed_at = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: "sr:dash-summary-avail-#{unique}",
+        type_id: 1,
+        hostname: "site01-avail-#{unique}",
+        is_active: true,
+        is_available: true,
+        first_seen_time: observed_at,
+        last_seen_time: observed_at
+      },
+      %{
+        uid: "sr:dash-summary-unavail-#{unique}",
+        type_id: 1,
+        hostname: "site01-unavail-#{unique}",
+        is_active: true,
+        is_available: false,
+        first_seen_time: observed_at,
+        last_seen_time: observed_at
+      },
+      %{
+        uid: "sr:dash-summary-unknown-#{unique}",
+        type_id: 1,
+        hostname: "site01-unknown-#{unique}",
+        is_active: true,
+        is_available: nil,
+        first_seen_time: observed_at,
+        last_seen_time: observed_at
+      },
+      %{
+        uid: "sr:dash-summary-retired-#{unique}",
+        type_id: 1,
+        hostname: "site01-retired-#{unique}",
+        is_active: true,
+        is_available: false,
+        source_retired_at: observed_at,
+        first_seen_time: observed_at,
+        last_seen_time: observed_at
+      },
+      %{
+        uid: "sr:dash-summary-deleted-#{unique}",
+        type_id: 1,
+        hostname: "site01-deleted-#{unique}",
+        is_active: true,
+        is_available: true,
+        deleted_at: observed_at,
+        first_seen_time: observed_at,
+        last_seen_time: observed_at
+      }
+    ])
+
+    %{device_summary: summary} = Data.load_inventory(nil)
+
+    assert summary.total == baseline.total + 3
+    assert summary.available == baseline.available + 1
+    assert summary.unavailable == baseline.unavailable + 1
+  end
+
   describe "camera pages before a relay session opens" do
     setup %{conn: conn} do
       test_pid = self()
