@@ -59,7 +59,7 @@ defmodule ServiceRadar.AgentConfig.ConfigInstance do
     update :mark_delivered do
       accept []
       change set_attribute(:last_delivered_at, &__MODULE__.utc_now_second/0)
-      change set_attribute(:delivery_count, expr(delivery_count + 1))
+      change atomic_update(:delivery_count, expr(delivery_count + 1))
     end
 
     read :for_agent do
