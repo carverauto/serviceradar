@@ -247,8 +247,8 @@ func TestRunDisabledStampsScannerVersion(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run() error = %v", err)
 	}
-	if payload.State != "not_scanned" {
-		t.Fatalf("state = %q, want not_scanned", payload.State)
+	if payload.State != stateNotScanned {
+		t.Fatalf("state = %q, want %s", payload.State, stateNotScanned)
 	}
 	assertStampedScannerVersion(t, payload, "0.1.8")
 

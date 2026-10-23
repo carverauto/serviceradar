@@ -38,6 +38,7 @@ import (
 const (
 	stateScanned     = "scanned"
 	stateScanFailed  = "scan_failed"
+	stateNotScanned  = "not_scanned"
 	coverageComplete = "complete"
 	coveragePartial  = "partial"
 	coverageFailed   = "failed"
@@ -91,8 +92,8 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	}
 
 	if !r.cfg.Enabled {
-		payload.State = "not_scanned"
-		payload.CoverageState = "not_scanned"
+		payload.State = stateNotScanned
+		payload.CoverageState = stateNotScanned
 		payload.Metadata["disabled"] = true
 		return payload, nil
 	}
