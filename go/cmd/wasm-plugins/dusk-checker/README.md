@@ -26,7 +26,7 @@ Output:
 | Parameter | Description | Example |
 |-----------|-------------|---------|
 | `node_address` | Dusk node RUES endpoint | `localhost:8080` or `ws://node.example.com:8080` |
-| `timeout` | Connection and operation timeout | `30s`, `1m`, `5m` |
+| `timeout` | Total check budget. Default `8s`. Longer values are capped at `8s` so the check returns before the 10s Wasm plugin deadline | `8s` |
 | `websocket_path` | RUES WebSocket path | `/on` |
 | `subscription_path` | RUES accepted-block subscription path | `/on/blocks/accepted` |
 
@@ -34,7 +34,7 @@ Example params JSON:
 ```json
 {
   "node_address": "localhost:8080",
-  "timeout": "30s"
+  "timeout": "8s"
 }
 ```
 
@@ -72,10 +72,10 @@ scopes when approving the package (`approved_permissions`) or on the assignment
 
 | Status | Description |
 |--------|-------------|
-| `OK` | Node is healthy and reachable |
-| `WARNING` | Node is reachable but the latest accepted block is stale |
-| `CRITICAL` | Cannot connect to node or node is unhealthy |
-| `UNKNOWN` | Configuration error or unexpected state |
+| `OK` | Accepted block received within the check budget |
+| `WARNING` | WebSocket connected, then a later RUES step failed (session id, block subscription, or no accepted block before the budget ended). Details include `failed_stage`, `completed_steps`, and `error` |
+| `CRITICAL` | WebSocket connection to the node failed |
+| `UNKNOWN` | Configuration error |
 
 ## Deployment
 
@@ -96,7 +96,7 @@ curl -X POST /api/plugins/assignments \
     "timeout_seconds": 30,
     "params": {
       "node_address": "localhost:8080",
-      "timeout": "30s"
+      "timeout": "8s"
     }
   }'
 ```
@@ -112,7 +112,7 @@ curl -X POST /api/plugins/assignments \
 ### Connection Failures
 
 1. Verify node address is reachable from the agent
-2. Check timeout settings - increase if the node is slow
+2. The check budget defaults to 8s and is capped there. A longer `timeout` does not extend the Wasm deadline
 3. Review firewall rules for WebSocket connections
 4. Verify allowed_ports includes your node's port
 

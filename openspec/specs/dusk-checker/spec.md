@@ -36,13 +36,13 @@ The dusk-checker plugin SHALL subscribe to block acceptance events via the RUES 
 - **AND** the summary indicates connection failure
 
 ### Requirement: Plugin Configuration Schema
-The dusk-checker plugin SHALL accept configuration specifying the node address and connection timeout, matching the existing DuskProfile schema.
+The dusk-checker plugin SHALL accept configuration specifying the node address and a total check timeout. A configured timeout above 8s SHALL be capped at 8s so the check finishes before the Wasm plugin deadline. Empty or invalid timeouts use that same 8s budget.
 
 #### Scenario: Configuration loaded
 - **GIVEN** plugin configuration with `node_address` and `timeout`
 - **WHEN** the plugin executes
 - **THEN** it uses the configured node address for connection
-- **AND** respects the configured timeout for connection attempts
+- **AND** uses the configured timeout as the total check budget, capped at 8s
 
 #### Scenario: Missing configuration
 - **GIVEN** plugin configuration without required `node_address`
