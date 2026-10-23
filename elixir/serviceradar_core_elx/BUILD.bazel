@@ -183,6 +183,7 @@ ex_unit_tests(
         exclude = [
             "test/serviceradar_core_elx/camera_recording/packaging_test.exs",
             "test/serviceradar_core_elx/camera_recording/provider_probe_test.exs",
+            "test/serviceradar_core_elx/camera_recording/rtsp_recording_test.exs",
         ],
     ),
     config_loader = "//build:elixir_test_config_loader.exs",
@@ -222,6 +223,23 @@ ex_unit_tests(
     ],
     test_helper = "test/test_helper.exs",
     deps = [":erlang_app"],
+)
+
+# The 60-second action ceiling also bounds external FFmpeg and Go processes;
+# each capture has its own 20-second Go test deadline and bounded sockets/bytes.
+ex_unit_tests(
+    name = "recording_rtsp_tests",
+    size = "small",
+    timeout = "short",
+    srcs = ["test/serviceradar_core_elx/camera_recording/rtsp_recording_test.exs"],
+    config_loader = "//build:elixir_test_config_loader.exs",
+    data = glob(["config/**", "test/support/**"]) + [
+        "//go/pkg/agent:camera_rtsp_capture_tool",
+        "//third_party/membrane:media_test_tools",
+    ],
+    test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+    target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
 )
 
 # Synthetic bytes cross the production packaging and recovered-spool boundaries

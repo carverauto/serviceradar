@@ -1,10 +1,39 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("//build:benchmarks.bzl", "go_benchmark")
 
 # Read by //build/contracts:agent_release_key_consistency_test, which asserts this key matches the
 # agentReleasePublicKey the control plane gets from the helm charts. This package sets no
 # default_visibility, so without the export the label is private and that test cannot see it.
 exports_files(["release_signing_key.txt"])
+
+# Only the owning recording_rtsp_tests target invokes this package test binary,
+# supplying newly generated H264. Embedding the real library reaches its private
+# RTSP receiver without adding a production API solely for fixture capture.
+go_test(
+    name = "camera_rtsp_capture_test",
+    srcs = ["camera_rtsp_recording_fixture_test.go"],
+    embed = [":agent"],
+    gotags = ["camera_recording_fixture"],
+    tags = ["manual"],
+    deps = [
+        "@com_github_bluenviron_gortsplib_v5//:gortsplib",
+        "@com_github_bluenviron_gortsplib_v5//pkg/base",
+        "@com_github_bluenviron_gortsplib_v5//pkg/description",
+        "@com_github_bluenviron_gortsplib_v5//pkg/format",
+        "@com_github_bluenviron_gortsplib_v5//pkg/format/rtph264",
+        "@com_github_bluenviron_mediacommon_v2//pkg/codecs/h264",
+    ],
+)
+
+copy_file(
+    name = "camera_rtsp_capture_tool",
+    testonly = True,
+    src = ":camera_rtsp_capture_test",
+    out = "camera_rtsp_capture",
+    is_executable = True,
+    visibility = ["//elixir/serviceradar_core_elx:__pkg__"],
+)
 
 go_library(
     name = "agent",
