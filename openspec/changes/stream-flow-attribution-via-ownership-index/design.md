@@ -867,7 +867,7 @@ live validation or complete exposure task 0.3.
 **Current pickup:** Decision 13's bounded source investigation found no acceptable
 closure mechanism under the approved constraints. The [spike findings](closure-spike.md)
 record independent bootstrap, completion-time and terminal-barrier gaps. The
-[executable models](closure-model/README.md) preserve the counterexamples and conditional
+[executable models](../../../build/tla/netprobe_closure/README.md) preserve the counterexamples and conditional
 protocol checks; they do not prove that a kernel barrier exists. The experimental
 collector remains unpublished. Tasks 0.6-0.8 and all measurement gates remain open;
 resolve the source proof and review any required architecture or scope change before

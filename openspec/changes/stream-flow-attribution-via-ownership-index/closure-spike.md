@@ -74,7 +74,7 @@ endpoint and final sequence. These are obligations, not an implemented mechanism
 
 ## Executable evidence and limits
 
-The two bounded [TLA+ models](closure-model/README.md) use the existing remote TLC
+The two bounded [TLA+ models](../../../build/tla/netprobe_closure/README.md) use the existing remote TLC
 test harness. Sixteen checks passed in the [focused run][model-run]. The conditional
 safe models exhausted 185 and 446 distinct states. Named counterexamples cover
 callback-time substitution, startup frames, nested ticket overwrite, retirement

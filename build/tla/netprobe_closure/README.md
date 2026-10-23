@@ -45,10 +45,10 @@ Neither model propagates a rejected interval into later socket state or history,
 and a single C does not describe multiple effects within a call. The terminal
 token abstracts away scalar membership, endpoint/sequence agreement and replay.
 Revoking `accepted` models the current verdict, not undoing actions an earlier
-consumer took. See the [choices audit](../choices.md) for these proof boundaries.
+consumer took. See the [choices audit](../../../openspec/changes/stream-flow-attribution-via-ownership-index/choices.md) for these proof boundaries.
 
 Run all checks remotely from the repository root:
 
 ```text
-bazel test -c opt --config=remote //openspec/changes/stream-flow-attribution-via-ownership-index/closure-model:all --test_output=all
+bazel test -c opt --config=remote //build/tla/netprobe_closure:all --test_output=all
 ```
