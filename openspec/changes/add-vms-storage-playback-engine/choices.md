@@ -2,6 +2,43 @@
 
 ## Sound, medium confidence
 
+### Adopt an existing stream without granting stale recorder rights
+
+When: relay lifecycle integration.
+
+An authenticated stream may regain ownership after its previous owner lease
+expires, but only when its camera/profile has no different binding or competing
+live relay. Adoption increments the owner epoch. A recorder holding the old epoch
+must stop; it cannot silently retrieve the new fence and continue publishing.
+
+The plan required one ingest and preserved live viewing, but did not specify how
+an already running stream joins the new ownership model. This is sound because
+adoption serializes with new opens, validates the persisted assignment and does
+not inherit consumer leases. During a mixed-version rollout, old binaries can
+still create legacy duplicates. Ambiguous authenticated legacy streams may keep
+heartbeating until that ambiguity clears, but cannot admit new consumers or
+recording. Once a current binding exists, it is authoritative. These transitions
+still require the guarded database race tests before deployment.
+
+### Renew viewers in batches and reclaim expired consumers by index
+
+When: relay lifecycle integration.
+
+The authoritative viewer registry renews distinct viewer identities at heartbeat
+cadence, under one owner fence. Each SQL batch contains at most 256 rows; a final
+database-time check rolls back the whole operation if ownership expires. Work
+still grows with admitted viewer count. This pass does not invent a new viewer
+quota or perform a database write for every video frame.
+
+Cleanup reads one indexed batch ordered by expiry and ID, then rechecks each row
+under its owner lock before deletion. Consumers from older epochs remain until
+their bounded expiry, at most five minutes after their last acquisition or
+renewal, without keeping the new owner alive. The plan required bounded cleanup
+but did not select this query shape. It is sound because the expiry index bounds
+candidate retrieval without an unbounded join over old epochs. A registry restart
+still loses its ephemeral viewer membership; rebuilding that membership is a
+separate existing recovery limitation, not speculative replay in this pass.
+
 ### Isolate the A/V diagnostic and bound its cost
 
 When: Stream Doctor feasibility pass.
@@ -66,8 +103,9 @@ cannot reset its generation counter. A process must use a fresh opaque owner
 token on each incarnation; a reused machine name is not a process identity.
 
 This is sound because closure and attachment serialize on one row, while media
-processing stays outside its transaction. Future lifecycle code must reclaim old
-consumer rows in bounded batches and reacquire desired consumers after takeover.
+processing stays outside its transaction. Lifecycle cleanup reclaims expired
+consumer rows in indexed batches; desired consumers must be acquired again after
+takeover.
 
 ### Keep publication transactions short and recheck expiry
 
