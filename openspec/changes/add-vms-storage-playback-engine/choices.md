@@ -2,6 +2,46 @@
 
 ## Sound, medium confidence
 
+### Exercise the real receiver through a bounded test binary
+
+When: synthetic RTSP feasibility pass.
+
+The package test binary reaches the private Go receiver without adding a public
+production API. A real loopback RTSP server supplies newly generated media; the
+owning default RBE ExUnit suite packages the observed chunks and independently
+decodes recovered bytes. Four sequential captures allow at most 90 access units
+and 1 MiB of source each, with 8 MiB total output, finite socket/capture deadlines
+and a 60-second action ceiling. FFmpeg uses one thread.
+
+The plan required synthetic RTSP proof but did not select a cross-language
+harness. This is sound because receiver timebase and sequence are measured,
+including RTP wrap. A failed TCP source is followed by an explicit fresh receiver;
+the harness supplies a new recorder epoch and unknown UTC mapping. This does not
+claim automatic manager reconnect or authenticated gateway recovery. The small
+push-all assertion helper stays local to each independent test module instead of
+making the media generator own packaging execution.
+
+### Probe the provider through the existing release
+
+When: storage endpoint feasibility pass.
+
+The opt-in diagnostic uses the production release with an empty release config,
+so its executable startup needs no database or deployment credentials. Requests
+are bounded to two fresh unversioned buckets, a small object, one multipart
+object and an aborted multipart upload. A durable, directory-synced receipt
+precedes each external mutation. A finite recovery pod reads the receipt from
+the dedicated PVC even when the probe fails. Operator cleanup owns the exact
+fresh resources and verifies their absence; it never adopts existing buckets.
+
+The plan required a live endpoint probe but did not choose the harness or its
+limits. It admits at most 80 probe requests plus 30 cleanup requests, 64 MiB of
+request bodies with 2 MiB reserved for cleanup, and 15 minutes plus three minutes
+of cleanup. The job has a 20-minute deadline, two CPUs, 512 MiB of memory and
+128 MiB ephemeral storage. These are experiment bounds, not performance promises.
+Version drift fails cleanup rather than permitting recursive deletion. The
+diagnostic always reports Cloud readiness false: provider-scoped keys still have
+more authority than a recorder, and policy/Object Lock are separate gates.
+
 ### Adopt an existing stream without granting stale recorder rights
 
 When: relay lifecycle integration.
@@ -183,6 +223,26 @@ support file and directory sync. The guarantee covers the local node only;
 another node cannot recover footage that never reached an archive.
 
 ## Sound, high confidence
+
+### Keep recovery metadata separate from archive verification
+
+When: manifest wire-contract pass.
+
+A versioned manifest describes exactly one sealed single-track baseline H.264
+block. It carries clock provenance, verified-local fragment offsets and hashes,
+and remote object identity receipts. Its relative keys derive only from source,
+profile, recorder epoch and block sequence. Retrying different clock metadata or
+bytes therefore cannot evade a conflict by choosing a new key. Deployment storage
+bindings and credentials stay outside the manifest.
+
+The plan required recovery metadata but left its encoding open. Canonical JSON
+with a 2 MiB ceiling, exact version/field validation and the spool's finite
+absolute limits is sound for the first supported format. Missing motion analysis
+is unknown. Decoding requires an expected persisted identity; it neither grants
+access nor proves remote bytes. The uploader must still verify init, media and
+manifest before the index transition. Recovery after the recorder's release
+needs a separate durable historical block authority; a current recorder lease
+alone cannot authorize it.
 
 ### Admit recording work before mailbox enqueue
 

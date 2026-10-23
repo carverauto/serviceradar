@@ -8,7 +8,7 @@ or live acceptance task below.
 
 - [x] 0.1 Approve consolidated scope, PRD dispositions and cross-repository ownership; leave #4913/#4915 open until acceptance.
 - [x] 0.2 Audit existing relay/agent ownership and #4905 record provenance; specify recorder fencing and one-ingest behavior. See `ownership-provenance.md`; runtime integration and DB races remain separate gates.
-- [ ] 0.3 Pin media libraries; prove H.264 CMAF packaging, init/byte map, keyframe bounds, browser seek and reconnect using synthetic RTSP.
+- [x] 0.3 Pin media libraries; prove baseline H.264 CMAF packaging, init/byte map, keyframe bounds, Chromium seek and an explicitly restarted synthetic RTSP receiver. See the handoff evidence; other codecs and full authenticated deployment recovery remain separate gates.
 - [ ] 0.4 Measure audio/HEVC capability and clock uncertainty; select supported codec/profile/browser matrix and synchronization tolerance.
 - [ ] 0.5 Validate provider endpoint range/checksum/multipart/policy/lock capabilities and private access probes.
 - [ ] 0.6 Measure block/index/WAL/cache/object request costs; choose format bounds and service objectives instead of assuming PRD KPIs.
