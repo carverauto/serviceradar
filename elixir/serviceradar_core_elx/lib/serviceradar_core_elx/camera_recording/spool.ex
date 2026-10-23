@@ -66,33 +66,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
          :ok <- check_binary(init, limits.max_init_bytes),
          {:ok, %File.Stat{type: :directory, mode: mode}} <- File.stat(root),
          true <- Bitwise.band(mode, 0o077) == 0 || {:error, :root_not_private} do
-      block_id = digest(Jason.encode!(Enum.map(@identity_keys, &identity[Atom.to_string(&1)])))
-      directory = Path.join(root, block_id)
-      init_meta = %{"length" => byte_size(init), "sha256" => digest(init)}
-      header = %{"type" => "header", "version" => 1, "identity" => identity, "init" => init_meta}
-      journal = encode_record(header)
-
-      case File.mkdir(directory) do
-        :ok ->
-          case write_created_block(directory, root, init, journal) do
-            :ok ->
-              {:ok,
-               %__MODULE__{
-                 directory: directory,
-                 identity: identity,
-                 init: init_meta,
-                 limits: limits,
-                 hash: :crypto.hash_init(:sha256),
-                 journal_size: byte_size(journal)
-               }}
-
-            {:error, _} = error ->
-              abandon_incomplete_create(root, directory, error)
-          end
-
-        {:error, _} = error ->
-          error
-      end
+      create_block(root, identity, init, limits)
     else
       {:ok, _} -> {:error, :invalid_root}
       {:error, _} = error -> error
@@ -454,33 +428,65 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
     end)
   end
 
+  defp create_block(root, identity, init, limits) do
+    block_id = digest(Jason.encode!(Enum.map(@identity_keys, &identity[Atom.to_string(&1)])))
+    directory = Path.join(root, block_id)
+    init_meta = %{"length" => byte_size(init), "sha256" => digest(init)}
+    header = %{"type" => "header", "version" => 1, "identity" => identity, "init" => init_meta}
+    journal = encode_record(header)
+
+    case File.mkdir(directory) do
+      :ok -> finish_created_block(directory, root, init, journal, identity, init_meta, limits)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp finish_created_block(directory, root, init, journal, identity, init_meta, limits) do
+    case write_created_block(directory, root, init, journal) do
+      :ok ->
+        {:ok,
+         %__MODULE__{
+           directory: directory,
+           identity: identity,
+           init: init_meta,
+           limits: limits,
+           hash: :crypto.hash_init(:sha256),
+           journal_size: byte_size(journal)
+         }}
+
+      {:error, _} = error ->
+        abandon_incomplete_create(root, directory, error)
+    end
+  end
+
   defp write_created_block(directory, root, init, journal) do
     with :ok <- File.chmod(directory, 0o700),
          :ok <- write_new(Path.join(directory, "init.mp4"), init),
          :ok <- write_new(Path.join(directory, "media.m4s"), <<>>),
          :ok <- write_new(Path.join(directory, "journal"), journal),
-         :ok <- sync_directory(directory),
-         :ok <- sync_directory(root) do
-      :ok
+         :ok <- sync_directory(directory) do
+      sync_directory(root)
     end
   end
 
   defp abandon_incomplete_create(root, directory, {:error, reason} = error) do
     case creation_evidence(directory) do
-      :incomplete ->
-        case remove_created_directory(directory) do
-          :ok ->
-            case sync_directory(root) do
-              :ok -> error
-              {:error, sync_reason} -> {:error, {:create_cleanup_failed, reason, sync_reason}}
-            end
+      :incomplete -> remove_owned_incomplete_create(root, directory, reason, error)
+      :preserve -> error
+    end
+  end
 
-          {:error, cleanup} ->
-            {:error, {:create_cleanup_failed, reason, cleanup}}
-        end
+  defp remove_owned_incomplete_create(root, directory, reason, error) do
+    case remove_created_directory(directory) do
+      :ok -> sync_owned_removal(root, reason, error)
+      {:error, cleanup} -> {:error, {:create_cleanup_failed, reason, cleanup}}
+    end
+  end
 
-      :preserve ->
-        error
+  defp sync_owned_removal(root, reason, error) do
+    case sync_directory(root) do
+      :ok -> error
+      {:error, sync_reason} -> {:error, {:create_cleanup_failed, reason, sync_reason}}
     end
   end
 

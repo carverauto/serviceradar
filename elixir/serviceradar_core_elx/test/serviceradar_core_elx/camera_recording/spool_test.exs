@@ -138,7 +138,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.SpoolTest do
     assert Spool.snapshot(sealed).high_water == 2
   end
 
-  test "a failed create removes only its incomplete directory and retry does not stick", %{root: root} do
+  test "a create whose init path exceeds the limit removes only that directory", %{root: root} do
     {:ok, existing} = Spool.create(root, @identity, "init", @limits)
     existing_dir = Spool.snapshot(existing).directory
     block_id = Path.basename(existing_dir)
@@ -146,8 +146,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.SpoolTest do
 
     probe = Path.join(root, "probe")
     max_len = longest_directory(probe)
+
     long_root =
       path_of_length(Path.join(root, "long"), max_len - byte_size(block_id) - 9)
+
     File.mkdir_p!(long_root)
     File.chmod!(long_root, 0o700)
     kept = Path.join(long_root, "kept")
@@ -186,6 +188,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.SpoolTest do
     assert File.read!(Path.join(kept, "note")) == "keep"
     assert directory_bytes(existing_dir) == existing_bytes
     assert {:ok, _recovered} = Spool.recover(existing_dir, @identity, @limits)
+  end
+
+  test "a create whose journal path exceeds the limit removes only that directory", %{root: root} do
+    {:ok, existing} = Spool.create(root, @identity, "init", @limits)
+    existing_dir = Spool.snapshot(existing).directory
+    block_id = Path.basename(existing_dir)
+    existing_bytes = directory_bytes(existing_dir)
+    max_len = longest_directory(Path.join(root, "probe"))
 
     short_root =
       path_of_length(Path.join(root, "short"), max_len - byte_size(block_id) - 8)
