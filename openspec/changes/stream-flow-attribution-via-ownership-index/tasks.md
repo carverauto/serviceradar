@@ -4,6 +4,11 @@
 - [ ] 0.3 Measure replay time of 2 hours (the default stream `max_age`) of synthetic ownership events for one shard (2.5M keys). Gate: ready <= 2 minutes.
 - [ ] 0.4 On the lab, measure distinct full connection-summary keys per host per minute and how often busy hosts reach the cap, and confirm the default per-agent summary cap (2,000 rows per interval) and the summary volume estimate in design.md Decision 9.
 - [ ] 0.5 Record the results in this change's design.md, rounded, with no live hostnames, addresses or cluster names.
+- [ ] 0.6 Implement the approved diagnostics prerequisite (Decisions 11-12): bounded raw observation input before coalescing, namespace-aware census with explicit uncertainty, actual owner identity, and capability/loss accounting. Preserve production attribution delivery.
+- [ ] 0.7 Implement the separate bounded diagnostic projection: listener coverage/promotions, five-second OPEN/CLOSE coalescing, analytic renewals, fifteen-minute history, exact full summary keys with saturation, and completeness recovery.
+- [ ] 0.8 Deliver immutable fixed-set aggregate reports through native add-on metrics and JetStream; verify gap/reset handling using persisted scalar controls and synthetic lifecycle/stream tests. Bump the add-on version and Bazel version together. A lab rollout remains separately scheduled.
+- [x] 0.9 Conduct Decision 13's bounded source investigation and preserve executable counterexamples. Outcome: no acceptable closure mechanism found under the approved constraints; see [closure-spike.md](closure-spike.md). This completes the investigation only, not its closure proof or any measurement gate.
+- [ ] 0.10 Establish Decision 13's bootstrap, completion-time and terminal-barrier proof before accepting diagnostic measurements. Any loader, privilege or eligible-population change requires a concrete reviewed decision. Tasks 0.6-0.8 remain exploratory until this proof is satisfied.
 
 ## 1. Netprobe: ownership leases
 - [ ] 1.1 Extend `proto/agent/netprobe/v1/netprobe.proto`: `lease_op`, `first_seen_unix_nano`, `last_seen_unix_nano`, `ttl_seconds`, `closed` on `FlowAttributionEvent`; `AddressLease` and `snapshot_complete` on `FlowAttributionEventBatch`. Regenerate Go, Rust and Elixir bindings.

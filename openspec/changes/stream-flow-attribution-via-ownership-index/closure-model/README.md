@@ -35,6 +35,16 @@ require reachable acceptance, including publication of an actual operation;
 the deadline target requires refusal while a completed record is still
 unpublished. None supplies a kernel proof by injecting a synthetic receipt.
 
+The two models are checked separately; their composition is unproven. Prefix
+closure alone does not place completion before an interval cutoff. The bounds
+(one startup frame, two operations, two sessions and one latent failure) expose
+minimal counterexamples, not arbitrary concurrency or capacity exhaustion.
+Neither model propagates a rejected interval into later socket state or history,
+and a single C does not describe multiple effects within a call. The terminal
+token abstracts away scalar membership, endpoint/sequence agreement and replay.
+Revoking `accepted` models the current verdict, not undoing actions an earlier
+consumer took. See the [choices audit](../choices.md) for these proof boundaries.
+
 Run all checks remotely from the repository root:
 
 ```text
