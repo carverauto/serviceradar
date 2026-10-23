@@ -252,7 +252,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
           :ok
 
         {:error, _reason} ->
-          :ok
+          :retained
       end
     rescue
       error ->

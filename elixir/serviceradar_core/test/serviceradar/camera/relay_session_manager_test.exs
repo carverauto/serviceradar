@@ -286,4 +286,234 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert {:error, :not_found} =
              RelaySessionManager.request_close(Ecto.UUID.generate(), ctx.opts)
   end
+
+  test "an unambiguous legacy relay closes on the ownership fence", ctx do
+    legacy = Fixtures.legacy(ctx)
+    parent = self()
+
+    assert {:ok, %{status: :closing}} =
+             RelaySessionManager.request_close(legacy.id,
+               actor: ctx.actor,
+               reason: "viewer idle timeout",
+               dispatch_close: fn _, payload, _, _ ->
+                 send(parent, {:stop, payload.relay_session_id})
+                 {:ok, Ecto.UUID.generate()}
+               end
+             )
+
+    assert_receive {:stop, id}
+    assert id == legacy.id
+    owner = Fixtures.owner(ctx)
+    assert owner.state == :closing
+    assert owner.relay_session_id == legacy.id
+    assert owner.epoch == 1
+  end
+
+  test "idle close stops one ambiguous legacy relay without adopting the profile", ctx do
+    first = Fixtures.legacy(ctx)
+    second = Fixtures.legacy(ctx)
+    assert {:error, :ambiguous_live_relays} = Fixtures.open(ctx)
+    parent = self()
+
+    dispatch = fn _, payload, _, _ ->
+      send(parent, {:stop, payload.relay_session_id, payload.reason})
+      {:ok, Ecto.UUID.generate()}
+    end
+
+    retained = renew_viewers(ctx, first, 2)
+
+    assert {:ok, %{id: retained_id, status: :active}} =
+             RelaySessionManager.request_close(retained.id,
+               actor: ctx.actor,
+               reason: "viewer idle timeout",
+               dispatch_close: dispatch
+             )
+
+    assert retained_id == first.id
+    refute_received {:stop, _, _}
+    assert {:ok, %{status: :active, viewer_count: 2}} = Fixtures.reload(ctx, first)
+
+    ready = renew_viewers(ctx, first, 0)
+
+    assert {:ok, %{status: :closing}} =
+             RelaySessionManager.request_close(ready.id,
+               actor: ctx.actor,
+               reason: "viewer idle timeout",
+               dispatch_close: dispatch
+             )
+
+    assert_receive {:stop, stopped_id, "viewer idle timeout"}
+    assert stopped_id == first.id
+    refute_received {:stop, _, _}
+
+    assert {:ok, %{status: :closing}} =
+             RelaySessionManager.request_close(first.id,
+               actor: ctx.actor,
+               reason: "viewer idle timeout",
+               dispatch_close: fn _, _, _, _ -> flunk("closing relay dispatched another stop") end
+             )
+
+    assert {:ok, %{status: :active}} = Fixtures.reload(ctx, second)
+    assert {:error, :ownership_lost} = IngestOwnership.for_relay(first.id, ctx.opts)
+    assert {:error, :ownership_lost} = IngestOwnership.for_relay(second.id, ctx.opts)
+    owner = Fixtures.owner(ctx)
+    assert owner.state == :released
+    assert is_nil(owner.relay_session_id)
+    assert owner.epoch == 0
+
+    assert {:ok, reused} =
+             Fixtures.open(ctx,
+               dispatch_open: fn _, _, _, _ ->
+                 flunk("the remaining relay dispatched another pull")
+               end
+             )
+
+    assert reused.id == second.id
+    assert {:ok, %{relay_session_id: bound_id, state: :active}} =
+             IngestOwnership.for_relay(second.id, ctx.opts)
+    assert bound_id == second.id
+  end
+
+  test "non-force close retains an unexpired consumer across ambiguous legacy relays", ctx do
+    {:ok, opening} = Fixtures.open(ctx)
+    {:ok, owned} = Fixtures.activate(ctx, opening, "media-owned")
+    {:ok, lease} = IngestOwnership.for_relay(owned.id, ctx.opts)
+
+    {:ok, _recorder} =
+      IngestOwnership.acquire_consumer(lease, :recorder, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    other = Fixtures.legacy(ctx)
+    Fixtures.expire_owner(ctx, Fixtures.owner(ctx))
+    parent = self()
+
+    dispatch = fn _, payload, _, _ ->
+      send(parent, {:stop, payload.relay_session_id})
+      {:ok, Ecto.UUID.generate()}
+    end
+
+    assert {:ok, %{status: :active}} =
+             RelaySessionManager.request_close(owned.id,
+               actor: ctx.actor,
+               reason: "viewer idle timeout",
+               dispatch_close: dispatch
+             )
+
+    refute_received {:stop, _}
+    assert {:ok, %{status: :active}} = Fixtures.reload(ctx, owned)
+    assert {:ok, %{status: :active}} = Fixtures.reload(ctx, other)
+    retained = Fixtures.owner(ctx)
+    assert retained.state == :active
+    assert retained.relay_session_id == owned.id
+    refute DateTime.after?(retained.lease_expires_at, retained.database_now)
+
+    assert {:ok, %{status: :closing}} =
+             RelaySessionManager.request_close(owned.id,
+               actor: ctx.actor,
+               force: true,
+               reason: "operator stop",
+               dispatch_close: dispatch
+             )
+
+    assert_receive {:stop, stopped_id}
+    assert stopped_id == owned.id
+    refute_received {:stop, _}
+    assert {:ok, %{status: :active}} = Fixtures.reload(ctx, other)
+    forced = Fixtures.owner(ctx)
+    assert forced.state == :active
+    assert forced.relay_session_id == owned.id
+    assert forced.epoch == retained.epoch
+  end
+
+  test "concurrent idle closes of one ambiguous legacy relay dispatch a single stop", ctx do
+    first = Fixtures.legacy(ctx)
+    second = Fixtures.legacy(ctx)
+    parent = self()
+
+    opts = [
+      actor: ctx.actor,
+      reason: "viewer idle timeout",
+      dispatch_close: fn _, payload, _, _ ->
+        send(parent, {:stop, payload.relay_session_id})
+        {:ok, Ecto.UUID.generate()}
+      end
+    ]
+
+    tasks =
+      for _ <- 1..4, do: Task.async(fn -> RelaySessionManager.request_close(first.id, opts) end)
+
+    results = Enum.map(tasks, &Task.await(&1, 10_000))
+    assert Enum.all?(results, &match?({:ok, %{status: :closing}}, &1))
+    assert_receive {:stop, id}
+    assert id == first.id
+    refute_received {:stop, _}
+    assert {:ok, %{status: :active}} = Fixtures.reload(ctx, second)
+    owner = Fixtures.owner(ctx)
+    assert owner.state == :released
+    assert is_nil(owner.relay_session_id)
+  end
+
+  test "a failed legacy stop cannot retire the replacement relay", ctx do
+    first = renew_viewers(ctx, Fixtures.legacy(ctx), 2)
+    second = Fixtures.legacy(ctx)
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        RelaySessionManager.request_close(first.id,
+          actor: ctx.actor,
+          force: true,
+          reason: "operator stop",
+          dispatch_close: fn _, payload, _, _ ->
+            send(parent, {:close_waiting, payload.relay_session_id})
+
+            receive do
+              :fail -> {:error, :delivery_failed}
+            after
+              10_000 -> {:error, :test_timeout}
+            end
+          end
+        )
+      end)
+
+    assert_receive {:close_waiting, captured_id}, 10_000
+    assert captured_id == first.id
+    assert {:ok, %{status: :closing}} = Fixtures.reload(ctx, first)
+    assert {:ok, %{status: :active}} = Fixtures.reload(ctx, second)
+    reserved = Fixtures.owner(ctx)
+    assert reserved.state == :released
+    assert is_nil(reserved.relay_session_id)
+
+    assert {:ok, %{status: :closed}} =
+             RelaySessionLifecycle.close_session(
+               second.id,
+               second.media_ingest_id,
+               %{close_reason: "agent stopped relay"},
+               ctx.opts
+             )
+
+    assert {:ok, replacement} = Fixtures.open(ctx)
+    assert replacement.id != captured_id
+    send(task.pid, :fail)
+    assert {:error, :delivery_failed} = Task.await(task, 10_000)
+    assert {:ok, %{status: :failed}} = Fixtures.reload(ctx, first)
+    assert {:ok, %{status: :opening}} = Fixtures.reload(ctx, replacement)
+    assert {:ok, owner} = IngestOwnership.for_relay(replacement.id, ctx.opts)
+    assert owner.relay_session_id == replacement.id
+    assert owner.state == :active
+    assert {:error, :ownership_lost} = IngestOwnership.for_relay(first.id, ctx.opts)
+  end
+
+  defp renew_viewers(ctx, session, count) do
+    {:ok, updated} =
+      RelaySession.renew_lease(
+        session,
+        %{
+          viewer_count: count,
+          lease_expires_at: DateTime.shift(DateTime.utc_now(), second: 30)
+        },
+        ctx.opts
+      )
+
+    updated
+  end
 end

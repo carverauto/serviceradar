@@ -5,6 +5,11 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   Reservation commits before the agent command is sent. Viewer disconnects and
   idle timeouts close only when no current consumer lease remains. Explicit
   operator stops can use `force: true` to invalidate all consumers.
+
+  When several pre-existing relays are still live, close reserves that exact
+  session without adopting the profile or retiring a different owner. A
+  non-force close still waits while that session has viewers or the profile
+  epoch has an unexpired consumer.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -129,27 +134,54 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
        when status in [:closing, :closed, :failed], do: {:ok, {:retain, session}}
 
   defp reserve_close(owner, session, reason, opts, write_opts) do
-    with {:ok, owner} <- RelayOwnership.adopt(owner, session, write_opts) do
-      close =
-        cond do
-          force_close?(opts) -> IngestOwnership.begin_close(owner, write_opts)
-          soft_viewer_release?(reason) and session.viewer_count > 0 -> {:error, :consumers_active}
-          true -> IngestOwnership.begin_idle_close(owner, write_opts)
-        end
+    case RelayOwnership.adopt(owner, session, write_opts) do
+      {:ok, owner} ->
+        fenced_close(owner, session, reason, opts, write_opts)
 
-      case close do
-        {:ok, _closing} ->
-          with {:ok, updated} <-
-                 RelaySession.request_close(session, %{close_reason: reason}, write_opts),
-               do: {:ok, {:close, updated}}
+      {:error, :ambiguous_live_relays} ->
+        legacy_session_close(owner, session, reason, opts, write_opts)
 
-        {:error, :consumers_active} ->
-          {:ok, {:retain, session}}
-
-        {:error, _} = error ->
-          error
-      end
+      {:error, _} = error ->
+        error
     end
+  end
+
+  defp fenced_close(owner, session, reason, opts, write_opts) do
+    close =
+      cond do
+        force_close?(opts) -> IngestOwnership.begin_close(owner, write_opts)
+        soft_viewer_release?(reason) and session.viewer_count > 0 -> {:error, :consumers_active}
+        true -> IngestOwnership.begin_idle_close(owner, write_opts)
+      end
+
+    case close do
+      {:ok, _closing} -> commit_session_close(session, reason, write_opts)
+      {:error, :consumers_active} -> {:ok, {:retain, session}}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp legacy_session_close(owner, session, reason, opts, write_opts) do
+    cond do
+      force_close?(opts) ->
+        commit_session_close(session, reason, write_opts)
+
+      session.viewer_count > 0 ->
+        {:ok, {:retain, session}}
+
+      true ->
+        case IngestOwnership.require_idle(owner, write_opts) do
+          :ok -> commit_session_close(session, reason, write_opts)
+          {:error, :consumers_active} -> {:ok, {:retain, session}}
+          {:error, _} = error -> error
+        end
+    end
+  end
+
+  defp commit_session_close(session, reason, write_opts) do
+    with {:ok, updated} <-
+           RelaySession.request_close(session, %{close_reason: reason}, write_opts),
+         do: {:ok, {:close, updated}}
   end
 
   defp dispatch_reserved_close(session, reason, requester, opts, write_opts) do

@@ -448,7 +448,8 @@ defmodule ServiceRadar.Camera.IngestOwnership do
     end
   end
 
-  defp require_idle(owner, opts) do
+  @doc "The current epoch has no unexpired consumer. Does not change the owner."
+  def require_idle(owner, opts \\ []) do
     ConsumerLease
     |> Ash.Query.filter(
       ingest_owner_id == ^owner.id and owner_epoch == ^owner.epoch and
