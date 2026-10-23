@@ -1,6 +1,6 @@
 ## Context
 
-Extend `add-camera-recording-storage` with optional local buffering and continuous
+Extend `add-vms-storage-playback-engine` with optional local buffering and continuous
 archival. This change owns offline admission and archive receipts, not the
 central playback UI or retention holds.
 

@@ -4,7 +4,7 @@ Tracking issue: [#4914](https://github.com/carverauto/serviceradar/issues/4914).
 
 ## Why
 
-Extend the recording foundation in `add-camera-recording-storage` to survive a configured disconnected interval. JetStream Object Store is a finite local transfer buffer; permanent S3-compatible storage is the archive. This is not part of #4774 acceptance.
+Extend the recording foundation in `add-vms-storage-playback-engine` to survive a configured disconnected interval. JetStream Object Store is a finite local transfer buffer; permanent S3-compatible storage is the archive. This is not part of #4774 acceptance.
 
 ## What Changes
 
@@ -20,7 +20,7 @@ Related workstreams have separate proposals and acceptance checklists.
 
 ## Impact
 
-Edge recorder/archiver, local JetStream Object Store and S3 receipt reconciliation. Depends on add-camera-recording-storage, not on central playback availability. Does not block #4774.
+Edge recorder/archiver, local JetStream Object Store and S3 receipt reconciliation. Depends on add-vms-storage-playback-engine, not on central playback availability. Does not block #4774.
 
 Proposal and tracking only; no deployment, data ingestion or recording is enabled
 by this documentation change.

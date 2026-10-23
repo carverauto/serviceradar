@@ -1,0 +1,156 @@
+# ServiceRadar Cloud resource contract
+
+## Ownership and observed reuse points
+
+The SaaS control plane is the separate
+[serviceradar-control repository](https://github.com/carverauto/serviceradar-control).
+All new issues and PRs use GitHub. Each provisioned ServiceRadar runtime remains
+single-deployment; control-plane account/environment identity is not a new tenant
+column or routing mode in the runtime.
+
+Inspection baseline: control-plane commit
+`9e5a47aefa6529092f7cf2102ad59e6754303fee` (local checkout, not claimed latest).
+Relevant existing code:
+
+| Component under lib/serviceradar_control/cloud/ | Existing responsibility | VMS extension |
+| --- | --- | --- |
+| provisioning_run/steps/setup_backup_storage.ex | Resumable backup bucket/key provisioning and Secret materialization | Separate media-purpose provisioning step; reuse orchestration patterns, never backup buckets |
+| provider/akamai/storage.ex | Object bucket allocation, bucket-scoped keys, inventory and deletion | Read/write role separation, bucket security reconciliation and preservation-aware deletion |
+| object_storage_credential_custody.ex and its open_bao backend | Custody references; secret bytes excluded from chart values/metadata | Independent recorder, reader and lifecycle credential generations |
+| tenant_runtime_values.ex and tenant_launch_preflight.ex | Runtime values and launch gates | Versioned VMS configuration and capability probes |
+| tenant_add_on_quota.ex and self_service_add_ons/quota_gate.ex | Add-on admission | Recording, storage, playback and GPU budgets |
+| provisioning_run/steps/deprovision_resources.ex | Environment cleanup | Drain/hold/export decisions before media deletion |
+
+The current Akamai key creation requests bucket `read_write`; that is not proof
+of the narrower recorder/playback/delete roles needed here. Existing generic
+bucket deletion purges objects, so VMS resources must be classified and excluded
+until their preservation workflow authorizes deletion.
+
+## C1. Provisioning and private storage
+
+Before enabling hosted recording, the control plane creates or explicitly adopts
+purpose-scoped recording, evidence and derivative storage for one environment.
+Keep it separate from CNPG backups and StarRocks storage. Store provider IDs,
+region/endpoint, ownership, purpose, policy revision, lifecycle/lock mode, quota
+and credential references; never raw secrets.
+
+Use persisted idempotent provisioning steps: allocate, persist IDs, configure
+security, create/custody keys, materialize runtime references, probe, mark ready.
+Retries after provider success or lost responses reconcile ownership before
+adoption. Rollback preserves data and reports incomplete allocations as managed
+cleanup work. A user naming an existing bucket is not authorization to adopt it.
+
+Security readiness requires observed negative and positive probes:
+
+- Anonymous list/read/write denied; no public ACL, website hosting or wildcard
+  allow. TLS required and encryption-at-rest support verified for the chosen
+  provider/endpoint and deployment policy.
+- Recorder can write only its media purpose; playback cannot upload/delete;
+  deletion credentials are unavailable to recorder and GPU workers. If provider
+  policy cannot express a role, use a mediating service and fail closed on
+  unsupported direct access.
+- Deny access across environments and reject arbitrary endpoints. Protect against
+  SSRF and redirect-based escape. Browser CORS permits only configured origins,
+  GET/HEAD and needed range headers; CORS is not authorization.
+- Reconcile policies without destroying provider-managed limited-key statements.
+  Detect drift and stop unsafe admission; never silently make a bucket public.
+- Rotate credentials in overlapping generations: install, probe, switch, observe
+  readers/writers, revoke old generation; do not strand multipart recovery.
+- Evidence storage is provisioned with its explicit retention/lock capability.
+  Native Object Lock is a creation-time/provider gate; no retroactive assumption.
+
+Service-to-service S3/NATS/worker credentials use existing infrastructure custody
+and Kubernetes Secret references. Monitored camera credentials stay in the
+runtime unified credential inventory, not SaaS provisioning records.
+
+## C2. Versioned runtime configuration and admission
+
+A versioned configuration document contains purpose-specific endpoint/bucket
+references, secret references and generations, archive format support, retention
+policy, local spool/cache resource profile, enabled media capabilities, GPU
+placement/queue policy, and budgets. The control plane sends desired revision;
+runtime reports applied revision and measured capability/readiness. Incompatible
+revisions fail closed without disrupting already admitted live viewers.
+
+Budgets cover admitted cameras and aggregate bitrate, spool bytes/time, cache
+bytes, pending archive age, archive/evidence/export storage, read/egress
+concurrency, GPU jobs/streams/memory and inference rate. A full budget rejects or
+degrades optional work explicitly; it cannot evict unarchived media or starve
+telemetry/control. Define metering units and deduplication before billing;
+provider inventory is reconciled against application usage.
+
+Hosted enablement is separate from testing with operator-created resources.
+Community installations can supply the same validated storage/configuration
+contract without the SaaS control plane. Unsupported optional features stay off.
+
+## C3. GPU placement and environment isolation
+
+First delivery uses dedicated worker identity and queue permissions per runtime
+deployment. A physical GPU node pool may host multiple workloads only with an
+explicit scheduling and security policy; do not expose one broad worker key or
+join unrelated runtime BEAM clusters. Shared cross-environment GPU service design
+is a future hardening/cost decision, not implied by a Kubernetes node selector.
+
+Provision/select capable node pools using labels, taints/tolerations, device-plugin
+resources and availability checks. Validate CPU architecture, CUDA/driver/runtime,
+model backend, memory, decode/encode support and container image digest on the
+actual hardware. GPU presence alone proves none of those. No hostnames from a
+live cluster are baked into charts.
+
+The existing [multi-pool commercial work #112](https://github.com/carverauto/serviceradar-control/issues/112)
+is a dependency for pricing/authorizing separate hosted GPU pools, not a reason
+to duplicate provider pool provisioning. Coordinate TURN/network usage with
+[control-plane #156](https://github.com/carverauto/serviceradar-control/issues/156).
+Ephemeral viewer jobs and durable analysis/export jobs have different capacity
+classes so a bulk transcript queue cannot exhaust interactive playback.
+
+## C4. Suspend, recover and terminate
+
+Suspend first stops new recording and optional GPU admission, then seals/drains
+pending work according to policy. Retained footage, evidence and billing/storage
+state remain discoverable. Resumption reconciles ownership and credentials;
+suspension is not deletion.
+
+Termination requires a recorded disposition for ordinary footage, evidence holds,
+active exports, replicas/versions, manifests, derived artifacts and search
+projections. Preservation obligations can block deletion. The generic provider
+purge must not bypass that decision. Verify object/version absence, multipart
+cleanup, key revocation and provider inventory before declaring completion.
+Failures remain resumable and visible; do not delete the only inventory first.
+
+Recovery verifies CNPG index/hold restoration against immutable archive manifests.
+Index recovery does not imply recovery of provisional local bytes. Reconcile
+storage location and data residency when restoring into another environment.
+
+## Validation environment and handoff
+
+Use the operator-designated existing Kubernetes test namespace and RTSP source
+for a staged live acceptance pass after synthetic tests. The current session
+authorizes `linode-cli` creation of dedicated test buckets for that future work.
+Record concrete cluster, namespace, camera, GPU nodes, bucket IDs and credentials
+only in private operational state; never commit them as fixtures/examples.
+
+Test bucket creation starts with explicit region, purpose, private policy and a
+cleanup owner. Confirm negative access probes before sending footage. Cloud
+provider administration stays operator-side; production provisioning uses the
+provider adapter. Testing must prove teardown of test-owned objects/keys and
+must preserve unrelated resources.
+
+The cloud work is divided into three separately reviewable issues:
+
+- [C1 provisioning/security: #182](https://github.com/carverauto/serviceradar-control/issues/182).
+- [C2/C4 quotas, metering and lifecycle: #183](https://github.com/carverauto/serviceradar-control/issues/183).
+- [C3 GPU placement and isolation: #184](https://github.com/carverauto/serviceradar-control/issues/184).
+
+Each issue requires a
+control-plane OpenSpec and review before implementation. This document is the
+cross-repository API contract, not a control-plane code change.
+
+## Primary references
+
+- [Akamai bucket policies](https://techdocs.akamai.com/cloud-computing/docs/define-access-and-permissions-using-bucket-policies):
+  reconcile limited-key policies rather than replacing them blindly.
+- [Akamai Object Lock](https://techdocs.akamai.com/cloud-computing/docs/protect-data-with-object-lock):
+  verify creation-time configuration and version-aware behavior.
+- [Akamai limits](https://techdocs.akamai.com/cloud-computing/docs/object-storage-product-limits):
+  account/endpoint quotas and multipart limits are capability inputs.

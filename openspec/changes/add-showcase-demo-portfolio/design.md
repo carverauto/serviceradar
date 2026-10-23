@@ -523,11 +523,11 @@ and #4847 stay in this portfolio. Topology location support stays in #4774.
 
 - `add-spatial-observation-ingestion`: atomic wire contract and SDK/host admission.
 - `add-spatial-history-projection`: JetStream history, current projection and reads.
-- `add-camera-recording-storage`: shared ingest and verified segment publication.
+- `add-vms-storage-playback-engine`: shared ingest, packed recording, authorized
+  playback, retention, holds, exports and Cloud/GPU contracts (#4913 and #4915).
 - `add-edge-recording-archive`: offline JetStream buffering and continuous S3 drain.
-- `add-recording-playback-lifecycle`: authorized replay, retention, holds and exports.
 
-Each has its own issue, requirements and acceptance. None blocks #4774. SCRITH
+Each has explicit tracking issues, requirements and acceptance. None blocks #4774. SCRITH
 ontology/causal implementation remains excluded.
 
 ## Risks / Trade-offs
