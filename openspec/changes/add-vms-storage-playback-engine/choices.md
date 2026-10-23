@@ -292,10 +292,11 @@ is replaced. Provisioning and verifying that mapping is a deployment prerequisit
 this code does not provision a volume or enable recording.
 
 The claim retains its epoch and counter, not a historical block catalogue.
-Recovery of a previous epoch, archive upload/publication after recorder release,
-per-block storage-location history, rotation, and reclamation still need their
-own durable authorization and state transitions. A new claim cannot reuse its
-predecessor's token or silently adopt old local bytes.
+Frozen descriptors and their upload leases now live on the block row; see
+[Historical recording block authority](block-authority.md). Archive
+upload and publication, object-location history, rotation, and reclamation
+still need their own durable authorization and state transitions. A new claim
+cannot reuse its predecessor's token or silently adopt old local bytes.
 
 ### Admit recording work before mailbox enqueue
 
