@@ -154,3 +154,127 @@ func TestRunDuskCheckUsesRUESHandshakeAndSubscription(t *testing.T) {
 		t.Fatalf("summary = %q", result.Summary)
 	}
 }
+
+type slowStreamWS struct {
+	sessionID    string
+	sessionDelay time.Duration
+	sentSession  bool
+	hostDeadline time.Time
+	recvTimeouts []time.Duration
+	closed       bool
+}
+
+func (s *slowStreamWS) Recv(buf []byte, timeout time.Duration) (int, error) {
+	s.recvTimeouts = append(s.recvTimeouts, timeout)
+	if !s.sentSession {
+		s.sentSession = true
+		if err := sleepWithinHostDeadline(s.sessionDelay, timeout, s.hostDeadline); err != nil {
+			return 0, err
+		}
+		copy(buf, s.sessionID)
+		return len(s.sessionID), nil
+	}
+
+	// Simulate an accepted-block stream that produces no block within the call's timeout.
+	if err := sleepWithinHostDeadline(timeout, timeout, s.hostDeadline); err != nil {
+		return 0, err
+	}
+	return 0, errors.New("websocket_recv: i/o timeout")
+}
+
+func (s *slowStreamWS) Close() error {
+	s.closed = true
+	return nil
+}
+
+func sleepWithinHostDeadline(stepDelay, callTimeout time.Duration, hostDeadline time.Time) error {
+	wait := stepDelay
+	if callTimeout > 0 && callTimeout < wait {
+		wait = callTimeout
+	}
+	remainingHost := time.Until(hostDeadline)
+	if wait >= remainingHost {
+		if remainingHost > 0 {
+			time.Sleep(remainingHost)
+		}
+		return errors.New("module closed with context deadline exceeded")
+	}
+	if wait > 0 {
+		time.Sleep(wait)
+	}
+	return nil
+}
+
+func TestRunDuskCheckSlowDependencyProducesTimelyWarningWithDetails(t *testing.T) {
+	hostTimeout := 160 * time.Millisecond
+	hostDeadline := time.Now().Add(hostTimeout)
+
+	ws := &slowStreamWS{
+		sessionID:    "session-slow-456",
+		sessionDelay: 25 * time.Millisecond,
+		hostDeadline: hostDeadline,
+	}
+
+	var dialTimeout time.Duration
+	var subTimeout time.Duration
+	httpClient := &fakeHTTP{}
+
+	start := time.Now()
+	result := runDuskCheck(
+		Config{NodeAddress: "localhost:8080", Timeout: "120ms"},
+		func(_ string, timeout time.Duration) (webSocketConn, error) {
+			dialTimeout = timeout
+			if err := sleepWithinHostDeadline(25*time.Millisecond, timeout, hostDeadline); err != nil {
+				return nil, err
+			}
+			return ws, nil
+		},
+		slowHTTPDoerFunc(func(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+			subTimeout = time.Duration(req.TimeoutMS) * time.Millisecond
+			if err := sleepWithinHostDeadline(25*time.Millisecond, subTimeout, hostDeadline); err != nil {
+				return nil, err
+			}
+			return httpClient.Do(req)
+		}),
+	)
+	elapsed := time.Since(start)
+
+	if elapsed >= hostTimeout || strings.Contains(result.Summary, "module closed with context deadline exceeded") {
+		t.Fatalf("runDuskCheck exceeded host deadline (%v >= %v): status=%s summary=%q", elapsed, hostTimeout, result.Status, result.Summary)
+	}
+	if got := parseTimeout(""); got >= 10*time.Second {
+		t.Fatalf("default timeout %v must stay below the 10s Wasm plugin deadline", got)
+	}
+	if got := parseTimeout("30s"); got >= 10*time.Second {
+		t.Fatalf("configured 30s timeout %v must be capped below the 10s Wasm plugin deadline", got)
+	}
+	if dialTimeout <= 0 || dialTimeout >= 120*time.Millisecond {
+		t.Fatalf("dial timeout %v was not bounded below total check budget", dialTimeout)
+	}
+	if subTimeout <= 0 || subTimeout >= 120*time.Millisecond {
+		t.Fatalf("subscribe timeout %v was not bounded below total check budget", subTimeout)
+	}
+	for i, rt := range ws.recvTimeouts {
+		if rt <= 0 || rt >= 120*time.Millisecond {
+			t.Fatalf("recv[%d] timeout %v was not bounded below total check budget", i, rt)
+		}
+	}
+	if !ws.closed {
+		t.Fatal("websocket was not closed")
+	}
+	if result.Status != sdk.StatusWarning {
+		t.Fatalf("status = %s, want %s (summary=%q)", result.Status, sdk.StatusWarning, result.Summary)
+	}
+	if strings.TrimSpace(result.Details) == "" {
+		t.Fatal("expected partial failure details to be populated")
+	}
+	if !strings.Contains(result.Details, "session-slow-456") {
+		t.Fatalf("expected details to include RUES session context, got %q", result.Details)
+	}
+}
+
+type slowHTTPDoerFunc func(sdk.HTTPRequest) (*sdk.HTTPResponse, error)
+
+func (f slowHTTPDoerFunc) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
+	return f(req)
+}
