@@ -258,12 +258,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
       error ->
         Logger.warning("Ignored camera relay idle close failure for #{relay_session_id}: #{format_close_error(error)}")
 
-        :ok
+        :retained
     catch
       kind, reason ->
         Logger.warning("Ignored camera relay idle close failure for #{relay_session_id}: #{kind}: #{inspect(reason)}")
 
-        :ok
+        :retained
     end
   end
 

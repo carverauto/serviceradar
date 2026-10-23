@@ -344,14 +344,81 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistryTest do
     assert_receive {:request_close, ^refused, _opts}, 500
     assert_receive {:request_close, ^refused, _opts}, 500
 
-    assert_receive {:mark_closing, ^refused,
-                    %{close_reason: "viewer idle timeout", viewer_count: 0}}
+    assert_receive {:mark_closing, ^refused, %{close_reason: "viewer idle timeout", viewer_count: 0}}
 
     :ok = RelayPubSub.viewer_join(missing, "viewer-missing")
     :ok = RelayPubSub.viewer_leave(missing, "viewer-missing")
     assert_receive {:request_close, ^missing, _opts}, 500
     refute_receive {:request_close, ^missing, _opts}, 200
     refute_receive {:mark_closing, ^missing, _attrs}, 50
+  end
+
+  test "a raised or exited idle close retries once and a viewer join cancels that retry" do
+    raised = "relay-idle-raise-#{System.unique_integer([:positive])}"
+    exited = "relay-idle-exit-#{System.unique_integer([:positive])}"
+    cancelled = "relay-idle-cancel-failure-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    {:ok, script} =
+      Agent.start_link(fn -> %{raised => :fail, exited => :fail, cancelled => :fail} end)
+
+    on_exit(fn -> if Process.alive?(script), do: Agent.stop(script) end)
+
+    :sys.replace_state(ViewerRegistry, fn state ->
+      %{
+        state
+        | idle_close_ms: 200,
+          session_closer: ScriptedRelaySessionCloserStub,
+          session_closer_opts: [
+            test_pid: test_pid,
+            close_result: fn relay_session_id ->
+              phase =
+                Agent.get_and_update(script, fn phases ->
+                  {Map.get(phases, relay_session_id, :close), Map.put(phases, relay_session_id, :close)}
+                end)
+
+              case phase do
+                :fail when relay_session_id == raised ->
+                  raise "connection not available"
+
+                :fail when relay_session_id == exited ->
+                  exit(:db_connection_lost)
+
+                :fail ->
+                  raise "connection not available"
+
+                :close ->
+                  {:ok,
+                   %{
+                     id: relay_session_id,
+                     status: :closing,
+                     close_reason: "viewer idle timeout"
+                   }}
+              end
+            end
+          ]
+      }
+    end)
+
+    :ok = RelayPubSub.viewer_join(raised, "viewer-raise")
+    :ok = RelayPubSub.viewer_leave(raised, "viewer-raise")
+    assert_receive {:request_close, ^raised, _opts}, 500
+    assert_receive {:request_close, ^raised, _opts}, 500
+    assert_receive {:mark_closing, ^raised, %{close_reason: "viewer idle timeout", viewer_count: 0}}
+
+    :ok = RelayPubSub.viewer_join(exited, "viewer-exit")
+    :ok = RelayPubSub.viewer_leave(exited, "viewer-exit")
+    assert_receive {:request_close, ^exited, _opts}, 500
+    assert_receive {:request_close, ^exited, _opts}, 500
+    assert_receive {:mark_closing, ^exited, %{close_reason: "viewer idle timeout", viewer_count: 0}}
+
+    :ok = RelayPubSub.viewer_join(cancelled, "viewer-cancel-failure")
+    :ok = RelayPubSub.viewer_leave(cancelled, "viewer-cancel-failure")
+    assert_receive {:request_close, ^cancelled, _opts}, 500
+    :ok = RelayPubSub.viewer_join(cancelled, "viewer-cancel-failure")
+    refute_receive {:request_close, ^cancelled, _opts}, 400
+    refute_receive {:mark_closing, ^cancelled, _attrs}, 50
+    assert ViewerRegistry.viewer_count(cancelled) == 1
   end
 
   test "a viewer join or a lost local session cancels the idle-close retry" do

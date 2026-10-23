@@ -369,8 +369,10 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
              )
 
     assert reused.id == second.id
+
     assert {:ok, %{relay_session_id: bound_id, state: :active}} =
              IngestOwnership.for_relay(second.id, ctx.opts)
+
     assert bound_id == second.id
   end
 
@@ -501,6 +503,101 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert owner.relay_session_id == replacement.id
     assert owner.state == :active
     assert {:error, :ownership_lost} = IngestOwnership.for_relay(first.id, ctx.opts)
+  end
+
+  test "ambiguous close refuses a relay that is not an authenticated active stream", ctx do
+    parent = self()
+
+    dispatch = fn _, payload, _, _ ->
+      send(parent, {:stop, payload.relay_session_id})
+      {:ok, Ecto.UUID.generate()}
+    end
+
+    refused =
+      for kind <- [:requested, :opening, :blank, :empty] do
+        sibling = leased_session(ctx, kind)
+        target = leased_session(ctx, kind)
+
+        assert {:error, :ambiguous_live_relays} =
+                 RelaySessionManager.request_close(target.id,
+                   actor: ctx.actor,
+                   force: true,
+                   reason: "viewer idle timeout",
+                   dispatch_close: dispatch
+                 )
+
+        refute_received {:stop, _}
+        assert {:ok, reloaded} = Fixtures.reload(ctx, target)
+        assert reloaded.status == sibling.status
+        assert reloaded.media_ingest_id in [nil, ""]
+        {kind, target}
+      end
+
+    assert Fixtures.owner(ctx) == nil
+
+    allowed = leased_session(ctx, :active, "media-authenticated")
+
+    assert {:ok, %{id: closed_id, status: :closing}} =
+             RelaySessionManager.request_close(allowed.id,
+               actor: ctx.actor,
+               force: true,
+               reason: "operator stop",
+               dispatch_close: dispatch
+             )
+
+    assert closed_id == allowed.id
+    assert_receive {:stop, ^closed_id}
+    refute_received {:stop, _}
+
+    for {_kind, target} <- refused do
+      assert {:ok, %{status: status}} = Fixtures.reload(ctx, target)
+      assert status != :closing
+    end
+
+    assert {:error, :ownership_lost} = IngestOwnership.for_relay(allowed.id, ctx.opts)
+  end
+
+  defp leased_session(ctx, kind, ingest_id \\ nil) do
+    lease_expires_at = DateTime.shift(DateTime.utc_now(), second: 30)
+
+    {:ok, session} =
+      RelaySession.create_session(
+        %{
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.profile.id,
+          agent_id: ctx.source.assigned_agent_id,
+          gateway_id: ctx.source.assigned_gateway_id,
+          lease_expires_at: lease_expires_at
+        },
+        ctx.opts
+      )
+
+    case kind do
+      :requested ->
+        session
+
+      :opening ->
+        {:ok, opening} =
+          RelaySession.mark_opening(
+            session,
+            %{lease_token: "lease-token", lease_expires_at: lease_expires_at},
+            ctx.opts
+          )
+
+        opening
+
+      :blank ->
+        {:ok, active} = RelaySession.activate(session, %{media_ingest_id: nil}, ctx.opts)
+        active
+
+      :empty ->
+        {:ok, active} = RelaySession.activate(session, %{media_ingest_id: ""}, ctx.opts)
+        active
+
+      :active ->
+        {:ok, active} = RelaySession.activate(session, %{media_ingest_id: ingest_id}, ctx.opts)
+        active
+    end
   end
 
   defp renew_viewers(ctx, session, count) do

@@ -6,8 +6,9 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   idle timeouts close only when no current consumer lease remains. Explicit
   operator stops can use `force: true` to invalidate all consumers.
 
-  When several pre-existing relays are still live, close reserves that exact
-  session without adopting the profile or retiring a different owner. A
+  When several pre-existing relays are still live, an authenticated active
+  session can be reserved exactly, without adopting the profile or retiring a
+  different owner. Any other ambiguous relay keeps the adoption refusal. A
   non-force close still waits while that session has viewers or the profile
   epoch has an unexpired consumer.
   """
@@ -138,8 +139,10 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
       {:ok, owner} ->
         fenced_close(owner, session, reason, opts, write_opts)
 
-      {:error, :ambiguous_live_relays} ->
-        legacy_session_close(owner, session, reason, opts, write_opts)
+      {:error, :ambiguous_live_relays} = error ->
+        if authenticated_legacy?(session),
+          do: legacy_session_close(owner, session, reason, opts, write_opts),
+          else: error
 
       {:error, _} = error ->
         error
@@ -160,6 +163,11 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
       {:error, _} = error -> error
     end
   end
+
+  defp authenticated_legacy?(%{status: :active, media_ingest_id: id})
+       when is_binary(id) and id != "", do: true
+
+  defp authenticated_legacy?(_session), do: false
 
   defp legacy_session_close(owner, session, reason, opts, write_opts) do
     cond do
