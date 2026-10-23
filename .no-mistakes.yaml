@@ -1,4 +1,14 @@
 # no-mistakes gate configuration. Read only from the trusted copy on staging.
+# Automatic gate commits (review/test/document/lint/CI fix rounds, push
+# leftovers) must never stage these paths unattended; a match parks the run
+# at an operator gate. Author commits are not checked. Renaming a migration
+# is never mechanical: a version a database has recorded must not change,
+# and a new one must be coordinated across in-flight PRs (#5287).
+# helm/serviceradar/values.yaml carries core.migrations.expectedVersion,
+# which must move with the migration it names, by hand.
+protected_paths:
+  - "elixir/serviceradar_core/priv/repo/migrations/**"
+  - "helm/serviceradar/values.yaml"
 commands:
   # Run worktrees start with tracked files only, so the gitignored Bazel rc
   # files that carry the BuildBuddy key and remote-execution settings are
