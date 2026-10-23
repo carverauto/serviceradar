@@ -407,6 +407,13 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
              {"armis-partial-2", :failed, nil},
              {"armis-partial-3", :withheld, "multiple_typed_ids_per_device"}
            ]
+
+    assert {:ok, examples} = ArmisNorthboundLedger.examples(run.id)
+
+    assert Enum.map(examples, &{&1.source_object_id, &1.outcome, &1.reason}) == [
+             {"armis-partial-2", "failed", nil},
+             {"armis-partial-3", "withheld", "multiple_typed_ids_per_device"}
+           ]
   end
 
   test "idempotent rerun against the same activated collection preserves exact population and reconciliation counts",

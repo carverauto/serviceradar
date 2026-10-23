@@ -39,7 +39,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundLedger do
                ORDER BY source_object_id
              ) AS group_row
       FROM platform.integration_update_run_targets
-      WHERE integration_update_run_id = $1::uuid
+      WHERE integration_update_run_id = ($1::text)::uuid
         AND outcome <> 'accepted'
     ) grouped
     WHERE group_row <= $2
