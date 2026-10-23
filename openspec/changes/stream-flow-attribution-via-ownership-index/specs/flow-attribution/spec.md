@@ -275,7 +275,7 @@ EventWriter SHALL append one row per ownership event to the StarRocks Duplicate 
 - **AND** no row-level DELETE or UPDATE was issued against the table
 
 ### Requirement: Hosts Report Per-Process Connection Summaries As Evidence
-Netprobe SHALL emit, per interval (default 60 seconds), one connection summary per `(agent, owner, local_ip, local_port, peer_ip, peer_port, proto, direction)` that had at least one connection in the interval, keeping every key field, including ephemeral ports, at its observed value. Netprobe MUST NOT aggregate summaries while the agent's interval is within its budget. A summary SHALL carry the interval, the connection count, the first and last seen times inside the interval, bytes and packets per direction when available, and provenance (source, agent id, netprobe version, owner record and aggregation level). Accepted connections covered by a listener lease SHALL still be counted in per-peer summaries. Summaries SHALL travel through the `flow-attribution` admission lane and a dedicated JetStream stream, and EventWriter SHALL append them to the StarRocks Duplicate Key table `host_connection_summaries`, partitioned by day, under the `attribution` retention dataset; rows MUST NOT be updated or deleted individually. Netprobe SHALL enforce a per-agent cap N on summary rows per interval (default 2,000, minimum 16) so that it never emits more than N rows in an interval, regardless of its process or peer count. Over the cap it SHALL degrade in stages, lowest-count rows first and stopping as soon as the interval fits: merge across peer ports, then across peer addresses, then collapse the remaining rows into at most one overflow row per direction that carries the total connection count, bytes and packets, a distinct-peer estimate, and the number of distinct owners and rows collapsed. It SHALL record the aggregation level and absorbed-row count on each merged row, count merged rows by level, and count every interval that reached the overflow level; it MUST NOT drop a connection from every row. The ownership index MUST NOT read connection summaries, and attribution MUST NOT depend on them.
+Netprobe SHALL emit, per interval (default 60 seconds), one connection summary per `(agent, owner, local_ip, local_port, peer_ip, peer_port, proto, direction)` that Summary Direction And Population Are Explicit counts in that interval, keeping every key field, including ephemeral ports, at its observed value. Netprobe MUST NOT aggregate summaries while the agent's interval is within its budget. A summary SHALL carry the interval, the connection count, the first and last seen times inside the interval, bytes and packets per direction when available, and provenance (source, agent id, netprobe version, owner record and aggregation level). Accepted connections covered by a listener lease SHALL still be counted in per-peer summaries. Summaries SHALL travel through the `flow-attribution` admission lane and a dedicated JetStream stream, and EventWriter SHALL append them to the StarRocks Duplicate Key table `host_connection_summaries`, partitioned by day, under the `attribution` retention dataset; rows MUST NOT be updated or deleted individually. Netprobe SHALL enforce a per-agent cap N on summary rows per interval (default 2,000, minimum 16) so that it never emits more than N rows in an interval, regardless of its process or peer count. Over the cap it SHALL degrade in stages, lowest-count rows first and stopping as soon as the interval fits: merge across peer ports, then across peer addresses, then collapse the remaining rows into at most one overflow row per direction that carries the total connection count, bytes and packets, a distinct-peer estimate, and the number of distinct owners and rows collapsed. It SHALL record the aggregation level and absorbed-row count on each merged row, count merged rows by level, and count every interval that reached the overflow level; it MUST NOT drop a connection from every row. The ownership index MUST NOT read connection summaries, and attribution MUST NOT depend on them.
 
 #### Scenario: Host-only deployment lists a process's peers
 - **GIVEN** a deployment with StarRocks and netprobe agents but no flow exporters
@@ -341,6 +341,69 @@ Index metrics SHALL include entries and bytes per shard, budget refusals, evicti
 - **WHEN** health is reported
 - **THEN** the ownership consumer lag metric rises for that shard
 - **AND** the metric labels identify the shard ordinal only
+
+### Requirement: Diagnostic Measurements Preserve Input Completeness
+Netprobe SHALL provide an opt-in bounded diagnostic observer before attribution coalescing, preserving existing attribution payloads and delivery. It SHALL capture event time, full endpoints, socket lifetime, lifecycle origin and resolved owner identity; SHALL independently count input loss; and SHALL reconcile a bounded namespace-aware census of sockets, owners and local addresses with concurrent observations. Unknown initial TCP origin, unresolved owners, missing hooks, failed reads and truncated state MUST keep affected whole-host windows incomplete until authoritative repair and expiration of affected history. Elapsed warm-up alone MUST NOT resolve unknown active sockets. The observer SHALL project Decision 1 listener coverage and promotion, five-second OPEN/CLOSE coalescing, analytic renewals as active-lease-seconds divided by 1,800, fifteen-minute history depth and full summary keys; a saturated summary set SHALL report an explicit lower bound above the cap rather than an exact count.
+
+#### Scenario: Initial connection outlives warm-up
+- **GIVEN** the census finds an established TCP socket with unknown accepted or connected origin
+- **WHEN** fifteen minutes pass while that socket remains open
+- **THEN** its affected whole-host measurements remain incomplete
+- **AND** the observer does not classify it using port numbers or listener presence
+
+#### Scenario: Lost close affects later intervals
+- **GIVEN** a diagnostic observation is lost while a socket is tracked
+- **WHEN** the next measurement interval begins
+- **THEN** the measurement remains incomplete until active state is reconciled and affected history has aged out
+- **AND** the loss counter is available independently of the full event ring
+
+### Requirement: Summary Direction And Population Are Explicit
+TCP summaries SHALL count distinct socket lifetimes in every interval they overlap, including idle connections. UDP, ICMP and ICMPv6 summaries SHALL classify successful socket send-message operations as outbound and successful consuming receive-message operations with known peers as inbound, counting individual message operations rather than packets or batched API calls. Successful zero-length UDP operations SHALL count; failed operations and receive peeks MUST NOT count. Both directions SHALL retain separate full keys. Unbound UDP sockets without a local endpoint MUST NOT contribute an ownership key. ICMP socket/peer bindings SHALL require known local and peer addresses, use zero ports and remain eligible until socket close; shared keys SHALL retain socket references. Idle eligible datagram sockets SHALL contribute ownership keys and renewals but no summary key without message activity. Missing direction, close, peer or owner provenance MUST NOT be replaced with heuristic classifications or the legacy cache TTL.
+
+#### Scenario: Datagram request and response retain both directions
+- **GIVEN** one UDP socket successfully sends a zero-length message and consumes a reply from the same peer during an interval
+- **AND** it also performs one failed send and one receive peek
+- **WHEN** diagnostic summary keys are counted
+- **THEN** one outbound and one inbound key are counted with their observed ports
+- **AND** only the successful send and consuming receive contribute to connection counts
+
+#### Scenario: An idle connection is counted according to its protocol
+- **GIVEN** a known TCP connection and an eligible UDP socket remain open throughout an interval
+- **AND** neither transfers data during that interval
+- **WHEN** summaries are counted
+- **THEN** the TCP connection contributes its full key and the UDP socket contributes none
+- **AND** both retain their eligible ownership keys
+
+### Requirement: Diagnostic Reports Make Missing Coverage Visible
+Diagnostic aggregates SHALL use the existing native add-on metric path through JetStream and EventWriter. Each immutable sixty-second report SHALL have a versioned fixed set of metric names and finite label combinations with explicit zeros, scalar controls for session, sequence, interval and completeness, and one canonical timestamp. Controls required by the warehouse audit SHALL be persisted scalar values exactly representable in DOUBLE, not native metadata that the warehouse discards. Labels MUST NOT contain socket, process, executable, address, package or boot identifiers. A restart SHALL NOT finalize a second report for an earlier session's interval; replay SHALL preserve identical values. A private expected-host roster and independently scheduled start/end times SHALL define audit coverage, including hosts with no reports. Missing edges, partial sets, resets and clock regressions MUST remain unavailable or incomplete, never zero activity. Only rounded anonymous aggregate results SHALL be committed; a rollout remains separately scheduled.
+
+#### Scenario: Entire host report stream is absent
+- **GIVEN** a scheduled host emits no retained diagnostic report
+- **WHEN** the read-only audit enumerates its expected intervals
+- **THEN** those intervals are reported missing and excluded from gate arithmetic
+- **AND** the host is retained in coverage accounting
+
+#### Scenario: Restart cannot rewrite a finalized interval
+- **GIVEN** a diagnostic session finalized a report before restarting
+- **WHEN** the new session starts within a later partial interval
+- **THEN** it reports only full intervals begun after its own start
+- **AND** an identical replay may collapse idempotently but no corrected report replaces the earlier report
+
+### Requirement: Finite Diagnostic Capture Requires Source Closure
+Diagnostic interval reports SHALL remain provisional until the audit receives an immutable terminal receipt for the same session, scheduled capture endpoint and final interval sequence. Receipt issuance SHALL require proof that all sources capable of changing the accepted prefix have settled, including operations already in progress before entry accounting, pending or nested completions, and delayed failures. A missing, failed, partial or contradictory receipt, unresolved task incarnation, ambiguous completion interval or expired completion budget MUST keep the affected measurement unavailable. A timeout, drained ring, callback timestamp or successful hook detach MUST NOT substitute for source proof. Receipt issuance SHALL close its session token; resumed capture SHALL use a new token and initial proof. Source closure and downstream delivery SHALL be established separately through the existing telemetry path.
+
+#### Scenario: Callback observation cannot place native completion
+- **GIVEN** an operation entered before an interval boundary and its exit callback was observed after the boundary
+- **AND** no source evidence orders the native completion relative to that boundary
+- **WHEN** diagnostic measurements are finalized
+- **THEN** the affected measurements remain unavailable
+- **AND** the observer neither assigns completion to the callback's interval nor silently discards the last interval
+
+#### Scenario: Interval completeness does not replace a terminal receipt
+- **GIVEN** a report claims complete coverage for an earlier interval
+- **WHEN** the terminal receipt is missing, fails its proof, belongs to a previous session or conflicts with later evidence
+- **THEN** the audit rejects its use for gate acceptance
+- **AND** a completion deadline expiring does not turn absence into zero activity
 
 ## MODIFIED Requirements
 

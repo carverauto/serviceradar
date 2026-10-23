@@ -126,6 +126,9 @@ Keying on the local endpoint is what makes this cheap:
   belongs to. The agent also publishes **address leases** (its local addresses, renewed like
   socket leases, closed on removal), and re-expands wildcard leases when its addresses change.
 - **Unconnected UDP sockets are one lease** however many peers they talk to.
+- **Datagram key eligibility follows Decision 12.** An unbound UDP socket without a local
+  endpoint has no lease. ICMP socket/peer bindings require known addresses and zero ports,
+  survive idle intervals, and end on socket close; shared keys retain socket references.
 - **Outbound connections** are one event per new local ephemeral key, which bounds the volume
   from above.
 
@@ -182,6 +185,9 @@ with `::ffff:` stripped):
   `(partition, proto, node_ip, remote_ip, remote_port)` for each outbound `connected` lease
   whose local address is not one of the agent's node addresses. The node IP comes from the
   agent's registered address, as the correlator uses today.
+  ICMP socket/peer bindings require known local and peer addresses, use zero ports, and
+  remain eligible until socket close. Shared keys retain references to their contributing
+  sockets; an idle socket is not expired using the legacy observation cache TTL.
 - **Address presence** `A = (partition, ip)`: a reference count of active leases and address
   leases on an address. It answers "is this a monitored address" (Decision 4).
 
@@ -520,7 +526,9 @@ ownership index never reads them, and attribution never depends on them.
 
 - **Key**: `(agent_id, owner, local_ip, local_port, peer_ip, peer_port, proto, direction)`,
   where `owner` is the interned attribution key (tgid, process start time, container id) and
-  `direction` is `inbound` (accepted) or `outbound` (connected). Every field keeps its observed
+  `direction` for TCP is `inbound` (accepted) or `outbound` (connected). For UDP, ICMP and
+  ICMPv6 it is `outbound` for a successful socket send-message operation and `inbound` for
+  a successful consuming receive-message operation, per Decision 12. Every field keeps its observed
   value, including the ephemeral ports, so within the budget a network-observed flow can be
   matched to the host-observed connection on its full endpoints. Connections that share the
   full key within one interval share one row.
@@ -528,8 +536,12 @@ ownership index never reads them, and attribution never depends on them.
   interval, and bytes and packets in each direction when netprobe has the counters (null
   otherwise). Each row carries provenance: `source = netprobe`, the agent id, the netprobe
   version, the owner record, and the aggregation level.
-- **Interval**: default 60 s, aligned per agent. A key with no connection in the interval emits
-  nothing.
+  Connection count means distinct socket lifetimes for TCP and successful message operations
+  for UDP/ICMP, not packets or batched API calls. Successful zero-length UDP counts; failed
+  operations and receive peeks do not.
+- **Interval**: default 60 s, aligned per agent. TCP connections contribute in every interval
+  they overlap, including idle connections. Datagram keys contribute only in intervals with
+  successful message activity. Any other key emits nothing.
 - **Budget**: a per-agent cap N on summary rows per interval (default 2,000, minimum 16). Below
   the cap nothing is aggregated. Over the cap, netprobe degrades in stages, applying each stage
   to the lowest-count rows first and stopping as soon as the interval fits:
@@ -552,9 +564,10 @@ ownership index never reads them, and attribution never depends on them.
   `attribution` retention dataset. Rows are never updated or deleted individually.
 
 Volume is bounded by the budget, not by connection count: at most 2,000 rows per agent per
-minute, about 33 rows/s. Full keys make rows roughly one per connection per minute below the
-cap. With an assumed median of 200-600 distinct full keys per host per minute, 20k hosts
-produce about 67k-200k rows/s (about 6-17B rows/day), and the strict cap bounds the worst case
+minute, about 33 rows/s. Below the cap there is one row per distinct full key per minute.
+TCP keys include idle sockets; datagram keys require successful message activity in that
+minute (Decision 12). With an assumed median of 200-600 distinct full keys per host per
+minute, 20k hosts produce about 67k-200k rows/s (about 6-17B rows/day), and the strict cap bounds the worst case
 at about 670k rows/s. Busy listeners reach the cap and degrade to `peer_ip` or `service` rows. Phase 0 measures the per-host
 distribution on the lab before this is sized.
 
@@ -631,14 +644,234 @@ The 5 events/s, 200 bytes/key, 2-minute replay and summary-cap gates remain unch
 Exposure task 0.5 also remains open; these diagnostics do not supply its missing address
 intervals or mapped evidence batches.
 
+### 12. Approved: diagnostic input completeness and datagram direction
+
+**Status: approved by the coordinator on 2026-10-23.** This fills gaps found while preparing
+Decision 11 after PR #5914 merged. It does not authorize a rollout, change the capacity
+targets, or permit runtime implementation before the Phase 0 gates pass.
+
+The current `FLOW_EVENTS` input cannot certify the measurements. Both emitters in
+`rust/netprobe/ebpf/src/lib.rs` suppress observations using coalesced attribution keys
+before publishing them, and ring reservation failures are not counted. Records lack kernel
+event timestamps. The userspace `AyaAttributionReader` starts with an empty socket inventory;
+the older procfs snapshot helper is not a complete census. Current process generations can
+be first-observation or exec times rather than process start times. UDP probes observe call
+entry and cannot supply an unconnected receive's peer or prove successful transfer.
+
+#### Capture and the initial population
+
+Add a separate, bounded diagnostic observation path before attribution coalescing. Preserve
+the existing attribution wire records, suppression rules, owner-cache behavior and delivery.
+Diagnostic observations carry kernel monotonic time, socket lifetime identity, full
+endpoints, lifecycle origin and owner-resolution status. Count failed observations and
+state updates independently of the diagnostic ring so a full ring cannot hide its own loss.
+Missing required hooks, unsupported layouts and failed reads are coverage failures.
+
+Start capture before a bounded, namespace-aware census of sockets, process owners and local
+addresses, then reconcile observations concurrent with that census. A census must report
+errors and truncation; an empty or partial result is not proof that no sockets exist. Keep
+the bootstrap's entry, byte and work limits explicit. Do not add privileges, change the
+executable resolver, or alter its cache contract as an incidental diagnostic change. If
+the existing privilege boundary cannot supply a required input, report that limitation for
+review instead of claiming completeness.
+
+A census can find an established TCP socket without recovering whether it was accepted or
+connected, or which listener covered it. Preserve that uncertainty. The affected whole-host
+measurement remains incomplete until authoritative observations resolve it or the socket
+retires and its affected history ages out. Waiting fifteen minutes alone does not make an
+unknown active socket known. A separately scheduled workload restart may establish a fresh
+baseline, but this decision does not authorize one. Do not silently restrict the population
+to sockets created after capture began or omit hosts whose windows remain incomplete.
+
+Owner comparisons use the actual `(tgid, process start time, container id)` identity from
+Decision 9. Resolve and validate process start time independently of the legacy generation
+field. Distinguish confirmed host ownership from unresolved container metadata. An
+unresolved identity, ambiguous socket holder or unreconciled namespace keeps the affected
+measurement incomplete; it must not become a synthetic shared owner or a covered accept.
+Wildcard expansion uses the reconciled address inventory, including changes during capture.
+
+#### TCP and datagram summary direction
+
+For TCP, retain the accepted/connected meaning of Decision 9 using lifecycle provenance,
+not ports or listener presence. A connection open during any part of a minute contributes
+its full key to that minute, including an idle connection. Listener coverage affects the
+projected ownership events, never whether its accepted peers count toward summary capacity.
+
+For UDP, ICMP and ICMPv6, define `outbound` as a successfully completed socket send-message
+operation and `inbound` as a successfully completed consuming receive-message operation
+with a known peer. Failed calls and receive peeks do not count; successful zero-length UDP
+operations do count. Count individual message operations within a batched API, not the
+batch call itself or the number of packets produced by segmentation or aggregation. Both
+directions for the same owner and endpoints produce separate keys when both occur in an
+interval. Preserve observed UDP ports; ICMP ports remain zero. The summary
+`connection_count` is the number of distinct socket lifetimes for TCP and successful
+message operations for these datagram protocols; byte and packet counters remain separate
+and optional.
+
+Only sockets with an eligible ownership key contribute to active keys or renewals: an
+unbound UDP socket without an assigned local endpoint does not qualify. ICMP requires known
+local and peer addresses for Decision 2's relaxed peer key, with zero ports; retain that
+observed socket/peer binding until its socket closes. Count distinct endpoint and derived
+peer keys separately, retaining reference counts when sockets share a key. A datagram
+socket with an eligible ownership key can remain active while idle, but contributes no
+summary key without message activity in that interval. Missing close or peer provenance
+is incomplete input, not permission to expire the socket using the legacy cache's TTL.
+
+These TCP population and datagram rules complete Decision 9's interval and direction
+contract. The diagnostic must not infer
+a conversation initiator from a first message, a low port, or the legacy UDP service
+heuristic. Unconnected UDP still projects one local ownership lease across all peers under
+Decision 1. Missing datagram receive, peer, close or owner observations prevent a complete
+whole-host gate result; a TCP-only result must not pass the whole-host gates.
+
+#### Windows, loss and delivery
+
+Project Decision 1 events in five-second batches using event time, preserving promotions
+ahead of listener changes and coalescing short OPEN/CLOSE pairs. Use the approved thirty-
+minute renewal period. Report renewal volume as the analytic active-lease-seconds divided
+by 1,800, separately from observed projected OPEN/CLOSE counts; do not present it as an
+observed or simulated renewal schedule. Measure history
+over a full fifteen-minute horizon. Report sixty-second full-key counts exactly until a
+bounded set saturates above the 2,000-row cap; beyond saturation report only an explicit
+lower bound and cap-reaching status. Publish the configured bounds with the measurements.
+
+Input loss or state truncation invalidates every later window that depends on the lost
+state. Recover only after a reconciled census has repaired active state and the affected
+history has aged out; unresolved provenance can keep recovery incomplete for longer.
+Restart and initial warm-up follow the same rule. Incomplete windows remain visible with
+bounded reason codes and are excluded from gate arithmetic, with their population and
+duration reported alongside the complete windows for coordinator review.
+
+Send the aggregate records through `addon_sdk::serviceradar_metric_record`, netprobe's
+existing `AddonService` stream, the agent add-on telemetry path and the gateway metrics
+publisher to JetStream and EventWriter. No new metric protocol or direct database writer
+is needed. The local Prometheus endpoint alone is not delivery evidence. Use fixed metric
+names and finite protocol, direction, completeness-reason and history-depth bucket labels;
+never put socket, process, executable, address, package or boot identifiers in labels.
+
+The existing add-on transport is bounded and may drop a report. StarRocks metric rows do not
+retain native start/reset metadata, so every value needed for the audit must be a persisted
+scalar measurement. Each sixty-second report has a format-versioned fixed set of names and
+finite label combinations, including explicit zeros. Its control gauges carry the format
+version, a generated diagnostic session token in four exact 32-bit limbs, interval sequence,
+start/end Unix seconds, and completeness with finite reason indicators. All integer values
+must fit exactly in DOUBLE (at most 2^53); do not encode epoch nanoseconds as a scalar.
+Use one canonical timestamp for all members of a report. Native reset metadata may be
+included as supplementary context, but is not warehouse completeness evidence.
+
+Finalize each report once and replay only identical timestamps, labels and values. Publish
+at most one report per producer and interval timestamp; do not publish corrections under
+the same key. Only report full intervals begun after the diagnostic session starts, so a
+restart does not publish a second version of an earlier session's interval. Clock regression
+or a timestamp collision invalidates gate use. The warehouse replaces rows with the same
+primary key and cannot prove that conflicting duplicates never occurred; producer boundary
+tests must prove immutability and restart handling instead of claiming warehouse detection.
+
+The separately scheduled measurement must have a private expected-host roster, start/end
+times and cadence independent of received metrics. Its read-only audit enumerates every
+expected host/interval and left-joins the received reports, including hosts with no reports.
+Missing edges, partial sets, unexplained resets and entirely absent sessions remain
+unavailable or incomplete, never zero activity. Only a full expected set whose controls
+agree is usable. Transport gaps do not themselves corrupt the collector's socket state,
+but the missing measurements remain unavailable. Commit only rounded anonymous coverage
+and results, never that private roster or raw reports.
+
+Implementation proceeds as a bounded input/census adapter, a separate diagnostic projection
+model, then native aggregate metric delivery. Synthetic lifecycle and stream-boundary tests
+must prove full-key preservation, same-owner listener coverage, promotion order, identity
+reuse, interval boundaries, datagram direction, saturation and recovery after loss. Existing
+attribution behavior must remain unchanged. Phase 0 tasks remain open until separately
+scheduled measurements meet their gates with reviewed coverage.
+
+
+### 13. Approved: finite capture closure before accepting measurements
+
+**Status: approved by the coordinator on 2026-10-23.** Decisions 11-12 authorize the
+diagnostic collector. They do not specify how a finite audit proves that its last
+coverage observation is final. The unpublished experimental collector cannot supply that proof.
+This decision does not authorize a lab rollout, new privileges, a dependency upgrade,
+or a separate BPF loader.
+
+An ordinary interval report is provisional. An audit must also receive one immutable
+terminal receipt for the same session, expected capture endpoint and final interval
+sequence. That receipt certifies that every source capable of changing the accepted
+prefix has finished or has made the session explicitly unavailable. Missing receipt,
+partial delivery, failed proof or expired completion budget means unavailable, never
+zero activity or implicit success. An earlier `complete` interval cannot bypass this
+requirement. Session-wide invalidation still excludes earlier reports from that session.
+Issuing the receipt must close that session token: resumed capture needs a new token
+and initial proof. Contradictory evidence after termination rejects the certificate;
+the implementation must not ignore late evidence merely because it already sent a receipt.
+
+The source review found two independent closure failures:
+
+- Disabling a map or draining the ring does not stop callbacks before the BPF program's
+  own entry counter. Ordinary `membarrier(GLOBAL)` waits for ordinary RCU, while BPF
+  trampoline retirement also protects instructions outside that region with RCU Tasks.
+- Detaching an exit hook can suppress a successful completion before it reaches any
+  diagnostic counter. A task can return from `sock_sendmsg`, pause before the exit
+  callback, and resume after teardown patched that callback away. Waiting for detached
+  callbacks cannot recover the missing record. The timestamp inside `emit()` is too
+  late to prove that the suppressed completion belonged after the measurement endpoint.
+
+These are properties of [trampoline teardown][closure-trampoline] and the
+[x86 return/callback sequence][closure-x86], not failures that a longer grace period fixes.
+
+**Spike result:** the bounded investigation approved as the next step is recorded in
+[closure-spike.md](closure-spike.md). No examined mechanism met the obligations below.
+A future proof must account for operations at entry and successful completion, retain
+exit delivery through the cutoff, and establish a source-reviewed completion barrier
+before issuing the terminal receipt. Pending, nested, missing or truncated operation
+state must make coverage unavailable. It must not silently move a completion across an
+interval boundary, discard the last interval, or treat a timeout as a barrier.
+
+Before implementation resumes, that proof must still establish all of the following:
+
+1. A finite cutoff that preserves or explicitly rejects every pending completion and
+   every unorderable source failure, including a task paused around an exit callback.
+2. A barrier supported by the pinned loader and existing privileges, with explicit
+   kernel eligibility and observable failure. A version string alone is insufficient.
+3. Bounded state and work, plus a bounded wait whose expiry leaves the receipt absent
+   or unsuccessful. The ordinary attribution path continues independently.
+4. Fixed scalar terminal membership through the existing telemetry path, with identical
+   replay and an audit that rejects a missing or contradictory terminal set.
+5. Synthetic negative controls for dropped completion, late loss, restart, failed
+   barrier and missing receipt, including operations in progress before entry accounting
+   starts and task-ID reuse. Live kernel validation remains separately scheduled.
+
+A per-link kprobe-multi sentinel is only a candidate, not an approved mechanism.
+The [older fprobe teardown][closure-old-fprobe] reaches a synchronous Tasks RCU wait;
+the [upstream 6.14 shared-graph implementation][closure-new-fprobe] does not guarantee
+that wait when another probe remains. Pinned Aya 0.13.1 also lacks a public multi-probe
+load/attach API. A raw syscall shim or dependency change, and any restriction of the
+eligible kernel population, must return as a concrete decision with spike evidence.
+Neither a sentinel alone nor a successful `close()` solves the pending-exit failure.
+
+Until this closure gate is satisfied, the collector stays exploratory and Phase 0
+measurements remain unavailable for acceptance. Tasks 0.6-0.8 stay exploratory. Do not
+label the prerequisite ready or start P2-P8. The recorded investigation is task 0.9 only.
+
+[closure-trampoline]: https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/refs/tags/v6.8/kernel/bpf/trampoline.c
+[closure-x86]: https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/refs/tags/v6.8/arch/x86/net/bpf_jit_comp.c
+[closure-old-fprobe]: https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/refs/tags/v6.8/kernel/trace/fprobe.c
+[closure-new-fprobe]: https://kernel.googlesource.com/pub/scm/linux/kernel/git/torvalds/linux/+/refs/tags/v6.14/kernel/trace/fprobe.c
 
 ## Implementation plan
 
-This is the first, documentation-only PR of the #5738 implementation. The shared
+This is the reviewed implementation plan for #5738. The shared
 `ExecutableOwnership` message and its initial producer/ingest path landed through
 [#5919](https://github.com/carverauto/serviceradar/pull/5919). This satisfies the handoff's
 proto dependency for planning; it does not certify the separate ownership workstream's
 live validation or complete exposure task 0.3.
+
+**Current pickup:** Decision 13's bounded source investigation found no acceptable
+closure mechanism under the approved constraints. The [spike findings](closure-spike.md)
+record independent bootstrap, completion-time and terminal-barrier gaps. The
+[executable models](../../../build/tla/netprobe_closure/README.md) preserve the counterexamples and conditional
+protocol checks; they do not prove that a kernel barrier exists. The experimental
+collector remains unpublished. Tasks 0.6-0.8 and all measurement gates remain open;
+resolve the source proof and review any required architecture or scope change before
+expanding the collector or starting P2-P8. No lab rollout is authorized.
 
 ### PR sequence and review boundaries
 

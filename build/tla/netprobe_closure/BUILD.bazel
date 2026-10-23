@@ -1,0 +1,43 @@
+load("//build/tla:tlc.bzl", "tlc_test")
+
+[
+    tlc_test(
+        name = name,
+        cfg = name + ".cfg",
+        expect = expect,
+        spec = "CompletionBracket.tla",
+    )
+    for name, expect in [
+        ("bracket_safe", "pass"),
+        ("bracket_observation_time", "violation:CompletionPreserved"),
+        ("bracket_indistinguishable", "violation:EvidenceDeterminesInterval"),
+        ("bracket_nonvacuity", "violation:NeverAccepted"),
+    ]
+]
+
+[
+    tlc_test(
+        name = name,
+        cfg = name + ".cfg",
+        expect = expect,
+        spec = "PrefixClosure.tla",
+    )
+    for name, expect in [
+        ("prefix_safe", "pass"),
+        ("prefix_nonvacuity", "violation:NeverAcceptsPopulated"),
+        ("prefix_deadline", "violation:NeverExpiresUnpublished"),
+    ] + [(
+        "prefix_" + bug,
+        "violation:CertifiedPrefix",
+    ) for bug in [
+        "startup",
+        "nested",
+        "early_remove",
+        "missing_barrier",
+        "failed_barrier",
+        "late_loss",
+        "missing_receipt",
+        "contradiction",
+        "restart",
+    ]]
+]
