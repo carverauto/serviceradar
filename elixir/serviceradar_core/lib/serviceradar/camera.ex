@@ -20,6 +20,7 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.IngestOwner
     resource ServiceRadar.Camera.ConsumerLease
     resource ServiceRadar.Camera.RecorderClaim
+    resource ServiceRadar.Camera.RecordingBlock
     resource ServiceRadar.Camera.AnalysisWorker
   end
 

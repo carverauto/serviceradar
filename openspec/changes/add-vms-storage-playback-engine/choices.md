@@ -407,3 +407,34 @@ context. Disk block names depend only on source, profile, recorder epoch and
 block sequence. Changing clock metadata cannot create a second copy of the same
 block identity. This is sound because an unsupported clock claim stays visible
 instead of becoming a false timestamp in exported evidence.
+
+### Freeze historical block authority before recorder release
+
+When: retained block authority pass. Verdict: sound, high confidence.
+
+A recorder can finish a local file and exit before anyone uploads it. The file
+now has its own retained database row, allocated with its sequence before disk
+creation. While the original recorder is still authorized, it freezes the exact
+init, format, clock, byte map and hashes into that row. A later upload worker
+gets a separate expiring token for those bytes, even after another recorder
+starts. It cannot substitute new bytes or borrow the current recorder's rights.
+
+The plan required historical ownership but did not prescribe its resource shape.
+One block row owns both immutable capture metadata and its upload lease; an
+additional generic job or lease table would duplicate the same lock boundary.
+The receipt-free descriptor validator is shared with the archive manifest so
+their finite format limits cannot drift. Details and the remaining recovery
+boundary are in [Historical recording block authority](block-authority.md).
+
+### Leave unregistered historical tails unavailable
+
+When: retained block authority pass. Verdict: sound, high confidence.
+
+If the recorder seals a file and dies before the database accepts its descriptor,
+the file remains on disk but cannot be uploaded through this API. A replacement
+recorder must not turn a plausible old journal into new authority. Recovering
+that interval requires an earlier database-authorized prefix and a safe way to
+inspect storage without racing the old writer. This narrow pass deliberately
+does not invent either proof, delete the tail or call it an archive. The choice
+keeps later recovery work explicit and prevents a stale writer from extending
+historical coverage after its lease expired.

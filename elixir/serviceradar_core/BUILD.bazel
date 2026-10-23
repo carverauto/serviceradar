@@ -86,6 +86,25 @@ write_source_files(
     tags = ["manual"],
 )
 
+# Add retained block authority without rewriting the applied recorder schema.
+ash_schema(
+    name = "camera_recording_block_schema",
+    outs = ["generated_camera_blocks/block.json", "generated_camera_blocks/migration.exs"],
+    app = ":erlang_app",
+    generator = "//build:camera_recording_block_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_recording_block_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261023160000.json": ":generated_camera_blocks/block.json",
+        "priv/repo/migrations/20261023160000_add_camera_recording_blocks.exs": ":generated_camera_blocks/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.
