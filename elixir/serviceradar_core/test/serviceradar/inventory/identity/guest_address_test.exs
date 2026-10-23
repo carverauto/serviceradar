@@ -41,4 +41,31 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
 
     assert GuestAddress.primary(interfaces) == nil
   end
+
+  test "host_internal_address?/2 flags bridge, CNI, and own-prefix gateway addresses unless hypervisor-attached" do
+    assert GuestAddress.host_internal_address?(
+             %{name: "docker0", source: "guest_agent"},
+             "172.17.0.1/16"
+           )
+
+    assert GuestAddress.host_internal_address?(
+             %{name: "br-0a1b2c3d4e5f", source: "guest_agent"},
+             "198.51.100.10/24"
+           )
+
+    assert GuestAddress.host_internal_address?(
+             %{name: "ens5", source: "guest_tools", cidr: "172.30.0.1/24"},
+             "172.30.0.1"
+           )
+
+    refute GuestAddress.host_internal_address?(
+             %{name: "eth0", source: "guest_tools"},
+             "192.0.2.20/24"
+           )
+
+    refute GuestAddress.host_internal_address?(
+             %{name: "net0", source: "config,guest_agent"},
+             "172.17.0.1/16"
+           )
+  end
 end

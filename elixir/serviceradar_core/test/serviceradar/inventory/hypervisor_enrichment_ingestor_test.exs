@@ -184,6 +184,53 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorTest do
            }
   end
 
+  test "guest_lookup_identities/1 skips host-internal bridge, CNI, and own-prefix gateway IPs while keeping hypervisor-attached and LAN guest IPs" do
+    guest_ref = "vsphere:vcenter-a:guest:vm-100"
+
+    network_interfaces = [
+      %{
+        guest_provider_ref: guest_ref,
+        name: "docker0",
+        source: "guest_agent",
+        mac_address: "02:42:ac:11:00:01",
+        ip_addresses: ["172.17.0.1/16"],
+        metadata: %{"partition" => "default"}
+      },
+      %{
+        guest_provider_ref: guest_ref,
+        name: "br-0a1b2c3d4e5f",
+        source: "guest_agent",
+        ip_addresses: ["198.51.100.129/25"],
+        metadata: %{"partition" => "default"}
+      },
+      %{
+        guest_provider_ref: guest_ref,
+        name: "ens5",
+        source: "guest_tools",
+        cidr: "172.30.0.1/24",
+        ip_addresses: ["172.30.0.1", "192.0.2.20/24"],
+        metadata: %{"partition" => "default"}
+      },
+      %{
+        guest_provider_ref: guest_ref,
+        name: "net0",
+        source: "config,guest_agent",
+        mac_address: "00:50:56:aa:bb:cc",
+        ip_addresses: ["192.0.2.10/24"],
+        metadata: %{"partition" => "default"}
+      }
+    ]
+
+    identities = HypervisorEnrichmentIngestor.guest_lookup_identities(network_interfaces)
+
+    ip_values =
+      identities
+      |> Enum.filter(&(&1.type == :ip))
+      |> Enum.map(& &1.value)
+
+    assert ip_values == ["192.0.2.20", "192.0.2.10"]
+  end
+
   test "rejects partial or mismatched Proxmox v3 records before persistence" do
     provider_ref =
       "proxmox:v3:11111111-1111-4111-8111-111111111111:" <>

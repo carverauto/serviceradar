@@ -1541,35 +1541,41 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
   end
 
+  @doc false
+  def guest_lookup_identities(network_interfaces) when is_list(network_interfaces) do
+    network_interfaces
+    |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
+    |> Enum.flat_map(fn iface ->
+      guest_ref = Map.fetch!(iface, :guest_provider_ref)
+
+      macs =
+        iface
+        |> Map.get(:mac_address)
+        |> List.wrap()
+        |> Enum.map(&normalize_mac_identifier/1)
+        |> Enum.filter(&present?/1)
+
+      ips =
+        iface
+        |> Map.get(:ip_addresses, [])
+        |> List.wrap()
+        |> Enum.reject(&GuestAddress.host_internal_address?(iface, &1))
+        |> Enum.map(&normalize_ip_identifier/1)
+        |> Enum.filter(&present?/1)
+
+      partition =
+        iface
+        |> Map.get(:metadata, %{})
+        |> string_value("partition")
+        |> Kernel.||("default")
+
+      Enum.map(macs, &%{guest_ref: guest_ref, type: :mac, value: &1, partition: partition}) ++
+        Enum.map(ips, &%{guest_ref: guest_ref, type: :ip, value: &1, partition: partition})
+    end)
+  end
+
   defp network_identity_by_guest(network_interfaces, _actor) do
-    identities =
-      network_interfaces
-      |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
-      |> Enum.flat_map(fn iface ->
-        guest_ref = Map.fetch!(iface, :guest_provider_ref)
-
-        macs =
-          iface
-          |> Map.get(:mac_address)
-          |> List.wrap()
-          |> Enum.map(&normalize_mac_identifier/1)
-          |> Enum.filter(&present?/1)
-
-        ips =
-          iface
-          |> Map.get(:ip_addresses, [])
-          |> Enum.map(&normalize_ip_identifier/1)
-          |> Enum.filter(&present?/1)
-
-        partition =
-          iface
-          |> Map.get(:metadata, %{})
-          |> string_value("partition")
-          |> Kernel.||("default")
-
-        Enum.map(macs, &%{guest_ref: guest_ref, type: :mac, value: &1, partition: partition}) ++
-          Enum.map(ips, &%{guest_ref: guest_ref, type: :ip, value: &1, partition: partition})
-      end)
+    identities = guest_lookup_identities(network_interfaces)
 
     if identities == [] do
       {:ok, %{}}
