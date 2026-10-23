@@ -59,6 +59,18 @@ defmodule ServiceRadar.AgentConfig.DependencyResolvers do
   end
 
   @doc """
+  Resolves the target agent for a `ConfigInstance`, or `:all_online` when the
+  instance applies to any agent in the partition (`agent_id` is `nil`).
+  """
+  @spec config_instance_agents(map() | struct()) :: affected_agents()
+  def config_instance_agents(record) do
+    case record_agent_id(record) do
+      [] -> :all_online
+      agents -> agents
+    end
+  end
+
+  @doc """
   Resolves a single assigned agent from common `agent_id`/`agent_uid` fields.
   """
   @spec record_agent_id(map() | struct()) :: affected_agents()

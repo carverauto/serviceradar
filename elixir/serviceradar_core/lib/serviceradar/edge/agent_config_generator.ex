@@ -37,6 +37,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
+  alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Credentials.SecretBroker
   alias ServiceRadar.Edge.AgentArtifacts
@@ -75,6 +76,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # delivered to the agent, so `:not_modified` polls don't write an audit row per
   # credential per poll (fj #4428).
   @audit_collector_key :agent_config_deferred_credential_audits
+  @delivered_instance_collector_key :agent_config_deferred_instance_deliveries
   @required_addons_config_key :required_agent_addons
   @default_required_addon_ids ["otel-collector"]
   @controller_secret_schema %{
@@ -168,8 +170,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   @spec generate_config(String.t(), String.t()) :: {:ok, agent_config()} | {:error, term()}
   def generate_config(agent_id, partition_id) do
     with {:ok, partition_id} <- authenticated_partition(partition_id) do
-      {config, audits} = generate_collecting_audits(agent_id, partition_id)
+      {config, audits, delivered_instance_ids} =
+        generate_collecting_audits(agent_id, partition_id)
+
       commit_deferred_audits(audits)
+      commit_deferred_instance_deliveries(delivered_instance_ids)
       {:ok, config}
     end
   rescue
@@ -216,7 +221,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp do_get_config_if_changed(agent_id, partition_id, current_version) do
-    {config, deferred_audits} = generate_collecting_audits(agent_id, partition_id)
+    {config, deferred_audits, delivered_instance_ids} =
+      generate_collecting_audits(agent_id, partition_id)
 
     if config.config_version == current_version do
       # Nothing delivered this poll — drop the audits collected while resolving
@@ -225,6 +231,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       :not_modified
     else
       commit_deferred_audits(deferred_audits)
+      commit_deferred_instance_deliveries(delivered_instance_ids)
       # An empty current_version is a first fetch / not-yet-committed agent (e.g. a config
       # section that deferred its version commit), not an operator config change. It would
       # otherwise log "Config changed ...:  -> v<hash>" on every poll, so keep it at debug
@@ -312,8 +319,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
           Monitoring.AgentConfigResponse.t() | {:error, term()}
   def generate_proto_response(agent_id, partition_id) when is_binary(agent_id) do
     with {:ok, partition_id} <- authenticated_partition(partition_id) do
-      {config, audits} = generate_collecting_audits(agent_id, partition_id)
+      {config, audits, delivered_instance_ids} =
+        generate_collecting_audits(agent_id, partition_id)
+
       commit_deferred_audits(audits)
+      commit_deferred_instance_deliveries(delivered_instance_ids)
       to_proto_response(config)
     end
   end
@@ -2157,22 +2167,45 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     :ok
   end
 
-  # Generates a config with a deferred-audit collector active, returning the
-  # config plus the audits collected during generation (chronological order).
-  # The collector is always restored, even on error.
+  # Generates a config with deferred-audit and deferred-instance-delivery
+  # collectors active, returning the config plus the audits and ConfigInstance
+  # IDs collected during generation (chronological order). The collectors are
+  # always restored, even on error.
   defp generate_collecting_audits(agent_id, partition_id) do
-    previous = Process.put(@audit_collector_key, [])
+    previous_audits = Process.put(@audit_collector_key, [])
+    previous_instances = Process.put(@delivered_instance_collector_key, [])
 
     try do
       config = generate_config!(agent_id, partition_id)
-      {config, Enum.reverse(Process.get(@audit_collector_key, []))}
+
+      {
+        config,
+        Enum.reverse(Process.get(@audit_collector_key, [])),
+        Enum.reverse(Process.get(@delivered_instance_collector_key, []))
+      }
     after
-      case previous do
-        nil -> Process.delete(@audit_collector_key)
-        prev -> Process.put(@audit_collector_key, prev)
-      end
+      restore_process_collector(@audit_collector_key, previous_audits)
+      restore_process_collector(@delivered_instance_collector_key, previous_instances)
     end
   end
+
+  defp restore_process_collector(key, nil), do: Process.delete(key)
+  defp restore_process_collector(key, prev), do: Process.put(key, prev)
+
+  defp record_deferred_instance_delivery(%{config_instance_id: instance_id})
+       when is_binary(instance_id) and instance_id != "" do
+    case Process.get(@delivered_instance_collector_key) do
+      collected when is_list(collected) ->
+        Process.put(@delivered_instance_collector_key, [instance_id | collected])
+
+      _ ->
+        :ok
+    end
+
+    :ok
+  end
+
+  defp record_deferred_instance_delivery(_entry), do: :ok
 
   defp authenticated_partition(value) when is_binary(value) do
     case String.trim(value) do
@@ -2184,6 +2217,39 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp authenticated_partition(_value), do: {:error, :authenticated_partition_required}
 
   defp commit_deferred_audits(audits), do: Enum.each(audits, &SecretBroker.write_audit/1)
+
+  defp commit_deferred_instance_deliveries([]), do: :ok
+
+  defp commit_deferred_instance_deliveries(instance_ids) when is_list(instance_ids) do
+    actor = SystemActor.system(:agent_config_generator)
+
+    instance_ids
+    |> Enum.uniq()
+    |> Enum.each(&mark_config_instance_delivered(&1, actor))
+  end
+
+  defp mark_config_instance_delivered(instance_id, actor) when is_binary(instance_id) do
+    case Ash.get(ConfigInstance, instance_id, actor: actor) do
+      {:ok, %ConfigInstance{} = instance} ->
+        case instance
+             |> Ash.Changeset.for_update(:mark_delivered, %{}, actor: actor)
+             |> Ash.update(actor: actor) do
+          {:ok, _updated} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to mark ConfigInstance #{instance_id} delivered: #{inspect(reason)}"
+            )
+        end
+
+      _ ->
+        :ok
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to mark ConfigInstance #{instance_id} delivered: #{inspect(e)}")
+  end
 
   defp materialize_controller_credentials(params, %PluginAssignment{source: source} = assignment)
        when source in [:policy, "policy"] do
@@ -3626,6 +3692,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
            device_uid: device_uid
          ) do
       {:ok, entry} ->
+        record_deferred_instance_delivery(entry)
         bumblebee_profile_config(entry.config, agent_id, device_uid, actor)
 
       {:error, :no_config_found} ->
@@ -3739,6 +3806,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
            device_uid: device_uid
          ) do
       {:ok, entry} when is_map(entry.config) ->
+        record_deferred_instance_delivery(entry)
+
         entry.config
         |> Map.put("agent_id", agent_id)
         |> Map.put_new("sources", ["dpkg", "rpm", "apk"])
