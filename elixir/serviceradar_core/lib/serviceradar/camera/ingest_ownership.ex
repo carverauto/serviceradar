@@ -42,7 +42,7 @@ defmodule ServiceRadar.Camera.IngestOwnership do
          {:ok, token} <- uuid(owner_token) do
       transaction(fn ->
         with {:ok, %StreamProfile{}} <-
-               StreamProfile.get_for_relay(profile_id, source_id, caller(opts)),
+               StreamProfile.get_for_relay(profile_id, source_id, lookup(opts)),
              {:ok, initialized} <- initialize(source_id, profile_id, opts),
              {:ok, owner} <- lock_owner(initialized.id, opts) do
           claim(owner, token, ttl_ms, opts)
@@ -71,7 +71,7 @@ defmodule ServiceRadar.Camera.IngestOwnership do
       lease,
       fn owner ->
         with :ok <- unbound_or_same(owner, relay_session_id),
-             {:ok, relay} <- RelaySession.get_by_id(relay_session_id, caller(opts)),
+             {:ok, relay} <- RelaySession.get_by_id(relay_session_id, lookup(opts)),
              :ok <- matching_relay(owner, relay) do
           transition(owner, %{relay_session_id: relay_session_id}, opts)
         end
@@ -339,6 +339,8 @@ defmodule ServiceRadar.Camera.IngestOwnership do
       :error -> {:error, :invalid_owner_token}
     end
   end
+
+  defp lookup(opts), do: Keyword.put(caller(opts), :not_found_error?, false)
 
   defp caller(opts), do: [actor: Keyword.get(opts, :actor)]
 

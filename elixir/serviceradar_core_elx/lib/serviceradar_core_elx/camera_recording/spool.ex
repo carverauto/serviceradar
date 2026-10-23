@@ -13,7 +13,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   that cannot sync directories is rejected. This is node-local durability, not
   replication or an archive acknowledgement. No rename is used as a commit marker.
 
-  A failed I/O may leave a tail: recover before writing again. Recovery verifies
+  `create/4` does not replace a block directory that already exists. If this call
+  created the directory and failed before a complete journal record, it removes
+  that directory and only the files it may have written there. A complete
+  recoverable journal is kept when a later sync fails, and a complete corrupt
+  journal is kept as evidence. When that removal fails, `create/4` returns
+  `{:error, {:create_cleanup_failed, reason, cleanup_reason}}`; a later `create/4`
+  then sees the directory and returns `{:error, :eexist}`. A failed append may
+  leave a tail: recover before writing again. Recovery verifies
   every committed fragment, discards only incomplete journal records and media
   beyond the committed high-water mark, and rejects complete corrupt records.
   Sealing journals the whole-block digest and permanently prevents further append.
@@ -64,22 +71,26 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
       header = %{"type" => "header", "version" => 1, "identity" => identity, "init" => init_meta}
       journal = encode_record(header)
 
-      with :ok <- File.mkdir(directory),
-           :ok <- File.chmod(directory, 0o700),
-           :ok <- write_new(Path.join(directory, "init.mp4"), init),
-           :ok <- write_new(Path.join(directory, "media.m4s"), <<>>),
-           :ok <- write_new(Path.join(directory, "journal"), journal),
-           :ok <- sync_directory(directory),
-           :ok <- sync_directory(root) do
-        {:ok,
-         %__MODULE__{
-           directory: directory,
-           identity: identity,
-           init: init_meta,
-           limits: limits,
-           hash: :crypto.hash_init(:sha256),
-           journal_size: byte_size(journal)
-         }}
+      case File.mkdir(directory) do
+        :ok ->
+          case write_created_block(directory, root, init, journal) do
+            :ok ->
+              {:ok,
+               %__MODULE__{
+                 directory: directory,
+                 identity: identity,
+                 init: init_meta,
+                 limits: limits,
+                 hash: :crypto.hash_init(:sha256),
+                 journal_size: byte_size(journal)
+               }}
+
+            {:error, _} = error ->
+              abandon_incomplete_create(directory, error)
+          end
+
+        {:error, _} = error ->
+          error
       end
     else
       {:ok, _} -> {:error, :invalid_root}
@@ -440,6 +451,94 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
         _ -> {:error, :truncated_media}
       end
     end)
+  end
+
+  defp write_created_block(directory, root, init, journal) do
+    with :ok <- File.chmod(directory, 0o700),
+         :ok <- write_new(Path.join(directory, "init.mp4"), init),
+         :ok <- write_new(Path.join(directory, "media.m4s"), <<>>),
+         :ok <- write_new(Path.join(directory, "journal"), journal),
+         :ok <- sync_directory(directory),
+         :ok <- sync_directory(root) do
+      :ok
+    end
+  end
+
+  defp abandon_incomplete_create(directory, {:error, reason} = error) do
+    case creation_evidence(directory) do
+      :incomplete ->
+        case remove_created_directory(directory) do
+          :ok -> error
+          {:error, cleanup} -> {:error, {:create_cleanup_failed, reason, cleanup}}
+        end
+
+      :preserve ->
+        error
+    end
+  end
+
+  defp creation_evidence(directory) do
+    case read_bounded(Path.join(directory, "journal"), @record_bytes + 36) do
+      {:ok, bytes} ->
+        case read_record(bytes) do
+          :incomplete -> :incomplete
+          _complete -> :preserve
+        end
+
+      {:error, reason} when reason in [:enoent, :empty_journal] ->
+        :incomplete
+
+      {:error, _reason} ->
+        :preserve
+    end
+  end
+
+  defp remove_created_directory(directory) do
+    with :ok <- remove_created_file(Path.join(directory, "init.mp4")),
+         :ok <- remove_created_file(Path.join(directory, "media.m4s")),
+         :ok <- remove_created_file(Path.join(directory, "journal")) do
+      rmdir_created(directory)
+    end
+  end
+
+  defp remove_created_file(path) do
+    case File.lstat(path) do
+      {:error, reason} when reason in [:enoent, :enametoolong] ->
+        :ok
+
+      {:ok, %File.Stat{type: :regular}} ->
+        case File.rm(path) do
+          :ok -> :ok
+          {:error, :enoent} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:ok, %File.Stat{}} ->
+        {:error, :eexist}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp rmdir_created(directory) do
+    case File.lstat(directory) do
+      {:ok, %File.Stat{type: :directory}} ->
+        case File.rmdir(directory) do
+          :ok -> :ok
+          {:error, :enoent} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, :enoent} ->
+        :ok
+
+      {:ok, %File.Stat{}} ->
+        {:error, :eexist}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp write_new(path, bytes) do

@@ -138,6 +138,95 @@ defmodule ServiceRadarCoreElx.CameraRecording.SpoolTest do
     assert Spool.snapshot(sealed).high_water == 2
   end
 
+  test "a failed create removes only its incomplete directory and retry does not stick", %{root: root} do
+    {:ok, existing} = Spool.create(root, @identity, "init", @limits)
+    existing_dir = Spool.snapshot(existing).directory
+    block_id = Path.basename(existing_dir)
+    existing_bytes = directory_bytes(existing_dir)
+
+    probe = Path.join(root, "probe")
+    max_len = longest_directory(probe)
+    long_root =
+      path_of_length(Path.join(root, "long"), max_len - byte_size(block_id) - 9)
+    File.mkdir_p!(long_root)
+    File.chmod!(long_root, 0o700)
+    kept = Path.join(long_root, "kept")
+    File.mkdir!(kept)
+    File.write!(Path.join(kept, "note"), "keep")
+    block_dir = Path.join(long_root, block_id)
+    assert byte_size(block_dir) == max_len - 8
+    assert :ok = File.mkdir(block_dir)
+
+    assert {:ok, journal_fd} =
+             :file.open(String.to_charlist(Path.join(block_dir, "journal")), [
+               :raw,
+               :binary,
+               :write,
+               :exclusive
+             ])
+
+    :file.close(journal_fd)
+    File.rm!(Path.join(block_dir, "journal"))
+
+    assert {:error, :enametoolong} =
+             :file.open(String.to_charlist(Path.join(block_dir, "init.mp4")), [
+               :raw,
+               :binary,
+               :write,
+               :exclusive
+             ])
+
+    assert :ok = File.rmdir(block_dir)
+
+    assert {:error, :enametoolong} = Spool.create(long_root, @identity, "init", @limits)
+    refute File.exists?(block_dir)
+    assert File.ls!(long_root) == ["kept"]
+    assert {:error, :enametoolong} = Spool.create(long_root, @identity, "init", @limits)
+    refute File.exists?(block_dir)
+    assert File.read!(Path.join(kept, "note")) == "keep"
+    assert directory_bytes(existing_dir) == existing_bytes
+    assert {:ok, _recovered} = Spool.recover(existing_dir, @identity, @limits)
+
+    {:ok, retried} = Spool.create(root, %{@identity | block_sequence: 9}, "init", @limits)
+    assert {:ok, "init"} = Spool.read_init(Spool.snapshot(retried))
+  end
+
+  test "create leaves an existing block directory unchanged", %{root: root} do
+    {:ok, recoverable} = Spool.create(root, @identity, "init", @limits)
+    recoverable_dir = Spool.snapshot(recoverable).directory
+    recoverable_bytes = directory_bytes(recoverable_dir)
+    assert {:error, :eexist} = Spool.create(root, @identity, "init", @limits)
+    assert directory_bytes(recoverable_dir) == recoverable_bytes
+    assert {:ok, recovered} = Spool.recover(recoverable_dir, @identity, @limits)
+    assert Spool.snapshot(recovered).directory == recoverable_dir
+
+    incomplete_identity = %{@identity | block_sequence: 7}
+    {:ok, incomplete} = Spool.create(root, incomplete_identity, "init", @limits)
+    incomplete_dir = Spool.snapshot(incomplete).directory
+    File.rm_rf!(incomplete_dir)
+    File.mkdir!(incomplete_dir)
+    assert {:error, :eexist} = Spool.create(root, incomplete_identity, "init", @limits)
+    assert File.ls!(incomplete_dir) == []
+    assert {:error, _} = Spool.recover(incomplete_dir, incomplete_identity, @limits)
+    File.rm_rf!(incomplete_dir)
+    assert {:ok, _replaced} = Spool.create(root, incomplete_identity, "init", @limits)
+
+    corrupt_identity = %{@identity | block_sequence: 8}
+    {:ok, corrupt} = Spool.create(root, corrupt_identity, "init", @limits)
+    corrupt_dir = Spool.snapshot(corrupt).directory
+    journal_path = Path.join(corrupt_dir, "journal")
+    journal = File.read!(journal_path)
+    <<prefix::binary-size(byte_size(journal) - 1), last>> = journal
+    File.write!(journal_path, <<prefix::binary, Bitwise.bxor(last, 1)>>)
+    corrupt_bytes = directory_bytes(corrupt_dir)
+    assert {:error, :eexist} = Spool.create(root, corrupt_identity, "init", @limits)
+    assert directory_bytes(corrupt_dir) == corrupt_bytes
+
+    assert {:error, reason} = Spool.recover(corrupt_dir, corrupt_identity, @limits)
+    assert reason in [:invalid_journal_record, :journal_digest_mismatch]
+    assert directory_bytes(corrupt_dir) == corrupt_bytes
+  end
+
   test "block identity prevents reuse across epochs and recovery fails for the wrong identity", %{root: root} do
     {:ok, first} = Spool.create(root, @identity, "init", @limits)
     assert {:error, :eexist} = Spool.create(root, @identity, "init", @limits)
@@ -155,4 +244,66 @@ defmodule ServiceRadarCoreElx.CameraRecording.SpoolTest do
   end
 
   defp timing(seconds), do: %{start_ns: seconds * 1_000_000_000, duration_ns: 2_000_000_000}
+
+  defp directory_bytes(directory) do
+    directory
+    |> File.ls!()
+    |> Enum.sort()
+    |> Map.new(fn name -> {name, File.read!(Path.join(directory, name))} end)
+  end
+
+  defp longest_directory(anchor) do
+    File.mkdir_p!(anchor)
+    deepen(anchor)
+  end
+
+  defp deepen(path) do
+    next = Path.join(path, String.duplicate("p", 200))
+
+    case File.mkdir(next) do
+      :ok -> deepen(next)
+      {:error, :enametoolong} -> longest_child(path)
+      {:error, reason} -> flunk("directory length probe failed: #{inspect(reason)}")
+    end
+  end
+
+  defp longest_child(parent) do
+    Enum.reduce(1..255, byte_size(parent), fn len, best ->
+      child = Path.join(parent, String.duplicate("c", len))
+
+      case File.mkdir(child) do
+        :ok ->
+          File.rmdir!(child)
+          byte_size(child)
+
+        {:error, :enametoolong} ->
+          best
+
+        {:error, reason} ->
+          flunk("directory length probe failed: #{inspect(reason)}")
+      end
+    end)
+  end
+
+  defp path_of_length(anchor, target) when is_integer(target) do
+    File.mkdir_p!(anchor)
+
+    if target <= byte_size(anchor) do
+      flunk("path limit leaves no room under #{anchor}")
+    else
+      extend_path(anchor, target)
+    end
+  end
+
+  defp extend_path(path, target) when byte_size(path) == target, do: path
+
+  defp extend_path(path, target) when byte_size(path) < target do
+    take = min(target - byte_size(path) - 1, 200)
+
+    if take < 1 do
+      flunk("path limit cannot fit another component")
+    else
+      extend_path(Path.join(path, String.duplicate("d", take)), target)
+    end
+  end
 end

@@ -292,6 +292,102 @@ defmodule ServiceRadar.Camera.IngestOwnershipIntegrationTest do
     assert next.epoch == owner.epoch + 1
   end
 
+  test "absent and ineligible profiles refuse without claiming an owner", ctx do
+    assert {:error, :profile_unavailable} =
+             IngestOwnership.acquire(
+               ctx.source.id,
+               Ecto.UUID.generate(),
+               Ecto.UUID.generate(),
+               30_000,
+               ctx.opts
+             )
+
+    assert owners(ctx.source.id, ctx.opts) == []
+
+    other = other_source(ctx)
+
+    assert {:error, :profile_unavailable} =
+             IngestOwnership.acquire(
+               ctx.source.id,
+               other.profile.id,
+               Ecto.UUID.generate(),
+               30_000,
+               ctx.opts
+             )
+
+    assert owners(ctx.source.id, ctx.opts) == []
+    assert owners(other.source.id, ctx.opts) == []
+
+    ctx.profile
+    |> Ash.Changeset.for_update(:update, %{relay_eligible: false})
+    |> Ash.update!(ctx.opts)
+
+    assert {:error, :profile_unavailable} = acquire(ctx)
+    assert owners(ctx.source.id, ctx.opts) == []
+
+    ctx.profile
+    |> Ash.Changeset.for_update(:update, %{relay_eligible: true})
+    |> Ash.update!(ctx.opts)
+
+    assert {:ok, %{epoch: 1, state: :active}} = acquire(ctx)
+    assert [%{epoch: 1}] = owners(ctx.source.id, ctx.opts)
+  end
+
+  test "absent and ineligible relays refuse without binding the owner", ctx do
+    assert {:ok, owner} = acquire(ctx)
+
+    assert {:error, :relay_mismatch} =
+             IngestOwnership.bind_relay(owner, Ecto.UUID.generate(), ctx.opts)
+
+    assert %{relay_session_id: nil, epoch: epoch} = reload_owner(owner, ctx)
+    assert epoch == owner.epoch
+
+    other = other_source(ctx)
+
+    {:ok, foreign} =
+      RelaySession.create_session(
+        %{
+          camera_source_id: other.source.id,
+          stream_profile_id: other.profile.id,
+          agent_id: "agent-example",
+          gateway_id: "gateway-example"
+        },
+        ctx.opts
+      )
+
+    assert {:error, :relay_mismatch} = IngestOwnership.bind_relay(owner, foreign.id, ctx.opts)
+    assert %{relay_session_id: nil} = reload_owner(owner, ctx)
+
+    {:ok, closed} =
+      RelaySession.create_session(
+        %{
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.profile.id,
+          agent_id: "agent-example",
+          gateway_id: "gateway-example"
+        },
+        ctx.opts
+      )
+
+    assert {:ok, %{status: :closed}} = RelaySession.mark_closed(closed, %{}, ctx.opts)
+    assert {:error, :relay_mismatch} = IngestOwnership.bind_relay(owner, closed.id, ctx.opts)
+    assert %{relay_session_id: nil, state: :active} = reload_owner(owner, ctx)
+
+    {:ok, live} =
+      RelaySession.create_session(
+        %{
+          camera_source_id: ctx.source.id,
+          stream_profile_id: ctx.profile.id,
+          agent_id: "agent-example",
+          gateway_id: "gateway-example"
+        },
+        ctx.opts
+      )
+
+    assert {:ok, bound} = IngestOwnership.bind_relay(owner, live.id, ctx.opts)
+    assert bound.relay_session_id == live.id
+  end
+
   test "release preserves epochs and expired consumers cannot renew", ctx do
     assert {:ok, owner} = acquire(ctx)
 
@@ -317,6 +413,37 @@ defmodule ServiceRadar.Camera.IngestOwnershipIntegrationTest do
     assert {:ok, next} = acquire(ctx)
     assert next.epoch == owner.epoch + 1
     assert next.id == owner.id
+  end
+
+  defp other_source(ctx) do
+    key = Ecto.UUID.generate()
+
+    {:ok, source} =
+      Source.create_source(
+        %{device_uid: "sr:camera-owner-#{key}", vendor: "acme", vendor_camera_id: key},
+        ctx.opts
+      )
+
+    on_exit(fn -> cleanup(source.id) end)
+
+    {:ok, profile} =
+      StreamProfile.create_profile(%{camera_source_id: source.id, profile_name: "main"}, ctx.opts)
+
+    %{source: source, profile: profile}
+  end
+
+  defp owners(source_id, opts) do
+    {:ok, rows} =
+      IngestOwner
+      |> Ash.Query.filter(camera_source_id == ^source_id)
+      |> Ash.read(opts)
+
+    rows
+  end
+
+  defp reload_owner(owner, ctx) do
+    {:ok, reloaded} = Ash.get(IngestOwner, owner.id, ctx.opts)
+    reloaded
   end
 
   defp acquire(ctx, token \\ Ecto.UUID.generate()) do
