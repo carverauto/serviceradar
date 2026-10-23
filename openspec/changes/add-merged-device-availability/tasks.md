@@ -2,7 +2,7 @@
 
 - [ ] 0.1 Archive `add-per-agent-availability` so that its device-inventory requirements are in `specs/` before this change archives
 - [ ] 0.2 Get the user's decisions on the remaining design.md Open Questions (Q5, Q6, Q7 and Q11); Q1-Q4, Q8-Q10 and Q12 are decided
-- [x] 0.3 Fix the readers marked "fix" in design.md before stage c: `device_tab_runtime.ex:201` turning false into nil, and the `basic_summaries.ex` retired filter.
+- [x] 0.3 Pre-stage-c reader fixes in the design.md web-ng reader table: `device_row_is_available/1` and `basic_summaries.ex`
 
 Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence report, no behavior change). It ships and is reviewed on demo before phase 2 (sections 3 and 4) begins.
 
