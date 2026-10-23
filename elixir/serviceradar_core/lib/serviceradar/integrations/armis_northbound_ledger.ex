@@ -332,7 +332,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundLedger do
         [target],
         target.integration_update_run_id == ^run_id and
           target.source_object_id in ^source_ids and target.eligibility == :eligible and
-          target.outcome == :pending
+          target.outcome in [:pending, ^outcome]
       )
       |> Repo.update_all(set: [outcome: outcome, updated_at: now])
 

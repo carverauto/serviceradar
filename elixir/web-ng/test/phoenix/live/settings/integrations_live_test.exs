@@ -352,6 +352,149 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLiveTest do
     refute has_element?(lv, "#armis-accounting-unavailable")
   end
 
+  test "details modal shows a fully reconciled collection run and a stopped batch with unattempted IDs",
+       %{
+         conn: conn,
+         scope: scope
+       } do
+    reconciled_source =
+      create_armis_source!(scope, %{
+        name: "Armis Fully Reconciled Source",
+        custom_fields: ["availability_status"],
+        northbound_enabled: true
+      })
+
+    reconciled_run =
+      IntegrationUpdateRun
+      |> Ash.Changeset.for_create(:start_run, %{
+        integration_source_id: reconciled_source.id,
+        run_type: :armis_northbound,
+        metadata: %{}
+      })
+      |> Ash.create!(scope: scope)
+      |> Ash.Changeset.for_update(:bind_collection, %{
+        collection_id: "collection-fully-reconciled",
+        collection_content_hash: String.duplicate("b", 64),
+        collection_observed_at: ~U[2026-09-01 08:00:00.000000Z],
+        raw_rows: 10,
+        excluded_rows: 0,
+        invalid_rows: 0,
+        valid_occurrences: 10,
+        distinct_source_ids: 10,
+        duplicate_occurrences: 0,
+        conflicting_duplicate_ids: 0,
+        eligible_count: 10,
+        withheld_count: 0,
+        reconciliation_status: :pending,
+        metadata: %{"accounting_status" => "exact"}
+      })
+      |> Ash.update!(scope: scope)
+
+    _reconciled_run =
+      reconciled_run
+      |> Ash.Changeset.for_update(:finish_success, %{
+        device_count: 10,
+        updated_count: 10,
+        skipped_count: 0,
+        error_count: 0,
+        eligible_count: 10,
+        withheld_count: 0,
+        accepted_count: 10,
+        failed_count: 0,
+        unattempted_count: 0,
+        reconciliation_status: :reconciled,
+        metadata: %{"accounting_status" => "exact"}
+      })
+      |> Ash.update!(scope: scope)
+
+    {:ok, reconciled_lv, reconciled_html} =
+      live(conn, ~p"/settings/networks/integrations/#{reconciled_source.id}")
+
+    assert has_element?(reconciled_lv, "#armis-reconciliation-funnel")
+    assert has_element?(reconciled_lv, "#armis-reconciliation-statuses", "Reconciled")
+    refute has_element?(reconciled_lv, "#armis-withheld-reasons")
+    refute has_element?(reconciled_lv, "#armis-accounting-unavailable")
+    assert reconciled_html =~ "10"
+
+    stopped_source =
+      create_armis_source!(scope, %{
+        name: "Armis Stopped Batch Source",
+        custom_fields: ["availability_status"],
+        northbound_enabled: true
+      })
+
+    stopped_run =
+      IntegrationUpdateRun
+      |> Ash.Changeset.for_create(:start_run, %{
+        integration_source_id: stopped_source.id,
+        run_type: :armis_northbound,
+        metadata: %{}
+      })
+      |> Ash.create!(scope: scope)
+      |> Ash.Changeset.for_update(:bind_collection, %{
+        collection_id: "collection-stopped-batch",
+        collection_content_hash: String.duplicate("c", 64),
+        collection_observed_at: ~U[2026-09-01 08:00:00.000000Z],
+        raw_rows: 9,
+        excluded_rows: 0,
+        invalid_rows: 0,
+        valid_occurrences: 9,
+        distinct_source_ids: 9,
+        duplicate_occurrences: 0,
+        conflicting_duplicate_ids: 0,
+        eligible_count: 9,
+        withheld_count: 0,
+        reconciliation_status: :pending,
+        metadata: %{"accounting_status" => "exact"}
+      })
+      |> Ash.update!(scope: scope)
+
+    stopped_run =
+      stopped_run
+      |> Ash.Changeset.for_update(:finish_failed, %{
+        device_count: 9,
+        updated_count: 6,
+        skipped_count: 0,
+        error_count: 3,
+        eligible_count: 9,
+        withheld_count: 0,
+        accepted_count: 6,
+        failed_count: 0,
+        unattempted_count: 3,
+        reconciliation_status: :degraded,
+        error_message: "stopped after second batch",
+        metadata: %{"accounting_status" => "exact"}
+      })
+      |> Ash.update!(scope: scope)
+
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    Repo.insert_all(IntegrationUpdateRunTarget, [
+      %{
+        id: Ecto.UUID.generate(),
+        integration_update_run_id: stopped_run.id,
+        collection_id: "collection-stopped-batch",
+        source_object_id: "armis-unattempted-7",
+        canonical_device_uid: "sr:device-7",
+        eligibility: :eligible,
+        outcome: :unattempted,
+        reason: nil,
+        is_available: true,
+        metadata: %{},
+        inserted_at: now,
+        updated_at: now
+      }
+    ])
+
+    {:ok, stopped_lv, stopped_html} =
+      live(conn, ~p"/settings/networks/integrations/#{stopped_source.id}")
+
+    assert has_element?(stopped_lv, "#armis-reconciliation-funnel")
+    assert has_element?(stopped_lv, "#armis-reconciliation-statuses", "Degraded")
+    assert has_element?(stopped_lv, "#armis-disposition-examples", "unattempted (3)")
+    assert stopped_html =~ "armis-unattempted-7"
+  end
+
   test "authorized operator can export a complete per-source-ID ledger", %{
     conn: conn,
     scope: scope
