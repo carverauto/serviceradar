@@ -23,6 +23,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
   The owner must start a new instance after reconnect, clock reset, or codec
   configuration change. No automatic restart can silently join those epochs.
 
+  `wait_for_keyframe?: true` allows attachment mid-stream. The native parser must
+  establish in-band configuration and an IDR. Every initial AU, including one
+  the parser drops, consumes cumulative byte/sample admission until acquisition.
+  Media and wall-clock wait limits apply independently; no metadata keyframe hint
+  or fabricated parameter set can bypass this gate. Strict admission is default.
+
   `finish/1` flushes a tail containing at least two pending samples; its final
   sample duration is inferred from the preceding sample by the pinned muxer,
   and is labelled `:previous_sample` on the returned fragment. A one-sample tail
@@ -62,12 +68,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
   def start(opts) do
     limits = Map.new(Keyword.merge(@defaults, Keyword.take(opts, Keyword.keys(@defaults))))
     clock = Keyword.get(opts, :clock)
+    waiting? = Keyword.get(opts, :wait_for_keyframe?, false)
 
     with true <- valid_clock?(clock),
-         true <- Enum.all?(Keyword.keys(opts), &(&1 in [:clock | Keyword.keys(@defaults)])),
+         true <- is_boolean(waiting?),
+         true <- Enum.all?(Keyword.keys(opts), &(&1 in [:clock, :wait_for_keyframe? | Keyword.keys(@defaults)])),
          true <- Enum.all?(limits, fn {key, value} -> is_integer(value) and value in 1..@ceilings[key] end),
          {:ok, _supervisor, pipeline} <-
-           Membrane.Pipeline.start(__MODULE__, %{clock: clock, limits: limits, owner: self()}) do
+           Membrane.Pipeline.start(__MODULE__, %{clock: clock, limits: limits, owner: self(), waiting?: waiting?}) do
       {:ok, pipeline}
     else
       false -> {:error, :invalid_packaging_options}
@@ -98,9 +106,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
       |> child(:parser, %Membrane.H264.Parser{
         output_alignment: :au,
         output_stream_structure: :avc1,
-        skip_until_keyframe: false
+        skip_until_keyframe: opts.waiting?
       })
-      |> child(:admission, %Admission{max_keyframe_interval_ns: limits.max_keyframe_interval_ns})
+      |> child(:admission, %Admission{
+        max_keyframe_interval_ns: limits.max_keyframe_interval_ns,
+        wait_for_keyframe?: opts.waiting?
+      })
       |> via_in(Pad.ref(:input, :video))
       |> child(:muxer, %Membrane.MP4.Muxer.CMAF{segment_min_duration: limits.segment_min_duration_ns})
       |> via_out(Pad.ref(:output, :video), options: [tracks: [:video]])
@@ -112,6 +123,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
         pending: nil,
         buffered_bytes: 0,
         buffered_samples: 0,
+        acquisition_bytes: 0,
+        acquisition_samples: 0,
+        acquisition_start_ns: nil,
         last_dts: nil,
         timer: nil,
         timer_id: nil,
@@ -119,6 +133,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
         finished?: false
       })
 
+    state = if state.waiting?, do: arm_timer(state), else: state
     {[spec: spec], state}
   end
 
@@ -139,9 +154,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
     do: fail(:buffered_sample_limit, %{state | pending: ctx.from})
 
   def handle_call({:push, access_unit}, ctx, state) do
-    case admit(access_unit, state) do
+    admission =
+      with {:ok, buffer} <- admit(access_unit, state), :ok <- acquisition_budget(buffer, state), do: {:ok, buffer}
+
+    case admission do
       {:ok, buffer} ->
         state = %{state | pending: ctx.from, last_dts: access_unit.dts}
+        state = charge_acquisition(state, buffer)
         state = if state.timer == nil, do: arm_timer(state), else: state
         available = state.limits.max_buffered_bytes - state.buffered_bytes
         {[notify_child: {:source, {:push, buffer, available}}], state}
@@ -151,6 +170,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
     end
   end
 
+  def handle_call(:finish, ctx, %{waiting?: true} = state),
+    do: fail(:initial_keyframe_missing, %{state | pending: ctx.from})
+
   def handle_call(:finish, ctx, %{buffered_samples: count} = state) when count < 2,
     do: fail(:insufficient_tail_samples, %{state | pending: ctx.from})
 
@@ -159,11 +181,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
   @impl true
   def handle_child_notification({:error, reason}, _child, _ctx, state), do: fail(reason, state)
 
+  def handle_child_notification(:waiting_for_keyframe, :admission, _ctx, %{error: nil, waiting?: true} = state) do
+    {[reply_to: {state.pending, {:ok, []}}], %{state | pending: nil}}
+  end
+
   def handle_child_notification({:complete, events, boundary}, :sink, _ctx, %{error: nil} = state) do
     fragments = for {:fragment, fragment} <- events, do: fragment
     released_bytes = Enum.sum(Enum.map(fragments, & &1.sample_bytes))
     released_samples = Enum.sum(Enum.map(fragments, & &1.sample_count))
     state = if boundary.keyframe?, do: arm_timer(state), else: state
+    state = %{state | waiting?: false, acquisition_bytes: 0, acquisition_samples: 0, acquisition_start_ns: nil}
     actions = [reply_to: {state.pending, {:ok, with_clock(events, state.clock)}}]
 
     {actions,
@@ -191,6 +218,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
   def handle_child_notification(_notification, _child, _ctx, state), do: {[], state}
 
   @impl true
+  def handle_info({:keyframe_timeout, id}, _ctx, %{timer_id: id, waiting?: true} = state),
+    do: fail(:initial_keyframe_wait_exceeded, state)
+
   def handle_info({:keyframe_timeout, id}, _ctx, %{timer_id: id} = state), do: fail(:keyframe_wait_exceeded, state)
   def handle_info({:keyframe_timeout, _id}, _ctx, state), do: {[], state}
 
@@ -219,6 +249,36 @@ defmodule ServiceRadarCoreElx.CameraRecording.Packaging do
   end
 
   defp admit(_access_unit, _state), do: {:error, :invalid_access_unit}
+
+  defp acquisition_budget(_buffer, %{waiting?: false}), do: :ok
+
+  defp acquisition_budget(buffer, state) do
+    cond do
+      state.acquisition_bytes + byte_size(buffer.payload) > state.limits.max_buffered_bytes ->
+        {:error, :initial_acquisition_byte_limit}
+
+      state.acquisition_samples >= state.limits.max_buffered_samples ->
+        {:error, :initial_acquisition_sample_limit}
+
+      state.acquisition_start_ns != nil and
+          buffer.dts - state.acquisition_start_ns > state.limits.max_keyframe_interval_ns ->
+        {:error, :initial_keyframe_interval_exceeded}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp charge_acquisition(%{waiting?: false} = state, _buffer), do: state
+
+  defp charge_acquisition(state, buffer) do
+    %{
+      state
+      | acquisition_bytes: state.acquisition_bytes + byte_size(buffer.payload),
+        acquisition_samples: state.acquisition_samples + 1,
+        acquisition_start_ns: state.acquisition_start_ns || buffer.dts
+    }
+  end
 
   defp fail(_reason, %{error: error} = state) when error != nil, do: {[], state}
 

@@ -124,6 +124,25 @@ or filesystem work. This is sound because immutable object names isolate stale
 uploads, while the database controls which objects become available. Integration
 tests for the actual database races remain a required gate.
 
+### One local block before archive-driven rotation
+
+When: recorder worker pass.
+
+The disabled recorder first writes one finite local block and stops when its
+capacity is reached. It seals previously committed fragments on ordinary
+capacity stop; queue failure or lease expiry does not claim a successful seal.
+It never deletes media or silently starts another block. Four active workers
+per node and eight queued access units per worker are provisional experiment
+limits, not measured deployment capacity. Each queued payload is independently
+bounded to 1 MiB, with an additional byte budget.
+
+The plan did not fix initial worker sizing or an archive reclamation policy.
+This choice is sound for a disabled integration path because it exercises real
+durability and failure boundaries without inventing retention behavior. Global
+spool capacity across stopped epochs, rotation, archive acknowledgement and
+reclamation remain prerequisites for enablement; the active-worker cap alone
+does not bound accumulated files.
+
 ### Provisional packaging capacity
 
 When: bounded CMAF packaging pass.
@@ -164,6 +183,59 @@ support file and directory sync. The guarantee covers the local node only;
 another node cannot recover footage that never reached an archive.
 
 ## Sound, high confidence
+
+### Admit recording work before mailbox enqueue
+
+When: recorder worker pass.
+
+The existing relay pipeline remains the one producer. An atomic reservation
+checks both queued bytes and sample slots before copying and sending a media
+unit to its recorder. The worker returns those credits only after packaging and
+storage finish. Overload closes that recorder's admission once while the same
+chunk still goes to the existing live path. Producer-ordered end-of-stream can
+drain admitted units; a producer crash without that boundary cannot do so.
+
+The plan required independent backpressure but left the process boundary open.
+This choice is sound because a slow disk cannot turn an unbounded worker
+mailbox into hidden storage or block the global relay manager. Only one local
+pipeline pid may use a handle, and a terminal handle cannot become readable
+again through the end-of-stream transition.
+
+### Acquire real configuration and a keyframe when joining live ingest
+
+When: recorder worker pass.
+
+Recording can start between keyframes. The worker enables a bounded initial
+wait in the native H264 parser for real in-band parameter sets and an IDR;
+the wire's keyframe hint cannot establish either. Every skipped input still
+consumes cumulative byte and sample limits, and both media time and wall time
+bound acquisition. Once acquired, codec changes or malformed units stop the
+recorder. Cameras supplying parameter sets only through SDP need a separately
+proved transport contract; this pass does not manufacture that information.
+
+This is sound because joining a working live stream does not require restarting
+it, while unsupported or incomplete input cannot wait or grow state indefinitely.
+Strict standalone packaging remains the default for callers that already own
+an independently decodable start.
+
+### Conservative lease time and bounded teardown
+
+When: recorder worker pass.
+
+The worker owns a recorder consumer lease independently of viewers. Its local
+deadline is the monotonic time at request start plus the database's remaining
+lease duration. Time spent in a database request therefore shortens local
+admission. Checks before and after disk work withhold a new readable receipt if
+the lease expires during that work; committed bytes remain for fenced recovery.
+
+Consumer release and captured-relay idle close are a separate best-effort step.
+One linked task belongs only to its stopping worker, which traps exits, waits
+up to one second and then forcibly shuts the task down. The worker cap bounds
+these tasks. Elixir 1.19.1 Task.Supervisor task admission itself waits without a
+timeout, so introducing a shared task supervisor would not establish the stop
+bound. Failure to start or finish cleanup falls back to lease expiry/reaping and
+never changes the media seal result. This is sound because cleanup cannot hold
+live media delivery or reopen a stale ownership epoch.
 
 ### Baseline-only admission without fabricated decode timestamps
 

@@ -145,6 +145,10 @@ INTEGRATION_LANE_SRCS = partition_by_lane(ALL_TEST_SRCS)
 
 INTEGRATION_SELECTION_SOURCE_SETS = integration_selection_source_sets(ALL_TEST_SRCS)
 
+# The recorder crosses app boundaries only in this guarded serial test. Keep the
+# media runtime and synthetic tools off unrelated lanes and production core deps.
+RECORDING_WORKER_TEST_SRC = "test/integration/camera_recording_worker_integration_test.exs"
+
 # Files integration tests open at runtime. Both the eight ordinary lanes and the focused
 # large-ingestion gate use the same application/configuration fixtures, but release-gate test
 # sources remain source-separated and arrive only through the dedicated target's srcs.
@@ -728,7 +732,7 @@ ex_unit_test(
             "SERVICERADAR_SELECTION_SOURCES": ",".join(sources),
         },
         tags = ["manual"],
-        deps = [":erlang_app"],
+        deps = [":erlang_app"] + (["//elixir/serviceradar_core_elx:erlang_app"] if RECORDING_WORKER_TEST_SRC in sources else []),
     )
     for name, sources in [
         (
@@ -765,7 +769,7 @@ ex_unit_test(
         # Every lane gets the full data set: which lane holds which test file is an
         # implementation detail of the partition, so narrowing this per lane would break the
         # moment a file moved between them.
-        data = INTEGRATION_RUNTIME_DATA,
+        data = INTEGRATION_RUNTIME_DATA + (["//third_party/membrane:media_test_tools"] if RECORDING_WORKER_TEST_SRC in INTEGRATION_LANE_SRCS[lane] else []),
         elixir_opts = [
             # BEFORE the config loader: config/test.exs reads SERVICERADAR_TEST_DATABASE_URL
             # while building the Repo settings, so deriving it afterwards has no effect. Reads
@@ -788,7 +792,7 @@ ex_unit_test(
         tags = ["integration_test"],
         # NO exec_properties, deliberately.
         target_compatible_with = requires_shared_fixture(),
-        deps = INTEGRATION_TEST_DEPS,
+        deps = INTEGRATION_TEST_DEPS + (["//elixir/serviceradar_core_elx:erlang_app"] if RECORDING_WORKER_TEST_SRC in INTEGRATION_LANE_SRCS[lane] else []),
     )
     for lane in integration_lane_names()
 ]

@@ -7,12 +7,19 @@ defmodule ServiceRadarCoreElx.CameraRecording.Admission do
   def_input_pad(:input, flow_control: :auto, accepted_format: Membrane.H264)
   def_output_pad(:output, flow_control: :auto, accepted_format: Membrane.H264)
 
-  def_options(max_keyframe_interval_ns: [spec: pos_integer()])
+  def_options(max_keyframe_interval_ns: [spec: pos_integer()], wait_for_keyframe?: [spec: boolean(), default: false])
 
   @impl true
   def handle_init(_ctx, opts) do
     {[],
-     %{format: nil, last_keyframe_ns: nil, max_interval: opts.max_keyframe_interval_ns, boundary: nil, failed?: false}}
+     %{
+       format: nil,
+       last_keyframe_ns: nil,
+       max_interval: opts.max_keyframe_interval_ns,
+       boundary: nil,
+       failed?: false,
+       waiting?: opts.wait_for_keyframe?
+     }}
   end
 
   @impl true
@@ -50,7 +57,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Admission do
       true ->
         boundary = %{state.boundary | accepted_bytes: byte_size(buffer.payload), keyframe?: keyframe?}
         last_keyframe_ns = if keyframe?, do: buffer.dts, else: state.last_keyframe_ns
-        {[buffer: {:output, buffer}], %{state | boundary: boundary, last_keyframe_ns: last_keyframe_ns}}
+        state = %{state | boundary: boundary, last_keyframe_ns: last_keyframe_ns, waiting?: false}
+        {[buffer: {:output, buffer}], state}
     end
   end
 
@@ -62,10 +70,15 @@ defmodule ServiceRadarCoreElx.CameraRecording.Admission do
   end
 
   def handle_event(:input, %Boundary{phase: :end}, _ctx, %{failed?: false} = state) do
-    if state.boundary.accepted_bytes > 0 do
-      {[event: {:output, %{state.boundary | phase: :end}}], %{state | boundary: nil}}
-    else
-      fail(:unparseable_access_unit, state)
+    cond do
+      state.boundary.accepted_bytes > 0 ->
+        {[event: {:output, %{state.boundary | phase: :end}}], %{state | boundary: nil}}
+
+      state.waiting? ->
+        {[notify_parent: :waiting_for_keyframe], %{state | boundary: nil}}
+
+      true ->
+        fail(:unparseable_access_unit, state)
     end
   end
 
