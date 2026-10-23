@@ -114,12 +114,25 @@ upstream Bumblebee `threat_intel` catalog bundle, normalize entries, store a
 candidate snapshot in CNPG, upload the normalized artifact to ServiceRadar object
 storage, and promote the snapshot only after validation succeeds.
 
-Seeded source defaults:
+Seeded source defaults for `upstream-bumblebee-threat-intel`:
 
 - Repository: `https://github.com/perplexityai/bumblebee`
-- Tag: `v0.1.1`
-- Commit: `c24089804ee66ece4bec6f14638cb98985389cdb`
+- Tag: `v0.1.2`
+- Commit: `cc57710eeaf685e7b89924a36c8583cad0a378fe`
 - Path: `threat_intel/*.json`
+
+Startup seeding creates that source when it is missing. When the existing row
+carries the seed's `upstream_repo` marker and its pinned revision is behind
+this build, the seeder advances the URL, pinned revision, and seed-owned
+metadata in place. `enabled`, `refresh_cron`, and any other metadata keys stay
+as the operator set them. A same-named source without that marker is left
+unchanged. Seeding again at the current pin does not rewrite the row.
+
+A promoted snapshot takes `catalog_version` from the downloaded catalog files
+when those files agree on one. Seeded source metadata, then the bundled pin,
+are fallbacks. The current upstream files declare `schema_version` and do not
+declare `catalog_version`, so a refresh of this pin keeps the seeded label
+unless the files themselves carry one.
 
 The catalog refresh scheduler is disabled unless
 `BUMBLEBEE_CATALOG_REFRESH_ENABLED=true` or the matching application config is
