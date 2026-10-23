@@ -15,9 +15,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
 
   `create/4` does not replace a block directory that already exists. If this call
   created the directory and failed before a complete journal record, it removes
-  that directory and only the files it may have written there. A complete
-  recoverable journal is kept when a later sync fails, and a complete corrupt
-  journal is kept as evidence. When that removal fails, `create/4` returns
+  that directory and only the files it may have written there, then syncs the
+  parent so the removal survives a crash. A complete recoverable journal is kept
+  when a later sync fails, and a complete corrupt journal is kept as evidence.
+  When removal or that parent sync fails, `create/4` returns
   `{:error, {:create_cleanup_failed, reason, cleanup_reason}}`; a later `create/4`
   then sees the directory and returns `{:error, :eexist}`. A failed append may
   leave a tail: recover before writing again. Recovery verifies
@@ -86,7 +87,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
                }}
 
             {:error, _} = error ->
-              abandon_incomplete_create(directory, error)
+              abandon_incomplete_create(root, directory, error)
           end
 
         {:error, _} = error ->
@@ -464,12 +465,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
     end
   end
 
-  defp abandon_incomplete_create(directory, {:error, reason} = error) do
+  defp abandon_incomplete_create(root, directory, {:error, reason} = error) do
     case creation_evidence(directory) do
       :incomplete ->
         case remove_created_directory(directory) do
-          :ok -> error
-          {:error, cleanup} -> {:error, {:create_cleanup_failed, reason, cleanup}}
+          :ok ->
+            case sync_directory(root) do
+              :ok -> error
+              {:error, sync_reason} -> {:error, {:create_cleanup_failed, reason, sync_reason}}
+            end
+
+          {:error, cleanup} ->
+            {:error, {:create_cleanup_failed, reason, cleanup}}
         end
 
       :preserve ->
@@ -485,7 +492,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
           _complete -> :preserve
         end
 
-      {:error, reason} when reason in [:enoent, :empty_journal] ->
+      {:error, reason} when reason in [:enoent, :empty_journal, :enametoolong] ->
         :incomplete
 
       {:error, _reason} ->

@@ -187,6 +187,35 @@ defmodule ServiceRadarCoreElx.CameraRecording.SpoolTest do
     assert directory_bytes(existing_dir) == existing_bytes
     assert {:ok, _recovered} = Spool.recover(existing_dir, @identity, @limits)
 
+    short_root =
+      path_of_length(Path.join(root, "short"), max_len - byte_size(block_id) - 8)
+
+    File.mkdir_p!(short_root)
+    File.chmod!(short_root, 0o700)
+    short_kept = Path.join(short_root, "kept")
+    File.mkdir!(short_kept)
+    File.write!(Path.join(short_kept, "note"), "keep")
+    short_block = Path.join(short_root, block_id)
+    assert byte_size(short_block) == max_len - 7
+    assert :ok = File.mkdir(short_block)
+
+    assert {:error, :enametoolong} =
+             :file.open(String.to_charlist(Path.join(short_block, "journal")), [
+               :raw,
+               :binary,
+               :write,
+               :exclusive
+             ])
+
+    assert :ok = File.rmdir(short_block)
+    assert {:error, :enametoolong} = Spool.create(short_root, @identity, "init", @limits)
+    refute File.exists?(short_block)
+    assert File.ls!(short_root) == ["kept"]
+    assert {:error, :enametoolong} = Spool.create(short_root, @identity, "init", @limits)
+    refute File.exists?(short_block)
+    assert File.read!(Path.join(short_kept, "note")) == "keep"
+    assert directory_bytes(existing_dir) == existing_bytes
+
     {:ok, retried} = Spool.create(root, %{@identity | block_sequence: 9}, "init", @limits)
     assert {:ok, "init"} = Spool.read_init(Spool.snapshot(retried))
   end
