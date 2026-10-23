@@ -96,4 +96,36 @@ defmodule ServiceRadarWebNGWeb.Components.TimeseriesAggregationTest do
     assert {:ok, all_series, _, _} = Spec.extract_series_points(rows, spec, max_series: 32)
     assert length(all_series) == 8
   end
+
+  test "keeps outbound traffic counters when eight interface metrics exceed the cap" do
+    names = [
+      "ifInDiscards",
+      "ifInErrors",
+      "ifInOctets",
+      "ifInUcastPkts",
+      "ifOutDiscards",
+      "ifOutErrors",
+      "ifOutOctets::ifindex:21",
+      "ifOutUcastPkts"
+    ]
+
+    rows =
+      for name <- names do
+        %{
+          "timestamp" => "2025-01-01T00:00:00Z",
+          "value" => 1.0,
+          "metric_name" => name
+        }
+      end
+
+    spec = %{x: "timestamp", y: "value", series: "metric_name"}
+
+    assert {:ok, series, _, _} = Spec.extract_series_points(rows, spec)
+    kept = Enum.map(series, &elem(&1, 0))
+
+    assert length(series) == 6
+    assert "ifOutOctets::ifindex:21" in kept
+    assert "ifOutUcastPkts" in kept
+    refute "ifOutErrors" in kept
+  end
 end
