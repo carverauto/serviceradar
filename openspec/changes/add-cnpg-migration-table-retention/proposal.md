@@ -9,9 +9,9 @@ On installs without StarRocks, several CNPG hypertables and continuous aggregate
 - `DataRetentionWorker` reconciles retention (only retention — chunk intervals and compression stay migration-owned) for:
   - `adhoc_scan_results` (new key, default 30 days)
   - `service_status` and `events` (one key, default 14 days — the migration tier groups them)
-  - `endpoint_inventory_scan_history` and `endpoint_inventory_package_events` (one key, default 395 days)
+  - `endpoint_inventory_scan_history`, `endpoint_inventory_package_events`, `endpoint_inventory_package_count_history`, and `endpoint_inventory_cpe_count_history` (one key, default 395 days)
   - continuous aggregates `spans_red_1h` (90 days), `traces_stats_5m` (14 days), `otel_metrics_hourly_stats` (90 days), each its own key so every default preserves today's migration value
-- New `core.observabilityRetention` values: `adhocScanResultsDays`, `serviceStatusDays`, `endpointInventoryHistoryDays`, `spansRedDays`, `tracesStatsDays`, `otelMetricsHourlyStatsDays`, rendered as env on the core Deployment and the migrations Job, read identically by both release runtime configs.
+- New `core.observabilityRetention` values: `adhocScanResultsDays`, `serviceStatusDays`, `endpointInventoryHistoryDays`, `spansRedDays`, `tracesStatsDays`, `otelMetricsHourlyStatsDays`, rendered as env on the core Deployment, read identically by both release runtime configs.
 - The new keys join the `defaultDays` ceiling set except `endpointInventoryHistoryDays`, which stays on its own horizon like capacity forecasts.
 - CAGG retention is floored at the aggregate's refresh window; the existing refresh-window clamping runs first so a short retention cannot strand rollup history silently.
 - Guard tests extended: every rendered retention env var is read by both runtime configs, and the two `DataRetentionWorker` config blocks keep identical key sets.
@@ -21,4 +21,4 @@ On installs without StarRocks, several CNPG hypertables and continuous aggregate
 ## Impact
 
 - Affected specs: `observability-signals` (one ADDED requirement)
-- Affected code: `elixir/serviceradar_core/lib/serviceradar/observability/data_retention_worker.ex`, `elixir/serviceradar_core/config/runtime.exs`, `elixir/serviceradar_core_elx/config/runtime.exs`, `helm/serviceradar/{values.yaml,README.md,templates/core.yaml,templates/core-migrations-job.yaml,tests/cnpg_telemetry_retention_env_test.yaml}`, `elixir/serviceradar_core/test/serviceradar/observability/data_retention_runtime_config_test.exs`
+- Affected code: `elixir/serviceradar_core/lib/serviceradar/observability/data_retention_worker.ex`, `elixir/serviceradar_core/config/runtime.exs`, `elixir/serviceradar_core_elx/config/runtime.exs`, `helm/serviceradar/{values.yaml,README.md,templates/core.yaml,tests/cnpg_telemetry_retention_env_test.yaml}`, `elixir/serviceradar_core/test/serviceradar/observability/data_retention_runtime_config_test.exs`
