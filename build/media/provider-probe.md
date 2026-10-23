@@ -225,7 +225,7 @@ An endpoint type or calendar date alone cannot establish object encryption.
 See the [SSE-S3 guide](https://techdocs.akamai.com/cloud-computing/docs/default-encryption-at-rest-sse-s3)
 and [rollout announcement](https://techdocs.akamai.com/cloud-computing/changelog/sep-28-2026-obj).
 
-## Initial live exercise: partial evidence
+## Live exercises: storage evidence and remaining gaps
 
 The initial authorized exercise verified private access, intended object-role
 denials, signed checksum rejection, conditional reads, and bounded range/hash
@@ -236,20 +236,27 @@ invented receipt exercises completion, abort and cleanup through the TLS fixture
 Other unsupported receipt forms still fail closed and preserve pending authority.
 This is a bounded diagnostic parser, not a general S3 XML implementation.
 
-The live HEAD response did not attest default SSE-S3. Explicit encryption requests
-and atomic no-overwrite remain untested. A synthetic regression fix is not a live
-multipart pass; the overall live evidence remains partial and Cloud readiness is
-unestablished.
+After that exercise was cleaned up and the fix was tested, a second authorized
+exercise used fresh isolated resources. It passed the same object, access, role,
+checksum and range checks, plus multipart completion, full hash and cross-part
+range verification, separate multipart abort, and the probe's exact cleanup.
 
-Cleanup was completed before investigating or changing the parser. The operator
-reconciled the sole pending initiation to its exact test key and upload ID,
-aborted it, and verified `NoSuchUpload`. Both fresh buckets were verified empty
-of objects, versions, delete markers and uploads, removed non-recursively, and
-verified absent. All four created keys were revoked; their signed requests
-returned `InvalidAccessKeyId` afterward. The Job and its Pod, credential Secret,
-runtime ConfigMap, recovery Pod, PVC, PV and backing storage volume were removed
-and absence rechecked. Credential files were then removed. Exact operational
-receipts remain private; no live identifiers or response captures belong here.
+Neither the small-object nor multipart HEAD response in the second exercise
+attested default SSE-S3; both results are `not_confirmed`, so the overall result
+remains failed and Cloud readiness is unestablished. Explicit SSE-S3 requests and
+atomic no-overwrite remain `not_tested`.
+
+The first cleanup completed before investigating or changing the parser. The
+operator reconciled the sole pending initiation to its exact test key and upload ID,
+aborted it, and verified `NoSuchUpload`. The second exercise recovered an empty
+cleanup journal with no pending initiation or version receipts. In each exercise,
+both fresh buckets were independently verified empty of objects, versions, delete
+markers and uploads, removed non-recursively, and verified absent. All four
+created keys were revoked; their signed requests returned `InvalidAccessKeyId`
+afterward. The Job and its Pod, credential Secret, runtime ConfigMap, recovery
+Pod, PVC, PV and backing storage volume were removed and absence rechecked.
+Credential files were then removed. Exact operational receipts remain private;
+no live identifiers or response captures belong here.
 
 Primary references:
 
