@@ -35,6 +35,31 @@ defmodule ServiceRadar.Camera.IngestOwnershipIntegrationTest do
     %{source: source, profile: profile, actor: actor, opts: [actor: actor]}
   end
 
+  test "source/profile reservations reject missing or mismatched profiles before invoking the callback",
+       ctx do
+    parent = self()
+
+    callback = fn _owner ->
+      send(parent, :reserved_missing_profile)
+      {:ok, :reserved}
+    end
+
+    for {source_id, profile_id} <- [
+          {ctx.source.id, Ecto.UUID.generate()},
+          {Ecto.UUID.generate(), ctx.profile.id}
+        ] do
+      assert {:error, :profile_unavailable} =
+               IngestOwnership.with_source_profile(source_id, profile_id, callback, ctx.opts)
+    end
+
+    refute_received :reserved_missing_profile
+
+    assert {:ok, []} =
+             IngestOwner
+             |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+             |> Ash.read(ctx.opts)
+  end
+
   test "concurrent first claims commit one source/profile owner", ctx do
     parent = self()
 

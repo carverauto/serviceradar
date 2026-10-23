@@ -42,7 +42,11 @@ defmodule ServiceRadar.Camera.IngestOwnership do
   def with_source_profile(source_id, profile_id, fun, opts \\ []) when is_function(fun, 1) do
     transaction(fn ->
       with {:ok, %StreamProfile{}} <-
-             StreamProfile.get_for_relay(profile_id, source_id, caller(opts)),
+             StreamProfile.get_for_relay(
+               profile_id,
+               source_id,
+               Keyword.put(caller(opts), :not_found_error?, false)
+             ),
            {:ok, initialized} <- initialize(source_id, profile_id, opts),
            {:ok, owner} <- lock_owner(initialized.id, opts) do
         fun.(owner)
