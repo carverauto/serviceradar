@@ -438,3 +438,38 @@ inspect storage without racing the old writer. This narrow pass deliberately
 does not invent either proof, delete the tail or call it an archive. The choice
 keeps later recovery work explicit and prevents a stale writer from extending
 historical coverage after its lease expired.
+
+### Measure provider operations within one bounded diagnostic
+
+When: conditional-write and explicit-encryption diagnostic pass. Verdict: sound,
+medium confidence until exercised against the provider.
+
+The existing multipart control retains its 5 MiB part and cross-part read.
+Additional completion and encryption cases use a single 64 KiB final part;
+they exercise distinct commit semantics without repeating the large transfer.
+The successful path uses 75 diagnostic requests and 21 cleanup requests, below
+the existing 80/30 limits. Failure paths retain exact cleanup receipts and fit
+the same limits or explicitly report incomplete cleanup.
+
+Conditional acceptance requires exactly one successful writer and one
+`412 PreconditionFailed`, followed by verification of the surviving bytes.
+Unexpected statuses, including 409, fail closed without retries or an inferred
+support claim. One competing pair per operation is bounded qualification, not a
+proof over every request ordering. PUT and multipart results stay separate;
+their summary cannot hide a failed or untested operation.
+
+### Keep concurrency subordinate to the diagnostic's authority
+
+When: provider contention pass. Verdict: sound, high confidence.
+
+The caller reserves both requests and their complete byte ceilings before two
+short-lived workers send them. Only the caller updates cleanup receipts and the
+durable journal. Each transport carries its existing absolute deadline, including
+time waiting to start; a second task timeout would create ambiguous ownership
+without strengthening that bound. This keeps the two-writer experiment within
+the same budget and recovery authority as the serial controls.
+
+Explicit AES256 request headers are signed, and HEAD must attest encryption on
+each tested object. That establishes neither a bucket policy rejecting plaintext
+uploads nor safe recorder credentials. Synthetic TLS tests qualify the diagnostic
+only; no provider capability or Cloud readiness follows from their passing.
