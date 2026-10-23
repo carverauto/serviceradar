@@ -5,6 +5,19 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
 
   @max_series 6
 
+  # Kept ahead of other series when a chart has more names than @max_series.
+  # A qualified name such as "ifOutOctets::ifindex:21" matches on the base.
+  @traffic_counter_names ~w(
+    ifInOctets
+    ifOutOctets
+    ifHCInOctets
+    ifHCOutOctets
+    ifInUcastPkts
+    ifOutUcastPkts
+    ifHCInUcastPkts
+    ifHCOutUcastPkts
+  )
+
   def parse_timeseries_spec(%{"suggestions" => suggestions}) when is_list(suggestions) do
     suggestion =
       Enum.find(suggestions, fn
@@ -66,7 +79,7 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
 
         {series, sorted}
       end)
-      |> Enum.sort_by(fn {series, _points} -> series end)
+      |> Enum.sort_by(&series_cap_key/1)
       |> Enum.take(max_series)
 
     series_units =
@@ -301,6 +314,20 @@ defmodule ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries.Spec do
   defp safe_to_string(value) when is_integer(value), do: Integer.to_string(value)
   defp safe_to_string(value) when is_atom(value), do: Atom.to_string(value)
   defp safe_to_string(value), do: inspect(value)
+
+  defp series_cap_key({series, _points}) do
+    name = safe_to_string(series)
+    base = series_base_name(name)
+    rank = if base in @traffic_counter_names, do: 0, else: 1
+    {rank, name}
+  end
+
+  defp series_base_name(name) do
+    case String.split(name, "::", parts: 2) do
+      [base | _] -> base
+      _ -> name
+    end
+  end
 
   defp row_series(row, series_key) when is_map(row) and is_binary(series_key) do
     row
