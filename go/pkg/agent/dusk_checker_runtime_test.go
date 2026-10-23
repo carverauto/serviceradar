@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -38,176 +39,201 @@ func TestDuskCheckerWasmRuntime(t *testing.T) {
 	defer manager.Stop()
 
 	t.Run("accepted block reports ok under capped budget", func(t *testing.T) {
-		server := newDuskRUESServer(t, duskRUESBlock)
-		defer server.Close()
-
-		started := time.Now()
-		result := runDuskCheckerWasm(t, manager, wasm, server.hostPort(), "30s")
-		elapsed := time.Since(started)
-
-		if result.Status != "OK" {
-			t.Fatalf("status = %s, summary = %q, details = %q", result.Status, result.Summary, result.Details)
-		}
-		if !strings.Contains(result.Summary, "Block height: 4242") {
-			t.Fatalf("summary = %q", result.Summary)
-		}
-		details := decodeDuskDetails(t, result.Details)
-		if details.Timeout != "8s" {
-			t.Fatalf("timeout = %q, want the 8s cap applied to a 30s config", details.Timeout)
-		}
-		if details.SessionID != duskRuntimeSessionID {
-			t.Fatalf("session_id = %q", details.SessionID)
-		}
-		if details.BlockHeight != duskRuntimeBlockHeight {
-			t.Fatalf("block_height = %d", details.BlockHeight)
-		}
-		if !strings.Contains(result.Details, "read_next_block") {
-			t.Fatalf("details = %q, want completed read_next_block", result.Details)
-		}
-		if elapsed >= duskAssignmentTimeout {
-			t.Fatalf("check took %s, which reaches the %s Wasm assignment deadline", elapsed, duskAssignmentTimeout)
-		}
-		t.Logf("DUSK_RUNTIME accepted-block status=%s timeout=%s elapsed=%s", result.Status, details.Timeout, elapsed)
+		assertDuskAcceptedBlock(t, manager, wasm)
 	})
-
 	t.Run("subscribe failure after connect is warning", func(t *testing.T) {
-		server := newDuskRUESServer(t, duskRUESSubscribeFail)
-		defer server.Close()
-
-		result := runDuskCheckerWasm(t, manager, wasm, server.hostPort(), "8s")
-		details := decodeDuskDetails(t, result.Details)
-		if result.Status != "WARNING" {
-			t.Fatalf("status = %s, want WARNING after connect; summary = %q", result.Status, result.Summary)
-		}
-		if details.FailedStage != "subscribe_blocks" {
-			t.Fatalf("failed_stage = %q, details = %q", details.FailedStage, result.Details)
-		}
-		if details.SessionID != duskRuntimeSessionID {
-			t.Fatalf("session_id = %q", details.SessionID)
-		}
-		if server.subscribeSession != duskRuntimeSessionID {
-			t.Fatalf("Rusk-Session-Id = %q", server.subscribeSession)
-		}
-		t.Logf("DUSK_RUNTIME subscribe-fail status=%s stage=%s", result.Status, details.FailedStage)
+		assertDuskSubscribeFailure(t, manager, wasm)
 	})
-
 	t.Run("refused node is critical before connect", func(t *testing.T) {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatalf("listen: %v", err)
-		}
-		addr := ln.Addr().String()
-		if err := ln.Close(); err != nil {
-			t.Fatalf("close listener: %v", err)
-		}
-
-		started := time.Now()
-		result := runDuskCheckerWasm(t, manager, wasm, addr, "8s")
-		elapsed := time.Since(started)
-		details := decodeDuskDetails(t, result.Details)
-		if result.Status != "CRITICAL" {
-			t.Fatalf("status = %s, want CRITICAL; summary = %q", result.Status, result.Summary)
-		}
-		if details.FailedStage != "websocket_connect" {
-			t.Fatalf("failed_stage = %q", details.FailedStage)
-		}
-		if details.NodeAddress != addr {
-			t.Fatalf("node_address = %q, want %q", details.NodeAddress, addr)
-		}
-		if elapsed >= 3*time.Second {
-			t.Fatalf("refused dial took %s; handshake steps are capped at 2s", elapsed)
-		}
-		t.Logf("DUSK_RUNTIME refused status=%s stage=%s elapsed=%s", result.Status, details.FailedStage, elapsed)
+		assertDuskRefusedNode(t, manager, wasm)
 	})
-
 	t.Run("submillisecond budget does not expand to assignment deadline", func(t *testing.T) {
-		ln, err := net.Listen("tcp", "127.0.0.1:0")
-		if err != nil {
-			t.Fatalf("listen: %v", err)
-		}
-		defer ln.Close()
-
-		held := make(chan time.Duration, 1)
-		go func() {
-			conn, acceptErr := ln.Accept()
-			if acceptErr != nil {
-				return
-			}
-			held <- peerHold(conn)
-		}()
-
-		started := time.Now()
-		result := runDuskCheckerWasm(t, manager, wasm, ln.Addr().String(), "500us")
-		elapsed := time.Since(started)
-
-		var hold time.Duration
-		select {
-		case hold = <-held:
-		case <-time.After(2 * time.Second):
-			t.Fatal("blackhole peer was never accepted")
-		}
-		// Host websocket timeouts are whole milliseconds. 0ms is rewritten to the
-		// 10s assignment deadline and blocks the read or dial for that long.
-		if hold >= 500*time.Millisecond {
-			t.Fatalf("blackhole held for %s; a 500us step was expanded toward the %s assignment deadline", hold, duskAssignmentTimeout)
-		}
-		if result.Status != "CRITICAL" && result.Status != "WARNING" {
-			t.Fatalf("status = %s, want a bounded failure; summary = %q", result.Status, result.Summary)
-		}
-		details := decodeDuskDetails(t, result.Details)
-		if details.FailedStage == "" {
-			t.Fatalf("details = %q, want a failed stage", result.Details)
-		}
-		if elapsed >= duskAssignmentTimeout {
-			t.Fatalf("check took %s, reaching the assignment deadline", elapsed)
-		}
-		t.Logf("DUSK_RUNTIME subms status=%s stage=%s hold=%s elapsed=%s timeout=%s", result.Status, details.FailedStage, hold, elapsed, details.Timeout)
+		assertDuskSubmillisecondBudget(t, manager, wasm)
 	})
-
 	t.Run("configured thirty seconds waits only the remaining eight second cap", func(t *testing.T) {
-		server := newDuskRUESServer(t, duskRUESNoBlock)
-		defer server.Close()
-
-		started := time.Now()
-		result := runDuskCheckerWasm(t, manager, wasm, server.hostPort(), "30s")
-		elapsed := time.Since(started)
-		hold := server.waitHold(t)
-
-		details := decodeDuskDetails(t, result.Details)
-		if result.Status != "WARNING" {
-			t.Fatalf("status = %s, want WARNING when no block arrives; summary = %q", result.Status, result.Summary)
-		}
-		if details.FailedStage != "read_next_block" {
-			t.Fatalf("failed_stage = %q, details = %q", details.FailedStage, result.Details)
-		}
-		if details.Timeout != "8s" {
-			t.Fatalf("timeout = %q, want 8s cap", details.Timeout)
-		}
-		if details.SessionID != duskRuntimeSessionID {
-			t.Fatalf("session_id = %q", details.SessionID)
-		}
-		// Dusk accepted blocks are about 10s apart. The wait is whatever remains
-		// of the capped check deadline, and that remainder must finish before
-		// the 10s Wasm assignment deadline. A 5s ceiling returns early.
-		if hold < 6500*time.Millisecond || hold >= 9500*time.Millisecond {
-			t.Fatalf("block wait held the socket for %s; want the time left on the 8s deadline and below the 10s assignment deadline", hold)
-		}
-		if elapsed >= duskAssignmentTimeout+time.Second {
-			t.Fatalf("check took %s, past the Wasm assignment deadline", elapsed)
-		}
-		t.Logf("DUSK_RUNTIME no-block status=%s hold=%s elapsed=%s", result.Status, hold, elapsed)
+		assertDuskBlockWaitUsesRemainingCap(t, manager, wasm)
 	})
-
 	t.Run("missing node address is unknown", func(t *testing.T) {
-		result := runDuskCheckerWasm(t, manager, wasm, "", "")
-		if result.Status != "UNKNOWN" {
-			t.Fatalf("status = %s, summary = %q", result.Status, result.Summary)
-		}
-		if !strings.Contains(result.Summary, "node_address") {
-			t.Fatalf("summary = %q", result.Summary)
-		}
-		t.Logf("DUSK_RUNTIME missing-address status=%s summary=%s", result.Status, result.Summary)
+		assertDuskMissingNodeAddress(t, manager, wasm)
 	})
+}
+
+func assertDuskAcceptedBlock(t *testing.T, manager *PluginManager, wasm []byte) {
+	t.Helper()
+	server := newDuskRUESServer(t, duskRUESBlock)
+	defer server.Close()
+
+	started := time.Now()
+	result := runDuskCheckerWasm(t, manager, wasm, server.hostPort(), "30s")
+	elapsed := time.Since(started)
+
+	if result.Status != pluginStatusOK {
+		t.Fatalf("status = %s, summary = %q, details = %q", result.Status, result.Summary, result.Details)
+	}
+	if !strings.Contains(result.Summary, "Block height: 4242") {
+		t.Fatalf("summary = %q", result.Summary)
+	}
+	details := decodeDuskDetails(t, result.Details)
+	if details.Timeout != "8s" {
+		t.Fatalf("timeout = %q, want the 8s cap applied to a 30s config", details.Timeout)
+	}
+	if details.SessionID != duskRuntimeSessionID {
+		t.Fatalf("session_id = %q", details.SessionID)
+	}
+	if details.BlockHeight != duskRuntimeBlockHeight {
+		t.Fatalf("block_height = %d", details.BlockHeight)
+	}
+	if !strings.Contains(result.Details, "read_next_block") {
+		t.Fatalf("details = %q, want completed read_next_block", result.Details)
+	}
+	if elapsed >= duskAssignmentTimeout {
+		t.Fatalf("check took %s, which reaches the %s Wasm assignment deadline", elapsed, duskAssignmentTimeout)
+	}
+	t.Logf("DUSK_RUNTIME accepted-block status=%s timeout=%s elapsed=%s", result.Status, details.Timeout, elapsed)
+}
+
+func assertDuskSubscribeFailure(t *testing.T, manager *PluginManager, wasm []byte) {
+	t.Helper()
+	server := newDuskRUESServer(t, duskRUESSubscribeFail)
+	defer server.Close()
+
+	result := runDuskCheckerWasm(t, manager, wasm, server.hostPort(), "8s")
+	details := decodeDuskDetails(t, result.Details)
+	if result.Status != pluginStatusWarning {
+		t.Fatalf("status = %s, want WARNING after connect; summary = %q", result.Status, result.Summary)
+	}
+	if details.FailedStage != "subscribe_blocks" {
+		t.Fatalf("failed_stage = %q, details = %q", details.FailedStage, result.Details)
+	}
+	if details.SessionID != duskRuntimeSessionID {
+		t.Fatalf("session_id = %q", details.SessionID)
+	}
+	if server.subscribeSession != duskRuntimeSessionID {
+		t.Fatalf("Rusk-Session-Id = %q", server.subscribeSession)
+	}
+	t.Logf("DUSK_RUNTIME subscribe-fail status=%s stage=%s", result.Status, details.FailedStage)
+}
+
+func assertDuskRefusedNode(t *testing.T, manager *PluginManager, wasm []byte) {
+	t.Helper()
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+	if err := ln.Close(); err != nil {
+		t.Fatalf("close listener: %v", err)
+	}
+
+	started := time.Now()
+	result := runDuskCheckerWasm(t, manager, wasm, addr, "8s")
+	elapsed := time.Since(started)
+	details := decodeDuskDetails(t, result.Details)
+	if result.Status != pluginStatusCritical {
+		t.Fatalf("status = %s, want CRITICAL; summary = %q", result.Status, result.Summary)
+	}
+	if details.FailedStage != "websocket_connect" {
+		t.Fatalf("failed_stage = %q", details.FailedStage)
+	}
+	if details.NodeAddress != addr {
+		t.Fatalf("node_address = %q, want %q", details.NodeAddress, addr)
+	}
+	if elapsed >= 3*time.Second {
+		t.Fatalf("refused dial took %s; handshake steps are capped at 2s", elapsed)
+	}
+	t.Logf("DUSK_RUNTIME refused status=%s stage=%s elapsed=%s", result.Status, details.FailedStage, elapsed)
+}
+
+func assertDuskSubmillisecondBudget(t *testing.T, manager *PluginManager, wasm []byte) {
+	t.Helper()
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer func() { _ = ln.Close() }()
+
+	held := make(chan time.Duration, 1)
+	go func() {
+		conn, acceptErr := ln.Accept()
+		if acceptErr != nil {
+			return
+		}
+		held <- peerHold(conn)
+	}()
+
+	started := time.Now()
+	result := runDuskCheckerWasm(t, manager, wasm, ln.Addr().String(), "500us")
+	elapsed := time.Since(started)
+
+	var hold time.Duration
+	select {
+	case hold = <-held:
+	case <-time.After(2 * time.Second):
+		t.Fatal("blackhole peer was never accepted")
+	}
+	// Host websocket timeouts are whole milliseconds. 0ms is rewritten to the
+	// 10s assignment deadline and blocks the read or dial for that long.
+	if hold >= 500*time.Millisecond {
+		t.Fatalf("blackhole held for %s; a 500us step was expanded toward the %s assignment deadline", hold, duskAssignmentTimeout)
+	}
+	if result.Status != pluginStatusCritical && result.Status != pluginStatusWarning {
+		t.Fatalf("status = %s, want a bounded failure; summary = %q", result.Status, result.Summary)
+	}
+	details := decodeDuskDetails(t, result.Details)
+	if details.FailedStage == "" {
+		t.Fatalf("details = %q, want a failed stage", result.Details)
+	}
+	if elapsed >= duskAssignmentTimeout {
+		t.Fatalf("check took %s, reaching the assignment deadline", elapsed)
+	}
+	t.Logf("DUSK_RUNTIME subms status=%s stage=%s hold=%s elapsed=%s timeout=%s", result.Status, details.FailedStage, hold, elapsed, details.Timeout)
+}
+
+func assertDuskBlockWaitUsesRemainingCap(t *testing.T, manager *PluginManager, wasm []byte) {
+	t.Helper()
+	server := newDuskRUESServer(t, duskRUESNoBlock)
+	defer server.Close()
+
+	started := time.Now()
+	result := runDuskCheckerWasm(t, manager, wasm, server.hostPort(), "30s")
+	elapsed := time.Since(started)
+	hold := server.waitHold(t)
+
+	details := decodeDuskDetails(t, result.Details)
+	if result.Status != pluginStatusWarning {
+		t.Fatalf("status = %s, want WARNING when no block arrives; summary = %q", result.Status, result.Summary)
+	}
+	if details.FailedStage != "read_next_block" {
+		t.Fatalf("failed_stage = %q, details = %q", details.FailedStage, result.Details)
+	}
+	if details.Timeout != "8s" {
+		t.Fatalf("timeout = %q, want 8s cap", details.Timeout)
+	}
+	if details.SessionID != duskRuntimeSessionID {
+		t.Fatalf("session_id = %q", details.SessionID)
+	}
+	// Dusk accepted blocks are about 10s apart. The wait is whatever remains
+	// of the capped check deadline, and that remainder must finish before
+	// the 10s Wasm assignment deadline. A 5s ceiling returns early.
+	if hold < 6500*time.Millisecond || hold >= 9500*time.Millisecond {
+		t.Fatalf("block wait held the socket for %s; want the time left on the 8s deadline and below the 10s assignment deadline", hold)
+	}
+	if elapsed >= duskAssignmentTimeout+time.Second {
+		t.Fatalf("check took %s, past the Wasm assignment deadline", elapsed)
+	}
+	t.Logf("DUSK_RUNTIME no-block status=%s hold=%s elapsed=%s", result.Status, hold, elapsed)
+}
+
+func assertDuskMissingNodeAddress(t *testing.T, manager *PluginManager, wasm []byte) {
+	t.Helper()
+	result := runDuskCheckerWasm(t, manager, wasm, "", "")
+	if result.Status != pluginStatusUnknown {
+		t.Fatalf("status = %s, summary = %q", result.Status, result.Summary)
+	}
+	if !strings.Contains(result.Summary, "node_address") {
+		t.Fatalf("summary = %q", result.Summary)
+	}
+	t.Logf("DUSK_RUNTIME missing-address status=%s summary=%s", result.Status, result.Summary)
 }
 
 type duskCheckPayload struct {
@@ -311,7 +337,7 @@ func splitHostPort(t *testing.T, address string) (string, int) {
 	if err != nil {
 		t.Fatalf("split host port %q: %v", address, err)
 	}
-	port, err := net.LookupPort("tcp", portText)
+	port, err := strconv.Atoi(portText)
 	if err != nil {
 		t.Fatalf("port %q: %v", portText, err)
 	}
@@ -320,7 +346,7 @@ func splitHostPort(t *testing.T, address string) (string, int) {
 
 func peerHold(conn net.Conn) time.Duration {
 	start := time.Now()
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(start.Add(15 * time.Second))
 	buf := make([]byte, 1024)
 	for {
@@ -378,7 +404,7 @@ func (s *duskRUESServer) serveSocket(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	opened := time.Now()
 	defer func() {
 		s.hold <- time.Since(opened)
