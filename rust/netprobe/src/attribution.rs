@@ -367,26 +367,21 @@ impl SocketInventory {
         let now = Instant::now();
 
         match self.entries.get_mut(&key) {
-            Some(cached) if cached.entry == entry => {
-                cached.last_seen = now;
-            }
             Some(cached) => {
-                if prefer_snapshot_entry(&entry, &cached.entry) {
-                    cached.entry = entry;
-                    cached.owner = owner;
+                cached.last_seen = now;
+                if cached.observe(owner, entry) {
                     self.dirty = true;
                 }
-                cached.last_seen = now;
             }
             None => {
-                self.entries.insert(
-                    key,
-                    CachedProcessSocket {
-                        entry,
-                        owner,
-                        last_seen: now,
-                    },
-                );
+                let mut cached = CachedProcessSocket {
+                    entry: entry.clone(),
+                    published_key: owner,
+                    candidates: Vec::new(),
+                    last_seen: now,
+                };
+                cached.observe(owner, entry);
+                self.entries.insert(key, cached);
                 self.dirty = true;
             }
         }
@@ -396,20 +391,7 @@ impl SocketInventory {
     /// process owns, so the next snapshot carries them.
     fn refresh_process(&mut self, owner: &ProcessDetailsCacheKey, details: &ProcessDetails) {
         for cached in self.entries.values_mut() {
-            if cached.owner != *owner {
-                continue;
-            }
-            let mut entry = cached.entry.clone();
-            entry.uid = details.uid;
-            entry.gid = details.gid;
-            entry.comm = details.comm.clone();
-            entry.redacted_cmdline = cap_redacted_cmdline_ref(&details.cmdline);
-            entry.container_id = details.container_id.clone().unwrap_or_default();
-            if let Some(ownership) = executable_ownership(Some(details)) {
-                entry.executable_ownership = Some(ownership);
-            }
-            if prefer_snapshot_entry(&entry, &cached.entry) {
-                cached.entry = entry;
+            if cached.refresh_candidate(owner, details) {
                 self.dirty = true;
             }
         }
@@ -535,10 +517,122 @@ fn prefer_snapshot_entry(candidate: &ProcessSnapshotEntry, current: &ProcessSnap
 }
 
 #[cfg(target_os = "linux")]
+fn winning_candidate(
+    candidates: &[ListenerCandidate],
+) -> Option<(ProcessDetailsCacheKey, ProcessSnapshotEntry)> {
+    let first = candidates.first()?;
+    let mut key = first.key;
+    let mut entry = first.entry.clone();
+    for candidate in candidates.iter().skip(1) {
+        if prefer_snapshot_entry(&candidate.entry, &entry) {
+            key = candidate.key;
+            entry = candidate.entry.clone();
+        }
+    }
+    Some((key, entry))
+}
+
+#[cfg(target_os = "linux")]
+struct ListenerCandidate {
+    key: ProcessDetailsCacheKey,
+    entry: ProcessSnapshotEntry,
+}
+
+#[cfg(target_os = "linux")]
 struct CachedProcessSocket {
     entry: ProcessSnapshotEntry,
-    owner: ProcessDetailsCacheKey,
+    published_key: ProcessDetailsCacheKey,
+    candidates: Vec<ListenerCandidate>,
     last_seen: Instant,
+}
+
+#[cfg(target_os = "linux")]
+impl CachedProcessSocket {
+    fn observe(&mut self, owner: ProcessDetailsCacheKey, entry: ProcessSnapshotEntry) -> bool {
+        if self.candidates.iter().any(|candidate| {
+            candidate.key.tgid == owner.tgid
+                && candidate.key.process_generation_ns > owner.process_generation_ns
+        }) {
+            return false;
+        }
+
+        let published_retired = self.published_key.tgid == owner.tgid
+            && self.published_key.process_generation_ns < owner.process_generation_ns;
+        self.candidates.retain(|candidate| {
+            candidate.key.tgid != owner.tgid
+                || candidate.key.process_generation_ns >= owner.process_generation_ns
+        });
+        if let Some(candidate) = self
+            .candidates
+            .iter_mut()
+            .find(|candidate| candidate.key == owner)
+        {
+            if prefer_snapshot_entry(&entry, &candidate.entry) {
+                candidate.entry = entry.clone();
+            }
+        } else {
+            self.candidates.push(ListenerCandidate {
+                key: owner,
+                entry: entry.clone(),
+            });
+        }
+
+        if published_retired {
+            return self.install_winner();
+        }
+        if self.entry == entry || !prefer_snapshot_entry(&entry, &self.entry) {
+            return false;
+        }
+        self.entry = entry;
+        self.published_key = owner;
+        true
+    }
+
+    fn install_winner(&mut self) -> bool {
+        let Some((key, entry)) = winning_candidate(&self.candidates) else {
+            return false;
+        };
+        let changed = self.entry != entry;
+        self.published_key = key;
+        if changed {
+            self.entry = entry;
+        }
+        changed
+    }
+
+    fn refresh_candidate(
+        &mut self,
+        owner: &ProcessDetailsCacheKey,
+        details: &ProcessDetails,
+    ) -> bool {
+        let Some(index) = self
+            .candidates
+            .iter()
+            .position(|candidate| candidate.key == *owner)
+        else {
+            return false;
+        };
+        let mut entry = self.candidates[index].entry.clone();
+        entry.uid = details.uid;
+        entry.gid = details.gid;
+        entry.comm = details.comm.clone();
+        entry.redacted_cmdline = cap_redacted_cmdline_ref(&details.cmdline);
+        entry.container_id = details.container_id.clone().unwrap_or_default();
+        if let Some(ownership) = executable_ownership(Some(details)) {
+            entry.executable_ownership = Some(ownership);
+        }
+        if prefer_snapshot_entry(&entry, &self.candidates[index].entry) {
+            self.candidates[index].entry = entry.clone();
+        } else {
+            entry = self.candidates[index].entry.clone();
+        }
+        if !prefer_snapshot_entry(&entry, &self.entry) {
+            return false;
+        }
+        self.entry = entry;
+        self.published_key = *owner;
+        true
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -3523,6 +3617,135 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_late_container_ownership_survives_shared_listener() {
+        let port = 443;
+        let container_id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let mut inventory = SocketInventory::default();
+        inventory.update(&shared_listener(port, 200, 1, "app", None, None));
+        inventory.update(&shared_listener(port, 100, 1, "k3s-agent", None, None));
+
+        let cold = inventory.snapshot_if_dirty(1).unwrap();
+        assert_eq!(cold.entries.len(), 1);
+        assert_eq!(cold.entries[0].pid, 100);
+        assert!(cold.entries[0].container_id.is_empty());
+        assert!(cold.entries[0].executable_ownership.is_none());
+
+        inventory.refresh_process(
+            &listener_key(200, 1),
+            &listener_details(200, 1, "app", Some(container_id), Some("widget")),
+        );
+        let with_container = inventory.snapshot_if_dirty(2).unwrap();
+        assert_eq!(with_container.entries.len(), 1);
+        assert_eq!(with_container.entries[0].pid, 200);
+        assert_eq!(with_container.entries[0].container_id, container_id);
+        assert_eq!(
+            with_container.entries[0]
+                .executable_ownership
+                .as_ref()
+                .expect("container package")
+                .binary_package,
+            "widget"
+        );
+
+        inventory.refresh_process(
+            &listener_key(100, 1),
+            &listener_details(100, 1, "k3s-agent", None, Some("k3s-host")),
+        );
+        assert!(inventory.snapshot_if_dirty(3).is_none());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_generation_advance_drops_stale_ownership() {
+        let port = 22;
+        let mut inventory = SocketInventory::default();
+        inventory.update(&shared_listener(port, 50, 1, "app", None, None));
+        inventory.update(&shared_listener(port, 50, 2, "app", None, None));
+        let cold = inventory.snapshot_if_dirty(1).unwrap();
+        assert!(cold.entries[0].executable_ownership.is_none());
+
+        inventory.refresh_process(
+            &listener_key(50, 1),
+            &listener_details(50, 1, "app", None, Some("old-pkg")),
+        );
+        assert!(inventory.snapshot_if_dirty(2).is_none());
+
+        inventory.refresh_process(
+            &listener_key(50, 2),
+            &listener_details(50, 2, "app", None, Some("new-pkg")),
+        );
+        let current = inventory.snapshot_if_dirty(3).unwrap();
+        assert_eq!(
+            current.entries[0]
+                .executable_ownership
+                .as_ref()
+                .expect("new generation package")
+                .binary_package,
+            "new-pkg"
+        );
+
+        inventory.refresh_process(
+            &listener_key(50, 1),
+            &listener_details(50, 1, "app", Some("container"), Some("old-pkg")),
+        );
+        inventory.update(&shared_listener(
+            port,
+            50,
+            1,
+            "app",
+            Some("container"),
+            Some("old-pkg"),
+        ));
+        assert!(inventory.snapshot_if_dirty(4).is_none());
+
+        let mut replaced = SocketInventory::default();
+        replaced.update(&shared_listener(
+            port,
+            50,
+            1,
+            "app",
+            Some("container"),
+            Some("old-pkg"),
+        ));
+        let enriched = replaced.snapshot_if_dirty(1).unwrap();
+        assert_eq!(enriched.entries[0].container_id, "container");
+        assert_eq!(
+            enriched.entries[0]
+                .executable_ownership
+                .as_ref()
+                .expect("old generation package")
+                .binary_package,
+            "old-pkg"
+        );
+
+        replaced.update(&shared_listener(port, 50, 2, "app", None, None));
+        let advanced = replaced.snapshot_if_dirty(2).unwrap();
+        assert!(advanced.entries[0].container_id.is_empty());
+        assert!(advanced.entries[0].executable_ownership.is_none());
+
+        replaced.refresh_process(
+            &listener_key(50, 1),
+            &listener_details(50, 1, "app", Some("container"), Some("old-pkg")),
+        );
+        assert!(replaced.snapshot_if_dirty(3).is_none());
+
+        replaced.refresh_process(
+            &listener_key(50, 2),
+            &listener_details(50, 2, "app", None, Some("new-pkg")),
+        );
+        let refreshed = replaced.snapshot_if_dirty(4).unwrap();
+        assert_eq!(
+            refreshed.entries[0]
+                .executable_ownership
+                .as_ref()
+                .expect("replacement generation package")
+                .binary_package,
+            "new-pkg"
+        );
+    }
+
+    #[test]
     fn builds_flow_attribution_event_with_local_endpoint() {
         let flow = AttributedFlow {
             flow: FlowKey {
@@ -4511,6 +4734,93 @@ mod tests {
         let mut record = flow_record(IPPROTO_UDP, local_port, remote_port);
         record.event_kind = event_kind;
         record
+    }
+
+    #[cfg(target_os = "linux")]
+    fn listener_key(tgid: u32, generation: u64) -> ProcessDetailsCacheKey {
+        ProcessDetailsCacheKey {
+            tgid,
+            uid: 1000,
+            gid: 1000,
+            process_generation_ns: generation,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn listener_details(
+        pid: u32,
+        generation: u64,
+        comm: &str,
+        container_id: Option<&str>,
+        package: Option<&str>,
+    ) -> ProcessDetails {
+        use crate::executable_ownership::{
+            ExecutableOwnershipRecord, OwnershipState, OwningPackage, PackageResolver,
+        };
+
+        ProcessDetails {
+            pid,
+            tgid: pid,
+            uid: 1000,
+            gid: 1000,
+            comm: comm.to_string(),
+            cmdline: vec![format!("/usr/bin/{comm}")],
+            container_id: container_id.map(str::to_string),
+            last_seen_ns: 0,
+            process_generation_ns: generation,
+            executable: package.map(|name| ExecutableOwnershipRecord {
+                state: OwnershipState::Resolved,
+                detail: "",
+                source_scope: "test",
+                package: Some(Arc::new(OwningPackage {
+                    binary_package: name.to_string(),
+                    installed_version: "1".to_string(),
+                    ..OwningPackage::default()
+                })),
+                resolver: Some(PackageResolver::Dpkg),
+                executable_path: format!("/usr/bin/{name}"),
+                dev: 1,
+                inode: u64::from(pid),
+            }),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn shared_listener(
+        local_port: u16,
+        pid: u32,
+        generation: u64,
+        comm: &str,
+        container_id: Option<&str>,
+        package: Option<&str>,
+    ) -> AttributedFlow {
+        let process = listener_details(pid, generation, comm, container_id, package);
+        AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: local_port,
+                endpoint_b_port: 0,
+                endpoint_a_addr: ipv4([192, 0, 2, 10]),
+                endpoint_b_addr: [0; 16],
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid,
+                tgid: pid,
+                uid: 1000,
+                gid: 1000,
+                socket_address: 0xfeed,
+                last_seen_ns: 0,
+                process_generation_ns: generation,
+                old_state: 1,
+                new_state: TCP_LISTEN_STATE,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: Some(process),
+        }
     }
 
     #[cfg(target_os = "linux")]
