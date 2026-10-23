@@ -10,12 +10,10 @@ defmodule ServiceRadar.HTTP.EgressProxy do
   NetworkPolicy can allow only the proxy. Unset leaves `EgressClient` connecting
   directly.
 
-  The shared `ServiceRadar.Finch` pool never uses the proxy. Mint -- Finch's
-  transport -- cannot tunnel through the CONNECT reply Smokescreen sends (see
-  `ServiceRadar.HTTP.EgressClient`), so a proxied pool failed every request made
-  on it with `{:dtls_upgrade, :notsup}`, and it also sent in-cluster and
-  operator-configured targets to a proxy that denies them. The pool is for those
-  targets; hosts outside the deployment go through `EgressClient`.
+  The shared `ServiceRadar.Finch` pool never uses the proxy: it serves in-cluster
+  and operator-configured targets that the egress proxy may deny. Hosts outside
+  the deployment go through `EgressClient`, whose full-download and range-read
+  transports both exercise Smokescreen's CONNECT reply in socket tests.
 
   HTTPS proxy URLs are rejected: the CONNECT hop itself is plain HTTP.
   """

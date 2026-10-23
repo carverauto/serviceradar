@@ -449,6 +449,7 @@ CORE_DEPS = [
     "@hexpm//:horde",
     "@hexpm//:jason",
     "@hexpm//:libcluster",
+    "@hexpm//:mint",
     "@hexpm//:myxql",
     "@hexpm//:oban",
     "@hexpm//:open_api_spex",

@@ -11,9 +11,11 @@ defmodule ServiceRadar.HTTP.EgressClient do
   the egress allowlist and is refused wherever a default-deny NetworkPolicy
   admits only the proxy.
 
-  Uses OTP's `:httpc` instead of `Req` + `ServiceRadar.Finch`, because Mint --
-  Finch's transport -- cannot tunnel through the CONNECT proxy this deployment
-  runs behind.
+  Full downloads use OTP's `:httpc`, preserving their streaming and redirect
+  contracts. `fetch_range/3` uses a dedicated passive Mint connection because
+  `:httpc` streaming omits the status, making 200 and 206 indistinguishable.
+  Both paths explicitly use the configured proxy and the same TLS trust anchors;
+  neither uses the direct-only shared Finch pool.
 
   Smokescreen embeds `elazarl/goproxy`, which answers `CONNECT` with the 19
   bytes `HTTP/1.0 200 OK\\r\\n\\r\\n` and no headers at all. Mint 1.10.0 started
@@ -39,10 +41,10 @@ defmodule ServiceRadar.HTTP.EgressClient do
   CVE-2026-82729. See `third_party/hex/BUILD.bazel` for the workspace dependency
   resolution policy.
 
-  `:httpc` performs its own CONNECT and accepts the HTTP/1.0 reply, so it
-  tunnels through the same proxy unchanged. Only one client is used, whether or
-  not a proxy is configured, so the path exercised by tests is the path that
-  runs on a proxied deployment.
+  `:httpc` performs its own CONNECT and accepts the HTTP/1.0 reply. Mint 1.11.0,
+  pinned in the workspace, also preserves successful CONNECT tunnels regardless
+  of that response's HTTP version. The range API's socket tests exercise this
+  reply, actual response status, TLS trust, and bounded response delivery.
   """
 
   alias ServiceRadar.Edge.ReleaseFetchPolicy
@@ -70,6 +72,61 @@ defmodule ServiceRadar.HTTP.EgressClient do
           | {:max_redirects, non_neg_integer()}
           | {:redirect, boolean()}
           | {:validate_redirect, (String.t() -> :ok | {:error, term()})}
+
+  @type range_option ::
+          option()
+          | {:expected_size, pos_integer()}
+          | {:expected_etag, String.t()}
+          | {:expected_version, String.t()}
+
+  @doc """
+  Fetches one inclusive byte interval from an immutable HTTPS object.
+
+  Requires `:expected_size`, a positive `:max_bytes` ceiling, and at least one
+  identity validator: a strong quoted `:expected_etag` or `:expected_version`
+  (a non-null S3 `x-amz-version-id`). When both are supplied, both must match. The
+  caller selects the object/version in `url` and authorizes the requested
+  interval before calling. An ETag is also sent as `If-Match`.
+
+  Only a 206 with the exact interval, total size and identity is accepted.
+  The body is returned only after its complete length is verified, never
+  partially delivered through `:into`. Multipart ranges, encoded content,
+  duplicate framing/identity headers, and whole-object 200 fallbacks fail.
+  The interval must fit within `:max_bytes`; buffering is bounded by its length.
+
+  Redirects are never followed, so authentication headers cannot escape to a
+  new origin. This function owns Range, If-Match, If-Range and Accept-Encoding;
+  supplying those headers is an error. Other headers, including signatures,
+  are passed through. It sends `Accept-Encoding: identity`.
+
+  Uses the same `:proxy`, `:cacerts` and `:cacertfile` options as `get/2`.
+  `:connect_timeout` bounds connection establishment. `:receive_timeout`
+  bounds the complete response after connection, including progressing reads;
+  both default to #{@default_timeout} milliseconds. No retries are performed.
+  """
+  @spec fetch_range(String.t(), {non_neg_integer(), non_neg_integer()}, [range_option()]) ::
+          {:ok, Req.Response.t()} | {:error, term()}
+  def fetch_range(url, interval, opts \\ []) do
+    with {:ok, range} <- range_request(url, interval, opts),
+         {:ok, conn} <-
+           Mint.HTTP.connect(:https, range.uri.host, range.uri.port, range_connect_opts(opts)) do
+      try do
+        case Mint.HTTP.request(conn, "GET", range.path, range.headers, nil) do
+          {:ok, conn, ref} ->
+            deadline =
+              System.monotonic_time(:millisecond) +
+                Keyword.get(opts, :receive_timeout, @default_timeout)
+
+            range_receive(conn, ref, range, deadline, %{headers: nil, chunks: [], size: 0})
+
+          {:error, _conn, reason} ->
+            {:error, reason}
+        end
+      after
+        Mint.HTTP.close(conn)
+      end
+    end
+  end
 
   @doc """
   Fetches `url` with GET.
@@ -405,6 +462,200 @@ defmodule ServiceRadar.HTTP.EgressClient do
 
   defp configured_proxy do
     Application.get_env(:serviceradar_core, :egress_proxy)
+  end
+
+  defp range_request(url, {first, last}, opts)
+       when is_binary(url) and is_integer(first) and is_integer(last) and first >= 0 and
+              last >= first do
+    uri = URI.parse(url)
+    total = Keyword.get(opts, :expected_size)
+    max_bytes = Keyword.get(opts, :max_bytes)
+    etag = Keyword.get(opts, :expected_etag)
+    version = Keyword.get(opts, :expected_version)
+    headers = normalize_headers(Keyword.get(opts, :headers, []))
+
+    if valid_range_uri?(uri) and valid_range_bounds?(first, last, total, max_bytes) and
+         valid_range_identity?(etag, version) and
+         valid_range_options?(headers, opts) do
+      headers = [{"range", "bytes=#{first}-#{last}"}, {"accept-encoding", "identity"} | headers]
+      headers = if etag, do: [{"if-match", etag} | headers], else: headers
+      path = if uri.path in [nil, ""], do: "/", else: uri.path
+      path = if uri.query, do: path <> "?" <> uri.query, else: path
+
+      {:ok,
+       %{
+         uri: uri,
+         path: path,
+         headers: headers,
+         content_range: "bytes #{first}-#{last}/#{total}",
+         size: last - first + 1,
+         etag: etag,
+         version: version
+       }}
+    else
+      {:error, :invalid_range_request}
+    end
+  end
+
+  defp range_request(_url, _interval, _opts), do: {:error, :invalid_range_request}
+
+  defp valid_range_uri?(%URI{
+         scheme: "https",
+         host: host,
+         port: port,
+         userinfo: nil,
+         fragment: nil
+       })
+       when is_binary(host) and host != "" and port in 1..65_535, do: true
+
+  defp valid_range_uri?(_uri), do: false
+
+  defp valid_range_bounds?(first, last, total, max_bytes)
+       when is_integer(total) and is_integer(max_bytes),
+       do: last < total and last - first + 1 <= max_bytes
+
+  defp valid_range_bounds?(_first, _last, _total, _max_bytes), do: false
+
+  defp valid_range_identity?(etag, version) do
+    (etag != nil or version != nil) and
+      (etag == nil or (is_binary(etag) and Regex.match?(~r/^"[\x21\x23-\x7e\x80-\xff]*"$/, etag))) and
+      (version == nil or (is_binary(version) and version not in ["", "null"]))
+  end
+
+  defp valid_range_options?(headers, opts) do
+    Enum.all?([:receive_timeout, :connect_timeout], fn name ->
+      value = Keyword.get(opts, name, @default_timeout)
+      is_integer(value) and value > 0
+    end) and
+      not Enum.any?(headers, fn {name, _value} ->
+        name in ["range", "if-match", "if-range", "accept-encoding"]
+      end)
+  end
+
+  defp range_connect_opts(opts) do
+    timeout = Keyword.get(opts, :connect_timeout, @default_timeout)
+
+    connect_opts = [
+      mode: :passive,
+      protocols: [:http1],
+      max_header_list_size: 16_384,
+      transport_opts: Keyword.put(tls_options(opts), :timeout, timeout)
+    ]
+
+    case Keyword.get_lazy(opts, :proxy, &configured_proxy/0) do
+      nil ->
+        connect_opts
+
+      %{scheme: :http, host: host, port: port} ->
+        Keyword.put(
+          connect_opts,
+          :proxy,
+          {:http, host, port,
+           [
+             transport_opts: [timeout: timeout],
+             tunnel_timeout: timeout,
+             max_header_list_size: 16_384
+           ]}
+        )
+    end
+  end
+
+  defp range_receive(conn, ref, range, deadline, state) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      {:error, :timeout}
+    else
+      case Mint.HTTP.recv(conn, 0, remaining) do
+        {:ok, conn, events} ->
+          case range_events(events, ref, range, state) do
+            {:cont, state} -> range_receive(conn, ref, range, deadline, state)
+            result -> result
+          end
+
+        {:error, _conn, %Mint.TransportError{reason: :closed}, _events} ->
+          {:error, :truncated_response}
+
+        {:error, _conn, %Mint.TransportError{reason: :timeout}, _events} ->
+          {:error, :timeout}
+
+        {:error, _conn, reason, _events} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp range_events([], _ref, _range, state), do: {:cont, state}
+
+  defp range_events([{:status, ref, 206} | events], ref, range, state),
+    do: range_events(events, ref, range, state)
+
+  defp range_events([{:status, ref, status} | _events], ref, _range, _state),
+    do: {:error, {:http_status, status}}
+
+  defp range_events([{:headers, ref, headers} | events], ref, range, state) do
+    headers = (state.headers || []) ++ headers
+
+    with :ok <- validate_range_headers(headers, range) do
+      range_events(events, ref, range, %{state | headers: headers})
+    end
+  end
+
+  defp range_events([{:data, ref, chunk} | events], ref, range, state) do
+    size = state.size + byte_size(chunk)
+
+    if size > range.size do
+      {:error, :response_too_large}
+    else
+      range_events(events, ref, range, %{state | size: size, chunks: [chunk | state.chunks]})
+    end
+  end
+
+  defp range_events([{:done, ref} | _events], ref, range, state) do
+    if state.size == range.size do
+      body = state.chunks |> Enum.reverse() |> IO.iodata_to_binary()
+      {:ok, response(206, state.headers, body)}
+    else
+      {:error, :truncated_response}
+    end
+  end
+
+  defp range_events([{:error, ref, reason} | _events], ref, _range, _state), do: {:error, reason}
+
+  defp validate_range_headers(headers, range) do
+    names = ~w(content-range content-length content-encoding content-type etag x-amz-version-id)
+    grouped = Enum.group_by(headers, fn {name, _} -> String.downcase(name) end, &elem(&1, 1))
+
+    cond do
+      Enum.any?(names, &(length(Map.get(grouped, &1, [])) > 1)) ->
+        {:error, :invalid_range_response}
+
+      grouped["content-range"] != [range.content_range] ->
+        {:error, :invalid_range_response}
+
+      Map.get(grouped, "content-length", [Integer.to_string(range.size)]) != [
+        Integer.to_string(range.size)
+      ] ->
+        {:error, :invalid_range_response}
+
+      Map.get(grouped, "content-encoding", ["identity"]) != ["identity"] ->
+        {:error, :invalid_range_response}
+
+      Enum.any?(
+        Map.get(grouped, "content-type", []),
+        &String.starts_with?(String.downcase(&1), "multipart/")
+      ) ->
+        {:error, :invalid_range_response}
+
+      range.etag != nil and grouped["etag"] != [range.etag] ->
+        {:error, :object_changed}
+
+      range.version != nil and grouped["x-amz-version-id"] != [range.version] ->
+        {:error, :object_changed}
+
+      true ->
+        :ok
+    end
   end
 
   defp request(url, opts, profile) do
