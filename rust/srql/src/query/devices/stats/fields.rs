@@ -31,7 +31,7 @@ impl DeviceGroupField {
             "type" | "device_type" => return Some(Self::Type),
             "vendor_name" | "vendor" => return Some(Self::VendorName),
             "risk_level" | "risk" => return Some(Self::RiskLevel),
-            "availability" | "availability_state" => return Some(Self::Availability),
+            "availability" => return Some(Self::Availability),
             "is_available" | "available" => return Some(Self::IsAvailable),
             "is_active" | "active" => return Some(Self::IsActive),
             "gateway_id" | "gateway" => return Some(Self::GatewayId),

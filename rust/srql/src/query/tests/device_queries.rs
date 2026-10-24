@@ -1118,16 +1118,19 @@ fn devices_stats_group_by_with_filter() {
 
 #[test]
 fn devices_stats_group_by_unsupported_field_returns_error() {
-    let query = "in:devices stats:count() as count by hostname";
-    let plan = plan_for(query);
-
-    let result = devices::to_sql_and_params(&plan);
-    assert!(result.is_err(), "grouping by hostname should fail");
-    let err = result.unwrap_err();
-    assert!(
-        err.to_string().contains("unsupported"),
-        "error should mention unsupported field, got: {err}"
-    );
+    for query in [
+        "in:devices stats:count() as count by hostname",
+        "in:devices stats:count() as count by availability_state",
+    ] {
+        let plan = plan_for(query);
+        let result = devices::to_sql_and_params(&plan);
+        assert!(result.is_err(), "{query} should be rejected as a group key");
+        let err = result.unwrap_err();
+        assert!(
+            err.to_string().contains("unsupported"),
+            "{query} should mention unsupported field, got: {err}"
+        );
+    }
 }
 
 // This is the exact query the Device Details "find similar devices" links emit:
