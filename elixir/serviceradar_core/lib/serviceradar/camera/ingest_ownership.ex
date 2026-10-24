@@ -514,24 +514,18 @@ defmodule ServiceRadar.Camera.IngestOwnership do
 
   defp caller(opts), do: [actor: Keyword.get(opts, :actor)]
 
-  # Nested Ash.transact rolls the parent transaction back before the caller can
-  # turn a refusal into a retained session. The lock is already held, so run there.
   defp transaction(fun) do
-    if Ash.DataLayer.in_transaction?(IngestOwner) do
-      fun.()
-    else
-      @resources
-      |> Ash.transact(fn ->
-        case fun.() do
-          {:error, reason} = error ->
-            if domain_reason?(reason), do: {:error, ownership_refusal(reason)}, else: error
+    @resources
+    |> Ash.transact(fn ->
+      case fun.() do
+        {:error, reason} = error ->
+          if domain_reason?(reason), do: {:error, ownership_refusal(reason)}, else: error
 
-          result ->
-            result
-        end
-      end)
-      |> transaction_result()
-    end
+        result ->
+          result
+      end
+    end)
+    |> transaction_result()
   end
 
   defp ownership_refusal(reason) do

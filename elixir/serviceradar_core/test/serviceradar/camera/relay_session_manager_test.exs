@@ -61,7 +61,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
 
     assert {:ok, session} =
              Fixtures.open(ctx,
-               scope: %{user: user},
+               scope: %{user: user, actor: user},
                insecure_skip_verify: true,
                control_gateway_resolver: fn _, _ -> {:ok, "gateway-replacement"} end,
                dispatch_open: dispatch
@@ -79,6 +79,12 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     assert payload.insecure_skip_verify
     assert byte_size(payload.lease_token) == 32
     assert command_opts[:required_gateway_node] == "gateway-replacement"
+
+    assert {:error, :not_found} =
+             Fixtures.open(ctx,
+               scope: %{user: user, actor: nil},
+               dispatch_open: fn _, _, _, _ -> flunk("anonymous scope dispatched a relay") end
+             )
   end
 
   test "rejects missing assignment and unavailable agent control without creating a relay", ctx do
