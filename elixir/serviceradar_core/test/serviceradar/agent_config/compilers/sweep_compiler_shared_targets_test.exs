@@ -321,6 +321,54 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompilerSharedTargetsTest do
     assert rehydrate(document) == legacy_by_id
   end
 
+  # Two queries can each keep the same alias address: legacy dedupes an IP
+  # only inside one query. The second owner must not reuse "ip:" <> ip.
+  test "alias IPs shared by two devices stay two table entries and rehydrate" do
+    rows = %{
+      @lab_query => [%{"ip" => "198.51.100.10", "uid" => "sr:dev-0001"}],
+      @db_query => [%{"ip" => "198.51.100.20", "uid" => "sr:dev-0002"}]
+    }
+
+    groups = [
+      group(%{id: "sg-lab", name: "lab", target_query: @lab_query}),
+      group(%{id: "sg-db", name: "db", target_query: @db_query})
+    ]
+
+    alias_fn = fn uids ->
+      {:ok, Map.new(uids, &{&1, ["198.51.100.50"]})}
+    end
+
+    opts = [query_page_fn: single_page(rows), alias_ips_fn: alias_fn]
+
+    assert {:shared_targets_v1, document, _} =
+             SweepCompiler.compile_groups(groups, %{}, [format: :shared_targets_v1] ++ opts)
+
+    table = document["device_table"]
+    refs = Enum.map(table, & &1["ref"])
+    assert refs == Enum.uniq(refs)
+    assert length(table) == 4
+
+    assert by_ref(table, "sr:dev-0001")["ip"] == "198.51.100.10"
+    assert by_ref(table, "sr:dev-0001")["device_uid"] == "sr:dev-0001"
+    assert by_ref(table, "sr:dev-0002")["ip"] == "198.51.100.20"
+    assert by_ref(table, "sr:dev-0002")["device_uid"] == "sr:dev-0002"
+
+    aliases = Enum.filter(table, &(&1["ip"] == "198.51.100.50"))
+    assert Enum.sort(Enum.map(aliases, & &1["device_uid"])) == ["sr:dev-0001", "sr:dev-0002"]
+
+    [plain] = Enum.filter(aliases, &(&1["ref"] == "ip:198.51.100.50"))
+    [marked] = Enum.reject(aliases, &(&1["ref"] == "ip:198.51.100.50"))
+    assert marked["ref"] == "ip:198.51.100.50@" <> marked["device_uid"]
+    assert marked["device_uid"] != plain["device_uid"]
+
+    legacy = SweepCompiler.compile_groups(groups, %{}, opts)
+
+    legacy_by_id =
+      Map.new(legacy, fn group -> {group["id"], group["device_targets"] || []} end)
+
+    assert rehydrate(document) == legacy_by_id
+  end
+
   test "document is stable under shuffled row order when no IP is shared" do
     groups = [group(%{id: "sg-a", name: "lab-icmp", target_query: @lab_query})]
 

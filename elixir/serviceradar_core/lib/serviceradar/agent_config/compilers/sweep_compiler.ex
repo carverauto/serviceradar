@@ -394,24 +394,36 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     }
   end
 
-  # Every (ip, device_uid) pair gets one ref: the device_uid for the first
-  # pair carrying it (in deterministic set-then-legacy order), "ip:" <> ip
-  # otherwise. A device reached at several IPs (primary plus aliases) thus
-  # keeps one uid ref and one ip ref per further address, each table entry
-  # still carrying the owning device_uid.
+  # Every (ip, device_uid) pair gets one ref, in set-key then legacy IP
+  # order. Preference: the device_uid while that string is free and this uid
+  # has not already been used as a ref; otherwise "ip:" <> ip while that is
+  # free; otherwise "ip:" <> ip <> "@" <> (uid or ""). The last form is what keeps
+  # two owners of one alias address as two table entries. Each entry still
+  # carries the owning device_uid.
   defp shared_refs(sorted_sets) do
-    {ref_by_pair, _claimed_uids} =
-      Enum.reduce(sorted_sets, {%{}, MapSet.new()}, fn {_query, pairs}, acc ->
-        Enum.reduce(pairs, acc, fn {ip, uid} = pair, {ref_by_pair, claimed} ->
+    {ref_by_pair, _claimed_uids, _taken_refs} =
+      Enum.reduce(sorted_sets, {%{}, MapSet.new(), MapSet.new()}, fn {_query, pairs}, acc ->
+        Enum.reduce(pairs, acc, fn {ip, uid} = pair, {ref_by_pair, claimed, taken} ->
+          ip_ref = "ip:" <> ip
+
           cond do
             Map.has_key?(ref_by_pair, pair) ->
-              {ref_by_pair, claimed}
+              {ref_by_pair, claimed, taken}
 
-            is_binary(uid) and not MapSet.member?(claimed, uid) ->
-              {Map.put(ref_by_pair, pair, uid), MapSet.put(claimed, uid)}
+            is_binary(uid) and not MapSet.member?(claimed, uid) and
+                not MapSet.member?(taken, uid) ->
+              {
+                Map.put(ref_by_pair, pair, uid),
+                MapSet.put(claimed, uid),
+                MapSet.put(taken, uid)
+              }
+
+            not MapSet.member?(taken, ip_ref) ->
+              {Map.put(ref_by_pair, pair, ip_ref), claimed, MapSet.put(taken, ip_ref)}
 
             true ->
-              {Map.put(ref_by_pair, pair, "ip:" <> ip), claimed}
+              ref = ip_ref <> "@" <> (uid || "")
+              {Map.put(ref_by_pair, pair, ref), claimed, MapSet.put(taken, ref)}
           end
         end)
       end)
