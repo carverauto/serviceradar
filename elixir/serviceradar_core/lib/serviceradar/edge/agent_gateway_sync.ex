@@ -28,6 +28,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Infrastructure.StateMonitor
   alias ServiceRadar.Inventory.Availability
+  alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
@@ -1173,6 +1174,11 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> maybe_put(:hostname, hostname)
       |> maybe_put(:ip, source_ip)
       |> compact_attrs()
+      # From cutover the check-in's availability goes to the compatibility table, not
+      # the device row (merged availability, LegacyWrites). Read without the switch
+      # lock: a check-in that straddles a switch writes the column once, and the
+      # device's next resolution rewrites it from the merged state.
+      |> LegacyWrites.route_attrs(device.uid, Availability.Mode.current())
 
     action = gateway_update_action(device)
 

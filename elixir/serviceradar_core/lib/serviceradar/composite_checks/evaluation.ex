@@ -57,6 +57,7 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   alias ServiceRadar.CompositeChecks.Scope
   alias ServiceRadar.CompositeChecks.VerdictEventWriter
   alias ServiceRadar.Inventory.Availability
+  alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Availability.VantageExpectations
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
@@ -542,18 +543,32 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
 
   defp set_canonical_availability([], _available?), do: []
 
+  # While the legacy writers own is_available (modes legacy and shadow) the verdict is
+  # written to it; from cutover only to the compatibility table, and the merged resolver
+  # decides the device from the operator_policy evidence (LegacyWrites). The mode is read
+  # under the shared mode-switch lock in the writing transaction.
   defp set_canonical_availability(uids, available?) do
-    {_count, changed} =
-      Device
-      |> where([d], d.uid in ^uids and is_nil(d.deleted_at))
-      |> where([d], d.is_available != ^available? or is_nil(d.is_available))
-      |> select([d], d.uid)
-      |> Repo.update_all(
-        set: [
-          is_available: available?,
-          modified_time: DateTime.truncate(DateTime.utc_now(), :second)
-        ]
-      )
+    {:ok, changed} =
+      Repo.transaction(fn ->
+        if Availability.Mode.legacy_column?(LegacyWrites.admit()) do
+          {_count, changed} =
+            Device
+            |> where([d], d.uid in ^uids and is_nil(d.deleted_at))
+            |> where([d], d.is_available != ^available? or is_nil(d.is_available))
+            |> select([d], d.uid)
+            |> Repo.update_all(
+              set: [
+                is_available: available?,
+                modified_time: DateTime.truncate(DateTime.utc_now(), :second)
+              ]
+            )
+
+          changed
+        else
+          _written = LegacyWrites.record(Enum.map(uids, &{&1, available?}))
+          []
+        end
+      end)
 
     changed
   end

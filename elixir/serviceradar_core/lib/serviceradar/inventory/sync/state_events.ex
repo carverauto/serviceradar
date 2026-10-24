@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.Sync.StateEvents do
 
   alias ServiceRadar.EventWriter.StateChangePublisher
   alias ServiceRadar.Identity.IdentityCache
+  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
 
@@ -47,18 +48,24 @@ defmodule ServiceRadar.Inventory.Sync.StateEvents do
     do: :ok
 
   def publish_device_state_transitions(device_records, previous, remap) do
+    # is_available transitions come from the legacy writers only while they own the
+    # column (modes legacy and shadow); from cutover the merged resolver publishes them.
+    legacy_column? = Mode.legacy_column?(Mode.current())
+
     Enum.each(device_records, fn record ->
       original_uid = Map.get(record, :uid)
       final_uid = Map.get(remap, original_uid, original_uid)
       prior = Map.get(previous, original_uid)
 
       if is_map(prior) and is_binary(final_uid) do
-        maybe_publish_device_field(
-          final_uid,
-          "is_available",
-          prior.is_available,
-          Map.get(record, :is_available)
-        )
+        if legacy_column? do
+          maybe_publish_device_field(
+            final_uid,
+            "is_available",
+            prior.is_available,
+            Map.get(record, :is_available)
+          )
+        end
 
         maybe_publish_device_field(
           final_uid,

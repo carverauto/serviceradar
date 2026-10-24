@@ -120,9 +120,8 @@ defmodule ServiceRadar.Inventory.Availability.CaptureBackfillWorker do
     # never depends on how Elixir would compare the keys.
     {:ok, [count, last]} =
       Repo.transaction(fn ->
-        # The statement changes no rollup input, so the rollup triggers have nothing
-        # to count; skip their work.
-        Repo.query!("SELECT set_config('platform.skip_inventory_rollup', 'on', true)")
+        # The projection changes availability_state, which the inventory rollups count
+        # (migration 20261024120000), so their triggers run.
         %{rows: [row]} = Repo.query!(sql, [cursor, @page_size])
         row
       end)
