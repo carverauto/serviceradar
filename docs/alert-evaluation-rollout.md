@@ -4,15 +4,19 @@ This accompanies the `refactor-durable-alert-admission` implementation. Do not
 activate an incomplete development checkpoint. PR BazelCI, the caller cutover,
 and the owner recovery and load evidence must pass first.
 
-The default `SERVICERADAR_ALERT_EVALUATION_MODE=prepared` does not evaluate
-alert rules: records are stored and the batch is acknowledged, but no rule
-evaluates them and no alert effects are produced. A periodic warning reports
-this in the core log, and web-ng shows "alert evaluation is not activated" on
-the dashboard alerts card, `/observability/alerts` and the alert rules settings
-page whenever the coordinator's mode is not `active`. `active` admits work;
-`draining` rejects new admission while finishing accepted work. Invalid
-settings fail release boot. The alerts Oban queue must be enabled and have a
-positive worker limit on each evaluating core node.
+`prepared` does not evaluate alert rules: records are stored and the batch is
+acknowledged, but no rule evaluates them and no alert effects are produced. A
+periodic warning reports this in the core log, and web-ng shows "alert
+evaluation is not activated" on the dashboard alerts card,
+`/observability/alerts` and the alert rules settings page whenever the
+coordinator's mode is not `active`. `active` admits work; `draining` rejects
+new admission while finishing accepted work. Invalid settings fail release
+boot. The alerts Oban queue must be enabled and have a positive worker limit
+on each evaluating core node. With the environment variable unset, the process
+still starts `prepared`. Helm resolves an empty `core.alertEvaluation.mode` at
+render time; that contract is the `alertEvaluation` comment in
+`helm/serviceradar/values.yaml`. The steps below are for a deployment that is
+still `prepared`.
 
 1. Install the migrations and new consumer-capable image with admission prepared.
 2. Retire every old inline evaluator, including disconnected pods. Check the
