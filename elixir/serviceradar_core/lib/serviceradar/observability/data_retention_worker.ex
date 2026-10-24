@@ -382,12 +382,13 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
   The target is an explicit `traces_stats_retention_days` when set, otherwise
   the 14-day migration default, floored at the clamped refresh window. The
-  telemetry ceiling does not apply. A missing policy is replaced with that
-  target. While the cold tier is enabled, a target shorter than
-  `RetentionFence.cagg_cold_window_days/1` is not written. While the tier is
-  disabled, an unset key leaves a window already at or above that fence target
-  unchanged. Every other installed window is set to the target, so an explicit
-  value may narrow or raise it, including above the fence target.
+  telemetry ceiling does not apply. While the cold tier is enabled, a target
+  shorter than `RetentionFence.cagg_cold_window_days/1` is not written, even
+  when no policy is installed. While the tier is disabled, an unset key leaves
+  a window already at or above that fence target unchanged. A missing policy
+  is replaced with the target only when that skip does not apply. Every other
+  installed window is set to the target, so an explicit value may narrow or
+  raise it, including above the fence target.
   """
   @spec traces_stats_retention_to_apply(
           keyword(),
@@ -418,9 +419,6 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       )
 
     cond do
-      is_nil(current) ->
-        desired
-
       cold_tier_enabled? and is_integer(cold_window) and desired < cold_window ->
         :skip
 

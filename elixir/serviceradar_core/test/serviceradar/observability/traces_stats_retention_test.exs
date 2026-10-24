@@ -48,6 +48,30 @@ defmodule ServiceRadar.Observability.TracesStatsRetentionTest do
              {:ok, %{rows: [[nil]]}},
              false
            ) == 14
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(
+             [traces_stats_retention_days: 30],
+             {:ok, %{rows: []}},
+             false
+           ) == 30
+  end
+
+  test "a missing policy is left uninstalled while the cold tier is enabled" do
+    missing = {:ok, %{rows: []}}
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply([], missing, true) == :skip
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(
+             [],
+             {:ok, %{rows: [[nil]]}},
+             true
+           ) == :skip
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(
+             [traces_stats_retention_days: 30, cnpg_telemetry_default_days: 7],
+             missing,
+             true
+           ) == :skip
   end
 
   test "the ceiling does not cap traces stats, and the tier skips a shorter target" do
@@ -106,6 +130,9 @@ defmodule ServiceRadar.Observability.TracesStatsRetentionTest do
 
     assert DataRetentionWorker.traces_stats_retention_to_apply(config, widened, false) == 120
     assert DataRetentionWorker.traces_stats_retention_to_apply(config, widened, true) == 120
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(config, {:ok, %{rows: []}}, true) ==
+             120
   end
 
   test "an explicit narrow stays put on the next run instead of taking the ceiling" do
