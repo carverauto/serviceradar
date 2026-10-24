@@ -14,9 +14,9 @@
   `target_query` through `get_device_targets_from_query/4`
   (`sweep_compiler.ex:299`). That function pages through SRQL with
   `fetch_srql_device_targets/5` (`sweep_compiler.ex:330`), deduplicates by IP
-  within the group (`Map.put_new`, `sweep_compiler.ex:370`), and sorts by
-  `"network"` (`sweep_compiler.ex:305`). Each group runs its own query, even
-  when another group uses the identical query.
+  within the group (`Map.put_new` in `put_device_target_from_row/4`), and
+  sorts by `"network"` (`sweep_compiler.ex:305`). Each group runs its own
+  query, even when another group uses the identical query.
 - `device_target_from_row/4` (`sweep_compiler.ex:380`) builds one entry per
   device IP per group. The entry contains:
   - group-derived fields: `sweep_modes` (the group's modes,
@@ -235,18 +235,24 @@ the legacy format.
 }
 ```
 
-- `device_table` is keyed by device, not by IP. `ref` is the row's
-  `device_uid`, or `"ip:" <> ip` for a row without one. Two distinct devices
-  that share an IP (for example a stale record and a live one) stay two
-  entries, so neither group is forced onto the other's `device_uid`.
+- `device_table` has one entry per `(ip, device_uid)` pair. A device's alias
+  addresses are separate entries and still carry that device's `device_uid`.
+  A row with no `device_uid` omits the key. Two distinct devices that share
+  an IP (for example a stale record and a live one) stay two entries, so
+  neither group is forced onto the other's `device_uid`.
+- Each pair's `ref` is chosen once, walking target sets in `key` order and
+  pairs in legacy IP order. Use `device_uid` while that string is free and
+  this uid has not already been used as a ref; otherwise `"ip:" <> ip` while
+  that string is free; otherwise `"ip:" <> ip <> "@" <> (uid or "")`. The
+  first two spellings stay as they are whenever they are free. The third
+  keeps two owners of one alias address from sharing a ref. Every ref string
+  appears in `device_table` exactly once, however many sets reference it.
 - Each target set's `refs` is the per-query result after the same IP
   de-duplication the legacy path applies within a group (first row seen per
-  IP wins, `sweep_compiler.ex:370`), in the legacy order (sorted by IP).
-  Groups sharing a query shared that de-duplication in the legacy format too,
-  so rehydrating a set reproduces each group's legacy `device_targets`
-  exactly, including which device wins a shared IP.
-- Every `ref` in a target set appears in `device_table` exactly once, however
-  many sets reference it.
+  IP wins, `put_device_target_from_row/4`), in the legacy order (sorted by
+  IP). Groups sharing a query shared that de-duplication in the legacy
+  format too, so rehydrating a set reproduces each group's legacy
+  `device_targets` exactly, including which device wins a shared IP.
 - `device_table`, `target_sets` and `groups` are arrays sorted by `ref`, `key`
   and `id`. They are not JSON objects, because Jason does not guarantee key
   order for large maps and the encoded document is the hash input
@@ -267,7 +273,7 @@ the legacy format.
 - Alternative considered: dropping `device_table` and sending bare IP lists,
   since sweep results never carry `device_uid`. Rejected because the overlap
   view needs `device_uid`, and because it would close off device-based result
-  attribution. The table costs one small entry per device.
+  attribution. The table costs one small entry per `(ip, device_uid)` pair.
 
 ### Decision 4: Capability-gated format selection
 
@@ -318,8 +324,8 @@ groups in the sweeper.
   the same order `config_hash` already uses, so the config version no longer
   depends on database row order.
 - `shared-targets/v1`: the hash covers the encoded `groups`, `device_table`
-  and `target_sets`, all sorted as in Decision 3. It excludes `compiled_at`,
-  as today.
+  and `target_sets`, all sorted as in Decision 3. It excludes `compiled_at`
+  and `config_hash`.
 - The two formats hash differently for the same groups. An agent that
   switches format therefore receives one full config, which is intended.
 
