@@ -16,13 +16,14 @@ What exists today:
 | Topology | graph (AGE / Dgraph) | device uid | `in:device_graph`, `in:graph_cypher` |
 | BGP | StarRocks BMP events | peer, prefix | `in:bmp_events` |
 | Small current-state dimensions | CNPG, reachable from StarRocks through the opt-in `cnpg_platform` JDBC catalog, with column-scoped grants to `serviceradar_starrocks_reader` and an allowlist in `CatalogAllowlist` | | used by flow enrichment joins |
+| Current exposure facts, CVE and package dimensions, and transition history | StarRocks migration 0032 (`exposure_facts`, `exposure_cve_dim`, `exposure_package_dim`, `exposure_transitions_log`); see Decision 21 | fact key `(device_ord, cve_ord, pkg_ord)` | none yet |
 
 The gaps that block the six operator questions are:
 
 - nothing maps a flow endpoint or a host peer to a device;
 - nothing maps a process to the package that owns its executable (#5752);
 - host connection summaries (#5753) are not yet in the lab warehouse (Task 0.5), so nothing joins them to devices, exposure or flows, and nothing records whether an agent's capture was complete for an interval;
-- there is no current-state exposure store next to flows.
+- the exposure tables above are not yet written or exposed as SRQL.
 
 A pre-fix lab measurement for #5749 found about 97% of "active" match rows were orphans. The 2026-10-22 read-only follow-up, after a successful matcher completion, found no active orphan matches and an actionable assessment count rounded to zero (nearest hundred). See *Task 0.2: read-only cleanup follow-up*.
 

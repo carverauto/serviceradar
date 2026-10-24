@@ -8,7 +8,9 @@
 //! * `fixture`: the one synthetic row generator both backends are seeded from.
 //! * `schema`: the DDL each throwaway database is built from.
 //! * `compare`: result normalisation and the diff.
-//! * `runner`: seeds CNPG and StarRocks, runs every entry through both dialects, reports.
+//! * `exposure`: storage checks for migration 0032 in the runner's disposable warehouse.
+//! * `runner`: seeds CNPG and StarRocks, runs every entry through both dialects, then the
+//!   exposure storage checks, and reports.
 
 pub mod compare;
 pub mod coverage;
