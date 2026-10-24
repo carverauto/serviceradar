@@ -394,9 +394,13 @@ mod p521_tests {
     #[test]
     fn verifies_a_real_signature_and_rejects_everything_else() {
         use p521::ecdsa::signature::Signer as _;
-        use p521::elliptic_curve::Generate as _;
 
-        let signing = p521::ecdsa::SigningKey::generate();
+        // Deterministic test scalar: the test needs any valid keypair, not
+        // entropy, and elliptic-curve 0.14 no longer re-exports an OS RNG.
+        let mut scalar = [0u8; 66];
+        scalar[65] = 7;
+        let signing = p521::ecdsa::SigningKey::from_slice(&scalar)
+            .expect("a fixed in-range scalar is a valid P-521 signing key");
         let verifying = p521::ecdsa::VerifyingKey::from(&signing);
         let point = verifying.to_sec1_point(false);
         let sig: p521::ecdsa::Signature = signing.sign(b"the signed message");
