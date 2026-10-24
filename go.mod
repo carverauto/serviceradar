@@ -23,6 +23,7 @@ require (
 	github.com/klauspost/compress v1.20.0
 	github.com/nats-io/jwt/v2 v2.8.2
 	github.com/nats-io/nats.go v1.54.0
+	github.com/pion/rtcp v1.2.17
 	github.com/pion/rtp v1.10.5
 	github.com/pkg/sftp v1.13.11
 	github.com/rs/zerolog v1.35.1
@@ -106,7 +107,6 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.28 // indirect
 	github.com/pion/logging v0.2.4 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
-	github.com/pion/rtcp v1.2.17 // indirect
 	github.com/pion/sdp/v3 v3.0.20 // indirect
 	github.com/pion/srtp/v3 v3.0.15 // indirect
 	github.com/pion/transport/v4 v4.1.0 // indirect
