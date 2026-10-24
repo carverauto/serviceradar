@@ -145,7 +145,10 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
       # add-merged-device-availability (Q12): a new source pushes merged availability or
       # a selected agent's results; `legacy` semantics are kept only for existing sources.
-      change set_new_attribute(:northbound_availability_semantics, :merged)
+      # The attribute default is `:legacy` so existing rows stay legacy. Ash applies that
+      # default before changes, so `set_new_attribute` sees the field as already set and
+      # never writes `:merged`. Force it only when the create input omitted the field.
+      change &default_new_source_semantics/2
       change &validate_new_source_semantics/2
 
       validate CompositeExport
@@ -724,6 +727,22 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         field: :agent_id,
         message: "install and register an agent before adding integrations"
       )
+  end
+
+  defp default_new_source_semantics(changeset, _context) do
+    supplied? =
+      Map.has_key?(changeset.params, :northbound_availability_semantics) or
+        Map.has_key?(changeset.params, "northbound_availability_semantics")
+
+    if supplied? do
+      changeset
+    else
+      Ash.Changeset.force_change_attribute(
+        changeset,
+        :northbound_availability_semantics,
+        :merged
+      )
+    end
   end
 
   defp validate_new_source_semantics(changeset, _context) do
