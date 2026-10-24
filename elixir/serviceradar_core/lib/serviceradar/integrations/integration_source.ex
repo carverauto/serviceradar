@@ -52,7 +52,7 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     :settings,
     :credential_secret_id
   ]
-  @source_create_fields [:source_type | @source_fields]
+  @source_create_fields [:source_type, :northbound_availability_semantics | @source_fields]
 
   postgres do
     table "integration_sources"
@@ -143,6 +143,14 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
       change &validate_agent_availability/2
 
+      # add-merged-device-availability (Q12): a new source pushes merged availability or
+      # a selected agent's results; `legacy` semantics are kept only for existing sources.
+      # The attribute default is `:legacy` so existing rows stay legacy. Ash applies that
+      # default before changes, so `set_new_attribute` sees the field as already set and
+      # never writes `:merged`. Force it only when the create input omitted the field.
+      change &default_new_source_semantics/2
+      change &validate_new_source_semantics/2
+
       validate CompositeExport
     end
 
@@ -175,6 +183,18 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
 
     update :enable do
       change set_attribute(:enabled, true)
+    end
+
+    update :adopt_merged_availability do
+      description """
+      Operator choice: canonical northbound pushes (no availability agent selected) send
+      the merged availability state instead of the legacy value, and withhold unknown
+      devices. Never applied automatically. Source settings count how many pushes would
+      change only once the deployment is out of legacy mode.
+      """
+
+      accept []
+      change set_attribute(:northbound_availability_semantics, :merged)
     end
 
     update :disable do
@@ -449,12 +469,14 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     end
 
     # add-merged-device-availability, Decision 13. Only the canonical path (no agent
-    # selected) reads it, from stage c: `legacy` keeps pushing the legacy availability
-    # value, `merged` pushes the canonical state and withholds unknown devices. Every
-    # source starts `legacy`; no action changes it until the operator preview and adopt
-    # action land, so nothing pushed to Armis changes silently.
+    # selected) reads it: `legacy` keeps pushing the legacy availability value, `merged`
+    # pushes the canonical state and withholds unknown devices. Sources that existed
+    # before it start `legacy` and change only through :adopt_merged_availability, after
+    # the operator has seen the preview, so nothing pushed to Armis changes silently. A
+    # new source starts `merged` and may not choose `legacy`.
     attribute :northbound_availability_semantics, :atom do
       allow_nil? false
+      public? true
       default :legacy
       constraints one_of: [:legacy, :merged]
       description "Availability semantics of canonical northbound pushes (legacy or merged)"
@@ -706,6 +728,38 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
         field: :agent_id,
         message: "install and register an agent before adding integrations"
       )
+  end
+
+  defp default_new_source_semantics(changeset, _context) do
+    supplied? =
+      Map.has_key?(changeset.params, :northbound_availability_semantics) or
+        Map.has_key?(changeset.params, "northbound_availability_semantics")
+
+    if supplied? do
+      changeset
+    else
+      Ash.Changeset.force_change_attribute(
+        changeset,
+        :northbound_availability_semantics,
+        :merged
+      )
+    end
+  end
+
+  defp validate_new_source_semantics(changeset, _context) do
+    agent_id = Ash.Changeset.get_attribute(changeset, :northbound_availability_source_agent_id)
+
+    if Ash.Changeset.get_attribute(changeset, :northbound_availability_semantics) == :legacy and
+         (is_nil(agent_id) or String.trim(agent_id) == "") do
+      Ash.Changeset.add_error(changeset,
+        field: :northbound_availability_semantics,
+        message:
+          "a new source must select an availability agent or use merged availability; " <>
+            "legacy availability is kept only for existing sources"
+      )
+    else
+      changeset
+    end
   end
 
   defp encrypt_credentials(changeset, credentials) do

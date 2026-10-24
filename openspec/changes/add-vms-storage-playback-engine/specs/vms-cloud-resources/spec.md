@@ -29,6 +29,28 @@ The control plane and runtime SHALL negotiate applied configuration/capability r
 - **THEN** that capability SHALL remain unavailable with an actionable state
 - **AND** existing unrelated recording/live consumers SHALL remain isolated
 
+#### Scenario: Qualification report is parsed
+- **WHEN** a version 1 archive qualification report is supplied
+- **THEN** the product SHALL reject unsupported versions, unknown or missing fields and out-of-bounds values, and compute canonical content identity for accepted reports
+- **AND** SHALL preserve explicit encryption attestation and each encryption-policy denial as separate observations
+- **AND** parsing SHALL NOT authenticate the reporter, establish freshness, install credentials or grant readiness or dispatch authority
+
+#### Scenario: Private qualification receipt is retained
+- **WHEN** an authenticated control-plane caller submits a versioned report or withdrawal for a retained archive binding
+- **THEN** the runtime SHALL bound and validate the wire document, reject duplicate JSON keys, and match the report to the retained destination
+- **AND** SHALL persist increasing revisions, return the original receipt for an identical current retry, and reject stale or conflicting revisions
+- **AND** a withdrawal SHALL retain its revision high-water mark without claiming provider credential revocation
+- **AND** receipt status SHALL remain unapplied and unavailable, including when every observation passes
+- **AND** retained receipts SHALL NOT be treated as authenticated historical origin or as storage authority
+
+#### Scenario: Media request targets an installed deployment
+- **WHEN** a caller requests qualification submission, qualification status or media installation status
+- **THEN** the private listener SHALL require its separately installed media credential and exact deployment reference and generation before parsing a body or accessing receipt storage
+- **AND** SHALL reject the account/password-reset credential, missing or duplicate authentication headers, mismatched identities and incomplete installations
+- **AND** a successful installation response SHALL identify only the responding process's installed authentication while reporting unavailable readiness and no applied configuration revision
+- **AND** the chart SHALL replace pods when the installed reference or generation changes without exposing the listener publicly or embedding secret bytes in values
+- **AND** Secret changes or installation responses alone SHALL NOT establish complete rotation, revocation, freshness or provider authority
+
 ### Requirement: Preservation-aware cloud lifecycle
 The control plane SHALL distinguish suspend, disable and terminate operations and reconcile media, evidence, versions, jobs and credentials before reporting resource deletion complete.
 

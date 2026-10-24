@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Availability do
 
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadarWebNG.Devices.MergedAvailability
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
   require Ash.Query
@@ -37,6 +38,54 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Availability do
       []
   end
 
+  @doc """
+  The canonical availability of each listed device, keyed by uid, with each agent's
+  latest per-agent result attached as `:agent_results` for the badge tooltip. The badge
+  reads only the canonical state; the per-agent rows are shown, never merged here.
+  """
+  def merged_availability(devices, scope) do
+    uids = device_uids(devices)
+    agent_results = agent_results_by_device(uids, scope)
+
+    uids
+    |> MergedAvailability.load()
+    |> Map.new(fn {uid, summary} ->
+      {uid, Map.put(summary, :agent_results, Map.get(agent_results, uid, []))}
+    end)
+  rescue
+    reason ->
+      Logger.warning("Failed to load device availability: #{inspect(reason)}")
+      %{}
+  end
+
+  defp agent_results_by_device([], _scope), do: %{}
+
+  defp agent_results_by_device(uids, scope) do
+    DeviceAgentAvailability
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(device_uid in ^uids)
+    |> Ash.Query.sort(agent_id: :asc)
+    |> Ash.read!(scope: scope)
+    |> Enum.group_by(& &1.device_uid, fn row ->
+      %{
+        agent_id: row.agent_id,
+        agent_name: row.agent_name,
+        available?: row.is_available == true,
+        checked_at: row.checked_at
+      }
+    end)
+  end
+
+  defp device_uids(devices) do
+    devices
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  # The pre-cutover badge override. No longer read by the device list, whose badge reads
+  # the canonical state; deleted in stage d of add-merged-device-availability.
   def effective_availability(devices, scope) do
     device_uids =
       devices

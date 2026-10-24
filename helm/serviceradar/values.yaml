@@ -762,12 +762,16 @@ core:
   #   stored, and core logs a warning about it every minute.
   # - active: alert rules evaluate events, logs and metrics.
   # - draining: admission stops while accepted work finishes.
-  # Set active once no core pod older than 1.4.85 is running anywhere in the
-  # deployment, including disconnected ones: an older pod evaluates on its
-  # own, and active admission refuses only the ones it can see. An install
-  # that never ran a release older than 1.4.85 can start active.
+  # Empty (the default) resolves automatically: a fresh install starts
+  # active, because it never ran a release older than 1.4.85, while an
+  # upgrade of a pre-existing install stays prepared until set active
+  # here. Set active once no core pod older than 1.4.85 is running
+  # anywhere in the deployment, including disconnected ones: an older pod
+  # evaluates on its own, and active admission refuses only the ones it
+  # can see. Renderers that always report an upgrade (Argo CD) resolve
+  # empty to prepared, so GitOps installs set the mode explicitly.
   alertEvaluation:
-    mode: prepared
+    mode: ""
   database:
     # Core refuses to start result ingestion below 8 (see
     # docs/result-ingestion-operations.md, "Capacity").
@@ -852,7 +856,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261024070623"
+    expectedVersion: "20261024183500"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1557,10 +1561,23 @@ webNg:
   # from the named Secret; it never adds the port to a Service, Gateway,
   # HTTPRoute, or other public route.
   controlPlaneRuntime:
+    # Enables the account/password-reset credential. Media can independently
+    # enable the same private listener without requiring this Secret.
     enabled: false
     port: 4001
     existingSecretName: serviceradar-control-plane-runtime-access
     tokenSecretKey: token
+    media:
+      enabled: false
+      # Installed deployment identity, not a caller-supplied tenant selector.
+      deploymentRef: ""
+      # Quote the canonical decimal generation (1..9223372036854775807).
+      # Increment it when rotating the media token so existing pods restart.
+      generation: ""
+      # Infrastructure custody supplies a distinct media-purpose token here.
+      # Never supply token bytes in values or extraEnv.
+      existingSecretName: serviceradar-control-plane-media-access
+      tokenSecretKey: token
   # Dedicated internal listener for Prometheus metrics scraping (/metrics).
   # Kept on a separate port so in-cluster Prometheus scrapes port 9090 without
   # exposing /metrics on public Ingress or Gateway listeners.

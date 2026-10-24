@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.IndexView.Badges, only: [availability_badge: 1]
+
   import ServiceRadarWebNGWeb.DeviceLive.SweepComponents,
     only: [
       format_ports_compact: 1,
@@ -124,9 +126,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
   attr(:device_row, :map, default: %{})
   attr(:sweep_results, :map, default: nil)
   attr(:timezone, :string, default: "Etc/UTC")
+  attr(:merged_availability, :map, default: nil)
 
   def agent_availability_section(assigns) do
     primary_agent_id = device_availability_source_agent_id(assigns.device_row)
+    merged = assigns.merged_availability || %{}
     source_profile_id = device_availability_source_profile_id(assigns.device_row)
 
     {display_rows, availability_source} =
@@ -139,9 +143,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       |> assign(:display_rows, display_rows)
       |> assign(:availability_source, availability_source)
       |> assign(:row_count, length(display_rows))
+      |> assign(:expectations, Map.get(merged, :expectations, %{}))
+      |> assign(:decided_by, Map.get(merged, :decided_by) || %{})
 
     ~H"""
-    <div class="rounded-xl border border-sr-line bg-sr-surface">
+    <div id="device-agent-availability" class="rounded-xl border border-sr-line bg-sr-surface">
       <div class="px-4 py-3 border-b border-sr-line">
         <div class="flex items-center justify-between gap-3">
           <div class="flex items-center gap-2">
@@ -209,11 +215,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
                     <div class="flex items-center gap-2">
                       <span class="font-mono text-xs">{availability_agent_label(row)}</span>
                       <.ui_badge
-                        :if={@availability_source == :canonical and row.agent_id == @primary_agent_id}
+                        :for={
+                          {role, variant, title} <-
+                            agent_roles(
+                              row,
+                              @availability_source,
+                              @primary_agent_id,
+                              @expectations,
+                              @decided_by
+                            )
+                        }
                         size="xs"
-                        variant="primary"
+                        variant={variant}
+                        title={title}
+                        data-agent-role={role}
                       >
-                        source
+                        {role}
                       </.ui_badge>
                       <.ui_badge
                         :if={
@@ -258,6 +275,177 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents do
       </div>
     </div>
     """
+  end
+
+  # The agent's part in the canonical decision. Only ledger rows (`:canonical`) have
+  # roles; sweep history is shown for context and decides nothing.
+  defp agent_roles(row, :canonical, primary_agent_id, expectations, decided_by) do
+    agent_id = Map.get(row, :agent_id)
+    pinned? = present?(primary_agent_id) and agent_id == primary_agent_id
+
+    Enum.filter(
+      [
+        (decided_by["source_kind"] == "agent_probe" and decided_by["reporter_agent_id"] == agent_id) &&
+          {"decided", "success", "This agent's result decided the device's availability"},
+        pinned? && {"pinned", "primary", "Pinned availability source for this device"},
+        Map.get(expectations, agent_id) == :reachable &&
+          {"witness", "info", "A composite check expects this agent to reach the device"},
+        Map.get(expectations, agent_id) == :blocked &&
+          {"negative control", "warning", "A composite check expects this agent to be blocked"},
+        ineligible_reporter?(row, pinned?) &&
+          {"ineligible", "ghost", "Not an authorized reporter for this target; excluded from the decision"}
+      ],
+      &is_tuple/1
+    )
+  end
+
+  defp agent_roles(_row, _source, _primary_agent_id, _expectations, _decided_by), do: []
+
+  # The resolver's eligibility rule: an `unknown` reporter never decides, an
+  # `unexpected` one only as the pinned agent.
+  defp ineligible_reporter?(row, pinned?) do
+    case row |> Map.get(:metadata) |> reporter_expectation() do
+      "unknown" -> true
+      "unexpected" -> not pinned?
+      _ -> false
+    end
+  end
+
+  defp reporter_expectation(%{} = metadata), do: Map.get(metadata, "sweep_reporter_expectation")
+  defp reporter_expectation(_metadata), do: nil
+
+  # ---------------------------------------------------------------------------
+  # Canonical availability decision and evidence
+  # ---------------------------------------------------------------------------
+
+  attr(:availability, :map, required: true)
+  attr(:timezone, :string, default: "Etc/UTC")
+
+  @doc """
+  The device's canonical availability as core decided it: the state, the deciding
+  source and class, when it changed, whether other evidence disagrees, and every
+  non-probe evidence record with the deciding one marked. Per-agent probe results are
+  listed by `agent_availability_section/1`.
+  """
+  def merged_availability_section(assigns) do
+    decided_by = assigns.availability.decided_by || %{}
+
+    assigns =
+      assigns
+      |> assign(:decided_by, decided_by)
+      |> assign(:evidence, Map.get(assigns.availability, :evidence, []))
+
+    ~H"""
+    <div id="device-merged-availability" class="rounded-xl border border-sr-line bg-sr-surface">
+      <div class="px-4 py-3 border-b border-sr-line">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-signal" class="size-4 text-sr-brand" />
+            <span class="text-sm font-semibold">Availability</span>
+          </div>
+          <.availability_badge id="device-merged-availability-badge" availability={@availability} />
+        </div>
+        <div class="mt-2 text-xs text-sr-muted" data-availability-decided-by>
+          <%= if @availability.state == :unknown do %>
+            No fresh availability evidence from any source.
+          <% else %>
+            Decided by <span class="font-mono text-sr-ink">{@decided_by["source_kind"] || "—"}</span>
+            <span :if={present?(@decided_by["authority_class"])}>
+              ({@decided_by["authority_class"]})
+            </span>
+            <span :if={present?(@decided_by["reporter_agent_id"])}>
+              via <span class="font-mono">{@decided_by["reporter_agent_id"]}</span>
+            </span>
+          <% end %>
+          <span :if={@availability.changed_at}>
+            · since
+            <.user_time
+              id="device-merged-availability-changed-at"
+              value={@availability.changed_at}
+              timezone={@timezone}
+              style={:compact}
+            />
+          </span>
+          <span :if={@availability.conflict} class="text-warning" data-availability-conflict>
+            · other fresh evidence disagrees
+          </span>
+        </div>
+      </div>
+
+      <div class="p-4">
+        <div :if={@evidence == []} class="text-sm text-sr-muted">
+          No non-probe availability evidence has been recorded for this device.
+        </div>
+
+        <div :if={@evidence != []} class="overflow-x-auto">
+          <table class={ui_table_class(size: "xs")}>
+            <thead>
+              <tr class="text-xs text-sr-muted">
+                <th>Source</th>
+                <th>Class</th>
+                <th>State</th>
+                <th>Observed</th>
+                <th>Expires</th>
+                <th>Confirmations</th>
+                <th>Eligible</th>
+              </tr>
+            </thead>
+            <tbody>
+              <%= for {record, index} <- Enum.with_index(@evidence) do %>
+                <tr class="hover:bg-sr-subtle/40" data-evidence-source={record.source_kind}>
+                  <td>
+                    <div class="flex items-center gap-2">
+                      <span class="font-mono text-xs">{evidence_label(record)}</span>
+                      <.ui_badge
+                        :if={deciding_evidence?(record, @decided_by)}
+                        size="xs"
+                        variant="success"
+                        data-evidence-decided
+                      >
+                        decided
+                      </.ui_badge>
+                    </div>
+                  </td>
+                  <td class="font-mono text-xs">{record.authority_class}</td>
+                  <td class="text-xs">{record.state}</td>
+                  <td class="font-mono text-xs">
+                    <.user_time
+                      id={"device-evidence-#{index}-observed-at"}
+                      value={record.observed_at}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                  </td>
+                  <td class="font-mono text-xs">
+                    <.user_time
+                      id={"device-evidence-#{index}-expires-at"}
+                      value={record.expires_at}
+                      timezone={@timezone}
+                      style={:compact}
+                    />
+                  </td>
+                  <td class="text-xs tabular-nums">{record.confirmations}</td>
+                  <td class="text-xs">{if record.reporter_eligible, do: "yes", else: "no"}</td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp evidence_label(record) do
+    [record.source_kind, record.source_instance, record.reporter_agent_id]
+    |> Enum.filter(&present?/1)
+    |> Enum.join(" · ")
+  end
+
+  defp deciding_evidence?(record, decided_by) do
+    decided_by["source_kind"] == record.source_kind and
+      (decided_by["source_instance"] || "") == (record.source_instance || "") and
+      (decided_by["reporter_agent_id"] || "") == (record.reporter_agent_id || "")
   end
 
   defp availability_time_key(row, index) do

@@ -1,0 +1,16 @@
+{{- /* Fresh-install marker for the alert evaluation default. Rendered only
+     on first install and kept across upgrades, so later renders can tell a
+     deployment that began on this chart (unset mode stays active) from one
+     upgraded from a pre-1.4.85 release (unset mode stays prepared). See
+     serviceradar.alertEvaluationMode in _helpers.tpl. */ -}}
+{{- if .Release.IsInstall }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-alert-evaluation-install
+  namespace: {{ .Release.Namespace }}
+  annotations:
+    "helm.sh/resource-policy": keep
+data:
+  freshInstallDefault: active
+{{- end }}

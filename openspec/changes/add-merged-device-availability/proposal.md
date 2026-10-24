@@ -100,7 +100,8 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
     unknown must read `availability_state`.
   - The Available and Unavailable counts change where they were inflated by
     `DEFAULT true` or by stale writes.
-  - Direct writes to `is_available` stop taking effect.
+  - A direct write to `is_available` stays written until the next resolution.
+    Stage d only appends a violation row (design.md, Open Question 7).
 
 ## Impact
 
@@ -133,8 +134,9 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
   - `elixir/web-ng`:
     - device list and detail pages;
     - dashboards;
-    - API device JSON, `priv/static/openapi.json` and
-      `priv/mcp/srql-cookbook.md`.
+    - API device JSON and `priv/mcp/srql-cookbook.md`.
+      `priv/static/openapi.json` is generated from the core Device resource
+      and changes with that resource, not in the web-ng reader cutover.
   - `go/`: plugin manifests for the in-repo plugins that set availability.
   - `rust/correlation-engine`: receives one transition per real change.
 - Unchanged by design: every per-agent ledger consumer, namely

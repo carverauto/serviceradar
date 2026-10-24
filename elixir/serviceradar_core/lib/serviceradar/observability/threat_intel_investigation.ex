@@ -6,8 +6,13 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
   CIDR-containment query, never per-row.
   """
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Observability.IpThreatIntelCache
+  alias ServiceRadar.Observability.ThreatIntelEvidence
   alias ServiceRadar.Observability.ThreatIntelIndicator
+  alias ServiceRadar.Observability.ThreatIntelInvestigation.Keyset
+  alias ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry
+  alias ServiceRadar.Repo
 
   require Ash.Query
 
@@ -15,30 +20,58 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
   # A flow page is at most a few hundred rows; both endpoints of each row fit here.
   @max_endpoint_lookup 500
 
-  @spec list_current_matches(term(), keyword()) :: {:ok, [map()]} | {:error, term()}
+  @doc """
+  One keyset page of current matched endpoints.
+
+  Options: `:source`, `:ip` (exact observed address), `:min_severity`,
+  `:stale` (include expired cache rows), `:sort` (`"recent"`, the default,
+  orders by evaluation time; `"severity"` by maximum severity), `:limit`, and
+  `:cursor` (the `next_cursor` of the previous page). Invalid input is an
+  explicit error, never an empty page.
+  """
+  @spec list_current_matches(term(), keyword()) ::
+          {:ok, %{rows: [map()], next_cursor: String.t() | nil}} | {:error, term()}
   def list_current_matches(scope, opts \\ []) do
+    Telemetry.span(:current_matches, opts, fn -> read_current_matches(scope, opts) end)
+  end
+
+  defp read_current_matches(scope, opts) do
     now = DateTime.utc_now()
-    limit = opts |> Keyword.get(:limit, @page_size) |> min(@page_size) |> max(1)
-    source = opts[:source]
-    include_stale? = opts[:stale] == true
+    limit = Keyset.limit(opts[:limit])
+    sort = match_sort(opts[:sort])
 
-    query =
-      IpThreatIntelCache
-      |> Ash.Query.for_read(:read)
-      |> Ash.Query.filter(matched == true)
-      |> maybe_filter_fresh(include_stale?, now)
-      |> maybe_filter_source(source)
-      |> Ash.Query.sort(looked_up_at: :desc, ip: :asc)
-      |> Ash.Query.limit(limit)
+    with {:ok, ip} <- optional_ip(opts[:ip]),
+         {:ok, min_severity} <- optional_integer(opts[:min_severity], :invalid_severity),
+         {:ok, after_key} <- Keyset.decode(opts[:cursor], match_cursor_kinds(sort)) do
+      query =
+        IpThreatIntelCache
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(matched == true)
+        |> maybe_filter_fresh(opts[:stale] == true, now)
+        |> maybe_filter_source(opts[:source])
+        |> maybe_filter_observed_ip(ip)
+        |> maybe_filter_min_severity(min_severity)
+        |> match_keyset_after(sort, after_key)
+        |> sort_matches(sort)
+        |> Ash.Query.limit(limit + 1)
 
-    case Ash.read(query, scope: scope) do
-      {:ok, rows} -> {:ok, Enum.map(rows, &cache_row(&1, now))}
-      {:error, reason} -> {:error, reason}
+      case Ash.read(query, scope: scope) do
+        {:ok, rows} ->
+          page = Keyset.page(rows, limit, &match_key(&1, sort))
+          {:ok, %{page | rows: Enum.map(page.rows, &cache_row(&1, now))}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
   @spec indicators_for_ip(term(), term()) :: {:ok, [map()]} | {:error, term()}
   def indicators_for_ip(scope, ip) do
+    Telemetry.span(:indicators_for_ip, [ip: ip], fn -> read_indicators_for_ip(scope, ip) end)
+  end
+
+  defp read_indicators_for_ip(scope, ip) do
     with {:ok, ip} <- parse_ip(ip) do
       now = DateTime.utc_now()
 
@@ -49,9 +82,9 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
         |> Ash.Query.sort(severity: :desc, last_seen_at: :desc)
         |> Ash.Query.limit(@page_size)
 
-      case Ash.read(query, scope: scope) do
-        {:ok, rows} -> {:ok, Enum.map(rows, &indicator_row/1)}
-        {:error, reason} -> {:error, reason}
+      with {:ok, rows} <- Ash.read(query, scope: scope),
+           {:ok, contexts} <- source_contexts(Enum.map(rows, & &1.id)) do
+        {:ok, Enum.map(rows, &indicator_row(&1, Map.get(contexts, &1.id)))}
       end
     end
   end
@@ -147,14 +180,101 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
     }
   end
 
-  defp parse_ip(ip) when is_binary(ip) do
-    trimmed = String.trim(ip)
+  # Provider context for each indicator whose (source, indicator) maps to exactly
+  # one imported source object, taken from that object's newest version. One
+  # query for the whole detail list; an indicator with zero or several candidate
+  # objects gets no context rather than a guess.
+  defp source_contexts([]), do: {:ok, %{}}
 
-    case :inet.parse_address(String.to_charlist(trimmed)) do
-      {:ok, _addr} -> {:ok, trimmed}
-      {:error, _reason} -> {:error, :invalid_ip}
+  defp source_contexts(indicator_ids) do
+    sql = """
+    WITH latest AS (
+      SELECT DISTINCT ON (i.id, o.object_id)
+             i.id, o.object_id, o.object_type, o.metadata->>'label' AS label
+      FROM platform.threat_intel_indicators i
+      JOIN platform.threat_intel_source_objects o
+        ON o.source = i.source
+       AND (o.metadata->>'indicator' = i.indicator::text
+            OR (masklen(i.indicator) = CASE family(i.indicator) WHEN 4 THEN 32 ELSE 128 END
+                AND o.metadata->>'indicator' = host(i.indicator)))
+      WHERE i.id = ANY($1::text[]::uuid[])
+      ORDER BY i.id, o.object_id, o.modified_at DESC NULLS LAST, o.updated_at DESC
+    )
+    SELECT id::text, MIN(object_id), MIN(object_type), MIN(label)
+    FROM latest
+    GROUP BY id
+    HAVING COUNT(*) = 1
+    """
+
+    case SQL.query(Repo, sql, [indicator_ids]) do
+      {:ok, %Postgrex.Result{rows: rows}} ->
+        {:ok,
+         Map.new(rows, fn [id, object_id, object_type, label] ->
+           {id,
+            %{source_object_id: object_id, source_object_type: object_type, source_label: label}}
+         end)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
+
+  defp match_sort(sort) when sort in ["severity", :severity], do: :severity
+  defp match_sort(_sort), do: :recent
+
+  defp match_cursor_kinds(:recent), do: [:datetime, :string]
+  defp match_cursor_kinds(:severity), do: [:integer, :string]
+
+  defp match_key(row, :recent), do: [row.looked_up_at, row.ip]
+  defp match_key(row, :severity), do: [row.max_severity, row.ip]
+
+  defp sort_matches(query, :recent), do: Ash.Query.sort(query, looked_up_at: :desc, ip: :asc)
+
+  defp sort_matches(query, :severity),
+    do: Ash.Query.sort(query, max_severity: :desc_nils_last, ip: :asc)
+
+  defp match_keyset_after(query, _sort, nil), do: query
+
+  defp match_keyset_after(query, :recent, [at, ip]) do
+    Ash.Query.filter(query, looked_up_at < ^at or (looked_up_at == ^at and ip > ^ip))
+  end
+
+  defp match_keyset_after(query, :severity, [nil, ip]) do
+    Ash.Query.filter(query, is_nil(max_severity) and ip > ^ip)
+  end
+
+  defp match_keyset_after(query, :severity, [severity, ip]) do
+    Ash.Query.filter(
+      query,
+      is_nil(max_severity) or max_severity < ^severity or (max_severity == ^severity and ip > ^ip)
+    )
+  end
+
+  defp maybe_filter_observed_ip(query, nil), do: query
+  defp maybe_filter_observed_ip(query, ip), do: Ash.Query.filter(query, ip == ^ip)
+
+  defp maybe_filter_min_severity(query, nil), do: query
+
+  defp maybe_filter_min_severity(query, severity),
+    do: Ash.Query.filter(query, max_severity >= ^severity)
+
+  defp optional_ip(value) when value in [nil, ""], do: {:ok, nil}
+  defp optional_ip(value), do: parse_ip(value)
+
+  defp optional_integer(value, _error) when value in [nil, ""], do: {:ok, nil}
+  defp optional_integer(value, _error) when is_integer(value), do: {:ok, value}
+
+  defp optional_integer(value, error) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} -> {:ok, parsed}
+      _ -> {:error, error}
+    end
+  end
+
+  defp optional_integer(_value, error), do: {:error, error}
+
+  defp parse_ip(ip) when is_binary(ip),
+    do: ip |> String.trim() |> ThreatIntelEvidence.parse_address(:ip)
 
   defp parse_ip(_ip), do: {:error, :invalid_ip}
 
@@ -189,8 +309,9 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation do
 
   defp stale?(_, _), do: false
 
-  defp indicator_row(row) do
+  defp indicator_row(row, context) do
     %{
+      source_context: context,
       indicator_id: row.id,
       indicator: to_string(row.indicator),
       indicator_type: row.indicator_type,

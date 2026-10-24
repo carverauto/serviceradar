@@ -4,13 +4,18 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ServiceRadarWebNG.ControlPlaneRuntimeAccess
   alias ServiceRadarWebNGWeb.ControlPlanePasswordResetDeliveryFake
   alias ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter
 
   @moduletag :db_free
 
   @runtime_token "test-control-plane-runtime-token-with-more-than-32-bytes"
+  @media_token "synthetic-media-installation-token-with-more-than-32-bytes"
+  @deployment_ref "ce032564-a123-4bc5-89ab-000000000001"
   @authorization_header "x-serviceradar-control-plane-authorization"
+  @deployment_header "x-serviceradar-deployment-ref"
+  @generation_header "x-serviceradar-media-generation"
 
   setup do
     previous_runtime = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
@@ -18,7 +23,11 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     previous_response = Application.get_env(:serviceradar_web_ng, :control_plane_password_reset_test_response)
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :control_plane_password_reset_test_pid)
 
-    Application.put_env(:serviceradar_web_ng, :control_plane_runtime, token: @runtime_token, port: 4001)
+    Application.put_env(:serviceradar_web_ng, :control_plane_runtime,
+      token: @runtime_token,
+      port: 4001,
+      media: [token: @media_token, deployment_ref: @deployment_ref, generation: "1"]
+    )
 
     Application.put_env(
       :serviceradar_web_ng,
@@ -136,6 +145,192 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
 
     assert conn.status == 400
     assert json_response(conn) == %{"status" => "invalid_request"}
+  end
+
+  test "authenticates archive requests before reading their bodies" do
+    for method <- [:put, :get] do
+      conn =
+        method
+        |> conn("/v1/archive-bindings/not-a-uuid/qualification", "invalid-json")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("authorization", "Bearer #{@runtime_token}")
+        |> ControlPlaneRuntimeRouter.call(ControlPlaneRuntimeRouter.init([]))
+
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+  end
+
+  test "media authentication cannot cross purposes or omit the installed identity" do
+    for {header, value} <- [
+          {@authorization_header, "Bearer " <> @runtime_token},
+          {@deployment_header, "ce032564-a123-4bc5-89ab-000000000002"},
+          {@generation_header, "2"},
+          {@generation_header, "01"}
+        ],
+        path <- ["/v1/media/installation", "/v1/archive-bindings/not-a-uuid/qualification"] do
+      conn =
+        :put
+        |> conn(path, "invalid-json")
+        |> media_headers()
+        |> put_req_header(header, value)
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+
+    for header <- [@authorization_header, @deployment_header, @generation_header] do
+      conn = :get |> conn("/v1/media/installation") |> media_headers()
+      missing = conn |> delete_req_header(header) |> ControlPlaneRuntimeRouter.call([])
+      assert missing.status == 401
+
+      duplicate = %{conn | req_headers: [{header, "duplicate"} | conn.req_headers]}
+      assert ControlPlaneRuntimeRouter.call(duplicate, []).status == 401
+    end
+
+    assert request(%{"email" => "owner@example.com"}, @media_token).status == 401
+    refute_received {:password_reset_requested, _email}
+  end
+
+  test "installation reports the authenticated process identity without storage authority" do
+    conn = :get |> conn("/v1/media/installation") |> media_headers() |> ControlPlaneRuntimeRouter.call([])
+
+    assert conn.status == 200
+
+    assert json_response(conn) == %{
+             "schema_version" => 1,
+             "status" => "installed",
+             "deployment_ref" => @deployment_ref,
+             "generation" => "1",
+             "applied_revision" => nil,
+             "readiness" => "unavailable",
+             "reason" => "media_authentication_only"
+           }
+
+    assert get_resp_header(conn, "cache-control") == ["no-store"]
+    refute conn.resp_body =~ @media_token
+    refute conn.resp_body =~ @runtime_token
+  end
+
+  test "encoded media route segments cannot select account authentication" do
+    for path <- ["/v1/%6dedia/installation", "/v%31/media/installation"] do
+      conn =
+        :get
+        |> conn(path)
+        |> media_headers()
+        |> put_req_header(@authorization_header, "Bearer " <> @runtime_token)
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+  end
+
+  test "incomplete or invalid installations stay closed while account operations remain available" do
+    previous = Application.fetch_env!(:serviceradar_web_ng, :control_plane_runtime)
+    valid = Keyword.fetch!(previous, :media)
+
+    for media <- [
+          [],
+          Keyword.delete(valid, :deployment_ref),
+          Keyword.put(valid, :deployment_ref, String.upcase(@deployment_ref)),
+          Keyword.put(valid, :token, @runtime_token),
+          Keyword.put(valid, :token, "short"),
+          Keyword.put(valid, :token, String.duplicate("x", 513)),
+          Keyword.put(valid, :generation, "0"),
+          Keyword.put(valid, :generation, "01"),
+          Keyword.put(valid, :generation, "+1"),
+          Keyword.put(valid, :generation, "1 "),
+          Keyword.put(valid, :generation, "9223372036854775808")
+        ] do
+      Application.put_env(:serviceradar_web_ng, :control_plane_runtime, Keyword.put(previous, :media, media))
+      assert ControlPlaneRuntimeAccess.enabled?()
+
+      conn = :get |> conn("/v1/media/installation") |> media_headers() |> ControlPlaneRuntimeRouter.call([])
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+
+    set_delivery_response({:ok, :smtp_accepted})
+    assert request(%{"email" => "owner@example.com"}, @runtime_token).status == 202
+    assert_received {:password_reset_requested, "owner@example.com"}
+
+    Application.put_env(:serviceradar_web_ng, :control_plane_runtime, media: [])
+    refute ControlPlaneRuntimeAccess.enabled?()
+  end
+
+  test "a replacement media installation accepts only its own identity and token without an account token" do
+    replacement_token = "synthetic-replacement-media-token-with-more-than-32-bytes"
+    replacement_ref = "ce032564-a123-4bc5-89ab-000000000002"
+
+    Application.put_env(:serviceradar_web_ng, :control_plane_runtime,
+      media: [token: replacement_token, deployment_ref: replacement_ref, generation: "9223372036854775807"]
+    )
+
+    assert ControlPlaneRuntimeAccess.enabled?()
+
+    previous = :get |> conn("/v1/media/installation") |> media_headers()
+    assert ControlPlaneRuntimeRouter.call(previous, []).status == 401
+
+    installed =
+      previous
+      |> put_req_header(@authorization_header, "Bearer " <> replacement_token)
+      |> put_req_header(@deployment_header, replacement_ref)
+      |> put_req_header(@generation_header, "9223372036854775807")
+      |> ControlPlaneRuntimeRouter.call([])
+
+    assert installed.status == 200
+    assert json_response(installed)["deployment_ref"] == replacement_ref
+    assert json_response(installed)["generation"] == "9223372036854775807"
+    assert request(%{"email" => "owner@example.com"}, @runtime_token).status == 401
+    refute_received {:password_reset_requested, _email}
+  end
+
+  test "rejects malformed and duplicate-key archive JSON before interpreting it" do
+    for body <- [
+          "{",
+          "[]",
+          ~s({"revision":1,"revision":2}),
+          ~s({"report":{"credential":{"generation":1,"generation":2}}}),
+          ~s({"revision":1,"revi\\u0073ion":1})
+        ] do
+      conn = archive_request(body)
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_request"}
+    end
+  end
+
+  test "bounds archive JSON bytes and requires its media type" do
+    body = ~s({"schema_version":1,"revision":1,"state":"withdrawn","report":null})
+    padded = body <> String.duplicate(" ", 16_384 - byte_size(body))
+
+    conn = archive_request(padded)
+    assert conn.status == 400
+    assert json_response(conn) == %{"status" => "invalid_archive_binding_id"}
+
+    conn = archive_request(padded <> " ")
+    assert conn.status == 413
+    assert json_response(conn) == %{"status" => "request_too_large"}
+
+    conn = archive_request(body, "text/plain")
+    assert conn.status == 415
+    assert json_response(conn) == %{"status" => "unsupported_media_type"}
+  end
+
+  defp archive_request(body, content_type \\ "application/json") do
+    :put
+    |> conn("/v1/archive-bindings/not-a-uuid/qualification", body)
+    |> put_req_header("content-type", content_type)
+    |> media_headers()
+    |> ControlPlaneRuntimeRouter.call(ControlPlaneRuntimeRouter.init([]))
+  end
+
+  defp media_headers(conn) do
+    conn
+    |> put_req_header(@authorization_header, "Bearer " <> @media_token)
+    |> put_req_header(@deployment_header, @deployment_ref)
+    |> put_req_header(@generation_header, "1")
   end
 
   defp request(params, token \\ nil) do

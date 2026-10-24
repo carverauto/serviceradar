@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.Api.Access do
   """
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadarWebNG.Devices.MergedAvailability
   alias ServiceRadarWebNG.SRQL.EntityAccess
 
   require Ash.Query
@@ -152,21 +153,35 @@ defmodule ServiceRadarWebNG.Api.Access do
 
   def clamp_offset(_), do: 0
 
-  @spec device_to_map(struct()) :: map()
-  def device_to_map(device) do
-    %{
-      "uid" => device.uid,
-      "type" => device.type,
-      "name" => device.name,
-      "hostname" => device.hostname,
-      "ip" => device.ip,
-      "mac" => device.mac,
-      "vendor_name" => device.vendor_name,
-      "gateway_id" => device.gateway_id,
-      "is_available" => device.is_available,
-      "last_seen_time" => normalize_value(device.last_seen_time),
-      "first_seen_time" => normalize_value(device.first_seen_time)
-    }
+  @doc """
+  The API maps of `devices`, each with its canonical availability (read in one query):
+  `is_available` stays the last decided boolean, and `availability_state` is the only
+  source of `unknown`.
+  """
+  @spec devices_to_maps([struct()]) :: [map()]
+  def devices_to_maps(devices) do
+    availability = devices |> Enum.map(& &1.uid) |> MergedAvailability.load()
+    Enum.map(devices, &device_to_map(&1, Map.get(availability, &1.uid)))
+  end
+
+  @spec device_to_map(struct(), MergedAvailability.t() | nil) :: map()
+  def device_to_map(device, availability \\ nil) do
+    Map.merge(
+      %{
+        "uid" => device.uid,
+        "type" => device.type,
+        "name" => device.name,
+        "hostname" => device.hostname,
+        "ip" => device.ip,
+        "mac" => device.mac,
+        "vendor_name" => device.vendor_name,
+        "gateway_id" => device.gateway_id,
+        "is_available" => device.is_available,
+        "last_seen_time" => normalize_value(device.last_seen_time),
+        "first_seen_time" => normalize_value(device.first_seen_time)
+      },
+      MergedAvailability.api_fields(availability)
+    )
   end
 
   defp stringify_keys(params) do
@@ -194,12 +209,29 @@ defmodule ServiceRadarWebNG.Api.Access do
 
   defp maybe_filter_search(query, _), do: query
 
-  defp maybe_filter_status(query, nil), do: query
-  defp maybe_filter_status(query, :online), do: Ash.Query.filter(query, is_available == true)
-  defp maybe_filter_status(query, "online"), do: maybe_filter_status(query, :online)
-  defp maybe_filter_status(query, :offline), do: Ash.Query.filter(query, is_available == false)
-  defp maybe_filter_status(query, "offline"), do: maybe_filter_status(query, :offline)
+  # Status reads the canonical availability state, so `online`, `offline` and
+  # `unknown` partition the inventory the way the device list counts it.
+  defp maybe_filter_status(query, status) when status in [:online, "online"],
+    do: filter_availability_state(query, "available")
+
+  defp maybe_filter_status(query, status) when status in [:offline, "offline"],
+    do: filter_availability_state(query, "unavailable")
+
+  defp maybe_filter_status(query, status) when status in [:unknown, "unknown"],
+    do: filter_availability_state(query, "unknown")
+
   defp maybe_filter_status(query, _), do: query
+
+  defp filter_availability_state(query, state) do
+    Ash.Query.filter(
+      query,
+      fragment(
+        "? IN (SELECT s.uid FROM platform.ocsf_devices AS s WHERE s.availability_state = ?)",
+        uid,
+        ^state
+      )
+    )
+  end
 
   defp maybe_filter_gateway_id(query, nil), do: query
   defp maybe_filter_gateway_id(query, ""), do: query

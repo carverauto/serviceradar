@@ -1717,6 +1717,7 @@ if config_env() == :prod do
         # entry missing here refuses every publish to its subject.
         Config.scan_results_stream(),
         Config.mtr_results_stream(),
+        Config.exposure_transitions_stream(),
         %{
           name: "BMP_CAUSAL",
           stream_name: "events",

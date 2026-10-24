@@ -1,8 +1,13 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   @moduledoc false
 
+  alias ServiceRadar.Inventory.Availability.DeviceEvidence
+  alias ServiceRadar.Inventory.Availability.VantageExpectation
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadarWebNG.Devices.MergedAvailability
   alias ServiceRadarWebNGWeb.DeviceLive.ICMPData
+
+  require Ash.Query
 
   @bucket_seconds 30 * 60
   @window_seconds 24 * 60 * 60
@@ -11,7 +16,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
     now = opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> DateTime.truncate(:second)
     start_at = DateTime.shift(now, second: -@window_seconds)
     range = "[#{DateTime.to_iso8601(start_at)},#{DateTime.to_iso8601(now)}]"
-    device_is_available = Keyword.get(opts, :device_is_available)
 
     case ICMPData.load_availability(srql_module, [device_uid], scope,
            time_range: range,
@@ -23,7 +27,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
         build_availability(rows, start_at, now)
 
       {:ok, []} ->
-        build_availability_from_device_state(device_uid, device_is_available, start_at, now)
+        state = opts |> Keyword.get(:device_state) |> device_state()
+        build_availability_from_device_state(device_uid, state, start_at, now)
 
       {:error, _reason} ->
         nil
@@ -97,16 +102,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
     }
   end
 
+  # The device's canonical state, or a loader for it that runs only when no probe
+  # sample exists.
+  defp device_state(loader) when is_function(loader, 0), do: loader.()
+  defp device_state(state), do: state
+
   # When a device reports its availability through plugin discovery (e.g. a satellite
   # terminal with no IP sweep path), synthesize the full window from the device's
-  # current is_available state. Each bucket is marked with the device's reported
-  # state so the timeline is not entirely unknown.
-  defp build_availability_from_device_state(_uid, nil, start_at, end_at) do
-    build_availability([], start_at, end_at)
-  end
-
-  defp build_availability_from_device_state(uid, is_available, start_at, end_at) do
-    value = if is_available, do: 1.0, else: 0.0
+  # current canonical availability state. Each bucket is marked with that state so the
+  # timeline is not entirely unknown; an `unknown` device keeps an unknown timeline.
+  defp build_availability_from_device_state(uid, state, start_at, end_at) when state in [:available, :unavailable] do
+    value = if state == :available, do: 1.0, else: 0.0
     first_bucket = start_at |> DateTime.to_unix() |> bucket_start()
     last_bucket = end_at |> DateTime.to_unix() |> Kernel.-(1) |> bucket_start()
 
@@ -121,6 +127,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
 
     result = build_availability(rows, start_at, end_at)
     Map.put(result, :source, :plugin_reported)
+  end
+
+  defp build_availability_from_device_state(_uid, _state, start_at, end_at) do
+    build_availability([], start_at, end_at)
   end
 
   defp bucket_start(second), do: Integer.floor_div(second, @bucket_seconds) * @bucket_seconds
@@ -149,6 +159,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
   end
 
   defp escape_value(other), do: escape_value(to_string(other))
+
+  @doc """
+  The device's canonical availability for the details page: the resolver's decision
+  plus the non-probe evidence records and the vantage expectations (which agent a
+  composite check expects to reach the device, and which it expects to be blocked).
+  `nil` when the device is not found.
+  """
+  def load_device_availability(scope, device_uid) when is_binary(device_uid) do
+    case MergedAvailability.load([device_uid]) do
+      %{^device_uid => summary} ->
+        summary
+        |> Map.put(:evidence, read_all(DeviceEvidence, device_uid, scope))
+        |> Map.put(:expectations, expectations(read_all(VantageExpectation, device_uid, scope)))
+
+      _ ->
+        nil
+    end
+  end
+
+  def load_device_availability(_scope, _device_uid), do: nil
+
+  defp read_all(resource, device_uid, scope) do
+    resource
+    |> Ash.Query.for_read(:read, %{}, scope: scope)
+    |> Ash.Query.filter(device_uid == ^device_uid)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, rows} when is_list(rows) -> rows
+      _ -> []
+    end
+  end
+
+  # An agent any check expects to be blocked is a negative control, whatever another
+  # check expects of it; the resolver reads the expectations the same way.
+  defp expectations(rows) do
+    Enum.reduce(rows, %{}, fn row, acc ->
+      Map.update(acc, row.agent_id, row.expectation, fn
+        :blocked -> :blocked
+        _ -> row.expectation
+      end)
+    end)
+  end
 
   def load_agent_availability(_scope, nil), do: []
 

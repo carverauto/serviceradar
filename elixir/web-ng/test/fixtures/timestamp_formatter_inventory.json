@@ -1067,7 +1067,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,
-    "fingerprint": "fee3d4b7e1785151fd710c624aa365c50263114f9b62e8942b525156837228fd",
+    "fingerprint": "473dc521d1383057323e3f58fe260ca881c4ed5fd45fd3f153ecdcfdb5d88f33",
     "classification": "canonical_machine",
     "reason": "ICMP availability window encoded as an SRQL time range"
   },
@@ -1075,7 +1075,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 2,
-    "fingerprint": "244ab96ad4a97a7dd50d03f5232b66348ead655e4f79e01e9794a0e622e9f3e2",
+    "fingerprint": "f66561ba616b033644f82a04f7e93d41219a7969e690f8a9fa111c780b45e4ad",
     "classification": "canonical_machine",
     "reason": "ICMP availability window encoded as an SRQL time range"
   },
@@ -1091,7 +1091,7 @@
     "path": "lib/serviceradar_web_ng_web/live/device_live/availability_data.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 4,
-    "fingerprint": "846d08720b8de657346eb6004e983691da8d6552c6caac90decddcc668034e7f",
+    "fingerprint": "25439863cae2d96e61620a947f4d71ecefab6eed30f1b0c86e1834115f04c8e8",
     "classification": "canonical_machine",
     "reason": "plugin-reported availability sample timestamp, parsed back into a bucket and never displayed"
   },
@@ -1574,6 +1574,14 @@
     "fingerprint": "1bfa99c3cf7a840fa36c648936aed4c706872666fb4ecdf2e4d6b5efd1f0c9fb",
     "classification": "canonical_machine",
     "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/plugs/control_plane_archive_qualifications.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "c353aa1b31dfbf71001a9538a27245d5da241b915ec5d3a69bcf27e69fc5d979",
+    "classification": "canonical_machine",
+    "reason": "Private qualification receipt arrival timestamp in the machine API; not localized display."
   },
   {
     "path": "lib/serviceradar_web_ng_web/stats.ex",

@@ -704,9 +704,10 @@ core:
       memory: "16Gi"
   clusterWebDnsQuery: "serviceradar-web-ng-headless.demo.svc.cluster.local"
   clusterGatewayDnsQuery: "serviceradar-agent-gateway-headless.demo.svc.cluster.local"
-  # Every core and web-ng pod in demo runs 1.4.85 or newer, so durable alert
-  # evaluation can be active. The chart default (prepared) evaluates no alert
-  # rule at all, which leaves the dashboard reporting no alerts.
+  # Every core and web-ng pod in demo runs 1.4.85 or newer. Pin active.
+  # Argo CD resolves an empty core.alertEvaluation.mode to prepared; see
+  # the alertEvaluation comment in values.yaml. Prepared evaluates no rule,
+  # so the dashboard would report no alerts.
   alertEvaluation:
     mode: active
   # Core advisory feed ingestion. nist-nvd2 is the CPE catalog; core prunes

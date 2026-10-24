@@ -149,9 +149,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Table do
                   {display_model(Map.get(row, "model"))}
                 </td>
                 <td class="text-xs">
-                  <.availability_badge available={
-                    effective_availability(row, @effective_availability_by_device)
-                  } />
+                  <.availability_badge
+                    id={"device-availability-#{row_idx}"}
+                    availability={row_availability(row, @availability_by_device)}
+                  />
                 </td>
                 <td class="text-xs">
                   <.icmp_sparkline :if={is_map(icmp)} spark={icmp} />

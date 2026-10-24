@@ -169,6 +169,27 @@ write_source_files(
     tags = ["manual"],
 )
 
+ash_schema(
+    name = "camera_qualification_receipt_schema",
+    outs = [
+        "generated_camera_qualification/receipt.json",
+        "generated_camera_qualification/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_qualification_receipt_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_qualification_receipt_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_archive_qualification_receipts/20261024183500.json": ":generated_camera_qualification/receipt.json",
+        "priv/repo/migrations/20261024183500_add_camera_archive_qualification_receipts.exs": ":generated_camera_qualification/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.

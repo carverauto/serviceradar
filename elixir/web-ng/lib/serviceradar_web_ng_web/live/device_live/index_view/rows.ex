@@ -2,16 +2,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Rows do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
-  def effective_availability(row, effective_availability_by_device) when is_map(row) do
+  @doc """
+  The device's canonical availability from the page's enrichment, or `nil` while it is
+  still loading. Never derived from `is_available` or the per-agent rows: the badge shows
+  the state core decided, the value SRQL sorts and counts by.
+  """
+  def row_availability(row, availability_by_device) when is_map(row) do
     uid = Map.get(row, "uid") || Map.get(row, "id")
-
-    case Map.fetch(effective_availability_by_device, uid) do
-      {:ok, value} -> value
-      :error -> Map.get(row, "is_available")
-    end
+    Map.get(availability_by_device, uid)
   end
 
-  def effective_availability(_row, _effective_availability_by_device), do: nil
+  def row_availability(_row, _availability_by_device), do: nil
 
   def agent_device_row?(row, agent_device_uids) when is_map(row) do
     device_uid = Map.get(row, "uid") || Map.get(row, "id")

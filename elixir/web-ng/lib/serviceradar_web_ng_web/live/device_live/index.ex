@@ -44,7 +44,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
      |> assign(:devices, [])
      |> assign(:icmp_sparklines, %{})
      |> assign(:icmp_error, nil)
-     |> assign(:effective_availability_by_device, %{})
+     |> assign(:availability_by_device, %{})
      |> assign(:snmp_presence, %{})
      |> assign(:sysmon_presence, %{})
      |> assign(:sysmon_profiles_by_device, %{})

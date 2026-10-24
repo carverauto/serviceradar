@@ -126,7 +126,12 @@ otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
 
 config :serviceradar_web_ng, :control_plane_runtime,
   token: control_plane_runtime_token,
-  port: parse_int_env.("SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT", 4001)
+  port: parse_int_env.("SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT", 4001),
+  media: [
+    token: System.get_env("SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN"),
+    deployment_ref: System.get_env("SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF"),
+    generation: System.get_env("SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION")
+  ]
 
 if otel_endpoint do
   ssl_opts = ServiceRadar.Telemetry.OtelSetup.ssl_options()

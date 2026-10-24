@@ -148,7 +148,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert Enum.find(cards, &(&1.title == "Wi-Fi Coverage")).href == "/spatial/field-surveys"
   end
 
-  test "load_inventory excludes source-retired devices and does not count NULL availability as unavailable" do
+  test "load_inventory counts active devices by canonical availability state, unknown included" do
     %{device_summary: baseline} = Data.load_inventory(nil)
     unique = System.unique_integer([:positive])
     observed_at = DateTime.truncate(DateTime.utc_now(), :second)
@@ -208,6 +208,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
     assert summary.total == baseline.total + 3
     assert summary.available == baseline.available + 1
     assert summary.unavailable == baseline.unavailable + 1
+    assert summary.unknown == baseline.unknown + 1
   end
 
   describe "camera pages before a relay session opens" do

@@ -376,3 +376,143 @@ approved prepublication-only exception because it did not run the guarded
 database itself; the fresh final CI above supplies that proof. This documentation
 follow-up preserves the validated runtime and tests. It does not establish
 provider qualification, storage availability or deployment acceptance.
+
+### Merged dispatch and Cloud planning checkpoints
+
+Dispatch PR #5966 merged at `df8a8fe2e20d5f3220483200e27fcc74b6872e14`.
+Its final head `831e88938939a2f99364b13f711ed2aaccc10937` passed all 20 checks.
+Final [Core Integration](https://carverauto.buildbuddy.io/invocation/d85a7307-4e47-42de-a019-9e95d1480221)
+passed all 12 targets uncached in child
+`a872ed95-53f7-4e8e-899b-deea8643599c`. Final
+[Web-NG DB](https://carverauto.buildbuddy.io/invocation/6aafb922-cd02-48f5-a64c-eea09120cdd6)
+passed all seven targets uncached. Both workflows reported suite, observer,
+teardown and lease-release statuses of zero.
+[Main CI](https://carverauto.buildbuddy.io/invocation/6779cda7-cf84-425c-ac87-c340921516dd)
+reported 442 passed with two platform skips, then separate suites of 17 and 71
+passed; these are not a deduplicated total. No-mistakes run
+`01M5PM4P4G62FAZY1XF3VB5MW9` reached `checks-passed` before the merge.
+
+Cloud planning PR #185 merged at `5a46b36e51e2428097f6202ce2f16678e9491780`
+after all five checks passed on `2d25e97ac3fa3c6d114f95fa74dbeb67a76ee8f8`.
+It adds a planning contract, not provider provisioning, credential installation
+or an implemented readiness handshake. Its runtime tasks remain incomplete.
+
+## Qualification report protocol
+
+The [report parser](qualification-report.md) is metadata-only. Six new synthetic
+cases own canonical report/destination hashes, exact JSON escaping, identity and
+credential rotation, separate attestation/denial states, exact inventories and
+bounded malformed input. The fixed digest was independently calculated from
+invented input using sorted compact JSON and SHA-256. No existing test assertion
+was changed. The source-disposition inventory includes the new file.
+
+Focused remote run
+[0384417a](https://carverauto.buildbuddy.io/invocation/0384417a-38fb-4254-903b-f55b692908fe)
+passed `unit_tests_serviceradar_other`, reporting 1,038 tests, zero failures, one
+skip and 565 exclusions. Bazel source ownership and the new module's lack of
+excluded tags establish inclusion of all six new cases. Core quality failed
+only because one new long test call needed formatting; Credo found no issues.
+The repair wraps that call without changing values or assertions. Fresh
+[b7e41fcf](https://carverauto.buildbuddy.io/invocation/b7e41fcf-2cca-48f4-8781-005bcfcc6f94)
+then passed the remote format/Credo target uncached.
+
+The local source-registration contract reports 65 tests, zero failures and one
+skip. Strict OpenSpec validation, changed-document ASCII/relative-link checks and
+`git diff --check` pass. Independent code and Cloud-contract reviews found no
+blocking issues after exact JSON escaping and equal-sized wrong-inventory
+coverage were added. These checks establish a report format, not the truth of
+provider observations, an authenticated readiness handshake or deployment
+acceptance. No provider call, live probe, database migration or rollout ran.
+
+Full remote `make test`
+[fc10c612](https://carverauto.buildbuddy.io/invocation/fc10c612-76b1-47e6-bd72-5153a34b6f46)
+passes after the formatting correction: 459 targets pass, 49 execute and 410 use
+cache; the two Swift platform targets are skipped. The owning core unit shard
+executes again. Integration/acceptance bodies are excluded by this command; no
+new database case or schema change is part of this checkpoint.
+
+
+## Private qualification receipts
+
+The private listener now receives a bounded qualification submission or withdrawal
+and reloads its durable receipt. Three new database-free wire cases cover auth
+before parsing, malformed/duplicate keys (including escaped equivalent keys),
+media type and the exact 16 KiB boundary. Two new guarded HTTP cases own real
+persistence and status; three additions to the existing archive-upload integration
+suite own concurrency, input/transaction refusal and binding retention. Every
+existing assertion is retained. Unboxed cases delete only their own rows and
+re-query absence.
+
+Focused remote run
+[7ee73b1b](https://carverauto.buildbuddy.io/invocation/7ee73b1b-12ea-4339-a370-08832d49a80f)
+passes all three targets: web unit owner and web quality execute; core quality
+uses its passing cache. The web shard reports 819 tests, zero failures and 220
+exclusions, including the new guarded cases reserved for their database lane.
+The first run exposed a long guard and the existing formatter inventory's missing
+classification for the new machine timestamp. The guard is equivalent after
+formatting and the inventory gains one canonical-machine entry; no assertion is
+removed or weakened. The corrected shard also passes that inventory.
+
+Full remote `make test`
+[3fe23e48](https://carverauto.buildbuddy.io/invocation/3fe23e48-5967-426f-b2ea-326dec32bc55)
+passes 459 targets: 61 execute, 398 use cache, and two Swift platform targets are
+skipped. This includes source routing, migration-version/Helm agreement and image
+checks. The registration check reports 65 tests with one skip. Strict OpenSpec,
+changed-document ASCII/relative links and `git diff --check` pass.
+
+These prepublication checks exclude guarded database bodies. Their five new
+cases must execute in the sanctioned Core Integration and Web-NG DB PR lanes;
+publication may use the approved prepublication-only Test exception, but final
+CI is not waived. No database migration against a live environment, provider
+probe, rollout or recording enablement ran. Receipt acceptance still establishes
+neither historical environment identity, evidence freshness, applied
+configuration nor storage authority.
+
+Final receipt PR #5979 merged at `37d7f26a61e8d5c3d2caf28eb2b6c5da3c5ee5d3`
+after all 19 checks passed on head `53e3de1ecfa43fead3f712c52ba2f9e75cea3001`.
+The prepublication database exception was satisfied by actual final-head CI:
+[Core suite](https://carverauto.buildbuddy.io/invocation/42cf4965-a34a-4f4d-909f-59deef32203b)
+executed all 12 targets uncached; receipt owner serial lane 6 reported 300 tests,
+zero failures and eight unrelated exclusions, with integration bodies included.
+[Web suite](https://carverauto.buildbuddy.io/invocation/8a15b4d4-8b75-4fa3-8b40-5282a700cf75)
+executed all seven targets uncached. HTTP owner shard 0 reported two properties,
+819 tests and zero failures; its trace includes both new receipt cases. Both
+fixture parents reported zero suite, observer, teardown and release statuses.
+
+## Deployment-scoped media authentication
+
+The product changes protect existing receipt ingress with a separate installed
+media credential and exact deployment/generation headers. The existing router
+test owner adds purpose separation, installation acknowledgment, invalid
+configuration, replacement/media-only operation and encoded-route cases. The
+existing guarded HTTP owner extends denied authentication checks while retaining
+all persistence, retry, conflict, withdrawal and unqualified-state assertions.
+
+Independent review found that raw-path authentication and Plug.Router's decoded
+path matching disagreed. The new regression failed at that exact boundary in
+[2098b2d2](https://carverauto.buildbuddy.io/invocation/2098b2d2-7c0f-45c7-ab09-17b067b76a9c):
+824 tests, one failure, 220 exclusions. An encoded media path selected account
+authentication, then reached the media handler with no installed identity. The
+repair applies the router's segment decoding before selecting authentication.
+Compilation also exposed a new application-to-plug boundary dependency; shared
+configuration validation now belongs to the context used by startup and the plug.
+
+The complete Helm render suite passed in
+[c3b2585f](https://carverauto.buildbuddy.io/invocation/c3b2585f-71ff-4fdb-9c49-8bd2f7a2cff2).
+It exercises media-only and combined credentials, Secret references, rollout
+annotations, exact bigint strings, invalid identity/generation and environment
+override rejection. It preserves all previous assertions and test routing.
+
+Repaired focused run
+[ad739b15](https://carverauto.buildbuddy.io/invocation/ad739b15-70c1-458e-854f-fb9241fa87a2)
+passes the router owner with 824 tests, zero failures and 220 exclusions, plus
+web quality with no issues and the cached full Helm render suite. The encoded
+route regression is included, and the new application-to-plug warning is gone.
+Independent read-only review found no remaining authentication or boundary issue.
+
+Full remote `make test`
+[23ede7bb](https://carverauto.buildbuddy.io/invocation/23ede7bb-1e3e-45d0-a117-0c714ded1fd5)
+passes 459 targets, with two Swift platform skips. Strict OpenSpec and the eight
+changed documents' ASCII/relative links pass. The modified guarded HTTP bodies
+remain explicitly unexecuted before publication; their final in-cluster PR lane
+must execute on the published head. No provider or live deployment operation ran.

@@ -16,8 +16,10 @@ defmodule ServiceRadar.Inventory.Availability.Resolver do
      is a verified block and leaves the decision, its fresh `up` row stays in it as
      ordinary liveness and is counted as a policy violation, and no fresh row is an
      inconclusive control.
-  3. With a pin, other agents' ledger rows leave the decision (they remain counted). A
-     pin on a negative control is ignored and reported as invalid.
+  3. With a pin, other agents' ledger rows leave the decision (they remain counted), and
+     so does `operator_policy` evidence: the per-device pin outranks a composite check's
+     policy (Open Question 5). A pin on a negative control is ignored and reported as
+     invalid.
   4. An `up` row is decisive at once; a `down` row once its confirmations reach its
      class threshold.
   5. The governing class is the strongest class with any row left in the decision. Its
@@ -26,8 +28,8 @@ defmodule ServiceRadar.Inventory.Availability.Resolver do
   7. With no row left the state is `unknown`.
   8. The previous decider stays the decider while it still agrees; otherwise the most
      recent agreeing row decides.
-  9. `conflict` is set when fresh decisive evidence outside the deciding class, or from a
-     pinned-out agent, disagrees. Negative controls have their own counters.
+  9. `conflict` is set when fresh decisive evidence outside the deciding class, or a
+     pinned-out agent or policy record, disagrees. Negative controls have their own counters.
   """
 
   alias ServiceRadar.Inventory.Availability.AuthorityClass
@@ -100,7 +102,7 @@ defmodule ServiceRadar.Inventory.Availability.Resolver do
     pin = if invalid_pin?, do: nil, else: pin
 
     ledger = Enum.map(Map.get(inputs, :ledger, []), &ledger_candidate(&1, now, pin, controls))
-    evidence = Enum.flat_map(Map.get(inputs, :evidence, []), &evidence_candidate(&1, now))
+    evidence = Enum.flat_map(Map.get(inputs, :evidence, []), &evidence_candidate(&1, now, pin))
     candidates = ledger ++ evidence
 
     previous = Map.get(device, :previous)
@@ -157,7 +159,7 @@ defmodule ServiceRadar.Inventory.Availability.Resolver do
     end
   end
 
-  defp evidence_candidate(row, now) do
+  defp evidence_candidate(row, now, pin) do
     if row.reporter_eligible and DateTime.after?(row.expires_at, now) do
       [
         %{
@@ -168,13 +170,18 @@ defmodule ServiceRadar.Inventory.Availability.Resolver do
           decisive?:
             row.state == :up or
               row.confirmations >= AuthorityClass.confirmation_threshold(row.authority_class),
-          role: :decision
+          role: evidence_role(row.authority_class, pin)
         }
       ]
     else
       []
     end
   end
+
+  # The per-device pin outranks operator policy (Open Question 5): a policy record leaves
+  # the decision like a pinned-out agent and still counts as a conflict.
+  defp evidence_role(:operator_policy, pin) when is_binary(pin), do: :pinned_out
+  defp evidence_role(_class, _pin), do: :decision
 
   # -- decision --------------------------------------------------------------------------
 

@@ -277,6 +277,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "availability_source_agent_id",
         "available_from_agent",
         "unavailable_from_agent",
+        # Canonical availability (add-merged-device-availability): `availability` is
+        # the only field that can be `unknown`; `is_available` keeps the last decided
+        # boolean.
+        "availability",
+        "availability_source",
+        "availability_class",
+        "agent_reachability",
+        "availability_policy",
         "is_available",
         "is_active",
         "is_managed",
@@ -342,13 +350,25 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         ],
         # Derived boolean filter (see boolean_fields): editors offer the two
         # truth values after `awx_managed:` so the completion is self-documenting.
-        "awx_managed" => ["true", "false"]
+        "awx_managed" => ["true", "false"],
+        "availability" => ["available", "unavailable", "unknown"],
+        "availability_class" => [
+          "operator_policy",
+          "self_report",
+          "managing_controller",
+          "active_probe",
+          "passive_observation",
+          "inventory_declared"
+        ],
+        "agent_reachability" => ["all", "partial", "none"],
+        "availability_policy" => ["violation", "verified", "inconclusive"]
       },
       # Fields that support GROUP BY in stats queries (stats:count() as count by <field>)
       stats_fields: [
         "type",
         "vendor_name",
         "risk_level",
+        "availability",
         "is_available",
         "is_active",
         "gateway_id",

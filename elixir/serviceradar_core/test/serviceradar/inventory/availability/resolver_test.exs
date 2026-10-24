@@ -102,6 +102,44 @@ defmodule ServiceRadar.Inventory.Availability.ResolverTest do
        conflict: true,
        agents: %{"up" => 1, "down" => 1, "total" => 2}
      }},
+    {"a per-device pin outranks operator policy, which is flagged as a conflict",
+     %{pin: "agent-a"},
+     %{
+       ledger: [{:probe, "agent-a", true}],
+       evidence: [{:evidence, "composite_check", :operator_policy, :down}]
+     }, %{state: :available, decided: {"agent_probe", "agent-a"}, conflict: true}},
+    {"without a pin, operator policy still outranks a reachable probe", %{},
+     %{
+       ledger: [{:probe, "agent-a", true}],
+       evidence: [{:evidence, "composite_check", :operator_policy, :down}]
+     }, %{state: :unavailable, decided: {"composite_check", "SITE01-src"}, conflict: true}},
+    {"a blank pin is not a pin, so operator policy still decides", %{pin: "  "},
+     %{
+       ledger: [{:probe, "agent-a", true}],
+       evidence: [{:evidence, "composite_check", :operator_policy, :down}]
+     }, %{state: :unavailable, decided: {"composite_check", "SITE01-src"}, conflict: true}},
+    {"a pin on a negative control does not outrank operator policy", %{pin: "agent-control"},
+     %{
+       ledger: [{:probe, "agent-a", true}],
+       evidence: [{:evidence, "composite_check", :operator_policy, :down}],
+       expectations: %{"agent-control" => :blocked}
+     },
+     %{
+       state: :unavailable,
+       decided: {"composite_check", "SITE01-src"},
+       invalid_pin: true,
+       conflict: true
+     }},
+    {"a pin does not demote a managing controller", %{pin: "agent-a"},
+     %{
+       ledger: [{:probe, "agent-a", true}],
+       evidence: [{:evidence, "wifi_map", :managing_controller, :down}]
+     }, %{state: :unavailable, decided: {"wifi_map", "SITE01-src"}, conflict: true}},
+    {"operator policy that agrees with the pinned agent is not a conflict", %{pin: "agent-a"},
+     %{
+       ledger: [{:probe, "agent-a", true}],
+       evidence: [{:evidence, "composite_check", :operator_policy, :up}]
+     }, %{state: :available, decided: {"agent_probe", "agent-a"}, conflict: false}},
     {"an unexpected or unknown reporter does not decide", %{},
      %{
        ledger: [

@@ -2,133 +2,81 @@
 
 ## Current pickup
 
-Foundation #5950 and runtime #5952/#5954 are merged.
-[Runtime PR #5954](https://github.com/carverauto/serviceradar/pull/5954) merged
-at `9c3388359ad9a5ef079c2aa1b1ae7a0e7100f692` from
-`89d50a7f0d7930686d9dab662ec0cb5aa897387c` after all 18 GitHub checks passed.
-Guarded suite
-[7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a)
-executed all 12 targets once, uncached; suite, observer, teardown and release
-returned 0. The runtime pass changes live relay ownership and closure even while
-recording is disabled. It has not been deployed.
+[Receipt PR #5979](https://github.com/carverauto/serviceradar/pull/5979) is merged
+at `37d7f26a61e8d5c3d2caf28eb2b6c5da3c5ee5d3`; all 19 final checks passed.
+The [Cloud storage plan #185](https://github.com/carverauto/serviceradar-control/pull/185)
+is also merged and remains planning only.
 
-[Archive PR #5955](https://github.com/carverauto/serviceradar/pull/5955) merged
-at `88c5a324793e4cff4155378c29fc29ec5949da6b`. Its archive head
-`72a81f96c4dfaa3d801b95dbab5150423f9a9cf5` passed all 19 GitHub checks. Guarded
-suite
-[0df082fa](https://carverauto.buildbuddy.io/invocation/0df082fa-1895-4d75-be6a-8e90aaa60d0f)
-executes all 12 targets once, uncached, and passes; suite, observer, teardown and
-release return 0. The block lane has 430 tests, no failures or exclusions. The
-worker lane has 329 tests, no failures, with all three worker cases included and
-eight other cases excluded. The earlier prepublication Test exception did not
-waive final CI. [Validation history](validation.md) preserves the negative run
-and the exact-parent pass.
+The current checkpoint protects [private qualification receipts](qualification-receipts.md)
+with [deployment-scoped media authentication](media-authentication.md). The
+separate media credential and exact installed identity protect existing receipt
+operations. Installation status identifies the responding process and remains
+unapplied/unavailable. Bindings remain unqualified until full desired/applied
+installation, evidence/freshness checks and isolated storage credential custody
+exist. The Cloud companion owns initial Secret installation and acknowledgment.
 
-[Upload-intent PR #5960](https://github.com/carverauto/serviceradar/pull/5960)
-merged at `29b30748dfe212ba0672bd2cd53342303ecbbc26`. It retains
-[immutable upload intent](upload-intent.md) on that archive parent. Object
-identity is derived under the existing upload fence and retained independently of
-later upload leases. No storage request is sent. Migration `20261024030000` added
-that intent table with restrictive block and destination references. The chart
-migration floor has since moved; [validation.md](validation.md) owns the current
-version. Focused and full non-database results are in
-[validation.md](validation.md). Its final guarded suite
-[853e4601](https://carverauto.buildbuddy.io/invocation/853e4601-ef2c-419e-b9c3-cfc8349da412)
-passes all 12 targets uncached; the owning serial lane runs 260 tests with no
-failures or exclusions, including all five upload-intent cases. Its prepublication
-Test exception did not waive that final CI.
-
-[Media PR #5959](https://github.com/carverauto/serviceradar/pull/5959) merged at
-`ad424ac6b794f73abddd02e51c560a77d9af10fa` after all 19 checks passed on
-`10a70e71c39f91fcb30fa90389c6fc0130840213`. It adds test-only
-[codec](codec-capabilities.md), [RTCP clock](clock-capabilities.md) and
-[logical block-byte](block-byte-costs.md) experiments. Both existing fixture
-targets use supported BuildBuddy deadlines of 120 seconds with zero termination
-grace, and the already-pinned `pion/rtcp` v1.2.17 require is direct. Every media
-assertion and tolerance is unchanged. The generator timeout control fails after
-120.01 seconds, and the restored-source focused checks pass. The final guarded
-core and web suites pass 12 and seven targets respectively, all uncached, with
-successful observer, teardown and lease-release commands. These are bounded
-experiments, not production audio/HEVC admission or trusted UTC mapping.
-
-The current checkpoint adds [bounded dispatch observations](upload-dispatch.md)
-on this merged parent. It retains one operation per intent, one committed marker,
-the original deadline and bounded late-response/conflict evidence. The coordinator
-does not perform provider I/O. Repaired head
-`fb920deb97ba3e026d952001ff00d31f43479561` passes all 20 PR checks. Its own
-[guarded Core Integration run](https://carverauto.buildbuddy.io/invocation/158effba-7319-4d04-afe8-7dd8a1bcf341)
-executes all 12 targets uncached with zero failures and successful observer,
-teardown and lease release. [Validation history](validation.md) records the
-earlier UUID-input failure, the two-line repair with every assertion preserved,
-and the approved prepublication Test exception. That exception did not waive
-final CI. These results belong to the named head; later documentation updates
-must preserve the code and test scope of that evidence.
-
-Production recording admission and unknown UTC are unchanged. Recording stays
-disabled. The operator-confirmed live RTSP transport must remain working. No
-runtime rollout, uploader, archive index, availability transition or new live
-provider exercise is in this draft. Destination registration remains unqualified
-and grants no storage operations.
+Production recording stays disabled. Preserve the operator-confirmed live RTSP
+path and all existing ownership, manifest, archive, intent and dispatch
+assertions. No rollout, provider request, archive availability, recording
+activation or local-media reclamation is introduced here.
 
 ## Priority order
 
-1. Keep tasks 0.4 and 0.6 open. The experiments measure pinned libraries and
-   logical bytes. They do not select a codec matrix, synchronization tolerance
-   or production block size.
-2. Build on validated bounded dispatch and late-response bookkeeping to implement
-   qualified provider operations, byte verification and index publication.
-   Immutable intent is retained. It is not permission to send bytes.
-3. Complete playback, preservation, hosted lifecycle and optional-worker work in
-   [tasks.md](tasks.md), respecting [Cloud ownership](cloud-control-plane.md).
-4. Complete synthetic failure, security and capacity acceptance before the
-   designated live environment. All committed fixtures and examples remain invented.
+1. Finish the shared desired/applied contract around the qualification report:
+   full desired-content identity bound to the installed origin, conservative
+   freshness, revocation and isolated storage-service credential authority. Cloud
+   [issue #182](https://github.com/carverauto/serviceradar-control/issues/182) and
+   [issue #183](https://github.com/carverauto/serviceradar-control/issues/183) also
+   own provisioning and preservation before teardown.
+2. Implement one bounded init-object conditional PUT and exact byte verification
+   through that authority, outside CNPG transactions. Then add streaming media,
+   multipart reconciliation, recovery-manifest verification and index publication.
+3. Complete playback, holds/retention, hosted lifecycle and optional workers in
+   [tasks.md](tasks.md), following [Cloud ownership](cloud-control-plane.md).
+4. Keep tasks 0.4 and 0.6 open: codec/RTCP/logical-byte experiments do not select
+   production support, synchronization tolerances or capacity objectives. Complete
+   synthetic security/failure/capacity acceptance before designated live acceptance.
 
-## Current evidence
+## Evidence ledger
 
 | Contract | Evidence | Remaining gate |
 | --- | --- | --- |
-| Runtime repair | #5954 merged from `89d50a7f`; guarded [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a) passes 12/12 with lifecycle statuses zero | Deployment acceptance |
-| Archive parent | #5955 merged at `88c5a324`. Exact `72a81f96`, guarded `0df082fa`, all 19 GitHub checks pass | No uploader, availability or provider readiness |
-| Immutable intent | #5960 merged at `29b30748`; guarded `853e4601` passes all 12 targets, including its five new cases | No wire operation or availability is established |
-| Dispatch observations | Repaired `fb920deb` passes all 20 checks and all 12 guarded core targets. Owning lanes report 297 and 471 tests with zero failures; see [validation](validation.md) and [contract](upload-dispatch.md) | Qualified provider I/O, byte verification and availability remain absent |
-| Media and fixture deadline | With the supported 120-second BuildBuddy action deadline, the deliberately stalled generator times out after 120.01 seconds. Restored-source [aabf88b7](https://carverauto.buildbuddy.io/invocation/aabf88b7-c9af-4d0e-825a-ecc6b5ccfb39) executes all nine focused targets uncached: native media, RTSP, RTCP, six Chromium cases and both quality checks pass | Product playback authorization and full authenticated deployment recovery remain open |
-| Media full sweep | Clean repair `43c32a8c` passes 454 targets in [1c64bc77](https://carverauto.buildbuddy.io/invocation/1c64bc77-528f-4b2e-97aa-3e75c8e6dbf0): one executes, 453 use cache; two Swift platform skips | Production audio/HEVC, trusted clock mapping and deployment remain separate |
-| Logical block bytes | [4a3336d1](https://carverauto.buildbuddy.io/invocation/4a3336d1-0c98-4b2d-ab91-168b55c83c50): nine media tests and quality execute and pass; the omitted-append control fails frame conservation | Database/WAL, cache, cloud requests and deployment sizing remain unmeasured |
-| Provider/Cloud | Synthetic conditional-write and explicit-SSE diagnostics; both prior live exercises cleaned and rechecked | Live readiness remains failed; explicit-SSE/conditional-write, policy and Object Lock require provider proof |
+| Runtime relay ownership | #5950/#5952/#5954 merged; #5954 head `89d50a7f`, guarded `7cbd7c77` passed all 12 targets | Deployment acceptance |
+| Frozen archive and destination | #5955 merged at `88c5a324`; head `72a81f96`, guarded `0df082fa` passed all 12 targets | Provider authority and verified bytes |
+| Immutable upload intent | #5960 merged at `29b30748`; guarded `853e4601` passed all 12 targets including five intent cases | Wire operations |
+| Durable dispatch observations | #5966 merged; final head `831e8893`, guarded Core `d85a7307` and Web `6aafb922` passed 12 and seven targets uncached, with all lifecycle statuses zero | Current qualification and isolated storage boundary |
+| Qualification report | #5973 merged; 18 final checks passed. Six protocol cases; full remote `fc10c612` passes 459 targets after formatting, with two Swift platform skips; see [validation](validation.md) | Authenticated desired/applied contract, evidence verification and current authority enforcement |
+| Private qualification receipts | #5979 merged; 19 final checks passed. Core `42cf4965` and Web `8a15b4d4` executed all 12/seven guarded targets uncached; all lifecycle statuses zero, all five new DB cases included | Full desired/applied installation remains open |
+| Deployment-scoped media authentication | Repaired focused `ad739b15`: 824 tests, zero failures, web quality and Helm passed. Full remote `23ede7bb`: 459 passed, two platform skips. Encoded-route negative control `2098b2d2` failed before repair | Final guarded HTTP CI and no-mistakes publication |
+| Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
+| Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
-[Detailed validation evidence](validation.md) retains the invocation links,
-negative controls and the source scope of each proof. Implementation choices
-live in [choices.md](choices.md).
+[Validation history](validation.md) retains invocation links, exact-head results,
+negative controls and prepublication exceptions. [Choices](choices.md) records
+implementation decisions. Neither a planning merge nor a report parser completes
+runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Read [design.md](design.md), [tasks.md](tasks.md), [upload-intent.md](upload-intent.md)
-and [upload-dispatch.md](upload-dispatch.md) and the current diff. Archive #5955 merged at
-`88c5a324793e4cff4155378c29fc29ec5949da6b`. Upload-intent #5960 merged at
-`29b30748dfe212ba0672bd2cd53342303ecbbc26`.
-[Media PR #5959](https://github.com/carverauto/serviceradar/pull/5959) merged at
-`ad424ac6`. Preserve every ownership, manifest, archive and
-upload-intent assertion, the three experiments, the 120-second fixture deadlines
-and the direct `pion/rtcp` v1.2.17 require. Tasks 0.4 and 0.6 remain incomplete
-after these bounded measurements.
+Read [design.md](design.md), [tasks.md](tasks.md), [qualification-report.md](qualification-report.md),
+[qualification-receipts.md](qualification-receipts.md), [media-authentication.md](media-authentication.md), [upload-intent.md](upload-intent.md),
+[upload-dispatch.md](upload-dispatch.md) and
+the current diff. The immediate dependency is the shared full desired/applied
+installation and expiry/revocation of storage authority. A persisted receipt is
+not an applied revision. Media authentication identifies the responding process;
+it does not prove fleet-wide credential retirement or provider access. Do not promote old
+receipts into authority or treat withdrawal as provider cancellation/revocation.
 
-Preserve the bounded dispatch checkpoint and its validation evidence when
-continuing through no-mistakes. Keep its original-deadline fence, single marker,
-late observations and permanent conflict evidence. The marker grants no provider qualification.
-The next implementation boundary is qualified provider operations and byte
-verification. A timeout is unresolved work, not proof that a remote request was
-cancelled; a replacement lease must never rearm the retained operation.
+Preserve the dispatch's original deadline, single marker, late observations and
+permanent conflict evidence. Lease replacement must never rearm an unresolved
+operation. Timeout/revocation does not prove remote cancellation. Credentials
+stay behind an isolated workload boundary; future provider I/O stays outside
+CNPG transactions. A destination change cannot retarget a retained block, and
+neither an intent nor a response proves remote bytes or permission to reclaim
+local media. Recovery uses `Manifest.encode_descriptor/2` with the frozen
+descriptor.
 
-Keep provider I/O outside CNPG transactions and credentials behind the isolated
-storage boundary. Provider qualification, credential generation and policy must
-be current before a future request. No intent or observed response establishes
-remote bytes, archive availability or permission to reclaim local media.
-Releasing a current claim must not grant a stale recorder publication rights,
-and a destination change must not retarget a retained block. Manifest encoding
-validates metadata only. Recovery uses `Manifest.encode_descriptor/2` with the
-frozen descriptor. `with_current_upload/3` deliberately requires `:uploading`
-after its callback and checks the original deadline.
-
-Do not merge this draft, deploy, enable recording, provision storage or run a
-third live probe as part of this checkpoint. Every worktree uses Treehouse and
-every PR no-mistakes. Do not close #4913 or #4915 until their acceptance passes.
+All fixtures/examples remain invented. Use Treehouse and no-mistakes for every
+worktree/PR. Do not merge, deploy, enable recording, provision storage or run a
+new live probe as part of this checkpoint. Keep #4913/#4915 open until their own
+acceptance passes.

@@ -2,6 +2,102 @@
 
 ## Sound, medium confidence
 
+### Establish media authentication before storage authority
+
+When: deployment-scoped media authentication pass. Verdict: sound, medium confidence.
+
+When Cloud replaces an environment, its account-level password-reset token can
+remain unchanged. Media operations now require a separate installed credential
+and exact deployment identity, including on the existing receipt API. The
+installation endpoint reports which process answered, while keeping readiness
+unavailable. This closes a real access boundary without treating an installation
+acknowledgment as storage permission. Full desired/applied content, fresh evidence
+and isolated provider credentials remain required before execution.
+
+### Replace processes when installation identity changes
+
+When: deployment-scoped media authentication pass. Verdict: sound, medium confidence.
+
+Pods read their token at startup. The chart puts the deployment reference and
+generation on the pod template so changing either requests replacement pods.
+Updating Secret bytes alone leaves old processes able to use their loaded token.
+This pass does not build a rotation workflow or claim that one successful
+acknowledgment means every old replica has stopped. Cloud must observe retirement
+before it can report complete revocation in a future lifecycle pass.
+
+### Receive qualification claims before installing storage authority
+
+When: private qualification receipt pass. Verdict: sound, medium confidence.
+
+A provisioner can submit an all-passed report while the runtime still lacks a
+storage workload, current evidence or an authenticated environment identity.
+The receipt API records that submission and returns unavailable status with
+no applied revision. The receipt pass used the account-scoped private credential;
+the media authentication pass replaces that ingress with a deployment-scoped
+credential, without upgrading historical receipts into authority. The plan required
+an authenticated desired/applied exchange but did not select its implementation
+sequence. Keeping this receipt sub-contract explicit lets that exchange gain a
+real durable ingress without inventing authority or a second credential system.
+Full desired configuration and environment-bound fresh installation remain
+separate requirements, and future code cannot promote these receipts unchanged.
+
+### Keep one current receipt and retain withdrawal ordering
+
+When: private qualification receipt pass. Verdict: sound, medium confidence.
+
+If revision two withdraws a report and a delayed revision one arrives afterward,
+the runtime retains revision two and refuses the older request. An exact retry
+of the current revision returns its original receipt and arrival time. The plan
+required stale/conflict handling but left storage shape open. A current row per
+binding, serialized under the existing binding lock, provides that order without
+an unbounded history. Withdrawal clears the report but retains its revision; it
+claims no provider revocation. Evidence history stays with the producer's named
+evidence bundle. Callers needing a historical audit must not treat this current
+row as one.
+
+
+### Retain the received report without turning it into evidence verification
+
+When: private qualification receipt pass. Verdict: sound, medium confidence.
+
+If a report claims an encrypted upload passed, the current row retains that exact
+validated report, not just its digest. A future installer can inspect the claim
+but must still verify its evidence and freshness through the required exchange.
+The plan did not choose what a receipt stores. The report is marked sensitive and
+is not echoed by the API; replacement or withdrawal removes the old report.
+Expired or failed observations remain acceptable claims. Retention does not make
+them current or true, and no expiry cleanup process is introduced.
+
+### Keep revision enforcement at the submission owner
+
+When: private qualification receipt pass. Verdict: sound, medium confidence.
+
+Two concurrent callers must compare revisions under the same retained-binding
+lock before either changes the receipt. `ArchiveQualifications` owns that whole
+operation; the Ash receive/replace actions are trusted persistence primitives.
+The plan left that ownership boundary open. Future callers must enter through
+the coordinator instead of writing the resource directly. This fits existing
+Ash ownership without a second revision implementation in a database trigger.
+
+### One evidence bundle for an exact qualification context
+
+When: qualification report pass. Verdict: sound, medium confidence.
+
+The plan required attributable observations but did not choose their serialized
+shape. When a provisioner reports a successful encrypted write and a failed
+missing-header denial, both results remain in one report beside the destination,
+credential generation, policy and storage-service identity. A required reference
+names the evidence bundle for that exact context. Nineteen fixed check names keep
+these claims bounded and prevent a producer from omitting an inconvenient check.
+Grouped checks mean the producer must prove every criterion in the group; a
+partial result cannot be called passed. Separate evidence references per check
+would add a second attribution structure without changing that obligation.
+
+Future producers must retain the complete referenced evidence and authenticate
+the report. The format cannot establish whether that evidence exists or whether
+the claims are true. Protection-mode evidence and the full readiness assessment
+remain separate work; these nineteen observations cannot enable recording.
+
 ### Exercise the real receiver through a bounded test binary
 
 When: synthetic RTSP feasibility pass.
@@ -227,6 +323,88 @@ support file and directory sync. The guarantee covers the local node only;
 another node cannot recover footage that never reached an archive.
 
 ## Sound, high confidence
+
+### Share the private listener while separating credential purposes
+
+When: deployment-scoped media authentication pass. Verdict: sound, high confidence.
+
+A caller that can reset an account password must not automatically gain media
+access. Routes select either the account credential or a separate media credential
+before parsing a body. Media can enable this same pod-only listener without
+installing an account token, and equal configured tokens fail media validation.
+The installed UUID and generation identify this process, never tenant routing.
+One context owns configuration validation for startup and HTTP authentication;
+the plug owns header cardinality and decodes paths exactly as the router does.
+
+### Keep installation generations exact across configuration and HTTP
+
+When: deployment-scoped media authentication pass. Verdict: sound, high confidence.
+
+A large generation must not change when YAML or JSON passes through a numeric
+parser. Generations therefore use canonical decimal strings in values,
+environment variables, headers and acknowledgment, bounded to positive signed
+bigint values. Chart authors must quote the value. The chart rejects generic
+environment overrides of the three media installation fields, even when media is
+disabled, so those overrides cannot bypass identity validation or Secret custody.
+
+### Use arrival time for observation and revisions for ordering
+
+When: private qualification receipt pass. Verdict: sound, high confidence.
+
+When a newer revision arrives, the accepting application node records its UTC
+clock. An exact retry keeps that original timestamp. The plan did not choose a
+receipt clock; nodes can disagree, so only revisions order submissions and the
+timestamp never proves freshness. Actor-label bounds and input-before-revision
+validation are internal/API discretion; neither establishes caller identity.
+
+
+### Bound the receipt wire contract and return only receipt metadata
+
+When: private qualification receipt pass. Verdict: sound, high confidence.
+
+A duplicate JSON key can disappear when a general parser converts input to a
+map. The private receipt route therefore reads at most 16 KiB with a five-second
+body-read timeout and uses ordered JSON objects until duplicate rejection is
+complete. That size accommodates the existing bounded report and envelope; it
+is a transport limit, not a retention or freshness policy. PUT replaces one
+binding's current receipt and GET reloads it. Stable status codes distinguish
+bad input, revision conflicts, oversized bodies and storage failure without
+returning submitted reports, custody references or database details.
+
+The plan required bounded exact input but did not choose these wire details.
+The receipt's identity hashes a fixed ordered array containing the binding,
+revision, state and existing report digest. This binds the complete envelope
+while preserving the report module as the only owner of report canonicalization.
+It deliberately does not substitute for the larger desired-configuration digest.
+
+
+### Define reported observations before installing storage authority
+
+When: qualification report pass. Verdict: sound, high confidence.
+
+The merged Cloud plan requires a product-owned format but leaves its delivery
+order open. A caller can now submit bounded observations and obtain their content
+fingerprint. Even if the caller labels every check passed, this operation cannot
+authorize an upload. Accepting an arbitrary caller's ready flag in the uploader
+would instead create an authority source before authenticated configuration and
+isolated credential custody exist. Future enforcement must match the report to
+the retained binding and a fresh authenticated exchange. Issue and expiry times
+remain reported data here, so reading an old report never starts a new clock.
+
+### Reuse destination identity and fix canonical report bytes
+
+When: qualification report pass. Verdict: sound, high confidence.
+
+The control plane needs to distinguish a changed credential from a changed
+storage destination. The report embeds the existing destination input and calls
+its validator, rather than introducing another set of destination rules or
+accepting a claimed destination digest. Rotating a key changes the report hash
+while the destination hash remains stable. Sorted ASCII JSON keys, explicit
+escaping and exact integer encoding give producers one byte contract to hash;
+ordinary equivalent JSON could otherwise produce different fingerprints. The
+plan required a canonical digest but left this encoding unspecified. Future
+transport must reject duplicate keys and bound bytes before decoding; this
+decoded-object parser cannot recover information the decoder already discarded.
 
 ### Keep recovery metadata separate from archive verification
 
