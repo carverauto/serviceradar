@@ -31,11 +31,11 @@ Each evidence record carries the device uid, a source kind, a source instance, a
 - **WHEN** the integration is ingested
 - **THEN** the integration SHALL NOT submit an availability evidence record for that device
 
-#### Scenario: Direct writes do not change availability
+#### Scenario: Direct writes are recorded, never silently restored
 - **GIVEN** the availability cutover is complete
-- **WHEN** any code path other than the availability resolver attempts to change `is_available` or `availability_state` on a device row
-- **THEN** the stored availability SHALL remain the resolver's value
-- **AND** the attempt SHALL be appended to an availability write-violation record
+- **WHEN** any code path other than the availability resolver changes `is_available` on a device row
+- **THEN** the change SHALL be appended to an availability write-violation record
+- **AND** the record SHALL NOT restore or reject the write; the device's next resolution sets the value again
 
 ### Requirement: Availability Authority Classes Are Declared By Source Registration
 The system SHALL assign each evidence record an authority class taken from the submitting source's registration, and the resolver MUST NOT branch on a source's kind or integration name.
@@ -59,7 +59,7 @@ The ranked classes, highest first, are `operator_policy`, `self_report`, `managi
 
 ### Requirement: Canonical Device Availability Resolution
 The system SHALL derive each device's `availability_state` by selecting the governing class (the highest-ranked authority class with any fresh, eligible, non-excluded record), deciding from that class when it has a decisive record and keeping the previous state when it has only records awaiting confirmation; within the deciding class the state SHALL be `available` when any decisive record is `up` and `unavailable` otherwise.
-When the device has an `availability_source_agent_id` (set directly or by an availability source profile), per-agent results from other agents SHALL be excluded from the decision and retained for display. Records whose reporter is not eligible, and unreachable per-agent results from negative-control agents, SHALL be excluded from the decision. A cross-class `up` from a lower class SHALL NOT override a higher class's decision; it SHALL mark the device as having conflicting evidence. The previously deciding record SHALL remain the recorded decider while it stays fresh, eligible and in agreement.
+When the device has an `availability_source_agent_id` (set directly or by an availability source profile), per-agent results from other agents and `operator_policy` evidence SHALL be excluded from the decision and retained for display; the per-device pin outranks operator policy, and an excluded record that disagrees SHALL mark the device as having conflicting evidence. Records whose reporter is not eligible, and unreachable per-agent results from negative-control agents, SHALL be excluded from the decision. A cross-class `up` from a lower class SHALL NOT override a higher class's decision; it SHALL mark the device as having conflicting evidence. The previously deciding record SHALL remain the recorded decider while it stays fresh, eligible and in agreement.
 Every mutation that can change a resolution SHALL cause the affected devices to be re-resolved through the same resolver without waiting for expiry: per-agent ledger writes from any writer that change a result or renew one older than half its freshness window, changes to a device's `availability_source_agent_id` or to an availability source profile, and changes to negative-control vantage expectations. Recording such a mutation SHALL be an append that never waits on the resolver or on another writer, and an invalidation committed while a device is being resolved SHALL cause one more resolution of that device.
 
 #### Scenario: Controller up outranks failing probes
@@ -82,6 +82,14 @@ Every mutation that can change a resolution SHALL cause the affected devices to 
 - **WHEN** availability is resolved
 - **THEN** `availability_state` SHALL be `unavailable`
 - **AND** agent B's result SHALL remain visible on the device
+
+#### Scenario: Pin outranks operator policy
+- **GIVEN** a device whose `availability_source_agent_id` is agent A
+- **AND** a reachable result from agent A
+- **AND** fresh `operator_policy` evidence `down` from a composite check
+- **WHEN** availability is resolved
+- **THEN** `availability_state` SHALL be `available` decided by agent A
+- **AND** the device SHALL be marked as having conflicting evidence
 
 #### Scenario: Changing the pin re-resolves the device
 - **GIVEN** a device resolved `available` from agent B's reachable result while agent A reports it confirmed unreachable

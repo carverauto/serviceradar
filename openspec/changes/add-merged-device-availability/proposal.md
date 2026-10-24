@@ -100,7 +100,8 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
     unknown must read `availability_state`.
   - The Available and Unavailable counts change where they were inflated by
     `DEFAULT true` or by stale writes.
-  - Direct writes to `is_available` stop taking effect.
+  - A direct write to `is_available` stays written until the next resolution.
+    Stage d only appends a violation row (design.md, Open Question 7).
 
 ## Impact
 
