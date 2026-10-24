@@ -248,6 +248,10 @@ ex_unit_tests(
 camera_browser_fixture(
     name = "recording_browser_fixture",
     testonly = True,
+    exec_properties = {
+        "default-timeout": "120s",
+        "termination-grace-period": "0s",
+    },
     app = ":erlang_app",
     generator = "test/fixtures/camera_browser_fixture.exs",
     media_tools = "//third_party/membrane:media_test_tools",
@@ -272,6 +276,10 @@ ex_unit_tests(
 camera_browser_fixture(
     name = "codec_capability_fixture",
     testonly = True,
+    exec_properties = {
+        "default-timeout": "120s",
+        "termination-grace-period": "0s",
+    },
     app = ":erlang_app",
     generator = "test/fixtures/camera_codec_fixture.exs",
     srcs = ["test/fixtures/camera_codec_capability.exs"],

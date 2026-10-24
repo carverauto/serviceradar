@@ -44,7 +44,6 @@ export ERL_LIBS="$PWD/{libraries}"
         ),
         mnemonic = "CameraBrowserFixture",
         progress_message = "Generating synthetic camera media: %s" % ctx.label,
-        execution_requirements = {"timeout": "120"},
     )
 
     return [DefaultInfo(files = depset([ctx.outputs.out]))]
