@@ -28,6 +28,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Infrastructure.Gateway
   alias ServiceRadar.Infrastructure.StateMonitor
   alias ServiceRadar.Inventory.Availability
+  alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
@@ -894,17 +895,17 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   # An agent check-in on a device that already exists, at an address another live device
   # holds. The address is decided by address_claim/4. Either way the check-in's other
   # fields are written and the conflict is recorded.
-  defp claim_active_ip_for_existing_device(device, action, update_attrs, reason, actor, now) do
+  defp claim_active_ip_for_existing_device(device, action, update_attrs, reason, actor, now, mode) do
     source_ip = Map.fetch!(update_attrs, :ip)
 
     case live_active_ip_holder(device, source_ip, actor) do
       %Device{} = holder ->
         case address_claim(holder, update_attrs.agent_id, now, actor) do
           :release ->
-            take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor)
+            take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor, mode)
 
           {:keep, keep_reason} ->
-            keep_own_address(device, holder, action, update_attrs, keep_reason, actor)
+            keep_own_address(device, holder, action, update_attrs, keep_reason, actor, mode)
         end
 
       nil ->
@@ -912,7 +913,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor) do
+  defp take_active_ip_from_stale_holder(device, holder, action, update_attrs, actor, mode) do
     source_ip = update_attrs.ip
 
     fn ->
@@ -921,7 +922,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       DeviceWrites.lock_and_clear_for_upsert([%{uid: device.uid}], [], [{holder.uid, source_ip}])
 
       device
-      |> Ash.Changeset.for_update(action, update_attrs)
+      |> gateway_device_changeset(action, update_attrs, mode)
       |> Ash.update(actor: actor, return_notifications?: true)
       |> case do
         {:ok, _device, notifications} -> notifications
@@ -953,7 +954,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp keep_own_address(device, holder, action, update_attrs, keep_reason, actor) do
+  defp keep_own_address(device, holder, action, update_attrs, keep_reason, actor, mode) do
     source_ip = update_attrs.ip
 
     Logger.info(
@@ -972,7 +973,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     update_attrs = Map.delete(update_attrs, :ip)
 
     device
-    |> Ash.Changeset.for_update(action, update_attrs)
+    |> gateway_device_changeset(action, update_attrs, mode)
     |> Ash.update(actor: actor)
     |> case do
       {:ok, _device} ->
@@ -980,7 +981,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
       {:error, error} ->
         if stale_record_error?(error),
-          do: force_gateway_sync_update(device.uid, action, update_attrs, actor),
+          do: force_gateway_sync_update(device.uid, action, update_attrs, actor, mode),
           else: {:error, error}
     end
   end
@@ -1175,10 +1176,16 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       |> compact_attrs()
 
     action = gateway_update_action(device)
+    # From cutover the check-in's availability goes to the compatibility table, not
+    # the device row (merged availability, LegacyWrites). Read without the switch
+    # lock: a check-in that straddles a switch writes the column once, and the
+    # device's next resolution rewrites it from the merged state. The compatibility
+    # write commits only with the device update that succeeds.
+    mode = Availability.Mode.current()
 
     # DB connection's search_path determines the schema
     device
-    |> Ash.Changeset.for_update(action, update_attrs)
+    |> gateway_device_changeset(action, update_attrs, mode)
     |> Ash.update(actor: actor)
     |> case do
       {:ok, _device} ->
@@ -1188,10 +1195,18 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       {:error, error} ->
         cond do
           stale_record_error?(error) ->
-            force_gateway_sync_update(device.uid, action, update_attrs, actor)
+            force_gateway_sync_update(device.uid, action, update_attrs, actor, mode)
 
           active_ip_unique_conflict?(error) and present_string?(source_ip) ->
-            claim_active_ip_for_existing_device(device, action, update_attrs, error, actor, now)
+            claim_active_ip_for_existing_device(
+              device,
+              action,
+              update_attrs,
+              error,
+              actor,
+              now,
+              mode
+            )
 
           true ->
             {:error, error}
@@ -1825,16 +1840,37 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end)
   end
 
-  defp force_gateway_sync_update(device_uid, action, update_attrs, actor) do
+  defp force_gateway_sync_update(device_uid, action, update_attrs, actor, mode) do
+    if Availability.Mode.legacy_column?(mode) do
+      run_force_gateway_sync_update(device_uid, action, update_attrs, actor, [])
+    else
+      case Repo.transaction(fn ->
+             routed = LegacyWrites.route_attrs(update_attrs, device_uid, mode)
+
+             case run_force_gateway_sync_update(device_uid, action, routed, actor,
+                    transaction: false
+                  ) do
+               :ok -> :ok
+               {:error, reason} -> Repo.rollback(reason)
+             end
+           end) do
+        {:ok, :ok} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp run_force_gateway_sync_update(device_uid, action, update_attrs, actor, opts) do
     query =
       Device
       |> Ash.Query.for_read(:read, %{include_deleted: true})
       |> Ash.Query.filter(uid == ^device_uid)
 
-    case Ash.bulk_update(query, action, update_attrs,
-           actor: actor,
-           return_errors?: true,
-           return_records?: false
+    case Ash.bulk_update(
+           query,
+           action,
+           update_attrs,
+           [actor: actor, return_errors?: true, return_records?: false] ++ opts
          ) do
       %Ash.BulkResult{status: :success} ->
         Logger.debug("Force-updated device #{device_uid} via #{action}")
@@ -1846,6 +1882,37 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       %Ash.BulkResult{status: :error, errors: errors} ->
         {:error, List.first(errors) || :bulk_update_failed}
     end
+  end
+
+  defp gateway_device_changeset(device, action, update_attrs, mode) do
+    {update_attrs, legacy} = split_checkin_availability(update_attrs, device.uid, mode)
+
+    device
+    |> Ash.Changeset.for_update(action, update_attrs)
+    |> record_checkin_availability_after(legacy)
+  end
+
+  defp split_checkin_availability(attrs, device_uid, mode) do
+    case Map.fetch(attrs, :is_available) do
+      {:ok, available?} when is_boolean(available?) ->
+        if Availability.Mode.legacy_column?(mode) do
+          {attrs, nil}
+        else
+          {Map.delete(attrs, :is_available), {device_uid, available?}}
+        end
+
+      _ ->
+        {attrs, nil}
+    end
+  end
+
+  defp record_checkin_availability_after(changeset, nil), do: changeset
+
+  defp record_checkin_availability_after(changeset, {device_uid, available?}) do
+    Ash.Changeset.after_action(changeset, fn _changeset, result ->
+      LegacyWrites.record([{device_uid, available?}])
+      {:ok, result}
+    end)
   end
 
   defp not_found_error?(%NotFound{}), do: true

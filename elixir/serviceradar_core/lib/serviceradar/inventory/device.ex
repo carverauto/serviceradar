@@ -989,7 +989,8 @@ defmodule ServiceRadar.Inventory.Device do
     attribute :is_available, :boolean do
       default true
       public? true
-      description "Current availability status"
+
+      description "Last decided availability as a boolean. Once merged availability is authoritative it is the projection of availability_state and keeps its last decided value while the state is unknown; read availability_state to tell unknown apart."
     end
 
     attribute :availability_source_agent_id, :string do
@@ -1002,6 +1003,47 @@ defmodule ServiceRadar.Inventory.Device do
       public? true
 
       description "Availability source profile that assigned the canonical source; nil means manual override or legacy fallback"
+    end
+
+    # Merged availability (add-merged-device-availability). The resolver is their only
+    # writer; no action accepts them.
+    attribute :availability_state, :atom do
+      allow_nil? false
+      default :unknown
+      writable? false
+      public? true
+      constraints one_of: [:available, :unavailable, :unknown]
+
+      description "Canonical availability: available, unavailable or unknown (no fresh evidence from any source)."
+    end
+
+    attribute :availability_decided_by, :map do
+      writable? false
+      public? true
+
+      description "Provenance of availability_state: source_kind, source_instance, reporter_agent_id, authority_class, rule and the previous decided state."
+    end
+
+    attribute :availability_changed_at, :utc_datetime_usec do
+      writable? false
+      public? true
+      description "When availability_state last changed."
+    end
+
+    attribute :availability_conflict, :boolean do
+      allow_nil? false
+      default false
+      writable? false
+      public? true
+
+      description "Whether fresh evidence outside the deciding source, such as a lower-ranked class or a pinned-out agent, disagrees with availability_state."
+    end
+
+    attribute :availability_agents, :map do
+      writable? false
+      public? true
+
+      description "Per-agent summary: up, down, stale and total non-control agents, plus blocked_verified, policy_violation and inconclusive_control negative-control counts."
     end
 
     attribute :metadata, :map do

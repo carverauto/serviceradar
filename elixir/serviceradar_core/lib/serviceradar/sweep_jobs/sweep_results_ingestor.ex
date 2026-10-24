@@ -42,6 +42,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Availability
+  alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.Identity.Fence
@@ -1754,14 +1755,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       # sighting, and an unrestored tombstone is left exactly as it was.
       restore_deleted_devices(changed_uids, MapSet.new(available_uids), actor)
 
-      recovered_rows =
+      {recovered_mode, recovered_rows} =
         update_device_statuses_available(
           available_uids,
           status_timestamp,
           availability_policy
         )
 
-      down_rows =
+      {down_mode, down_rows} =
         update_device_statuses_with_hysteresis(
           unavailable_uids,
           status_timestamp,
@@ -1775,8 +1776,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       |> Stream.map(fn [uid | _state] -> uid end)
       |> ServiceRadar.Inventory.DevicePubSub.broadcast_invalidated()
 
+      # The legacy publisher emits only for writes made while the legacy writers owned
+      # is_available; from cutover the resolver is the one emitter.
       maybe_emit_availability_events(
-        recovered_rows ++ down_rows,
+        legacy_publishable(recovered_mode, recovered_rows) ++
+          legacy_publishable(down_mode, down_rows),
         reporter_context.group,
         reporter_context.reporter_agent_id,
         execution_id
@@ -1785,10 +1789,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       maybe_add_sweep_source(changed_uids)
     end
 
-    # Merged availability, stage b: every device whose per-agent row was accepted is
-    # resolved in its own transaction after the legacy writes above have committed,
-    # whatever this reporter's authorization (an ineligible row still changes the agent
-    # counters). Writes only the shadow table; in legacy a cached mode check, no query.
+    # Merged availability: every device whose per-agent row was accepted is resolved in
+    # its own transaction after the legacy writes above have committed, whatever this
+    # reporter's authorization (an ineligible row still changes the agent counters).
+    # The shadow table in shadow, the device row from cutover; in legacy a cached mode
+    # check, no query.
     _ = Availability.resolve_devices(Enum.map(accepted_observations, & &1.device_uid))
 
     :ok
@@ -2157,8 +2162,13 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end
   end
 
-  # Mark devices as available and reset consecutive failure count
-  defp update_device_statuses_available([], _timestamp, _availability_policy), do: []
+  # Mark devices as available and reset consecutive failure count.
+  #
+  # The legacy value is true. In `legacy` and `shadow` it is written to is_available as
+  # before; from `cutover` it goes only to the compatibility table, and the merged
+  # resolver owns is_available (LegacyWrites). `prev` is the legacy value before this
+  # write: the column while the legacy writers own it, else the compatibility table.
+  defp update_device_statuses_available([], _timestamp, _availability_policy), do: {:legacy, []}
 
   defp update_device_statuses_available(device_uids, timestamp, availability_policy) do
     # DB connection's search_path determines the schema
@@ -2166,7 +2176,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     sql = """
     UPDATE ocsf_devices AS d
     SET
-      is_available = true,
+      is_available = CASE WHEN $5::boolean THEN true ELSE d.is_available END,
       last_seen_time = $2::timestamptz,
       modified_time = $2::timestamptz,
       metadata = jsonb_set(
@@ -2180,11 +2190,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       )
     FROM (
       -- Lock every row before writing any, in uid order (see query_status_update/2)
-      SELECT uid, is_available AS was_available, hostname, ip
-      FROM ocsf_devices
-      WHERE uid = ANY($1)
-      ORDER BY uid
-      FOR NO KEY UPDATE
+      SELECT locked.uid,
+             CASE WHEN $5::boolean OR legacy.device_uid IS NULL
+                  THEN locked.is_available ELSE legacy.is_available END AS was_available,
+             locked.hostname, locked.ip
+      FROM ocsf_devices AS locked
+      LEFT JOIN device_availability_legacy AS legacy ON legacy.device_uid = locked.uid
+      WHERE locked.uid = ANY($1)
+      ORDER BY locked.uid
+      FOR NO KEY UPDATE OF locked
     ) old
     WHERE d.uid = old.uid
       AND d.deleted_at IS NULL
@@ -2199,25 +2213,25 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           AND $4::text = 'expected'
         )
       )
-    RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
+    RETURNING d.uid, old.was_available, true, old.hostname, old.ip
     """
 
-    case query_status_update(sql, [
+    case availability_status_update(sql, [
            device_uids,
            timestamp,
            availability_policy.authenticated_agent_id,
            Atom.to_string(availability_policy.reporter_expectation)
          ]) do
-      {:ok, %{num_rows: count, rows: rows}} ->
+      {:ok, mode, rows} ->
         Logger.debug(
-          "SweepResultsIngestor: Marked #{count} devices as available (reset failure count)"
+          "SweepResultsIngestor: Marked #{length(rows)} devices as available (reset failure count)"
         )
 
-        rows
+        {mode, rows}
 
       {:error, reason} ->
         Logger.error("SweepResultsIngestor: Failed to mark devices available: #{inspect(reason)}")
-        []
+        {:legacy, []}
     end
   end
 
@@ -2228,7 +2242,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # Only marks device as unavailable after threshold consecutive failures
   # "Available wins" - skips devices recently marked available by another sweep
   defp update_device_statuses_with_hysteresis([], _timestamp, _group, _availability_policy),
-    do: []
+    do: {:legacy, []}
 
   defp update_device_statuses_with_hysteresis(device_uids, timestamp, group, availability_policy) do
     # DB connection's search_path determines the schema
@@ -2245,7 +2259,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     # - Do not use last_seen_time here: inventory integrations can refresh it
     #   independently and would otherwise keep failed sweep targets online forever.
     #
-    # This prevents transient network issues from causing availability flapping
+    # This prevents transient network issues from causing availability flapping.
+    #
+    # The computation runs against the legacy value (`old.was_available`): the column
+    # while the legacy writers own it ($7 true), else the compatibility table, which is
+    # also where the result goes then (LegacyWrites).
     available_wins_window = get_available_wins_window(group)
 
     available_wins_cutoff = DateTime.shift(timestamp, second: -available_wins_window)
@@ -2259,6 +2277,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         to_jsonb(COALESCE((d.metadata->>'sweep_consecutive_failures')::int, 0) + 1)
       ),
       is_available = CASE
+        WHEN NOT $7::boolean THEN d.is_available
         WHEN COALESCE((d.metadata->>'sweep_consecutive_failures')::int, 0) + 1 >= $2
         THEN false
         ELSE d.is_available
@@ -2266,18 +2285,22 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       modified_time = $3
     FROM (
       -- Lock every row before writing any, in uid order (see query_status_update/2)
-      SELECT uid, is_available AS was_available, hostname, ip
-      FROM ocsf_devices
-      WHERE uid = ANY($1)
-      ORDER BY uid
-      FOR NO KEY UPDATE
+      SELECT locked.uid,
+             CASE WHEN $7::boolean OR legacy.device_uid IS NULL
+                  THEN locked.is_available ELSE legacy.is_available END AS was_available,
+             locked.hostname, locked.ip
+      FROM ocsf_devices AS locked
+      LEFT JOIN device_availability_legacy AS legacy ON legacy.device_uid = locked.uid
+      WHERE locked.uid = ANY($1)
+      ORDER BY locked.uid
+      FOR NO KEY UPDATE OF locked
     ) old
     WHERE d.uid = old.uid
       AND d.deleted_at IS NULL
       -- "Available wins" - skip devices recently marked available by another sweep
       -- This prevents multi-agent flapping when one agent can reach device and another can't
       AND NOT (
-        d.is_available = true
+        old.was_available = true
         AND COALESCE((d.metadata->>'sweep_last_available_at')::timestamptz > $4, false)
       )
       AND NOT EXISTS (
@@ -2310,10 +2333,15 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           AND $6::text = 'expected'
         )
       )
-    RETURNING d.uid, old.was_available, d.is_available, old.hostname, old.ip
+    RETURNING d.uid, old.was_available,
+      CASE
+        WHEN COALESCE((d.metadata->>'sweep_consecutive_failures')::int, 0) >= $2 THEN false
+        ELSE old.was_available
+      END,
+      old.hostname, old.ip
     """
 
-    case query_status_update(sql, [
+    case availability_status_update(sql, [
            device_uids,
            @unavailable_threshold,
            timestamp,
@@ -2321,7 +2349,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
            availability_policy.authenticated_agent_id,
            Atom.to_string(availability_policy.reporter_expectation)
          ]) do
-      {:ok, %{num_rows: count, rows: rows}} ->
+      {:ok, mode, rows} ->
+        count = length(rows)
         skipped = length(device_uids) - count
 
         if skipped > 0 do
@@ -2335,13 +2364,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           )
         end
 
-        rows
+        {mode, rows}
 
       {:error, reason} ->
         Logger.error("SweepResultsIngestor: Failed to apply hysteresis: #{inspect(reason)}")
-        []
+        {:legacy, []}
     end
   end
+
+  defp legacy_publishable(mode, rows),
+    do: if(Availability.Mode.legacy_column?(mode), do: rows, else: [])
 
   defp maybe_emit_availability_events(rows, group, agent_id, execution_id) do
     case availability_event_context(group, agent_id, execution_id) do
@@ -2422,6 +2454,48 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # deadlock rolls all of it back and running it again is safe; retry a bounded number
   # of times before reporting the error.
   @status_update_attempts 3
+
+  # One legacy availability statement in its own transaction: the mode is read under the
+  # shared mode-switch lock (LegacyWrites.admit/1), passed as the statement's last
+  # parameter (whether the legacy writers own is_available), and, when they do not, the
+  # returned legacy values go to the compatibility table in the same transaction. Each
+  # returned row is [uid, previous legacy value, new legacy value, hostname, ip].
+  defp availability_status_update(sql, params, attempt \\ 1) do
+    result =
+      Repo.transaction(fn ->
+        mode = LegacyWrites.admit()
+        legacy_column? = Availability.Mode.legacy_column?(mode)
+
+        case Repo.query(sql, params ++ [legacy_column?]) do
+          {:ok, %{rows: rows}} ->
+            if not legacy_column? do
+              LegacyWrites.record(Enum.map(rows, fn [uid, _was, now | _] -> {uid, now} end))
+            end
+
+            {mode, rows}
+
+          {:error, error} ->
+            Repo.rollback(error)
+        end
+      end)
+
+    case result do
+      {:ok, {mode, rows}} ->
+        {:ok, mode, rows}
+
+      {:error, %Postgrex.Error{postgres: %{code: :deadlock_detected}} = error}
+      when attempt < @status_update_attempts ->
+        Logger.info(
+          "SweepResultsIngestor: device availability update deadlocked; retrying " <>
+            "(attempt #{attempt + 1} of #{@status_update_attempts}): #{inspect(error)}"
+        )
+
+        availability_status_update(sql, params, attempt + 1)
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
 
   defp query_status_update(sql, params, attempt \\ 1) do
     case Repo.query(sql, params) do

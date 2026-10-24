@@ -13,8 +13,9 @@ defmodule ServiceRadar.Inventory.Availability.ResolverWorker do
      append with a plain INSERT and never lock log rows, so no writer waits on a pass.
   2. Deduplicates the claimed devices in claim order and takes at most 500; any other
      claimed device is appended again before commit.
-  3. In `shadow`, resolves them (`Resolution.resolve_locked/2`, device rows locked in uid
-     order). In any other mode the claimed rows are consumed without resolving.
+  3. In `shadow`, `cutover` and `authoritative`, resolves them
+     (`Resolution.resolve_locked/2`, device rows locked in uid order). In `legacy` the
+     claimed rows are consumed without resolving.
   4. Commits. A failure rolls the claim back with everything else.
 
   A write that commits after the claim left its own row, so the next pass resolves the
@@ -82,7 +83,7 @@ defmodule ServiceRadar.Inventory.Availability.ResolverWorker do
           |> Enum.map(&List.last/1)
           |> Enum.uniq()
 
-        if uids != [] and Mode.current() == :shadow do
+        if uids != [] and Mode.resolving?(Mode.current()) do
           {batch, overflow} = Enum.split(uids, Resolution.batch_size())
           if overflow != [], do: Repo.query!(@reappend, [overflow])
           Map.put(Resolution.resolve_locked(batch), :claimed, length(claimed))

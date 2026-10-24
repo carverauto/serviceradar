@@ -144,8 +144,9 @@ Build up a precise query one token at a time:
 in:devices vendor_name:Cisco hostname:%core% is_available:true
 ```
 
-Plain English: "Cisco devices whose hostname contains `core` and that are currently
-available." Boolean fields like `is_available` accept `true` or `false`.
+Plain English: "Cisco devices whose hostname contains `core` and that match
+`is_available:true`." Boolean fields like `is_available` accept `true` or `false`.
+What that boolean means is in the [language reference](./srql-language-reference.md).
 
 There is no `OR` keyword between separate filters — when you need OR semantics for a
 single field, use the list form from Step 4.

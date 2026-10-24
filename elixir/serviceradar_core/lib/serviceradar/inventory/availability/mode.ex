@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Inventory.Availability.Mode do
   @moduledoc """
   The deployment's availability mode (`inventory.availability_mode`, design Decision 10)
-  and the operator switch between `legacy` and `shadow`.
+  and the operator switches between `legacy`, `shadow`, `cutover` and `authoritative`.
 
   `cached/0` is the gate inline resolution checks on every write path. It reads the
   mode from this node's cache, refreshed at most every 30 seconds
@@ -22,8 +22,23 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   empty in `legacy`, so nothing else would resolve devices that see no new evidence.
   Entering from `legacy` first drops shadow rows left by an earlier shadow period.
   It is idempotent: in `shadow` it only enqueues the full pass again, which writes on
-  change. `enter_legacy/0` is the stage-b rollback: mode `legacy`, the shadow rows are
-  dropped and waiting entry jobs deleted. `cutover` and `authoritative` belong to stage c and are refused here.
+  change.
+
+  `enter_cutover/0` (stage c) moves `shadow` to `cutover`. Under the drained switch it
+  seeds `device_availability_legacy` from every device's `is_available`, so a device no
+  legacy writer touches again keeps its legacy value, and enqueues the reconciliation
+  (`ServiceRadar.Inventory.Availability.CutoverWorker`). From then on the resolver writes
+  the device rows with every transition side effect suppressed, and the legacy writers
+  write only the compatibility table (`ServiceRadar.Inventory.Availability.LegacyWrites`).
+  The reconciliation moves the mode to `authoritative` when it has finished
+  (`finish_cutover/0`); only then does the resolver emit transitions.
+
+  `enter_legacy/0` is the rollback from any mode: mode `legacy`, the expiry window
+  cleared, the shadow rows dropped and waiting entry, cutover and transition jobs
+  deleted. Coming from `cutover` or `authoritative` it also enqueues the restore of
+  `is_available` from the compatibility table (`CutoverWorker`, phase `"restore"`),
+  which runs after the switch has committed, so it never holds the switch lock while it
+  waits on device rows.
 
   Other nodes keep their cached `legacy` for up to `cache_ms/0` after the switch and
   skip inline resolution meanwhile, so the full pass is scheduled to start only after
@@ -42,7 +57,9 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   deadlock. Holding the lock, the switch waits on no device row.
   """
 
+  alias ServiceRadar.Inventory.Availability.CutoverWorker
   alias ServiceRadar.Inventory.Availability.ShadowEntryWorker
+  alias ServiceRadar.Inventory.Availability.Transitions
   alias ServiceRadar.Repo
 
   @type t :: :legacy | :shadow | :cutover | :authoritative
@@ -56,6 +73,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   @switch_lock "hashtextextended('serviceradar:availability-mode', 0)"
   @switch_lock_tries 100
   @switch_lock_retry_ms 100
+  @switch_timeout_ms 300_000
   @modes %{
     "legacy" => :legacy,
     "shadow" => :shadow,
@@ -98,9 +116,17 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
     end
   end
 
-  @doc "Whether writes resolve availability: only in `shadow` for stage b."
+  @doc "Whether writes resolve availability: in `shadow`, `cutover` and `authoritative`."
   @spec resolving?(t()) :: boolean()
-  def resolving?(mode \\ cached()), do: mode == :shadow
+  def resolving?(mode \\ cached()), do: mode in [:shadow, :cutover, :authoritative]
+
+  @doc """
+  Whether the legacy writers own `ocsf_devices.is_available` in `mode`: in `legacy` and
+  `shadow`. From `cutover` the resolver owns it and the legacy writers write only the
+  compatibility table.
+  """
+  @spec legacy_column?(t()) :: boolean()
+  def legacy_column?(mode), do: mode in [:legacy, :shadow]
 
   @doc "Drops this node's cached mode, so the next `cached/0` reads the database."
   @spec reset_cache() :: :ok
@@ -116,73 +142,151 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   @spec enter_shadow() :: {:ok, %{from: t(), to: :shadow}} | {:error, term()}
   def enter_shadow do
     switch(fn
-      from when from in [:legacy, :shadow] ->
-        # Rows left by an earlier shadow period are stale.
-        if from == :legacy, do: Repo.query!("TRUNCATE platform.device_availability_shadow")
+      # A rollback whose restore has not finished would leave resolver values in
+      # is_available, and the shadow entry seed would copy them into the compatibility
+      # table, losing the legacy values the restore puts back.
+      :legacy = from ->
+        if CutoverWorker.outstanding?("restore"),
+          do: {:error, :restore_pending},
+          else: shadow_from(from)
 
-        # Entering from legacy starts the expiry window now; a repeat keeps it.
-        Repo.query!("""
-        UPDATE platform.availability_settings
-        SET mode = 'shadow',
-            updated_at = (now() AT TIME ZONE 'utc'),
-            expiry_watermark = CASE WHEN mode = 'shadow' AND expiry_watermark IS NOT NULL
-                                    THEN expiry_watermark
-                                    ELSE (now() AT TIME ZONE 'utc') END
-        WHERE singleton
-        """)
-
-        :ok = ShadowEntryWorker.enqueue()
-        {:ok, %{from: from, to: :shadow}}
+      :shadow = from ->
+        shadow_from(from)
 
       from ->
         {:error, {:unsupported_switch, from, :shadow}}
     end)
   end
 
+  defp shadow_from(from) do
+    # Rows left by an earlier shadow period are stale.
+    if from == :legacy, do: Repo.query!("TRUNCATE platform.device_availability_shadow")
+
+    # Entering from legacy starts the expiry window now; a repeat keeps it.
+    Repo.query!("""
+    UPDATE platform.availability_settings
+    SET mode = 'shadow',
+        updated_at = (now() AT TIME ZONE 'utc'),
+        expiry_watermark = CASE WHEN mode = 'shadow' AND expiry_watermark IS NOT NULL
+                                THEN expiry_watermark
+                                ELSE (now() AT TIME ZONE 'utc') END
+    WHERE singleton
+    """)
+
+    :ok = ShadowEntryWorker.enqueue()
+    {:ok, %{from: from, to: :shadow}}
+  end
+
   @doc """
-  The stage-b rollback: mode `legacy`, the expiry window cleared, the shadow rows
-  dropped and waiting entry jobs deleted. Evidence, the per-agent ledger and the compatibility table are untouched.
+  The rollback from any mode: mode `legacy`, the expiry window cleared, the shadow rows
+  dropped and waiting entry, cutover and transition jobs deleted. From `cutover` or
+  `authoritative` it also enqueues the restore of `is_available` from the compatibility
+  table, which
+  the mirror turns back into `availability_state`. Evidence, the per-agent ledger and
+  the compatibility table are untouched.
   """
   @spec enter_legacy() :: {:ok, %{from: t(), to: :legacy}} | {:error, term()}
   def enter_legacy do
+    switch(fn from ->
+      Repo.query!("""
+      UPDATE platform.availability_settings
+      SET mode = 'legacy', updated_at = (now() AT TIME ZONE 'utc'), expiry_watermark = NULL
+      WHERE singleton
+      """)
+
+      Repo.query!("TRUNCATE platform.device_availability_shadow")
+      :ok = ShadowEntryWorker.cancel_waiting()
+      :ok = CutoverWorker.cancel_waiting()
+      :ok = Transitions.cancel_waiting()
+      if from in [:cutover, :authoritative], do: :ok = CutoverWorker.enqueue("restore")
+      {:ok, %{from: from, to: :legacy}}
+    end)
+  end
+
+  @seed_legacy """
+  INSERT INTO platform.device_availability_legacy AS legacy (device_uid, is_available, updated_at)
+  SELECT uid, is_available, (now() AT TIME ZONE 'utc') FROM platform.ocsf_devices
+  ON CONFLICT (device_uid) DO UPDATE
+    SET is_available = EXCLUDED.is_available, updated_at = EXCLUDED.updated_at
+    WHERE legacy.is_available IS DISTINCT FROM EXCLUDED.is_available
+  """
+
+  @doc """
+  Switches `shadow` to `cutover` (stage c). Under the drained switch the compatibility
+  table is seeded from every device's `is_available`, before any reader or writer sees
+  `cutover`; then the reconciliation is enqueued. Repeating it in `cutover` only
+  enqueues the reconciliation again. The expiry window that `shadow` started is kept.
+  """
+  @spec enter_cutover() :: {:ok, %{from: t(), to: :cutover}} | {:error, term()}
+  def enter_cutover do
     switch(fn
-      from when from in [:legacy, :shadow] ->
+      from when from in [:shadow, :cutover] ->
+        if from == :shadow do
+          Repo.query!(@seed_legacy, [], timeout: :infinity)
+
+          Repo.query!("""
+          UPDATE platform.availability_settings
+          SET mode = 'cutover', updated_at = (now() AT TIME ZONE 'utc')
+          WHERE singleton
+          """)
+        end
+
+        :ok = CutoverWorker.enqueue("reconcile")
+        {:ok, %{from: from, to: :cutover}}
+
+      from ->
+        {:error, {:unsupported_switch, from, :cutover}}
+    end)
+  end
+
+  @doc """
+  Moves `cutover` to `authoritative` once the reconciliation has re-resolved every
+  device, and enqueues its announcement in the same transaction. Called only by
+  `CutoverWorker`; any other mode is left as it is (a rollback won the race).
+  """
+  @spec finish_cutover() :: {:ok, %{from: t(), to: :authoritative}} | {:error, term()}
+  def finish_cutover do
+    switch(fn
+      :cutover ->
         Repo.query!("""
         UPDATE platform.availability_settings
-        SET mode = 'legacy', updated_at = (now() AT TIME ZONE 'utc'), expiry_watermark = NULL
+        SET mode = 'authoritative', updated_at = (now() AT TIME ZONE 'utc')
         WHERE singleton
         """)
 
-        Repo.query!("TRUNCATE platform.device_availability_shadow")
-        :ok = ShadowEntryWorker.cancel_waiting()
-        {:ok, %{from: from, to: :legacy}}
+        :ok = CutoverWorker.enqueue("announce")
+        {:ok, %{from: :cutover, to: :authoritative}}
 
       from ->
-        {:error, {:unsupported_switch, from, :legacy}}
+        {:error, {:unsupported_switch, from, :authoritative}}
     end)
   end
 
   defp switch(apply_switch) do
     result =
-      Repo.transaction(fn ->
-        Repo.query!("SET LOCAL lock_timeout = '5s'")
-        if not switch_locked?(@switch_lock_tries), do: Repo.rollback(:mode_switch_busy)
+      Repo.transaction(
+        fn ->
+          Repo.query!("SET LOCAL lock_timeout = '5s'")
+          if not switch_locked?(@switch_lock_tries), do: Repo.rollback(:mode_switch_busy)
 
-        Repo.query!("""
-        INSERT INTO platform.availability_settings (singleton) VALUES (true)
-        ON CONFLICT (singleton) DO NOTHING
-        """)
+          Repo.query!("""
+          INSERT INTO platform.availability_settings (singleton) VALUES (true)
+          ON CONFLICT (singleton) DO NOTHING
+          """)
 
-        %{rows: [[mode]]} =
-          Repo.query!(
-            "SELECT mode FROM platform.availability_settings WHERE singleton FOR UPDATE"
-          )
+          %{rows: [[mode]]} =
+            Repo.query!(
+              "SELECT mode FROM platform.availability_settings WHERE singleton FOR UPDATE"
+            )
 
-        case apply_switch.(Map.fetch!(@modes, mode)) do
-          {:ok, switched} -> switched
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+          case apply_switch.(Map.fetch!(@modes, mode)) do
+            {:ok, switched} -> switched
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end,
+        # Seeding the compatibility table writes one row per device.
+        timeout: @switch_timeout_ms
+      )
 
     reset_cache()
     result

@@ -15,7 +15,7 @@
     "schemas": {
       "device-filter-is_available": {
         "additionalProperties": false,
-        "description": "Current availability status",
+        "description": "Last decided availability as a boolean. Once merged availability is authoritative it is the projection of availability_state and keeps its last decided value while the state is unknown; read availability_state to tell unknown apart.",
         "properties": {
           "eq": {
             "type": "boolean"
@@ -26743,7 +26743,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Current availability status. Field included by default."
+                "description": "Last decided availability as a boolean. Once merged availability is authoritative it is the projection of availability_state and keeps its last decided value while the state is unknown; read availability_state to tell unknown apart. Field included by default."
               },
               "vlan_uid": {
                 "anyOf": [
@@ -26792,11 +26792,63 @@
                   }
                 ],
                 "description": "Compliance status. Field included by default."
+              },
+              "availability_state": {
+                "description": "Canonical availability: available, unavailable or unknown (no fresh evidence from any source). Field included by default.",
+                "enum": [
+                  "available",
+                  "unavailable",
+                  "unknown"
+                ],
+                "type": "string"
+              },
+              "availability_decided_by": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Provenance of availability_state: source_kind, source_instance, reporter_agent_id, authority_class, rule and the previous decided state. Field included by default."
+              },
+              "availability_changed_at": {
+                "anyOf": [
+                  {
+                    "format": "date-time",
+                    "nullable": true,
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "When availability_state last changed. Field included by default."
+              },
+              "availability_conflict": {
+                "description": "Whether fresh evidence outside the deciding source, such as a lower-ranked class or a pinned-out agent, disagrees with availability_state. Field included by default.",
+                "type": "boolean"
+              },
+              "availability_agents": {
+                "anyOf": [
+                  {
+                    "nullable": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Per-agent summary: up, down, stale and total non-control agents, plus blocked_verified, policy_violation and inconclusive_control negative-control counts. Field included by default."
               }
             },
             "required": [
               "partition",
-              "is_active"
+              "is_active",
+              "availability_state",
+              "availability_conflict"
             ],
             "type": "object"
           },
@@ -29463,6 +29515,21 @@
           },
           "is_compliant": {
             "$ref": "#/components/schemas/device-filter-is_compliant"
+          },
+          "availability_state": {
+            "$ref": "#/components/schemas/device-filter-availability_state"
+          },
+          "availability_decided_by": {
+            "$ref": "#/components/schemas/device-filter-availability_decided_by"
+          },
+          "availability_changed_at": {
+            "$ref": "#/components/schemas/device-filter-availability_changed_at"
+          },
+          "availability_conflict": {
+            "$ref": "#/components/schemas/device-filter-availability_conflict"
+          },
+          "availability_agents": {
+            "$ref": "#/components/schemas/device-filter-availability_agents"
           }
         },
         "type": "deepObject"
@@ -33294,6 +33361,245 @@
           },
           "not_eq": {
             "type": "integer"
+          }
+        },
+        "type": "object"
+      },
+      "device-filter-availability_state": {
+        "additionalProperties": false,
+        "description": "Canonical availability: available, unavailable or unknown (no fresh evidence from any source).",
+        "properties": {
+          "eq": {
+            "enum": [
+              "available",
+              "unavailable",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "greater_than": {
+            "enum": [
+              "available",
+              "unavailable",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "enum": [
+              "available",
+              "unavailable",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "string"
+          },
+          "less_than": {
+            "enum": [
+              "available",
+              "unavailable",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "enum": [
+              "available",
+              "unavailable",
+              "unknown"
+            ],
+            "type": "string"
+          },
+          "not_eq": {
+            "enum": [
+              "available",
+              "unavailable",
+              "unknown"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "device-filter-availability_decided_by": {
+        "additionalProperties": false,
+        "description": "Provenance of availability_state: source_kind, source_instance, reporter_agent_id, authority_class, rule and the previous decided state.",
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "device-filter-availability_changed_at": {
+        "additionalProperties": false,
+        "description": "When availability_state last changed.",
+        "properties": {
+          "eq": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "greater_than": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "greater_than_or_equal": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "in": {
+            "items": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "less_than": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "less_than_or_equal": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "not_eq": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "device-filter-availability_conflict": {
+        "additionalProperties": false,
+        "description": "Whether fresh evidence outside the deciding source, such as a lower-ranked class or a pinned-out agent, disagrees with availability_state.",
+        "properties": {
+          "eq": {
+            "type": "boolean"
+          },
+          "greater_than": {
+            "type": "boolean"
+          },
+          "greater_than_or_equal": {
+            "type": "boolean"
+          },
+          "in": {
+            "items": {
+              "type": "boolean"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "boolean"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "boolean"
+          },
+          "less_than": {
+            "type": "boolean"
+          },
+          "less_than_or_equal": {
+            "type": "boolean"
+          },
+          "not_eq": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "device-filter-availability_agents": {
+        "additionalProperties": false,
+        "description": "Per-agent summary: up, down, stale and total non-control agents, plus blocked_verified, policy_violation and inconclusive_control negative-control counts.",
+        "properties": {
+          "eq": {
+            "type": "object"
+          },
+          "greater_than": {
+            "type": "object"
+          },
+          "greater_than_or_equal": {
+            "type": "object"
+          },
+          "in": {
+            "items": {
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "is_distinct_from": {
+            "type": "object"
+          },
+          "is_nil": {
+            "type": "boolean"
+          },
+          "is_not_distinct_from": {
+            "type": "object"
+          },
+          "less_than": {
+            "type": "object"
+          },
+          "less_than_or_equal": {
+            "type": "object"
+          },
+          "not_eq": {
+            "type": "object"
           }
         },
         "type": "object"

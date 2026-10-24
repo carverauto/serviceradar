@@ -10,17 +10,22 @@ defmodule ServiceRadar.Inventory.Availability do
 
   ## Capture
 
-  Evidence is recorded alongside the legacy writes, which still own
-  `ocsf_devices.is_available`. Writers call `capture/2`, which never fails the write it
-  accompanies: it is skipped when capture is switched off, isolates its statements in a
-  savepoint inside a caller's transaction, and logs instead of raising.
+  Evidence is recorded alongside the legacy writes. Those writes own
+  `ocsf_devices.is_available` in `legacy` and `shadow`; from `cutover` the resolver owns
+  the column and the legacy writers record only the compatibility table
+  (`ServiceRadar.Inventory.Availability.LegacyWrites`). Writers call `capture/2`, which
+  never fails the write it accompanies: it is skipped when capture is switched off,
+  isolates its statements in a savepoint inside a caller's transaction, and logs instead
+  of raising.
 
-  ## Resolution (stage b)
+  ## Resolution
 
-  In `shadow` mode `record_evidence/2` resolves the devices whose evidence it wrote in
+  Outside `legacy`, `record_evidence/2` resolves the devices whose evidence it wrote in
   the same transaction (`resolve_devices/1`), so generic evidence never waits for the
-  invalidation log. The decision goes only to `device_availability_shadow`. In `legacy`
-  the mode check is a cached read and nothing else runs.
+  invalidation log. In `shadow` the decision goes only to `device_availability_shadow`;
+  in `cutover` and `authoritative` it is the device's `availability_state` (see
+  `ServiceRadar.Inventory.Availability.Resolution`). In `legacy` the mode check is a
+  cached read and nothing else runs.
 
   Capture is on by default. Set `config :serviceradar_core, #{inspect(__MODULE__)},
   evidence_capture: false` (`SERVICERADAR_AVAILABILITY_EVIDENCE_CAPTURE=false`) to turn
@@ -64,9 +69,9 @@ defmodule ServiceRadar.Inventory.Availability do
   skipped. Rows are written in key order, so concurrent writers lock in one order.
 
   Planning and writing run in one transaction that locks the existing rows, so
-  concurrent submissions for one key are serialized. In `shadow` the devices' rows are
-  locked first, in uid order, and the devices whose evidence was written are resolved
-  before the transaction ends.
+  concurrent submissions for one key are serialized. Outside `legacy` the devices' rows
+  are locked first, in uid order, and the devices whose evidence was written are
+  resolved before the transaction ends.
 
   Options: `:now` (defaults to the current time).
   """
@@ -121,9 +126,9 @@ defmodule ServiceRadar.Inventory.Availability do
   end
 
   @doc """
-  Resolves `device_uids` inline for a write path: in `shadow`, under the device locks in
-  the caller's transaction (or its own), writing `device_availability_shadow` on change.
-  A no-op in `legacy`. Never fails the caller; see `Resolution.resolve_devices/1`.
+  Resolves `device_uids` inline for a write path, under the device locks in the caller's
+  transaction (or its own), writing on change: the shadow table in `shadow`, the device
+  row from `cutover`. A no-op in `legacy`. Never fails the caller; see `Resolution.resolve_devices/1`.
   """
   @spec resolve_devices([String.t()]) :: {:ok, Resolution.result() | :legacy} | {:error, term()}
   defdelegate resolve_devices(device_uids), to: Resolution
