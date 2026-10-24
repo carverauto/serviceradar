@@ -1249,6 +1249,38 @@ per 13-host pass, most of it outside the database) now applies once a day and, b
 passes, only to the devices a change reaches. Elixir wall time was not re-measured here;
 the integration suite asserts which devices each run evaluates.
 
+## Implementation record: assessment transition ingestion (tasks 1.3 and 1.4, partial)
+
+EventWriter attaches an `EXPOSURE_TRANSITIONS` consumer only when StarRocks is
+configured. The assessment relay retains stream ownership: the consumer sets
+`ensure_stream: false` and does not change the producer's limits or retention.
+Helm permits core's EventWriter identity to subscribe to the transition subjects.
+
+`ExposureTransitions` accepts the producer's schema-v1 complete after-images,
+validates source u32 device ordinals and positive BIGINT identities, and maps
+active/resolved states into the migration 0032 tables. The known severity words
+`none` and `unknown` rank 0, then `low` 1, `medium` 2, `high` 3 and `critical`
+4. A null severity and every other binary severity, including feed words
+such as `negligible` and `informational`, store a null `severity_rank`; the
+history payload keeps the original severity string. A missing device ordinal is
+dropped and counted. A missing severity key, a non-binary severity, and other
+malformed or unsupported messages fail the batch. EventWriter allocates no
+identities and has no CNPG exposure write path.
+
+Within one batch the newest complete after-image wins for each fact key; between
+loads StarRocks enforces `merge_condition = transition_seq`. Live partial loads
+name every event-owned column and omit `snapshot_generation`. Load labels derive
+from the target table and the chunk's transition sequences, so identical replay
+is stable while a new transition cannot collide with a prior load. The batch
+succeeds only after both the fact update and the complete history append succeed;
+a failed or filtered load fails acknowledgement. History uses at-least-once
+append semantics: regrouping deliveries can append the same transition again,
+so future history readers must identify transitions by `transition_seq`.
+
+This delivers the transition-consumer half of 1.3/1.4. Dimension publishing and
+consumption, retirement, snapshot/reconciliation and the remaining lifecycle
+scenarios are still open. No exposure query entity is enabled by this slice.
+
 ## Open Questions
 
 1. Resolved: the product owner approved the StarRocks-required exception for exposure

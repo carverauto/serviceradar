@@ -60,9 +60,10 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
         # inventory.k8s.public_endpoints). That is external observation data pushed in by an
         # agent, not this deployment reporting on itself, so it belongs on JetStream like
         # every other ingestion subject. `mtr` is the same case: agents trace remote targets and
-        # core relays the traces for EventWriter to store.
+        # core relays the traces for EventWriter to store. Assessment transitions
+        # describe vulnerabilities on monitored devices and use the same durable path.
         assert stream.subject =~
-                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr)/,
+                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr|vulnerability\.assessment\.transitions)/,
                "Stream #{stream.name} has subject #{stream.subject} which may not be for external data"
       end
     end

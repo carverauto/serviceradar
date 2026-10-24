@@ -14,7 +14,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   attribution observations (`:flow_attribution_observations`) are not
   shadowed: while StarRocks is enabled they are written to the warehouse only,
   through `persist_warehouse/3`, and a failed load fails the ACK. Flows have no
-  CNPG write at all; without StarRocks they are not stored.
+  CNPG write at all; without StarRocks they are not stored. Assessment exposure
+  facts and transition history also use the warehouse-only path. Their consumer
+  attaches only when StarRocks is enabled and requires both loads before ACK.
 
   ## Load sizing
 
@@ -27,9 +29,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   call does, so the batch keeps a single ACK decision. A batch within both
   limits is one load, labelled exactly as before; a split load's label is still
   derived from its own rows (or suffixed from a caller-supplied label), so a
-  retry of the same batch reuses the same labels. The tables are primary-key
-  tables, so a retry that regroups rows into different loads upserts rather
-  than duplicates.
+  retry of the same batch reuses the same labels. Primary-key tables upsert
+  retries even when rows regroup into different loads. Exposure history is
+  append-only: regrouped retries can append the same transition again.
 
   ## Replacing rows by id
 
@@ -66,6 +68,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :otel_traces
           | :bmp_routing_events
           | :flow_attribution_observations
+          | :exposure_facts
+          | :exposure_transitions_log
   @type dest :: :cnpg | :starrocks
 
   @tables %{
@@ -80,7 +84,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     otel_metric_points: "otel_metric_points",
     otel_traces: "otel_traces",
     bmp_routing_events: "bmp_routing_events",
-    flow_attribution_observations: "flow_process_attribution_observations"
+    flow_attribution_observations: "flow_process_attribution_observations",
+    exposure_facts: "exposure_facts",
+    exposure_transitions_log: "exposure_transitions_log"
   }
 
   @spec table_for(dataset()) :: String.t()
@@ -234,7 +240,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
         |> Keyword.put_new(:config, client_config())
         |> Keyword.put(:dataset, dataset)
         |> Keyword.put(:cnpg_completed, MapSet.member?(completed, :cnpg))
-        |> attribution_load_opts(dataset)
+        |> dataset_load_opts(dataset)
 
       chunks = split_loads(encoded, limits)
       emit_batch_telemetry(dataset, table, chunks)
@@ -317,6 +323,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   end
 
   defp load_chunk(persist, dataset, table, rows, persist_opts) do
+    persist_opts = exposure_load_label(persist_opts, dataset, table, rows)
+
     :telemetry.span(
       [:serviceradar, :starrocks, :stream_load, :request],
       %{dataset: dataset, table: table},
@@ -337,7 +345,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
 
   defp classify_load(result, dataset, table) do
     case result do
-      {:quarantine, reason} when dataset == :flow_attribution ->
+      {:quarantine, reason}
+      when dataset in [:flow_attribution, :exposure_facts, :exposure_transitions_log] ->
         {:error, reason}
 
       {:quarantine, reason} ->
@@ -538,18 +547,36 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     end
   end
 
-  defp attribution_load_opts(opts, :flow_attribution) do
+  # Flow observation identities do not include assessment keys or sequences.
+  # Each chunk needs a stable, exposure-specific label, including on redelivery.
+  defp exposure_load_label(opts, dataset, table, rows)
+       when dataset in [:exposure_facts, :exposure_transitions_log] do
+    sequences = rows |> Enum.map(& &1["transition_seq"]) |> Enum.sort() |> Enum.join(",")
+    digest = :sha256 |> :crypto.hash(table <> ":" <> sequences) |> Base.encode16(case: :lower)
+    Keyword.put(opts, :label, "exposure-" <> digest)
+  end
+
+  defp exposure_load_label(opts, _dataset, _table, _rows), do: opts
+
+  defp dataset_load_opts(opts, :exposure_facts) do
+    opts
+    |> Keyword.put(:partial_update, true)
+    |> Keyword.put(:merge_condition, "transition_seq")
+    |> Keyword.put(:columns, Rows.exposure_fact_columns())
+  end
+
+  defp dataset_load_opts(opts, :flow_attribution) do
     opts
     |> Keyword.put(:partial_update, true)
     |> Keyword.put(:merge_condition, "attribution_version")
     |> Keyword.put(:columns, Attribution.load_columns())
   end
 
-  defp attribution_load_opts(opts, :flows) do
+  defp dataset_load_opts(opts, :flows) do
     Keyword.put(opts, :merge_condition, "attribution_version")
   end
 
-  defp attribution_load_opts(opts, _dataset), do: opts
+  defp dataset_load_opts(opts, _dataset), do: opts
 
   defp shadow_enabled?(dataset, opts) do
     enabled = enabled_datasets(opts)
