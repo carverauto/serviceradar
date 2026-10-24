@@ -12,14 +12,17 @@ defmodule ServiceRadar.Integrations.ArmisAvailabilityPreview do
   `availability_state` from `cutover` on. An id with any unknown or undecided device is
   withheld under `merged`.
 
-  The source settings page shows this before an operator adopts merged semantics, and
-  the shadow divergence report (`ServiceRadar.Inventory.Availability.DivergenceReport`)
-  includes it for every canonical source.
+  The source settings page shows this before an operator adopts merged semantics,
+  and only once `forecast_available?/1` is true. In `legacy` there are no shadow
+  decisions, so a missing shadow row is not a forecast. The shadow divergence
+  report (`ServiceRadar.Inventory.Availability.DivergenceReport`) includes the
+  same counts for every canonical source.
   """
 
   import Ecto.Query
 
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
+  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Availability.ShadowDecision
   alias ServiceRadar.Repo
 
@@ -38,6 +41,18 @@ defmodule ServiceRadar.Integrations.ArmisAvailabilityPreview do
           withheld: non_neg_integer(),
           by_direction: [direction()]
         }
+
+  @doc """
+  Whether a merged-availability preview has a decision to count.
+
+  True when `platform.availability_mode()` is not `legacy`. In `legacy` no shadow
+  rows are written, so there is nothing to forecast. `query_opts` are passed to
+  the mode read.
+  """
+  @spec forecast_available?(keyword()) :: boolean()
+  def forecast_available?(query_opts \\ []) do
+    Mode.current(query_opts) != :legacy
+  end
 
   @doc """
   The preview for `source` (anything with an `:id`). Options: `:samples` (uids per

@@ -579,10 +579,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
            |> Ash.update(actor: actor) do
       {:noreply,
        socket
-       |> put_flash(
-         :info,
-         "#{adopted.name} uses merged availability. Until the deployment cuts over merged availability its pushes do not change; from cutover they follow the merged state and withhold unknown devices."
-       )
+       |> put_flash(:info, "#{adopted.name} now uses merged availability.")
        |> assign(:selected_source, refresh_selected_source(adopted, actor))
        |> assign(:selected_source_availability_preview, nil)
        |> assign(:sources, list_sources(actor, active_filters(socket)))}
@@ -1628,7 +1625,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   attr(:selected_source_runs, :list, required: true)
   attr(:selected_source_target_examples, :list, required: true)
   attr(:selected_source_config_diagnostics, :list, required: true)
-  attr(:availability_preview, :map, default: nil)
+  attr(:availability_preview, :any, default: nil)
   attr(:timezone, :string, required: true)
 
   defp details_modal(assigns) do
@@ -2618,12 +2615,14 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     |> Map.delete("fact_authority")
   end
 
-  # What adopting merged availability would change for a canonical Armis source (no
-  # availability agent selected) still on legacy semantics. Read on the connected render
-  # only: it is an aggregate over every linked Armis id.
+  # Connected render only. A canonical legacy Armis source gets the preview when a
+  # forecast exists, and :not_forecast while the deployment is still in legacy mode.
   defp availability_preview(socket, %{source_type: :armis} = source) do
-    if connected?(socket) and canonical_legacy_source?(source),
-      do: ArmisAvailabilityPreview.build(source)
+    if connected?(socket) and canonical_legacy_source?(source) do
+      if ArmisAvailabilityPreview.forecast_available?(),
+        do: ArmisAvailabilityPreview.build(source),
+        else: :not_forecast
+    end
   end
 
   defp availability_preview(_socket, _source), do: nil
@@ -2636,7 +2635,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   defp blank_agent?(agent_id), do: is_nil(agent_id) or String.trim(agent_id) == ""
 
   attr(:source, :map, required: true)
-  attr(:preview, :map, default: nil)
+  attr(:preview, :any, default: nil)
 
   defp northbound_availability_section(assigns) do
     ~H"""
@@ -2649,23 +2648,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
         <% @source.northbound_availability_semantics == :merged -> %>
           <div class="text-sm">
-            Pushes the merged availability state, which before the deployment's availability
-            cutover equals the legacy value, so adopting before cutover changes nothing pushed
-            until cutover. From cutover, unknown devices are withheld.
+            Pushes the merged availability state. Until the deployment cuts over merged
+            availability that state equals the legacy value; devices whose availability is
+            unknown are withheld.
           </div>
         <% true -> %>
           <div class="text-sm">
             Pushes the legacy availability value. Select an availability agent in Edit, or adopt
-            merged availability below. Merged semantics push the merged availability state, which
-            before the deployment's availability cutover equals the legacy value, so adopting
-            before cutover changes nothing pushed until cutover.
+            merged availability below.
           </div>
-          <p :if={@preview} class="text-xs text-sr-muted">
-            What this source would push once merged availability is cut over. Until then the
-            preview shows the shadow decision; from cutover it shows the merged state.
+          <p :if={is_map(@preview)} class="text-xs text-sr-muted">
+            What this source would push with merged availability: the shadow decision before
+            cutover, the merged state after it.
           </p>
           <div
-            :if={@preview}
+            :if={is_map(@preview)}
             id="integration-source-availability-preview"
             class="grid grid-cols-3 gap-4"
           >
@@ -2674,28 +2671,35 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <div class="sr-ui-stat-value text-lg">{@preview.linked_ids}</div>
             </div>
             <div class="stat bg-sr-subtle rounded-lg p-3">
-              <div class="sr-ui-stat-title text-xs">Change After Cutover</div>
+              <div class="sr-ui-stat-title text-xs">Would Change</div>
               <div class="sr-ui-stat-value text-lg">{@preview.would_change}</div>
             </div>
             <div class="stat bg-sr-subtle rounded-lg p-3">
-              <div class="sr-ui-stat-title text-xs">Withheld After Cutover</div>
+              <div class="sr-ui-stat-title text-xs">Would Be Withheld</div>
               <div class="sr-ui-stat-value text-lg">{@preview.withheld}</div>
             </div>
           </div>
-          <ul :if={@preview} class="text-xs text-sr-muted">
+          <ul :if={is_map(@preview)} class="text-xs text-sr-muted">
             <li
               :for={direction <- @preview.by_direction}
               :if={direction.legacy_push != direction.merged_push}
             >
-              After cutover, {direction.count}: {direction.legacy_push} to {direction.merged_push}
+              {direction.count}: {direction.legacy_push} to {direction.merged_push}
             </li>
           </ul>
+          <p
+            :if={@preview == :not_forecast}
+            id="integration-source-availability-preview-unavailable"
+            class="text-sm"
+          >
+            A preview is available once the deployment runs merged availability in shadow mode.
+          </p>
           <.ui_button
             id="integration-source-adopt-merged-availability"
             size="sm"
             phx-click="adopt_merged_availability"
             phx-value-id={@source.id}
-            data-confirm="Use merged availability for this source? Until the deployment cuts over merged availability its pushes do not change; from cutover they follow the merged state and withhold unknown devices."
+            data-confirm="Use merged availability for this source? Its pushes will follow the merged availability state, which equals the legacy value until the deployment cuts over merged availability, and devices whose availability is unknown are withheld."
           >
             Adopt merged availability
           </.ui_button>
