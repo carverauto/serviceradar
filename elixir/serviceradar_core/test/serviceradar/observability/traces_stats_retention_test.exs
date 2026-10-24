@@ -102,4 +102,19 @@ defmodule ServiceRadar.Observability.TracesStatsRetentionTest do
              false
            ) == :skip
   end
+
+  test "an explicit narrow stays put on the next run instead of taking the ceiling" do
+    config = [traces_stats_retention_days: 30, cnpg_telemetry_default_days: 7]
+    installed = {:ok, %{rows: [[30.0]]}}
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(config, installed, false) == 30
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(
+             [traces_stats_retention_days: 20, cnpg_telemetry_default_days: 7],
+             installed,
+             false
+           ) == 20
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(config, installed, true) == :skip
+  end
 end

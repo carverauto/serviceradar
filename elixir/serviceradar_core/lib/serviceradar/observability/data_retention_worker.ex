@@ -376,13 +376,12 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   stay, or `{:skip, :unreadable}` when the catalog read did not prove the window.
 
   `query_result` is the `{:ok, %{rows: _}} | {:error, _}` result of reading
-  `drop_after`. `cold_tier_enabled?` is `ColdTier.Config.enabled?/0`. Once the
-  installed window is at least `RetentionFence.cagg_cold_window_days/1`, the
-  telemetry ceiling does not choose a shorter target. An explicit positive
-  `traces_stats_retention_days` narrows that window only while the tier is
-  disabled, and the written number is that explicit value. A missing policy,
-  or a window still below the fence target (the 14-day migration interval),
-  keeps the ceiling-capped migration retention.
+  `drop_after`. `cold_tier_enabled?` is `ColdTier.Config.enabled?/0`. The
+  telemetry ceiling applies to a missing policy and to the 14-day migration
+  interval. A longer installed window is left alone while the cold tier is
+  enabled. With the tier disabled, an explicit positive
+  `traces_stats_retention_days` is written as given, except a value above a
+  window already at `RetentionFence.cagg_cold_window_days/1`, which stays.
   """
   @spec traces_stats_retention_to_apply(
           keyword(),
@@ -404,26 +403,30 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     explicit = positive_integer(Keyword.get(config, :traces_stats_retention_days), nil)
     cold_window = RetentionFence.cagg_cold_window_days("traces_stats_5m")
 
-    widened? =
+    migration_interval? =
+      is_nil(current) or
+        (is_integer(current) and current <= @default_traces_stats_retention_days)
+
+    at_fence? =
       is_integer(current) and is_integer(cold_window) and current >= cold_window
 
     cond do
-      widened? and cold_tier_enabled? ->
-        :skip
-
-      widened? and is_integer(explicit) and explicit < current ->
-        explicit
-
-      widened? ->
-        :skip
-
-      true ->
+      migration_interval? ->
         migration_cagg_retention_days(
           config,
           "traces_stats_5m",
           :traces_stats_retention_days,
           @default_traces_stats_retention_days
         )
+
+      cold_tier_enabled? ->
+        :skip
+
+      is_integer(explicit) and not (at_fence? and explicit > current) ->
+        explicit
+
+      true ->
+        :skip
     end
   end
 
