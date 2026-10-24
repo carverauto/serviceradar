@@ -367,10 +367,7 @@ spec:
           value: "false"
         {{- end }}
         {{- if not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_ALERT_EVALUATION_MODE") }}
-        {{- $alertEvaluationMode := toString (default "prepared" (default (dict) $coreVals.alertEvaluation).mode) }}
-        {{- if not (has $alertEvaluationMode (list "prepared" "active" "draining")) }}
-        {{- fail (printf "core.alertEvaluation.mode must be prepared, active or draining, got %q" $alertEvaluationMode) }}
-        {{- end }}
+        {{- $alertEvaluationMode := include "serviceradar.alertEvaluationMode" . }}
         - name: SERVICERADAR_ALERT_EVALUATION_MODE
           value: {{ $alertEvaluationMode | quote }}
         {{- end }}

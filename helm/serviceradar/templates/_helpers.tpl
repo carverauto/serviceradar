@@ -1651,3 +1651,32 @@ tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 {{- end -}}
 {{- $pg | toYaml -}}
 {{- end -}}
+
+{{/*
+Durable alert evaluation mode (SERVICERADAR_ALERT_EVALUATION_MODE).
+
+An explicit core.alertEvaluation.mode always wins. When unset, a fresh
+install starts active: it never ran a pre-1.4.85 evaluator, so the
+prepared quarantine protects nothing. An upgrade stays prepared unless
+the install marker ConfigMap (rendered only on first install and kept
+across upgrades) proves the deployment began on a chart with the
+fresh-install default. Renderers that always report an upgrade and
+cannot perform lookup (Argo CD repo-server) resolve unset to prepared;
+GitOps installs set the mode explicitly in their values.
+*/}}
+{{- define "serviceradar.alertEvaluationMode" -}}
+{{- $coreVals := default (dict) .Values.core -}}
+{{- $configured := toString (default "" (default (dict) $coreVals.alertEvaluation).mode) -}}
+{{- if $configured -}}
+{{- if not (has $configured (list "prepared" "active" "draining")) -}}
+{{- fail (printf "core.alertEvaluation.mode must be prepared, active or draining, got %q" $configured) -}}
+{{- end -}}
+{{- $configured -}}
+{{- else if .Release.IsInstall -}}
+active
+{{- else if lookup "v1" "ConfigMap" .Release.Namespace "serviceradar-alert-evaluation-install" -}}
+active
+{{- else -}}
+prepared
+{{- end -}}
+{{- end -}}

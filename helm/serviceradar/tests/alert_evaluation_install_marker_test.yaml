@@ -1,0 +1,26 @@
+suite: alert evaluation install marker
+templates:
+  - templates/alert-evaluation-install-marker.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: renders the kept install marker on a fresh install
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: metadata.name
+          value: serviceradar-alert-evaluation-install
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - equal:
+          path: data.freshInstallDefault
+          value: active
+
+  - it: does not render the marker on upgrade
+    release:
+      upgrade: true
+    asserts:
+      - hasDocuments:
+          count: 0

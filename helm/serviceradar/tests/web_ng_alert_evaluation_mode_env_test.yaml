@@ -1,0 +1,43 @@
+suite: web-ng alert evaluation mode
+templates:
+  - templates/web.yaml
+tests:
+  - it: renders active by default on a fresh install
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ALERT_EVALUATION_MODE
+            value: active
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders prepared by default on upgrade of a pre-existing install
+    release:
+      upgrade: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ALERT_EVALUATION_MODE
+            value: prepared
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: renders the configured mode
+    set:
+      core.alertEvaluation.mode: draining
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ALERT_EVALUATION_MODE
+            value: draining
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
