@@ -2,7 +2,8 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
   @moduledoc """
   Durable recorder exclusion, generation and block allocation on shared ingest.
 
-  Every operation locks ingest owner then recorder claim. The caller retains a
+  New-work admission locks recording control before ingest owner and recorder
+  claim. Preservation operations retain owner-then-claim ordering. The caller retains a
   fresh per-start token; it must never read a token back to impersonate a previous
   worker. A consumer retains ingest, but only this claim grants recording rights.
   Lease receipts use database time and are capped by both ingest and relay leases.
@@ -17,10 +18,10 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
   """
   import Ash.Expr
 
-  alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.RelaySession
 
@@ -33,35 +34,40 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
          {:ok, token} <- uuid(token),
          {:ok, storage_id} <- uuid(storage_id),
          true <- valid_ingest_id?(media_ingest_id) || {:error, :invalid_media_ingest_id} do
-      IngestOwnership.with_current_owner(
-        ingest,
-        fn owner ->
-          with {:ok, relay} <- active_relay(owner, media_ingest_id, owner.database_now, opts),
-               {:ok, initial} <- initialize(owner.id, opts),
-               {:ok, previous} <- lock(initial.id, opts),
-               :ok <- available(previous, owner, token),
-               {:ok, consumer} <-
-                 IngestOwnership.acquire_consumer(owner, :recorder, token, ttl_ms, opts),
-               {:ok, consumer} <- cap_consumer(consumer, relay.lease_expires_at, opts),
-               {:ok, claim} <-
-                 transition(
-                   previous,
-                   %{
-                     claim_token: token,
-                     ingest_epoch: owner.epoch,
-                     recorder_epoch: previous.recorder_epoch + 1,
-                     next_block_sequence: 0,
-                     relay_session_id: owner.relay_session_id,
-                     media_ingest_id: media_ingest_id,
-                     storage_id: storage_id,
-                     consumer_id: consumer.id,
-                     lease_expires_at: consumer.expires_at,
-                     state: :active
-                   },
-                   opts
-                 ) do
-            current(claim, owner, opts)
-          end
+      RecordingControl.with_admission(
+        fn ->
+          IngestOwnership.with_current_owner(
+            ingest,
+            fn owner ->
+              with {:ok, relay} <- active_relay(owner, media_ingest_id, owner.database_now, opts),
+                   {:ok, initial} <- initialize(owner.id, opts),
+                   {:ok, previous} <- lock(initial.id, opts),
+                   :ok <- available(previous, owner, token),
+                   {:ok, consumer} <-
+                     IngestOwnership.acquire_consumer(owner, :recorder, token, ttl_ms, opts),
+                   {:ok, consumer} <- cap_consumer(consumer, relay.lease_expires_at, opts),
+                   {:ok, claim} <-
+                     transition(
+                       previous,
+                       %{
+                         claim_token: token,
+                         ingest_epoch: owner.epoch,
+                         recorder_epoch: previous.recorder_epoch + 1,
+                         next_block_sequence: 0,
+                         relay_session_id: owner.relay_session_id,
+                         media_ingest_id: media_ingest_id,
+                         storage_id: storage_id,
+                         consumer_id: consumer.id,
+                         lease_expires_at: consumer.expires_at,
+                         state: :active
+                       },
+                       opts
+                     ) do
+                current(claim, owner, opts)
+              end
+            end,
+            opts
+          )
         end,
         opts
       )
@@ -70,16 +76,21 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
 
   def renew(ingest, claim, ttl_ms, opts \\ []) do
     with :ok <- ttl(ttl_ms) do
-      with_current(
-        ingest,
-        claim,
-        fn owner, current ->
-          with {:ok, relay} <-
-                 active_relay(owner, current.media_ingest_id, current.database_now, opts),
-               {:ok, consumer} <-
-                 IngestOwnership.renew_consumer(owner, current.consumer_id, ttl_ms, opts),
-               {:ok, consumer} <- cap_consumer(consumer, relay.lease_expires_at, opts),
-               do: transition(current, %{lease_expires_at: consumer.expires_at}, opts)
+      RecordingControl.with_admission(
+        fn ->
+          with_current(
+            ingest,
+            claim,
+            fn owner, current ->
+              with {:ok, relay} <-
+                     active_relay(owner, current.media_ingest_id, current.database_now, opts),
+                   {:ok, consumer} <-
+                     IngestOwnership.renew_consumer(owner, current.consumer_id, ttl_ms, opts),
+                   {:ok, consumer} <- cap_consumer(consumer, relay.lease_expires_at, opts),
+                   do: transition(current, %{lease_expires_at: consumer.expires_at}, opts)
+            end,
+            opts
+          )
         end,
         opts
       )
@@ -88,43 +99,49 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
 
   @doc "Reserve a retained block and burn its sequence before filesystem creation; clock uses JSON keys."
   def reserve_block(ingest, claim, clock, opts \\ []) do
-    with_current(
-      ingest,
-      claim,
-      fn owner, current ->
-        if current.next_block_sequence < @max_counter do
-          sequence = current.next_block_sequence
+    RecordingControl.with_admission(
+      fn ->
+        with_current(
+          ingest,
+          claim,
+          fn owner, current ->
+            if current.next_block_sequence < @max_counter do
+              sequence = current.next_block_sequence
 
-          attrs = %{
-            camera_source_id: owner.camera_source_id,
-            stream_profile_id: owner.stream_profile_id,
-            ingest_owner_id: owner.id,
-            ingest_epoch: owner.epoch,
-            recorder_claim_id: current.id,
-            recorder_epoch: current.recorder_epoch,
-            block_sequence: sequence,
-            relay_session_id: current.relay_session_id,
-            media_ingest_id: current.media_ingest_id,
-            storage_id: current.storage_id,
-            clock: clock
-          }
+              attrs = %{
+                camera_source_id: owner.camera_source_id,
+                stream_profile_id: owner.stream_profile_id,
+                ingest_owner_id: owner.id,
+                ingest_epoch: owner.epoch,
+                recorder_claim_id: current.id,
+                recorder_epoch: current.recorder_epoch,
+                block_sequence: sequence,
+                relay_session_id: current.relay_session_id,
+                media_ingest_id: current.media_ingest_id,
+                storage_id: current.storage_id,
+                clock: clock
+              }
 
-          identity = RecordingBlock.identity(attrs)
+              identity = RecordingBlock.identity(attrs)
 
-          with true <-
-                 RecordingDescriptor.valid_identity?(identity) ||
-                   {:error, :invalid_recording_identity},
-               {:ok, _updated} <- transition(current, %{next_block_sequence: sequence + 1}, opts) do
-            RecordingBlock
-            |> Ash.Changeset.for_create(
-              :reserve,
-              Map.put(attrs, :block_key, RecordingDescriptor.block_key(identity))
-            )
-            |> Ash.create(opts)
-          end
-        else
-          {:error, :block_sequence_exhausted}
-        end
+              with true <-
+                     RecordingDescriptor.valid_identity?(identity) ||
+                       {:error, :invalid_recording_identity},
+                   {:ok, _updated} <-
+                     transition(current, %{next_block_sequence: sequence + 1}, opts) do
+                RecordingBlock
+                |> Ash.Changeset.for_create(
+                  :reserve,
+                  Map.put(attrs, :block_key, RecordingDescriptor.block_key(identity))
+                )
+                |> Ash.create(opts)
+              end
+            else
+              {:error, :block_sequence_exhausted}
+            end
+          end,
+          opts
+        )
       end,
       opts
     )
