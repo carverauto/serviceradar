@@ -11,5 +11,9 @@
   ],
   subdirectories: ["priv/*/migrations"],
   plugins: [Styler, Spark.Formatter],
-  inputs: ["{mix,.formatter}.exs", "{config,lib,test}/**/*.{ex,exs}"]
+  inputs: [
+    "{mix,.formatter}.exs",
+    "{config,lib,test}/**/*.{ex,exs}",
+    "bench/ownership_replay_spike_test.exs"
+  ]
 ]

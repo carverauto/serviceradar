@@ -1028,8 +1028,9 @@ Missing costs include expiry, snapshot membership, address-presence indexes, own
 owner enrichment, concurrent access, shard placement and notification bookkeeping. The compact
 intervals also omit connected-peer context stored outside the lookup key. Rates are single-run
 table-level observations, including fixture/request construction; they are not distributed
-lookup throughput, a production apply rate, or replay readiness. No JetStream replay was run,
-and task 0.3 cannot be inferred by multiplying the populate rate by an event count.
+lookup throughput, a production apply rate, or replay readiness. This memory-only experiment
+did not run JetStream replay; the separate replay baseline below does. Task 0.3 cannot be
+inferred by multiplying the populate rate by an event count.
 
 All three corpus checks passed: keys did not collide, current and historical intervals resolved,
 and expired/missing intervals returned no owner. A passing ExUnit result verifies the experiment;
@@ -1050,6 +1051,76 @@ bazel test -c opt --config=remote \
 Validation: [remote scale invocation](https://carverauto.buildbuddy.io/invocation/858965ae-f166-492f-9e2f-9ee9fe45817c).
 An earlier combined-VM calibration was superseded because delayed cleanup from one profile
 could contaminate the next profile's memory baseline.
+
+### Synthetic JetStream replay baseline (2026-10-23)
+
+`elixir/serviceradar_core/bench/ownership_replay_spike_test.exs` measures acknowledged
+publishing, persistence across a graceful broker restart, and reconstruction of empty packed
+ETS tables through a new explicit-ack pull consumer. All three 2.5M-key corpora passed their
+correctness checks, but **all three exceeded both the 120-second replay target and the
+200-byte/key memory target**. Tasks 0.2 and 0.3 remain open; this is not a complete shard.
+
+| Invented history profile | Events over two logical hours | JSON payload | Replay time | Memory floor per active key |
+| --- | --- | --- | --- | --- |
+| One interval per key | ~12.5M | ~9 GB | ~151 s | ~270 bytes |
+| 90% depth 1, 9% depth 4, 1% depth 32 | ~15.2M | ~11 GB | ~237 s | ~310 bytes |
+| 70% depth 1, 25% depth 4, 5% depth 32 | ~23.3M | ~17 GB | ~385 s | ~390 bytes |
+
+Replay exceeded the target by about 31, 117 and 265 seconds, respectively. Each profile
+starts with 2.5M keys at logical time -7200 seconds and four fleet-wide observation/renewal
+epochs spaced 30 minutes apart. The final epoch renews unchanged leases or closes and reuses
+keys to produce the selected 15-minute history distribution. Six additional control events
+exercise duplicate closure, a stale renewal after closure, and expiry inside/outside the
+history horizon. These are invented distributions, not measurements of host activity.
+
+The pinned NATS 2.14 server runs beside OTP 28 on the remote executor, with a file-backed,
+single-replica stream, `max_age` two hours, `discard: new`, and a 24 GiB byte limit. Each JSON
+message contains up to 500 events, each carrying its owner context; pulls request eight
+messages. The BEAM uses four schedulers. Profiles were submitted concurrently to shared RBE,
+without dedicated hardware or a CPU reservation. The link is loopback without TLS. Event time
+is accelerated: this does not test two hours of wall-clock retention or a cold filesystem
+cache. JSON maps and prepacked base64 keys are an experiment encoding, not a production wire
+decision; address normalization and bucket routing are not measured.
+
+The timer includes table/subscription/consumer creation, pulls, JSON decoding, owner interning,
+interval updates and final acknowledgement settlement. It excludes corpus generation and
+publishing, broker restart, connection setup, the final corpus scan and memory accounting.
+Readiness of this experiment requires every numbered batch and independently counted event,
+zero pending and unacknowledged messages, and the expected final acknowledgement sequence.
+Every active key's current owner and history depth are checked after replay, together with a
+historical owner on each reused key and close/expiry boundaries. A deliberately broken close
+guard failed at the closed-interval lookup; the exact correct source was restored before scale.
+
+Memory includes the key/history table and both owner-interning tables, plus the larger of VM
+binary-memory growth and known off-heap history/owner payload. Whole-VM growth was approximately
+0.7, 0.8 and 1.0 GB, respectively; resident memory, allocator fragmentation and the separate
+broker are not measured by this figure. These values include allocations from decoding and
+incremental updates, with a different serialized owner context from the preloaded experiment.
+They are not a production regression comparison or an explanation of the allocation difference.
+
+Missing shard costs remain expiry scheduling, snapshot membership and omission handling,
+address-presence indexes, owner reclamation/enrichment, placement, notifications, budgets and
+concurrent readers/writers. The experiment prunes against a fixed replay-time cutoff, and does
+not prove all production ordering, snapshot or replay-to-live handoff semantics. Passing ExUnit
+checks confirms corpus reconstruction; the printed timing/memory verdicts are separate. No
+default history cap or Rust implementation is selected from these assumed profiles. Before
+accepting P1, the complete representative store and replay path must meet the original gates;
+any architecture adjustment still requires a concrete reviewed decision.
+
+Reproduce the scale baseline (the default 2,500-key runs only check correctness):
+
+```sh
+bazel test -c opt --config=remote \
+  //elixir/serviceradar_core:ownership_replay_spike_single_test \
+  //elixir/serviceradar_core:ownership_replay_spike_mixed_test \
+  //elixir/serviceradar_core:ownership_replay_spike_reuse_test \
+  --test_env=OWNERSHIP_REPLAY_KEYS=2500000 --test_timeout=1800 \
+  --test_output=all --flaky_test_attempts=1
+```
+
+Evidence: [all three scale runs](https://carverauto.buildbuddy.io/invocation/36684ef2-51b7-4560-8892-f463319a71d1),
+[small corpus checks](https://carverauto.buildbuddy.io/invocation/4ac6a3cf-4ae6-456a-a527-e351b34c2076),
+and [close-guard negative control](https://carverauto.buildbuddy.io/invocation/82e8a2fc-5111-41cc-a75f-ff96b446f6a6).
 
 ## Known edge cases and deferred decisions
 
