@@ -161,8 +161,8 @@ The plan specified a fence but not the exact callback boundary. This choice adds
 a second database read for publication so a callback cannot commit on an expired
 lease. The transaction cannot make S3 writes atomic and must never contain network
 or filesystem work. This is sound because immutable object names isolate stale
-uploads, while the database controls which objects become available. Integration
-tests for the actual database races remain a required gate.
+uploads, while the database controls which objects become available. Guarded
+execution of these database races is recorded in [the handoff](README.md).
 
 ### One local block before archive-driven rotation
 

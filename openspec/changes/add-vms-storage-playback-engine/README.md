@@ -95,16 +95,8 @@ The separate browser suite establishes fragment seeking, and the RTSP suite
 establishes recording behavior after an explicitly restarted synthetic receiver.
 Neither proves the full authenticated deployment recovery path. No live recording
 path is enabled by this checkpoint. Implementation choices live in
-[choices.md](choices.md).
-
-On published head `158aa45657`, the nested keeper handled a rejected inner write
-and returned `{:ok, :handled}` after the callback receipt. The source-name
-assertion did not run. The authorization keeper supplied a user and an explicit
-nil actor and received an opened relay. Both assertions remain. This revision
-returns those paths to an unconditional ownership transaction and an explicit
-actor. The successful plain-map open supplies that actor beside the user.
-Sanctioned PR Core Integration on draft PR #5954 is what proves the repaired
-database bodies.
+[choices.md](choices.md). The published keeper failures and this repair are in
+Current pickup.
 
 ## Next agent prompt
 
