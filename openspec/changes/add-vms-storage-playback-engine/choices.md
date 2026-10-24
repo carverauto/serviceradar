@@ -536,3 +536,24 @@ unsupported-profile test updated the outer test context instead of its format;
 correcting the operand preserves the assertion and makes it fail when the codec
 guard is deliberately weakened. The new descriptor mutations use the same
 correct local-root pattern. Every earlier assertion remains.
+
+
+### Commit immutable intent before adding dispatch lifecycle
+
+When: upload-intent checkpoint. Verdict: sound, medium confidence.
+
+A future uploader first names the exact object it intends to send. This pass
+stores that identity once for each frozen block and object role; a later worker
+receives the same record after lease replacement. It does not create a mutable
+attempt row or claim that a storage request happened. The plan required durable
+publication intent but left the implementation boundary open. Splitting the
+immutable identity from dispatch observations makes each boundary independently
+reviewable and leaves provider operations disabled. The next pass still owes the
+marker, original-deadline fence, late-response and conflict persistence contracts.
+
+Preparation also rejects an existing caller transaction. Otherwise a caller could
+receive an intent ID, hand it to another worker, then roll back its outer
+transaction. A successful return now means preparation committed; it does not
+authorize the recipient to send bytes. This limits future bulk orchestration to
+calls outside an ambient transaction. The choice is sound because it keeps the
+durable handoff explicit, with no extra process or nested-commit fiction.
