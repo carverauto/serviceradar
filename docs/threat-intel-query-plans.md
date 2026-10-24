@@ -16,6 +16,7 @@ below with their DDL and indexes copied from
 | `ip_threat_intel_cache` | 110,000 (10,000 live matched; the rest unmatched or expired) |
 | `threat_intel_source_objects` | 30,000 |
 | `otx_retrohunt_findings` | 50,000 |
+| `otx_retrohunt_runs` | 5,000 |
 
 All addresses are synthetic. Matched endpoints sit in `198.18.0.0/15`
 (RFC 2544 benchmarking space). `ANALYZE` was run before planning.
@@ -33,6 +34,7 @@ All addresses are synthetic. Matched endpoints sit in `198.18.0.0/15`
 | Imported indicators page, one source | parallel seq scan, top-N sort | 35.6 ms |
 | Provider objects page | seq scan, top-N sort | 12.9 ms |
 | Retrohunt findings page | `otx_retrohunt_findings_last_seen_at_index` backward scan | 0.4 ms |
+| `recent_retrohunt_runs` (`ORDER BY started_at DESC, id DESC LIMIT 10`) | Index Scan Backward using `otx_retrohunt_runs_started_at_index` with an incremental sort | 0.06 ms |
 | SRQL `in:threat_intel_matches` default page | matched-cache bitmap scan, GiST probe per candidate endpoint | 30.1 ms |
 
 ## Decision
