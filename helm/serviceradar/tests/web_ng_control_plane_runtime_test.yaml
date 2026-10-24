@@ -99,3 +99,200 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: installs media identity and custody without the account credential or public Service ports
+    set:
+      webNg.controlPlaneRuntime.media.enabled: true
+      webNg.controlPlaneRuntime.media.deploymentRef: "11111111-2222-4333-8444-555555555555"
+      webNg.controlPlaneRuntime.media.generation: "7"
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].ports
+          content:
+            containerPort: 4001
+            name: control-runtime
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT
+            value: "4001"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: serviceradar-control-plane-media-access
+                key: token
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF
+            value: "11111111-2222-4333-8444-555555555555"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION
+            value: "7"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/media-deployment-ref"]
+          value: "11111111-2222-4333-8444-555555555555"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/media-generation"]
+          value: "7"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN
+        documentSelector:
+          path: kind
+          value: Deployment
+      - notContains:
+          path: spec.ports
+          content:
+            port: 4001
+        documentSelector:
+          path: metadata.labels["app.kubernetes.io/component"]
+          value: web-ng
+      - notContains:
+          path: spec.ports
+          content:
+            port: 4001
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-web-ng-headless
+
+  - it: keeps both credential references distinct and preserves the largest generation exactly
+    set:
+      webNg.controlPlaneRuntime.enabled: true
+      webNg.controlPlaneRuntime.media.enabled: true
+      webNg.controlPlaneRuntime.media.deploymentRef: "11111111-2222-4333-8444-555555555555"
+      webNg.controlPlaneRuntime.media.generation: "9223372036854775807"
+      webNg.controlPlaneRuntime.media.existingSecretName: synthetic-media-control
+      webNg.controlPlaneRuntime.media.tokenSecretKey: media-token
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: synthetic-media-control
+                key: media-token
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN
+            valueFrom:
+              secretKeyRef:
+                name: serviceradar-control-plane-runtime-access
+                key: token
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION
+            value: "9223372036854775807"
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/media-generation"]
+          value: "9223372036854775807"
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: rejects a noncanonical deployment reference
+    set:
+      webNg.controlPlaneRuntime.media.enabled: true
+      webNg.controlPlaneRuntime.media.deploymentRef: "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"
+      webNg.controlPlaneRuntime.media.generation: "1"
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.controlPlaneRuntime.media.deploymentRef must be a canonical lowercase UUID
+
+  - it: requires an explicit generation when media is enabled
+    set:
+      webNg.controlPlaneRuntime.media.enabled: true
+      webNg.controlPlaneRuntime.media.deploymentRef: "11111111-2222-4333-8444-555555555555"
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.controlPlaneRuntime.media.generation must be a canonical positive bigint string
+
+  - it: rejects numeric generation scalars before they can lose precision
+    set:
+      webNg.controlPlaneRuntime.media.enabled: true
+      webNg.controlPlaneRuntime.media.deploymentRef: "11111111-2222-4333-8444-555555555555"
+      webNg.controlPlaneRuntime.media.generation: 1
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.controlPlaneRuntime.media.generation must be a canonical positive bigint string
+
+  - it: rejects noncanonical generation spelling
+    set:
+      webNg.controlPlaneRuntime.media.enabled: true
+      webNg.controlPlaneRuntime.media.deploymentRef: "11111111-2222-4333-8444-555555555555"
+      webNg.controlPlaneRuntime.media.generation: "01"
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.controlPlaneRuntime.media.generation must be a canonical positive bigint string
+
+  - it: rejects generation overflow without coercing it through floating point
+    set:
+      webNg.controlPlaneRuntime.media.enabled: true
+      webNg.controlPlaneRuntime.media.deploymentRef: "11111111-2222-4333-8444-555555555555"
+      webNg.controlPlaneRuntime.media.generation: "9223372036854775808"
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.controlPlaneRuntime.media.generation must be a canonical positive bigint string
+
+  - it: rejects media token bytes passed through extraEnv
+    set:
+      webNg.extraEnv.SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN: invented-raw-token
+    asserts:
+      - failedTemplate:
+          errorMessage: SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN must be configured through webNg.controlPlaneRuntime.media
+
+  - it: rejects generic valueFrom overriding the installed generation
+    set:
+      webNg.extraEnvValueFrom.SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION:
+        secretKeyRef:
+          name: synthetic-untracked-generation
+          key: value
+    asserts:
+      - failedTemplate:
+          errorMessage: SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION must be configured through webNg.controlPlaneRuntime.media

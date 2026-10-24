@@ -26,6 +26,27 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter do
   plug :match
   plug :dispatch
 
+  get "/v1/media/installation" do
+    installation = conn.private.control_plane_media_installation
+
+    body =
+      Jason.encode!(%{
+        schema_version: 1,
+        status: "installed",
+        deployment_ref: installation.deployment_ref,
+        generation: Integer.to_string(installation.generation),
+        applied_revision: nil,
+        readiness: "unavailable",
+        reason: "media_authentication_only"
+      })
+
+    conn
+    |> put_resp_header("cache-control", "no-store")
+    |> put_resp_header("x-content-type-options", "nosniff")
+    |> put_resp_content_type("application/json")
+    |> send_resp(200, body)
+  end
+
   post "/v1/password-reset" do
     case conn.body_params do
       %{"email" => email} when is_binary(email) ->

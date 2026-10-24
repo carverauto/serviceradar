@@ -136,20 +136,18 @@ defmodule ServiceRadarWebNG.Application do
   defp maybe_add_control_plane_runtime_listener(children) do
     config = Application.get_env(:serviceradar_web_ng, :control_plane_runtime, [])
 
-    case Keyword.get(config, :token) do
-      token when is_binary(token) and byte_size(token) >= 32 ->
-        port = Keyword.get(config, :port, 4001)
+    if ServiceRadarWebNG.ControlPlaneRuntimeAccess.enabled?() do
+      port = Keyword.get(config, :port, 4001)
 
-        listener =
-          Supervisor.child_spec(
-            {Bandit, plug: ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter, scheme: :http, ip: {0, 0, 0, 0}, port: port},
-            id: ServiceRadarWebNG.ControlPlaneRuntimeListener
-          )
+      listener =
+        Supervisor.child_spec(
+          {Bandit, plug: ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter, scheme: :http, ip: {0, 0, 0, 0}, port: port},
+          id: ServiceRadarWebNG.ControlPlaneRuntimeListener
+        )
 
-        children ++ [listener]
-
-      _missing_or_invalid_token ->
-        children
+      children ++ [listener]
+    else
+      children
     end
   end
 

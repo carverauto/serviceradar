@@ -24,20 +24,22 @@ the retained binding. Its credential references remain metadata. A report may
 contain failed, unavailable or expired observations because receipt is not
 readiness evaluation.
 
-The listener authenticates `X-ServiceRadar-Control-Plane-Authorization` before
-reading the body. Standard `Authorization` remains reserved for Kubernetes API
+The listener requires [deployment-scoped media authentication](media-authentication.md)
+before reading the body. The dedicated bearer token and exact installed
+deployment/generation headers are mandatory; the account/password-reset token
+is rejected. Standard `Authorization` remains reserved for Kubernetes API
 authentication. JSON bodies require `application/json`, are capped at 16 KiB,
 and preserve integers without float coercion. Duplicate keys, including escaped
 spellings of the same key at any object depth, are rejected before conversion to
 maps. Arrays are outside this contract. Responses use `Cache-Control: no-store`.
 The route is absent from the public router, Service ports and Gateway routes.
 
-The existing bearer credential authenticates a control-plane caller. Its current
-SaaS derivation is account-scoped, so it does not independently authenticate an
-environment or deployment generation. A payload cannot supply that missing
-authority. Environment-bound installation and a fresh correlated exchange remain
-prerequisites for future storage enablement; retained receipts cannot be promoted
-to that authority just because this listener accepted them.
+The installed credential authenticates requests to this deployment and generation.
+Receipt rows do not preserve historical caller identity, and old rows can predate
+this authentication boundary. A payload cannot supply missing authority. A full
+desired/applied installation and a fresh correlated exchange remain prerequisites
+for storage enablement; retained receipts cannot be promoted to that authority
+just because this listener accepted them.
 
 ## Revision and persistence rules
 
@@ -82,6 +84,6 @@ bounded status names rather than database errors or request content.
 All nineteen observations being `passed` still leaves `ArchiveBinding`
 unqualified. No dispatch, credential lookup, provider request, recording
 activation or local-media reclamation follows receipt. Full desired/applied
-configuration, an environment-bound origin, freshness and revocation evaluation,
+configuration bound to the installed origin, freshness and revocation evaluation,
 selected protection-mode evidence and an isolated credential installer remain
 the next dependency before provider operations.

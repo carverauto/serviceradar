@@ -1561,10 +1561,23 @@ webNg:
   # from the named Secret; it never adds the port to a Service, Gateway,
   # HTTPRoute, or other public route.
   controlPlaneRuntime:
+    # Enables the account/password-reset credential. Media can independently
+    # enable the same private listener without requiring this Secret.
     enabled: false
     port: 4001
     existingSecretName: serviceradar-control-plane-runtime-access
     tokenSecretKey: token
+    media:
+      enabled: false
+      # Installed deployment identity, not a caller-supplied tenant selector.
+      deploymentRef: ""
+      # Quote the canonical decimal generation (1..9223372036854775807).
+      # Increment it when rotating the media token so existing pods restart.
+      generation: ""
+      # Infrastructure custody supplies a distinct media-purpose token here.
+      # Never supply token bytes in values or extraEnv.
+      existingSecretName: serviceradar-control-plane-media-access
+      tokenSecretKey: token
   # Dedicated internal listener for Prometheus metrics scraping (/metrics).
   # Kept on a separate port so in-cluster Prometheus scrapes port 9090 without
   # exposing /metrics on public Ingress or Gateway listeners.
