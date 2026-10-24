@@ -10,6 +10,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingControl
+  alias ServiceRadar.Camera.RecordingControlState
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
 
@@ -23,8 +25,10 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   }
   @moduletag :integration
   @moduletag sandbox: :unboxed
+  @installation %{deployment_ref: "79a7a564-aa29-40ca-8c2b-8cacb9664b6c", generation: 1}
 
   setup do
+    control_owned? = Fixtures.preserve_recording_control(@installation.deployment_ref)
     ctx = Fixtures.context()
     {:ok, relay} = Fixtures.open(ctx)
     {:ok, relay} = Fixtures.activate(ctx, relay)
@@ -94,7 +98,15 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
                )
     end)
 
-    Map.merge(ctx, %{block: block, lease: lease, binding: binding})
+    Map.merge(ctx, %{
+      block: block,
+      lease: lease,
+      binding: binding,
+      owner: owner,
+      claim: claim,
+      relay: relay,
+      control_owned?: control_owned?
+    })
   end
 
   test "preparation retains derived object identity across upload lease replacement", ctx do
@@ -728,11 +740,303 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert retained.received_at == receipt.received_at and retained.revision == 2
   end
 
+  test "stop retains its origin and revision across clients without allowing resume", ctx do
+    assert {:ok, %{"stop_enforced" => false, "desired_revision" => nil}} =
+             RecordingControl.status(@installation, ctx.opts)
+
+    for opts <- [[], [actor: %{role: :viewer, id: "viewer"}], [actor: %{role: :system}]] do
+      assert {:error, :invalid_recording_submitter} =
+               RecordingControl.stop(@installation, stop_document(), opts)
+    end
+
+    for invalid <- [
+          Map.put(stop_document(), "admission", "enabled"),
+          Map.put(stop_document(), "admission", "resume"),
+          Map.put(stop_document(), "contract_version", 1.0),
+          Map.put(stop_document(), "extra", true),
+          Map.put(stop_document(), "revision", 1),
+          Map.put(stop_document(), "revision", "01"),
+          Map.put(stop_document(), "revision", "9223372036854775808")
+        ] do
+      assert {:error, :invalid_recording_configuration} =
+               RecordingControl.stop(@installation, invalid, ctx.opts)
+    end
+
+    assert {:ok, :checked} =
+             Repo.transaction(fn ->
+               assert {:error, :ambient_transaction} =
+                        RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+               :checked
+             end)
+
+    assert {:ok, first} = RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert first["desired_digest"] ==
+             "e60dffcc28624a7f273335d63c93ee8b7759d55ce5ff3a35ba5a4e44a0cadb2e"
+
+    assert %{
+             "stop_enforced" => true,
+             "desired_revision" => "1",
+             "applied_revision" => nil,
+             "readiness" => "unavailable",
+             "reason" => "recording_stop_only",
+             "drain_status" => "not_attested"
+           } = first
+
+    assert {:ok, ^first} = RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:ok, ^first} =
+             fn -> RecordingControl.status(@installation, ctx.opts) end
+             |> Task.async()
+             |> Task.await()
+
+    # Idempotent baseline initialization cannot clear a durable stop.
+    assert {:ok, _} =
+             RecordingControlState
+             |> Ash.Changeset.for_create(:initialize, %{})
+             |> Ash.create(ctx.opts)
+
+    assert {:ok, ^first} = RecordingControl.status(@installation, ctx.opts)
+    newer = %{@installation | generation: 2}
+
+    assert {:error, :recording_revision_conflict} =
+             RecordingControl.stop(newer, stop_document(), ctx.opts)
+
+    assert {:ok, %{"desired_revision" => "2"}} =
+             RecordingControl.stop(newer, stop_document("2"), ctx.opts)
+
+    assert {:error, :recording_revision_stale} =
+             RecordingControl.stop(newer, stop_document(), ctx.opts)
+
+    assert {:error, :recording_generation_stale} =
+             RecordingControl.stop(@installation, stop_document("3"), ctx.opts)
+
+    assert {:error, :recording_generation_stale} =
+             RecordingControl.status(@installation, ctx.opts)
+
+    other = %{newer | deployment_ref: Ecto.UUID.generate()}
+
+    assert {:error, :recording_installation_mismatch} =
+             RecordingControl.stop(other, stop_document("3"), ctx.opts)
+
+    assert {:error, :recording_installation_mismatch} = RecordingControl.status(other, ctx.opts)
+  end
+
+  test "stop denies new work while frozen media and late dispatch observations remain preservable",
+       ctx do
+    assert {:ok, _} = bind(ctx)
+    assert {:ok, marked} = dispatch(ctx)
+    assert {:ok, {:marked, _}} = ArchiveUploads.mark_dispatch(ctx.lease, marked.id, ctx.opts)
+
+    assert {:ok, unsent} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    assert {:ok, open} = RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             RecorderOwnership.acquire(
+               ctx.owner,
+               Ecto.UUID.generate(),
+               ctx.relay.media_ingest_id,
+               Ecto.UUID.generate(),
+               30_000,
+               ctx.opts
+             )
+
+    assert {:error, :recording_stopped} =
+             RecorderOwnership.renew(ctx.owner, ctx.claim, 30_000, ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             RecorderOwnership.reserve_block(ctx.owner, ctx.claim, @clock, ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             ArchiveUploads.mark_dispatch(ctx.lease, unsent.id, ctx.opts)
+
+    assert {:ok, %{marked_at: nil}} = Ash.get(ArchiveUploadDispatch, unsent.id, ctx.opts)
+
+    assert {:ok, frozen} =
+             RecordingBlocks.freeze(ctx.owner, ctx.claim, open, descriptor(open), ctx.opts)
+
+    assert frozen.state == :sealed
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+    assert {:ok, unknown} = ArchiveUploads.observe_unknown(ctx.lease, marked.id, ctx.opts)
+    assert unknown.unknown_at
+
+    assert {:ok, observed} =
+             ArchiveUploads.observe_response(
+               ctx.lease,
+               marked.id,
+               %{"status" => 200, "etag" => "synthetic-late-etag"},
+               ctx.opts
+             )
+
+    assert observed.response["etag"] == "synthetic-late-etag"
+    assert observed.marked_at == unknown.marked_at
+    assert observed.deadline_at == marked.deadline_at
+    assert {:ok, retained} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert retained.descriptor_sha256 == ctx.block.descriptor_sha256
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+  end
+
+  test "stop waits for an admitted recorder transaction before acknowledging the restriction",
+       ctx do
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+    parent = self()
+
+    holder =
+      database_client(:holder, fn ->
+        Repo.transaction(fn ->
+          Repo.query!("SELECT id FROM platform.camera_ingest_owners WHERE id = $1 FOR UPDATE", [
+            Ecto.UUID.dump!(ctx.owner.id)
+          ])
+
+          send(parent, :ingest_locked)
+
+          receive do
+            :release_ingest -> :released
+          after
+            15_000 -> flunk("test ingest lock was not released")
+          end
+        end)
+      end)
+
+    assert_receive {:holder, holder_pid}, 5_000
+    assert_receive :ingest_locked, 5_000
+
+    admission =
+      database_client(:admission, fn ->
+        RecorderOwnership.acquire(
+          ctx.owner,
+          Ecto.UUID.generate(),
+          ctx.relay.media_ingest_id,
+          Ecto.UUID.generate(),
+          30_000,
+          ctx.opts
+        )
+      end)
+
+    assert_receive {:admission, admission_pid}, 5_000
+    assert blocked_by?(admission_pid, holder_pid)
+
+    stop =
+      database_client(:stop, fn ->
+        RecordingControl.stop(@installation, stop_document(), ctx.opts)
+      end)
+
+    assert_receive {:stop, stop_pid}, 5_000
+    assert blocked_by?(stop_pid, admission_pid)
+    stop_ref = stop.ref
+    refute_receive {^stop_ref, _result}, 0
+
+    send(holder.pid, :release_ingest)
+    assert {:ok, :released} = Task.await(holder, 5_000)
+    assert {:ok, admitted} = Task.await(admission, 5_000)
+    assert admitted.recorder_epoch > ctx.claim.recorder_epoch
+    assert {:ok, %{"stop_enforced" => true}} = Task.await(stop, 5_000)
+
+    assert {:error, :recording_stopped} =
+             RecorderOwnership.renew(ctx.owner, admitted, 30_000, ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             RecorderOwnership.reserve_block(ctx.owner, admitted, @clock, ctx.opts)
+  end
+
+  test "missing singleton initialization serializes stop with competing recorder admission",
+       ctx do
+    assert {:ok, :released} = RecorderOwnership.release(ctx.owner, ctx.claim, ctx.opts)
+    assert ctx.control_owned?, "the first-row race must own the baseline it removes"
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "DELETE FROM platform.camera_recording_control WHERE id = 'deployment' AND NOT stopped"
+             )
+
+    results =
+      race(fn index ->
+        if rem(index, 2) == 0 do
+          {:stop, RecordingControl.stop(@installation, stop_document(), ctx.opts)}
+        else
+          {:acquire,
+           RecorderOwnership.acquire(
+             ctx.owner,
+             Ecto.UUID.generate(),
+             ctx.relay.media_ingest_id,
+             Ecto.UUID.generate(),
+             30_000,
+             ctx.opts
+           )}
+        end
+      end)
+
+    stops = for {:stop, {:ok, value}} <- results, do: value
+    assert length(stops) == 4
+    assert [receipt] = Enum.uniq(stops)
+    assert receipt["stop_enforced"]
+
+    for {:acquire, result} <- results do
+      assert match?({:ok, _}, result) or
+               result in [{:error, :recording_stopped}, {:error, :recorder_already_owned}]
+    end
+
+    assert {:ok, ^receipt} = RecordingControl.status(@installation, ctx.opts)
+    assert [%{stopped: true}] = Ash.read!(RecordingControlState, ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             RecorderOwnership.acquire(
+               ctx.owner,
+               Ecto.UUID.generate(),
+               ctx.relay.media_ingest_id,
+               Ecto.UUID.generate(),
+               30_000,
+               ctx.opts
+             )
+  end
+
+  defp stop_document(revision \\ "1"),
+    do: %{"contract_version" => 1, "revision" => revision, "admission" => "stopped"}
+
   defp withdrawal(revision),
     do: %{"schema_version" => 1, "revision" => revision, "state" => "withdrawn", "report" => nil}
 
   defp dispatch(ctx, ttl \\ 30_000),
     do: ArchiveUploads.prepare_dispatch(ctx.lease, :media, :put_object, ttl, ctx.opts)
+
+  defp database_client(tag, fun) do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        Repo.checkout(
+          fn ->
+            %{rows: [[pid]]} = Repo.query!("SELECT pg_backend_pid()")
+            send(parent, {tag, pid})
+            fun.()
+          end,
+          timeout: 30_000
+        )
+      end)
+
+    on_exit(fn -> Process.exit(task.pid, :kill) end)
+    task
+  end
+
+  defp blocked_by?(pid, blocker, attempts \\ 500) do
+    case Repo.query!("SELECT $2 = ANY(pg_blocking_pids($1))", [pid, blocker]).rows do
+      [[true]] ->
+        true
+
+      _ when attempts > 0 ->
+        Process.sleep(10)
+        blocked_by?(pid, blocker, attempts - 1)
+
+      _ ->
+        false
+    end
+  end
 
   defp dispatches(ctx) do
     ids = Enum.map(intents(ctx), & &1.id)

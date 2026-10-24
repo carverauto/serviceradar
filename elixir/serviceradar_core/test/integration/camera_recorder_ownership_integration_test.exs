@@ -22,6 +22,7 @@ defmodule ServiceRadar.Camera.RecorderOwnershipIntegrationTest do
   @moduletag sandbox: :unboxed
 
   setup do
+    Fixtures.preserve_recording_control()
     ctx = Fixtures.context()
     {:ok, relay} = Fixtures.open(ctx)
     {:ok, relay} = Fixtures.activate(ctx, relay)

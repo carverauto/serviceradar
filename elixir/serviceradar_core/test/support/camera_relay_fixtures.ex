@@ -14,6 +14,43 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
 
   require Ash.Query
 
+  # Only serial, unboxed recording owners use this helper. Generic relay
+  # fixtures can run concurrently and must not touch the deployment singleton.
+  def preserve_recording_control(stop_origin \\ nil) do
+    prior = recording_control_rows()
+    origin = if stop_origin, do: Ecto.UUID.dump!(stop_origin)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      case prior do
+        [] ->
+          Repo.query!(
+            "DELETE FROM platform.camera_recording_control WHERE id = 'deployment' AND " <>
+              "((NOT stopped AND deployment_ref IS NULL) OR deployment_ref = $1)",
+            [origin]
+          )
+
+        [[%{"stopped" => false, "deployment_ref" => nil}]] ->
+          %{num_rows: deleted} =
+            Repo.query!(
+              "DELETE FROM platform.camera_recording_control WHERE id = 'deployment' " <>
+                "AND stopped AND deployment_ref = $1",
+              [origin]
+            )
+
+          if deleted == 1 do
+            Repo.query!("INSERT INTO platform.camera_recording_control DEFAULT VALUES")
+          end
+
+        _ ->
+          :ok
+      end
+
+      assert recording_control_rows() == prior
+    end)
+
+    prior == []
+  end
+
   def context do
     actor = SystemActor.system(:camera_relay_test)
     key = Ecto.UUID.generate()
@@ -122,6 +159,12 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
 
   defp attrs_map(attrs) when is_list(attrs), do: Map.new(attrs)
   defp attrs_map(attrs) when is_map(attrs), do: attrs
+
+  defp recording_control_rows do
+    Repo.query!(
+      "SELECT to_jsonb(control) FROM platform.camera_recording_control AS control WHERE id = 'deployment'"
+    ).rows
+  end
 
   defp cleanup(source_id) do
     id = Ecto.UUID.dump!(source_id)
