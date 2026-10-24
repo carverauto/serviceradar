@@ -45,11 +45,12 @@
 - [ ] 6.6 Emit per-step OCSF audit events; test resume-at-step, preflight rejection, vendor error propagation and 429 deferral.
 
 ## 7. Starlink Local Plugin
-- [x] 7.1 Write `plugin.local.yaml` (`starlink-local`) with `grpc_request`, restricted networks and ports, and `enable_unofficial_methods` (default false).
-- [x] 7.2 Hand-author minimal protobuf encoders/decoders for `get_diagnostics`, `get_status` and `get_history` (only the fields used, unknown-field tolerant, no copied vendor proto).
+- [x] 7.1 Write `plugin.local.yaml` (`starlink-local`) with `grpc_request`, restricted networks and ports.
+- [x] 7.2 Hand-author a minimal protobuf encoder/decoder for `get_diagnostics` (only the fields used, unknown-field tolerant, no copied vendor proto).
 - [x] 7.3 Read router HTTPS diagnostics when a domain is configured.
 - [x] 7.4 Attach local metrics and events to vendor-ID devices; never create devices or emit LAN addresses as identity.
-- [x] 7.5 Tests: diagnostics-only default, unofficial-method degradation, no control methods issued, convergence with cloud identity.
+- [x] 7.5 Tests: diagnostics-only default, no control methods issued, convergence with cloud identity.
+- [ ] 7.6 After the terms-of-service review in 1.2: add `enable_unofficial_methods` (default false), hand-authored decoders for `get_status` and `get_history`, and a test that a failed community method degrades to diagnostics-only with a warning.
 
 ## 8. Dashboard SDK and Host
 - [x] 8.1 `serviceradar-sdk-dashboard`: typed `actions.list/invoke` and `events.subscribe`, `useDashboardActions`/`useDashboardEvents` hooks, confirmation helper; release a new minor.
@@ -60,5 +61,6 @@
 - [ ] 9.2 Publish it through the standard dashboard package flow with synthetic sample frames.
 
 ## 10. Documentation and Validation
-- [x] 10.1 Document service-account setup (dedicated account for ServiceRadar, required permissions), credential rules, telemetry single-consumer constraint, alert mapping, actions and their risks, and the local plugin with the unofficial-method caveat.
+- [x] 10.1 Document service-account setup (dedicated account for ServiceRadar, required permissions), credential rules, telemetry single-consumer constraint, alert mapping, actions and their risks, and the local plugin.
 - [ ] 10.2 Run `openspec validate add-starlink-integration-plugin --strict`, Go tests for the plugin and agent, SDK test suites, and the Bazel bundle build; record any check not run.
+- [ ] 10.3 Document the local plugin's unofficial-method caveat when 7.6 is implemented.
