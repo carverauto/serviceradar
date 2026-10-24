@@ -122,20 +122,20 @@ required three details that are easy to get wrong:
    serialize the DER once and derive both the advertised value and the served
    identity from those same bytes.
 
-3. **The crypto provider must support ECDSA P-521.** go-plugin's client cert is
-   ECDSA P-521. rustls' default **ring** provider verifies only P-256/P-384
+3. **ECDSA P-521 verification is pure Rust, beside ring.** go-plugin's client
+   cert is ECDSA P-521. rustls' **ring** provider verifies only P-256/P-384
    signatures, so client-cert verification fails with *"tls: certificate
-   required"*. This crate therefore uses the **aws-lc-rs** provider, which
-   supports P-521. (aws-lc-rs builds a small C library; `cmake` + a C compiler
-   are required at build time.)
+   required"* if that is the whole algorithm set. This crate keeps ring and
+   registers `EcdsaP521Sha512` from the `p521` crate (`src/tls.rs`). It does
+   not switch the rustls provider to aws-lc-rs.
 
 Because go-plugin's certs are self-signed CAs, rustls' default WebPKI verifiers
 reject them on both directions (a CA cert used as an end-entity →
 `CaUsedAsEndEntity`). The crate therefore installs custom rustls verifiers that
 **pin the peer cert by exact DER** — the byte-equivalent of Go's pin — for both
 the server cert (client side) and the client cert (server side), with the
-handshake signature still verified by the crypto provider so the peer must
-actually hold the pinned cert's private key.
+handshake signature still verified by that algorithm set (ring plus the
+P-521 verifier) so the peer must actually hold the pinned cert's private key.
 
 The authoritative proof that the agent's unmodified Go client accepts this Rust
 server is `go/pkg/agent/addon/manager_rust_addon_test.go`, which launches the
