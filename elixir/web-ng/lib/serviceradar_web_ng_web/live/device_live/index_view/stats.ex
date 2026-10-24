@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
     total = Map.get(stats, :total, 0)
     available = Map.get(stats, :available, 0)
     unavailable = Map.get(stats, :unavailable, 0)
+    unknown = Map.get(stats, :unknown, 0)
     by_type = Map.get(stats, :by_type, [])
     by_vendor = Map.get(stats, :by_vendor, [])
     by_risk_level = Map.get(stats, :by_risk_level, [])
@@ -29,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
       |> assign(:total, total)
       |> assign(:available, available)
       |> assign(:unavailable, unavailable)
+      |> assign(:unknown, unknown)
       |> assign(:by_type, by_type)
       |> assign(:by_vendor, by_vendor)
       |> assign(:by_risk_level, by_risk_level)
@@ -66,23 +68,34 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Stats do
                   <div class="text-xs text-sr-muted">Total</div>
                 </.link>
                 <.link
-                  navigate={~p"/devices?q=in:devices is_available:true"}
+                  id="device-stats-available"
+                  navigate={~p"/devices?q=in:devices availability:available"}
                   class="group block"
                 >
-                  <div class="flex items-baseline gap-1">
-                    <span class={[
-                      "text-xl font-bold",
-                      if(@unavailable > 0, do: "text-error", else: "text-success")
-                    ]}>
-                      {format_stat_number(@available)}
-                    </span>
-                    <span :if={@unavailable > 0} class="text-sm text-error/80">
-                      / {format_stat_number(@unavailable)} offline
-                    </span>
+                  <div class="text-xl font-bold text-success">{format_stat_number(@available)}</div>
+                  <div class="text-xs text-sr-muted">Available</div>
+                </.link>
+                <.link
+                  id="device-stats-unavailable"
+                  navigate={~p"/devices?q=in:devices availability:unavailable"}
+                  class="group block"
+                >
+                  <div class={[
+                    "text-xl font-bold",
+                    if(@unavailable > 0, do: "text-error", else: "text-sr-ink")
+                  ]}>
+                    {format_stat_number(@unavailable)}
                   </div>
-                  <div class="text-xs text-sr-muted">
-                    {if @unavailable == 0, do: "All online", else: "Available"}
-                  </div>
+                  <div class="text-xs text-sr-muted">Offline</div>
+                </.link>
+                <.link
+                  id="device-stats-unknown"
+                  navigate={~p"/devices?q=in:devices availability:unknown"}
+                  class="group block"
+                  title="Devices with no fresh availability evidence from any source"
+                >
+                  <div class="text-xl font-bold text-sr-muted">{format_stat_number(@unknown)}</div>
+                  <div class="text-xs text-sr-muted">Unknown</div>
                 </.link>
               </div>
               <div class="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] leading-4 text-sr-muted">

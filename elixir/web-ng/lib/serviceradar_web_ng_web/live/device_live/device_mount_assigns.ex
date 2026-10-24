@@ -31,6 +31,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:availability_request_ref, nil)
     |> assign(:availability_request_source, nil)
     |> assign(:agent_availability, [])
+    |> assign(:merged_availability, nil)
     |> assign(:composite_verdicts, [])
     |> assign(:healthcheck_summary, nil)
     |> assign(:endpoint_inventory_scan, nil)

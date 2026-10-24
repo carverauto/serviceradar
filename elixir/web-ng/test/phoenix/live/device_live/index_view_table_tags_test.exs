@@ -27,7 +27,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexViewTableTagsTest do
       all_selected: false,
       icmp_sparklines: %{},
       icmp_error: nil,
-      effective_availability_by_device: %{},
+      availability_by_device: %{},
       composite_verdicts_by_device: verdicts,
       snmp_presence: %{},
       sysmon_presence: %{},

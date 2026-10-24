@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   alias ServiceRadar.Inventory.BumblebeeFinding
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceRiskContribution
+  alias ServiceRadarWebNG.Devices.MergedAvailability
 
   require Ash.Query
   require Logger
@@ -25,8 +26,10 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
       {:ok, opts} ->
         devices = ServiceRadarWebNG.Api.Access.list_devices(get_scope(conn), opts)
 
+        availability = devices |> Enum.map(& &1.uid) |> MergedAvailability.load()
+
         json(conn, %{
-          "data" => Enum.map(devices, &device_to_map/1),
+          "data" => Enum.map(devices, &device_to_map(&1, Map.get(availability, &1.uid))),
           "pagination" => build_pagination(devices, opts)
         })
 
@@ -42,7 +45,8 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
 
     case ServiceRadarWebNG.Api.Access.get_device(scope, uid) do
       {:ok, device} ->
-        json(conn, %{"data" => device_to_map(device, scope)})
+        availability = [device.uid] |> MergedAvailability.load() |> Map.get(device.uid)
+        json(conn, %{"data" => device_to_map(device, availability, scope)})
 
       {:error, :not_found} ->
         conn
@@ -589,6 +593,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
       "offline" -> {:ok, :offline}
       "available" -> {:ok, :online}
       "unavailable" -> {:ok, :offline}
+      "unknown" -> {:ok, :unknown}
       other -> {:error, "invalid status: #{other}"}
     end
   end
@@ -612,50 +617,51 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
     }
   end
 
-  defp device_to_map(device, scope \\ nil) do
-    maybe_put_bumblebee_exposure(
-      %{
-        "uid" => device.uid,
-        "type_id" => device.type_id,
-        "type" => device.type,
-        "name" => device.name,
-        "hostname" => device.hostname,
-        "ip" => device.ip,
-        "mac" => device.mac,
-        "uid_alt" => device.uid_alt,
-        "vendor_name" => device.vendor_name,
-        "model" => device.model,
-        "domain" => device.domain,
-        "zone" => device.zone,
-        "subnet_uid" => device.subnet_uid,
-        "vlan_uid" => device.vlan_uid,
-        "switch_port_attachment" => device.switch_port_attachment,
-        "region" => device.region,
-        "first_seen_time" => normalize_value(device.first_seen_time),
-        "last_seen_time" => normalize_value(device.last_seen_time),
-        "first_seen" => normalize_value(device.first_seen_time),
-        "last_seen" => normalize_value(device.last_seen_time),
-        "created_time" => normalize_value(device.created_time),
-        "modified_time" => normalize_value(device.modified_time),
-        "risk_level_id" => device.risk_level_id,
-        "risk_level" => device.risk_level,
-        "risk_score" => device.risk_score,
-        "is_managed" => device.is_managed,
-        "is_compliant" => device.is_compliant,
-        "is_trusted" => device.is_trusted,
-        "os" => device.os,
-        "hw_info" => device.hw_info,
-        "network_interfaces" => device.network_interfaces,
-        "owner" => device.owner,
-        "org" => device.org,
-        "groups" => device.groups,
-        "agent_list" => device.agent_list,
-        "gateway_id" => device.gateway_id,
-        "agent_id" => device.agent_id,
-        "discovery_sources" => device.discovery_sources,
-        "is_available" => device.is_available,
-        "metadata" => device.metadata
-      },
+  defp device_to_map(device, availability, scope \\ nil) do
+    %{
+      "uid" => device.uid,
+      "type_id" => device.type_id,
+      "type" => device.type,
+      "name" => device.name,
+      "hostname" => device.hostname,
+      "ip" => device.ip,
+      "mac" => device.mac,
+      "uid_alt" => device.uid_alt,
+      "vendor_name" => device.vendor_name,
+      "model" => device.model,
+      "domain" => device.domain,
+      "zone" => device.zone,
+      "subnet_uid" => device.subnet_uid,
+      "vlan_uid" => device.vlan_uid,
+      "switch_port_attachment" => device.switch_port_attachment,
+      "region" => device.region,
+      "first_seen_time" => normalize_value(device.first_seen_time),
+      "last_seen_time" => normalize_value(device.last_seen_time),
+      "first_seen" => normalize_value(device.first_seen_time),
+      "last_seen" => normalize_value(device.last_seen_time),
+      "created_time" => normalize_value(device.created_time),
+      "modified_time" => normalize_value(device.modified_time),
+      "risk_level_id" => device.risk_level_id,
+      "risk_level" => device.risk_level,
+      "risk_score" => device.risk_score,
+      "is_managed" => device.is_managed,
+      "is_compliant" => device.is_compliant,
+      "is_trusted" => device.is_trusted,
+      "os" => device.os,
+      "hw_info" => device.hw_info,
+      "network_interfaces" => device.network_interfaces,
+      "owner" => device.owner,
+      "org" => device.org,
+      "groups" => device.groups,
+      "agent_list" => device.agent_list,
+      "gateway_id" => device.gateway_id,
+      "agent_id" => device.agent_id,
+      "discovery_sources" => device.discovery_sources,
+      "is_available" => device.is_available,
+      "metadata" => device.metadata
+    }
+    |> Map.merge(MergedAvailability.api_fields(availability))
+    |> maybe_put_bumblebee_exposure(
       scope,
       device.uid
     )

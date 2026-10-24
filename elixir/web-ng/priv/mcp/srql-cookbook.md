@@ -14,7 +14,11 @@ in:devices hostname:%edge%
 in:devices ip:10.20.0.0/16
 in:devices vendor_name:Cisco sort:hostname:asc
 in:devices vendor_name:"Axis Communications"
-in:devices is_available:false sort:last_seen:desc
+in:devices availability:unavailable sort:last_seen:desc
+in:devices availability:unknown
+in:devices agent_reachability:partial
+in:devices availability_policy:violation
+in:devices stats:count() as total by availability
 in:devices discovery_sources:(armis)
 in:devices metadata.integration_type:armis metadata.query_label:managed
 in:devices stats:count() as total by type
@@ -23,6 +27,13 @@ in:devices stats:count() as total by tags.gate limit:100
 ```
 
 `time:` on devices still means last-seen. Newly added devices use `first_seen:`.
+
+`availability:` (`available`, `unavailable`, `unknown`) is the canonical state the
+device list sorts, counts and badges by, and the only field that can be `unknown`.
+`is_available` keeps the device's last decided boolean, so an `unknown` device still
+matches `is_available:true` or `is_available:false`. `agent_reachability:partial`
+finds devices that some probing agents cannot reach; `availability_policy:violation`
+finds devices reached by an agent that a composite check expects to be blocked.
 
 ## Identity reconciliation diagnostics
 
@@ -290,7 +301,7 @@ in:bmp_events prefix:%203.0.113.0% time:last_7d sort:time:desc
 ## Metrics and alerts
 
 ```
-in:devices is_available:false time:last_15m
+in:devices availability:unavailable time:last_15m
 in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:last_15m value:>90 sort:timestamp:desc
 in:timeseries_metrics metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:last_30m value:>85 sort:timestamp:desc
 in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:last_15m value:>90

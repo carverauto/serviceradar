@@ -1221,6 +1221,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:availability_request_ref, nil)
     |> assign(:availability_request_source, nil)
     |> assign(:agent_availability, [])
+    |> assign(:merged_availability, nil)
     |> assign(:composite_verdicts, [])
     |> assign(:healthcheck_summary, nil)
     |> assign(:virtualization_summary, nil)

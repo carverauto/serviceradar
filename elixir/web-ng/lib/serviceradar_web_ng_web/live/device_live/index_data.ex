@@ -17,7 +17,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData do
     {snmp_presence, sysmon_presence} = Telemetry.metric_presence(scope, devices)
 
     %{
-      effective_availability_by_device: Availability.effective_availability(devices, scope),
+      availability_by_device: Availability.merged_availability(devices, scope),
       snmp_presence: snmp_presence,
       sysmon_presence: sysmon_presence,
       sysmon_profiles_by_device: load_sysmon_profiles_for_devices(scope, devices),

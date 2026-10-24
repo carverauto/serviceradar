@@ -12,18 +12,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexView.Filters do
     <div class="mb-4 flex flex-wrap items-center gap-2">
       <span class="mr-1 text-xs font-medium text-sr-muted">Quick filters:</span>
       <.ui_button
-        navigate={~p"/devices?q=in:devices is_available:true"}
+        navigate={~p"/devices?q=in:devices availability:available"}
         size="xs"
-        variant={if has_filter?(@srql, "is_available", "true"), do: "primary", else: "ghost"}
+        variant={if has_filter?(@srql, "availability", "available"), do: "primary", else: "ghost"}
       >
         <.icon name="hero-check-circle" class="size-3" /> Available
       </.ui_button>
       <.ui_button
-        navigate={~p"/devices?q=in:devices is_available:false"}
+        navigate={~p"/devices?q=in:devices availability:unavailable"}
         size="xs"
-        variant={if has_filter?(@srql, "is_available", "false"), do: "danger", else: "ghost"}
+        variant={if has_filter?(@srql, "availability", "unavailable"), do: "danger", else: "ghost"}
       >
         <.icon name="hero-x-circle" class="size-3" /> Unavailable
+      </.ui_button>
+      <.ui_button
+        navigate={~p"/devices?q=in:devices availability:unknown"}
+        size="xs"
+        variant={if has_filter?(@srql, "availability", "unknown"), do: "soft", else: "ghost"}
+      >
+        <.icon name="hero-question-mark-circle" class="size-3" /> Unknown
+      </.ui_button>
+      <.ui_button
+        navigate={~p"/devices?q=in:devices agent_reachability:partial"}
+        size="xs"
+        variant={if has_filter?(@srql, "agent_reachability", "partial"), do: "warning", else: "ghost"}
+      >
+        <.icon name="hero-exclamation-triangle" class="size-3" /> Partially reachable
       </.ui_button>
       <.ui_button
         navigate={~p"/devices?q=in:devices is_active:true"}

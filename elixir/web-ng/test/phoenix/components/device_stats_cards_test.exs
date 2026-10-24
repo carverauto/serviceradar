@@ -79,6 +79,23 @@ defmodule ServiceRadarWebNGWeb.Components.DeviceStatsCardsTest do
     assert html =~ "in:devices first_seen:last_30d"
   end
 
+  test "the availability counts link to the canonical state, Unknown included" do
+    document =
+      (&DeviceStats.device_stats_cards/1)
+      |> render_component(%{
+        stats: %{total: 10, available: 6, unavailable: 3, unknown: 1, by_type: [], by_vendor: []},
+        loading: false
+      })
+      |> LazyHTML.from_fragment()
+
+    for {state, count} <- [available: "6", unavailable: "3", unknown: "1"] do
+      card = LazyHTML.query(document, "#device-stats-#{state}")
+
+      assert LazyHTML.attribute(card, "href") == ["/devices?q=in:devices availability:#{state}"]
+      assert card |> LazyHTML.text() |> String.contains?(count)
+    end
+  end
+
   test "the breakdown browser receives every canonical value and an escaped navigation target" do
     items = [%{name: ~s(Example "Quoted" Vendor), count: 7} | facet_items("Vendor", 60)]
 
