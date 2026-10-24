@@ -22,6 +22,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   alias ServiceRadar.Integrations.CompositeNorthboundValues
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Integrations.IntegrationUpdateRun
+  alias ServiceRadar.Inventory.Availability.LegacyValue
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -36,7 +37,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
 
   @type candidate :: %{
           required(:armis_device_id) => String.t(),
-          required(:is_available) => boolean(),
+          required(:is_available) => boolean() | nil,
           optional(:device_id) => String.t(),
           optional(:sync_service_id) => String.t(),
           optional(:metadata) => map()
@@ -271,8 +272,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   def load_candidates(source, opts \\ []) do
     with :ok <- northbound_ready?(source, opts),
          :ok <- availability_source_ready?(source) do
-      {:ok, Repo.all(candidates_query(source))}
+      {:ok, source |> candidates_query() |> Repo.all() |> withhold_unknown()}
     end
+  end
+
+  # Under `merged` semantics an unknown device has no availability to push. An Armis id
+  # is pushed as the AND of its linked devices, so one unknown device withholds the id
+  # rather than letting the others decide it alone.
+  defp withhold_unknown(candidates) do
+    withheld =
+      for %{is_available: nil, armis_device_id: id} <- candidates, into: MapSet.new(), do: id
+
+    if MapSet.size(withheld) == 0,
+      do: candidates,
+      else: Enum.reject(candidates, &MapSet.member?(withheld, &1.armis_device_id))
   end
 
   @spec run_for_source(IntegrationSource.t() | map(), keyword()) ::
@@ -996,46 +1009,131 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     )
   end
 
+  @doc """
+  The candidate rows of one source, one per linked device.
+
+  With an availability agent selected (`northbound_availability_source_agent_id`) the
+  value is that agent's per-agent result, exactly as before merged availability. Without
+  one (the canonical path) it follows the source's `northbound_availability_semantics`
+  (`add-merged-device-availability`, design Decision 13):
+
+    * `legacy` (every existing source until an operator chooses): the legacy
+      availability value the legacy writers keep in `device_availability_legacy` in
+      every mode, or the device's `is_available` where that table has no row yet; false
+      when neither has one, as before.
+    * `merged`: the canonical `availability_state`; `nil` for an `unknown` device, which
+      `load_candidates/2` withholds.
+  """
   @spec candidates_query(IntegrationSource.t() | map()) :: Ecto.Query.t()
   def candidates_query(source) do
     source_id = to_string(Map.fetch!(source, :id))
     availability_source_agent_id = availability_source_agent_id(source)
 
     if blank?(availability_source_agent_id) do
-      canonical_candidates_query(source_id)
+      canonical_candidates_query(source_id, availability_semantics(source))
     else
       agent_candidates_query(source_id, availability_source_agent_id)
     end
   end
 
-  defp canonical_candidates_query(source_id) do
+  @doc """
+  The canonical candidate rows of a source with both values a push could carry: `legacy`
+  (the compatibility value, as `legacy` semantics push it) and `state` (the canonical
+  `availability_state`). Used by the per-source preview of adopting merged semantics.
+  """
+  @spec canonical_availability_query(IntegrationSource.t() | map()) :: Ecto.Query.t()
+  def canonical_availability_query(source) do
+    source
+    |> Map.fetch!(:id)
+    |> to_string()
+    |> canonical_base_query()
+    |> select([d, di, legacy, canonical], %{
+      armis_device_id: di.identifier_value,
+      device_id: d.uid,
+      legacy:
+        fragment(
+          "COALESCE(CASE WHEN ? IS NULL THEN ? ELSE ? END, false)",
+          legacy.device_uid,
+          d.is_available,
+          legacy.is_available
+        ),
+      state: type(canonical.availability_state, :string)
+    })
+  end
+
+  @doc "A source's canonical availability semantics: `:legacy` unless set to `:merged`."
+  @spec availability_semantics(IntegrationSource.t() | map()) :: :legacy | :merged
+  def availability_semantics(source) do
+    case Map.get(source, :northbound_availability_semantics) ||
+           Map.get(source, "northbound_availability_semantics") do
+      semantics when semantics in [:merged, "merged"] -> :merged
+      _ -> :legacy
+    end
+  end
+
+  # The legacy value is the compatibility table's, or the column's for a device the table
+  # has no row for yet: the table is fully seeded only when shadow is entered or at
+  # cutover, and before that the column is the legacy value.
+  defp canonical_base_query(source_id) do
     from(d in Device,
       join: di in DeviceIdentifier,
       on: di.device_id == d.uid and di.identifier_type == :armis_device_id,
+      left_join: legacy in LegacyValue,
+      on: legacy.device_uid == d.uid,
+      # availability_state is not a Device attribute; read it from the same row.
+      join: canonical in "ocsf_devices",
+      on: canonical.uid == d.uid,
       where: not is_nil(d.uid) and is_nil(d.deleted_at),
       where: ^source_linkage_predicate(source_id),
       where: ^armis_identity_present_predicate(),
       where: ^armis_identity_consistent_predicate(),
-      select: %{
-        armis_device_id: di.identifier_value,
-        is_available: fragment("COALESCE(?, false)", d.is_available),
-        device_id: d.uid,
-        sync_service_id:
-          fragment(
-            "COALESCE(?->>'sync_service_id', ?->>'sync_service_id')",
-            di.metadata,
-            d.metadata
-          ),
-        metadata:
-          fragment(
-            "jsonb_strip_nulls(COALESCE(?, '{}'::jsonb) || jsonb_build_object('integration_type', COALESCE(?->>'integration_type', ?->>'integration_type')))::jsonb",
-            d.metadata,
-            di.metadata,
-            d.metadata
-          )
-      },
       order_by: [asc: di.identifier_value, asc: d.uid]
     )
+  end
+
+  defp canonical_candidates_query(source_id, semantics) do
+    source_id
+    |> canonical_base_query()
+    |> select([d, di], %{
+      armis_device_id: di.identifier_value,
+      device_id: d.uid,
+      sync_service_id:
+        fragment(
+          "COALESCE(?->>'sync_service_id', ?->>'sync_service_id')",
+          di.metadata,
+          d.metadata
+        ),
+      metadata:
+        fragment(
+          "jsonb_strip_nulls(COALESCE(?, '{}'::jsonb) || jsonb_build_object('integration_type', COALESCE(?->>'integration_type', ?->>'integration_type')))::jsonb",
+          d.metadata,
+          di.metadata,
+          d.metadata
+        )
+    })
+    |> select_canonical_value(semantics)
+  end
+
+  defp select_canonical_value(query, :legacy) do
+    select_merge(query, [d, _di, legacy], %{
+      is_available:
+        fragment(
+          "COALESCE(CASE WHEN ? IS NULL THEN ? ELSE ? END, false)",
+          legacy.device_uid,
+          d.is_available,
+          legacy.is_available
+        )
+    })
+  end
+
+  defp select_canonical_value(query, :merged) do
+    select_merge(query, [_d, _di, _legacy, canonical], %{
+      is_available:
+        fragment(
+          "CASE ? WHEN 'available' THEN true WHEN 'unavailable' THEN false END",
+          canonical.availability_state
+        )
+    })
   end
 
   defp agent_candidates_query(source_id, availability_source_agent_id) do

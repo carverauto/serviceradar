@@ -241,6 +241,92 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
              ArmisNorthboundRunner.load_candidates(source)
   end
 
+  # add-merged-device-availability, Decision 13: what a run pushes per source.
+  describe "availability semantics" do
+    test "an agent-selected source pushes the agent's result whether or not resolution ran",
+         %{actor: actor} do
+      source =
+        create_source!(actor, "armis-control-agent",
+          northbound_availability_source_agent_id: "agent-control"
+        )
+
+      ip = TestSupport.unique_device_ip()
+      ingest_armis_update(actor, source.id, ip, "armis-control-1", true)
+      device = ip |> Device.get_by_ip(false, actor: actor) |> elem(1) |> single_result()
+
+      # The agent that should be blocked cannot reach the device; another agent can.
+      create_agent_availability!(actor, device.uid, "agent-control", false)
+      create_agent_availability!(actor, device.uid, "agent-witness", true)
+      before = Repo.all(ArmisNorthboundRunner.candidates_query(source))
+
+      # Resolution, as stage c runs it: the device row carries the merged state.
+      set_availability_mode!("authoritative")
+      set_canonical_state!(device.uid, "available", true)
+
+      assert Repo.all(ArmisNorthboundRunner.candidates_query(source)) == before
+      assert [%{armis_device_id: "armis-control-1", is_available: false}] = before
+    end
+
+    test "a legacy source pushes the compatibility value after cutover, not the merged state",
+         %{actor: actor} do
+      source = actor |> create_source!("armis-legacy") |> keep_legacy_semantics!()
+
+      ip = TestSupport.unique_device_ip()
+      ingest_armis_update(actor, source.id, ip, "armis-legacy-1", true)
+      device = ip |> Device.get_by_ip(false, actor: actor) |> elem(1) |> single_result()
+
+      # Seeded at cutover; no legacy writer touches it afterwards, while the resolver
+      # decides the device unavailable.
+      seed_legacy_value!(device.uid, true)
+      set_availability_mode!("authoritative")
+      set_canonical_state!(device.uid, "unavailable", false)
+
+      assert {:ok, [%{armis_device_id: "armis-legacy-1", is_available: true}]} =
+               ArmisNorthboundRunner.load_candidates(source)
+    end
+
+    test "a merged source pushes the canonical state and withholds unknown devices",
+         %{actor: actor} do
+      source = create_source!(actor, "armis-merged")
+      assert source.northbound_availability_semantics == :merged
+
+      [known_ip, unknown_ip] = for _ <- 1..2, do: TestSupport.unique_device_ip()
+      ingest_armis_update(actor, source.id, known_ip, "armis-merged-1", true)
+      ingest_armis_update(actor, source.id, unknown_ip, "armis-merged-2", true)
+
+      [known, unknown] =
+        for ip <- [known_ip, unknown_ip] do
+          ip |> Device.get_by_ip(false, actor: actor) |> elem(1) |> single_result()
+        end
+
+      set_availability_mode!("authoritative")
+      set_canonical_state!(known.uid, "unavailable", false)
+      # Unknown keeps its last decided boolean, which merged semantics must not push.
+      set_canonical_state!(unknown.uid, "unknown", true)
+
+      assert {:ok, [%{armis_device_id: "armis-merged-1", is_available: false}]} =
+               ArmisNorthboundRunner.load_candidates(source)
+    end
+
+    test "a new source cannot choose legacy without an agent; adopting merged is explicit",
+         %{actor: actor} do
+      assert_raise Ash.Error.Invalid,
+                   ~r/legacy availability is kept only for existing sources/,
+                   fn ->
+                     create_source!(actor, "armis-new-legacy",
+                       northbound_availability_semantics: :legacy
+                     )
+                   end
+
+      source = actor |> create_source!("armis-adopt") |> keep_legacy_semantics!()
+
+      assert {:ok, %{northbound_availability_semantics: :merged}} =
+               source
+               |> Ash.Changeset.for_update(:adopt_merged_availability, %{})
+               |> Ash.update(actor: actor)
+    end
+  end
+
   test "run_for_source does not start another run while one is already running", %{actor: actor} do
     source = create_source!(actor, "armis-single-active-run")
 
@@ -594,6 +680,45 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     )
     |> Ash.create!(actor: actor)
     |> Ash.load!([:credentials_encrypted, :credentials], actor: actor)
+  end
+
+  # A source created before merged availability: `legacy` semantics, which new sources
+  # cannot choose.
+  defp keep_legacy_semantics!(source) do
+    Repo.query!(
+      "UPDATE platform.integration_sources SET northbound_availability_semantics = 'legacy' WHERE id = $1",
+      [Ecto.UUID.dump!(source.id)]
+    )
+
+    %{source | northbound_availability_semantics: :legacy}
+  end
+
+  defp set_availability_mode!(mode) do
+    Repo.query!("UPDATE platform.availability_settings SET mode = $1", [mode])
+  end
+
+  # The device row as the resolver leaves it from cutover on.
+  defp set_canonical_state!(uid, state, available?) do
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices
+      SET availability_state = $2, is_available = $3,
+          availability_decided_by = jsonb_build_object('rule', 'highest_class')
+      WHERE uid = $1
+      """,
+      [uid, state, available?]
+    )
+  end
+
+  defp seed_legacy_value!(uid, available?) do
+    Repo.query!(
+      """
+      INSERT INTO platform.device_availability_legacy (device_uid, is_available)
+      VALUES ($1, $2)
+      ON CONFLICT (device_uid) DO UPDATE SET is_available = EXCLUDED.is_available
+      """,
+      [uid, available?]
+    )
   end
 
   defp create_connected_agent!(actor) do

@@ -16,6 +16,13 @@ Existing sources without a selected agent SHALL start in `legacy` availability s
 - **THEN** the source SHALL continue to push the legacy availability value
 - **AND** the source settings SHALL show how many pushed values would change under merged availability
 
+#### Scenario: Settings preview waits until shadow mode
+- **GIVEN** an existing canonical Armis northbound source in `legacy` semantics
+- **AND** the deployment availability mode is `legacy`
+- **WHEN** an operator opens that source's settings
+- **THEN** the settings SHALL say a preview is available once the deployment runs merged availability in shadow mode
+- **AND** SHALL NOT count a missing shadow row as a value that would change
+
 #### Scenario: Device without a later legacy write keeps its legacy value
 - **GIVEN** an existing canonical Armis northbound source in `legacy` semantics
 - **AND** a linked device whose legacy availability was `true` at cutover and that no legacy writer updates afterwards

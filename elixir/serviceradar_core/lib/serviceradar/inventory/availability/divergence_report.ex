@@ -36,11 +36,10 @@ defmodule ServiceRadar.Inventory.Availability.DivergenceReport do
 
   import Ecto.Query
 
-  alias ServiceRadar.Integrations.ArmisNorthboundRunner
+  alias ServiceRadar.Integrations.ArmisAvailabilityPreview
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Availability.EvidencePlan
   alias ServiceRadar.Inventory.Availability.Resolver
-  alias ServiceRadar.Inventory.Availability.ShadowDecision
   alias ServiceRadar.Repo
 
   @samples 20
@@ -376,70 +375,18 @@ defmodule ServiceRadar.Inventory.Availability.DivergenceReport do
     end
   end
 
-  # The pushed value per Armis id, as the runner collapses it: legacy is the AND of the
-  # linked devices' `is_available`; merged is the AND of their shadow states, withheld
-  # when any of them is unknown or unresolved.
+  # The same per-source counts the settings preview shows once a forecast exists:
+  # legacy (the compatibility value) against merged (the shadow state here).
   defp armis_source(source, samples, query_opts) do
-    per_id =
-      from(c in subquery(ArmisNorthboundRunner.candidates_query(source)),
-        left_join: s in ShadowDecision,
-        on: s.device_uid == c.device_id,
-        group_by: c.armis_device_id,
-        select: %{
-          legacy: fragment("bool_and(?)", c.is_available),
-          merged:
-            fragment(
-              "CASE WHEN bool_or(? IS NULL OR ? = 'unknown') THEN NULL ELSE bool_and(? = 'available') END",
-              s.availability_state,
-              s.availability_state,
-              s.availability_state
-            ),
-          device_id: min(c.device_id)
-        }
-      )
+    preview = ArmisAvailabilityPreview.build(source, samples: samples, query_opts: query_opts)
 
-    rows =
-      Repo.all(
-        from(p in subquery(per_id),
-          group_by: [p.legacy, p.merged],
-          select:
-            {p.legacy, p.merged, count(),
-             fragment("(array_agg(? ORDER BY ?))[1:?]", p.device_id, p.device_id, ^samples)}
-        ),
-        query_opts
-      )
-
-    directions =
-      Enum.map(rows, fn {legacy, merged, count, uids} ->
-        %{legacy_push: push(legacy), merged_push: push(merged), count: count, samples: uids || []}
-      end)
-
-    changed =
-      Enum.filter(
-        directions,
-        &(&1.merged_push != "withheld" and &1.legacy_push != &1.merged_push)
-      )
-
-    %{
+    Map.merge(preview, %{
       id: to_string(source.id),
       name: source.name,
       northbound_enabled: source.northbound_enabled,
-      semantics: to_string(source.northbound_availability_semantics),
-      linked_ids: Enum.sum(Enum.map(directions, & &1.count)),
-      would_change: Enum.sum(Enum.map(changed, & &1.count)),
-      withheld:
-        directions
-        |> Enum.filter(&(&1.merged_push == "withheld"))
-        |> Enum.map(& &1.count)
-        |> Enum.sum(),
-      by_direction: directions
-    }
+      semantics: to_string(source.northbound_availability_semantics)
+    })
   end
-
-  # The runner pushes `not is_available`: "true" for an unavailable device.
-  defp push(true), do: "available"
-  defp push(false), do: "unavailable"
-  defp push(nil), do: "withheld"
 
   defp badge_label(true), do: "online"
   defp badge_label(false), do: "offline"

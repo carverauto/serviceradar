@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Integrations
+  alias ServiceRadar.Integrations.ArmisAvailabilityPreview
   alias ServiceRadar.Integrations.ArmisNorthboundLedger
   alias ServiceRadar.Integrations.ArmisNorthboundRunWorker
   alias ServiceRadar.Integrations.IntegrationSource
@@ -53,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:selected_source_runs, [])
         |> assign(:selected_source_target_examples, [])
         |> assign(:selected_source_config_diagnostics, [])
+        |> assign(:selected_source_availability_preview, nil)
         |> assign(:create_form, build_create_form(actor))
         |> assign(:edit_form, nil)
         |> assign(:filter_type, nil)
@@ -147,6 +149,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         |> assign(:selected_source_runs, runs)
         |> assign(:selected_source_target_examples, list_target_examples(runs))
         |> assign(:selected_source_config_diagnostics, list_config_diagnostics(source.id))
+        |> assign(:selected_source_availability_preview, availability_preview(socket, source))
         |> assign(:show_details_modal, true)
 
       {:error, _} ->
@@ -323,7 +326,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
      |> assign(:selected_source, nil)
      |> assign(:selected_source_runs, [])
      |> assign(:selected_source_target_examples, [])
-     |> assign(:selected_source_config_diagnostics, [])}
+     |> assign(:selected_source_config_diagnostics, [])
+     |> assign(:selected_source_availability_preview, nil)}
   end
 
   def handle_event("validate_create", %{"form" => params}, socket) do
@@ -560,6 +564,31 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
 
       {:error, _} ->
         {:noreply, put_flash(socket, :error, "Integration source not found")}
+    end
+  end
+
+  # add-merged-device-availability (Decision 13): an explicit operator choice, made after
+  # the preview in the details modal; nothing switches a source's semantics on its own.
+  def handle_event("adopt_merged_availability", %{"id" => id}, socket) do
+    actor = get_actor(socket)
+
+    with {:ok, %{source_type: :armis} = source} <- get_source(id, actor),
+         {:ok, adopted} <-
+           source
+           |> Ash.Changeset.for_update(:adopt_merged_availability, %{})
+           |> Ash.update(actor: actor) do
+      {:noreply,
+       socket
+       |> put_flash(:info, "#{adopted.name} now uses merged availability.")
+       |> assign(:selected_source, refresh_selected_source(adopted, actor))
+       |> assign(:selected_source_availability_preview, nil)
+       |> assign(:sources, list_sources(actor, active_filters(socket)))}
+    else
+      {:ok, _source} ->
+        {:noreply, put_flash(socket, :error, "Merged availability applies only to Armis sources")}
+
+      {:error, _reason} ->
+        {:noreply, put_flash(socket, :error, "Failed to adopt merged availability")}
     end
   end
 
@@ -1145,6 +1174,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
         selected_source_runs={@selected_source_runs}
         selected_source_target_examples={@selected_source_target_examples}
         selected_source_config_diagnostics={@selected_source_config_diagnostics}
+        availability_preview={@selected_source_availability_preview}
         timezone={@current_scope.user.timezone || "Etc/UTC"}
       />
     </Layouts.app>
@@ -1253,7 +1283,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
                 type="select"
                 label="Northbound Availability Source"
                 options={@agent_options}
-                prompt="Use canonical device availability"
+                prompt="Use merged device availability"
               />
             </div>
 
@@ -1595,6 +1625,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   attr(:selected_source_runs, :list, required: true)
   attr(:selected_source_target_examples, :list, required: true)
   attr(:selected_source_config_diagnostics, :list, required: true)
+  attr(:availability_preview, :any, default: nil)
   attr(:timezone, :string, required: true)
 
   defp details_modal(assigns) do
@@ -1712,6 +1743,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               </div>
             </div>
           <% end %>
+
+          <.northbound_availability_section
+            :if={armis_source?(@source)}
+            source={@source}
+            preview={@availability_preview}
+          />
 
           <div class="sr-ui-divider">Discovery Status</div>
 
@@ -2576,6 +2613,99 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     params
     |> Map.put("settings", settings)
     |> Map.delete("fact_authority")
+  end
+
+  # Connected render only. A canonical legacy Armis source gets the preview when a
+  # forecast exists, and :not_forecast while the deployment is still in legacy mode.
+  defp availability_preview(socket, %{source_type: :armis} = source) do
+    if connected?(socket) and canonical_legacy_source?(source) do
+      if ArmisAvailabilityPreview.forecast_available?(),
+        do: ArmisAvailabilityPreview.build(source),
+        else: :not_forecast
+    end
+  end
+
+  defp availability_preview(_socket, _source), do: nil
+
+  defp canonical_legacy_source?(source) do
+    blank_agent?(source.northbound_availability_source_agent_id) and
+      source.northbound_availability_semantics == :legacy
+  end
+
+  defp blank_agent?(agent_id), do: is_nil(agent_id) or String.trim(agent_id) == ""
+
+  attr(:source, :map, required: true)
+  attr(:preview, :any, default: nil)
+
+  defp northbound_availability_section(assigns) do
+    ~H"""
+    <div id="integration-source-availability-semantics" class="space-y-2">
+      <div class="sr-ui-divider">Northbound Availability</div>
+      <%= cond do %>
+        <% not blank_agent?(@source.northbound_availability_source_agent_id) -> %>
+          <div class="text-sm">
+            Pushes the per-agent results of <code class="font-mono">{@source.northbound_availability_source_agent_id}</code>.
+          </div>
+        <% @source.northbound_availability_semantics == :merged -> %>
+          <div class="text-sm">
+            Pushes the merged availability state. Until the deployment cuts over merged
+            availability that state equals the legacy value; devices whose availability is
+            unknown are withheld.
+          </div>
+        <% true -> %>
+          <div class="text-sm">
+            Pushes the legacy availability value. Select an availability agent in Edit, or adopt
+            merged availability below.
+          </div>
+          <p :if={is_map(@preview)} class="text-xs text-sr-muted">
+            What this source would push with merged availability: the shadow decision before
+            cutover, the merged state after it.
+          </p>
+          <div
+            :if={is_map(@preview)}
+            id="integration-source-availability-preview"
+            class="grid grid-cols-3 gap-4"
+          >
+            <div class="stat bg-sr-subtle rounded-lg p-3">
+              <div class="sr-ui-stat-title text-xs">Linked Armis IDs</div>
+              <div class="sr-ui-stat-value text-lg">{@preview.linked_ids}</div>
+            </div>
+            <div class="stat bg-sr-subtle rounded-lg p-3">
+              <div class="sr-ui-stat-title text-xs">Would Change</div>
+              <div class="sr-ui-stat-value text-lg">{@preview.would_change}</div>
+            </div>
+            <div class="stat bg-sr-subtle rounded-lg p-3">
+              <div class="sr-ui-stat-title text-xs">Would Be Withheld</div>
+              <div class="sr-ui-stat-value text-lg">{@preview.withheld}</div>
+            </div>
+          </div>
+          <ul :if={is_map(@preview)} class="text-xs text-sr-muted">
+            <li
+              :for={direction <- @preview.by_direction}
+              :if={direction.legacy_push != direction.merged_push}
+            >
+              {direction.count}: {direction.legacy_push} to {direction.merged_push}
+            </li>
+          </ul>
+          <p
+            :if={@preview == :not_forecast}
+            id="integration-source-availability-preview-unavailable"
+            class="text-sm"
+          >
+            A preview is available once the deployment runs merged availability in shadow mode.
+          </p>
+          <.ui_button
+            id="integration-source-adopt-merged-availability"
+            size="sm"
+            phx-click="adopt_merged_availability"
+            phx-value-id={@source.id}
+            data-confirm="Use merged availability for this source? Its pushes will follow the merged availability state, which equals the legacy value until the deployment cuts over merged availability, and devices whose availability is unknown are withheld."
+          >
+            Adopt merged availability
+          </.ui_button>
+      <% end %>
+    </div>
+    """
   end
 
   defp refresh_selected_source(nil, _actor), do: nil

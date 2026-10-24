@@ -5,10 +5,10 @@ Armis northbound update configuration SHALL allow operators to choose which Serv
 
 #### Scenario: Armis northbound uses canonical availability
 - **GIVEN** an Armis integration source has northbound updates enabled
-- **AND** its availability source is set to canonical device availability
+- **AND** no availability agent is selected
 - **WHEN** the northbound update job builds outbound payloads
-- **THEN** the outbound value SHALL use `ocsf_devices.is_available`
-- **AND** SHALL preserve existing default behavior for sources without an explicit source selection
+- **THEN** the value pushed SHALL follow that source's northbound availability semantics
+- **AND** that contract is owned by `add-merged-device-availability` (`openspec/changes/add-merged-device-availability/specs/sync-service-integrations/spec.md`)
 
 #### Scenario: Armis northbound uses selected agent availability
 - **GIVEN** an Armis integration source has northbound updates enabled

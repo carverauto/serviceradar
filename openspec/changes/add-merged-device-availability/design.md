@@ -910,8 +910,9 @@ These are agents that a composite check expects to be blocked for a device
     again. A canonical path in `legacy` semantics reads that table, so its
     pushes match the pre-change behavior exactly, in every mode.
   - The divergence report shows, per source, the pushes that would change.
-    The source's settings page shows the same preview and offers two
-    choices: select an agent (agent path), or adopt merged.
+    What the source settings show before an operator adopts merged
+    semantics is the requirement in
+    `specs/sync-service-integrations/spec.md` (this change).
   - Stage d is blocked while any source is still `legacy`. No source is
     switched automatically.
   - In `merged` semantics the path reads `availability_state`, and unknown

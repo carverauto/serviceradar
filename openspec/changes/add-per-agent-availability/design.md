@@ -53,11 +53,7 @@ Profiles are evaluated against the current inventory and apply their selected ag
 
 ### Northbound source selection
 
-Armis northbound configuration should include an availability source selector:
-- canonical device availability
-- a specific agent's latest availability
-
-The outbound value is computed from that selected source. For isolation use cases, the user can select the OT-segment agent and map `false` to the desired Armis custom-property/tag value in the northbound configuration.
+With an availability agent selected, the outbound value is that agent's latest availability. For isolation use cases, the user can select the OT-segment agent and map `false` to the desired Armis custom-property/tag value. With no agent selected, the value follows that source's northbound availability semantics. That contract is owned by `add-merged-device-availability` (`openspec/changes/add-merged-device-availability/specs/sync-service-integrations/spec.md`).
 
 ### SRQL exposure
 
