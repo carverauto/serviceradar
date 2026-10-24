@@ -5,9 +5,11 @@ use crate::{
     parser::{Entity, Filter, OrderDirection},
 };
 use chrono::{SecondsFormat, Timelike, Utc};
+use flow_spread::FlowSpread;
 
 mod bmp_events;
 mod flow_filters;
+mod flow_spread;
 mod mtr;
 mod otel_metrics;
 mod traces;
@@ -302,12 +304,23 @@ fn dataset_sql(
     } else {
         from_with_catalog_joins(&qualified, &joins)
     };
-    let (mut where_sql, params) = time_predicate(
-        plan,
-        time_column,
-        derived || !joins.is_empty(),
-        hour_grained.is_some(),
-    );
+    let qualify_flow = derived || !joins.is_empty();
+    let window = window_bounds(plan, hour_grained.is_some());
+    let (mut where_sql, params) = time_predicate(time_column, qualify_flow, window);
+    let spread = match rollup {
+        Some(_) => None,
+        None => flow_spread(
+            plan,
+            dataset,
+            hour_grained.is_some(),
+            &time_column_sql(time_column, qualify_flow),
+            window.0,
+        )?,
+    };
+    let from = match spread.as_ref() {
+        Some(spread) => format!("{from}{}", spread.lateral()),
+        None => from,
+    };
     if let Some(scope) = dataset.scope {
         where_sql.push_str(&format!(" AND ({scope})"));
     }
@@ -324,7 +337,10 @@ fn dataset_sql(
             &from,
             &where_sql,
             time_column,
-            rollup,
+            match rollup {
+                Some(rollup) => RowSource::Rollup(rollup),
+                None => RowSource::Raw(spread.as_ref()),
+            },
         )?;
         return Ok(TranslateResponse {
             read_model: None,
@@ -338,7 +354,7 @@ fn dataset_sql(
             viz: None,
         });
     }
-    let (select, group) = stats_select(plan, dataset)?;
+    let (select, group) = stats_select(plan, dataset, spread.as_ref())?;
     let order = order_sql(plan, time_column)?;
     let sql = if plan.other {
         other_rollup_sql(
@@ -507,7 +523,8 @@ fn rollup_stats_sql(
     kind: &str,
 ) -> Result<TranslateResponse> {
     let table = format!("{database}.{}", dataset.raw_table);
-    let (where_sql, params) = time_predicate(plan, dataset.time_column, false, false);
+    let (where_sql, params) =
+        time_predicate(dataset.time_column, false, window_bounds(plan, false));
     let sql = match (&plan.entity, kind) {
         (Entity::Logs, "severity") => logs_severity_rollup_sql(plan, &table, &where_sql)?,
         (Entity::Events, "anomaly_findings") => {
@@ -1455,7 +1472,11 @@ fn from_with_catalog_joins(table: &str, joins: &[CatalogJoin]) -> String {
     from
 }
 
-fn stats_select(plan: &QueryPlan, dataset: Dataset) -> Result<(String, String)> {
+fn stats_select(
+    plan: &QueryPlan,
+    dataset: Dataset,
+    spread: Option<&FlowSpread>,
+) -> Result<(String, String)> {
     let Some(stats) = plan.stats.as_ref() else {
         let select = if dataset.raw_table.contains("ocsf_network_activity") {
             flow_row_select(plan)?
@@ -1467,7 +1488,7 @@ fn stats_select(plan: &QueryPlan, dataset: Dataset) -> Result<(String, String)> 
 
     let mut select = Vec::new();
     for agg in parse_aggregations(stats)? {
-        select.push(starrocks_agg(plan, &agg)?);
+        select.push(starrocks_agg(plan, &agg, spread)?);
     }
     if let Some(group_cols) = stats_group_by(Some(stats)) {
         let mut rewritten = Vec::new();
@@ -1477,11 +1498,11 @@ fn stats_select(plan: &QueryPlan, dataset: Dataset) -> Result<(String, String)> 
                 continue;
             }
             // `time:<duration>` is a time-bucket dimension, not a column.
-            if let Some(duration) = col
-                .split_once(':')
-                .and_then(|(key, value)| key.trim().eq_ignore_ascii_case("time").then_some(value))
-            {
-                let expr = starrocks_time_bucket(dataset.time_column, duration.trim())?;
+            if let Some(duration) = time_group_duration(col) {
+                let expr = match spread {
+                    Some(spread) => spread.bucket(),
+                    None => starrocks_time_bucket(dataset.time_column, duration)?,
+                };
                 select.push(format!("{expr} AS bucket"));
                 rewritten.push(expr);
                 continue;
@@ -1497,6 +1518,76 @@ fn stats_select(plan: &QueryPlan, dataset: Dataset) -> Result<(String, String)> 
     } else {
         Ok((select.join(", "), String::new()))
     }
+}
+
+/// The duration of a `time:<duration>` stats group column, or `None` for a column group.
+fn time_group_duration(col: &str) -> Option<&str> {
+    col.split_once(':').and_then(|(key, value)| {
+        key.trim()
+            .eq_ignore_ascii_case("time")
+            .then_some(value.trim())
+    })
+}
+
+/// The spread a bucketed flow volume sum is compiled with (see `flow_spread`), or `None` when
+/// the query books each row in its own bucket.
+///
+/// An hour-grained query -- one the hourly rollup can answer -- is not spread. The rollup
+/// (priv/starrocks/0017) books a flow in the hour it ended, and it cannot spread at write
+/// time: a flow that crosses midnight would add to the previous day's partition, which the
+/// rollup's partition-aligned refresh never revisits. The raw compile of the same query, which
+/// the rollup-freshness gate falls back to, books by row time as well, so the two sources
+/// still return identical buckets. The documented cost is an edge effect: on whole-hour
+/// buckets the part of a flow that ran before an hour boundary is counted in the hour it ended,
+/// which shifts at most one exporter active timeout of each flow by one bucket. Every
+/// sub-hour bucket is read from the raw table, where it is spread.
+fn flow_spread(
+    plan: &QueryPlan,
+    dataset: Dataset,
+    hour_grained: bool,
+    time: &str,
+    window_start: chrono::DateTime<Utc>,
+) -> Result<Option<FlowSpread>> {
+    use crate::parser::DownsampleAgg::{Rate, RateSum, Sum};
+
+    if dataset.raw_table != "ocsf_network_activity" || hour_grained {
+        return Ok(None);
+    }
+    let bucket_seconds = if let Some(downsample) = plan.downsample.as_ref() {
+        let field = downsample
+            .value_field
+            .as_deref()
+            .unwrap_or(default_value_field(dataset));
+        if !matches!(downsample.agg, Sum | Rate | RateSum) || !flow_spread::is_volume_field(field) {
+            return Ok(None);
+        }
+        downsample.bucket_seconds
+    } else {
+        let Some(stats) = plan.stats.as_ref() else {
+            return Ok(None);
+        };
+        let groups = stats_group_by(Some(stats)).unwrap_or_default();
+        let durations: Vec<&str> = groups.split(',').filter_map(time_group_duration).collect();
+        let [duration] = durations.as_slice() else {
+            return Ok(None);
+        };
+        let sums_volume = parse_aggregations(stats)?.iter().any(|agg| {
+            agg.field2.is_none()
+                && agg.function.eq_ignore_ascii_case("sum")
+                && flow_spread::is_volume_field(agg.field)
+        });
+        if !sums_volume {
+            return Ok(None);
+        }
+        crate::parser::parse_group_bucket_seconds(duration)?
+    };
+    Ok(Some(FlowSpread::new(
+        bucket_seconds,
+        time,
+        &field_sql(plan, "start_time")?,
+        &field_sql(plan, "end_time")?,
+        &window_start.format("%Y-%m-%d %H:%M:%S").to_string(),
+    )))
 }
 
 fn group_alias(col: &str) -> String {
@@ -1980,6 +2071,14 @@ fn default_value_field(dataset: Dataset) -> &'static str {
     }
 }
 
+/// What a downsample's FROM clause yields: an hourly rollup's stored aggregates, or raw rows,
+/// spread over their intervals when `flow_spread` says so. The two never combine.
+#[derive(Clone, Copy)]
+enum RowSource<'a> {
+    Rollup(HourlyRollup),
+    Raw(Option<&'a FlowSpread>),
+}
+
 fn downsample_sql(
     plan: &QueryPlan,
     dataset: Dataset,
@@ -1987,8 +2086,12 @@ fn downsample_sql(
     from: &str,
     where_sql: &str,
     time: &str,
-    rollup: Option<HourlyRollup>,
+    source: RowSource<'_>,
 ) -> Result<String> {
+    let (rollup, spread) = match source {
+        RowSource::Rollup(rollup) => (Some(rollup), None),
+        RowSource::Raw(spread) => (None, spread),
+    };
     let bucket = downsample.bucket_seconds.max(1);
     let default_field = default_value_field(dataset);
     if is_counter_rate(dataset, downsample) {
@@ -2001,6 +2104,11 @@ fn downsample_sql(
                 plan,
                 downsample.value_field.as_deref().unwrap_or(default_field),
             )?;
+            // `flow_spread` admits only the SUM arms below, so each sums the bucket's share.
+            let value = match spread {
+                Some(spread) => spread.share(&value),
+                None => value,
+            };
             match downsample.agg {
                 crate::parser::DownsampleAgg::Sum => format!("SUM({value})"),
                 crate::parser::DownsampleAgg::Avg => format!("AVG({value})"),
@@ -2017,8 +2125,12 @@ fn downsample_sql(
         }
     };
     let series = downsample_series_sql(plan, downsample)?;
+    let timestamp = match spread {
+        Some(spread) => spread.bucket(),
+        None => format!("time_slice({time}, INTERVAL {bucket} SECOND)"),
+    };
     let body = format!(
-        "SELECT time_slice({time}, INTERVAL {bucket} SECOND) AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2"
+        "SELECT {timestamp} AS timestamp, {series} AS series, {agg} AS value FROM {from}{where_sql} GROUP BY 1, 2"
     );
     Ok(finalize_downsample(plan, "", &body))
 }
@@ -2237,13 +2349,23 @@ fn parse_aggregations(stats: &crate::parser::StatsSpec) -> Result<Vec<ParsedAgg<
         .collect()
 }
 
-fn starrocks_agg(plan: &QueryPlan, agg: &ParsedAgg<'_>) -> Result<String> {
+fn starrocks_agg(
+    plan: &QueryPlan,
+    agg: &ParsedAgg<'_>,
+    spread: Option<&FlowSpread>,
+) -> Result<String> {
     let ParsedAgg {
         function,
         field,
         field2,
         alias,
     } = *agg;
+    // Under a spread every flow row appears once per bucket it overlaps. A volume sum adds
+    // that bucket's share; anything else reads the row only where it is booked.
+    let home = |value: String| match spread {
+        Some(spread) => spread.home(&value),
+        None => value,
+    };
 
     // Two-argument aggregations. Both must produce the same number the relational
     // builder produces for the same query: a ratio of sums rather than a mean of
@@ -2251,8 +2373,8 @@ fn starrocks_agg(plan: &QueryPlan, agg: &ParsedAgg<'_>) -> Result<String> {
     // denominator yields NULL, never a fabricated zero and never a division
     // error, so "no samples" stays distinguishable from "no loss".
     if let Some(second) = field2 {
-        let lhs = aggregate_field_sql(plan, field)?;
-        let rhs = aggregate_field_sql(plan, second)?;
+        let lhs = home(aggregate_field_sql(plan, field)?);
+        let rhs = home(aggregate_field_sql(plan, second)?);
         let expr = match function.to_ascii_lowercase().as_str() {
             "loss_ratio" => loss_ratio_sql(&lhs, &rhs),
             "wavg" => wavg_sql(&lhs, &rhs),
@@ -2266,10 +2388,14 @@ fn starrocks_agg(plan: &QueryPlan, agg: &ParsedAgg<'_>) -> Result<String> {
     }
 
     let function = function.to_ascii_uppercase();
-    let value = match (function.as_str(), field) {
-        ("COUNT", "*") => "*".to_string(),
-        ("COUNT" | "COUNT_DISTINCT", _) => field_sql(plan, field)?,
-        _ => aggregate_field_sql(plan, field)?,
+    let value = match (function.as_str(), field, spread) {
+        ("COUNT", "*", None) => "*".to_string(),
+        ("COUNT", "*", Some(spread)) => spread.home("1"),
+        ("COUNT" | "COUNT_DISTINCT", _, _) => home(field_sql(plan, field)?),
+        ("SUM", _, Some(spread)) if flow_spread::is_volume_field(field) => {
+            spread.share(&aggregate_field_sql(plan, field)?)
+        }
+        _ => home(aggregate_field_sql(plan, field)?),
     };
     if function == "COUNT_DISTINCT" {
         Ok(format!("COUNT(DISTINCT {value}) AS {alias}"))
@@ -2303,15 +2429,7 @@ fn wavg_sql(value: &str, weight: &str) -> String {
 fn aggregate_field_sql(plan: &QueryPlan, field: &str) -> Result<String> {
     let value = field_sql(plan, field)?;
     if matches!(plan.entity, Entity::Flows | Entity::AttributedFlows)
-        && matches!(
-            field,
-            "bytes_total"
-                | "packets_total"
-                | "bytes_in"
-                | "bytes_out"
-                | "packets_in"
-                | "packets_out"
-        )
+        && flow_spread::is_volume_field(field)
     {
         let rate = field_sql(plan, "sampling_rate")?;
         Ok(format!(
@@ -3083,6 +3201,14 @@ fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
     Ok(format!(" ORDER BY {}", terms.join(", ")))
 }
 
+fn time_column_sql(time_column: &str, qualify_flow: bool) -> String {
+    if qualify_flow {
+        format!("f.`{time_column}`")
+    } else {
+        format!("`{time_column}`")
+    }
+}
+
 /// `hour_grained` says the answer is scored on whole hours -- an hourly
 /// aggregate could serve this query, whether or not this compile is allowed to
 /// read one. Both edge hours therefore belong in the answer in full, so the
@@ -3092,17 +3218,10 @@ fn order_sql(plan: &QueryPlan, time_column: &str) -> Result<String> {
 /// the raw table, and a bound that moved with the source would change an edge
 /// bucket's value with no error -- `bucket < end` admits the row covering the
 /// whole hour holding `end`, while `time < end` truncates it.
-fn time_predicate(
+fn window_bounds(
     plan: &QueryPlan,
-    time_column: &str,
-    qualify_flow: bool,
     hour_grained: bool,
-) -> (String, Vec<BindParam>) {
-    let column = if qualify_flow {
-        format!("f.`{time_column}`")
-    } else {
-        format!("`{time_column}`")
-    };
+) -> (chrono::DateTime<Utc>, chrono::DateTime<Utc>) {
     let (start, end) = match &plan.time_range {
         Some(range) => (range.start, range.end),
         None => {
@@ -3110,11 +3229,21 @@ fn time_predicate(
             (end - chrono::Duration::hours(1), end)
         }
     };
-    let (lower, upper) = if hour_grained {
+    if hour_grained {
         (floor_hour(start), exclusive_hour_end(end))
     } else {
         (start, end)
-    };
+    }
+}
+
+/// The window predicate over `bounds`, which `window_bounds` computes once per query so every
+/// clause that names the window names the same instant.
+fn time_predicate(
+    time_column: &str,
+    qualify_flow: bool,
+    (lower, upper): (chrono::DateTime<Utc>, chrono::DateTime<Utc>),
+) -> (String, Vec<BindParam>) {
+    let column = time_column_sql(time_column, qualify_flow);
     (
         format!(
             " WHERE {column} >= '{}' AND {column} < '{}'",
@@ -3703,7 +3832,7 @@ mod tests {
                 assert!(
                     chart
                         .sql
-                        .contains(&format!("SUM((CAST(COALESCE({total}, 0) AS DOUBLE)"))
+                        .contains(&format!("ELSE (CAST(COALESCE({total}, 0) AS DOUBLE)"))
                 );
             }
         }
@@ -3737,7 +3866,13 @@ mod tests {
                 "serviceradar",
             )
             .unwrap();
-            assert!(chart.sql.contains(&format!("SUM({sampled}) AS value")));
+            // A one-minute chart spreads the sampled value; the share only scales it.
+            assert!(chart.sql.contains(&format!("FLOOR({sampled} * (")));
+            assert!(
+                chart
+                    .sql
+                    .contains(&format!("ELSE {sampled} END)) AS value"))
+            );
         }
         let count = translate(
             &plan(r#"in:flows time:last_1h stats:"count(bytes_in) as observations""#),
@@ -3848,7 +3983,13 @@ mod tests {
             "serviceradar",
         )
         .unwrap();
-        assert!(chart.sql.contains("time_slice(time, INTERVAL 3600 SECOND)"));
+        assert!(
+            chart
+                .sql
+                .contains("FROM serviceradar.ocsf_network_activity, generate_series("),
+            "{}",
+            chart.sql
+        );
         assert!(!chart.sql.contains("_hourly"));
     }
 
@@ -4397,6 +4538,123 @@ mod tests {
         refute_postgres(&compiled.sql);
     }
 
+    // A flow row is stamped with its end time, so a one-minute chart booked a five-minute
+    // transfer into one bucket at five times its real rate (#5970). The values each scenario
+    // produces were checked against StarRocks; these pin the compiled contract that produces
+    // them, for the NetFlow traffic panel's shape and the other bucketed volume sums.
+    #[test]
+    fn sub_hour_flow_volume_buckets_spread_each_flow_over_its_interval() {
+        let window = "time:[2026-01-01T10:00:00Z,2026-01-01T12:00:00Z]";
+        let home = "time_slice(`time`, INTERVAL 60 SECOND)";
+        for query in [
+            format!("in:flows {window} bucket:1m agg:sum value_field:bytes_total limit:120"),
+            format!(
+                r#"in:flows {window} stats:"sum(packets_total) as packets by time:1m" limit:120"#
+            ),
+            format!(
+                "in:attributed_flows {window} bucket:1m agg:rate_sum value_field:bytes_in limit:120"
+            ),
+        ] {
+            let sql = translate(&plan(&query), "serviceradar").unwrap().sql;
+            // One row per overlapped bucket, named by its offset from the row's own bucket.
+            assert!(
+                sql.contains(&format!("seconds_add({home}, spread.k)")),
+                "{sql}"
+            );
+            // The expansion starts no earlier than the window's first bucket, so a flow that
+            // began before the window contributes only its in-window share...
+            assert!(
+                sql.contains(
+                    "time_slice(CAST('2026-01-01 10:00:00' AS DATETIME), INTERVAL 60 SECOND)"
+                ),
+                "{sql}"
+            );
+            // ...and no more than MAX_BUCKETS - 1 buckets before the row's own.
+            assert!(
+                sql.contains(&format!(
+                    "seconds_sub({home}, {})",
+                    (flow_spread::MAX_BUCKETS - 1) * 60
+                )),
+                "{sql}"
+            );
+            // NULL starts, zero durations and flows inside one bucket keep today's booking.
+            assert!(
+                sql.contains(&format!(
+                    "(start_time IS NOT NULL AND end_time IS NOT NULL AND start_time < end_time \
+AND milliseconds_diff({home}, start_time) > 0)"
+                )),
+                "{sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn only_bucketed_flow_volume_sums_are_spread() {
+        let window = "time:[2026-01-01T10:00:00Z,2026-01-01T12:00:00Z]";
+        // Beside a spread sum, every other aggregate reads a flow once, in its own bucket.
+        let mixed = translate(
+            &plan(&format!(
+                r#"in:flows {window} stats:"sum(bytes_total) as bytes, count(*) as flows, avg(bytes_total) as mean by time:1m""#
+            )),
+            "serviceradar",
+        )
+        .unwrap()
+        .sql;
+        assert!(
+            mixed.contains("COUNT((CASE WHEN spread.k = 0 THEN 1 END)) AS flows"),
+            "{mixed}"
+        );
+        assert!(
+            mixed.contains("AVG((CASE WHEN spread.k = 0 THEN "),
+            "{mixed}"
+        );
+
+        for (query, raw) in [
+            (
+                format!("in:flows {window} bucket:1m agg:avg value_field:bytes_total"),
+                false,
+            ),
+            (format!("in:flows {window} bucket:1m agg:count"), false),
+            (format!("in:flows {window} limit:50"), false),
+            (
+                format!(
+                    r#"in:flows {window} stats:"sum(bytes_total) as bytes by src_endpoint_ip""#
+                ),
+                false,
+            ),
+            (
+                format!(r#"in:flows {window} stats:"count(*) as flows by time:1m""#),
+                false,
+            ),
+            (
+                format!("in:timeseries_metrics {window} bucket:1m agg:sum"),
+                false,
+            ),
+            // Hour-grained: the rollup books by row time, and so does its raw fallback.
+            (
+                "in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total".to_string(),
+                false,
+            ),
+            (
+                "in:flows time:last_7d bucket:1h agg:sum value_field:bytes_total".to_string(),
+                true,
+            ),
+        ] {
+            let plan = plan(&query);
+            let compiled = if raw {
+                translate_raw(&plan, "serviceradar")
+            } else {
+                translate(&plan, "serviceradar")
+            }
+            .unwrap();
+            assert!(
+                !compiled.sql.contains("generate_series"),
+                "{query}: {}",
+                compiled.sql
+            );
+        }
+    }
+
     #[test]
     fn flow_downsample_emits_timestamp_series_value() {
         let compiled = translate(&plan(
@@ -4404,9 +4662,9 @@ mod tests {
         ), "serviceradar")
         .expect("compile");
         assert!(
-            compiled
-                .sql
-                .contains("time_slice(time, INTERVAL 60 SECOND) AS timestamp"),
+            compiled.sql.contains(
+                "seconds_add(time_slice(`time`, INTERVAL 60 SECOND), spread.k) AS timestamp"
+            ),
             "{}",
             compiled.sql
         );
