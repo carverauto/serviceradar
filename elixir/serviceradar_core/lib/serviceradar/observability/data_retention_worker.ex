@@ -345,10 +345,12 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   end
 
   # traces_stats_5m also has a cold-tier owner: RetentionFence widens it
-  # while the tier is enabled and never
-  # shrinks it back. An unset tracesStatsDays (the runtime passes nil) and
-  # the ceiling must not undo that widening; only an explicit value may
-  # narrow the aggregate, and only with the cold tier disabled.
+  # while the tier is enabled and never shrinks it back. An installed
+  # drop_after that already equals an explicit tracesStatsDays stays,
+  # including 14 days and shorter. The ceiling applies to a missing policy
+  # and to the 14-day migration interval when that interval is not the
+  # explicit value. Otherwise an explicit value is written only with the
+  # cold tier disabled, and never above a window already at the fence target.
   defp reconcile_traces_stats_retention(config) do
     query_result = query_cagg_retention_days("traces_stats_5m")
 
@@ -376,12 +378,18 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   stay, or `{:skip, :unreadable}` when the catalog read did not prove the window.
 
   `query_result` is the `{:ok, %{rows: _}} | {:error, _}` result of reading
-  `drop_after`. `cold_tier_enabled?` is `ColdTier.Config.enabled?/0`. The
-  telemetry ceiling applies to a missing policy and to the 14-day migration
-  interval. A longer installed window is left alone while the cold tier is
-  enabled. With the tier disabled, an explicit positive
-  `traces_stats_retention_days` is written as given, except a value above a
-  window already at `RetentionFence.cagg_cold_window_days/1`, which stays.
+  `drop_after`. `cold_tier_enabled?` is `ColdTier.Config.enabled?/0`.
+
+  An explicit `traces_stats_retention_days` that already equals the installed
+  window stays, including 14 days and shorter. The telemetry ceiling applies
+  when there is no policy, or when the installed window is exactly the 14-day
+  migration interval and that interval is not the explicit value. With the
+  key unset, a window shorter than 14 days moves to that ceiling-capped
+  default when the result is not shorter than the installed window. Any other
+  installed window stays while the cold tier is enabled. With the tier
+  disabled, an explicit positive value is written as given, except a value
+  above a window already at `RetentionFence.cagg_cold_window_days/1`, which
+  stays.
   """
   @spec traces_stats_retention_to_apply(
           keyword(),
@@ -402,22 +410,28 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   defp traces_stats_retention_days_to_apply(config, current, cold_tier_enabled?) do
     explicit = positive_integer(Keyword.get(config, :traces_stats_retention_days), nil)
     cold_window = RetentionFence.cagg_cold_window_days("traces_stats_5m")
+    migration = @default_traces_stats_retention_days
 
-    migration_interval? =
-      is_nil(current) or
-        (is_integer(current) and current <= @default_traces_stats_retention_days)
+    capped =
+      migration_cagg_retention_days(
+        config,
+        "traces_stats_5m",
+        :traces_stats_retention_days,
+        migration
+      )
 
     at_fence? =
       is_integer(current) and is_integer(cold_window) and current >= cold_window
 
     cond do
-      migration_interval? ->
-        migration_cagg_retention_days(
-          config,
-          "traces_stats_5m",
-          :traces_stats_retention_days,
-          @default_traces_stats_retention_days
-        )
+      is_integer(explicit) and explicit == current ->
+        :skip
+
+      is_nil(current) or (is_integer(current) and current == migration and explicit != migration) ->
+        capped
+
+      is_nil(explicit) and is_integer(current) and current < migration and capped >= current ->
+        capped
 
       cold_tier_enabled? ->
         :skip

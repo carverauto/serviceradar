@@ -175,6 +175,28 @@ defmodule ServiceRadar.Observability.MigrationTableRetentionDbTest do
     assert cagg_drop_after("traces_stats_5m") == "30 days"
   end
 
+  test "an explicit traces stats value at or below 14 days stays on the next run" do
+    for days <- [10, 14] do
+      set_cagg_retention("traces_stats_5m", 90)
+
+      assert :ok =
+               DataRetentionWorker.reconcile_migration_tables(
+                 traces_stats_retention_days: days,
+                 cnpg_telemetry_default_days: 7
+               )
+
+      assert cagg_drop_after("traces_stats_5m") == "#{days} days"
+
+      assert :ok =
+               DataRetentionWorker.reconcile_migration_tables(
+                 traces_stats_retention_days: days,
+                 cnpg_telemetry_default_days: 7
+               )
+
+      assert cagg_drop_after("traces_stats_5m") == "#{days} days"
+    end
+  end
+
   test "a traces stats value above the widened window does not let the ceiling shrink it" do
     set_cagg_retention("traces_stats_5m", 90)
 
