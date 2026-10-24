@@ -101,7 +101,9 @@ destination digest unchanged.
 The fixed schema and per-field bounds bound canonical output. The surrounding
 transport must cap its raw body before decoding, reject duplicate JSON keys and
 preserve integers exactly. Parsing an already-decoded object cannot recover
-duplicates or precision lost by a decoder. No wire endpoint is added here.
+duplicates or precision lost by a decoder. The
+[private receipt endpoint](qualification-receipts.md) applies those transport
+bounds; this parser does not own a route.
 
 Issue/expiry values record what the issuer said; parsing neither checks wall time
 nor starts a validity clock. Expired observations remain useful diagnostic data.
