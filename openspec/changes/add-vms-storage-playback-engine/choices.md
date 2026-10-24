@@ -27,8 +27,11 @@ When: storage endpoint feasibility pass.
 
 The opt-in diagnostic uses the production release with an empty release config,
 so its executable startup needs no database or deployment credentials. Requests
-are bounded to two fresh unversioned buckets, a small object, one multipart
-object and an aborted multipart upload. A durable, directory-synced receipt
+stay inside two fresh unversioned buckets. The original controls are a small
+object, one large multipart object and an aborted multipart upload. Conditional
+writes and explicit SSE-S3 add exact keys inside the same limits; the
+[provider runbook](../../../build/media/provider-probe.md) owns that inventory.
+A durable, directory-synced receipt
 precedes each external mutation. A finite recovery pod reads the receipt from
 the dedicated PVC even when the probe fails. Operator cleanup owns the exact
 fresh resources and verifies their absence; it never adopts existing buckets.
@@ -340,7 +343,9 @@ The worker owns a recorder consumer lease independently of viewers. Its local
 deadline is the monotonic time at request start plus the database's remaining
 lease duration. Time spent in a database request therefore shortens local
 admission. Checks before and after disk work withhold a new readable receipt if
-the lease expires during that work; committed bytes remain for fenced recovery.
+the lease expires during that work. Those local bytes stay on disk and grant no
+upload authority; an unfrozen tail is not recovered here. See
+[Historical recording block authority](block-authority.md).
 
 Consumer release and captured-relay idle close are a separate best-effort step.
 One linked task belongs only to its stopping worker, which traps exits, waits

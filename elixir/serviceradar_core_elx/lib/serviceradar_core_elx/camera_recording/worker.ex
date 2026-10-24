@@ -14,8 +14,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   No media or filesystem work runs in the global relay manager. Lease receipts
   establish a conservative monotonic deadline using the request's start time.
   Every storage operation is checked before and after it. A write completing
-  after expiry is never published as a receipt; its committed bytes remain for
-  fenced recovery. Local durability is not an archive acknowledgement.
+  after expiry is never published as a receipt. Those local bytes stay on disk
+  and grant no upload authority. Local durability is not an archive acknowledgement.
 
   This first worker stops at one block's finite capacity. It neither rotates nor
   deletes recordings. A codec/clock/sequence reset stops the recorder and requires
