@@ -13,6 +13,7 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
   alias ServiceRadar.Identity.AliasPolicy
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Availability
+  alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -551,13 +552,15 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         |> Ash.transact(fn ->
           with {:ok, locked} <- lock_camera_device(device.uid, actor),
                held = held_device_address(locked),
+               # From cutover the descriptor's availability goes to the compatibility
+               # table, not the device row (merged availability, LegacyWrites).
+               update_attrs =
+                 locked
+                 |> camera_device_update_attrs(attrs)
+                 |> LegacyWrites.route_attrs(locked.uid, LegacyWrites.admit()),
                {:ok, _device} <-
                  locked
-                 |> Ash.Changeset.for_update(
-                   :update,
-                   camera_device_update_attrs(locked, attrs),
-                   actor: actor
-                 )
+                 |> Ash.Changeset.for_update(:update, update_attrs, actor: actor)
                  |> Ash.update() do
             held
             |> Aliases.replaced_addresses(%{})

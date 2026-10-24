@@ -15,12 +15,14 @@ defmodule ServiceRadar.Inventory.Availability do
   accompanies: it is skipped when capture is switched off, isolates its statements in a
   savepoint inside a caller's transaction, and logs instead of raising.
 
-  ## Resolution (stage b)
+  ## Resolution
 
-  In `shadow` mode `record_evidence/2` resolves the devices whose evidence it wrote in
+  Outside `legacy`, `record_evidence/2` resolves the devices whose evidence it wrote in
   the same transaction (`resolve_devices/1`), so generic evidence never waits for the
-  invalidation log. The decision goes only to `device_availability_shadow`. In `legacy`
-  the mode check is a cached read and nothing else runs.
+  invalidation log. In `shadow` the decision goes only to `device_availability_shadow`;
+  in `cutover` and `authoritative` it is the device's `availability_state` (see
+  `ServiceRadar.Inventory.Availability.Resolution`). In `legacy` the mode check is a
+  cached read and nothing else runs.
 
   Capture is on by default. Set `config :serviceradar_core, #{inspect(__MODULE__)},
   evidence_capture: false` (`SERVICERADAR_AVAILABILITY_EVIDENCE_CAPTURE=false`) to turn
@@ -121,9 +123,9 @@ defmodule ServiceRadar.Inventory.Availability do
   end
 
   @doc """
-  Resolves `device_uids` inline for a write path: in `shadow`, under the device locks in
-  the caller's transaction (or its own), writing `device_availability_shadow` on change.
-  A no-op in `legacy`. Never fails the caller; see `Resolution.resolve_devices/1`.
+  Resolves `device_uids` inline for a write path, under the device locks in the caller's
+  transaction (or its own), writing on change: the shadow table in `shadow`, the device
+  row from `cutover`. A no-op in `legacy`. Never fails the caller; see `Resolution.resolve_devices/1`.
   """
   @spec resolve_devices([String.t()]) :: {:ok, Resolution.result() | :legacy} | {:error, term()}
   defdelegate resolve_devices(device_uids), to: Resolution

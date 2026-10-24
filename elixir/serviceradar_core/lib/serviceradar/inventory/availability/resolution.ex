@@ -11,9 +11,19 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
      are read under that lock, by later statements, so a write that committed before the
      lock (another resolution's shadow row included) is seen.
   3. `ServiceRadar.Inventory.Availability.Resolver.resolve/3` decides each device.
-  4. Stage b: the decision is written to `device_availability_shadow`, only for a
-     device whose state, provenance, conflict flag or agent counters differ from the
-     stored row. Nothing on `ocsf_devices` is written.
+  4. The decision is written only for a device whose state, provenance, conflict flag
+     or agent counters differ from the stored ones:
+     * in `shadow`, to `device_availability_shadow`; nothing on `ocsf_devices` is
+       written;
+     * in `cutover` and `authoritative`, to the device row: `availability_state`, its
+       provenance, conflict flag, agent counters and change time, and `is_available`
+       as the projection of the state (true, false, or for `unknown` the last decided
+       value, false when the device never had one; Decision 6). A NULL or drifted
+       `is_available` is also rewritten.
+  5. In `authoritative` the changed devices go to the transition outbox
+     (`ServiceRadar.Inventory.Availability.Transitions`) in the same transaction. In
+     `cutover` every side effect is suppressed: no event, no state feed, no UI
+     broadcast.
 
   Resolution never reads, locks or waits on the invalidation log. The only rows it
   locks are device rows (uid order) and then their shadow rows, which no other writer
@@ -28,8 +38,8 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   already holds device locks (an inline merge) waits at most for a switch that holds no
   device lock, and no resolver waits behind a queued switch.
 
-  Only `shadow` writes. `resolve_devices/1` is the inline entry point for write paths;
-  in `legacy` it returns before issuing any query (`Mode.cached/0`).
+  `legacy` writes nothing. `resolve_devices/1` is the inline entry point for write
+  paths; in `legacy` it returns before issuing any query (`Mode.cached/0`).
   """
 
   import Ecto.Query
@@ -37,6 +47,7 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   alias ServiceRadar.Inventory.Availability.AuthorityClass
   alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Availability.Resolver
+  alias ServiceRadar.Inventory.Availability.Transitions
   alias ServiceRadar.Repo
 
   require Logger
@@ -44,7 +55,8 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   @batch_size 500
 
   @lock_devices """
-  SELECT uid, availability_source_agent_id, availability_state, availability_changed_at
+  SELECT uid, availability_source_agent_id, availability_state, availability_changed_at,
+         availability_decided_by, availability_conflict, availability_agents, is_available
   FROM platform.ocsf_devices
   WHERE uid = ANY($1::text[]) AND deleted_at IS NULL
   ORDER BY uid
@@ -78,6 +90,21 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   FROM platform.device_vantage_expectations
   WHERE device_uid = ANY($1::text[])
   GROUP BY device_uid, agent_id
+  """
+
+  @write_devices """
+  UPDATE platform.ocsf_devices AS d
+  SET availability_state = v.state,
+      availability_decided_by = v.decided_by,
+      availability_conflict = v.conflict,
+      availability_agents = v.agents,
+      availability_changed_at = v.changed_at,
+      is_available = v.is_available
+  FROM jsonb_to_recordset($1::jsonb) AS v(
+    uid text, state text, decided_by jsonb, conflict boolean, agents jsonb,
+    changed_at timestamp, is_available boolean
+  )
+  WHERE d.uid = v.uid
   """
 
   @type result :: %{resolved: non_neg_integer(), written: non_neg_integer()}
@@ -133,17 +160,18 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   transaction rolls back; used by the resolver worker, the expiry job and the full pass.
 
   The mode is read inside the transaction, after the shared mode-switch lock is taken:
-  anything but `shadow` resolves nothing, and a switch cannot commit between that read
-  and the shadow write.
+  `legacy` resolves nothing, and a switch cannot commit between that read and the
+  write.
   """
   @spec resolve_locked([String.t()], keyword()) :: result()
   def resolve_locked(device_uids, query_opts \\ []) do
     uids = normalize_uids(device_uids)
+    mode = if uids == [], do: :legacy, else: Mode.admit(query_opts)
 
-    if uids != [] and Mode.admit(query_opts) == :shadow do
+    if Mode.resolving?(mode) do
       uids
       |> Enum.chunk_every(@batch_size)
-      |> Enum.reduce(%{resolved: 0, written: 0}, &add(&2, resolve_batch(&1, query_opts)))
+      |> Enum.reduce(%{resolved: 0, written: 0}, &add(&2, resolve_batch(&1, mode, query_opts)))
     else
       %{resolved: 0, written: 0}
     end
@@ -204,7 +232,7 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
       :ok
   end
 
-  defp resolve_batch(uids, query_opts) do
+  defp resolve_batch(uids, mode, query_opts) do
     %{rows: device_rows} = Repo.query!(@lock_devices, [uids], query_opts)
 
     case device_rows do
@@ -220,12 +248,15 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
 
         changed =
           Enum.flat_map(rows, fn [uid | _] = row ->
-            {device, stored} = device_and_stored(row ++ Map.fetch!(stored, uid))
+            {device, stored} = read_device(mode, row, Map.fetch!(stored, uid))
             decision = Resolver.resolve(device, Map.get(inputs, device.uid, empty_inputs()), now)
-            if changed?(stored, decision), do: [{device.uid, decision}], else: []
+
+            if changed?(stored, decision),
+              do: [{device.uid, decision, stored}],
+              else: []
           end)
 
-        write(changed, now, query_opts)
+        write(mode, changed, now, query_opts)
 
         :telemetry.execute(
           [:serviceradar, :availability, :resolution],
@@ -236,6 +267,27 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
         %{resolved: length(rows), written: length(changed)}
     end
   end
+
+  # In `cutover` and `authoritative` the device row is both the previous decision and
+  # what a change is compared with.
+  defp read_device(mode, row, _shadow) when mode in [:cutover, :authoritative] do
+    [uid, pin, state, changed_at, decided_by, conflict, agents, available?] = row
+    state = state_atom(state)
+
+    stored = %{
+      state: state,
+      decided_by: decided_by,
+      conflict: conflict,
+      agents: agents,
+      is_available: available?
+    }
+
+    previous = %{state: state, decided_by: decided_by, changed_at: to_datetime(changed_at)}
+    {%{uid: uid, pin: pin, previous: previous}, stored}
+  end
+
+  defp read_device(:shadow, [uid, pin, mirror_state, mirror_changed_at | _device], shadow),
+    do: device_and_stored([uid, pin, mirror_state, mirror_changed_at | shadow])
 
   defp device_and_stored([
          uid,
@@ -273,10 +325,27 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
 
   defp changed?(nil, _decision), do: true
 
-  defp changed?(stored, decision) do
+  defp changed?(%{is_available: available?} = stored, decision) do
+    decided_changed?(stored, decision) or
+      available? != projection(decision.state, available?, stored.decided_by)
+  end
+
+  defp changed?(stored, decision), do: decided_changed?(stored, decision)
+
+  defp decided_changed?(stored, decision) do
     stored.state != decision.state or stored.decided_by != decision.decided_by or
       stored.conflict != decision.conflict or stored.agents != decision.agents
   end
+
+  # `is_available` as the projection of a state (design Decision 6): `unknown` keeps the
+  # last decided boolean, or false for a device never decided (no provenance) or NULL.
+  defp projection(:available, _available?, _decided_by), do: true
+  defp projection(:unavailable, _available?, _decided_by), do: false
+
+  defp projection(:unknown, available?, decided_by) when is_map(decided_by),
+    do: available? == true
+
+  defp projection(:unknown, _available?, _decided_by), do: false
 
   defp load_inputs(uids, query_opts) do
     %{rows: ledger} = Repo.query!(@ledger, [uids], query_opts)
@@ -355,15 +424,15 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
     }
   end
 
-  defp write([], _now, _query_opts), do: :ok
+  defp write(_mode, [], _now, _query_opts), do: :ok
 
-  defp write(changed, now, query_opts) do
+  defp write(:shadow, changed, now, query_opts) do
     computed_at = to_naive(now)
 
     rows =
       changed
       |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.map(fn {uid, decision} ->
+      |> Enum.map(fn {uid, decision, _stored} ->
         %{
           device_uid: uid,
           availability_state: Atom.to_string(decision.state),
@@ -394,6 +463,45 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
       rows,
       [prefix: "platform", on_conflict: replace, conflict_target: [:device_uid]] ++ query_opts
     )
+
+    :ok
+  end
+
+  defp write(mode, changed, _now, query_opts) when mode in [:cutover, :authoritative] do
+    changed = Enum.sort_by(changed, &elem(&1, 0))
+
+    rows =
+      Enum.map(changed, fn {uid, decision, stored} ->
+        %{
+          uid: uid,
+          state: Atom.to_string(decision.state),
+          decided_by: decision.decided_by,
+          conflict: decision.conflict,
+          agents: decision.agents,
+          changed_at: decision.changed_at |> to_naive() |> NaiveDateTime.to_iso8601(),
+          is_available: projection(decision.state, stored.is_available, stored.decided_by)
+        }
+      end)
+
+    # The rows are already locked, in uid order, by this transaction.
+    Repo.query!(@write_devices, [rows], query_opts)
+
+    if mode == :authoritative do
+      transitions =
+        for {uid, decision, stored} <- changed, stored.state != decision.state do
+          %{
+            uid: uid,
+            from: Atom.to_string(stored.state),
+            to: Atom.to_string(decision.state),
+            available_from: stored.is_available,
+            available_to: projection(decision.state, stored.is_available, stored.decided_by),
+            decided_by: Map.delete(decision.decided_by, "previous"),
+            conflict: decision.conflict
+          }
+        end
+
+      Transitions.enqueue(transitions, Enum.map(changed, &elem(&1, 0)), query_opts)
+    end
 
     :ok
   end
