@@ -2,7 +2,10 @@
 //! These do not claim to test conditional Stream Load or the future transition consumer.
 
 use anyhow::{Result, ensure};
-use mysql_async::{Conn, prelude::Queryable};
+use mysql_async::{
+    Conn,
+    prelude::{FromRow, FromValue, Queryable},
+};
 use std::path::Path;
 
 use crate::schema;
@@ -74,7 +77,7 @@ pub(crate) async fn verify(conn: &mut Conn, database: &str, ddl_dir: &Path) -> R
             .await?;
     }
 
-    let facts: Vec<(i64, i64, i8, i64, i64, i64, Option<String>)> = conn
+    let facts: Vec<StoredFact> = conn
         .query(format!(
             "SELECT device_ord, pkgver_ord, state, transition_seq, transition_xid, \
              snapshot_generation, source_scope FROM {database}.exposure_facts ORDER BY device_ord"
@@ -83,8 +86,24 @@ pub(crate) async fn verify(conn: &mut Conn, database: &str, ddl_dir: &Path) -> R
     ensure!(
         facts
             == vec![
-                (2147483648, 53, 0, 13, 103, 7, None),
-                (4294967295, 52, 1, 12, 102, 0, None)
+                StoredFact {
+                    device_ord: 2147483648,
+                    pkgver_ord: 53,
+                    state: 0,
+                    transition_seq: 13,
+                    transition_xid: 103,
+                    snapshot_generation: 7,
+                    source_scope: None,
+                },
+                StoredFact {
+                    device_ord: 4294967295,
+                    pkgver_ord: 52,
+                    state: 1,
+                    transition_seq: 12,
+                    transition_xid: 102,
+                    snapshot_generation: 0,
+                    source_scope: None,
+                },
             ],
         "version replacement, terminal marker retention, or DDL replay failed: {facts:?}"
     );
@@ -119,4 +138,40 @@ pub(crate) async fn verify(conn: &mut Conn, database: &str, ddl_dir: &Path) -> R
         "history did not retain both after-images: {history:?}"
     );
     Ok(())
+}
+
+/// One `exposure_facts` row after version replacement and DDL replay.
+#[derive(Debug, Eq, PartialEq)]
+struct StoredFact {
+    device_ord: i64,
+    pkgver_ord: i64,
+    state: i8,
+    transition_seq: i64,
+    transition_xid: i64,
+    snapshot_generation: i64,
+    source_scope: Option<String>,
+}
+
+impl FromRow for StoredFact {
+    fn from_row_opt(row: mysql_async::Row) -> Result<Self, mysql_async::FromRowError> {
+        read_stored_fact(&row).ok_or_else(|| mysql_async::FromRowError(row))
+    }
+}
+
+fn read_stored_fact(row: &mysql_async::Row) -> Option<StoredFact> {
+    // Column order is the SELECT list in `verify`: device, pkgver, state,
+    // transition sequence, transition xid, snapshot generation, source scope.
+    Some(StoredFact {
+        device_ord: fact_column(row, 0)?,
+        pkgver_ord: fact_column(row, 1)?,
+        state: fact_column(row, 2)?,
+        transition_seq: fact_column(row, 3)?,
+        transition_xid: fact_column(row, 4)?,
+        snapshot_generation: fact_column(row, 5)?,
+        source_scope: fact_column(row, 6)?,
+    })
+}
+
+fn fact_column<T: FromValue>(row: &mysql_async::Row, index: usize) -> Option<T> {
+    row.get_opt(index).and_then(Result::ok)
 }
