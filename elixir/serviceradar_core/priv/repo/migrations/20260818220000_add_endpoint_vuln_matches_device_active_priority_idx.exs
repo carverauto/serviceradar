@@ -12,8 +12,8 @@ defmodule ServiceRadar.Repo.Migrations.AddEndpointVulnMatchesDeviceActivePriorit
   partial index starts at the device and is already in sort order so LIMIT 50
   can stop early.
 
-  GIN on advisory `raw` / `affected_coordinates` is the matcher path, not this
-  list.
+  Advisory GIN indexes on `raw` and `affected_coordinates` are not this
+  list; see `DropUnusedAdvisoryIndexes`.
   """
 
   use Ecto.Migration

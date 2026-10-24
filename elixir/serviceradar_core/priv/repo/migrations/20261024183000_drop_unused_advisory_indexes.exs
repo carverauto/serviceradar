@@ -8,8 +8,9 @@ defmodule ServiceRadar.Repo.Migrations.DropUnusedAdvisoryIndexes do
       `raw`; the column is written at ingest and selected whole for
       in-Elixir extraction. Provenance needs the column, not the index.
     * `vulnerability_advisories_coordinates_gin_idx` (GIN on
-      `affected_coordinates`): the loader now always writes
-      `affected_coordinates: []`, so this indexes empty arrays.
+      `affected_coordinates`): nothing issues a containment predicate
+      on the column. The feed loader writes `[]`; the plugin ingestor
+      can still store arrays.
 
   Indexes with live consumers stay: `advisory_coordinates_generation_idx`
   (`provider, feed_key, generation`), whose `(provider, feed_key)` prefix
