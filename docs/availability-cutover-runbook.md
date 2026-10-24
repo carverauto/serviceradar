@@ -100,9 +100,13 @@ Each check has a failure branch; do not report success until all pass.
 
    Pass: 0.
 
-4. No per-device event burst: the internal logs show one
-   `availability.reconciliation` summary and no `device.available` /
-   `device.unavailable` flood timed with the switch.
+4. No per-device event burst during reconciliation. The internal logs show one
+   `availability.reconciliation` summary. While `mode` is still `cutover`, there are
+   no `device.available` or `device.unavailable` events. After the mode is
+   `authoritative`, and only when `transition_events` is on, announce emits
+   `device.available` for devices whose legacy value was false and whose merged state
+   is available. It does not emit `device.unavailable`, and it does not recover a
+   device whose legacy value was true or NULL.
 
 5. Armis canonical sources in `legacy` semantics push what they pushed before: compare
    the next run's candidate counts with the previous run's.
@@ -115,9 +119,11 @@ From `cutover` or `authoritative`:
 $CORE rpc 'ServiceRadar.Inventory.Availability.Operator.switch("legacy")'
 ```
 
-The switch drains the writers, sets `legacy` and enqueues the restore, which sets
-`is_available` from `device_availability_legacy` page by page; the mirror re-derives
-`availability_state`. Evidence and the per-agent ledger are kept. Verify:
+The switch drains the writers, sets `legacy`, deletes waiting transition jobs and
+enqueues the restore, which sets `is_available` from `device_availability_legacy` page
+by page; the mirror re-derives `availability_state`. A transition job already running
+publishes nothing once the mode is no longer `authoritative`. Evidence and the
+per-agent ledger are kept. Verify:
 
 ```sql
 SELECT count(*) FROM platform.ocsf_devices AS d

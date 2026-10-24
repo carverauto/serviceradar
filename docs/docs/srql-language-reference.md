@@ -391,7 +391,7 @@ subsection heading matches the `in:` name used to select the entity.
 | `vendor_name` | `vendor` | Device vendor |
 | `model` | | Device model |
 | `risk_level` | `risk` | Risk classification |
-| `is_available` | `available` | Currently reachable (`true`/`false`) |
+| `is_available` | `available` | Last decided availability (`true`/`false`). Unknown is not stored in this boolean. |
 | `is_active` | `active` | Lifecycle state (`true`/`false`) |
 | `discovery_sources` | | Sources that discovered the device (array; list form) |
 | `first_seen` | `first_seen_time` | When the device was first added. Accepts the same window tokens as `time:` (`last_7d`, `last_30d`, `today`, `[start,end]`). This does **not** change `time:`, which still filters `last_seen_time`. |

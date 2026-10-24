@@ -5,9 +5,13 @@ defmodule ServiceRadar.Inventory.Availability.LegacyWrites do
 
   A legacy writer computes the value it always computed: the sweep's recovery and
   hysteresis, the sync path's non-nil `is_available`, a camera descriptor's status, an
-  agent check-in, a composite check's verdict. Where that value goes depends on the mode,
-  which the writer reads with `admit/1` inside its own transaction, holding the
-  mode-switch lock shared, so it cannot straddle a switch:
+  agent check-in, a composite check's verdict. Where that value goes depends on the mode.
+  Sweep, sync, camera and composite writers read it with `admit/1` inside their own
+  transaction, holding the mode-switch lock shared, so they cannot straddle a switch.
+  An agent check-in reads `Mode.current/0` without that lock. In `cutover` or
+  `authoritative` its compatibility write commits only with a device update that
+  succeeds, so a failed check-in records nothing. A check-in that straddles a switch
+  can still write the device column once; the device's next resolution rewrites it.
 
     * `legacy` and `shadow` (`Mode.legacy_column?/1`): the writer writes
       `ocsf_devices.is_available` exactly as before; a trigger copies each change into
