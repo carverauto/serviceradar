@@ -369,6 +369,7 @@ go_test(
         "snmp_service_test.go",
         "sweep_cancel_test.go",
         "sweep_config_gateway_test.go",
+        "sweep_config_shared_targets_test.go",
         "sweep_performance_test.go",
         "sweep_service_group_id_test.go",
         "sweep_service_sequencing_test.go",
