@@ -34,10 +34,11 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   (`finish_cutover/0`); only then does the resolver emit transitions.
 
   `enter_legacy/0` is the rollback from any mode: mode `legacy`, the expiry window
-  cleared, the shadow rows dropped and waiting entry and cutover jobs deleted. Coming
-  from `cutover` or `authoritative` it also enqueues the restore of `is_available` from
-  the compatibility table (`CutoverWorker`, phase `"restore"`), which runs after the
-  switch has committed, so it never holds the switch lock while it waits on device rows.
+  cleared, the shadow rows dropped and waiting entry, cutover and transition jobs
+  deleted. Coming from `cutover` or `authoritative` it also enqueues the restore of
+  `is_available` from the compatibility table (`CutoverWorker`, phase `"restore"`),
+  which runs after the switch has committed, so it never holds the switch lock while it
+  waits on device rows.
 
   Other nodes keep their cached `legacy` for up to `cache_ms/0` after the switch and
   skip inline resolution meanwhile, so the full pass is scheduled to start only after
@@ -58,6 +59,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
   alias ServiceRadar.Inventory.Availability.CutoverWorker
   alias ServiceRadar.Inventory.Availability.ShadowEntryWorker
+  alias ServiceRadar.Inventory.Availability.Transitions
   alias ServiceRadar.Repo
 
   @type t :: :legacy | :shadow | :cutover | :authoritative
@@ -165,8 +167,9 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
   @doc """
   The rollback from any mode: mode `legacy`, the expiry window cleared, the shadow rows
-  dropped and waiting entry and cutover jobs deleted. From `cutover` or `authoritative`
-  it also enqueues the restore of `is_available` from the compatibility table, which
+  dropped and waiting entry, cutover and transition jobs deleted. From `cutover` or
+  `authoritative` it also enqueues the restore of `is_available` from the compatibility
+  table, which
   the mirror turns back into `availability_state`. Evidence, the per-agent ledger and
   the compatibility table are untouched.
   """
@@ -182,6 +185,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
       Repo.query!("TRUNCATE platform.device_availability_shadow")
       :ok = ShadowEntryWorker.cancel_waiting()
       :ok = CutoverWorker.cancel_waiting()
+      :ok = Transitions.cancel_waiting()
       if from in [:cutover, :authoritative], do: :ok = CutoverWorker.enqueue("restore")
       {:ok, %{from: from, to: :legacy}}
     end)

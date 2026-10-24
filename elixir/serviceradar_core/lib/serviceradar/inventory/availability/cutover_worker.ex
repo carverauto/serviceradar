@@ -32,8 +32,11 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
   The mode-switch phases check the mode first and stop when it no longer applies.
   Reconciliation checks again, under the shared mode-switch lock, before every page and
   before rebuilding rollups or calling `Mode.finish_cutover/0`: once the mode is no
-  longer `cutover` it resolves nothing further. A phase that is already executing counts
-  as queued; `cancel_waiting/0` still removes only jobs that have not started.
+  longer `cutover` it resolves nothing further. Announce checks again before the summary
+  and before each recovery page and stops unless the mode is `authoritative`. Restore
+  checks again before each page and stops unless the mode is `legacy`. An executing
+  reconcile counts as queued; the other phases do not. `cancel_waiting/0` still removes
+  only jobs that have not started.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 20
@@ -112,16 +115,20 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
 
   @doc """
   Enqueues `phase` through the repo, inside the caller's transaction when there is one
-  (the mode switch), unless that phase is already waiting or executing.
+  (the mode switch), unless that phase is already waiting. An executing reconcile also
+  counts as queued; an executing announce, restore or rollup refresh does not.
   """
   @spec enqueue(String.t()) :: :ok
   def enqueue(phase) when phase in @phases do
-    if not Repo.exists?(phase_jobs(phase, @queued_or_running), prefix: "platform") do
+    if not Repo.exists?(phase_jobs(phase, queued_states(phase)), prefix: "platform") do
       Repo.insert!(new(%{"phase" => phase}), prefix: "platform")
     end
 
     :ok
   end
+
+  defp queued_states("reconcile"), do: @queued_or_running
+  defp queued_states(_phase), do: @queued_states
 
   @doc "Deletes every waiting mode-switch job, inside the caller's transaction (a mode switch)."
   @spec cancel_waiting() :: :ok
@@ -248,38 +255,50 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
   end
 
   @doc """
-  Publishes the reconciliation summary and the recovery events. Returns `:ok`.
+  Publishes the reconciliation summary and the recovery events while the mode is
+  `authoritative`, and stops when it is not. Returns `:ok`.
   """
   @spec announce() :: :ok
   def announce do
-    %{rows: rows} = Repo.query!(@summary, [], timeout: :infinity)
-    counts = Map.new(rows, fn [state, count] -> {state, count} end)
-    :ok = Transitions.publish_summary(counts)
+    if Mode.current() == :authoritative do
+      %{rows: rows} = Repo.query!(@summary, [], timeout: :infinity)
+      counts = Map.new(rows, fn [state, count] -> {state, count} end)
+      :ok = Transitions.publish_summary(counts)
 
-    if Transitions.enabled?(), do: recover("", 0), else: 0
+      if Transitions.enabled?(), do: recover("", 0)
+    end
+
     :ok
   end
 
   defp recover(cursor, published) do
-    %{rows: rows} = Repo.query!(@recovered_page, [cursor, @page_size])
+    if Mode.current() == :authoritative do
+      %{rows: rows} = Repo.query!(@recovered_page, [cursor, @page_size])
 
-    case Enum.map(rows, &hd/1) do
-      [] ->
-        published
+      case Enum.map(rows, &hd/1) do
+        [] ->
+          published
 
-      uids ->
-        :ok = Transitions.publish_reconciled_recoveries(uids)
-        recover(List.last(uids), published + length(uids))
+        uids ->
+          :ok = Transitions.publish_reconciled_recoveries(uids)
+          recover(List.last(uids), published + length(uids))
+      end
+    else
+      published
     end
   end
 
   defp restore(cursor, restored) do
-    {:ok, [count, last, written]} =
-      Repo.transaction(fn ->
-        %{rows: [row]} = Repo.query!(@restore_page, [cursor, @page_size])
-        row
-      end)
+    if Mode.current() == :legacy do
+      {:ok, [count, last, written]} =
+        Repo.transaction(fn ->
+          %{rows: [row]} = Repo.query!(@restore_page, [cursor, @page_size])
+          row
+        end)
 
-    if count == 0, do: restored, else: restore(last, restored + written)
+      if count == 0, do: restored, else: restore(last, restored + written)
+    else
+      restored
+    end
   end
 end
