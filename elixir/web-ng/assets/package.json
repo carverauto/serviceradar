@@ -59,7 +59,7 @@
     "@tailwindcss/cli": "4.1.12",
     "esbuild": "0.25.4",
     "eslint": "^9.39.3",
-    "happy-dom": "^20.14.0",
+    "happy-dom": "^21.0.4",
     "tailwindcss": "4.1.12",
     "vitest": "^4.1.12",
     "wgsl_reflect": "1.2.3"
