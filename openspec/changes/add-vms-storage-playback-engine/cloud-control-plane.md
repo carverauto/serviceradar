@@ -86,10 +86,12 @@ part of this contract: parsing does not authenticate the producer, establish
 freshness or install storage authority. The [private receipt
 endpoint](qualification-receipts.md) persists ordered submissions/withdrawals
 through the existing control listener, but reports no applied revision. Its
-current account-scoped caller token does not independently prove environment
-identity, and a receipt is not evidence of credential installation. The merged
+media routes now require [a separate deployment-bound credential](media-authentication.md)
+and exact installation headers; the account/password-reset token is rejected.
+Installation acknowledgment identifies the responding process only, and a receipt
+is not evidence of storage credential installation. The merged
 [Cloud readiness proposal](https://github.com/carverauto/serviceradar-control/pull/185)
-still requires implementation of the desired/applied handshake and lifecycle
+still requires completion of the desired/applied handshake and lifecycle
 gates before hosted enablement.
 
 Budgets cover admitted cameras and aggregate bitrate, spool bytes/time, cache

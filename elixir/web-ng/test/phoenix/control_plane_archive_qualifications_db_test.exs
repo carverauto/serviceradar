@@ -13,11 +13,19 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneArchiveQualificationsDBTest do
   @moduletag sandbox: :unboxed
 
   @token "synthetic-qualification-control-token-for-http-test"
+  @account_token "synthetic-account-control-token-for-http-test"
+  @deployment_ref "bd38192b-a123-4bc5-89ab-000000000001"
   @header "x-serviceradar-control-plane-authorization"
+  @deployment_header "x-serviceradar-deployment-ref"
+  @generation_header "x-serviceradar-media-generation"
 
   setup do
     previous = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
-    Application.put_env(:serviceradar_web_ng, :control_plane_runtime, token: @token)
+
+    Application.put_env(:serviceradar_web_ng, :control_plane_runtime,
+      token: @account_token,
+      media: [token: @token, deployment_ref: @deployment_ref, generation: "1"]
+    )
 
     on_exit(fn ->
       if previous,
@@ -74,6 +82,17 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneArchiveQualificationsDBTest do
     document = submission(1, report)
 
     for headers <- [[], [{@header, "Bearer wrong-synthetic-token"}], [{"authorization", "Bearer #{@token}"}]] do
+      conn = request(:put, binding.id, Jason.encode!(document), headers)
+      assert conn.status == 401
+      assert {:ok, nil} = ArchiveQualifications.status(binding.id, actor: actor)
+    end
+
+    for {header, value} <- [
+          {@header, "Bearer " <> @account_token},
+          {@deployment_header, "bd38192b-a123-4bc5-89ab-000000000002"},
+          {@generation_header, "2"}
+        ] do
+      headers = List.keyreplace(media_headers(), header, 0, {header, value})
       conn = request(:put, binding.id, Jason.encode!(document), headers)
       assert conn.status == 401
       assert {:ok, nil} = ArchiveQualifications.status(binding.id, actor: actor)
@@ -160,13 +179,21 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneArchiveQualificationsDBTest do
     assert {:ok, nil} = ArchiveQualifications.status(binding.id, actor: actor)
   end
 
-  defp request(method, binding_id, body \\ "", headers \\ [{@header, "Bearer " <> @token}]) do
+  defp request(method, binding_id, body \\ "", headers \\ media_headers()) do
     conn = conn(method, "/v1/archive-bindings/#{binding_id}/qualification", body)
     conn = Enum.reduce(headers, conn, fn {key, value}, conn -> put_req_header(conn, key, value) end)
 
     conn
     |> put_req_header("content-type", "application/json")
     |> ControlPlaneRuntimeRouter.call(ControlPlaneRuntimeRouter.init([]))
+  end
+
+  defp media_headers do
+    [
+      {@header, "Bearer " <> @token},
+      {@deployment_header, @deployment_ref},
+      {@generation_header, "1"}
+    ]
   end
 
   defp submission(revision, report) do
