@@ -1123,6 +1123,10 @@ Evidence: [all three scale runs](https://carverauto.buildbuddy.io/invocation/366
 [small corpus checks](https://carverauto.buildbuddy.io/invocation/4ac6a3cf-4ae6-456a-a527-e351b34c2076),
 and [close-guard negative control](https://carverauto.buildbuddy.io/invocation/82e8a2fc-5111-41cc-a75f-ff96b446f6a6).
 
+The subsequent [replay cost investigation](replay-costs.md) separates phase timings and
+allocation effects while preserving this corpus, its correctness checks and the original
+gates. Its instrumented protocol is recorded separately from this baseline.
+
 ## Known edge cases and deferred decisions
 
 Listed so that review converges: each case has its intended handling or is explicitly

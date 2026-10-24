@@ -28,8 +28,10 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
   test "rebuild packed histories from persisted two-hour ownership events", %{tmp_dir: dir} do
     count = "OWNERSHIP_REPLAY_KEYS" |> System.get_env("2500") |> String.to_integer()
     profile = System.fetch_env!("OWNERSHIP_REPLAY_PROFILE")
+    copy = System.get_env("OWNERSHIP_REPLAY_COPY", "none")
     assert count >= 100 and count <= 2_500_000 and rem(count, 100) == 0
     assert profile in ["single", "mixed", "reuse"]
+    assert copy in ["none", "history", "key"]
     {:ok, _} = Application.ensure_all_started(:gnat)
 
     # ex_unit_test stages declared external data under TEST_TMPDIR/external.
@@ -61,7 +63,7 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
         assert state["messages"] == messages
         assert state["first_seq"] == 1
         assert state["last_seq"] == messages
-        measure(conn, count, profile, messages, events)
+        measure(conn, count, profile, messages, events, copy)
       end)
     after
       File.rm_rf!(dir)
@@ -171,7 +173,7 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
     }
   end
 
-  defp measure(conn, count, profile, messages, events) do
+  defp measure(conn, count, profile, messages, events, copy) do
     :erlang.garbage_collect()
     before = :erlang.memory()
     started = System.monotonic_time(:microsecond)
@@ -194,9 +196,17 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
         }
       })
 
-      assert replay({conn, sid}, store, 1, messages, {0, 0, -7200}) == {events, -7200, 0}
+      phases = %{pull: 0, wait: 0, decode: 0, apply: 0, ack: 0}
+
+      {stats, phases} =
+        replay({conn, sid, copy}, store, 1, messages, {{0, 0, -7200}, phases})
+
+      assert stats == {events, -7200, 0}
       settled!(conn, messages, 100)
       replay_us = System.monotonic_time(:microsecond) - started
+
+      :erlang.garbage_collect()
+      before_verify = :erlang.memory()
       verify_store(store, count, profile)
 
       :erlang.garbage_collect()
@@ -210,8 +220,10 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
       binary_growth = max(after_load[:binary] - before[:binary], payload)
       memory_floor = (ets_bytes + binary_growth) / count
 
+      report_costs(store, phases, replay_us, before, before_verify, after_load)
+
       IO.puts(
-        "ownership_replay_result profile=#{profile} keys=#{count} events=#{events} " <>
+        "ownership_replay_result protocol=2 copy=#{copy} profile=#{profile} keys=#{count} events=#{events} " <>
           "replay_s=#{seconds(replay_us)} replay_time_target=#{verdict(replay_us <= 120_000_000)} " <>
           "events_per_s=#{round(events * 1_000_000 / max(replay_us, 1))} " <>
           "bytes_per_key_floor=#{Float.round(memory_floor, 1)} " <>
@@ -227,10 +239,11 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
     end
   end
 
-  defp replay(_conn, _store, next, total, events) when next > total, do: events
+  defp replay(_conn, _store, next, total, stats) when next > total, do: stats
 
-  defp replay({conn, sid} = reader, store, next, total, stats) do
+  defp replay({conn, sid, copy} = reader, store, next, total, {stats, phases}) do
     batch = min(@pull_messages, total - next + 1)
+    started = System.monotonic_time(:microsecond)
 
     :ok =
       Gnat.Jetstream.API.Consumer.request_next_message(
@@ -243,26 +256,41 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
         expires: 10_000_000_000
       )
 
-    stats =
-      Enum.reduce(next..(next + batch - 1), stats, fn sequence, stats ->
+    phases = %{phases | pull: phases.pull + System.monotonic_time(:microsecond) - started}
+
+    result =
+      Enum.reduce(next..(next + batch - 1), {stats, phases}, fn sequence, {stats, phases} ->
+        started = System.monotonic_time(:microsecond)
         assert_receive {:msg, %{sid: ^sid} = message}, 15_000
         refute Map.has_key?(message, :status)
+        received = System.monotonic_time(:microsecond)
         %{"batch" => ^sequence, "events" => rows} = Jason.decode!(message.body)
+        decoded = System.monotonic_time(:microsecond)
 
         stats =
           Enum.reduce(rows, stats, fn row, {events, first, last} ->
-            apply_event(store, row)
+            apply_event(store, row, copy)
             {events + 1, min(first, row["seen"]), max(last, row["seen"])}
           end)
 
+        applied = System.monotonic_time(:microsecond)
         :ok = Gnat.pub(conn, message.reply_to, "+ACK")
-        stats
+        acknowledged = System.monotonic_time(:microsecond)
+
+        {stats,
+         %{
+           phases
+           | wait: phases.wait + received - started,
+             decode: phases.decode + decoded - received,
+             apply: phases.apply + applied - decoded,
+             ack: phases.ack + acknowledged - applied
+         }}
       end)
 
-    replay(reader, store, next + batch, total, stats)
+    replay(reader, store, next + batch, total, result)
   end
 
-  defp apply_event({keys, owners, owner_ids}, row) do
+  defp apply_event({keys, owners, owner_ids}, row, copy) do
     finish = if row["closed"], do: row["seen"], else: row["seen"] + row["ttl"]
 
     if finish >= -@horizon do
@@ -280,7 +308,7 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
             id
         end
 
-      key = Base.decode64!(row["key"])
+      key = maybe_copy(Base.decode64!(row["key"]), copy == "key")
 
       history =
         case :ets.lookup(keys, key) do
@@ -289,8 +317,57 @@ defmodule ServiceRadar.Bench.OwnershipReplaySpikeTest do
         end
 
       interval = {row["first"], finish, owner_id, if(row["closed"], do: 1, else: 0), row["lease"]}
-      :ets.insert(keys, {key, upsert(history, interval)})
+      :ets.insert(keys, {key, maybe_copy(upsert(history, interval), copy == "history")})
     end
+  end
+
+  defp maybe_copy(binary, true), do: :binary.copy(binary)
+  defp maybe_copy(binary, false), do: binary
+
+  defp report_costs(
+         {keys, owners, owner_ids},
+         phases,
+         replay_us,
+         before,
+         before_verify,
+         after_load
+       ) do
+    measured = phases |> Map.values() |> Enum.sum()
+    assert measured <= replay_us
+
+    IO.puts(
+      "ownership_replay_phases_us pull=#{phases.pull} wait=#{phases.wait} " <>
+        "decode=#{phases.decode} apply=#{phases.apply} ack=#{phases.ack} " <>
+        "other=#{replay_us - measured} total=#{replay_us}"
+    )
+
+    wordsize = :erlang.system_info(:wordsize)
+
+    IO.puts(
+      "ownership_replay_memory keys_ets=#{:ets.info(keys, :memory) * wordsize} " <>
+        "owners_ets=#{:ets.info(owners, :memory) * wordsize} " <>
+        "owner_ids_ets=#{:ets.info(owner_ids, :memory) * wordsize} " <>
+        "binary_growth_before_verify=#{before_verify[:binary] - before[:binary]} " <>
+        "binary_growth_after_verify=#{after_load[:binary] - before[:binary]} " <>
+        "known_offheap_payload=#{binary_payload(keys) + binary_payload(owners)}"
+    )
+
+    # Referenced-byte sums diagnose backing storage; they are not allocation totals
+    # (a shared backing binary can be counted more than once). Outside replay time.
+    {key_bytes, key_refs, history_bytes, history_refs} =
+      :ets.foldl(
+        fn {key, history}, {kb, kr, hb, hr} ->
+          {kb + byte_size(key), kr + :binary.referenced_byte_size(key), hb + byte_size(history),
+           hr + :binary.referenced_byte_size(history)}
+        end,
+        {0, 0, 0, 0},
+        keys
+      )
+
+    IO.puts(
+      "ownership_replay_binaries key_bytes=#{key_bytes} key_referenced_bytes=#{key_refs} " <>
+        "history_bytes=#{history_bytes} history_referenced_bytes=#{history_refs}"
+    )
   end
 
   defp upsert(<<>>, {first, finish, owner, closed, lease}) do
