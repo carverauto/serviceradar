@@ -46,19 +46,32 @@ each returned 0. `integration_tests_serial_6` finished 256 tests with 0
 failures. `integration_tests_serial_0` finished 401 tests with 0 failures and
 1 skip. That run validates the imported runtime correction only.
 
-Archive block, binding, and worker database bodies have never executed.
-Published #5955 is still `37da666884`. Its first workflows
+Published #5955 head `bf480fdcb1` ran Core Integration workflow
+[7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690),
+suite `24917750-4926-455c-9a40-c07e00291d5d`. All 12 targets executed once,
+uncached, and 11 passed. The only failure is `integration_tests_serial_2` at
+`test/integration/camera_recording_blocks_integration_test.exs:204`. Deleting
+the referenced destination was rejected. The test expected
+`:foreign_key_violation`. PostgreSQL 18 returned `:restrict_violation`, pg_code
+`23001`, constraint `camera_recording_blocks_archive_binding_id_fkey`.
+Migration `20261023180000` still uses `on_delete: :restrict`. This tree now
+expects that exact code, pg_code, and constraint. The release, replacement,
+and retained-binding assertions after that line stay in the test. Matching-head
+CI has not re-executed them. `integration_tests_serial_3` finished 329 tests,
+0 failures, and 8 excluded, including the 3 worker cases. Suite returned 3.
+Observer, teardown, and release each returned 0. Earlier workflows
 [b69c483d](https://carverauto.buildbuddy.io/invocation/b69c483d-c501-40f9-9c37-4576d286f037),
 [2f02bddf](https://carverauto.buildbuddy.io/invocation/2f02bddf-6744-4eca-a7ff-5e89c9796d19),
 and
 [36f56b1b](https://carverauto.buildbuddy.io/invocation/36f56b1b-1d45-4eb2-8d17-2c4ee9807a6c)
-stopped on the README merge conflict before any test body. This head
-`8a5b83b0` is not published. The database cases are
+stopped on the README merge conflict before any test body. The database cases are
 `elixir/serviceradar_core/test/integration/camera_recording_blocks_integration_test.exs`
 and
 `elixir/serviceradar_core/test/integration/camera_recording_worker_integration_test.exs`,
-both owned by `//elixir/serviceradar_core:integration_tests`. They stay
-untested until a republished Core Integration run executes those lanes.
+both owned by `//elixir/serviceradar_core:integration_tests`. `bf480fdcb1`
+executed both lanes. Serial_2 failed the stale error-code expectation, and
+serial_3 passed its worker cases. The corrected expectation still needs a
+republished Core Integration run.
 Descriptor encoding is
 `elixir/serviceradar_core_elx/test/serviceradar_core_elx/camera_recording/manifest_test.exs`
 on `//elixir/serviceradar_core_elx:unit_tests`. Destination identity without a
@@ -98,8 +111,8 @@ Five focused non-database targets passed in
 `//elixir/serviceradar_core_elx:unit_tests_serviceradar_core_elx`,
 `//elixir/serviceradar_core:unit_tests_serviceradar_other`, and
 `//helm/serviceradar:migrations_expected_version_test`. Those invocations
-predate `8a5b83b0` and leave the guarded database scenarios unexecuted. A
-non-database `make test` of this head finished in
+predate `8a5b83b0` and did not execute the guarded database scenarios. A
+non-database `make test` of `8a5b83b0` finished in
 [b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958):
 452 tests passed, 49 executed, and 2 skipped
 (`//build/arrow_swift:ios_compile_test` and
@@ -125,11 +138,11 @@ Preserve that path; live viewing does not establish archive durability or seekin
 | Contract | Current evidence | Remaining gate |
 | --- | --- | --- |
 | Foundation | [PR #5950](https://github.com/carverauto/serviceradar/pull/5950) merged with all 20 checks passing, including 12 guarded DB targets in [681ba460](https://carverauto.buildbuddy.io/invocation/681ba460-25c3-4cdb-af7a-94a14e169724) | Does not cover the later runtime, block, or binding scenarios |
-| Runtime repair | #5952 is merged at `b80465bfd6`. Negative suite `d607f3a0` on [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8): 12 executed, 10 passed, 2 intended failures; observer, teardown, and release 0. Repair `a8590062`. Focused proof [3fa1b9f1](https://carverauto.buildbuddy.io/invocation/3fa1b9f1-8003-4245-b11c-e2c3ada4224c): 4 passed, 3 executed, formatter cached. Positive proof is draft #5954 `89d50a7f0d`: workflow [a74b1f9f](https://carverauto.buildbuddy.io/invocation/a74b1f9f-ee0d-450f-88a0-7d26eeed15ed) / child [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a), 12 of 12 passed; suite, observer, teardown, and release 0; serial_6 256/0; serial_0 401/0 and 1 skip. GitHub rollup success, 18 checks | That runtime result does not execute archive block, binding, or worker database cases. Those remain pending on unpublished `8a5b83b0` |
-| Historical block authority | Nine focused targets pass in [27053d5a](https://carverauto.buildbuddy.io/invocation/27053d5a-0d1c-45ae-9fda-2e9a412a4b16). Weakening descriptor continuity and count fails two manifest cases in [1c617b24](https://carverauto.buildbuddy.io/invocation/1c617b24-b950-4ef8-9bbf-58881832e059); restored source passes. The original upload deadline and migration `20261023160000` stay. Source is `test/integration/camera_recording_blocks_integration_test.exs` on `//elixir/serviceradar_core:integration_tests` | Guarded DB execution has not run on published `37da666884` or on `8a5b83b0`. Reservation, freeze, upload takeover, and expiry rollback stay untested. [Authority boundary](block-authority.md) |
-| Immutable archive destination | Six focused targets pass in [f6c00dae](https://carverauto.buildbuddy.io/invocation/f6c00dae-99ab-4c6c-907d-a30a0d00ab4e). Allowing an unexpected field fails in [4c35622e](https://carverauto.buildbuddy.io/invocation/4c35622e-1396-4beb-bded-45596214e4ae); the parser is restored byte-for-byte. Bind-once and migration floor `20261023180000` stay. Database cases share `camera_recording_blocks_integration_test.exs`; canonical identity without a database is `test/serviceradar/camera/archive_destination_test.exs` on `//elixir/serviceradar_core:unit_tests` | Guarded DB execution of registration, bind-once, expiry rollback, and restrictive deletion has not run. [Binding contract](archive-binding.md) |
+| Runtime repair | #5952 is merged at `b80465bfd6`. Negative suite `d607f3a0` on [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8): 12 executed, 10 passed, 2 intended failures; observer, teardown, and release 0. Repair `a8590062`. Focused proof [3fa1b9f1](https://carverauto.buildbuddy.io/invocation/3fa1b9f1-8003-4245-b11c-e2c3ada4224c): 4 passed, 3 executed, formatter cached. Positive proof is draft #5954 `89d50a7f0d`: workflow [a74b1f9f](https://carverauto.buildbuddy.io/invocation/a74b1f9f-ee0d-450f-88a0-7d26eeed15ed) / child [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a), 12 of 12 passed; suite, observer, teardown, and release 0; serial_6 256/0; serial_0 401/0 and 1 skip. GitHub rollup success, 18 checks | That runtime result does not execute archive block or binding database cases |
+| Historical block authority | Nine focused targets pass in [27053d5a](https://carverauto.buildbuddy.io/invocation/27053d5a-0d1c-45ae-9fda-2e9a412a4b16). Weakening descriptor continuity and count fails two manifest cases in [1c617b24](https://carverauto.buildbuddy.io/invocation/1c617b24-b950-4ef8-9bbf-58881832e059); restored source passes. The original upload deadline and migration `20261023160000` stay. Source is `test/integration/camera_recording_blocks_integration_test.exs` on `//elixir/serviceradar_core:integration_tests` | Published `bf480fdcb1` ran this file in [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690). `integration_tests_serial_2` failed only at line 204. The corrected RESTRICT expectation has not been re-executed. [Authority boundary](block-authority.md) |
+| Immutable archive destination | Six focused targets pass in [f6c00dae](https://carverauto.buildbuddy.io/invocation/f6c00dae-99ab-4c6c-907d-a30a0d00ab4e). Allowing an unexpected field fails in [4c35622e](https://carverauto.buildbuddy.io/invocation/4c35622e-1396-4beb-bded-45596214e4ae); the parser is restored byte-for-byte. Bind-once and migration floor `20261023180000` stay. Database cases share `camera_recording_blocks_integration_test.exs`; canonical identity without a database is `test/serviceradar/camera/archive_destination_test.exs` on `//elixir/serviceradar_core:unit_tests` | On `bf480fdcb1`, the referenced delete was rejected as `:restrict_violation` / `23001` / `camera_recording_blocks_archive_binding_id_fkey`. The test expected `:foreign_key_violation`, so the same test's later release and replacement assertions did not run. Worker serial_3 passed 329 tests, 0 failures, 8 excluded, including 3 worker cases. The corrected expectation has no matching-head CI result. [Binding contract](archive-binding.md) |
 | Persisted descriptor | Four focused targets pass in [51ca7192](https://carverauto.buildbuddy.io/invocation/51ca7192-b501-4c2b-b3fe-85425239f51a): 207 unit cases, eight cached media cases, three freshly executed Chromium cases, and quality. Validation bypass [09d56db4](https://carverauto.buildbuddy.io/invocation/09d56db4-88d1-44bd-82f8-3f97f7cd66ea) and unsupported profile [b0368339](https://carverauto.buildbuddy.io/invocation/b0368339-fdfe-4fc6-8ec5-2b8ef3ecf7f7) fail the intended assertions | Remote byte verification and publication remain separate |
-| Combined archive pass | Earlier [5c992fa7](https://carverauto.buildbuddy.io/invocation/5c992fa7-55d0-448b-a0eb-a4f02b23aea5): 436 targets pass, 49 execute, two Swift platform skips. Historical non-database [87633a67](https://carverauto.buildbuddy.io/invocation/87633a67-0e9a-4b03-b886-614b01200cec) passed five focused targets. Strict OpenSpec validation passed on `8a5b83b0`. Non-database `make test` [b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958) finished: 452 passed, 49 executed, 2 Swift skips | Runtime DB proof is the separate #5954 run above. Archive block, binding, and worker DB bodies still must execute in sanctioned Core Integration after this head is published |
+| Combined archive pass | Earlier [5c992fa7](https://carverauto.buildbuddy.io/invocation/5c992fa7-55d0-448b-a0eb-a4f02b23aea5): 436 targets pass, 49 execute, two Swift platform skips. Historical non-database [87633a67](https://carverauto.buildbuddy.io/invocation/87633a67-0e9a-4b03-b886-614b01200cec) passed five focused targets. Strict OpenSpec validation passed on `8a5b83b0`. Non-database `make test` [b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958) finished: 452 passed, 49 executed, 2 Swift skips | Runtime DB proof is the separate #5954 run above. Published archive Core Integration [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690) failed one assertion. The corrected expectation has no guarded rerun yet |
 | Browser/media | [d031da58](https://carverauto.buildbuddy.io/invocation/d031da58-b919-470f-8725-45a7f853e0ab): three Chromium cases execute and pass; 16 provider and eight media cases reuse verified cache results | Product playback authorization and full authenticated deployment recovery |
 | Provider/Cloud | Synthetic conditional-write and explicit-SSE diagnostics pass in [373125cd](https://carverauto.buildbuddy.io/invocation/373125cd-3ffc-4b55-9618-359fb128eb2c). Separate controls reject missing conditional headers, missing explicit encryption headers, and HTTP 200 completion errors. Both earlier live exercises were cleaned and absence/revocation rechecked. Exact cleanup stays under the 80/30 limits | Live readiness remains failed: default SSE was not confirmed, the new explicit-SSE and conditional-write checks are not live-tested, and policy/Object Lock remain untested. No third live probe |
 
@@ -142,12 +155,15 @@ Implementation choices live in [choices.md](choices.md).
 ## Next agent prompt
 
 Read [design.md](design.md), [tasks.md](tasks.md), and the current diff. This
-draft is PR #5955. Published head is still `37da666884`; local head
-`8a5b83b0` is not published. The runtime repair in this tree has positive
-guarded CI on #5954 `89d50a7f0d`. Archive database lanes have not run.
-Revalidate from Review after publication. Require guarded Core Integration
-bodies, observer, teardown, and release to pass before any archive readiness
-claim. Leave this PR draft. Do not merge, deploy, enable recording, provision
+draft is PR #5955. Published head `bf480fdcb1` failed Core Integration
+[7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690)
+on the referenced-destination error code. The runtime repair in this tree has
+positive guarded CI on #5954 `89d50a7f0d`. The corrected
+`:restrict_violation` / `23001` /
+`camera_recording_blocks_archive_binding_id_fkey` expectation has not been
+re-executed. Revalidate from Review after publication. Require guarded Core
+Integration bodies, observer, teardown, and release to pass before any archive
+readiness claim. Leave this PR draft. Do not merge, deploy, enable recording, provision
 storage, start an uploader or index, or run a third provider probe.
 
 Releasing a current claim must not turn a stale recorder into a valid publisher,

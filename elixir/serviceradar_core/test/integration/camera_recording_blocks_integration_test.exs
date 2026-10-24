@@ -201,7 +201,14 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert {:ok, retained} = Ash.get(RecordingBlock, lease.id, ctx.opts)
     assert retained.archive_binding_id == first.id
 
-    assert {:error, %Postgrex.Error{postgres: %{code: :foreign_key_violation}}} =
+    assert {:error,
+            %Postgrex.Error{
+              postgres: %{
+                code: :restrict_violation,
+                pg_code: "23001",
+                constraint: "camera_recording_blocks_archive_binding_id_fkey"
+              }
+            }} =
              Repo.query("DELETE FROM platform.camera_archive_bindings WHERE id = $1", [
                Ecto.UUID.dump!(first.id)
              ])
