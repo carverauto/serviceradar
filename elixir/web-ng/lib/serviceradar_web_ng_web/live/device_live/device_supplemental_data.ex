@@ -171,6 +171,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
 
     base_assigns = %{
       agent_availability: Map.get(batch_results, :agent_availability, []),
+      merged_availability: Map.get(batch_results, :merged_availability),
       composite_verdicts: Map.get(batch_results, :composite_verdicts, []),
       healthcheck_summary: Map.get(batch_results, :healthcheck, %{}),
       bumblebee_postures: Map.get(bumblebee, :postures, []),
@@ -242,6 +243,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     base_specs = [
       DeviceTaskData.spec(slow_device_task_ms, :agent_availability, fn ->
         AvailabilityData.load_agent_availability(scope, uid)
+      end),
+      DeviceTaskData.spec(slow_device_task_ms, :merged_availability, fn ->
+        AvailabilityData.load_device_availability(scope, uid)
       end),
       DeviceTaskData.spec(slow_device_task_ms, :composite_verdicts, fn ->
         CompositeVerdictData.load(uid, scope: scope)

@@ -178,7 +178,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexPaginationTest do
     assert is_nil(socket.assigns.device_refresh_timer)
 
     enrichments = %{
-      effective_availability_by_device: %{},
+      availability_by_device: %{},
       snmp_presence: %{},
       sysmon_presence: %{},
       sysmon_profiles_by_device: %{},

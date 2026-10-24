@@ -80,7 +80,7 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
       devices = Access.list_devices(scope!(context), opts)
 
       payload = %{
-        "data" => Enum.map(devices, &Access.device_to_map/1),
+        "data" => Access.devices_to_maps(devices),
         "count" => length(devices)
       }
 
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNG.Mcp.Runner do
 
     run_tool(context, :get_device, input.arguments, [], fn ->
       case Access.get_device(scope!(context), uid) do
-        {:ok, device} -> {:ok, %{"data" => Access.device_to_map(device)}, 1}
+        {:ok, device} -> {:ok, %{"data" => device |> List.wrap() |> Access.devices_to_maps() |> hd()}, 1}
         {:error, :not_found} -> {:error, "device not found"}
         {:error, {:invalid, reason}} -> {:error, reason}
       end

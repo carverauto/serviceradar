@@ -186,10 +186,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   end
 
   @tag :web_ng_shared_fixture_db
-  test "device list status uses per-agent availability fallback", %{conn: conn} do
+  test "device list badge reads the canonical state, not an agent's latest result", %{conn: conn} do
+    # One agent's single failed probe must not turn the badge Offline while the
+    # device's canonical state is available: the badge reads availability_state and
+    # shows the failure as partial reachability instead.
     unique = System.unique_integer([:positive])
     uid = "test-device-agent-availability-#{unique}"
-    hostname = "agent-available-host-#{unique}"
+    hostname = "agent-unreachable-host-#{unique}"
     now = DateTime.truncate(DateTime.utc_now(), :second)
 
     Repo.insert_all("ocsf_devices", [
@@ -198,8 +201,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type_id: 1,
         type: "Server",
         hostname: hostname,
-        is_available: false,
-        availability_source_agent_id: "agent-live-#{unique}",
+        is_available: true,
+        availability_agents: %{"up" => 0, "down" => 1, "stale" => 0, "total" => 1},
         first_seen_time: now,
         last_seen_time: now
       }
@@ -209,13 +212,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       %{
         id: Ecto.UUID.bingenerate(),
         device_uid: uid,
-        agent_id: "agent-live-#{unique}",
-        agent_name: "live-agent",
-        is_available: true,
+        agent_id: "agent-probe-#{unique}",
+        agent_name: "probe-agent",
+        is_available: false,
         checked_at: now,
-        response_time_ms: 8,
+        response_time_ms: nil,
         open_ports: [],
-        sweep_modes_results: %{"icmp" => "success"},
+        sweep_modes_results: %{"icmp" => "failed"},
         metadata: %{},
         inserted_at: now,
         updated_at: now
@@ -225,14 +228,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     {:ok, view, _html} =
       live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{hostname} limit:10"}}")
 
-    html = render_until(view, "Online", 5_000)
+    row = view |> render_until("up from 0 of 1 agent", 5_000) |> table_row_for(hostname)
 
-    assert html =~ hostname
-    assert html =~ "Online"
-    refute html =~ "Offline"
-    refute html =~ "Source: any fresh agent"
-    refute html =~ "Manual source:"
-    refute html =~ "agent-live-#{unique}"
+    assert row =~ ~s(data-availability-state="available")
+    assert row =~ "Online"
+    refute row =~ "Offline"
+    assert row =~ "data-partial-reachability"
   end
 
   @tag :web_ng_shared_fixture_db

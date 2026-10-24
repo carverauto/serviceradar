@@ -264,11 +264,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 last_session={@last_camera_relay_session}
               />
 
+              <.merged_availability_section
+                :if={is_map(@merged_availability)}
+                availability={@merged_availability}
+                timezone={@current_scope.user.timezone || "Etc/UTC"}
+              />
+
               <.availability_section :if={is_map(@availability)} availability={@availability} />
 
               <.agent_availability_section
                 :if={is_list(@agent_availability)}
                 rows={@agent_availability}
+                merged_availability={@merged_availability}
                 device_row={@device_row}
                 sweep_results={@sweep_results}
                 timezone={@current_scope.user.timezone || "Etc/UTC"}

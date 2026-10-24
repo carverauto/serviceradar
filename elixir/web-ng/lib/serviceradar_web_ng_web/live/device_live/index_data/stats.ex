@@ -47,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Stats do
       total: 0,
       available: 0,
       unavailable: 0,
+      unknown: 0,
       by_type: [],
       by_vendor: [],
       by_risk_level: [],
@@ -87,6 +88,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexData.Stats do
       total: to_stats_int(Map.get(payload, "total")),
       available: to_stats_int(Map.get(payload, "available")),
       unavailable: to_stats_int(Map.get(payload, "unavailable")),
+      # Absent until the rollup counts by canonical state; then the devices with no
+      # fresh availability evidence.
+      unknown: to_stats_int(Map.get(payload, "unknown")),
       by_type: parse_rollup_grouped_items(Map.get(payload, "by_type"), "type"),
       by_vendor: parse_rollup_grouped_items(Map.get(payload, "by_vendor"), "vendor_name"),
       by_risk_level: []

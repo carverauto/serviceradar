@@ -133,7 +133,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
     assign(socket,
       icmp_sparklines: %{},
       icmp_error: nil,
-      effective_availability_by_device: %{},
+      availability_by_device: %{},
       snmp_presence: %{},
       sysmon_presence: %{},
       sysmon_profiles_by_device: %{},
@@ -234,7 +234,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.IndexRefresh do
     if socket.assigns[:device_enrichment_token] == token do
       {:noreply,
        assign(socket,
-         effective_availability_by_device: enrichments.effective_availability_by_device,
+         availability_by_device: enrichments.availability_by_device,
          snmp_presence: enrichments.snmp_presence,
          sysmon_presence: enrichments.sysmon_presence,
          sysmon_profiles_by_device: enrichments.sysmon_profiles_by_device,

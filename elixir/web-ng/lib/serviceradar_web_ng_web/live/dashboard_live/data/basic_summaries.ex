@@ -6,11 +6,14 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.BasicSummaries do
       @sobelow_skip ["SQL.Query"]
       defp device_summary(_scope) do
         if relation_exists?("platform.ocsf_devices") do
+          # The canonical availability state, the value the device list sorts, counts
+          # and badges by.
           sql = """
           SELECT
             COUNT(*)::bigint AS total,
-            COUNT(*) FILTER (WHERE is_available = true)::bigint AS available,
-            COUNT(*) FILTER (WHERE is_available = false)::bigint AS unavailable
+            COUNT(*) FILTER (WHERE availability_state = 'available')::bigint AS available,
+            COUNT(*) FILTER (WHERE availability_state = 'unavailable')::bigint AS unavailable,
+            COUNT(*) FILTER (WHERE availability_state = 'unknown')::bigint AS unknown
           FROM platform.ocsf_devices
           WHERE deleted_at IS NULL
             AND source_retired_at IS NULL
@@ -18,11 +21,12 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data.BasicSummaries do
           """
 
           case ServiceRadarWebNG.Repo.query(sql, []) do
-            {:ok, %{rows: [[total, available, unavailable]]}} ->
+            {:ok, %{rows: [[total, available, unavailable, unknown]]}} ->
               %{
                 total: to_int(total),
                 available: to_int(available),
-                unavailable: to_int(unavailable)
+                unavailable: to_int(unavailable),
+                unknown: to_int(unknown)
               }
 
             _ ->
