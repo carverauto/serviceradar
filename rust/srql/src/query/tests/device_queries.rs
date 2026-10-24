@@ -352,6 +352,13 @@ fn devices_default_order_uses_safe_ip_cast() {
     );
     assert!(lower.contains("split_part(ip, ',', 1)"));
     assert!(lower.contains("pg_input_is_valid"));
+    let order_by = &lower[lower.find("order by").expect("default order")..];
+    assert!(
+        order_by.starts_with(
+            "order by case availability_state when 'available' then 0 when 'unavailable' then 1 else 2 end asc"
+        ),
+        "default device order must lead with the canonical availability rank, got: {sql}"
+    );
     assert!(
         !lower.contains("try_inet(nullif(ip, ''))"),
         "expected default device ordering to tolerate malformed IP strings, got: {sql}"
@@ -762,7 +769,98 @@ fn devices_inventory_summary_rollup_returns_all_type_and_vendor_buckets() {
         !lower.contains("limit 10"),
         "inventory summary should not truncate facet buckets, got: {sql}"
     );
+    assert!(
+        lower.contains("'unknown', coalesce((select value from device_inventory_counts where key = 'unknown'), 0)"),
+        "inventory summary must report the canonical unknown count, got: {sql}"
+    );
     assert!(params.is_empty(), "rollup summary should not bind params");
+}
+
+/// The merged-availability filters are built by three paths (row query, bind
+/// collector, grouped stats). Each case must translate on every path with matching
+/// bind counts (`to_sql_and_params` checks diesel's count against the collector's),
+/// and a value outside the keyword set must be refused rather than match nothing.
+#[test]
+fn devices_merged_availability_filters_translate_on_every_path() {
+    let cases = [
+        ("availability:unknown", "availability_state = any(", 1),
+        (
+            "!availability:available",
+            "not (availability_state = any(",
+            1,
+        ),
+        (
+            "availability:(available,unknown)",
+            "availability_state = any(",
+            1,
+        ),
+        (
+            "availability_source:wifi_map",
+            "coalesce(availability_decided_by ->> 'source_kind', '') = any(",
+            1,
+        ),
+        (
+            "availability_class:managing_controller",
+            "coalesce(availability_decided_by ->> 'authority_class', '') = any(",
+            1,
+        ),
+        (
+            "agent_reachability:partial",
+            "coalesce((availability_agents ->> 'up')::bigint, 0) > 0 and coalesce((availability_agents ->> 'down')::bigint, 0) > 0",
+            0,
+        ),
+        (
+            "availability_policy:violation",
+            "coalesce((availability_agents ->> 'policy_violation')::bigint, 0) > 0",
+            0,
+        ),
+    ];
+
+    for (filter, predicate, binds) in cases {
+        let plan = plan_for(&format!("in:devices include_inactive:true {filter}"));
+        let (sql, params) = devices::to_sql_and_params(&plan)
+            .unwrap_or_else(|err| panic!("{filter} should build row SQL: {err:?}"));
+        assert!(
+            sql.to_lowercase().contains(predicate),
+            "{filter}: expected `{predicate}` in row SQL, got: {sql}"
+        );
+        // The row query also binds its limit and offset.
+        assert_eq!(params.len(), binds + 2, "{filter}: row binds {params:?}");
+
+        let plan = plan_for(&format!(
+            "in:devices include_inactive:true {filter} stats:count() as total by availability"
+        ));
+        let (sql, params) = devices::to_sql_and_params(&plan)
+            .unwrap_or_else(|err| panic!("{filter} should build grouped stats SQL: {err:?}"));
+        let lower = sql.to_lowercase();
+        assert!(
+            lower.contains(predicate),
+            "{filter}: expected `{predicate}` in grouped SQL, got: {sql}"
+        );
+        assert!(
+            lower.contains("'availability', availability_state"),
+            "{filter}: expected the availability group key, got: {sql}"
+        );
+        assert!(
+            !sql.contains('?'),
+            "{filter}: unrewritten placeholder in {sql}"
+        );
+        assert_eq!(params.len(), binds, "{filter}: grouped binds {params:?}");
+    }
+
+    for filter in [
+        "availability:down",
+        "availability_class:sweep",
+        "agent_reachability:some",
+        "availability_policy:ok",
+        "availability:%avail%",
+    ] {
+        let plan = plan_for(&format!("in:devices {filter}"));
+        assert!(
+            devices::to_sql_and_params(&plan).is_err(),
+            "{filter} must be rejected"
+        );
+    }
 }
 
 #[test]

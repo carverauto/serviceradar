@@ -1,4 +1,7 @@
-use super::{DeviceQuery, filters::safe_device_ip_inet_sql};
+use super::{
+    DeviceQuery,
+    filters::{AVAILABILITY_RANK_SQL, safe_device_ip_inet_sql},
+};
 use crate::{
     parser::{OrderClause, OrderDirection},
     schema::ocsf_devices::dsl::{
@@ -8,7 +11,7 @@ use crate::{
 };
 use diesel::dsl::sql;
 use diesel::prelude::*;
-use diesel::sql_types::{Bool, Inet, Nullable};
+use diesel::sql_types::{Bool, Inet, Integer, Nullable};
 // Bring variants into scope so new arms can write `Asc`/`Desc` without the
 // fully-qualified form that the structural publish scanner misidentifies as
 // compressed IPv6.
@@ -19,7 +22,7 @@ pub(super) fn apply_ordering<'a>(
     order: &[OrderClause],
 ) -> DeviceQuery<'a> {
     let mut applied = false;
-    let mut saw_is_available = false;
+    let mut saw_availability = false;
     let mut saw_ip = false;
 
     for clause in order {
@@ -35,18 +38,19 @@ pub(super) fn apply_ordering<'a>(
         }
 
         match clause.field.as_str() {
-            "is_available" => saw_is_available = true,
+            "is_available" | "availability" => saw_availability = true,
             "ip" => saw_ip = true,
             _ => {}
         }
     }
 
     if !applied {
+        // Canonical availability rank (available, unavailable, unknown), then IP, then uid.
         query = query
-            .order(sql::<Bool>("coalesce(is_available, false)").desc())
+            .order(sql::<Integer>(AVAILABILITY_RANK_SQL).asc())
             .then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc())
             .then_order_by(col_uid.asc());
-    } else if saw_is_available && !saw_ip {
+    } else if saw_availability && !saw_ip {
         query = query
             .then_order_by(sql::<Nullable<Inet>>(safe_device_ip_inet_sql()).asc())
             .then_order_by(col_uid.asc());
@@ -70,6 +74,13 @@ fn apply_primary_order<'a>(
                 OrderDirection::Desc => {
                     query.order(sql::<Bool>("coalesce(is_available, false)").desc())
                 }
+            },
+            true,
+        ),
+        "availability" => (
+            match clause.direction {
+                Asc => query.order(sql::<Integer>(AVAILABILITY_RANK_SQL).asc()),
+                Desc => query.order(sql::<Integer>(AVAILABILITY_RANK_SQL).desc()),
             },
             true,
         ),
@@ -137,6 +148,13 @@ fn apply_secondary_order<'a>(
                 OrderDirection::Desc => {
                     query.then_order_by(sql::<Bool>("coalesce(is_available, false)").desc())
                 }
+            },
+            true,
+        ),
+        "availability" => (
+            match clause.direction {
+                Asc => query.then_order_by(sql::<Integer>(AVAILABILITY_RANK_SQL).asc()),
+                Desc => query.then_order_by(sql::<Integer>(AVAILABILITY_RANK_SQL).desc()),
             },
             true,
         ),

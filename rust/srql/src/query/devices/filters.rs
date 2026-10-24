@@ -4,6 +4,7 @@ mod defaults;
 mod identity;
 mod ip;
 mod jsonb;
+mod merged_availability;
 mod params;
 mod seen;
 mod text;
@@ -16,6 +17,10 @@ pub(super) use self::{
     },
     ip::safe_device_ip_inet_sql,
     jsonb::{is_valid_jsonb_key, parse_bool},
+    merged_availability::{
+        AVAILABILITY_RANK_SQL, bound_filter as merged_availability_bound_filter,
+        summary_predicate as merged_availability_summary_predicate,
+    },
     params::collect_filter_params,
     seen::first_seen_range,
 };
@@ -126,6 +131,25 @@ pub(super) fn apply_filter<'a>(
         }
         "availability_source_stale_after" => {
             query = apply_availability_source_freshness_filter(query, filter, false)?;
+        }
+        // Canonical merged availability, its provenance and the per-agent summary
+        // (filters/merged_availability.rs, shared with the bind collector and stats).
+        "availability" | "availability_source" | "availability_class" => {
+            if let Some(bound) = merged_availability_bound_filter(filter)? {
+                let expr = sql::<Bool>(&format!("{} = ANY(", bound.column))
+                    .bind::<Array<Text>, _>(bound.values)
+                    .sql(")");
+                query = if bound.negated {
+                    query.filter(not(expr))
+                } else {
+                    query.filter(expr)
+                };
+            }
+        }
+        "agent_reachability" | "availability_policy" => {
+            if let Some(predicate) = merged_availability_summary_predicate(filter)? {
+                query = query.filter(sql::<Bool>(&predicate));
+            }
         }
         "is_available" => {
             query = apply_eq_filter!(

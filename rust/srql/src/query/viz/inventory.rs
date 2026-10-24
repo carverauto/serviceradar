@@ -350,6 +350,16 @@ pub(super) fn devices() -> VizMeta {
             col("discovery_sources", ColumnType::TextArray, None),
             col("is_available", ColumnType::Bool, None),
             col(
+                "availability",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col("availability_source", ColumnType::Text, None),
+            col("availability_class", ColumnType::Text, None),
+            col("availability_conflict", ColumnType::Bool, None),
+            col("agents_up", ColumnType::Int, None),
+            col("agents_total", ColumnType::Int, None),
+            col(
                 "first_seen",
                 ColumnType::Timestamptz,
                 Some(ColumnSemantic::Time),

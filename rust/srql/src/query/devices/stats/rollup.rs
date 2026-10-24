@@ -25,6 +25,7 @@ pub(in crate::query::devices) fn build_rollup_stats_query(
     'total', COALESCE((SELECT value FROM device_inventory_counts WHERE key = 'total'), 0)::bigint,
     'available', COALESCE((SELECT value FROM device_inventory_counts WHERE key = 'available'), 0)::bigint,
     'unavailable', COALESCE((SELECT value FROM device_inventory_counts WHERE key = 'unavailable'), 0)::bigint,
+    'unknown', COALESCE((SELECT value FROM device_inventory_counts WHERE key = 'unknown'), 0)::bigint,
     'by_type', COALESCE((
         SELECT jsonb_agg(
             jsonb_build_object('type', type, 'count', count)
