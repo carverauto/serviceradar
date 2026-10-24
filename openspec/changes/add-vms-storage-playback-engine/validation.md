@@ -25,6 +25,10 @@ scenarios or establish hosted readiness.
 | Foundation validation | [PR #5950](https://github.com/carverauto/serviceradar/pull/5950) merged with all 20 checks passing. The final fix passes 199 core-elx and six media tests in [edd24097](https://carverauto.buildbuddy.io/invocation/edd24097-fb2c-4898-ad3e-daae1bf87952). Core Integration executes all 12 targets in [681ba460](https://carverauto.buildbuddy.io/invocation/681ba460-25c3-4cdb-af7a-94a14e169724), with successful fixture teardown and lease release | This PR does not contain the runtime claim/Worker or historical block cases |
 | Combined runtime sweep | After replaying all 19 runtime commits onto the reviewed foundation with equivalent patches, `make test` passes 436 targets, with two Swift platform skips, in [bbf2e694](https://carverauto.buildbuddy.io/invocation/bbf2e694-c755-43bf-b2ee-d434aebeb471). Fifty targets execute; the remainder use verified cache results. Strict OpenSpec validation also passes | The unit sweep does not execute database integration bodies |
 | Combined archive sweep | With runtime close/retry fixes, retained block authority, provider diagnostics, immutable archive bindings and descriptor encoding, an earlier `make test` passes 436 targets, with two Swift platform skips, in [5c992fa7](https://carverauto.buildbuddy.io/invocation/5c992fa7-55d0-448b-a0eb-a4f02b23aea5). Forty-nine targets execute; the remainder use verified cache results. Three Chromium cases execute in [d031da58](https://carverauto.buildbuddy.io/invocation/d031da58-b919-470f-8725-45a7f853e0ab), which also reuses the passing provider/media results. Historical non-database proof [87633a67](https://carverauto.buildbuddy.io/invocation/87633a67-0e9a-4b03-b886-614b01200cec) executed five targets and all passed: release startup, `provider_probe_test`, `unit_tests_serviceradar_core_elx`, `unit_tests_serviceradar_other`, and `migrations_expected_version_test`. Strict OpenSpec validation of this change passed on `8a5b83b0`. Non-database `make test` of `8a5b83b0` finished in [b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958): 452 passed, 49 executed, and 2 skipped (`ios_compile_test`, `swift_regression_test`). It excludes integration and acceptance tests. The earlier replay of the seven archive commits onto runtime head `796882e59b` preserved their source | This draft merges staging `9c3388359ad9a5ef079c2aa1b1ae7a0e7100f692`, which contains merged #5952 and merged #5954, and imports repair `a8590062`. Published `bf480fdcb1` ran Core Integration [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690): 12 targets executed once, uncached, 11 passed, and `integration_tests_serial_2` failed the stale `:foreign_key_violation` expectation. The later exact-parent guarded result below passes the corrected expectation |
+| Media feasibility sweep | Before the logical byte-cost experiment, [9f994c74](https://carverauto.buildbuddy.io/invocation/9f994c74-4a00-406f-af4a-59d1b819d6b7) passed 438 targets, with three executed and two Swift skips. [Codec](codec-capabilities.md) and [RTCP clock](clock-capabilities.md) records retain their focused checks and failing controls | Later provisional-parent sweep is recorded below. Production audio/HEVC and trusted UTC remain unproved |
+| Logical block bytes | [4a3336d1](https://carverauto.buildbuddy.io/invocation/4a3336d1-0c98-4b2d-ab91-168b55c83c50) executes nine media tests and quality. Omitting an append fails independent decoded-frame conservation. [Measurements and bounds](block-byte-costs.md) | Physical allocation, database/WAL, cache, provider requests and deployment capacity remain unmeasured |
+| Reconciled focused media | At merge head `52adc0c3b3089b9ec9ed28d28f77b8d163be7252`, [d68c4a96](https://carverauto.buildbuddy.io/invocation/d68c4a96-71a6-420b-ad50-546645c7f8ee) executes all nine targets uncached: 210 core-elx units, nine media/byte-cost cases, three RTSP cases, one native codec case, the RTCP test with both source epochs, three seek and three codec Chromium cases, plus core and core-elx quality. All pass. Chromium records HEVC as unsupported | Provisional archive parent `8a5b83b0`; no database bodies execute. Final archive parent is now merged; this row retains its earlier source scope. Production audio/HEVC and trusted UTC remain unproved |
+| Provisional media full sweep | At clean head `6e78ec0c6c708e58dfd23d24b809fda19da2fe43`, `make test` passes [4e854012](https://carverauto.buildbuddy.io/invocation/4e854012-b0ee-48fa-974c-393b960e4b36): 454 targets pass, 13 execute and 441 use cache; `ios_compile_test` and `swift_regression_test` are the two platform skips. Initial and final HEAD match; the worktree stays clean | Ordinary RBE does not execute guarded DB bodies. Final archive parent is now merged; combined-tree proof is recorded below |
 
 Local spool tests cover committed reads after writer exit, interrupted-tail
 recovery, corruption rejection, immutable sealing, stale snapshots, independent
@@ -131,9 +135,22 @@ worker cases included and eight other cases excluded. Case inclusion is based on
 exact source, registration, tags and lane results; logs do not trace every case.
 Suite, observer, teardown and release statuses are all zero; the matching lease
 was released, with 335 observer samples. The earlier prepublication Test exception
-is retained in the proxy record; final guarded CI was not waived.
+is retained in the proxy record; final guarded CI was not waived. The workflow
+finished at `2026-10-24T02:40:37Z`. The passing block lane includes all six block
+cases. On published `bf480fdcb1d52dc6fe527f8b6fe6802af674510c`, the failing case
+was `RecordingBlocksIntegrationTest`'s "binding requires exact authority and
+cannot replace the retained destination": deletion was blocked with
+`:restrict_violation`, SQLSTATE `23001`, and constraint
+`camera_recording_blocks_archive_binding_id_fkey`, and the later assertions in
+that case did not run. #5955 later merged at
+`88c5a324793e4cff4155378c29fc29ec5949da6b`.
 
 This is proof of the archive parent, not later upload-intent database cases.
+The media reconciliation at `74788a15` merges this exact parent and retains the
+three experiment commits. At that merge the 14 experiment files match the
+pre-merge author byte-for-byte, and the media patch ID is
+`ffa7689d1b13105878ce0badd7e7e08294ca96ee`. The deadline repair later changes two
+build files; that correction is recorded below.
 
 ## Immutable upload intent checkpoint
 
@@ -160,5 +177,81 @@ unreliable 50 ms lease acquisition with the established 2-second expiry pattern.
 All existing assertions remain intact. New retry checks compare persisted fields,
 and the conflicting-content case preserves the original row after refusal.
 No new database body execution, browser acceptance, live provider check or runtime
-rollout is claimed here. All five new guarded cases still require this branch's
-sanctioned PR CI, including migration, lane inclusion and fixture cleanup.
+rollout is claimed here. At this checkpoint, all five new guarded cases still
+required that branch's sanctioned PR CI, including migration, lane inclusion and
+fixture cleanup. Merging #5960 does not add a database result to this record, and
+this media draft does not rerun those cases.
+
+## Final media reconciliation
+
+Merge `74788a15db84c478646afda4d3995f5edd784031` retains media parent
+`2f8ba47a4d32b81d47e3a269b7295ebc0def75c7` and exact archive parent
+`72a81f96c4dfaa3d801b95dbab5150423f9a9cf5`. Only README and validation conflicts
+required manual resolution. At that merge, the 14-file media test/build delta
+matches the pre-merge author. Production camera modules and receiver source
+have no delta against the archive parent. The later deadline repair changes two
+of those build files; that correction is recorded below. At this reconciliation
+the staging comparison still included archive production ancestry because #5955
+had not merged. Current publication status is in the [handoff](README.md).
+
+Focused [230c21ab](https://carverauto.buildbuddy.io/invocation/230c21ab-2b6c-4419-b177-73a150ee633c)
+ran on the resolved merge working tree before its commit, with the same source,
+tests and build definitions as `74788a15`. All nine targets executed uncached and
+passed: 210 core-elx units, nine media/byte-cost cases, three RTSP cases, one native
+codec case, both RTCP source epochs, three Chromium seek cases, three Chromium
+codec cases and core/core-elx quality. Native audio offsets and logical byte
+measurements remain as documented; pinned Chromium reports HEVC unsupported.
+
+Full `make test` [1a996f98](https://carverauto.buildbuddy.io/invocation/1a996f98-1d3e-482c-90c4-a432e45ef6f2)
+began and ended clean at `74788a15`: 454 targets passed, 14 executed and 440 used
+cache, with two platform skips (`ios_compile_test`, `swift_regression_test`).
+Elapsed time was 223.947 seconds. The command excludes integration and acceptance
+tests; the browser targets were explicitly executed in the focused run. The
+following evidence checkpoint changes README and validation only, so executable
+source, tests and build definitions remain those tested. Strict OpenSpec and
+diff checks pass. No media-branch guarded DB rerun, deployment or provider probe
+is claimed; the matching archive-parent guarded result is recorded above.
+
+Review found no new architecture choice in this reconciliation: it preserves
+the approved experiment scope and existing choices. Tasks 0.4 and 0.6 remain open.
+Upload-intent #5960 later merged at `29b30748dfe212ba0672bd2cd53342303ecbbc26`.
+Its non-database checkpoint stays in the section above and remains source-scoped:
+it does not establish wire operations, provider qualification or availability
+publication, and this media draft does not rerun its guarded database cases.
+
+## Fixture action deadline correction
+
+Review of `8e4fd1cc` found that Bazel 9.2.0 drops the plain `timeout` execution
+requirement through its [execution-info key filter](https://github.com/bazelbuild/bazel/blob/9.2.0/src/main/java/com/google/devtools/build/lib/packages/TargetUtils.java#L263-L289).
+The earlier positive media runs did not prove the claimed 120-second action
+deadline. Both existing fixture targets now use BuildBuddy's documented
+[`default-timeout` and `termination-grace-period` properties](https://github.com/buildbuddy-io/buildbuddy/blob/v2.318.0/docs/rbe-platforms.md#execution-timeout-properties):
+120 seconds with zero grace. The ignored requirement is removed. This changes
+only two build files; all fixture source, test assertions and tolerances remain
+byte-identical to `8e4fd1cc`.
+
+A temporary 130-second sleep in the declared codec generator printed its entry
+marker and caused `CameraBrowserFixture` to fail explicitly with a timeout after
+120.01 seconds; Bazel returned 1. The actual target-level bound stayed at 120
+seconds. The complete client log and temporary diff are retained privately;
+the invocation UUID was unavailable because build INFO output was filtered. An
+earlier 1 ms attempt only timed out dependency-copy actions and is not accepted
+as generator proof. No transient delay or extra test seam is committed.
+
+After restoring the generator byte-for-byte,
+[aabf88b7](https://carverauto.buildbuddy.io/invocation/aabf88b7-c9af-4d0e-825a-ecc6b5ccfb39)
+executes all nine focused targets uncached and passes in 52.139 seconds: core-elx
+units, media, RTSP, native codec, RTCP, both Chromium suites and both quality
+checks. Their assertions and case inventory are unchanged from `230c21ab`.
+Both declared fixture targets build successfully under the
+replacement deadline. The earlier `1a996f98` result retains its pre-repair scope.
+
+Full `make test`
+[1c64bc77](https://carverauto.buildbuddy.io/invocation/1c64bc77-528f-4b2e-97aa-3e75c8e6dbf0)
+starts and ends clean at repair `43c32a8cca312b785664858b19352f43b0692aa6`.
+It passes 454 targets in 40.836 seconds: one executes, 453 use cache, and the two
+Swift platform targets are skipped. The fresh target is
+`ci_heavy_gate_contract_test`; media/browser/quality were freshly executed in
+`aabf88b7` above. No integration bodies execute in this command. This following
+README/validation checkpoint changes no tested source, build definition or
+assertion. Strict OpenSpec and diff checks pass; required media PR CI remains.
