@@ -27,7 +27,7 @@
 {{- end -}}
 {{- $webNgObanQueueDefault := 2 -}}
 {{- if hasKey $webNgObanQueues "default" -}}{{- $webNgObanQueueDefault = get $webNgObanQueues "default" -}}{{- end -}}
-{{- $webNgObanQueueAlerts := 1 -}}
+{{- $webNgObanQueueAlerts := 0 -}}
 {{- if hasKey $webNgObanQueues "alerts" -}}{{- $webNgObanQueueAlerts = get $webNgObanQueues "alerts" -}}{{- end -}}
 {{- $webNgObanQueueServiceChecks := 1 -}}
 {{- if hasKey $webNgObanQueues "serviceChecks" -}}{{- $webNgObanQueueServiceChecks = get $webNgObanQueues "serviceChecks" -}}{{- end -}}
@@ -596,6 +596,9 @@ spec:
           value: {{ default 10 $webNgFirstPartyImport.syncReleaseLimit | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_SYNC_INTERVAL_SECONDS
           value: {{ default 3600 $webNgFirstPartyImport.syncIntervalSeconds | quote }}
+        {{- /* hasKey, not default: `default true false` renders true, which would make the kill switch unable to turn off. */}}
+        - name: SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_APPROVE
+          value: {{ ternary $webNgFirstPartyImport.autoApproveWithinGrant true (hasKey $webNgFirstPartyImport "autoApproveWithinGrant") | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_BINARY
           value: {{ default "/usr/local/bin/cosign" $webNgFirstPartyImport.cosignBinary | quote }}
         {{- if $webNgFirstPartyImport.cosignPublicKey }}

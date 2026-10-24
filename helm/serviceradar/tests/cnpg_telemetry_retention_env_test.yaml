@@ -1,0 +1,151 @@
+suite: cnpg telemetry retention
+release:
+  namespace: serviceradar-test
+templates:
+  - templates/core.yaml
+  - templates/core-migrations-job.yaml
+tests:
+  - it: renders shipped per-dataset windows and omits the ceiling
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_OTEL_METRICS_RETENTION_DAYS
+            value: "30"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_OCSF_EVENTS_RETENTION_DAYS
+            value: "14"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_RAW_METRICS_RETENTION_DAYS
+            value: "7"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CAPACITY_FORECASTS_RETENTION_DAYS
+            value: "395"
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CNPG_TELEMETRY_DEFAULT_DAYS
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ADHOC_SCAN_RESULTS_RETENTION_DAYS
+            value: "30"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_SERVICE_STATUS_RETENTION_DAYS
+            value: "14"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ENDPOINT_INVENTORY_HISTORY_RETENTION_DAYS
+            value: "395"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_SPANS_RED_RETENTION_DAYS
+            value: "90"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_OTEL_METRICS_HOURLY_STATS_RETENTION_DAYS
+            value: "90"
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TRACES_STATS_RETENTION_DAYS
+
+  - it: renders traces stats retention only when set
+    template: templates/core.yaml
+    set:
+      core.observabilityRetention.tracesStatsDays: 21
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_TRACES_STATS_RETENTION_DAYS
+            value: "21"
+          count: 1
+
+  - it: renders the ceiling and a shorter per-dataset override
+    template: templates/core.yaml
+    set:
+      core.observabilityRetention.defaultDays: 7
+      core.observabilityRetention.otelMetricsDays: 3
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CNPG_TELEMETRY_DEFAULT_DAYS
+            value: "7"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_OTEL_METRICS_RETENTION_DAYS
+            value: "3"
+          count: 1
+
+  - it: passes migration-read retention to the migrations job
+    template: templates/core-migrations-job.yaml
+    documentSelector:
+      path: kind
+      value: Job
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_OTEL_METRICS_RETENTION_DAYS
+            value: "30"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_OTEL_METRIC_POINTS_CHUNK_INTERVAL_HOURS
+            value: "6"
+          count: 1
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_OCSF_EVENTS_CHUNK_INTERVAL_HOURS
+            value: "6"
+          count: 1
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_CNPG_TELEMETRY_DEFAULT_DAYS
+      # No migration reads the migration-table retention values, so the job
+      # does not receive them; the worker reconciles them at runtime.
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ADHOC_SCAN_RESULTS_RETENTION_DAYS
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_ENDPOINT_INVENTORY_HISTORY_RETENTION_DAYS

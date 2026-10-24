@@ -108,6 +108,26 @@ spec:
           value: {{ default 24 $observabilityRetention.logsChunkIntervalHours | quote }}
         - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS
           value: {{ default 24 $observabilityRetention.ocsfNetworkActivityChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OTEL_METRICS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.otelMetricsDays | quote }}
+        - name: SERVICERADAR_OTEL_METRICS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.otelMetricsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OTEL_METRIC_POINTS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.otelMetricPointsDays | quote }}
+        - name: SERVICERADAR_OTEL_METRIC_POINTS_CHUNK_INTERVAL_HOURS
+          value: {{ default 6 $observabilityRetention.otelMetricPointsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OCSF_EVENTS_RETENTION_DAYS
+          value: {{ default 14 $observabilityRetention.ocsfEventsDays | quote }}
+        - name: SERVICERADAR_OCSF_EVENTS_CHUNK_INTERVAL_HOURS
+          value: {{ default 6 $observabilityRetention.ocsfEventsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_RAW_METRICS_RETENTION_DAYS
+          value: {{ default 7 $observabilityRetention.rawMetricsDays | quote }}
+        - name: SERVICERADAR_RAW_METRICS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.rawMetricsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTS_RETENTION_DAYS
+          value: {{ default 395 $observabilityRetention.capacityForecastsDays | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.capacityForecastsChunkIntervalHours | quote }}
         - name: CNPG_HOST
           value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: CNPG_PORT

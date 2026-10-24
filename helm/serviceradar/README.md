@@ -278,6 +278,7 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `webNg.nativeAddonImport.autoSyncEnabled` | Import newly published first-party add-on releases automatically (staged, not approved); required for `track_latest_approved` profiles to see newer packages | `true` |
 | `webNg.nativeAddonImport.syncIntervalSeconds` | Seconds between add-on catalog syncs | `3600` |
 | `webNg.nativeAddonImport.autoApproveAddonIds` | Add-on ids whose imports are approved automatically; approval is the security boundary, so this is empty by default | `[]` |
+| `webNg.firstPartyPluginImport.autoApproveWithinGrant` | Approve a verified first-party Wasm plugin package automatically (audited) when it requests nothing beyond its plugin's latest approved grant; first versions, widened grants and non-first-party packages stay staged | `true` |
 | `logCollector.rfc3164Timezone` | Assumed IANA time zone for RFC3164 messages without a zone, shared by UDP and TCP collectors | `UTC` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `3` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | unset (profile supplies it; 2 GiB in `small`) |
@@ -331,6 +332,45 @@ for the failure mode and recovery instructions.
 - SPIFFE/SPIRE is deprecated. Existing opt-in installs can retain `--set spire.enabled=true` (and `--set spire.postgres.enabled=true` if you also want the in-chart SPIRE database resources).
 - When SPIRE mode is enabled, the SPIRE server now stays internal by default (`spire.server.serviceType=ClusterIP`), the SPIRE health port is not published unless you explicitly set `spire.server.exposeHealthPort=true`, and kubelet verification stays enabled unless you explicitly set `spire.agent.skipKubeletVerification=true`.
 - The SPIRE controller manager sidecar can be disabled with `--set spire.controllerManager.enabled=false` if you do not need webhook-managed entries.
+
+### CNPG telemetry retention
+
+Installs that keep telemetry in CNPG set retention under `core.observabilityRetention`. `DataRetentionWorker` reconciles the Timescale policies on its nightly run. When StarRocks is enabled it remains the telemetry store, and `analytics.starrocks.retentionDays` is unchanged by these keys.
+
+`defaultDays` is optional. Leave it unset and each dataset keeps its own window. Set it to cap raw CNPG telemetry at that many days. A per-dataset value may be shorter. The ceiling takes effect on the next `DataRetentionWorker` run. Migrations install the per-dataset values until that run. Capacity forecasts stay on `capacityForecastsDays`. Hourly rollups never go below 7 days, because their refresh window is 5 days. Chunk intervals must stay smaller than the applied retention. Continuous-aggregate refresh windows stay strictly inside the source retention.
+
+Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored only in StarRocks. Migration `20261019160000` dropped `platform.ocsf_network_activity`, so `ocsfNetworkActivityDays` and `ocsfNetworkActivityChunkIntervalHours` no longer govern a live CNPG hypertable and `defaultDays` does not apply to them. They remain for the older migration that still reads them.
+
+The migration-only tables (`adhocScanResultsDays`, `serviceStatusDays`, `endpointInventoryHistoryDays`) and rollup aggregates (`spansRedDays`, `tracesStatsDays`, `otelMetricsHourlyStatsDays`) are reconciled retention-only: their chunk intervals and compression stay as migrations installed them. Before a shorter retention applies, the worker clamps the refresh `start_offset` of `endpoint_inventory_package_counts_hourly`, `endpoint_inventory_cpe_counts_hourly`, `services_availability_5m`, and `otel_metrics_hourly_stats` strictly inside it, and floors each aggregate's own retention at that clamped window. `endpointInventoryHistoryDays` and `tracesStatsDays` are not capped by `defaultDays`. `tracesStatsDays` is the explicit value, or 14 days when omitted, floored at the clamped refresh window. While the cold tier is enabled the fence widens `traces_stats_5m`, and the worker does not write a shorter target first, including when no retention policy is installed. An unset `tracesStatsDays` leaves a widened window in place after the cold tier is disabled. A target shorter than the fence window is not written while the cold tier is on. A target at or above that window is written whether or not the tier is on. A later run leaves an installed value that already equals `tracesStatsDays`, including 14 days and shorter.
+
+| Parameter | Description | Default |
+|-----------|-------------|---------|
+| `core.observabilityRetention.defaultDays` | Optional ceiling, in days, for raw CNPG telemetry. Omit it to leave each dataset on its own window | unset |
+| `core.observabilityRetention.traceSummaryDays` | Trace summary row retention | `3` |
+| `core.observabilityRetention.otelTracesDays` | Raw span retention | `3` |
+| `core.observabilityRetention.logsDays` | Log retention | `30` |
+| `core.observabilityRetention.otelMetricsDays` | OTel metrics retention | `30` |
+| `core.observabilityRetention.otelMetricPointsDays` | OTel metric point retention | `30` |
+| `core.observabilityRetention.ocsfEventsDays` | OCSF event retention | `14` |
+| `core.observabilityRetention.ocsfNetworkActivityDays` | Read only by an older migration. The CNPG network activity table no longer exists | `90` |
+| `core.observabilityRetention.rawMetricsDays` | Raw host metric retention (`cpu`, `memory`, `disk`, `process`) | `7` |
+| `core.observabilityRetention.timeseriesMetricsDays` | Raw `timeseries_metrics` retention | `7` |
+| `core.observabilityRetention.capacityForecastsDays` | Capacity forecast retention. Not capped by `defaultDays` | `395` |
+| `core.observabilityRetention.hourlyRollupDays` | Hourly rollup retention. Floored at 7 days | `395` |
+| `core.observabilityRetention.adhocScanResultsDays` | Ad-hoc scan result retention | `30` |
+| `core.observabilityRetention.serviceStatusDays` | `service_status` and `events` retention | `14` |
+| `core.observabilityRetention.endpointInventoryHistoryDays` | Endpoint inventory scan/package history retention. Not capped by `defaultDays` | `395` |
+| `core.observabilityRetention.spansRedDays` | `spans_red_1h` aggregate retention | `90` |
+| `core.observabilityRetention.otelMetricsHourlyStatsDays` | `otel_metrics_hourly_stats` aggregate retention | `90` |
+| `core.observabilityRetention.tracesStatsDays` | `traces_stats_5m` aggregate retention. Not capped by `defaultDays`. Omit to keep the 14-day migration window and leave a cold-tier-widened window unchanged. A target shorter than the fence window is not written while the cold tier is on. A target at or above that window is written whether or not the tier is on. A later run leaves an installed value that already equals it | unset |
+| `core.observabilityRetention.otelTracesChunkIntervalHours` | Chunk interval for new trace chunks | `6` |
+| `core.observabilityRetention.logsChunkIntervalHours` | Chunk interval for new log chunks | `24` |
+| `core.observabilityRetention.otelMetricsChunkIntervalHours` | Chunk interval for new OTel metric chunks | `24` |
+| `core.observabilityRetention.otelMetricPointsChunkIntervalHours` | Chunk interval for new OTel metric point chunks | `6` |
+| `core.observabilityRetention.ocsfEventsChunkIntervalHours` | Chunk interval for new OCSF event chunks | `6` |
+| `core.observabilityRetention.ocsfNetworkActivityChunkIntervalHours` | Read only by an older migration. The CNPG network activity table no longer exists | `24` |
+| `core.observabilityRetention.rawMetricsChunkIntervalHours` | Chunk interval for new raw host-metric chunks | `24` |
+| `core.observabilityRetention.capacityForecastsChunkIntervalHours` | Chunk interval for new capacity forecast chunks | `24` |
 
 ### MTR Automation Rollout
 
