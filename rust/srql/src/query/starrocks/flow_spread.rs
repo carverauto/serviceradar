@@ -8,9 +8,10 @@
 //! timestamp closes the interval, so the last bucket is always the one the row is booked in
 //! today and the window predicate on `time` stays exact.
 //!
-//! * Totals are exact. Bucket `k` receives `FLOOR(v * c(hi_k)) - FLOOR(v * c(lo_k))`, where
-//!   `c` is the fraction of the interval elapsed at a boundary. Neighbouring buckets evaluate
-//!   the same expression on the same boundary, so the shares telescope to
+//! * Totals are exact. A bucket spanning `[lo, hi)` receives
+//!   `FLOOR(v * c(hi)) - FLOOR(v * c(lo))`, where `c` is the fraction of the interval elapsed
+//!   at a boundary. Neighbouring buckets evaluate the same expression on the same boundary,
+//!   so the shares telescope to
 //!   `FLOOR(v * 1.0) - FLOOR(v * 0.0) = v` for an integer volume, and the rounding residue
 //!   stays inside the flow.
 //! * A row keeps its whole value in its own bucket unless it has a `start_time`, an
@@ -20,8 +21,8 @@
 //!   contributes the share that overlaps the window's buckets and nothing else.
 //! * The fan-out is bounded twice: by the window (no bucket before the first returned one is
 //!   generated) and by [`MAX_BUCKETS`]. A flow longer than that is treated as having started
-//!   `MAX_BUCKETS` buckets before the one it ended in, so its whole value lands in its last
-//!   `MAX_BUCKETS` buckets.
+//!   at the start of the bucket `MAX_BUCKETS - 1` before its own, so its whole value lands in
+//!   its last `MAX_BUCKETS` buckets.
 //! * Sampling is applied once: the value handed in is already the sampled volume.
 //!
 //! Only bucketed SUMs of a flow volume column spread. Other aggregates in the same `stats`
