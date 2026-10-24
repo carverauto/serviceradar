@@ -54,18 +54,20 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry do
   defp error_kind(%{errors: [_ | _] = errors}) do
     kinds = Enum.map(errors, &error_kind/1)
 
-    case :timeout in kinds do
-      true -> :timeout
-      false -> hd(kinds)
+    if :timeout in kinds do
+      :timeout
+    else
+      hd(kinds)
     end
   end
 
   defp error_kind(%{error: error}) when not is_nil(error), do: error_kind(error)
 
   defp error_kind(reason) when is_binary(reason) do
-    case timeout_text?(reason) do
-      true -> :timeout
-      false -> :query_failed
+    if timeout_text?(reason) do
+      :timeout
+    else
+      :query_failed
     end
   end
 

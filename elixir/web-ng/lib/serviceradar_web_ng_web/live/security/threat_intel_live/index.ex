@@ -1098,9 +1098,10 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   defp timeout?(%DBConnection.ConnectionError{reason: reason}) when reason in [:timeout, :queue_timeout], do: true
   defp timeout?(%{errors: errors}) when is_list(errors), do: Enum.any?(errors, &timeout?/1)
   defp timeout?(%{error: error}) when not is_nil(error), do: timeout?(error)
+
   defp timeout?(reason) when is_binary(reason),
-    do:
-      reason =~ ~r/timeout|timed out|canceling statement|query_canceled|dropped from queue/i
+    do: reason =~ ~r/timeout|timed out|canceling statement|query_canceled|dropped from queue/i
+
   defp timeout?(_reason), do: false
 
   defp detail_notice(%{stale: true}), do: "This cache row is stale, and no active indicator still contains this endpoint."
