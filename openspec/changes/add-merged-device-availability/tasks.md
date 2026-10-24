@@ -1,7 +1,8 @@
 ## 0. Preconditions
 
 - [ ] 0.1 Archive `add-per-agent-availability` so that its device-inventory requirements are in `specs/` before this change archives
-- [ ] 0.2 Get the user's decisions on the remaining design.md Open Questions (Q5, Q6, Q7 and Q11); Q1-Q4, Q8-Q10 and Q12 are decided
+- [x] 0.2 Get the user's decisions on the remaining design.md Open Questions (Q5, Q6, Q7 and Q11); Q1-Q4, Q8-Q10 and Q12 are decided
+  - Decided 2026-10-24 (design.md, Open Questions): the pin outranks `operator_policy` (Q5); event gating is a deployment setting with the sweep-group flag as a filter (Q6); no restoring trigger, an append-only violation trigger plus accept-list removal and a static check (Q7); W19 survivor-wins is out of scope (Q11).
 - [x] 0.3 Pre-stage-c reader fixes in the design.md web-ng reader table: `device_row_is_available/1` and `basic_summaries.ex`
 
 Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence report, no behavior change). It ships and is reviewed on demo before phase 2 (sections 3 and 4) begins.
@@ -63,7 +64,8 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - sample uids.
   - `Availability.DivergenceReport` (read-only transaction, statement timeout, one aggregate pass per section), printed by `Availability.Operator.report/1` (`bin/serviceradar_core rpc` or `eval`) and `mix serviceradar.availability.report`. It also reports R5: evidence flips to `down` within half a lease of the stored `up` (marked by `EvidencePlan` in the record's `detail`) and decisions within half a lease of a disagreeing observation.
   - Entering `shadow` (`Mode.enter_shadow/0`, `mix serviceradar.availability.mode shadow`) enqueues one full paged resolution and seeds `device_availability_legacy` for every device (write-on-change, `SKIP LOCKED`); `legacy` is the rollback and drops the shadow rows.
-- [ ] 2.6 Run on demo and the lab deployment, including the Wi-Fi AP split, and review with the user. This review ends phase 1 and is the gate for phase 2.
+- [x] 2.6 Run on demo and the lab deployment, including the Wi-Fi AP split, and review with the user. This review ends phase 1 and is the gate for phase 2.
+  - Reviewed 2026-10-24 on the demo report (design.md, "Phase-1 review"). The user confirmed the Wi-Fi AP split: the managing controller wins over a failing sweep.
 
 ## 3. Stage c: cutover (`cutover` then `authoritative`)
 
@@ -106,7 +108,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 - [ ] 4.1 Delete the legacy writes from W1, W2 and W5-W11. Keep the compatibility table, the mode setting, the mirror trigger and the `metadata.sweep_*` keys intact through a rollback window of at least one release.
 - [ ] 4.2 Remove `is_available` from the Device accept lists. Delete `:set_availability`, the unused `:available` read action and the unused `status_color` calc, or switch them to the state.
 - [ ] 4.3 Delete `effective_availability/2`, `ServiceRadar.Core.ResultProcessor`, and the dead Go `service_registration.go` constructors.
-- [ ] 4.4 Migration (additive, with a down migration): the backstop trigger and violations table (per Q7).
+- [ ] 4.4 Migration (additive, with a down migration): `availability_write_violations` and an `AFTER UPDATE OF is_available` trigger that only appends a violation row when the column changes in `cutover` or `authoritative` without a matching state change. It never restores or rejects a write (Q7). A static check fails the build when code outside the resolver writes `is_available`.
 - [ ] 4.5 Rollback drill on the lab deployment: revert the stage-d release and confirm the stage-c writers resume against the retained objects.
 
 ## 4e. Stage e: cleanup (after the stage-d rollback window; the point of no easy return)
@@ -157,7 +159,7 @@ Each contract has one owner-boundary test. No contract is replayed at another la
   - the three states;
   - "N of M agents" with the partial marker;
   - the negative-control indicators.
-- [ ] 5.11 **Backstop trigger** (DB tier). A direct `UPDATE ... SET is_available` leaves the value unchanged and appends a violation row.
+- [ ] 5.11 **Write-violation audit** (DB tier). In `authoritative`, a direct `UPDATE ... SET is_available` commits as written (the trigger neither restores nor rejects it) and appends one violation row; a resolver write appends none. The static check fails on an invented writer outside the resolver.
 
 ## 6. Validation
 

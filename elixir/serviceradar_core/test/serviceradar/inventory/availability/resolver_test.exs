@@ -102,6 +102,12 @@ defmodule ServiceRadar.Inventory.Availability.ResolverTest do
        conflict: true,
        agents: %{"up" => 1, "down" => 1, "total" => 2}
      }},
+    {"a per-device pin outranks operator policy, which is flagged as a conflict",
+     %{pin: "agent-a"},
+     %{
+       ledger: [{:probe, "agent-a", true}],
+       evidence: [{:evidence, "composite_check", :operator_policy, :down}]
+     }, %{state: :available, decided: {"agent_probe", "agent-a"}, conflict: true}},
     {"an unexpected or unknown reporter does not decide", %{},
      %{
        ledger: [
