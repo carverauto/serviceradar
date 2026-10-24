@@ -28,25 +28,41 @@ and the exact-parent pass.
 merged at `29b30748dfe212ba0672bd2cd53342303ecbbc26`. It retains
 [immutable upload intent](upload-intent.md) on that archive parent. Object
 identity is derived under the existing upload fence and retained independently of
-later upload leases. No storage request is sent. Migration `20261024030000` adds
-one Ash table with restrictive block and destination references; the chart
-migration floor follows it. Focused and full non-database results are in
-[validation.md](validation.md). That checkpoint still required its own sanctioned
-PR CI for five guarded database cases. This media draft does not rerun them and
-does not treat the merge as a new database result.
+later upload leases. No storage request is sent. Migration `20261024030000` added
+that intent table with restrictive block and destination references. The chart
+migration floor has since moved; [validation.md](validation.md) owns the current
+version. Focused and full non-database results are in
+[validation.md](validation.md). Its final guarded suite
+[853e4601](https://carverauto.buildbuddy.io/invocation/853e4601-ef2c-419e-b9c3-cfc8349da412)
+passes all 12 targets uncached; the owning serial lane runs 260 tests with no
+failures or exclusions, including all five upload-intent cases. Its prepublication
+Test exception did not waive that final CI.
 
-[Media PR #5959](https://github.com/carverauto/serviceradar/pull/5959) is this
-published draft against staging. It adds test-only
+[Media PR #5959](https://github.com/carverauto/serviceradar/pull/5959) merged at
+`ad424ac6b794f73abddd02e51c560a77d9af10fa` after all 19 checks passed on
+`10a70e71c39f91fcb30fa90389c6fc0130840213`. It adds test-only
 [codec](codec-capabilities.md), [RTCP clock](clock-capabilities.md) and
 [logical block-byte](block-byte-costs.md) experiments. Both existing fixture
 targets use supported BuildBuddy deadlines of 120 seconds with zero termination
 grace, and the already-pinned `pion/rtcp` v1.2.17 require is direct. Every media
 assertion and tolerance is unchanged. The generator timeout control fails after
-120.01 seconds, and the restored-source focused checks pass. Against staging
-base `29b30748`, this draft adds tests, build wiring, that module exposure and
-docs. Against archive `72a81f96`, production differences are the already-merged
-upload-intent change, not a media recorder change. Merged #5955 and #5960 mean
-this draft no longer carries unmerged archive or upload-intent ancestry.
+120.01 seconds, and the restored-source focused checks pass. The final guarded
+core and web suites pass 12 and seven targets respectively, all uncached, with
+successful observer, teardown and lease-release commands. These are bounded
+experiments, not production audio/HEVC admission or trusted UTC mapping.
+
+The current checkpoint adds [bounded dispatch observations](upload-dispatch.md)
+on this merged parent. It retains one operation per intent, one committed marker,
+the original deadline and bounded late-response/conflict evidence. The coordinator
+does not perform provider I/O. Repaired head
+`fb920deb97ba3e026d952001ff00d31f43479561` passes all 20 PR checks. Its own
+[guarded Core Integration run](https://carverauto.buildbuddy.io/invocation/158effba-7319-4d04-afe8-7dd8a1bcf341)
+executes all 12 targets uncached with zero failures and successful observer,
+teardown and lease release. [Validation history](validation.md) records the
+earlier UUID-input failure, the two-line repair with every assertion preserved,
+and the approved prepublication Test exception. That exception did not waive
+final CI. These results belong to the named head; later documentation updates
+must preserve the code and test scope of that evidence.
 
 Production recording admission and unknown UTC are unchanged. Recording stays
 disabled. The operator-confirmed live RTSP transport must remain working. No
@@ -59,7 +75,7 @@ and grants no storage operations.
 1. Keep tasks 0.4 and 0.6 open. The experiments measure pinned libraries and
    logical bytes. They do not select a codec matrix, synchronization tolerance
    or production block size.
-2. Add bounded dispatch and late-response bookkeeping, then separately implement
+2. Build on validated bounded dispatch and late-response bookkeeping to implement
    qualified provider operations, byte verification and index publication.
    Immutable intent is retained. It is not permission to send bytes.
 3. Complete playback, preservation, hosted lifecycle and optional-worker work in
@@ -73,7 +89,8 @@ and grants no storage operations.
 | --- | --- | --- |
 | Runtime repair | #5954 merged from `89d50a7f`; guarded [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a) passes 12/12 with lifecycle statuses zero | Deployment acceptance |
 | Archive parent | #5955 merged at `88c5a324`. Exact `72a81f96`, guarded `0df082fa`, all 19 GitHub checks pass | No uploader, availability or provider readiness |
-| Immutable intent | #5960 merged at `29b30748`. Derivation, exact retries and restrictive retention are implemented; focused and full non-database results are in [validation.md](validation.md) | The five guarded database cases stay scoped to that checkpoint's required PR CI. This draft does not rerun them. No wire operation or availability is established |
+| Immutable intent | #5960 merged at `29b30748`; guarded `853e4601` passes all 12 targets, including its five new cases | No wire operation or availability is established |
+| Dispatch observations | Repaired `fb920deb` passes all 20 checks and all 12 guarded core targets. Owning lanes report 297 and 471 tests with zero failures; see [validation](validation.md) and [contract](upload-dispatch.md) | Qualified provider I/O, byte verification and availability remain absent |
 | Media and fixture deadline | With the supported 120-second BuildBuddy action deadline, the deliberately stalled generator times out after 120.01 seconds. Restored-source [aabf88b7](https://carverauto.buildbuddy.io/invocation/aabf88b7-c9af-4d0e-825a-ecc6b5ccfb39) executes all nine focused targets uncached: native media, RTSP, RTCP, six Chromium cases and both quality checks pass | Product playback authorization and full authenticated deployment recovery remain open |
 | Media full sweep | Clean repair `43c32a8c` passes 454 targets in [1c64bc77](https://carverauto.buildbuddy.io/invocation/1c64bc77-528f-4b2e-97aa-3e75c8e6dbf0): one executes, 453 use cache; two Swift platform skips | Production audio/HEVC, trusted clock mapping and deployment remain separate |
 | Logical block bytes | [4a3336d1](https://carverauto.buildbuddy.io/invocation/4a3336d1-0c98-4b2d-ab91-168b55c83c50): nine media tests and quality execute and pass; the omitted-append control fails frame conservation | Database/WAL, cache, cloud requests and deployment sizing remain unmeasured |
@@ -86,23 +103,21 @@ live in [choices.md](choices.md).
 ## Next agent prompt
 
 Read [design.md](design.md), [tasks.md](tasks.md), [upload-intent.md](upload-intent.md)
-and the current diff. Archive #5955 merged at
+and [upload-dispatch.md](upload-dispatch.md) and the current diff. Archive #5955 merged at
 `88c5a324793e4cff4155378c29fc29ec5949da6b`. Upload-intent #5960 merged at
 `29b30748dfe212ba0672bd2cd53342303ecbbc26`.
-[Media PR #5959](https://github.com/carverauto/serviceradar/pull/5959) is this
-published draft against staging. Preserve every ownership, manifest, archive and
+[Media PR #5959](https://github.com/carverauto/serviceradar/pull/5959) merged at
+`ad424ac6`. Preserve every ownership, manifest, archive and
 upload-intent assertion, the three experiments, the 120-second fixture deadlines
 and the direct `pion/rtcp` v1.2.17 require. Tasks 0.4 and 0.6 remain incomplete
 after these bounded measurements.
 
-The next product checkpoint persists one bounded dispatch and write-once response
-observation per intent. A before-wire marker must commit before anything can be
-sent. Reject ambient transactions at public mutation boundaries. Retain the
-original dispatch deadline even when the upload lease is renewed; repeated
-marking must never grant another send. Late responses survive lease replacement
-without granting authority. Commit conflict evidence while preserving the first
-receipt, then return the conflict error outside that transaction. A timeout is
-unresolved work, not proof that a remote request was cancelled.
+Preserve the bounded dispatch checkpoint and its validation evidence when
+continuing through no-mistakes. Keep its original-deadline fence, single marker,
+late observations and permanent conflict evidence. The marker grants no provider qualification.
+The next implementation boundary is qualified provider operations and byte
+verification. A timeout is unresolved work, not proof that a remote request was
+cancelled; a replacement lease must never rearm the retained operation.
 
 Keep provider I/O outside CNPG transactions and credentials behind the isolated
 storage boundary. Provider qualification, credential generation and policy must

@@ -17,8 +17,9 @@ fencing and derivation. Internal actor policy does not replace that contract.
 
 Preparation rejects an ambient database transaction so a successful return names
 a committed intent. This is still not permission to send a request. There is no
-transport, dispatch marker, provider receipt, scheduler, credential reference,
-verification, archive index or availability transition in this checkpoint.
+transport, scheduler, credential reference, verification, archive index or
+availability transition. The subsequent [dispatch checkpoint](upload-dispatch.md)
+adds bounded marker and response observations beside this immutable identity.
 Provider qualification and current credential/policy checks remain separate.
 
 `RecordingDescriptor.object_key/2` owns the key spelling used by both preparation

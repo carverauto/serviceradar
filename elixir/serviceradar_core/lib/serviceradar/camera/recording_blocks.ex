@@ -130,15 +130,37 @@ defmodule ServiceRadar.Camera.RecordingBlocks do
   operation may use a legitimately renewed current row under the same handle.
   """
   def with_current_upload(lease, fun, opts \\ []) when is_function(fun, 1) do
+    with_upload_deadline(lease, fun, nil, opts)
+  end
+
+  @doc """
+  Additionally bounds short CNPG work by a retained operation deadline. Both
+  checks use database time; renewing the upload lease cannot extend this cap.
+  """
+  def with_current_upload(lease, fun, %DateTime{} = deadline, opts) when is_function(fun, 1) do
+    with_upload_deadline(lease, fun, deadline, opts)
+  end
+
+  def with_current_upload(_lease, _fun, _deadline, _opts), do: {:error, :invalid_upload_deadline}
+
+  defp with_upload_deadline(lease, fun, deadline, opts) do
     transaction(fn ->
       with {:ok, block} <- lock(lease.id, opts),
            :ok <- matches(lease, block),
+           :ok <- before_deadline(deadline, block.database_now),
            {:ok, result} <- publication_result(fun.(block)),
            {:ok, current} <- current_upload(lease, opts),
-           true <- live?(block, current.database_now) || {:error, :upload_lease_lost} do
+           true <- live?(block, current.database_now) || {:error, :upload_lease_lost},
+           :ok <- before_deadline(deadline, current.database_now) do
         result
       end
     end)
+  end
+
+  defp before_deadline(nil, _now), do: :ok
+
+  defp before_deadline(deadline, now) do
+    if DateTime.after?(deadline, now), do: :ok, else: {:error, :upload_dispatch_expired}
   end
 
   defp freeze_descriptor(%{state: :open_local} = block, descriptor, sha, opts) do

@@ -154,6 +154,54 @@ defmodule ServiceRadar.Camera.RecordingBlocksIntegrationTest do
     assert next.archive_binding_id == nil
   end
 
+  test "a retained operation deadline rolls back an executed write despite a renewed lease",
+       ctx do
+    assert {:ok, _} = freeze(ctx, descriptor(ctx.block))
+    assert {:ok, lease} = upload(ctx)
+    deadline = DateTime.add(lease.database_now, 2_000, :millisecond)
+    assert {:ok, _} = RecordingBlocks.renew_upload(lease, 30_000, ctx.opts)
+
+    assert {:error, :upload_dispatch_expired} =
+             RecordingBlocks.with_current_upload(
+               lease,
+               fn _block ->
+                 assert {:ok, _} =
+                          Source.update_source(
+                            ctx.source,
+                            %{display_name: "capped write"},
+                            ctx.opts
+                          )
+
+                 send(self(), :capped_write_executed)
+                 Process.sleep(2_100)
+                 :ok
+               end,
+               deadline,
+               ctx.opts
+             )
+
+    assert_receive :capped_write_executed
+    assert {:ok, %{display_name: nil}} = Source.get_by_id(ctx.source.id, ctx.opts)
+
+    assert {:error, :upload_dispatch_expired} =
+             RecordingBlocks.with_current_upload(
+               lease,
+               fn _ -> flunk("expired callback ran") end,
+               deadline,
+               ctx.opts
+             )
+
+    assert {:error, :invalid_upload_deadline} =
+             RecordingBlocks.with_current_upload(
+               lease,
+               fn _ -> flunk("invalid callback ran") end,
+               nil,
+               ctx.opts
+             )
+
+    assert :ok = RecordingBlocks.with_current_upload(lease, fn _ -> :ok end, ctx.opts)
+  end
+
   test "destination registration retains exact unqualified generations and rejects substitution",
        ctx do
     input = Fixtures.archive_destination(Ecto.UUID.generate())

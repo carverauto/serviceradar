@@ -548,8 +548,8 @@ receives the same record after lease replacement. It does not create a mutable
 attempt row or claim that a storage request happened. The plan required durable
 publication intent but left the implementation boundary open. Splitting the
 immutable identity from dispatch observations makes each boundary independently
-reviewable and leaves provider operations disabled. The next pass still owes the
-marker, original-deadline fence, late-response and conflict persistence contracts.
+reviewable and leaves provider operations disabled. Those contracts now live
+in [upload-dispatch.md](upload-dispatch.md). Provider send remains absent.
 
 Preparation also rejects an existing caller transaction. Otherwise a caller could
 receive an intent ID, hand it to another worker, then roll back its outer
@@ -557,6 +557,54 @@ transaction. A successful return now means preparation committed; it does not
 authorize the recipient to send bytes. This limits future bulk orchestration to
 calls outside an ambient transaction. The choice is sound because it keeps the
 durable handoff explicit, with no extra process or nested-commit fiction.
+
+### Keep one unresolved operation beside each immutable object
+
+When: bounded dispatch checkpoint. Verdict: sound, medium confidence.
+
+An uploader can lose the reply to a storage request and then lose its database
+lease. The replacement worker must not interpret its fresh lease as permission
+to send the old operation again. This checkpoint therefore stores one operation
+UUID per object intent, including its original actor, lease fingerprint and
+deadline. Preparing it again returns that identity; replacing the lease cannot
+rearm it. The plan required durable attempts but left this first checkpoint's
+retry policy open. This deliberately conservative choice blocks automatic retry
+until a later reconciliation contract can establish what happened remotely.
+
+The marker records a committed local decision only. An unqualified destination
+can retain bookkeeping for review, but no adapter is connected and nothing can
+send. Future code must check current provider and credential/policy authority
+before wire I/O; treating the marker as that authority would be incorrect. The
+request digest describes ordered immutable logical fields rather than provider
+signing bytes, so later signing must own its own exact-wire contract.
+
+### Retain bounded first evidence instead of an unbounded response log
+
+When: bounded dispatch checkpoint. Verdict: sound, medium confidence.
+
+A request can time out and then return a response late. Keeping separate timeout
+and response fields preserves both facts regardless of arrival order. If another
+response contradicts the first, the coordinator keeps the first receipt, records
+the first conflicting digest and timestamp, commits, and only then returns an
+error. An exact retry after that conflict stays an error. The plan required
+durability but did not choose an evidence shape. A bounded allowlist of status
+and opaque provider IDs avoids retaining arbitrary bodies, headers or secrets;
+an 8192-byte database bound backs the 4096-byte accepted JSON limit. Future
+diagnostics can identify conflicting evidence without growing a per-retry log.
+This is transport evidence, never a verified object or availability claim.
+
+### Reuse the upload fence with a retained deadline cap
+
+When: bounded dispatch checkpoint. Verdict: sound, high confidence.
+
+A worker prepares an operation with two seconds remaining, then renews its upload
+lease for longer. Its old operation still expires after those two seconds.
+The existing upload-fence function gains a four-argument form which checks the
+operation cap with database time before and after the callback, while retaining
+the original upload-row check. Existing three-argument callers keep their current
+lease behavior. The gap was how to apply the extra cap without changing renewal
+for unrelated work. One shared fence gives rollback a single owner, and the
+existing renewal/rollback assertion stays intact beside a new cap assertion.
 
 ### Measure optional codecs without widening recording admission
 

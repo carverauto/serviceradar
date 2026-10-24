@@ -255,3 +255,124 @@ Swift platform targets are skipped. The fresh target is
 `aabf88b7` above. No integration bodies execute in this command. This following
 README/validation checkpoint changes no tested source, build definition or
 assertion. Strict OpenSpec and diff checks pass; required media PR CI remains.
+
+## Merged parent evidence before dispatch work
+
+Upload-intent #5960 merged at `29b30748dfe212ba0672bd2cd53342303ecbbc26`.
+Its guarded workflow
+[aa0dd0ca](https://carverauto.buildbuddy.io/invocation/aa0dd0ca-22f9-425b-99f4-9a049ef9f469)
+and suite
+[853e4601](https://carverauto.buildbuddy.io/invocation/853e4601-ef2c-419e-b9c3-cfc8349da412)
+pass all 12 targets uncached. The owning serial lane runs 260 tests, with no
+failures or exclusions, including all five intent cases. Suite, observer,
+teardown and lease release return zero. This final CI follows the explicitly
+approved prepublication Test exception; it does not erase that exception.
+
+Media #5959 merged at `ad424ac6b794f73abddd02e51c560a77d9af10fa` from
+`10a70e71c39f91fcb30fa90389c6fc0130840213` after all 19 GitHub checks passed,
+without a Test or CI exception. Final broad suite
+[fcb92879](https://carverauto.buildbuddy.io/invocation/fcb92879-933e-43f6-b0bc-c30579f21371)
+passes 442 targets (17 fresh, 425 cached) with two platform skips. Guarded core
+[f78de788](https://carverauto.buildbuddy.io/invocation/f78de788-748e-4f40-afe1-9c10965c9069)
+passes 12 fresh targets; guarded web
+[95718b50](https://carverauto.buildbuddy.io/invocation/95718b50-7cd7-4caf-ae44-3671a8d4ad4d)
+passes seven fresh targets. Both workflows have successful suite, observer,
+teardown and release commands. The final supported timeout negative control
+[d2dcf987](https://carverauto.buildbuddy.io/invocation/d2dcf987-efd2-44b4-a113-586266d51edd)
+enters the injected delay and fails after 120.01 seconds; restored-source positive
+[74da0d14](https://carverauto.buildbuddy.io/invocation/74da0d14-a881-4590-89f5-96d655e6406a)
+passes. No temporary delay is retained.
+
+These parent results establish their own code only. New dispatch tests require
+fresh guarded CI on the dispatch candidate. Recording remains disabled and no
+deployment or provider probe is implied.
+
+## Bounded dispatch checkpoint
+
+The schema is generated with pinned AshPostgres and migration
+`20261024070623`; the Helm migration floor matches. Independent review confirmed
+the restrictive/unique intent reference, atomic one-way observations and late
+observation constraints. It found an inconsistent missing-ID error and a conflict
+digest assertion that admitted nil. Both are corrected: all observation/marking
+entry points return the same domain error, and tests require the exact fixed
+conflict digest plus a non-null digest in the concurrent case. Every pre-existing
+assertion remains.
+
+Fresh focused run
+[bb9e4ddf](https://carverauto.buildbuddy.io/invocation/bb9e4ddf-ab0f-430c-9cdf-c3e56589e1cc)
+passes all six targets uncached in 124.013 seconds: core format/Credo, integration
+selection equivalence, shard topology with its two refusal controls, and Helm
+migration floor. This compiles/selects the new integration cases; it does not
+execute their database bodies. Strict OpenSpec validation and changed handoff
+link/ASCII checks pass. The repaired-head guarded result below supplies the
+separate database execution evidence.
+
+Full `make test`
+[a79ef08e](https://carverauto.buildbuddy.io/invocation/a79ef08e-f310-4d4e-80a0-c49d19e171b0)
+passes 459 targets: 59 execute, 400 use cache, and the two Swift platform targets
+are skipped. That run predates the `:id` repair below, so it is not evidence for
+the current head. Integration/acceptance bodies are excluded by that command.
+Neither this result nor selection equivalence proves the 12 new guarded database
+cases. No deployment, provider call, qualification or availability is claimed.
+
+Draft publication was approved so BazelCI Core Integration could be the first
+execution of these twelve database scenarios. The approval is prepublication
+only. It does not waive final CI, and it does not count a failed run as a pass.
+
+Core Integration then ran at the pre-repair head. Invocation
+[ed8fbb26](https://carverauto.buildbuddy.io/invocation/ed8fbb26-da5c-4141-a0aa-4723e8934ec6)
+failed only `//elixir/serviceradar_core:integration_tests_serial_6`: 297 tests,
+10 failures and eight unrelated exclusions. Each failure is
+`Ash.Error.Invalid.NoSuchInput` on `ArchiveUploadDispatch` action `:prepare`,
+input `:id`. The other 11 targets
+passed. The suite exit status was 3; observer, teardown and lease release each
+returned 0. The complete dispatch contract had not passed validation. This does
+not mean every new case failed: the missing-ID case and the original-cap rollback
+case were outside those ten failures.
+
+The repair stops accepting and supplying `:id`. `Ash.UUID.generate/0` on
+`uuid_primary_key :id` is the only id source, and [the dispatch contract](upload-dispatch.md)
+owns that rule. Remote `//elixir/serviceradar_core:quality_check` passed in
+[dcebd82e](https://carverauto.buildbuddy.io/invocation/dcebd82e-593d-42df-b7bc-f177ff445d45).
+The repair changes only those two production input lines. Every existing and new
+test assertion is unchanged.
+
+### Repaired-head guarded result
+
+Head `fb920deb97ba3e026d952001ff00d31f43479561` passes all 20 PR checks.
+Core Integration workflow
+[158effba](https://carverauto.buildbuddy.io/invocation/158effba-7319-4d04-afe8-7dd8a1bcf341)
+executes all 12 targets once, uncached, in child invocation
+[6718f18c](https://carverauto.buildbuddy.io/invocation/6718f18c-7ae1-405b-8c55-86319ec01534).
+All pass. The measured lifecycle reports `suite_status=0`, `observer_status=0`,
+`teardown_status=0` and `release_status=0`.
+
+The actual target test logs report:
+
+- `integration_tests_serial_6`: 297 tests, zero failures, eight excluded.
+  This lane owns `Camera.ArchiveUploadsIntegrationTest`, including all eleven
+  new dispatch cases and its five existing upload-intent cases.
+- `integration_tests_serial_3`: 471 tests, zero failures, no exclusions.
+  This lane owns `Camera.RecordingBlocksIntegrationTest`, including the new
+  original-cap rollback case and all six existing cases.
+
+Bazel source ownership and the modules' `:integration` tags establish inclusion;
+the logs report aggregate results, not individual case traces. The serial-6 log
+includes `:integration` and `:requires_app`, excluding `:test`, `:external`,
+`:cluster`, `:large_ingestion` and `:benchmark`; none of the changed cases has an
+excluded tag. The twelve new database cases therefore execute with every
+pre-existing assertion preserved. No failed CI result is waived.
+
+The same head's [Web-NG DB workflow](https://carverauto.buildbuddy.io/invocation/526d92ad-b69e-4927-a3a2-6344bc69e5a7)
+passes all seven targets uncached, with suite, observer, teardown and release
+statuses all zero. [Main CI](https://carverauto.buildbuddy.io/invocation/3619d54e-cf9b-45e5-9789-3fcbbff634c2)
+also passes: its initial sweep reports 442 passed and two platform skips, with
+41 of 444 targets executed; its later suites report 17 passed (four executed)
+and 71 passed (all cached). These are distinct reported suites, not a deduplicated
+test count.
+
+No-mistakes reaches `checks-passed` for that head. Its Test phase retains the
+approved prepublication-only exception because it did not run the guarded
+database itself; the fresh final CI above supplies that proof. This documentation
+follow-up preserves the validated runtime and tests. It does not establish
+provider qualification, storage availability or deployment acceptance.
