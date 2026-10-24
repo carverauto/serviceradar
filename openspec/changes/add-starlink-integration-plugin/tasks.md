@@ -41,8 +41,9 @@
 - [x] 6.2 Implement reboot actions for terminal and router.
 - [x] 6.3 Implement `starlink.swap_terminal` with preflight, checkpointed steps, L2VPN re-apply and verification.
 - [ ] 6.4 Implement `starlink.move_terminal_account` with two credential requirements, checkpointed steps and verification.
-- [x] 6.5 Implement product change, deactivate and reactivate with preflight and verification.
+- [x] 6.5 Implement product change, deactivate and reactivate with preflight.
 - [ ] 6.6 Emit per-step OCSF audit events; test resume-at-step, preflight rejection, vendor error propagation and 429 deferral.
+- [ ] 6.7 Verify product change, deactivate, and reactivate by re-reading the service line and failing when the product or active flag did not change.
 
 ## 7. Starlink Local Plugin
 - [x] 7.1 Write `plugin.local.yaml` (`starlink-local`) with `grpc_request`, restricted networks and ports.
