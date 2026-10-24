@@ -29,6 +29,12 @@ The control plane and runtime SHALL negotiate applied configuration/capability r
 - **THEN** that capability SHALL remain unavailable with an actionable state
 - **AND** existing unrelated recording/live consumers SHALL remain isolated
 
+#### Scenario: Qualification report is parsed
+- **WHEN** a version 1 archive qualification report is supplied
+- **THEN** the product SHALL reject unsupported versions, unknown or missing fields and out-of-bounds values, and compute canonical content identity for accepted reports
+- **AND** SHALL preserve explicit encryption attestation and each encryption-policy denial as separate observations
+- **AND** parsing SHALL NOT authenticate the reporter, establish freshness, install credentials or grant readiness or dispatch authority
+
 ### Requirement: Preservation-aware cloud lifecycle
 The control plane SHALL distinguish suspend, disable and terminate operations and reconcile media, evidence, versions, jobs and credentials before reporting resource deletion complete.
 

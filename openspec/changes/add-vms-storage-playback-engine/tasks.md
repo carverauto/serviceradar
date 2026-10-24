@@ -13,7 +13,7 @@ or live acceptance task below.
 - [ ] 0.5 Validate provider endpoint range/checksum/multipart/atomic-no-overwrite/policy/lock capabilities, per-object encryption evidence and private access probes.
 - [ ] 0.6 Measure block/index/WAL/cache/object request costs; choose format bounds and service objectives instead of assuming PRD KPIs. The [synthetic grouping experiment](block-byte-costs.md) measures local logical media/metadata bytes only; database, cache, provider and deployment measurements remain open.
 - [x] 0.7 Evaluate stream-doctor's supported A/V-drift scenario in a Bazel/RBE test target with synthetic media; prove a deliberately delayed stream fails. See `stream-doctor.md`; this validates the diagnostic, not ServiceRadar audio or RTSP behavior.
-- [ ] 0.8 Specify versioned runtime/cloud and GPU job/result contracts, capability negotiation and invalid/unauthorized input behavior.
+- [ ] 0.8 Specify versioned runtime/cloud and GPU job/result contracts, capability negotiation and invalid/unauthorized input behavior. The [qualification report](qualification-report.md) supplies bounded observation parsing and canonical content identity only; authenticated desired/applied revisions, authority freshness/revocation and GPU contracts remain open.
 
 ## 1. Recording and immediate playback
 

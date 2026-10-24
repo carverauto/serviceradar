@@ -2,6 +2,25 @@
 
 ## Sound, medium confidence
 
+### One evidence bundle for an exact qualification context
+
+When: qualification report pass. Verdict: sound, medium confidence.
+
+The plan required attributable observations but did not choose their serialized
+shape. When a provisioner reports a successful encrypted write and a failed
+missing-header denial, both results remain in one report beside the destination,
+credential generation, policy and storage-service identity. A required reference
+names the evidence bundle for that exact context. Nineteen fixed check names keep
+these claims bounded and prevent a producer from omitting an inconvenient check.
+Grouped checks mean the producer must prove every criterion in the group; a
+partial result cannot be called passed. Separate evidence references per check
+would add a second attribution structure without changing that obligation.
+
+Future producers must retain the complete referenced evidence and authenticate
+the report. The format cannot establish whether that evidence exists or whether
+the claims are true. Protection-mode evidence and the full readiness assessment
+remain separate work; these nineteen observations cannot enable recording.
+
 ### Exercise the real receiver through a bounded test binary
 
 When: synthetic RTSP feasibility pass.
@@ -227,6 +246,34 @@ support file and directory sync. The guarantee covers the local node only;
 another node cannot recover footage that never reached an archive.
 
 ## Sound, high confidence
+
+### Define reported observations before installing storage authority
+
+When: qualification report pass. Verdict: sound, high confidence.
+
+The merged Cloud plan requires a product-owned format but leaves its delivery
+order open. A caller can now submit bounded observations and obtain their content
+fingerprint. Even if the caller labels every check passed, this operation cannot
+authorize an upload. Accepting an arbitrary caller's ready flag in the uploader
+would instead create an authority source before authenticated configuration and
+isolated credential custody exist. Future enforcement must match the report to
+the retained binding and a fresh authenticated exchange. Issue and expiry times
+remain reported data here, so reading an old report never starts a new clock.
+
+### Reuse destination identity and fix canonical report bytes
+
+When: qualification report pass. Verdict: sound, high confidence.
+
+The control plane needs to distinguish a changed credential from a changed
+storage destination. The report embeds the existing destination input and calls
+its validator, rather than introducing another set of destination rules or
+accepting a claimed destination digest. Rotating a key changes the report hash
+while the destination hash remains stable. Sorted ASCII JSON keys, explicit
+escaping and exact integer encoding give producers one byte contract to hash;
+ordinary equivalent JSON could otherwise produce different fingerprints. The
+plan required a canonical digest but left this encoding unspecified. Future
+transport must reject duplicate keys and bound bytes before decoding; this
+decoded-object parser cannot recover information the decoder already discarded.
 
 ### Keep recovery metadata separate from archive verification
 

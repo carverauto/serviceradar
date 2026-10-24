@@ -31,8 +31,9 @@ calculated synthetic digest in `ArchiveDestinationTest` guards this contract.
 `provisioning_ref` and `generation` uniquely identify one retained destination.
 Exact retries return that record. Conflicting input fails without updating it;
 changing a destination requires a new generation. Credential rotation, policy
-revision and qualification evidence are separate future provisioning-envelope
-facts. None belongs in this immutable row. The local spool `storage_id` remains
+revision and qualification observations stay off this row. The
+[qualification report](qualification-report.md) parses those claims and does not
+qualify the binding or install authority. The local spool `storage_id` remains
 the volume-lifetime UUID and does not identify a bucket.
 
 `RecordingBlocks.bind_archive/4` requires a current upload handle, binding UUID
