@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
           {@generation_header, "2"},
           {@generation_header, "01"}
         ],
-        path <- ["/v1/media/installation", "/v1/archive-bindings/not-a-uuid/qualification"] do
+        path <- ["/v1/media/installation", "/v1/media/configuration", "/v1/archive-bindings/not-a-uuid/qualification"] do
       conn =
         :put
         |> conn(path, "invalid-json")
@@ -180,8 +180,9 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
       assert json_response(conn) == %{"status" => "unauthorized"}
     end
 
-    for header <- [@authorization_header, @deployment_header, @generation_header] do
-      conn = :get |> conn("/v1/media/installation") |> media_headers()
+    for header <- [@authorization_header, @deployment_header, @generation_header],
+        path <- ["/v1/media/installation", "/v1/media/configuration"] do
+      conn = :get |> conn(path) |> media_headers()
       missing = conn |> delete_req_header(header) |> ControlPlaneRuntimeRouter.call([])
       assert missing.status == 401
 
@@ -316,6 +317,81 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     conn = archive_request(body, "text/plain")
     assert conn.status == 415
     assert json_response(conn) == %{"status" => "unsupported_media_type"}
+  end
+
+  test "rejects ambiguous recording JSON before interpreting the stop document" do
+    for path <- ["/v1/media/configuration", "/v%31/%6dedia/%63onfiguration"],
+        body <- [
+          "{",
+          "[]",
+          ~s({"contract_version":1,"revision":"1","revision":"2","admission":"stopped"}),
+          ~s({"contract_version":1,"revision":"1","admission":"stopped","admiss\\u0069on":"stopped"}),
+          ~s({"nested":{"revision":"1","revision":"2"}})
+        ] do
+      conn = configuration_request(body, path)
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_request"}
+    end
+  end
+
+  test "recording requests cannot smuggle enablement or origin through the document" do
+    valid = %{"contract_version" => 1, "revision" => "1", "admission" => "stopped"}
+
+    for document <- [
+          Map.put(valid, "admission", "enabled"),
+          Map.put(valid, "admission", "resume"),
+          Map.put(valid, "deployment_ref", @deployment_ref),
+          Map.put(valid, "generation", "1"),
+          Map.put(valid, "actor", "system"),
+          Map.put(valid, "contract_version", 2),
+          Map.put(valid, "revision", 1),
+          Map.put(valid, "revision", "01"),
+          Map.put(valid, "revision", "9223372036854775808"),
+          Map.delete(valid, "admission")
+        ] do
+      conn = configuration_request(Jason.encode!(document))
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_recording_configuration"}
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+    end
+  end
+
+  test "recording body limit and media type precede document validation on encoded routes too" do
+    body = ~s({"contract_version":2,"revision":"1","admission":"stopped"})
+    padded = body <> String.duplicate(" ", 1_024 - byte_size(body))
+
+    for path <- ["/v1/media/configuration", "/v%31/%6dedia/%63onfiguration"] do
+      conn = configuration_request(padded, path)
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_recording_configuration"}
+
+      conn = configuration_request(padded <> " ", path)
+      assert conn.status == 413
+      assert json_response(conn) == %{"status" => "request_too_large"}
+
+      conn = configuration_request(body, path, "text/plain")
+      assert conn.status == 415
+      assert json_response(conn) == %{"status" => "unsupported_media_type"}
+
+      conn =
+        :post
+        |> conn(path, "invalid-json")
+        |> media_headers()
+        |> put_req_header("content-type", "application/json")
+        |> ControlPlaneRuntimeRouter.call([])
+
+      assert conn.status == 404
+      assert json_response(conn) == %{"status" => "not_found"}
+    end
+  end
+
+  defp configuration_request(body, path \\ "/v1/media/configuration", content_type \\ "application/json") do
+    :put
+    |> conn(path, body)
+    |> put_req_header("content-type", content_type)
+    |> media_headers()
+    |> ControlPlaneRuntimeRouter.call([])
   end
 
   defp archive_request(body, content_type \\ "application/json") do

@@ -44,12 +44,19 @@ The control plane and runtime SHALL negotiate applied configuration/capability r
 - **AND** retained receipts SHALL NOT be treated as authenticated historical origin or as storage authority
 
 #### Scenario: Media request targets an installed deployment
-- **WHEN** a caller requests qualification submission, qualification status or media installation status
+- **WHEN** a caller requests qualification submission, qualification status, media installation status or recording configuration
 - **THEN** the private listener SHALL require its separately installed media credential and exact deployment reference and generation before parsing a body or accessing receipt storage
 - **AND** SHALL reject the account/password-reset credential, missing or duplicate authentication headers, mismatched identities and incomplete installations
 - **AND** a successful installation response SHALL identify only the responding process's installed authentication while reporting unavailable readiness and no applied configuration revision
 - **AND** the chart SHALL replace pods when the installed reference or generation changes without exposing the listener publicly or embedding secret bytes in values
 - **AND** Secret changes or installation responses alone SHALL NOT establish complete rotation, revocation, freshness or provider authority
+
+#### Scenario: Installed origin requests a recording stop
+- **WHEN** an authenticated installed origin submits a stop-only recording configuration
+- **THEN** the runtime SHALL reject duplicate keys, oversized documents, unsupported fields and positive enable or resume variants
+- **AND** SHALL bind the canonical content digest to that origin, preserve exact-retry timestamps and reject stale or conflicting revisions
+- **AND** a newer installed generation SHALL require a newer revision without resetting the revision high-water mark
+- **AND** status SHALL distinguish enforced stop from full applied configuration, storage readiness and drain completion
 
 ### Requirement: Preservation-aware cloud lifecycle
 The control plane SHALL distinguish suspend, disable and terminate operations and reconcile media, evidence, versions, jobs and credentials before reporting resource deletion complete.

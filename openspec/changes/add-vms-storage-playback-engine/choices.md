@@ -848,3 +848,88 @@ properties, without adding a wrapper, dependency or production timeout setting.
 An actual stalled generator was terminated after 120.01 seconds; the temporary
 delay was removed before positive checks. Future local execution cannot inherit
 this RBE-only guarantee, and product media deadlines remain separate contracts.
+
+
+### Ship permanent stop before positive storage authority
+
+When: durable recording stop checkpoint. Verdict: sound, medium confidence.
+
+An operator can already explicitly enable local recording under existing leases,
+but a stored qualification report cannot grant S3 access. This pass adds a stop
+that survives process restarts and rejects every later acquire, renewal, block
+reservation and dispatch marker. It deliberately has no resume command. The plan
+required revocation and preservation but did not choose this intermediate scope.
+This lets the restrictive half be verified without inventing storage readiness.
+A future enable command must supply current storage authority and fence work
+from earlier generations; deleting the stop row is not a product resume path.
+
+### Serialize stop with new work through one deployment-local row
+
+When: durable recording stop checkpoint. Verdict: sound, medium confidence.
+
+If a recorder requests a block while an operator stops recording, both first
+lock the same database row. Whichever owns that lock first determines the order:
+an earlier request retains its original lease, while a later one is denied.
+The row is initialized without changing existing values, so even the first stop
+has the same ordering. The plan left this coordination mechanism unspecified.
+One row avoids a new process, cache and invalidation protocol, at the cost of
+serializing these short admission transactions across recorders. It is never
+consulted for every frame. Future capacity work must measure this contention
+before raising recording concurrency. Admission and status initialize the row
+with a primary-key upsert that updates no fields, then read it under lock; this
+also avoids a startup gap before the first administrative command.
+
+### Bind a small stop document to authenticated installation provenance
+
+When: durable recording stop checkpoint. Verdict: sound, high confidence.
+
+A replacement runtime generation can read a retained stop, but it cannot reuse
+that stop's revision to claim a different origin. The next write needs a higher
+revision, and an older runtime cannot overwrite it with a larger number. A digest
+binds the exact accepted fields to the installed identity. The plan required
+content identity and monotonic changes but left the representation unspecified.
+Canonical decimal strings preserve bigint precision across JSON clients; a 1024
+byte document ceiling leaves ample room for the three accepted fields. The
+shared private JSON reader rejects duplicate keys before either recording or
+qualification parsing can discard them. This does not add tenant routing.
+
+### Report stop enforcement without claiming complete application or drain
+
+When: durable recording stop checkpoint. Verdict: sound, high confidence.
+
+After the stop commits, the caller sees `stop_enforced: true`, the received
+revision and its digest. It still sees no applied configuration revision,
+unavailable readiness and no drain attestation. A worker or remote request may
+still be completing earlier work. The plan defined full desired/applied readiness
+but did not name a partial stop status. Keeping those meanings distinct prevents
+Cloud from treating a successful stop request as permission to remove storage.
+Future lifecycle work must gather its own preservation and revocation evidence.
+
+### Let the media producer end only its attached recorder
+
+When: durable recording stop checkpoint. Verdict: sound, high confidence.
+
+When renewal encounters stop, the worker asks the exact producer feeding its
+inbox to finish that recorder stream. The producer places the end marker after
+accepted media and keeps sending to live viewers. The recorder then uses its
+existing packaging and sealing path within the lease it already had. The plan
+required drain without interrupting live consumers but left the signal owner
+unspecified. Producer ordering avoids a new queue or per-frame control query;
+a failed or expired drain retains recoverable bytes instead of extending rights
+or manufacturing a seal. This provides no fleet-wide completion proof.
+
+
+### Preserve owner transaction errors while requiring stop to commit
+
+When: durable recording stop checkpoint. Verdict: sound, high confidence.
+
+A rejected block reservation must still tell its caller that ownership was lost,
+not turn into an unrelated control-store failure because another transaction
+surrounds it. The shared stop fence therefore preserves the existing owner's
+error reasons when nested database rollback reaches it. Admission and status
+retain existing transaction composition, while stop rejects an explicitly open
+transaction so a success cannot later disappear in the caller's rollback. The
+plan required durable stop without choosing these API semantics. Only database
+connection/PostgreSQL failures become a bounded unavailable response; programming
+errors remain visible. Future callers must still acquire the control lock before
+ownership locks and keep preservation paths outside the stop gate.
