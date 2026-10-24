@@ -2,7 +2,7 @@
 
 - [ ] 1.1 Add a retention-only reconciliation list to `DataRetentionWorker` for `adhoc_scan_results`, `service_status`, `events`, `endpoint_inventory_scan_history`, `endpoint_inventory_package_events`, `endpoint_inventory_package_count_history`, `endpoint_inventory_cpe_count_history` (no chunk-interval or compression changes)
 - [ ] 1.2 Reconcile CAGG retention for `spans_red_1h`, `traces_stats_5m`, and `otel_metrics_hourly_stats` after refresh-window clamping. Add `endpoint_inventory_package_counts_hourly`, `endpoint_inventory_cpe_counts_hourly`, and `services_availability_5m` to the existing CAGG refresh specs, and clamp `otel_metrics_hourly_stats` from the shorter of raw otel metrics retention and `otelMetricsHourlyStatsDays`. Clamp each `start_offset` strictly under the retention about to be applied, then floor that aggregate's own retention at the clamped window.
-- [ ] 1.3 Join the new keys to the `defaultDays` ceiling set, excluding `endpointInventoryHistoryDays`
+- [ ] 1.3 Join the new keys to the `defaultDays` ceiling set, excluding `endpointInventoryHistoryDays`. An unset `tracesStatsDays` and that ceiling must not shorten a `traces_stats_5m` window the cold-tier fence has widened; only an explicit `tracesStatsDays` may narrow it, and only while the cold tier is disabled
 
 ## 2. Release config and chart
 
