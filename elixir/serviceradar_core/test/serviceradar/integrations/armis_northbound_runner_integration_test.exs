@@ -334,6 +334,180 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     assert Enum.map(retained_targets, & &1.outcome) == [:unattempted]
   end
 
+  test "records partial batch failure and retains failed and withheld conflict rows across retention prune",
+       %{actor: actor} do
+    source = create_source!(actor, "armis-partial-and-conflict-retention")
+
+    devices =
+      Enum.map(1..3, fn index ->
+        armis_id = "armis-partial-#{index}"
+        ip = TestSupport.unique_device_ip()
+        ingest_armis_update(actor, source.id, ip, armis_id, true)
+        {:ok, device} = Device.get_by_ip(ip, false, actor: actor)
+        {armis_id, single_result(device)}
+      end)
+
+    {_conflict_id, conflict_device} = Enum.at(devices, 2)
+
+    register_identifier!(
+      actor,
+      conflict_device.uid,
+      :armis_device_id,
+      "armis-partial-conflict-extra",
+      %{"sync_service_id" => source.id}
+    )
+
+    activate_collection!(source, devices)
+
+    execute_batches = fn _source, candidates, _opts ->
+      ids = Enum.map(candidates, & &1.armis_device_id)
+      assert ids == ["armis-partial-1", "armis-partial-2"]
+
+      {:error,
+       %{
+         device_count: 2,
+         updated_count: 1,
+         skipped_count: 0,
+         error_count: 1,
+         batch_count: 2,
+         errors: [%{batch_index: 1, reason: {:http_status, 502, %{"message" => "bad gateway"}}}],
+         accepted_ids: ["armis-partial-1"],
+         failed_ids: ["armis-partial-2"],
+         unattempted_ids: []
+       }}
+    end
+
+    assert {:error, %{run: run, result: result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               execute_batches: execute_batches
+             )
+
+    assert run.collection_id == "collection-accounted"
+    assert run.distinct_source_ids == 3
+    assert run.eligible_count == 2
+    assert run.withheld_count == 1
+    assert run.accepted_count == 1
+    assert run.failed_count == 1
+    assert run.unattempted_count == 0
+    assert run.reconciliation_status == :degraded
+    assert result.withheld_reason_counts == %{"multiple_typed_ids_per_device" => 1}
+
+    assert {:ok, 1} =
+             ArmisNorthboundRetention.prune(
+               now: ~U[2100-01-01 00:00:00.000000Z],
+               retention_days: 30,
+               batch_size: 100
+             )
+
+    assert {:ok, retained_targets} =
+             IntegrationUpdateRunTarget.list_by_run(run.id, actor: actor)
+
+    assert Enum.map(retained_targets, &{&1.source_object_id, &1.outcome, &1.reason}) == [
+             {"armis-partial-2", :failed, nil},
+             {"armis-partial-3", :withheld, "multiple_typed_ids_per_device"}
+           ]
+
+    assert {:ok, examples} = ArmisNorthboundLedger.examples(run.id)
+
+    assert Enum.map(examples, &{&1.source_object_id, &1.outcome, &1.reason}) == [
+             {"armis-partial-2", "failed", nil},
+             {"armis-partial-3", "withheld", "multiple_typed_ids_per_device"}
+           ]
+  end
+
+  test "idempotent rerun against the same activated collection preserves exact population and reconciliation counts",
+       %{actor: actor} do
+    source = create_source!(actor, "armis-idempotent-rerun")
+
+    devices =
+      Enum.map(1..3, fn index ->
+        armis_id = "armis-rerun-#{index}"
+        ip = TestSupport.unique_device_ip()
+        ingest_armis_update(actor, source.id, ip, armis_id, true)
+        {:ok, device} = Device.get_by_ip(ip, false, actor: actor)
+        {armis_id, single_result(device)}
+      end)
+
+    activate_collection!(source, devices)
+
+    execute_batches = fn _source, candidates, _opts ->
+      ids = Enum.map(candidates, & &1.armis_device_id)
+
+      {:ok,
+       %{
+         device_count: length(ids),
+         updated_count: length(ids),
+         skipped_count: 0,
+         error_count: 0,
+         batch_count: 1,
+         errors: [],
+         accepted_ids: ids,
+         failed_ids: [],
+         unattempted_ids: []
+       }}
+    end
+
+    assert {:ok, %{run: first_run, result: first_result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               execute_batches: execute_batches
+             )
+
+    assert {:ok, %{run: second_run, result: second_result}} =
+             ArmisNorthboundRunner.run_for_source(source,
+               actor: actor,
+               execute_batches: execute_batches
+             )
+
+    for run <- [first_run, second_run] do
+      assert run.collection_id == "collection-accounted"
+      assert run.distinct_source_ids == 3
+      assert run.eligible_count == 3
+      assert run.withheld_count == 0
+      assert run.accepted_count == 3
+      assert run.failed_count == 0
+      assert run.unattempted_count == 0
+      assert run.reconciliation_status == :reconciled
+    end
+
+    assert first_result.accepted_count == second_result.accepted_count
+    assert first_result.collection == second_result.collection
+
+    assert {:ok, population} =
+             ServiceRadar.Integrations.ArmisNorthboundPopulation.load(source)
+
+    assert {:ok, refinalized} =
+             ArmisNorthboundLedger.finalize(first_run, population, first_result)
+
+    assert refinalized.accepted_count == 3
+    assert refinalized.reconciliation_status == :reconciled
+  end
+
+  test "legacy collection without exact accounting stays accounting_unavailable", %{actor: actor} do
+    source = create_source!(actor, "armis-legacy-collection")
+
+    devices =
+      Enum.map(1..3, fn index ->
+        armis_id = "armis-legacy-#{index}"
+        ip = TestSupport.unique_device_ip()
+        ingest_armis_update(actor, source.id, ip, armis_id, true)
+        {:ok, device} = Device.get_by_ip(ip, false, actor: actor)
+        {armis_id, single_result(device)}
+      end)
+
+    activate_collection!(source, devices, %{"accounting_status" => "unavailable"})
+
+    assert {:error, %{run: run, result: result}} =
+             ArmisNorthboundRunner.run_for_source(source, actor: actor)
+
+    assert run.status == :failed
+    assert run.collection_id == nil
+    assert run.reconciliation_status == :unavailable
+    assert run.error_message =~ "accounting_unavailable"
+    assert result.errors == [%{reason: :accounting_unavailable}]
+  end
+
   # One target row per distinct Armis source ID, 11 bound parameters each: a
   # collection of a few thousand IDs crosses Postgres's 65535-parameter
   # statement limit, which failed the whole bind with "postgresql protocol can
@@ -430,7 +604,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     |> Ash.create!(actor: actor)
   end
 
-  defp activate_collection!(source, devices) do
+  defp activate_collection!(source, devices, metadata_overrides \\ %{}) do
     observed_at = ~U[2026-09-01 08:00:00.000000Z]
     content_hash = String.duplicate("a", 64)
 
@@ -442,16 +616,20 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       content_hash: content_hash,
       query_hash: nil,
       observed_at: observed_at,
-      metadata: %{
-        "accounting_status" => "exact",
-        "raw_rows" => 4,
-        "excluded_rows" => 0,
-        "invalid_rows" => 0,
-        "valid_occurrences" => 4,
-        "distinct_source_ids" => 3,
-        "duplicate_occurrences" => 1,
-        "conflicting_duplicate_ids" => 0
-      }
+      metadata:
+        Map.merge(
+          %{
+            "accounting_status" => "exact",
+            "raw_rows" => 4,
+            "excluded_rows" => 0,
+            "invalid_rows" => 0,
+            "valid_occurrences" => 4,
+            "distinct_source_ids" => 3,
+            "duplicate_occurrences" => 1,
+            "conflicting_duplicate_ids" => 0
+          },
+          metadata_overrides
+        )
     }
 
     observations =
