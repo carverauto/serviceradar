@@ -22,6 +22,7 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.RecorderClaim
     resource ServiceRadar.Camera.RecordingBlock
     resource ServiceRadar.Camera.ArchiveBinding
+    resource ServiceRadar.Camera.ArchiveQualificationReceipt
     resource ServiceRadar.Camera.ArchiveUploadIntent
     resource ServiceRadar.Camera.ArchiveUploadDispatch
     resource ServiceRadar.Camera.AnalysisWorker

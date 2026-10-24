@@ -2,6 +2,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.ArchiveQualificationReceipt
+  alias ServiceRadar.Camera.ArchiveQualifications
   alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.ArchiveUploadIntent
   alias ServiceRadar.Camera.ArchiveUploads
@@ -51,6 +53,17 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     binding_id = Ecto.UUID.dump!(binding.id)
 
     on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.camera_archive_qualification_receipts WHERE archive_binding_id = $1",
+        [binding_id]
+      )
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_archive_qualification_receipts WHERE archive_binding_id = $1",
+                 [binding_id]
+               )
+
       %{rows: dispatch_ids} =
         Repo.query!(
           "DELETE FROM platform.camera_archive_upload_dispatches WHERE archive_upload_intent_id IN " <>
@@ -582,6 +595,141 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
     assert late.response == response and late.unknown_at == unknown.unknown_at
   end
+
+  test "qualification receipt retries and competing revisions serialize on the retained binding",
+       ctx do
+    first = withdrawal(1)
+    results = race(fn _ -> ArchiveQualifications.submit(ctx.binding.id, first, ctx.opts) end)
+
+    receipts =
+      Enum.map(results, fn result ->
+        assert {:ok, %{revision: 1, state: :withdrawn, report: nil, report_sha256: nil} = receipt} =
+                 result
+
+        receipt
+      end)
+
+    binding_id = ctx.binding.id
+    assert [^binding_id] = receipts |> Enum.map(& &1.archive_binding_id) |> Enum.uniq()
+    assert [_received_at] = receipts |> Enum.map(& &1.received_at) |> Enum.uniq()
+
+    assert {:ok, %{archive_binding_id: ^binding_id, revision: 1} = received} =
+             ArchiveQualifications.status(ctx.binding.id, ctx.opts)
+
+    # Literal protocol bytes are independent of the production JSON encoder.
+    expected_bytes = ~s(["archive-qualification-v1","#{binding_id}",1,"withdrawn",null])
+    assert received.receipt_sha256 == digest(expected_bytes)
+
+    results =
+      race(fn index ->
+        revision = index + 1
+        {revision, ArchiveQualifications.submit(ctx.binding.id, withdrawal(revision), ctx.opts)}
+      end)
+
+    for {revision, result} <- results do
+      case result do
+        {:ok, receipt} ->
+          assert receipt.archive_binding_id == binding_id and receipt.revision == revision
+
+        {:error, reason} ->
+          assert reason == :qualification_revision_stale
+      end
+    end
+
+    assert {:ok, %{archive_binding_id: ^binding_id, revision: 9, state: :withdrawn}} =
+             ArchiveQualifications.status(ctx.binding.id, ctx.opts)
+
+    assert [%{archive_binding_id: ^binding_id}] =
+             ArchiveQualificationReceipt
+             |> Ash.Query.filter(archive_binding_id == ^ctx.binding.id)
+             |> Ash.read!(ctx.opts)
+
+    assert {:ok, %{capability_state: :unqualified}} =
+             Ash.get(ArchiveBinding, ctx.binding.id, ctx.opts)
+  end
+
+  test "qualification receipt rejects invalid callers and input before writing", ctx do
+    for opts <- [
+          [],
+          [actor: %{role: :viewer, id: "viewer"}],
+          [actor: %{role: :system}],
+          [actor: %{role: :system, id: " "}]
+        ] do
+      assert {:error, :invalid_qualification_submitter} =
+               ArchiveQualifications.submit(ctx.binding.id, withdrawal(1), opts)
+
+      assert {:error, :invalid_qualification_submitter} =
+               ArchiveQualifications.status(ctx.binding.id, opts)
+    end
+
+    for id <- [nil, 1, "invalid", "AAAAAAAA-AAAA-AAAA-AAAA-AAAAAAAAAAAA"] do
+      assert {:error, :invalid_archive_binding_id} =
+               ArchiveQualifications.submit(id, withdrawal(1), ctx.opts)
+
+      assert {:error, :invalid_archive_binding_id} = ArchiveQualifications.status(id, ctx.opts)
+    end
+
+    for input <- [
+          nil,
+          Map.delete(withdrawal(1), "report"),
+          Map.put(withdrawal(1), "unexpected", true),
+          Map.put(withdrawal(1), "schema_version", 2),
+          Map.put(withdrawal(1), "state", "applied"),
+          Map.put(withdrawal(1), "report", %{}),
+          Map.put(withdrawal(1), "revision", 0),
+          Map.put(withdrawal(1), "revision", 1.0),
+          Map.put(withdrawal(1), "revision", 9_223_372_036_854_775_808)
+        ] do
+      assert {:error, :invalid_qualification_submission} =
+               ArchiveQualifications.submit(ctx.binding.id, input, ctx.opts)
+    end
+
+    missing_id = Ecto.UUID.generate()
+
+    assert {:error, :archive_binding_not_found} =
+             ArchiveQualifications.submit(missing_id, withdrawal(1), ctx.opts)
+
+    assert {:error, :archive_binding_not_found} =
+             ArchiveQualifications.status(missing_id, ctx.opts)
+
+    assert {:ok, :checked} =
+             Repo.transaction(fn ->
+               assert {:error, :ambient_transaction} =
+                        ArchiveQualifications.submit(ctx.binding.id, withdrawal(1), ctx.opts)
+
+               :checked
+             end)
+
+    assert {:ok, nil} = ArchiveQualifications.status(ctx.binding.id, ctx.opts)
+  end
+
+  test "withdrawal preserves the binding reference and revision high-water", ctx do
+    assert {:ok, receipt} = ArchiveQualifications.submit(ctx.binding.id, withdrawal(2), ctx.opts)
+
+    assert {:error,
+            %Postgrex.Error{
+              postgres: %{
+                code: :restrict_violation,
+                constraint: "camera_archive_qualification_receipts_archive_binding_id_fkey"
+              }
+            }} =
+             Repo.query("DELETE FROM platform.camera_archive_bindings WHERE id = $1", [
+               Ecto.UUID.dump!(ctx.binding.id)
+             ])
+
+    assert {:error, :qualification_revision_stale} =
+             ArchiveQualifications.submit(ctx.binding.id, withdrawal(1), ctx.opts)
+
+    assert {:ok, retained} = ArchiveQualifications.status(ctx.binding.id, ctx.opts)
+
+    assert retained.archive_binding_id == receipt.archive_binding_id and
+             retained.receipt_sha256 == receipt.receipt_sha256
+
+    assert retained.received_at == receipt.received_at and retained.revision == 2
+  end
+
+  defp withdrawal(revision),
+    do: %{"schema_version" => 1, "revision" => revision, "state" => "withdrawn", "report" => nil}
 
   defp dispatch(ctx, ttl \\ 30_000),
     do: ArchiveUploads.prepare_dispatch(ctx.lease, :media, :put_object, ttl, ctx.opts)
