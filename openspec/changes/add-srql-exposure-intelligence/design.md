@@ -1258,8 +1258,12 @@ Helm permits core's EventWriter identity to subscribe to the transition subjects
 
 `ExposureTransitions` accepts the producer's schema-v1 complete after-images,
 validates source u32 device ordinals and positive BIGINT identities, and maps
-active/resolved states and severity ranks into the migration 0032 tables. A
-missing device ordinal is dropped and counted. Other malformed or unsupported
+active/resolved states into the migration 0032 tables. The known severity words
+`none` and `unknown` rank 0, then `low` 1, `medium` 2, `high` 3 and `critical`
+4. A missing severity and every other binary severity, including feed words
+such as `negligible` and `informational`, store a null `severity_rank`; the
+history payload keeps the original severity string. A missing device ordinal is
+dropped and counted. Non-binary severity and other malformed or unsupported
 messages fail the batch. EventWriter allocates no identities and has no CNPG
 exposure write path.
 

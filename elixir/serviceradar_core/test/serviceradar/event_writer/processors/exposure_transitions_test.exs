@@ -181,6 +181,9 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitionsTest do
           invalid ++
             [
               Map.delete(transition(1), "kev"),
+              Map.delete(transition(1), "severity"),
+              transition(1, %{"severity" => 3}),
+              transition(1, %{"severity" => ["high"]}),
               transition(1, %{"schema_version" => 2}),
               transition(1, %{"transition_seq" => 0})
             ] do
@@ -189,6 +192,49 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitionsTest do
     end
 
     refute_receive {:load, _, _, _, _}, 20
+  end
+
+  test "a batch keeps known ranks and stores unrecognized severities with their original history" do
+    high = transition(40, %{"cve_ord" => 20_240_000_011, "severity" => "high"})
+    negligible = transition(41, %{"cve_ord" => 20_240_000_012, "severity" => "negligible"})
+    informational = transition(42, %{"cve_ord" => 20_240_000_013, "severity" => "informational"})
+    absent = transition(43, %{"cve_ord" => 20_240_000_014, "severity" => nil})
+
+    task =
+      Task.async(fn ->
+        ExposureTransitions.process_batch([
+          encode(informational),
+          encode(high),
+          encode(negligible),
+          encode(absent)
+        ])
+      end)
+
+    assert_receive {:load, facts_http, "/api/serviceradar/exposure_facts/_stream_load", _, facts},
+                   2_000
+
+    assert Map.new(facts, &{&1["cve_ord"], &1["severity_rank"]}) == %{
+             20_240_000_011 => 3,
+             20_240_000_012 => nil,
+             20_240_000_013 => nil,
+             20_240_000_014 => nil
+           }
+
+    send(facts_http, :commit)
+
+    assert_receive {:load, history_http,
+                    "/api/serviceradar/exposure_transitions_log/_stream_load", _, history},
+                   2_000
+
+    assert Map.new(history, &{&1["payload"]["cve_ord"], &1["payload"]["severity"]}) == %{
+             20_240_000_011 => "high",
+             20_240_000_012 => "negligible",
+             20_240_000_013 => "informational",
+             20_240_000_014 => nil
+           }
+
+    send(history_http, :commit)
+    assert {:ok, 4} = Task.await(task)
   end
 
   defp transition(sequence, overrides \\ %{}) do

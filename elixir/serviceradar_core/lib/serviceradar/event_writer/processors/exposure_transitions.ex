@@ -5,7 +5,10 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitions do
   append-only history must succeed before the batch is acknowledged.
 
   Ordinals are allocated by the assessment transaction. A missing device
-  ordinal is counted and dropped; malformed after-images fail the batch.
+  ordinal is counted and dropped. Known severity words keep their ranks. A
+  null severity and any other binary severity store a null `severity_rank`,
+  and the history payload keeps the original value. Non-binary severity and
+  other malformed after-images fail the batch.
   Retirement and snapshot messages are not part of this wire version.
   """
 
@@ -123,7 +126,11 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitions do
   end
 
   defp severity_rank(nil), do: {:ok, nil}
-  defp severity_rank(value) when is_binary(value), do: Map.fetch(@ranks, String.downcase(value))
+
+  defp severity_rank(value) when is_binary(value) do
+    {:ok, Map.get(@ranks, String.downcase(value))}
+  end
+
   defp severity_rank(_), do: :error
 
   defp nullable_datetime(nil), do: {:ok, nil}
