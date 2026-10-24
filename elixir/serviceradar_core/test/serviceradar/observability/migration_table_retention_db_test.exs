@@ -148,11 +148,13 @@ defmodule ServiceRadar.Observability.MigrationTableRetentionDbTest do
     assert cagg_drop_after("traces_stats_5m") == "30 days"
   end
 
-  test "the ceiling still caps traces stats on the migration interval" do
+  test "the ceiling does not cap traces stats on the migration interval" do
+    set_cagg_retention("traces_stats_5m", 14)
+
     assert :ok =
              DataRetentionWorker.reconcile_migration_tables(cnpg_telemetry_default_days: 7)
 
-    assert cagg_drop_after("traces_stats_5m") == "7 days"
+    assert cagg_drop_after("traces_stats_5m") == "14 days"
   end
 
   test "an explicit traces stats value is not ceiling-capped on a widened window" do
@@ -197,7 +199,7 @@ defmodule ServiceRadar.Observability.MigrationTableRetentionDbTest do
     end
   end
 
-  test "a traces stats value above the widened window does not let the ceiling shrink it" do
+  test "an explicit traces stats value above the fence target is written" do
     set_cagg_retention("traces_stats_5m", 90)
 
     assert :ok =
@@ -206,7 +208,7 @@ defmodule ServiceRadar.Observability.MigrationTableRetentionDbTest do
                cnpg_telemetry_default_days: 7
              )
 
-    assert cagg_drop_after("traces_stats_5m") == "90 days"
+    assert cagg_drop_after("traces_stats_5m") == "120 days"
   end
 
   defp present_hypertables do

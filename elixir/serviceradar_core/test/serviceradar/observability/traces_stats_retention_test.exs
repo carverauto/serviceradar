@@ -5,13 +5,13 @@ defmodule ServiceRadar.Observability.TracesStatsRetentionTest do
   alias ServiceRadar.Observability.DataRetentionWorker
 
   # Oracle: openspec add-cnpg-migration-table-retention. The fence widens
-  # traces_stats_5m to 90 days. Unset and the defaultDays ceiling leave that
-  # window. An explicit tracesStatsDays of 30 narrows it only while the cold
-  # tier is disabled. An installed drop_after that already equals the explicit
-  # value stays, including 10 and 14, so the ceiling does not turn it into 7
-  # on the next run. The ceiling still applies to a missing policy and to a
-  # 14-day window that is not itself the explicit value. A catalog error is
-  # not "no policy": the wrong behavior writes the shorter window and drop_chunks.
+  # traces_stats_5m to 90 days. tracesStatsDays is outside defaultDays: the
+  # target is the explicit value, or 14 days when unset. While the cold tier
+  # is enabled, a shorter target is not written. An unset value leaves a
+  # widened window in place. An explicit value may narrow or raise the window
+  # once the tier is disabled, including 120 days above the fence target.
+  # A catalog error is not "no policy": the wrong behavior writes a shorter
+  # window and drop_chunks.
   @moduletag :db_free
 
   setup do
@@ -50,26 +50,29 @@ defmodule ServiceRadar.Observability.TracesStatsRetentionTest do
            ) == 14
   end
 
-  test "the ceiling caps the migration interval and a missing policy" do
-    config = [cnpg_telemetry_default_days: 7]
+  test "the ceiling does not cap traces stats, and the tier skips a shorter target" do
+    ceiling = [cnpg_telemetry_default_days: 7]
 
     assert DataRetentionWorker.traces_stats_retention_to_apply(
-             config,
+             ceiling,
              {:ok, %{rows: [[14.0]]}},
              false
-           ) == 7
+           ) == 14
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(ceiling, {:ok, %{rows: []}}, false) ==
+             14
 
     assert DataRetentionWorker.traces_stats_retention_to_apply(
-             config,
-             {:ok, %{rows: []}},
-             false
-           ) == 7
-
-    assert DataRetentionWorker.traces_stats_retention_to_apply(
-             [traces_stats_retention_days: 30, cnpg_telemetry_default_days: 7],
+             [traces_stats_retention_days: 30] ++ ceiling,
              {:ok, %{rows: [[14.0]]}},
              true
-           ) == 7
+           ) == :skip
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(
+             [traces_stats_retention_days: 30] ++ ceiling,
+             {:ok, %{rows: [[14.0]]}},
+             false
+           ) == 30
   end
 
   test "unset and the ceiling leave a widened window, with the tier on or off" do
@@ -97,19 +100,19 @@ defmodule ServiceRadar.Observability.TracesStatsRetentionTest do
            ) == 30
   end
 
-  test "an explicit value above the widened window does not let the ceiling shrink it" do
-    assert DataRetentionWorker.traces_stats_retention_to_apply(
-             [traces_stats_retention_days: 120, cnpg_telemetry_default_days: 7],
-             {:ok, %{rows: [[90.0]]}},
-             false
-           ) == :skip
+  test "an explicit value above the fence target is written" do
+    widened = {:ok, %{rows: [[90.0]]}}
+    config = [traces_stats_retention_days: 120, cnpg_telemetry_default_days: 7]
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(config, widened, false) == 120
+    assert DataRetentionWorker.traces_stats_retention_to_apply(config, widened, true) == 120
   end
 
   test "an explicit narrow stays put on the next run instead of taking the ceiling" do
     config = [traces_stats_retention_days: 30, cnpg_telemetry_default_days: 7]
     installed = {:ok, %{rows: [[30.0]]}}
 
-    assert DataRetentionWorker.traces_stats_retention_to_apply(config, installed, false) == :skip
+    assert DataRetentionWorker.traces_stats_retention_to_apply(config, installed, false) == 30
 
     assert DataRetentionWorker.traces_stats_retention_to_apply(
              [traces_stats_retention_days: 20, cnpg_telemetry_default_days: 7],
@@ -130,7 +133,7 @@ defmodule ServiceRadar.Observability.TracesStatsRetentionTest do
                [traces_stats_retention_days: days] ++ ceiling,
                installed,
                false
-             ) == :skip
+             ) == days
 
       assert DataRetentionWorker.traces_stats_retention_to_apply(
                [traces_stats_retention_days: days] ++ ceiling,
@@ -158,14 +161,19 @@ defmodule ServiceRadar.Observability.TracesStatsRetentionTest do
            ) == :skip
   end
 
-  test "removing the ceiling lifts an unset window below 14 days" do
-    assert DataRetentionWorker.traces_stats_retention_to_apply([], {:ok, %{rows: [[7.0]]}}, false) ==
-             14
+  test "an unset window below 14 days returns to the migration default" do
+    ceiling = [cnpg_telemetry_default_days: 7]
 
     assert DataRetentionWorker.traces_stats_retention_to_apply(
-             [cnpg_telemetry_default_days: 7],
+             ceiling,
+             {:ok, %{rows: [[7.0]]}},
+             false
+           ) == 14
+
+    assert DataRetentionWorker.traces_stats_retention_to_apply(
+             ceiling,
              {:ok, %{rows: [[10.0]]}},
              false
-           ) == :skip
+           ) == 14
   end
 end
