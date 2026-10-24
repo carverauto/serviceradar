@@ -93,11 +93,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
   defp object(_, _), do: nil
 
   defp put_object_keys(manifest) do
-    prefix = "recordings/v1/" <> RecordingDescriptor.block_key(manifest["identity"])
-
     manifest
-    |> put_in(["init", "key"], prefix <> "/init.mp4")
-    |> put_in(["media", "key"], prefix <> "/media.m4s")
+    |> put_in(["init", "key"], RecordingDescriptor.object_key(manifest["identity"], :init))
+    |> put_in(["media", "key"], RecordingDescriptor.object_key(manifest["identity"], :media))
   end
 
   defp valid_object?(%{"key" => key, "length" => _, "sha256" => _, "etag" => etag, "version_id" => version} = object) do

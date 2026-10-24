@@ -82,6 +82,12 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
     :sha256 |> :crypto.hash(Jason.encode!(tuple)) |> Base.encode16(case: :lower)
   end
 
+  @doc "Object key from a validated identity; shared by upload intent and recovery manifests."
+  def object_key(identity, role) when role in [:init, :media] do
+    filename = if role == :init, do: "init.mp4", else: "media.m4s"
+    "recordings/v1/" <> block_key(identity) <> "/" <> filename
+  end
+
   defp valid_object?(%{"length" => size, "sha256" => hash} = object, limit),
     do: map_size(object) == 2 and integer?(size, 1, limit) and sha256?(hash)
 
