@@ -699,6 +699,37 @@ ex_unit_test(
     "reuse",
 ]]
 
+# A disposable, file-backed broker runs beside the BEAM on the remote executor.
+# Small correctness corpora run by default; opt in to 2.5M keys for scale evidence.
+[ex_unit_test(
+    name = "ownership_replay_spike_" + profile + "_test",
+    size = "large",
+    timeout = "long",
+    srcs = ["bench/ownership_replay_spike_test.exs"],
+    data = [
+        "bench/bench_test_helper.exs",
+        "@nats_server_linux_amd64//:nats_server",
+    ],
+    elixir_opts = [
+        "-r",
+        "bench/bench_test_helper.exs",
+    ],
+    env = {
+        "ERL_FLAGS": "'+S 4:4'",
+        "OWNERSHIP_REPLAY_PROFILE": profile,
+    },
+    tags = ["benchmark"],
+    deps = [
+        "@hexpm//:gnat",
+        "@hexpm//:jason",
+        "@hexpm//:telemetry",
+    ],
+) for profile in [
+    "single",
+    "mixed",
+    "reuse",
+]]
+
 # A real web-node -> registry-node RPC regression. The general test helper
 # deliberately excludes :cluster, so this target owns the explicit opt-in and
 # keeps the test visible to tests(//...).
@@ -1006,7 +1037,10 @@ ex_unit_test(
 # `mix format --check-formatted` + `mix credo --strict`, as CI's Elixir Quality job runs them.
 # See //build:elixir_quality.bzl.
 elixir_quality(
-    extra_inputs = ["credo/**/*.ex"],
+    extra_inputs = [
+        "bench/ownership_replay_spike_test.exs",
+        "credo/**/*.ex",
+    ],
     formatter_deps = [
         "@hexpm//:ash",
         "@hexpm//:ash_json_api",
