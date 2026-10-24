@@ -41,7 +41,15 @@ The control plane and runtime SHALL negotiate applied configuration/capability r
 - **AND** SHALL persist increasing revisions, return the original receipt for an identical current retry, and reject stale or conflicting revisions
 - **AND** a withdrawal SHALL retain its revision high-water mark without claiming provider credential revocation
 - **AND** receipt status SHALL remain unapplied and unavailable, including when every observation passes
-- **AND** the caller credential SHALL NOT be treated as independently authenticated environment identity or as storage authority
+- **AND** retained receipts SHALL NOT be treated as authenticated historical origin or as storage authority
+
+#### Scenario: Media request targets an installed deployment
+- **WHEN** a caller requests qualification submission, qualification status or media installation status
+- **THEN** the private listener SHALL require its separately installed media credential and exact deployment reference and generation before parsing a body or accessing receipt storage
+- **AND** SHALL reject the account/password-reset credential, missing or duplicate authentication headers, mismatched identities and incomplete installations
+- **AND** a successful installation response SHALL identify only the responding process's installed authentication while reporting unavailable readiness and no applied configuration revision
+- **AND** the chart SHALL replace pods when the installed reference or generation changes without exposing the listener publicly or embedding secret bytes in values
+- **AND** Secret changes or installation responses alone SHALL NOT establish complete rotation, revocation, freshness or provider authority
 
 ### Requirement: Preservation-aware cloud lifecycle
 The control plane SHALL distinguish suspend, disable and terminate operations and reconcile media, evidence, versions, jobs and credentials before reporting resource deletion complete.
