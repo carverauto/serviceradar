@@ -21,6 +21,38 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     refute html =~ "otx-liveview-secret"
   end
 
+  test "a repeated stale field submits its checked value", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/security/threat-intel")
+
+    view
+    |> element("#threat-intel-filters")
+    |> render_submit(%{"filters" => %{"stale" => ["", "true"]}})
+
+    assert_patch(view, ~p"/security/threat-intel?#{[stale: "true"]}")
+  end
+
+  test "the active view tab keeps its filters and another tab carries only shared ones", %{conn: conn} do
+    {:ok, view, _html} =
+      live(conn, ~p"/security/threat-intel?#{[sort: "severity", stale: "true", source: "synthetic-feed"]}")
+
+    assert has_element?(
+             view,
+             ~s(#threat-intel-view-matches[href="/security/threat-intel?sort=severity&source=synthetic-feed&stale=true"])
+           )
+
+    assert has_element?(
+             view,
+             ~s(#threat-intel-view-inventory[href="/security/threat-intel?source=synthetic-feed&view=inventory"])
+           )
+  end
+
+  test "the first HTTP render paints the requested view", %{conn: conn} do
+    html = conn |> get(~p"/security/threat-intel?#{[view: "inventory"]}") |> html_response(200)
+
+    assert html =~ "Imported indicators"
+    refute html =~ "Current matches"
+  end
+
   test "viewer can open investigation but not settings", %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :viewer})
     conn = log_in_user(conn, user)
@@ -104,6 +136,71 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLiveTest do
     assert stale_html =~ ip
     assert has_element?(stale_view, ~s([data-testid="threat-intel-row-#{ip}"]), "Stale")
     refute has_element?(stale_view, ~s([data-testid="threat-intel-indicator-error"]))
+  end
+
+  test "dashboard drill-down views list their own evidence kinds", %{conn: conn} do
+    source = unique_source("views")
+    {ip, cidr} = unique_host()
+    seed_match!(ip, cidr, source, "Synthetic pulse #{source}", expires_in: 3600)
+
+    {:ok, inventory, _html} = live(conn, ~p"/security/threat-intel?#{[view: "inventory", source: source]}")
+    assert has_element?(inventory, ~s([data-testid="threat-intel-inventory-row"]), ip)
+    assert has_element?(inventory, "#threat-intel-view-inventory[aria-current='page']")
+
+    {:ok, memberships, _html} =
+      live(conn, ~p"/security/threat-intel?#{[view: "indicator_matches", source: source]}")
+
+    assert has_element?(memberships, ~s([data-testid="threat-intel-membership"]), ip)
+    assert has_element?(memberships, "time#threat-intel-membership-0-evaluated[datetime]")
+
+    {:ok, objects, _html} = live(conn, ~p"/security/threat-intel?#{[view: "objects", source: source]}")
+    assert has_element?(objects, ~s([data-testid="threat-intel-empty"]))
+
+    {:ok, retrohunt, _html} = live(conn, ~p"/security/threat-intel?#{[view: "retrohunt", source: source]}")
+    assert has_element?(retrohunt, ~s([data-testid="threat-intel-empty"]))
+  end
+
+  test "current matches page forward and back", %{conn: conn} do
+    source = unique_source("pages")
+
+    for n <- 1..51, do: seed_cache!("203.0.113.#{n}", source, expires_in: 3600)
+
+    {:ok, view, _html} = live(conn, ~p"/security/threat-intel?#{[source: source]}")
+    assert match_row_count(view) == 50
+    assert has_element?(view, "#threat-intel-prev-page[disabled]")
+
+    view |> element("#threat-intel-next-page") |> render_click()
+    assert match_row_count(view) == 1
+    assert has_element?(view, "#threat-intel-next-page[disabled]")
+
+    view |> element("#threat-intel-prev-page") |> render_click()
+    assert match_row_count(view) == 50
+  end
+
+  test "an invalid filter is reported, not shown as an empty list", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/security/threat-intel?#{[view: "inventory", indicator: "300.1.1.1"]}")
+
+    assert has_element?(view, ~s([data-testid="threat-intel-error"]), "not a valid")
+    refute has_element?(view, ~s([data-testid="threat-intel-empty"]))
+  end
+
+  test "an invalid indicator-match indicator is reported as an input error", %{conn: conn} do
+    {:ok, view, _html} =
+      live(conn, ~p"/security/threat-intel?#{[view: "indicator_matches", indicator: "not-an-ip"]}")
+
+    assert has_element?(
+             view,
+             ~s([data-testid="threat-intel-error"]),
+             "The indicator filter is not a valid IP or CIDR."
+           )
+  end
+
+  defp match_row_count(view) do
+    view
+    |> render()
+    |> LazyHTML.from_fragment()
+    |> LazyHTML.query(~s(tr[data-testid^="threat-intel-row-"]))
+    |> Enum.count()
   end
 
   defp seed_match!(ip, cidr, source, label, expires_in: seconds) do
