@@ -21,6 +21,33 @@
 {{- $controlPlaneRuntimePort := default 4001 $controlPlaneRuntime.port -}}
 {{- $controlPlaneRuntimeSecretName := default "serviceradar-control-plane-runtime-access" $controlPlaneRuntime.existingSecretName -}}
 {{- $controlPlaneRuntimeSecretKey := default "token" $controlPlaneRuntime.tokenSecretKey -}}
+{{- $controlPlaneMedia := default (dict) $controlPlaneRuntime.media -}}
+{{- $controlPlaneMediaEnabled := default false $controlPlaneMedia.enabled -}}
+{{- $controlPlaneListenerEnabled := or $controlPlaneRuntimeEnabled $controlPlaneMediaEnabled -}}
+{{- $controlPlaneMediaSecretName := default "serviceradar-control-plane-media-access" $controlPlaneMedia.existingSecretName -}}
+{{- $controlPlaneMediaSecretKey := default "token" $controlPlaneMedia.tokenSecretKey -}}
+{{- range $key := list "SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN" "SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF" "SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION" -}}
+{{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
+{{- fail (printf "%s must be configured through webNg.controlPlaneRuntime.media" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- if $controlPlaneMediaEnabled -}}
+{{- if not (kindIs "string" $controlPlaneMedia.deploymentRef) -}}
+{{- fail "webNg.controlPlaneRuntime.media.deploymentRef must be a canonical lowercase UUID" -}}
+{{- end -}}
+{{- if not (regexMatch `^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$` $controlPlaneMedia.deploymentRef) -}}
+{{- fail "webNg.controlPlaneRuntime.media.deploymentRef must be a canonical lowercase UUID" -}}
+{{- end -}}
+{{- if not (kindIs "string" $controlPlaneMedia.generation) -}}
+{{- fail "webNg.controlPlaneRuntime.media.generation must be a canonical positive bigint string" -}}
+{{- end -}}
+{{- if not (regexMatch `^[1-9][0-9]{0,18}$` $controlPlaneMedia.generation) -}}
+{{- fail "webNg.controlPlaneRuntime.media.generation must be a canonical positive bigint string" -}}
+{{- end -}}
+{{- if and (eq (len $controlPlaneMedia.generation) 19) (gt $controlPlaneMedia.generation "9223372036854775807") -}}
+{{- fail "webNg.controlPlaneRuntime.media.generation must be a canonical positive bigint string" -}}
+{{- end -}}
+{{- end -}}
 {{- $runtimeGraphAutoRefresh := true -}}
 {{- if hasKey $webNgGodView "runtimeGraphAutoRefresh" -}}
 {{- $runtimeGraphAutoRefresh = get $webNgGodView "runtimeGraphAutoRefresh" -}}
@@ -187,6 +214,10 @@ spec:
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
+        {{- if $controlPlaneMediaEnabled }}
+        serviceradar.io/media-deployment-ref: {{ $controlPlaneMedia.deploymentRef | quote }}
+        serviceradar.io/media-generation: {{ $controlPlaneMedia.generation | quote }}
+        {{- end }}
         {{- if and .Values.analytics .Values.analytics.starrocks .Values.analytics.starrocks.enabled }}
         # The analytics settings reach the pod as environment read once at boot,
         # so a change to them -- cutting a dataset over, or back -- has to roll
@@ -341,7 +372,7 @@ spec:
           name: http
         - containerPort: {{ default 9090 $webNg.metricsPort }}
           name: metrics
-        {{- if $controlPlaneRuntimeEnabled }}
+        {{- if $controlPlaneListenerEnabled }}
         # Pod-only machine endpoint. It is intentionally omitted from both
         # web-ng Services and every Gateway route.
         - containerPort: {{ $controlPlaneRuntimePort }}
@@ -422,14 +453,27 @@ spec:
         - name: SERVICERADAR_LOCAL_MAILER
           value: {{ default "false" $webNg.localMailer | quote }}
         {{- end }}
-        {{- if $controlPlaneRuntimeEnabled }}
+        {{- if $controlPlaneListenerEnabled }}
         - name: SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT
           value: {{ $controlPlaneRuntimePort | quote }}
+        {{- end }}
+        {{- if $controlPlaneRuntimeEnabled }}
         - name: SERVICERADAR_CONTROL_PLANE_RUNTIME_TOKEN
           valueFrom:
             secretKeyRef:
               name: {{ $controlPlaneRuntimeSecretName | quote }}
               key: {{ $controlPlaneRuntimeSecretKey | quote }}
+        {{- end }}
+        {{- if $controlPlaneMediaEnabled }}
+        - name: SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: {{ $controlPlaneMediaSecretName | quote }}
+              key: {{ $controlPlaneMediaSecretKey | quote }}
+        - name: SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF
+          value: {{ $controlPlaneMedia.deploymentRef | quote }}
+        - name: SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION
+          value: {{ $controlPlaneMedia.generation | quote }}
         {{- end }}
         {{- if $agentReleasePublicKey }}
         - name: SERVICERADAR_AGENT_RELEASE_PUBLIC_KEY
