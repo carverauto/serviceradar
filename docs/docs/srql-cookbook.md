@@ -58,13 +58,15 @@ in:devices vendor_name:Cisco sort:hostname:asc
 
 Use quotes for multi-word vendors: `vendor_name:"Axis Communications"`.
 
-### Find unreachable devices
+### Find unavailable devices
 
 ```srql
-in:devices is_available:false sort:last_seen:desc
+in:devices availability:unavailable sort:last_seen:desc
 ```
 
-Devices currently marked unavailable, newest first.
+Canonical state `unavailable`, newest first. `unknown` is a separate state.
+`is_available` is only the last decided boolean. Field details are in the
+[devices section](./srql-language-reference.md#devices) of the language reference.
 
 ### Devices discovered by a specific source
 
@@ -545,13 +547,14 @@ Alert rules run an SRQL query on a schedule and fire when results cross a thresh
 Keep rule queries tightly scoped: an explicit entity, a `time:` window, and a
 condition.
 
-### Devices that went offline
+### Unavailable devices seen recently
 
 ```srql
-in:devices is_available:false time:last_15m
+in:devices availability:unavailable time:last_15m
 ```
 
-Any result rows mean devices are down.
+`time:` is last seen. Rows are devices in that window whose canonical state is
+`unavailable`.
 
 ### Sustained high CPU
 

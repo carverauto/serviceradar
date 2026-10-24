@@ -4,13 +4,15 @@ use super::super::filters::is_valid_jsonb_key;
 /// These mirror the sub-key filters in `filters/jsonb.rs`.
 const JSONB_GROUP_COLUMNS: [&str; 2] = ["tags", "metadata"];
 
-pub(in crate::query::devices) const SUPPORTED_GROUP_FIELDS: &str = "type, vendor_name, risk_level, is_available, is_active, gateway_id, tags.<key>, metadata.<key>";
+pub(in crate::query::devices) const SUPPORTED_GROUP_FIELDS: &str = "type, vendor_name, risk_level, availability, is_available, is_active, gateway_id, tags.<key>, metadata.<key>";
 
 #[derive(Debug, Clone, PartialEq)]
 pub(in crate::query::devices) enum DeviceGroupField {
     Type,
     VendorName,
     RiskLevel,
+    /// Canonical merged availability state.
+    Availability,
     IsAvailable,
     IsActive,
     GatewayId,
@@ -29,6 +31,7 @@ impl DeviceGroupField {
             "type" | "device_type" => return Some(Self::Type),
             "vendor_name" | "vendor" => return Some(Self::VendorName),
             "risk_level" | "risk" => return Some(Self::RiskLevel),
+            "availability" => return Some(Self::Availability),
             "is_available" | "available" => return Some(Self::IsAvailable),
             "is_active" | "active" => return Some(Self::IsActive),
             "gateway_id" | "gateway" => return Some(Self::GatewayId),
@@ -64,6 +67,7 @@ impl DeviceGroupField {
             Self::Type => "COALESCE(NULLIF(trim(type), ''), 'Unknown')".to_string(),
             Self::VendorName => "COALESCE(vendor_name, 'Unknown')".to_string(),
             Self::RiskLevel => "COALESCE(risk_level, 'Unknown')".to_string(),
+            Self::Availability => "availability_state".to_string(),
             Self::IsAvailable => "COALESCE(is_available, false)".to_string(),
             Self::IsActive => "COALESCE(is_active, true)".to_string(),
             Self::GatewayId => "gateway_id".to_string(),
@@ -80,6 +84,7 @@ impl DeviceGroupField {
             Self::Type => "type".to_string(),
             Self::VendorName => "vendor_name".to_string(),
             Self::RiskLevel => "risk_level".to_string(),
+            Self::Availability => "availability".to_string(),
             Self::IsAvailable => "is_available".to_string(),
             Self::IsActive => "is_active".to_string(),
             Self::GatewayId => "gateway_id".to_string(),

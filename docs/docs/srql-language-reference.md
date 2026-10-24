@@ -274,8 +274,8 @@ Devices missing the key are counted under `Unknown` rather than dropped. The
 grouped result names the column with its full path (`tags.gate`), which is also
 what `sort:` expects: `sort:tags.gate:asc`.
 
-Groupable device fields: `type`, `vendor_name`, `risk_level`, `is_available`,
-`is_active`, `gateway_id`, `tags.<key>`, `metadata.<key>`.
+Groupable device fields: `type`, `vendor_name`, `risk_level`, `availability`,
+`is_available`, `is_active`, `gateway_id`, `tags.<key>`, `metadata.<key>`.
 
 Grouped queries return at most **100** rows and default to **20**, so set
 `limit:` explicitly when a dimension has more distinct values than that —
@@ -391,7 +391,13 @@ subsection heading matches the `in:` name used to select the entity.
 | `vendor_name` | `vendor` | Device vendor |
 | `model` | | Device model |
 | `risk_level` | `risk` | Risk classification |
-| `is_available` | `available` | Currently reachable (`true`/`false`) |
+| `is_available` | `available` | Last decided availability (`true`/`false`). Never null: a device whose state is `unknown` keeps its last decided value. |
+| `availability` | | Canonical merged availability: `available`, `unavailable` or `unknown`. The only field that reports `unknown`. |
+| `availability_source` | | Source kind that decided the state, e.g. `agent_probe`, `wifi_map` |
+| `availability_class` | | Authority class that decided the state: `operator_policy`, `self_report`, `managing_controller`, `active_probe`, `passive_observation`, `inventory_declared` |
+| `agent_reachability` | | Fresh probing agents (negative controls excluded): `all` reach the device, `partial` (some do, some do not), `none` (probed, none reach it) |
+| `availability_policy` | | Negative-control agents: `violation` (an agent expected to be blocked reaches the device), `verified` (a block is verified), `inconclusive` (an expected block has no fresh result) |
+| `available_from_agent` / `unavailable_from_agent` | | The named agent's latest per-agent result is reachable / unreachable |
 | `is_active` | `active` | Lifecycle state (`true`/`false`) |
 | `discovery_sources` | | Sources that discovered the device (array; list form) |
 | `first_seen` | `first_seen_time` | When the device was first added. Accepts the same window tokens as `time:` (`last_7d`, `last_30d`, `today`, `[start,end]`). This does **not** change `time:`, which still filters `last_seen_time`. |
@@ -401,8 +407,15 @@ subsection heading matches the `in:` name used to select the entity.
 | `kev` | | Device has an active, confirmed, affected KEV assessment (`true`/`false`) |
 | `source_retired` | | Record is marked `source_retired` (`true`/`false`); see the control tokens below. Replaces the default that hides marked records. |
 
-Sortable fields include `hostname`, `ip`, `first_seen` / `first_seen_time`,
-`last_seen` / `last_seen_time`, and `type_id`. There is no `cpe` filter on
+Sortable fields include `availability`, `hostname`, `ip`, `first_seen` /
+`first_seen_time`, `last_seen` / `last_seen_time`, and `type_id`. Without a
+`sort:` clause devices are ordered by availability (`available`, then
+`unavailable`, then `unknown`), then by IP, then by uid. Rows also return
+`availability_decided_by`, `availability_changed_at`, `availability_conflict`,
+`availability_agents`, `agents_up`, and `agents_total` (those two counters are
+0 when absent). `rollup_stats:inventory_summary` reports `available`,
+`unavailable`, and `unknown` from the `device_inventory_counts` keys of those
+names; a missing key is 0. There is no `cpe` filter on
 `in:devices`; query `in:endpoint_packages` or `in:cve_matches`.
 
 Control tokens: `include_inactive:true` returns devices regardless of lifecycle

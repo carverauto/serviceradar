@@ -63,6 +63,13 @@ CREATE TABLE public.ocsf_devices (
     availability_source_agent_id TEXT,
     discovery_sources   TEXT[],
     is_available        BOOLEAN,
+    -- Canonical merged availability (add-merged-device-availability). is_available stays
+    -- the last decided boolean; only availability_state reports unknown.
+    availability_state      TEXT        NOT NULL DEFAULT 'unknown',
+    availability_decided_by JSONB,
+    availability_changed_at TIMESTAMP,
+    availability_conflict   BOOLEAN     NOT NULL DEFAULT FALSE,
+    availability_agents     JSONB,
     is_active           BOOLEAN     NOT NULL DEFAULT TRUE,
     metadata            JSONB,
     tags                JSONB,
