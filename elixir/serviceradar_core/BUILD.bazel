@@ -148,6 +148,27 @@ write_source_files(
     tags = ["manual"],
 )
 
+ash_schema(
+    name = "camera_upload_dispatch_schema",
+    outs = [
+        "generated_camera_upload_dispatch/dispatch.json",
+        "generated_camera_upload_dispatch/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_upload_dispatch_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_upload_dispatch_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_archive_upload_dispatches/20261024070623.json": ":generated_camera_upload_dispatch/dispatch.json",
+        "priv/repo/migrations/20261024070623_add_camera_archive_upload_dispatches.exs": ":generated_camera_upload_dispatch/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.

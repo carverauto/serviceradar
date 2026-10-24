@@ -102,6 +102,7 @@ exports_files([
     "camera_recording_block_schema.exs",
     "camera_archive_binding_schema.exs",
     "camera_upload_intent_schema.exs",
+    "camera_upload_dispatch_schema.exs",
     "alert_evaluation_schema.exs",
     "world_snapshots.exs",
     "benchmark_runner.py",
