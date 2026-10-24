@@ -6,12 +6,13 @@ deployment.
 ## 0. Prerequisites and gates
 
 Decision 21 permits the assessment foundation in 1.x to proceed independently of
-0.3-0.5. Those gates still block traffic evidence integration and remain required
-for launch; their thresholds and the full feature scope are unchanged.
+the remaining attribution gates. Tasks 0.4 and 0.5 still block traffic evidence
+integration and remain required for launch; their thresholds and the full feature
+scope are unchanged.
 
 - [x] 0.1 #5748 merged: incremental, write-on-change matching that publishes assessment transitions through a transactional outbox with `transition_seq` and ordinals, per *Assessment Transitions Are Published On JetStream*. Delivered with the producer-side parts of 1.1 and 1.3; see design.md, *Implementation record*.
 - [x] 0.2 #5749 fixed: superseded-package matches resolve. The read-only follow-up verified no active orphan matches and re-checked the actionable count after a subsequent successful matcher run; see design.md, *Task 0.2: read-only cleanup follow-up*.
-- [ ] 0.3 #5752 merged: executable -> package ownership (`ExecutableOwnership`) on FlowAttributionEvent and ProcessSnapshotEntry, per *Running Executables Resolve To Owning Packages*.
+- [x] 0.3 #5752 merged: executable -> package ownership (`ExecutableOwnership`) on FlowAttributionEvent and ProcessSnapshotEntry, per *Running Executables Resolve To Owning Packages*. Delivered by #5919 (netprobe resolver, `CAP_SYS_PTRACE` executor, proto, and core `executable_ownership` on flow attribution observations with the derived `package_identity_key`) and #5914 (rpm write-ahead-log reading, listener refresh, file-type and size hardening), with Decision 18 settled in #5921 and #5929. Evidence: `//rust/netprobe:netprobe_test` and the core `event_writer`/`other` unit shards pass on remote Bazel; the resolver, capability and identity-key tests failed before their fixes. Moving the reference onto lease owner records and connection summary rows is part of #5738 (task 0.4).
 - [ ] 0.4 `stream-flow-attribution-via-ownership-index` (merged as #5753) implemented and live on the lab. It provides the ownership index, late decisions, address presence and the per-process connection summaries (*Hosts Report Per-Process Connection Summaries As Evidence*, stored in `host_connection_summaries`). #5738 carries `ExecutableOwnership` on lease owner records and connection summary rows. This change consumes those summaries and does not redefine them.
 - [ ] 0.5 Measure on a lab deployment and record the results rounded in design.md, with no hostnames, addresses or cluster names:
   - distinct evidence keys per host per hour;
