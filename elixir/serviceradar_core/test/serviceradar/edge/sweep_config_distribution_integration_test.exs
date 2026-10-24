@@ -344,6 +344,158 @@ defmodule ServiceRadar.Edge.SweepConfigDistributionIntegrationTest do
     assert is_nil(compiled_group(config_c, group.id))
   end
 
+  describe "sweep format selection" do
+    test "agent without the shared-targets capability receives the legacy format", %{
+      actor: actor
+    } do
+      unique_id = System.unique_integer([:positive])
+      partition = "default"
+      group = create_format_group!(unique_id, partition, actor)
+      agent = register_agent_with_capabilities("format-legacy-#{unique_id}", [], actor)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent.uid, partition)
+      sweep = sweep_payload(config)
+
+      refute Map.has_key?(sweep, "format")
+      refute Map.has_key?(sweep, "device_table")
+
+      compiled = Enum.find(sweep["groups"], &(&1["sweep_group_id"] == group.id))
+      assert is_map(compiled)
+      assert "198.51.100.10" in device_target_networks(compiled)
+      refute Map.has_key?(compiled, "device_target_set")
+    end
+
+    test "capable agent receives shared-targets/v1 with a rehydratable document", %{
+      actor: actor
+    } do
+      unique_id = System.unique_integer([:positive])
+      partition = "default"
+      group = create_format_group!(unique_id, partition, actor)
+
+      agent =
+        register_agent_with_capabilities(
+          "format-shared-#{unique_id}",
+          ["sweep-config-shared-targets:v1"],
+          actor
+        )
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent.uid, partition)
+      sweep = sweep_payload(config)
+
+      assert sweep["format"] == "shared-targets/v1"
+
+      compiled = Enum.find(sweep["groups"], &(&1["sweep_group_id"] == group.id))
+      assert is_map(compiled)
+      refute Map.has_key?(compiled, "device_targets")
+
+      set =
+        Enum.find(sweep["target_sets"], &(&1["key"] == compiled["device_target_set"]))
+
+      assert is_map(set)
+
+      table = Map.new(sweep["device_table"], &{&1["ref"], &1})
+      networks = Enum.map(set["refs"], &table[&1]["ip"])
+      assert "198.51.100.10" in networks
+    end
+
+    test "two agents in one partition each get their own format without cache bleed", %{
+      actor: actor
+    } do
+      unique_id = System.unique_integer([:positive])
+      partition = "default"
+      _group = create_format_group!(unique_id, partition, actor)
+
+      capable =
+        register_agent_with_capabilities(
+          "format-two-capable-#{unique_id}",
+          ["sweep-config-shared-targets:v1"],
+          actor
+        )
+
+      legacy = register_agent_with_capabilities("format-two-legacy-#{unique_id}", [], actor)
+
+      {:ok, shared_first} = AgentConfigGenerator.generate_config(capable.uid, partition)
+      {:ok, legacy_after} = AgentConfigGenerator.generate_config(legacy.uid, partition)
+      {:ok, shared_again} = AgentConfigGenerator.generate_config(capable.uid, partition)
+
+      assert sweep_payload(shared_first)["format"] == "shared-targets/v1"
+      refute Map.has_key?(sweep_payload(legacy_after), "format")
+      assert sweep_payload(shared_again)["format"] == "shared-targets/v1"
+    end
+
+    test "gaining the capability changes the version and the format on the next request", %{
+      actor: actor
+    } do
+      unique_id = System.unique_integer([:positive])
+      partition = "default"
+      _group = create_format_group!(unique_id, partition, actor)
+      agent = register_agent_with_capabilities("format-upgrade-#{unique_id}", [], actor)
+
+      {:ok, first} = AgentConfigGenerator.get_config_if_changed(agent.uid, partition, "")
+      refute Map.has_key?(sweep_payload(first), "format")
+
+      agent
+      |> Ash.Changeset.for_update(
+        :update,
+        %{capabilities: ["sweep-config-shared-targets:v1"]},
+        actor: actor
+      )
+      |> Ash.update!()
+
+      {:ok, second} =
+        AgentConfigGenerator.get_config_if_changed(agent.uid, partition, first.config_version)
+
+      assert second.config_version != first.config_version
+      assert sweep_payload(second)["format"] == "shared-targets/v1"
+    end
+
+    defp sweep_payload(config) do
+      config.config_json
+      |> Jason.decode!()
+      |> Map.fetch!("sweep")
+    end
+
+    defp register_agent_with_capabilities(uid, capabilities, actor) do
+      Agent
+      |> Ash.Changeset.for_create(
+        :register,
+        %{uid: uid, capabilities: capabilities},
+        actor: actor
+      )
+      |> Ash.create!()
+    end
+
+    defp create_format_group!(unique_id, partition, actor) do
+      device_uid = "device-format-#{unique_id}"
+
+      {:ok, _device} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{uid: device_uid, ip: "198.51.100.10", tags: %{"env" => "format-#{unique_id}"}},
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, group} =
+        SweepGroup
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Format Group #{unique_id}",
+            partition: "default",
+            interval: "15m",
+            target_query: "in:devices tags.env:format-#{unique_id}",
+            enabled: true
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      group
+    end
+  end
+
   defp device_target_networks(compiled_group) do
     Enum.map(compiled_group["device_targets"] || [], & &1["network"])
   end

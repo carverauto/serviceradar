@@ -86,13 +86,13 @@
 
 ## 5. Core format selection
 
-- [ ] 5.1 In `AgentConfigGenerator.load_sweep_config/2`, resolve the agent's
+- [x] 5.1 In `AgentConfigGenerator.load_sweep_config/2`, resolve the agent's
       persisted capabilities (the same lookup as
       `resolve_agent_addon_profile/2`) and pass `sweep_format` to
       `ConfigServer.get_config/4`.
-- [ ] 5.2 Add a `cache_scope(:sweep, opts)` clause returning
+- [x] 5.2 Add a `cache_scope(:sweep, opts)` clause returning
       `{:sweep_format, format}`.
-- [ ] 5.3 Tests through `AgentConfigGenerator.get_config_if_changed/3`: a
+- [x] 5.3 Tests through `AgentConfigGenerator.get_config_if_changed/3`: a
       legacy-capability agent gets no `format` key and embedded
       `device_targets`; a capable agent gets `shared-targets/v1`; two agents
       in one partition get their own formats; after a capability change the

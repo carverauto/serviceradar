@@ -260,6 +260,19 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
     end
   end
 
+  # Sweep output bytes depend on the wire format selected for the agent, so
+  # the shared-targets format must not share the legacy cache entry: without
+  # a format scope an agent whose capabilities change would be served the
+  # other format's document until the next invalidation. Legacy keeps the
+  # historical unscoped entry, so existing cache readers and warmed entries
+  # are unaffected.
+  defp cache_scope(:sweep, opts) do
+    case Keyword.get(opts, :sweep_format, :legacy) do
+      :legacy -> nil
+      format -> {:sweep_format, format}
+    end
+  end
+
   defp cache_scope(config_type, opts) when config_type in [:mapper, :sysmon, :visibility] do
     case Keyword.get(opts, :device_uid) do
       device_uid when is_binary(device_uid) and device_uid != "" ->

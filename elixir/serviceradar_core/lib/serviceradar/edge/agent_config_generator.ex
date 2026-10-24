@@ -3549,12 +3549,31 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # This uses the ConfigServer which compiles sweep configs from SweepGroup/SweepProfile
   # resources. No config found is a valid empty config; a compile or read error raises so
   # generation fails instead of delivering a blank sweep config in its place.
+  # Compiled sweep bytes double-encode (partitions x formats on the wire) for a
+  # few release cycles: agents advertising the shared-targets capability get
+  # the deduplicated format, everyone else — including agents whose persisted
+  # capabilities cannot be read — gets the legacy format every agent parses.
+  @sweep_shared_targets_capability "sweep-config-shared-targets:v1"
+
+  defp resolve_sweep_format(agent_id) do
+    actor = SystemActor.system(:agent_config_generator)
+    profile = resolve_agent_addon_profile(agent_id, actor)
+
+    if @sweep_shared_targets_capability in profile.capabilities do
+      :shared_targets_v1
+    else
+      :legacy
+    end
+  end
+
   defp load_sweep_config!(partition, agent_id) do
     Logger.debug(
       "AgentConfigGenerator: loading sweep config for agent_id=#{inspect(agent_id)}, partition=#{inspect(partition)}"
     )
 
-    case ConfigServer.get_config(:sweep, partition, agent_id) do
+    case ConfigServer.get_config(:sweep, partition, agent_id,
+           sweep_format: resolve_sweep_format(agent_id)
+         ) do
       {:ok, entry} ->
         # Return the compiled config from the cache entry
         Logger.debug(

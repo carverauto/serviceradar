@@ -91,6 +91,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
       opts =
         opts
         |> Keyword.put(:agent_id, agent_id)
+        |> Keyword.put_new(:format, Keyword.get(opts, :sweep_format, :legacy))
         |> Keyword.put_new_lazy(:agent_capabilities, fn ->
           load_agent_capabilities(agent_id, actor)
         end)
