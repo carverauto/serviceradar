@@ -226,7 +226,7 @@ HEX_PACKAGES = [
     ("phoenix_template", "phoenix_template", "1.1.0", "eba70070de79b2c3501ef205a74a69f98ab352f3785aa15da9ed161f9fe0fd5d"),
     ("phoenix_view", "phoenix_view", "2.0.4", "4e992022ce14f31fe57335db27a28154afcc94e9983266835bb3040243eb620b"),
     ("plug", "plug", "1.20.3", "be266aee1b8536ef6409d58cf39a3121319f0ec47cfa1b24024485aa0e76ad76"),
-    ("plug_crypto", "plug_crypto", "2.2.0", "83a95744ab1c75876542b6fab135fcc176280e0f301a111c1f757fddcec95d2c"),
+    ("plug_crypto", "plug_crypto", "2.2.1", "4417ccbd8f85e627321cd07d2ab9c4b621f1fd883b9905af241f9b4b780b94b6"),
     ("poly1305", "poly1305", "1.0.4", "e14e684661a5195e149b3139db4a1693579d4659d65bba115a307529c47dbc3b"),
     ("postgrex", "postgrex", "0.22.4", "4aae45a2d60e35b04eea2602440be152fae332901f1fc7a60fc7cb7f0f9a9c5a"),
     ("protobuf", "protobuf", "0.17.1", "76770ecda0ef057e540932f15b5a143ba8877875e88727f53429a7dc4dbf8b6c"),
