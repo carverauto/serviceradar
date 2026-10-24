@@ -138,6 +138,59 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     assert json_response(conn) == %{"status" => "invalid_request"}
   end
 
+  test "authenticates archive requests before reading their bodies" do
+    for method <- [:put, :get] do
+      conn =
+        method
+        |> conn("/v1/archive-bindings/not-a-uuid/qualification", "invalid-json")
+        |> put_req_header("content-type", "application/json")
+        |> put_req_header("authorization", "Bearer #{@runtime_token}")
+        |> ControlPlaneRuntimeRouter.call(ControlPlaneRuntimeRouter.init([]))
+
+      assert conn.status == 401
+      assert json_response(conn) == %{"status" => "unauthorized"}
+    end
+  end
+
+  test "rejects malformed and duplicate-key archive JSON before interpreting it" do
+    for body <- [
+          "{",
+          "[]",
+          ~s({"revision":1,"revision":2}),
+          ~s({"report":{"credential":{"generation":1,"generation":2}}}),
+          ~s({"revision":1,"revi\\u0073ion":1})
+        ] do
+      conn = archive_request(body)
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_request"}
+    end
+  end
+
+  test "bounds archive JSON bytes and requires its media type" do
+    body = ~s({"schema_version":1,"revision":1,"state":"withdrawn","report":null})
+    padded = body <> String.duplicate(" ", 16_384 - byte_size(body))
+
+    conn = archive_request(padded)
+    assert conn.status == 400
+    assert json_response(conn) == %{"status" => "invalid_archive_binding_id"}
+
+    conn = archive_request(padded <> " ")
+    assert conn.status == 413
+    assert json_response(conn) == %{"status" => "request_too_large"}
+
+    conn = archive_request(body, "text/plain")
+    assert conn.status == 415
+    assert json_response(conn) == %{"status" => "unsupported_media_type"}
+  end
+
+  defp archive_request(body, content_type \\ "application/json") do
+    :put
+    |> conn("/v1/archive-bindings/not-a-uuid/qualification", body)
+    |> put_req_header("content-type", content_type)
+    |> put_req_header(@authorization_header, "Bearer #{@runtime_token}")
+    |> ControlPlaneRuntimeRouter.call(ControlPlaneRuntimeRouter.init([]))
+  end
+
   defp request(params, token \\ nil) do
     conn =
       :post

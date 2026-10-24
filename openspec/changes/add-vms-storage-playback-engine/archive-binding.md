@@ -32,9 +32,11 @@ calculated synthetic digest in `ArchiveDestinationTest` guards this contract.
 Exact retries return that record. Conflicting input fails without updating it;
 changing a destination requires a new generation. Credential rotation, policy
 revision and qualification observations stay off this row. The
-[qualification report](qualification-report.md) parses those claims and does not
-qualify the binding or install authority. The local spool `storage_id` remains
-the volume-lifetime UUID and does not identify a bucket.
+[qualification report](qualification-report.md) parses those claims. A
+[private receipt](qualification-receipts.md) may retain the current submission
+separately. Neither the report nor the receipt qualifies the binding or installs
+authority. The local spool `storage_id` remains the volume-lifetime UUID and
+does not identify a bucket.
 
 `RecordingBlocks.bind_archive/4` requires a current upload handle, binding UUID
 and exact destination digest. It reloads the binding under the block's existing

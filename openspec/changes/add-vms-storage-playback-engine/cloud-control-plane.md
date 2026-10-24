@@ -83,7 +83,11 @@ revisions fail closed without disrupting already admitted live viewers.
 The product-owned [qualification report format](qualification-report.md) now
 defines bounded observation metadata and canonical report identity. It is only
 part of this contract: parsing does not authenticate the producer, establish
-freshness or install storage authority. The merged
+freshness or install storage authority. The [private receipt
+endpoint](qualification-receipts.md) persists ordered submissions/withdrawals
+through the existing control listener, but reports no applied revision. Its
+current account-scoped caller token does not independently prove environment
+identity, and a receipt is not evidence of credential installation. The merged
 [Cloud readiness proposal](https://github.com/carverauto/serviceradar-control/pull/185)
 still requires implementation of the desired/applied handshake and lifecycle
 gates before hosted enablement.

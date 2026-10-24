@@ -101,7 +101,9 @@ destination digest unchanged.
 The fixed schema and per-field bounds bound canonical output. The surrounding
 transport must cap its raw body before decoding, reject duplicate JSON keys and
 preserve integers exactly. Parsing an already-decoded object cannot recover
-duplicates or precision lost by a decoder. No wire endpoint is added here.
+duplicates or precision lost by a decoder. The
+[private receipt endpoint](qualification-receipts.md) applies those transport
+bounds; this parser does not own a route.
 
 Issue/expiry values record what the issuer said; parsing neither checks wall time
 nor starts a validity clock. Expired observations remain useful diagnostic data.
@@ -111,6 +113,9 @@ expiry belong to the later authenticated eligibility check, not this format.
 ## Remaining integration
 
 This is a partial delivery of product task 0.8 and Cloud proposal task 1.2.
+The [private receipt endpoint](qualification-receipts.md) now persists bounded,
+revisioned submissions and withdrawals from the existing authenticated control
+caller. It does not independently authenticate a deployment or install authority.
 The full desired-content digest, desired/applied revisions, authenticated
 deployment/report origin, fresh correlated exchange, replay prevention,
 revocation/drift, selected protection-mode evidence and installed credential

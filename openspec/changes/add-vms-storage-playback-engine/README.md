@@ -2,18 +2,18 @@
 
 ## Current pickup
 
-[Dispatch PR #5966](https://github.com/carverauto/serviceradar/pull/5966) is merged
-at `df8a8fe2e20d5f3220483200e27fcc74b6872e14`. Its final head `831e8893`
-passed all 20 checks, including fresh guarded Core and Web-NG suites. The
-[Cloud storage plan #185](https://github.com/carverauto/serviceradar-control/pull/185)
-is merged at `5a46b36e51e2428097f6202ce2f16678e9491780`; that PR is planning only.
+[Report PR #5973](https://github.com/carverauto/serviceradar/pull/5973) is merged
+at `efb2a09f1ed70de47773e129a894efc0b2114c92`; all 18 final checks passed.
+The [Cloud storage plan #185](https://github.com/carverauto/serviceradar-control/pull/185)
+is also merged and remains planning only.
 
-The current checkpoint defines the bounded
-[qualification report format](qualification-report.md). Parsing preserves
-observations and computes canonical content identity. It grants no storage
-permission and installs no authority. Destination registration remains
-unqualified; credential custody, authenticated configuration and current
-qualification enforcement must precede provider I/O.
+The current checkpoint connects reports to [private qualification
+receipts](qualification-receipts.md): bounded authenticated submission, durable
+revision ordering, withdrawal and status. It does not acknowledge applied runtime
+configuration or install storage authority. The existing caller credential does
+not independently prove environment identity. Bindings remain unqualified until
+deployment-bound installation, evidence/freshness checks and isolated credential
+custody exist.
 
 Production recording stays disabled. Preserve the operator-confirmed live RTSP
 path and all existing ownership, manifest, archive, intent and dispatch
@@ -23,7 +23,7 @@ activation or local-media reclamation is introduced here.
 ## Priority order
 
 1. Finish the shared desired/applied contract around the qualification report:
-   authenticated origin/deployment, exact binding/revision matching, conservative
+   full desired-content identity, authenticated origin/deployment, conservative
    freshness, revocation and isolated storage-service credential authority. Cloud
    [issue #182](https://github.com/carverauto/serviceradar-control/issues/182) and
    [issue #183](https://github.com/carverauto/serviceradar-control/issues/183) also
@@ -45,7 +45,8 @@ activation or local-media reclamation is introduced here.
 | Frozen archive and destination | #5955 merged at `88c5a324`; head `72a81f96`, guarded `0df082fa` passed all 12 targets | Provider authority and verified bytes |
 | Immutable upload intent | #5960 merged at `29b30748`; guarded `853e4601` passed all 12 targets including five intent cases | Wire operations |
 | Durable dispatch observations | #5966 merged; final head `831e8893`, guarded Core `d85a7307` and Web `6aafb922` passed 12 and seven targets uncached, with all lifecycle statuses zero | Current qualification and isolated storage boundary |
-| Qualification report | Six new protocol cases; full remote `fc10c612` passes 459 targets after formatting, with two Swift platform skips; see [validation](validation.md) | Authenticated desired/applied contract, evidence verification and current authority enforcement |
+| Qualification report | #5973 merged; 18 final checks passed. Six protocol cases; full remote `fc10c612` passes 459 targets after formatting, with two Swift platform skips; see [validation](validation.md) | Authenticated desired/applied contract, evidence verification and current authority enforcement |
+| Private qualification receipts | Focused `7ee73b1b`: 819 tests, zero failures; full remote `3fe23e48`: 459 passed, two platform skips | Five guarded database cases and final PR CI; full desired/applied installation remains open |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -57,10 +58,13 @@ runtime or live acceptance tasks.
 ## Next agent prompt
 
 Read [design.md](design.md), [tasks.md](tasks.md), [qualification-report.md](qualification-report.md),
-[upload-intent.md](upload-intent.md), [upload-dispatch.md](upload-dispatch.md) and
+[qualification-receipts.md](qualification-receipts.md), [upload-intent.md](upload-intent.md),
+[upload-dispatch.md](upload-dispatch.md) and
 the current diff. The immediate dependency is authenticated installation and
 expiry/revocation of storage authority, not another untrusted `ready` flag.
-Do not mistake the report format or a dispatch marker for permission to send.
+A persisted receipt is not an applied revision, and an authenticated control caller
+is not independently authenticated environment identity. Do not promote old
+receipts into authority or treat withdrawal as provider cancellation/revocation.
 
 Preserve the dispatch's original deadline, single marker, late observations and
 permanent conflict evidence. Lease replacement must never rearm an unresolved

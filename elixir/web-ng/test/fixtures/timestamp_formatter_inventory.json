@@ -1576,6 +1576,14 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng_web/plugs/control_plane_archive_qualifications.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "c353aa1b31dfbf71001a9538a27245d5da241b915ec5d3a69bcf27e69fc5d979",
+    "classification": "canonical_machine",
+    "reason": "Private qualification receipt arrival timestamp in the machine API; not localized display."
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/stats.ex",
     "matcher": "naive_datetime_string",
     "occurrence": 1,
