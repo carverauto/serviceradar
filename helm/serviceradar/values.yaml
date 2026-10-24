@@ -507,8 +507,9 @@ core:
     # Tables whose retention only migrations set before the worker reconciled
     # them. Defaults equal the migration values. Retention only: chunk
     # intervals and compression for these tables stay migration-owned.
-    # Capped by defaultDays except endpointInventoryHistoryDays, which keeps
-    # its own horizon like capacityForecastsDays.
+    # Capped by defaultDays except endpointInventoryHistoryDays and
+    # tracesStatsDays. endpointInventoryHistoryDays keeps its own horizon
+    # like capacityForecastsDays.
     adhocScanResultsDays: 30
     # service_status and events.
     serviceStatusDays: 14
@@ -518,8 +519,10 @@ core:
     spansRedDays: 90
     otelMetricsHourlyStatsDays: 90
     # traces_stats_5m. Leave unset to keep the migration window (14 days) and
-    # never narrow a window the cold-tier fence widened; an explicit value
-    # narrows it only while the cold tier is disabled.
+    # to leave a window the cold-tier fence widened unchanged. A target
+    # shorter than the fence window is not written while the cold tier is
+    # on. A target at or above that window is written whether or not the
+    # tier is on.
     # tracesStatsDays: 14
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 24
