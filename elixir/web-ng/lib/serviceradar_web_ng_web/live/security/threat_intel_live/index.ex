@@ -634,7 +634,7 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
           name="filters[sort]"
           class={ui_field_class(size: "sm", class: "w-full")}
         >
-          <option value="recent" selected={@filters["sort"] != "severity"}>Recently evaluated</option>
+          <option value="" selected={@filters["sort"] != "severity"}>Recently evaluated</option>
           <option value="severity" selected={@filters["sort"] == "severity"}>Highest severity</option>
         </select>
       </div>

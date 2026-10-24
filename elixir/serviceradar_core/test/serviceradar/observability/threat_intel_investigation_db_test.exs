@@ -371,6 +371,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
           source: source,
           collection_id: "synthetic",
           object_id: object_id,
+          object_version: "1",
           object_type: "otx-pulse",
           metadata: %{"label" => label, "indicator" => indicator}
         },
