@@ -304,7 +304,8 @@ passes all six targets uncached in 124.013 seconds: core format/Credo, integrati
 selection equivalence, shard topology with its two refusal controls, and Helm
 migration floor. This compiles/selects the new integration cases; it does not
 execute their database bodies. Strict OpenSpec validation and changed handoff
-link/ASCII checks pass. Final guarded CI remains required for this checkpoint.
+link/ASCII checks pass. The repaired-head guarded result below supplies the
+separate database execution evidence.
 
 Full `make test`
 [a79ef08e](https://carverauto.buildbuddy.io/invocation/a79ef08e-f310-4d4e-80a0-c49d19e171b0)
@@ -321,15 +322,57 @@ only. It does not waive final CI, and it does not count a failed run as a pass.
 Core Integration then ran at the pre-repair head. Invocation
 [ed8fbb26](https://carverauto.buildbuddy.io/invocation/ed8fbb26-da5c-4141-a0aa-4723e8934ec6)
 failed only `//elixir/serviceradar_core:integration_tests_serial_6`: 297 tests,
-10 failures. Each failure is `Ash.Error.Invalid.NoSuchInput` on
-`ArchiveUploadDispatch` action `:prepare`, input `:id`. The other 11 targets
-passed. Observer, teardown, and lease release completed. `suite_status=3` is
-those 10 dispatch tests. None of the twelve scenarios passed.
+10 failures and eight unrelated exclusions. Each failure is
+`Ash.Error.Invalid.NoSuchInput` on `ArchiveUploadDispatch` action `:prepare`,
+input `:id`. The other 11 targets
+passed. The suite exit status was 3; observer, teardown and lease release each
+returned 0. The complete dispatch contract had not passed validation. This does
+not mean every new case failed: the missing-ID case and the original-cap rollback
+case were outside those ten failures.
 
 The repair stops accepting and supplying `:id`. `Ash.UUID.generate/0` on
 `uuid_primary_key :id` is the only id source, and [the dispatch contract](upload-dispatch.md)
 owns that rule. Remote `//elixir/serviceradar_core:quality_check` passed in
 [dcebd82e](https://carverauto.buildbuddy.io/invocation/dcebd82e-593d-42df-b7bc-f177ff445d45).
-Fresh Core Integration at this head is still required, including observer,
-teardown, and lease release. This note changes documentation only. It does not
-create a database, copy credentials, or improvise that lane.
+The repair changes only those two production input lines. Every existing and new
+test assertion is unchanged.
+
+### Repaired-head guarded result
+
+Head `fb920deb97ba3e026d952001ff00d31f43479561` passes all 20 PR checks.
+Core Integration workflow
+[158effba](https://carverauto.buildbuddy.io/invocation/158effba-7319-4d04-afe8-7dd8a1bcf341)
+executes all 12 targets once, uncached, in child invocation
+[6718f18c](https://carverauto.buildbuddy.io/invocation/6718f18c-7ae1-405b-8c55-86319ec01534).
+All pass. The measured lifecycle reports `suite_status=0`, `observer_status=0`,
+`teardown_status=0` and `release_status=0`.
+
+The actual target test logs report:
+
+- `integration_tests_serial_6`: 297 tests, zero failures, eight excluded.
+  This lane owns `Camera.ArchiveUploadsIntegrationTest`, including all eleven
+  new dispatch cases and its five existing upload-intent cases.
+- `integration_tests_serial_3`: 471 tests, zero failures, no exclusions.
+  This lane owns `Camera.RecordingBlocksIntegrationTest`, including the new
+  original-cap rollback case and all six existing cases.
+
+Bazel source ownership and the modules' `:integration` tags establish inclusion;
+the logs report aggregate results, not individual case traces. The serial-6 log
+includes `:integration` and `:requires_app`, excluding `:test`, `:external`,
+`:cluster`, `:large_ingestion` and `:benchmark`; none of the changed cases has an
+excluded tag. The twelve new database cases therefore execute with every
+pre-existing assertion preserved. No failed CI result is waived.
+
+The same head's [Web-NG DB workflow](https://carverauto.buildbuddy.io/invocation/526d92ad-b69e-4927-a3a2-6344bc69e5a7)
+passes all seven targets uncached, with suite, observer, teardown and release
+statuses all zero. [Main CI](https://carverauto.buildbuddy.io/invocation/3619d54e-cf9b-45e5-9789-3fcbbff634c2)
+also passes: its initial sweep reports 442 passed and two platform skips, with
+41 of 444 targets executed; its later suites report 17 passed (four executed)
+and 71 passed (all cached). These are distinct reported suites, not a deduplicated
+test count.
+
+No-mistakes reaches `checks-passed` for that head. Its Test phase retains the
+approved prepublication-only exception because it did not run the guarded
+database itself; the fresh final CI above supplies that proof. This documentation
+follow-up preserves the validated runtime and tests. It does not establish
+provider qualification, storage availability or deployment acceptance.
