@@ -61,7 +61,7 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
 
     assert {:ok, session} =
              Fixtures.open(ctx,
-               scope: %{user: user},
+               scope: %{user: user, actor: user},
                insecure_skip_verify: true,
                control_gateway_resolver: fn _, _ -> {:ok, "gateway-replacement"} end,
                dispatch_open: dispatch
