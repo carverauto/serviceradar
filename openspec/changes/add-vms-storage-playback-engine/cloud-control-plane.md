@@ -80,6 +80,14 @@ placement/queue policy, and budgets. The control plane sends desired revision;
 runtime reports applied revision and measured capability/readiness. Incompatible
 revisions fail closed without disrupting already admitted live viewers.
 
+The product-owned [qualification report format](qualification-report.md) now
+defines bounded observation metadata and canonical report identity. It is only
+part of this contract: parsing does not authenticate the producer, establish
+freshness or install storage authority. The merged
+[Cloud readiness proposal](https://github.com/carverauto/serviceradar-control/pull/185)
+still requires implementation of the desired/applied handshake and lifecycle
+gates before hosted enablement.
+
 Budgets cover admitted cameras and aggregate bitrate, spool bytes/time, cache
 bytes, pending archive age, archive/evidence/export storage, read/egress
 concurrency, GPU jobs/streams/memory and inference rate. A full budget rejects or
