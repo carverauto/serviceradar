@@ -42,9 +42,11 @@ published draft against staging. It adds test-only
 targets use supported BuildBuddy deadlines of 120 seconds with zero termination
 grace, and the already-pinned `pion/rtcp` v1.2.17 require is direct. Every media
 assertion and tolerance is unchanged. The generator timeout control fails after
-120.01 seconds, and the restored-source focused checks pass. The media delta
-relative to `72a81f96` is test, build and docs only. Merged #5955 and #5960 mean
-this comparison no longer carries unmerged archive or upload-intent ancestry.
+120.01 seconds, and the restored-source focused checks pass. Against staging
+base `29b30748`, this draft adds tests, build wiring, that module exposure and
+docs. Against archive `72a81f96`, production differences are the already-merged
+upload-intent change, not a media recorder change. Merged #5955 and #5960 mean
+this draft no longer carries unmerged archive or upload-intent ancestry.
 
 Production recording admission and unknown UTC are unchanged. Recording stays
 disabled. The operator-confirmed live RTSP transport must remain working. No
