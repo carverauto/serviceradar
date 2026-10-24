@@ -33,8 +33,8 @@ workflow:
   URLs.
 - Preserve honest distinctions among imported inventory, current cache matches,
   retrohunt evidence, and canonical findings.
-- Keep interactive queries bounded and index-backed at large-enterprise flow and
-  indicator volumes.
+- Keep interactive queries bounded at large-enterprise flow and indicator
+  volumes, and add an index only when a recorded plan shows it is needed.
 - Remove a redundant count control without allowing unbounded Wasm memory,
   unbounded HTTP retries, or incomplete walks that restart from page one.
 
@@ -251,8 +251,10 @@ retrohunt data is deleted by this change.
   indicators and 10,000 live cached endpoints.
 - Benchmark threat-filtered `in:flows` and `in:attributed_flows` over a 24-hour,
   production-sized retained-flow fixture.
-- Assert query plans use the cache primary key/live-cache ordering path, the
-  indicator GIST containment index, and flow time/endpoint indexes as applicable.
+- Investigation-read plans and the index decision are recorded in
+  `docs/threat-intel-query-plans.md`.
+- Assert threat-filtered `in:flows` and `in:attributed_flows` plans use the flow
+  time and endpoint indexes. Those plans are not in the investigation-read evidence.
 - Assert the LiveView loads only one bounded page and performs no per-row database
   query.
 - Record query duration, timeout, returned-row count, and entity/filter names

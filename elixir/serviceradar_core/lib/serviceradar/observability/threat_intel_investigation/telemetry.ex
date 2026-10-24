@@ -2,10 +2,14 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry do
   @moduledoc """
   Query telemetry for threat-intel investigation reads.
 
-  Emits `[:serviceradar, :threat_intel, :investigation, :query, :start | :stop | :exception]`
-  with `entity` and the *names* of the filters in use. Filter values (addresses,
-  indicators, sources), cursors and raw error terms never enter the metadata;
-  a failure is reported as `error: :timeout | :invalid_input | :query_failed`.
+  `span/3` emits `[:serviceradar, :threat_intel, :investigation, :query]`
+  as `:start`, `:stop`, and `:exception`. Stop metadata carries `entity`, the
+  names of the filters in use, `result_count` on success, and on failure
+  `error: :timeout | :invalid_input | :query_failed`. Filter values (addresses,
+  indicators, sources), cursors, and raw error terms are not part of that
+  stop metadata. A raised exception is reported on `:exception` with the runtime
+  reason, which is how `:telemetry.span/3` records a failure that is not returned
+  as `{:error, _}`.
   """
 
   @event [:serviceradar, :threat_intel, :investigation, :query]

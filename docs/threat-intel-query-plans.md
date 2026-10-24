@@ -1,14 +1,13 @@
 # Threat Intel Investigation Query Plans
 
 Evidence for `openspec/changes/improve-threat-intel-investigation` tasks 2.5
-and 6.5: every interactive threat-intel read was planned with
-`EXPLAIN (ANALYZE, BUFFERS)` against a production-sized synthetic fixture, and
-none needed a new index.
+and 6.5: the reads below were planned with `EXPLAIN (ANALYZE, BUFFERS)` against
+a production-sized synthetic fixture, and none needed a new index.
 
 ## Fixture
 
-A scratch database on the `srql-fixtures` CNPG, holding only the five
-threat-intel tables with their DDL and indexes copied from
+A scratch database on the `srql-fixtures` CNPG, holding the threat-intel tables
+below with their DDL and indexes copied from
 `elixir/serviceradar_core/priv/repo/baseline/platform_schema.sql`:
 
 | Table | Rows |
@@ -30,7 +29,7 @@ All addresses are synthetic. Matched endpoints sit in `198.18.0.0/15`
 | Current matches by severity | same plan, top-N sort on `max_severity DESC NULLS LAST, ip` | 5.8 ms |
 | Flow page endpoint lookup, 400 addresses (`endpoint_summaries`) | `ip_threat_intel_cache_pkey` index scan | 0.9 ms |
 | Indicators containing one endpoint (`indicators_for_ip`) | `threat_intel_indicators_indicator_gist_idx` | 1.0 ms |
-| Provider context for the detail list | GiST lookup, then one hash join over `threat_intel_source_objects` | 39.5 ms |
+| Provider context for the detail list | one hash join over `threat_intel_source_objects` for the page's indicator ids | 39.5 ms |
 | Imported indicators page, one source | parallel seq scan, top-N sort | 35.6 ms |
 | Provider objects page | seq scan, top-N sort | 12.9 ms |
 | Retrohunt findings page | `otx_retrohunt_findings_last_seen_at_index` backward scan | 0.4 ms |
@@ -58,17 +57,19 @@ Add one only with a new plan showing it is needed.
 - `ThreatIntelInvestigationDBTest` asserts the match list and the match detail
   issue the same number of queries whatever the row count, so a per-row query
   fails the test.
-- Every investigation read emits
-  `[:serviceradar, :threat_intel, :investigation, :query, :stop]` with the
-  entity, the filter names in use, the result count, and on failure
-  `error: :timeout | :invalid_input | :query_failed`. Filter values, cursors
-  and raw errors are not included.
+- `list_current_matches`, `indicators_for_ip`, `page_indicators`,
+  `page_source_objects`, `recent_retrohunt_runs`, and `page_retrohunt_findings`
+  each open one `[:serviceradar, :threat_intel, :investigation, :query]` span.
+  Stop metadata is defined on
+  `ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry`.
+  `endpoint_summaries` is the batch primary-key lookup in the results table and
+  does not emit that span.
 
 ## Reproducing
 
 1. Create a `codex_*` scratch database as described in the
    `srql-fixtures-db-tests` skill.
-2. Load the five tables' `CREATE TABLE`, primary key and `CREATE INDEX`
+2. Load each listed table's `CREATE TABLE`, primary key, and `CREATE INDEX`
    statements from the baseline schema.
 3. Seed synthetic rows at the volumes above with `generate_series`, then run
    `ANALYZE`.
