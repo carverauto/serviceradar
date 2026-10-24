@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
   alias ServiceRadar.Observability.ThreatIntelEvidence
   alias ServiceRadar.Observability.ThreatIntelIndicator
   alias ServiceRadar.Observability.ThreatIntelInvestigation
+  alias ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry, as: ThreatIntelTelemetry
   alias ServiceRadar.Observability.ThreatIntelSourceObject
 
   setup do
@@ -357,6 +358,120 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
     assert object_ids.("198.51.100.10") == ["pulse-host"]
     assert object_ids.("198.51.100.0/24") == ["pulse-network"]
     assert object_ids.("198.51.100.0/32") == ["pulse-base-host"]
+  end
+
+  test "match list and detail cost a fixed number of queries, not one per row", %{actor: actor} do
+    source = unique_source("query-count")
+    scope = %{actor: actor}
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+    {single_ip, single_cidr} = unique_host()
+    overlapped_ip = "198.51.100.#{rem(System.unique_integer([:positive]), 200) + 20}"
+
+    # One indicator contains `single_ip`; three nested ones contain `overlapped_ip`.
+    for cidr <- [single_cidr, "#{overlapped_ip}/32", "198.51.100.0/24", "198.51.100.0/23"] do
+      insert_indicator!(actor, %{
+        indicator: cidr,
+        source: source,
+        label: "Count #{cidr}",
+        severity: 1,
+        expires_at: DateTime.shift(now, hour: 1),
+        first_seen_at: now,
+        last_seen_at: now
+      })
+    end
+
+    for n <- 1..6 do
+      insert_cache!(actor, %{
+        ip: "203.0.113.#{n}",
+        matched: true,
+        match_count: 1,
+        max_severity: 1,
+        sources: [source],
+        looked_up_at: DateTime.shift(now, second: -n),
+        expires_at: DateTime.shift(now, hour: 1)
+      })
+    end
+
+    assert count_queries(fn -> ThreatIntelInvestigation.indicators_for_ip(scope, single_ip) end) ==
+             count_queries(fn ->
+               ThreatIntelInvestigation.indicators_for_ip(scope, overlapped_ip)
+             end)
+
+    assert count_queries(fn ->
+             ThreatIntelInvestigation.list_current_matches(scope, source: source, limit: 1)
+           end) ==
+             count_queries(fn ->
+               ThreatIntelInvestigation.list_current_matches(scope, source: source, limit: 6)
+             end)
+  end
+
+  test "investigation reads report entity, filter names and outcome without filter values", %{
+    actor: actor
+  } do
+    handler = "threat-intel-telemetry-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      ThreatIntelTelemetry.event() ++ [:stop],
+      # Handlers run in the emitting process; only count this test's own reads.
+      fn _event, measurements, metadata, _ ->
+        if self() == test_pid, do: send(test_pid, {:investigation_query, measurements, metadata})
+      end,
+      nil
+    )
+
+    try do
+      scope = %{actor: actor}
+
+      ThreatIntelInvestigation.list_current_matches(scope,
+        source: "telemetry-source",
+        ip: "192.0.2.77"
+      )
+
+      assert_receive {:investigation_query, %{duration: _}, metadata}
+
+      assert %{entity: :current_matches, filters: [:ip, :source], result: :ok, result_count: 0} =
+               metadata
+
+      refute inspect(metadata) =~ "192.0.2.77"
+      refute inspect(metadata) =~ "telemetry-source"
+
+      ThreatIntelInvestigation.list_current_matches(scope, ip: "not-an-ip")
+
+      assert_receive {:investigation_query, _measurements,
+                      %{result: :error, error: :invalid_input}}
+    after
+      :telemetry.detach(handler)
+    end
+  end
+
+  defp count_queries(fun) do
+    handler = "threat-intel-query-count-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      [:service_radar, :repo, :query],
+      fn _, _, _, _ -> if self() == test_pid, do: send(test_pid, :repo_query) end,
+      nil
+    )
+
+    try do
+      assert {:ok, _} = fun.()
+    after
+      :telemetry.detach(handler)
+    end
+
+    drain_query_messages(0)
+  end
+
+  defp drain_query_messages(count) do
+    receive do
+      :repo_query -> drain_query_messages(count + 1)
+    after
+      0 -> count
+    end
   end
 
   defp insert_source_object!(actor, source, object_id, indicator, attrs \\ %{}) do

@@ -1068,12 +1068,21 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   end
 
   defp load_error_message(kind, reason) do
-    Logger.warning("threat intel investigation #{kind} failed: #{inspect(reason)}")
+    # Log the failure class only: backend errors can echo provider responses.
+    Logger.warning("threat intel investigation #{kind} failed: #{failure_class(reason)}")
 
     if timeout?(reason) do
       "The #{kind_label(kind)} query timed out."
     else
       "Failed to load #{kind_label(kind)}."
+    end
+  end
+
+  defp failure_class(reason) do
+    cond do
+      timeout?(reason) -> "timeout"
+      is_exception(reason) -> inspect(reason.__struct__)
+      true -> "query_failed"
     end
   end
 
@@ -1089,7 +1098,10 @@ defmodule ServiceRadarWebNGWeb.Security.ThreatIntelLive.Index do
   defp timeout?(%DBConnection.ConnectionError{reason: reason}) when reason in [:timeout, :queue_timeout], do: true
   defp timeout?(%{errors: errors}) when is_list(errors), do: Enum.any?(errors, &timeout?/1)
   defp timeout?(%{error: error}) when not is_nil(error), do: timeout?(error)
-  defp timeout?(reason) when is_binary(reason), do: reason =~ ~r/timeout|timed out|canceling statement/i
+
+  defp timeout?(reason) when is_binary(reason),
+    do: reason =~ ~r/timeout|timed out|canceling statement|query_canceled|dropped from queue/i
+
   defp timeout?(_reason), do: false
 
   defp detail_notice(%{stale: true}), do: "This cache row is stale, and no active indicator still contains this endpoint."
