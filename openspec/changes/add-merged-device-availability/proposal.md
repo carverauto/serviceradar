@@ -133,8 +133,9 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
   - `elixir/web-ng`:
     - device list and detail pages;
     - dashboards;
-    - API device JSON, `priv/static/openapi.json` and
-      `priv/mcp/srql-cookbook.md`.
+    - API device JSON and `priv/mcp/srql-cookbook.md`.
+      `priv/static/openapi.json` is generated from the core Device resource
+      and changes with that resource, not in the web-ng reader cutover.
   - `go/`: plugin manifests for the in-repo plugins that set availability.
   - `rust/correlation-engine`: receives one transition per real change.
 - Unchanged by design: every per-agent ledger consumer, namely

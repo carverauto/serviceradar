@@ -947,18 +947,18 @@ Each reader below gets one of four dispositions:
 
 | Reader | Today | Change |
 |---|---|---|
-| `device_live/index_data/availability.ex:40-125` `effective_availability/2` -> `index_view/rows.ex:5-14` -> `badges.ex` | ledger rows fresh within 2 h: the pin, else any agent up, else the column | delete at stage d. Badge from state; "N of M agents" from `availability_agents` |
-| `index_data/stats.ex`, `index_view/stats.ex:69`, `index_view/filters.ex:15-24` | rollup counts; `is_available:true/false` links | switch to `availability:` links; add an Unknown card |
-| `device_live/availability_components.ex`, `availability_data.ex:154-163` (per-agent tab, primary-source selector) | ledger | **untouched** apart from the added role labels |
-| `device_live/availability_data.ex:104-125` timeline fallback | current bit | switch to state |
-| `device_live/device_tab_runtime.ex:200` `device_row_is_available/1` | a boolean `is_available` is kept (string key, then atom); a missing or non-boolean value stays nil | keep |
+| `device_live/index_data/availability.ex` `effective_availability/2` | kept, and no longer read by the badge. The badge reads `MergedAvailability` (`availability_state`, `availability_agents`) | delete the function at stage d |
+| `index_data/stats.ex`, `index_view/stats.ex`, `index_view/filters.ex` | rollup counts; Available, Offline and Unknown link to `availability:available`, `availability:unavailable` and `availability:unknown`. A missing rollup `unknown` reads as 0. Quick filters add Unknown and `agent_reachability:partial` | switched with the web-ng cutover |
+| `device_live/availability_components.ex`, `availability_data.ex` (per-agent tab, primary-source selector) | ledger rows unchanged. Role labels (decided, pinned, witness, negative control, ineligible) and a non-probe evidence section with the deciding record marked | switched with the web-ng cutover |
+| `device_live/availability_data.ex` timeline fallback | canonical `availability_state`; an unknown device keeps an unknown timeline. `device_row_is_available/1` is gone | switched with the web-ng cutover |
 | `topology/god_view_stream.ex:2422`, `bitmap_source.ex:233`, `world_health_source.ex:47` | true -> healthy, false -> unavailable, nil -> unknown | keep (already three-valued) |
-| `dashboard_live/data/basic_summaries.ex:9-18` | active rows with `deleted_at` and `source_retired_at` null; available is `is_available = true` and unavailable is `is_available = false` (NULL is neither) | switch: available, unavailable and unknown from the state rollup |
+| `dashboard_live/data/basic_summaries.ex` | active, non-retired rows; available, unavailable and unknown counted from `availability_state` | switched with the web-ng cutover. The inventory rollup's `unknown` key remains the stage-c rollup migration |
 | `dashboard_live/data/service_sparklines.ex:65`, `vulnerable_assets.ex:22` | NULL counts as false | keep |
-| Authored dashboards (`source_queries.ex`, `visuals.ex`, `DashboardPanelChart.jsx`, `DashboardBuilderCanvas.jsx`), `srql/builder.ex`, `srql/catalog.ex` | boolean pivot and allowlists | add `availability`; keep `is_available` |
-| `api/access.ex:166,198`, `controllers/api/device_controller.ex:615,656` | raw value; `status=online/offline` | keep the boolean; add the state, provenance, agent counters and `status=unknown` (read from the state) |
-| `priv/static/openapi.json` (already `boolean \| null`) | external contract | add the fields; document `is_available` as the last decided value and `availability_state` as the source of unknown |
-| `priv/mcp/srql-cookbook.md:17,293` | examples | add `availability:` and `agent_reachability:` examples |
+| Authored dashboards (`source_queries.ex`, `visuals.ex`, `DashboardPanelChart.jsx`, `DashboardBuilderCanvas.jsx`), `srql/builder.ex` | boolean pivot | keep `is_available` |
+| `srql/catalog.ex` | `availability`, `availability_source`, `availability_class`, `agent_reachability` and `availability_policy` are filter fields, with known values; `availability` is a stats group key. `is_available` stays | switched with the web-ng cutover |
+| `api/access.ex`, `controllers/api/device_controller.ex` | `is_available` kept; `availability_state`, `availability_decided_by`, `availability_changed_at`, `availability_conflict` and `availability_agents` added. `status=online`, `offline` and `unknown` filter on `availability_state` | switched with the web-ng cutover |
+| `priv/static/openapi.json` (already `boolean \| null`) | generated from the core Device Ash resource | not hand-edited in web-ng. The core resource change adds the fields and documents `is_available` as the last decided value and `availability_state` as the source of unknown |
+| `priv/mcp/srql-cookbook.md` | `availability:`, `agent_reachability:` and `availability_policy:` recipes, and the note that `is_available` is the last decided boolean | switched with the web-ng cutover |
 
 ### Composite checks, automation and integrations
 
@@ -1025,7 +1025,7 @@ composite inputs are untouched. Armis is covered by Decision 13.
 | **Hysteresis and "available wins" drift** | The one-to-one mapping in Decision 5, the governing-class hold, the ledger trigger that counts failures for every ledger writer, and table-driven resolver tests built from today's W1/W2 cases. |
 | **Devices with no evidence at all** | They become `unknown`, which is visible, filterable and counted in stage b. |
 | **Write amplification** | Decision 7. WAL per hour is measured in stages a to c, and stage c must not exceed the stage-a baseline. |
-| **API consumers of `is_available`** | The field keeps its name, type and non-null values; unknown devices keep their last decided boolean. OpenAPI and the cookbook document `availability_state` for unknown. A boolean `is_available:true` count can exceed the state-based Available count by the unknown devices that last decided true; the release note says so. |
+| **API consumers of `is_available`** | The field keeps its name, type and non-null values; unknown devices keep their last decided boolean. The MCP cookbook documents `availability_state` for unknown. OpenAPI is generated from the core Device resource and gains the same fields with that resource, not by a web-ng edit. A boolean `is_available:true` count can exceed the state-based Available count by the unknown devices that last decided true; the release note says so. |
 | **Per-agent results lost or reinterpreted** | The ledger is unchanged except for one additive column (Tier 1a). Every per-agent consumer is listed as untouched (Decision 13). One DB-tier test asserts that the Armis agent path returns identical rows before and after resolution. |
 | **Negative-control agents dragging devices down** | Their down results are excluded from the decision (Decision 12); a reach counts as liveness and the violation is surfaced through the existing composite verdicts. |
 | **Silent change to Armis pushes** | Per-source `legacy` semantics with a compatibility table seeded at cutover and maintained in every mode, a preview, an explicit operator choice, and stage d gated on the choice. |

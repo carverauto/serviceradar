@@ -87,14 +87,15 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - the `availability`, `availability_source`, `availability_class`, `agent_reachability` and `availability_policy` fields, plus `agents_up` and `agents_total`;
   - default order by availability rank;
   - the summary `unknown` count.
-- [ ] 3.8 web-ng:
+- [x] 3.8 web-ng:
   - the badge from state;
   - "up from N of M agents" and the partial-reachability marker;
   - the negative-control indicators;
   - an Unknown card;
   - the evidence section and the agent role labels on the device page;
-  - the API JSON and `openapi.json`;
+  - the API JSON;
   - the MCP cookbook.
+  - `priv/static/openapi.json` is generated from the core Device Ash resource and is not hand-edited here. The core change adds `availability_state` and its provenance.
 - [ ] 3.9 Lab-deployment proof, each check with an explicit failure branch:
   - order, count and badge agree for every device;
   - Armis agent-path candidate rows are byte-identical to stage a for the same ledger contents;
@@ -153,7 +154,7 @@ Each contract has one owner-boundary test. No contract is replayed at another la
   - `availability_policy:violation`;
   - unchanged `unavailable_from_agent`;
   - the summary `unknown` count.
-- [ ] 5.10 **web-ng** (LiveView, at the badge and row component boundary):
+- [x] 5.10 **web-ng** (LiveView, at the badge and row component boundary):
   - the three states;
   - "N of M agents" with the partial marker;
   - the negative-control indicators.
