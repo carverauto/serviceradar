@@ -152,9 +152,17 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
   defp fenced_close(owner, session, reason, opts, write_opts) do
     close =
       cond do
-        force_close?(opts) -> IngestOwnership.begin_close(owner, write_opts)
-        soft_viewer_release?(reason) and session.viewer_count > 0 -> {:error, :consumers_active}
-        true -> IngestOwnership.begin_idle_close(owner, write_opts)
+        force_close?(opts) ->
+          IngestOwnership.begin_close(owner, write_opts)
+
+        soft_viewer_release?(reason) and session.viewer_count > 0 ->
+          {:error, :consumers_active}
+
+        true ->
+          # Retention is decided under the profile lock before a nested refusal
+          # can roll back the surrounding transaction.
+          with :ok <- IngestOwnership.require_idle(owner, write_opts),
+               do: IngestOwnership.begin_idle_close(owner, write_opts)
       end
 
     case close do
@@ -348,9 +356,6 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     case Keyword.get(opts, :scope) do
       nil ->
         [actor: actor]
-
-      %{user: user} = scope when is_map(scope) and not is_struct(scope) and not is_nil(user) ->
-        [scope: Map.put(scope, :actor, scope[:actor] || user)]
 
       scope ->
         [scope: scope]
