@@ -1971,14 +1971,13 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Loader do
     |> Map.values()
   end
 
-  # `:generation` is deliberately absent from the replace list below:
-  # replacing a column whose value never changes still turns a
-  # byte-identical coordinate upsert into a non-HOT update that rewrites
-  # every index entry, including the GIN trigram on `value`. Leaving it
-  # out lets a byte-identical coordinate take the HOT path. The column
-  # keeps its insert-time value; nothing reads it as a liveness signal
-  # (see the generation-swap note in the moduledoc), and its former index
-  # was dropped as unused in migration 20261024183000.
+  # `:generation` is deliberately absent from the replace list below.
+  # advisory_coordinates_generation_idx indexes that column, so replacing it
+  # makes every upsert a non-HOT update that rewrites every index entry,
+  # including the GIN trigram on `value`. Leaving it out lets a
+  # byte-identical coordinate take the HOT path. The column keeps its
+  # insert-time value; nothing reads it as a liveness signal (see the
+  # generation-swap note in the moduledoc).
   defp insert_coordinate_batch(rows) do
     {count, _} =
       Repo.insert_all("advisory_coordinates", rows,
