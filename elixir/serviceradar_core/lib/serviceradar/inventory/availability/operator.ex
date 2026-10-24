@@ -13,7 +13,7 @@ defmodule ServiceRadar.Inventory.Availability.Operator do
   `report/1` prints the human summary, then the JSON report, and changes nothing.
   `switch/1` is the mode switch (`Mode.enter_shadow/0`, `Mode.enter_cutover/0` or
   `Mode.enter_legacy/0`, the rollback from any mode). `status/0` prints the mode, the
-  transition-event setting and the cutover jobs still waiting. `transition_events/1`
+  transition-event setting and the cutover jobs not yet finished. `transition_events/1`
   turns the resolver's `device.*` events on or off for the deployment.
   """
 

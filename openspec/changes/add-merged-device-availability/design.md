@@ -958,7 +958,7 @@ Each reader below gets one of four dispositions:
 | `stats/rollup.rs` `inventory_summary` | counters total/available/unavailable | switch: add `unknown` |
 | `models/inventory.rs:236` JSON | `unwrap_or(false)` | keep; add the state and agent counters |
 | `query/viz/inventory.rs:351` | column catalog | add the new fields |
-| Rollup trigger and `refresh_device_inventory_rollups()` (baseline; migrations `20260305110000`, `20260306001000`, `20261005120000`) | `COALESCE(is_available,false)`; fires on every update | switch: count by state with an `unknown` key; narrow the `WHEN` clause |
+| Rollup trigger and `refresh_device_inventory_rollups()` (baseline; migrations `20260305110000`, `20260306001000`, `20261005120000`) | `COALESCE(is_available,false)`; fires on every update | switch: count by state with an `unknown` key. The statement triggers keep their shape; migration `20261024120000` records why a `WHEN` clause cannot narrow them. |
 
 ### web-ng (`elixir/web-ng`)
 
@@ -974,7 +974,7 @@ Each reader below gets one of four dispositions:
 | Authored dashboards (`source_queries.ex`, `visuals.ex`, `DashboardPanelChart.jsx`, `DashboardBuilderCanvas.jsx`), `srql/builder.ex` | boolean pivot | keep `is_available` |
 | `srql/catalog.ex` | `availability`, `availability_source`, `availability_class`, `agent_reachability` and `availability_policy` are filter fields, with known values; `availability` is a stats group key. `is_available` stays | switched with the web-ng cutover |
 | `api/access.ex`, `controllers/api/device_controller.ex` | `is_available` kept; `availability_state`, `availability_decided_by`, `availability_changed_at`, `availability_conflict` and `availability_agents` added. `status=online`, `offline` and `unknown` filter on `availability_state` | switched with the web-ng cutover |
-| `priv/static/openapi.json` (already `boolean \| null`) | generated from the core Device Ash resource | not hand-edited in web-ng. The core resource change adds the fields and documents `is_available` as the last decided value and `availability_state` as the source of unknown |
+| `priv/static/openapi.json` (already `boolean \| null`) | generated from the core Device Ash resource | edited in place on this change to the generated shape (regeneration needs `mix`): merged availability fields are read attributes, and `is_available` is documented as the last decided value |
 | `priv/mcp/srql-cookbook.md` | `availability:`, `agent_reachability:` and `availability_policy:` recipes, and the note that `is_available` is the last decided boolean | switched with the web-ng cutover |
 
 ### Composite checks, automation and integrations
