@@ -20,17 +20,17 @@ use std::{
     path::{Path, PathBuf},
     process,
     sync::{
-        Once,
         atomic::{AtomicU64, Ordering},
+        Once,
     },
     time::Duration,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     task::JoinHandle,
-    time::{Duration as TokioDuration, sleep},
+    time::{sleep, Duration as TokioDuration},
 };
-use tokio_postgres::{Client, Config as PgConfig, NoTls, config::Host, error::SqlState};
+use tokio_postgres::{config::Host, error::SqlState, Client, Config as PgConfig, NoTls};
 
 const DB_CONNECT_RETRIES: usize = 240;
 const DB_CONNECT_DELAY_MS: u64 = 250;

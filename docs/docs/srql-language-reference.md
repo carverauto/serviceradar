@@ -411,8 +411,11 @@ Sortable fields include `availability`, `hostname`, `ip`, `first_seen` /
 `first_seen_time`, `last_seen` / `last_seen_time`, and `type_id`. Without a
 `sort:` clause devices are ordered by availability (`available`, then
 `unavailable`, then `unknown`), then by IP, then by uid. Rows also return
-`agents_up` and `agents_total`, and `rollup_stats:inventory_summary` reports
-`available`, `unavailable` and `unknown` counts from the same state. There is no `cpe` filter on
+`availability_decided_by`, `availability_changed_at`, `availability_conflict`,
+`availability_agents`, `agents_up`, and `agents_total` (those two counters are
+0 when absent). `rollup_stats:inventory_summary` reports `available`,
+`unavailable`, and `unknown` from the `device_inventory_counts` keys of those
+names; a missing key is 0. There is no `cpe` filter on
 `in:devices`; query `in:endpoint_packages` or `in:cve_matches`.
 
 Control tokens: `include_inactive:true` returns devices regardless of lifecycle
