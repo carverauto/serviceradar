@@ -31,11 +31,14 @@ import (
 )
 
 var (
-	errSweepTargetNotAddress = errors.New("not an IP address, CIDR, or first-last range")
-	errSweepRangeBound       = errors.New("range bound is not an IP address")
-	errSweepRangeFamilies    = errors.New("range bounds are different address families")
-	errSweepRangeReversed    = errors.New("range starts after it ends")
-	errSweepRangeTooLarge    = errors.New("IPv6 range expands above the sweep target limit")
+	errSweepTargetNotAddress  = errors.New("not an IP address, CIDR, or first-last range")
+	errSweepRangeBound        = errors.New("range bound is not an IP address")
+	errSweepRangeFamilies     = errors.New("range bounds are different address families")
+	errSweepRangeReversed     = errors.New("range starts after it ends")
+	errSweepRangeTooLarge     = errors.New("IPv6 range expands above the sweep target limit")
+	errUnsupportedSweepFormat = errors.New("unsupported sweep config format")
+	errSweepTargetSetMissing  = errors.New("sweep group references a missing device target set")
+	errSweepDeviceRefMissing  = errors.New("sweep target set references a missing device table entry")
 )
 
 type gatewayConfigPayload struct {
@@ -43,20 +46,40 @@ type gatewayConfigPayload struct {
 }
 
 type gatewaySweepConfig struct {
-	Groups     []gatewaySweepGroup `json:"groups"`
-	ConfigHash string              `json:"config_hash"`
+	Format      string                    `json:"format"`
+	Groups      []gatewaySweepGroup       `json:"groups"`
+	ConfigHash  string                    `json:"config_hash"`
+	DeviceTable []gatewayDeviceTableEntry `json:"device_table"`
+	TargetSets  []gatewayTargetSet        `json:"target_sets"`
 }
 
 type gatewaySweepGroup struct {
-	ID            string                `json:"id"`
-	SweepGroupID  string                `json:"sweep_group_id"`
-	Targets       []string              `json:"targets"`
-	Ports         []int                 `json:"ports"`
-	Modes         []string              `json:"modes"`
-	BannerGrab    gatewayBannerGrab     `json:"banner_grab"`
-	Schedule      gatewaySweepSchedule  `json:"schedule"`
-	Settings      gatewaySweepSettings  `json:"settings"`
-	DeviceTargets []gatewayDeviceTarget `json:"device_targets,omitempty"`
+	ID              string                `json:"id"`
+	SweepGroupID    string                `json:"sweep_group_id"`
+	Name            string                `json:"name"`
+	Targets         []string              `json:"targets"`
+	Ports           []int                 `json:"ports"`
+	Modes           []string              `json:"modes"`
+	BannerGrab      gatewayBannerGrab     `json:"banner_grab"`
+	Schedule        gatewaySweepSchedule  `json:"schedule"`
+	Settings        gatewaySweepSettings  `json:"settings"`
+	DeviceTargets   []gatewayDeviceTarget `json:"device_targets,omitempty"`
+	DeviceTargetSet string                `json:"device_target_set"`
+}
+
+// gatewayDeviceTableEntry is one device in a shared-targets/v1 document,
+// stored once however many target sets reference it.
+type gatewayDeviceTableEntry struct {
+	Ref       string `json:"ref"`
+	IP        string `json:"ip"`
+	DeviceUID string `json:"device_uid"`
+}
+
+// gatewayTargetSet is the per-query device list of a shared-targets/v1
+// document, as refs into the device table.
+type gatewayTargetSet struct {
+	Key  string   `json:"key"`
+	Refs []string `json:"refs"`
 }
 
 type gatewayBannerGrab struct {
@@ -115,6 +138,17 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroups
 		return nil, fmt.Errorf("decode sweep payload: %w", err)
 	}
 
+	switch sweep.Format {
+	case "":
+		// Legacy format: device targets are embedded per group.
+	case "shared-targets/v1":
+		if err := rehydrateSharedTargets(&sweep); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("%w: %q", errUnsupportedSweepFormat, sweep.Format)
+	}
+
 	if len(sweep.Groups) == 0 {
 		log.Info().Msg("Gateway sweep config contained no groups; clearing sweep targets")
 		return &SweepGroupsConfig{ConfigHash: sweep.ConfigHash}, nil
@@ -165,6 +199,59 @@ func parseGatewaySweepConfig(configJSON []byte, log logger.Logger) (*SweepGroups
 	}
 
 	return config, nil
+}
+
+// rehydrateSharedTargets expands a shared-targets/v1 document into the
+// per-group device targets the legacy format embeds: for each group, one
+// entry per ref of its target set, in set order, with the group's modes
+// and name and source "srql" — field for field the legacy compiler output.
+func rehydrateSharedTargets(sweep *gatewaySweepConfig) error {
+	table := make(map[string]gatewayDeviceTableEntry, len(sweep.DeviceTable))
+	for _, entry := range sweep.DeviceTable {
+		table[entry.Ref] = entry
+	}
+
+	sets := make(map[string][]string, len(sweep.TargetSets))
+	for _, set := range sweep.TargetSets {
+		sets[set.Key] = set.Refs
+	}
+
+	for i := range sweep.Groups {
+		group := &sweep.Groups[i]
+		if group.DeviceTargetSet == "" {
+			continue
+		}
+
+		refs, ok := sets[group.DeviceTargetSet]
+		if !ok {
+			return fmt.Errorf("%w: group %s names set %s", errSweepTargetSetMissing, group.ID, group.DeviceTargetSet)
+		}
+
+		targets := make([]gatewayDeviceTarget, 0, len(refs))
+		for _, ref := range refs {
+			entry, ok := table[ref]
+			if !ok {
+				return fmt.Errorf("%w: set %s names ref %s", errSweepDeviceRefMissing, group.DeviceTargetSet, ref)
+			}
+
+			metadata := map[string]string{}
+			if entry.DeviceUID != "" {
+				metadata["device_uid"] = entry.DeviceUID
+			}
+
+			targets = append(targets, gatewayDeviceTarget{
+				Network:    entry.IP,
+				SweepModes: group.Modes,
+				QueryLabel: group.Name,
+				Source:     "srql",
+				Metadata:   metadata,
+			})
+		}
+
+		group.DeviceTargets = targets
+	}
+
+	return nil
 }
 
 func defaultBannerGrabConfig() BannerGrabConfig {

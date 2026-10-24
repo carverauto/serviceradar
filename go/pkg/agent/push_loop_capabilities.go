@@ -65,6 +65,10 @@ const (
 	// capabilitySweepCancel: this agent handles sweep.cancel_group, aborting a
 	// group's in-flight run without streaming its partial results.
 	capabilitySweepCancel = "sweep_cancel"
+	// capabilitySweepSharedTargets: this agent parses sweep config in the
+	// shared-targets/v1 format (device table + per-query target sets), so
+	// core may stop embedding device targets per group for it.
+	capabilitySweepSharedTargets = "sweep-config-shared-targets:v1"
 	// capabilityICMP / capabilityICMPUnavailable: whether the ICMP sweep
 	// scanner can open its raw sockets. Core withholds ICMP sweep work from an
 	// agent reporting the unavailable marker.
@@ -388,6 +392,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 	capabilities = append(capabilities,
 		sweepType,
 		capabilitySweepCancel,
+		capabilitySweepSharedTargets,
 		commandTypeAdhocScan,
 		capabilityConfigPushChunks,
 		"snmp",
