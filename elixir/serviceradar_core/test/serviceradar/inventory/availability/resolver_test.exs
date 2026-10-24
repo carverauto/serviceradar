@@ -118,8 +118,7 @@ defmodule ServiceRadar.Inventory.Availability.ResolverTest do
        ledger: [{:probe, "agent-a", true}],
        evidence: [{:evidence, "composite_check", :operator_policy, :down}]
      }, %{state: :unavailable, decided: {"composite_check", "SITE01-src"}, conflict: true}},
-    {"a pin on a negative control does not outrank operator policy",
-     %{pin: "agent-control"},
+    {"a pin on a negative control does not outrank operator policy", %{pin: "agent-control"},
      %{
        ledger: [{:probe, "agent-a", true}],
        evidence: [{:evidence, "composite_check", :operator_policy, :down}],
