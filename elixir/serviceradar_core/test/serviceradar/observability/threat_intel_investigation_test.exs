@@ -3,6 +3,7 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
 
   alias ServiceRadar.Observability.ThreatIntelEvidence
   alias ServiceRadar.Observability.ThreatIntelInvestigation
+  alias ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry, as: ThreatIntelTelemetry
 
   test "rejects non-IP input before querying" do
     assert {:error, :invalid_ip} =
@@ -106,6 +107,50 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
     assert {:error, :invalid_ip} = ThreatIntelEvidence.parse_address("10.0.00.1", :ip)
   end
 
+  test "formatted statement and queue timeouts classify as timeout and omit the error text" do
+    secret = "provider-credential-synthetic"
+
+    statement_timeout =
+      "** (Postgrex.Error) ERROR 57014 (query_canceled) canceling statement due to statement timeout #{secret}"
+
+    queue_timeout =
+      "** (DBConnection.ConnectionError) connection not available and request was dropped from queue after 1000ms. #{secret}"
+
+    reasons = [
+      statement_timeout,
+      %{errors: [%{error: statement_timeout}]},
+      %{errors: [%{error: "relation missing #{secret}"}, %{error: queue_timeout}]},
+      %{error: queue_timeout},
+      %{postgres: %{code: :query_canceled}},
+      %DBConnection.ConnectionError{reason: :queue_timeout},
+      %DBConnection.ConnectionError{reason: :timeout}
+    ]
+
+    for reason <- reasons do
+      metadata = span_stop({:error, reason}, ip: secret)
+
+      assert %{entity: :current_matches, filters: [:ip], result: :error, error: :timeout} =
+               metadata
+
+      refute inspect(metadata) =~ secret
+      refute inspect(metadata) =~ "query_canceled"
+      refute inspect(metadata) =~ "queue_timeout"
+    end
+
+    refused = span_stop({:error, "password authentication failed for #{secret}"}, ip: secret)
+
+    assert %{result: :error, error: :query_failed, filters: [:ip]} = refused
+    refute inspect(refused) =~ secret
+
+    invalid = span_stop({:error, :invalid_ip}, ip: secret)
+    assert %{result: :error, error: :invalid_input, filters: [:ip]} = invalid
+    refute inspect(invalid) =~ secret
+
+    counted = span_stop({:ok, [1, 2]}, source: secret)
+    assert %{entity: :current_matches, result: :ok, result_count: 2, filters: [:source]} = counted
+    refute inspect(counted) =~ secret
+  end
+
   test "indicator filters accept only addresses PostgreSQL takes as cidr" do
     for accepted <- [
           "198.51.100.0/24",
@@ -128,6 +173,28 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationTest do
           "not-an-ip"
         ] do
       assert {:error, :invalid_cidr} = ThreatIntelEvidence.parse_address(rejected, :cidr)
+    end
+  end
+
+  defp span_stop(result, opts) do
+    handler = "threat-intel-class-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler,
+      ThreatIntelTelemetry.event() ++ [:stop],
+      fn _event, _measurements, metadata, _ ->
+        if self() == test_pid, do: send(test_pid, {:investigation_stop, metadata})
+      end,
+      nil
+    )
+
+    try do
+      assert result == ThreatIntelTelemetry.span(:current_matches, opts, fn -> result end)
+      assert_receive {:investigation_stop, metadata}
+      metadata
+    after
+      :telemetry.detach(handler)
     end
   end
 end

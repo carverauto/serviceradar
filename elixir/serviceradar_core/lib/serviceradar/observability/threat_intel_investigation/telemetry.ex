@@ -51,7 +51,27 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigation.Telemetry do
   defp error_kind(%DBConnection.ConnectionError{reason: reason})
        when reason in [:timeout, :queue_timeout], do: :timeout
 
-  defp error_kind(%{errors: [first | _]}), do: error_kind(first)
+  defp error_kind(%{errors: [_ | _] = errors}) do
+    kinds = Enum.map(errors, &error_kind/1)
+
+    case :timeout in kinds do
+      true -> :timeout
+      false -> hd(kinds)
+    end
+  end
+
   defp error_kind(%{error: error}) when not is_nil(error), do: error_kind(error)
+
+  defp error_kind(reason) when is_binary(reason) do
+    case timeout_text?(reason) do
+      true -> :timeout
+      false -> :query_failed
+    end
+  end
+
   defp error_kind(_reason), do: :query_failed
+
+  defp timeout_text?(reason) do
+    reason =~ ~r/timeout|timed out|canceling statement|query_canceled|dropped from queue/i
+  end
 end
