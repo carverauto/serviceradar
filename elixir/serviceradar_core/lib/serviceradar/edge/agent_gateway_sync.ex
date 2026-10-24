@@ -1844,14 +1844,22 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     if Availability.Mode.legacy_column?(mode) do
       run_force_gateway_sync_update(device_uid, action, update_attrs, actor, [])
     else
-      case Repo.transaction(fn ->
-             routed = LegacyWrites.route_attrs(update_attrs, device_uid, mode)
+      {update_attrs, legacy} = split_checkin_availability(update_attrs, device_uid, mode)
 
-             case run_force_gateway_sync_update(device_uid, action, routed, actor,
+      case Repo.transaction(fn ->
+             case run_force_gateway_sync_update(device_uid, action, update_attrs, actor,
                     transaction: false
                   ) do
-               :ok -> :ok
-               {:error, reason} -> Repo.rollback(reason)
+               :ok ->
+                 case legacy do
+                   {uid, available?} -> LegacyWrites.record([{uid, available?}])
+                   nil -> :ok
+                 end
+
+                 :ok
+
+               {:error, reason} ->
+                 Repo.rollback(reason)
              end
            end) do
         {:ok, :ok} -> :ok
