@@ -769,6 +769,19 @@ defmodule ServiceRadar.EventWriter.Config do
     }
   end
 
+  @doc "Assessment after-images on the stream owned by the transactional outbox relay."
+  @spec exposure_transitions_stream() :: stream_config()
+  def exposure_transitions_stream do
+    %{
+      name: "EXPOSURE_TRANSITIONS",
+      subject: "vulnerability.assessment.transitions.>",
+      processor: ServiceRadar.EventWriter.Processors.ExposureTransitions,
+      ensure_stream: false,
+      batch_size: 100,
+      batch_timeout: 1_000
+    }
+  end
+
   @doc """
   Returns the default stream configurations.
 
@@ -880,6 +893,7 @@ defmodule ServiceRadar.EventWriter.Config do
       },
       scan_results_stream(),
       mtr_results_stream(),
+      exposure_transitions_stream(),
       %{
         name: "BMP_CAUSAL",
         stream_name: "events",
@@ -1375,6 +1389,10 @@ defmodule ServiceRadar.EventWriter.Config do
     config
     |> load_streams()
     |> Enum.reject(&flow_stream?/1)
+    |> Enum.reject(
+      &(Map.get(&1, :name) == "EXPOSURE_TRANSITIONS" and
+          not ServiceRadar.Analytics.StarRocks.Destination.enabled?())
+    )
   end
 
   defp load_flow_streams(config) do

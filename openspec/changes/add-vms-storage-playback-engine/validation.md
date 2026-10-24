@@ -465,5 +465,54 @@ cases must execute in the sanctioned Core Integration and Web-NG DB PR lanes;
 publication may use the approved prepublication-only Test exception, but final
 CI is not waived. No database migration against a live environment, provider
 probe, rollout or recording enablement ran. Receipt acceptance still establishes
-neither environment identity, evidence freshness, applied configuration nor
-storage authority.
+neither historical environment identity, evidence freshness, applied
+configuration nor storage authority.
+
+Final receipt PR #5979 merged at `37d7f26a61e8d5c3d2caf28eb2b6c5da3c5ee5d3`
+after all 19 checks passed on head `53e3de1ecfa43fead3f712c52ba2f9e75cea3001`.
+The prepublication database exception was satisfied by actual final-head CI:
+[Core suite](https://carverauto.buildbuddy.io/invocation/42cf4965-a34a-4f4d-909f-59deef32203b)
+executed all 12 targets uncached; receipt owner serial lane 6 reported 300 tests,
+zero failures and eight unrelated exclusions, with integration bodies included.
+[Web suite](https://carverauto.buildbuddy.io/invocation/8a15b4d4-8b75-4fa3-8b40-5282a700cf75)
+executed all seven targets uncached. HTTP owner shard 0 reported two properties,
+819 tests and zero failures; its trace includes both new receipt cases. Both
+fixture parents reported zero suite, observer, teardown and release statuses.
+
+## Deployment-scoped media authentication
+
+The product changes protect existing receipt ingress with a separate installed
+media credential and exact deployment/generation headers. The existing router
+test owner adds purpose separation, installation acknowledgment, invalid
+configuration, replacement/media-only operation and encoded-route cases. The
+existing guarded HTTP owner extends denied authentication checks while retaining
+all persistence, retry, conflict, withdrawal and unqualified-state assertions.
+
+Independent review found that raw-path authentication and Plug.Router's decoded
+path matching disagreed. The new regression failed at that exact boundary in
+[2098b2d2](https://carverauto.buildbuddy.io/invocation/2098b2d2-7c0f-45c7-ab09-17b067b76a9c):
+824 tests, one failure, 220 exclusions. An encoded media path selected account
+authentication, then reached the media handler with no installed identity. The
+repair applies the router's segment decoding before selecting authentication.
+Compilation also exposed a new application-to-plug boundary dependency; shared
+configuration validation now belongs to the context used by startup and the plug.
+
+The complete Helm render suite passed in
+[c3b2585f](https://carverauto.buildbuddy.io/invocation/c3b2585f-71ff-4fdb-9c49-8bd2f7a2cff2).
+It exercises media-only and combined credentials, Secret references, rollout
+annotations, exact bigint strings, invalid identity/generation and environment
+override rejection. It preserves all previous assertions and test routing.
+
+Repaired focused run
+[ad739b15](https://carverauto.buildbuddy.io/invocation/ad739b15-70c1-458e-854f-fb9241fa87a2)
+passes the router owner with 824 tests, zero failures and 220 exclusions, plus
+web quality with no issues and the cached full Helm render suite. The encoded
+route regression is included, and the new application-to-plug warning is gone.
+Independent read-only review found no remaining authentication or boundary issue.
+
+Full remote `make test`
+[23ede7bb](https://carverauto.buildbuddy.io/invocation/23ede7bb-1e3e-45d0-a117-0c714ded1fd5)
+passes 459 targets, with two Swift platform skips. Strict OpenSpec and the eight
+changed documents' ASCII/relative links pass. The modified guarded HTTP bodies
+remain explicitly unexecuted before publication; their final in-cluster PR lane
+must execute on the published head. No provider or live deployment operation ran.

@@ -64,22 +64,32 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
             <Common.small_stat
               label="IOCs"
               value={format_compact_count(@threat_intel_summary.imported_indicators)}
+              href={ThreatIntelLinks.investigation_path(view: "inventory")}
+              aria_label="Open imported indicators"
             />
             <Common.small_stat
               label="Objects"
               value={format_compact_count(@threat_intel_summary.source_objects)}
+              href={ThreatIntelLinks.investigation_path(view: "objects")}
+              aria_label="Open imported provider objects"
             />
             <Common.small_stat
               label="Matched IPs"
               value={format_compact_count(@threat_intel_summary.matched_ips)}
+              href={ThreatIntelLinks.investigation_path()}
+              aria_label="Open current matched IPs"
             />
             <Common.small_stat
               label="Indicator matches"
               value={format_compact_count(@threat_intel_summary.indicator_matches)}
+              href={ThreatIntelLinks.investigation_path(view: "indicator_matches")}
+              aria_label="Open endpoint-to-indicator matches"
             />
             <Common.small_stat
               label="Max sev"
               value={format_compact_count(@threat_intel_summary.max_severity)}
+              href={ThreatIntelLinks.investigation_path(sort: "severity")}
+              aria_label="Open matched IPs by highest severity"
             />
           </div>
         </div>
@@ -94,7 +104,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
             <span class="sr-ops-threat-message">{threat_message(@threat_intel_summary)}</span>
           </div>
           <div :for={match <- @recent_matches} class="sr-ops-threat-match">
-            <span class="sr-ops-threat-match-ip">{match.ip}</span>
+            <.link
+              href={ThreatIntelLinks.investigation_path(selected: match.ip)}
+              class="sr-ops-threat-match-ip hover:underline"
+              aria-label={"Investigate #{match.ip}"}
+            >
+              {match.ip}
+            </.link>
             <span class="sr-ops-threat-match-meta">
               <span :if={match_meta_label(match) != ""}>{match_meta_label(match)} · </span>
               <.user_time
@@ -122,9 +138,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Index.ThreatPanel do
               </.link>
             </div>
           </div>
-          <div :if={@hidden_match_count > 0} class="sr-ops-threat-matches-more">
+          <.link
+            :if={@hidden_match_count > 0}
+            href={ThreatIntelLinks.investigation_path()}
+            class="sr-ops-threat-matches-more hover:underline"
+          >
             +{@hidden_match_count} more matched IPs
-          </div>
+          </.link>
         </div>
       </div>
     </Common.panel>

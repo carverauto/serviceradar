@@ -11,14 +11,14 @@
 - [x] 2.1 Add a project-owned threat-intel investigation query module that pages
   live `IpThreatIntelCache` endpoint matches and resolves individual active
   `ThreatIntelIndicator` rows without per-row queries.
-- [ ] 2.2 Return explicit fields for cache evaluation/expiry and indicator
+- [x] 2.2 Return explicit fields for cache evaluation/expiry and indicator
   identity/source/label/severity/confidence/validity; attach source-object context
   only when the relationship is unambiguous.
 - [x] 2.3 Keep current cache matches and `OTXRetrohuntFinding` evidence as distinct
   result kinds and labels.
-- [ ] 2.4 Add deterministic keyset pagination and bounded source, indicator,
+- [x] 2.4 Add deterministic keyset pagination and bounded source, indicator,
   observed-IP, severity, freshness, and status filters.
-- [ ] 2.5 Run `EXPLAIN (ANALYZE, BUFFERS)` on production-sized fixtures and add only
+- [x] 2.5 Run `EXPLAIN (ANALYZE, BUFFERS)` on production-sized fixtures and add only
   the supporting live-cache/index migration proven necessary by the plan.
 - [x] 2.6 Fix match metric naming so distinct endpoints and
   endpoint-to-indicator memberships are never reported as flow occurrence counts.
@@ -60,7 +60,7 @@
   evidence.
 - [x] 4.4 Add URL-backed filters and `View flows` / `View attributed flows` pivots
   that preserve endpoint, indicator/source, and time state.
-- [ ] 4.5 Add separate inventory and retrohunt evidence views without presenting
+- [x] 4.5 Add separate inventory and retrohunt evidence views without presenting
   imported-only IOCs as local sightings.
 - [x] 4.6 Change the dashboard Threat Intel summary body to open the investigation
   route; retain a separate `Manage` command to settings and preserve accessible
@@ -96,13 +96,13 @@
 
 - [x] 6.1 Enforce `observability.netflow.view` on the LiveView, SRQL entity, and any
   API/query endpoint; keep all mutations behind `plugins.assign`.
-- [ ] 6.2 Verify that API keys, secret references, raw payloads, and unredacted
+- [x] 6.2 Verify that API keys, secret references, raw payloads, and unredacted
   provider errors never enter results, URLs, logs, telemetry, or rendered HTML.
-- [ ] 6.3 Add query telemetry for duration, timeout, result count, and safe
+- [x] 6.3 Add query telemetry for duration, timeout, result count, and safe
   entity/filter metadata.
-- [ ] 6.4 Add a regression that fails if the match list or detail view performs one
+- [x] 6.4 Add a regression that fails if the match list or detail view performs one
   query per row.
-- [ ] 6.5 Exercise the performance acceptance fixtures and record the final query
+- [x] 6.5 Exercise the performance acceptance fixtures and record the final query
   plans in test/runbook evidence.
 
 ## 7. Tests And Verification
@@ -114,7 +114,7 @@
 - [ ] 7.3 Add Elixir data-layer tests for live/expired cache rows, overlapping CIDRs,
   missing source-object context, retrohunt separation, pagination, and timeout
   propagation.
-- [ ] 7.4 Add LiveView tests for RBAC, dashboard/settings links, filters,
+- [x] 7.4 Add LiveView tests for RBAC, dashboard/settings links, filters,
   pagination, match detail, both flow pivots, stale state, and query failure state.
 - [x] 7.5 Add Go/plugin tests proving old cap keys are ignored, page/page-count and
   time/attempt limits remain enforced, partial cursors resume, and valid rows are

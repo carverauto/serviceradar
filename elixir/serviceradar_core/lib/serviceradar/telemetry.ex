@@ -765,6 +765,12 @@ defmodule ServiceRadar.Telemetry do
     import Telemetry.Metrics
 
     [
+      sum("serviceradar.exposure.transition.dropped.count",
+        event_name: [:serviceradar, :exposure, :transition, :dropped],
+        measurement: :count,
+        tags: [:reason],
+        description: "Exposure transition deliveries dropped at the ingestion boundary"
+      ),
       counter("serviceradar.starrocks.stream_load.failure.count",
         event_name: [:serviceradar, :starrocks, :stream_load, :failure],
         measurement: :count,

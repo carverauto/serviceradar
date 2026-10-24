@@ -2,16 +2,39 @@
 
 ## Sound, medium confidence
 
+### Establish media authentication before storage authority
+
+When: deployment-scoped media authentication pass. Verdict: sound, medium confidence.
+
+When Cloud replaces an environment, its account-level password-reset token can
+remain unchanged. Media operations now require a separate installed credential
+and exact deployment identity, including on the existing receipt API. The
+installation endpoint reports which process answered, while keeping readiness
+unavailable. This closes a real access boundary without treating an installation
+acknowledgment as storage permission. Full desired/applied content, fresh evidence
+and isolated provider credentials remain required before execution.
+
+### Replace processes when installation identity changes
+
+When: deployment-scoped media authentication pass. Verdict: sound, medium confidence.
+
+Pods read their token at startup. The chart puts the deployment reference and
+generation on the pod template so changing either requests replacement pods.
+Updating Secret bytes alone leaves old processes able to use their loaded token.
+This pass does not build a rotation workflow or claim that one successful
+acknowledgment means every old replica has stopped. Cloud must observe retirement
+before it can report complete revocation in a future lifecycle pass.
+
 ### Receive qualification claims before installing storage authority
 
 When: private qualification receipt pass. Verdict: sound, medium confidence.
 
 A provisioner can submit an all-passed report while the runtime still lacks a
 storage workload, current evidence or an authenticated environment identity.
-The private API now records that submission and returns unavailable status with
-no applied revision. It reuses the existing private control-plane credential;
-that credential currently identifies a control caller and is account-scoped in
-SaaS, so it cannot establish the missing environment identity. The plan required
+The receipt API records that submission and returns unavailable status with
+no applied revision. The receipt pass used the account-scoped private credential;
+the media authentication pass replaces that ingress with a deployment-scoped
+credential, without upgrading historical receipts into authority. The plan required
 an authenticated desired/applied exchange but did not select its implementation
 sequence. Keeping this receipt sub-contract explicit lets that exchange gain a
 real durable ingress without inventing authority or a second credential system.
@@ -300,6 +323,29 @@ support file and directory sync. The guarantee covers the local node only;
 another node cannot recover footage that never reached an archive.
 
 ## Sound, high confidence
+
+### Share the private listener while separating credential purposes
+
+When: deployment-scoped media authentication pass. Verdict: sound, high confidence.
+
+A caller that can reset an account password must not automatically gain media
+access. Routes select either the account credential or a separate media credential
+before parsing a body. Media can enable this same pod-only listener without
+installing an account token, and equal configured tokens fail media validation.
+The installed UUID and generation identify this process, never tenant routing.
+One context owns configuration validation for startup and HTTP authentication;
+the plug owns header cardinality and decodes paths exactly as the router does.
+
+### Keep installation generations exact across configuration and HTTP
+
+When: deployment-scoped media authentication pass. Verdict: sound, high confidence.
+
+A large generation must not change when YAML or JSON passes through a numeric
+parser. Generations therefore use canonical decimal strings in values,
+environment variables, headers and acknowledgment, bounded to positive signed
+bigint values. Chart authors must quote the value. The chart rejects generic
+environment overrides of the three media installation fields, even when media is
+disabled, so those overrides cannot bypass identity validation or Secret custody.
 
 ### Use arrival time for observation and revisions for ordering
 

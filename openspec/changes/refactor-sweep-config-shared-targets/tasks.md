@@ -70,17 +70,17 @@
 
 ## 4. Go agent
 
-- [ ] 4.1 In `go/pkg/agent/sweep_config_gateway.go`, add the shared-targets
+- [x] 4.1 In `go/pkg/agent/sweep_config_gateway.go`, add the shared-targets
       types and dispatch `parseGatewaySweepConfig/2` on `format`. Absent
       means legacy, `shared-targets/v1` means rehydrate (Decision 5), and
       anything else is an error that keeps the current sweep config.
-- [ ] 4.2 Make the unknown-format error path in `applySweepConfig` keep the
+- [x] 4.2 Make the unknown-format error path in `applySweepConfig` keep the
       running config instead of clearing targets. Test it by applying a valid
       config, then an unknown-format one, and asserting the service's groups
       are unchanged.
-- [ ] 4.3 Advertise `sweep-config-shared-targets:v1` from
+- [x] 4.3 Advertise `sweep-config-shared-targets:v1` from
       `agentCapabilities/1`, and add it to the capability test expectations.
-- [ ] 4.4 Parity tests: equivalent legacy and shared-targets payloads parse
+- [x] 4.4 Parity tests: equivalent legacy and shared-targets payloads parse
       to equal `SweepGroupsConfig` values, and the 1.3 results test reports
       the same envelope for both.
 

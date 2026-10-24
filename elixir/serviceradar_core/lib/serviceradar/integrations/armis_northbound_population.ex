@@ -8,6 +8,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
 
   import Ecto.Query
 
+  alias ServiceRadar.Integrations.ArmisNorthboundRunner
+  alias ServiceRadar.Inventory.Availability.LegacyValue
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
@@ -148,6 +150,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
       from(observation in DeviceSourceObservation,
         left_join: device in Device,
         on: device.uid == observation.device_id,
+        left_join: legacy in LegacyValue,
+        on: legacy.device_uid == observation.device_id,
+        # availability_state is not a Device attribute; read it from the same row.
+        left_join: canonical in "ocsf_devices",
+        on: canonical.uid == observation.device_id,
         where:
           observation.partition == ^snapshot.partition and observation.source == "armis" and
             observation.source_instance == ^source_instance and
@@ -159,7 +166,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
           metadata: device.metadata,
           observation_metadata: observation.metadata,
           deleted_at: device.deleted_at,
-          canonical_availability: device.is_available
+          legacy_availability:
+            fragment(
+              "CASE WHEN ? IS NULL THEN ? ELSE ? END",
+              legacy.device_uid,
+              device.is_available,
+              legacy.is_available
+            ),
+          canonical_state: type(canonical.availability_state, :string)
         },
         order_by: [asc: observation.source_object_id]
       )
@@ -180,13 +194,30 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundPopulation do
     |> Enum.group_by(&elem(&1, 0), &elem(&1, 1))
   end
 
+  # With an agent selected, that agent's per-agent result. Without one, the source's
+  # semantics (add-merged-device-availability, Decision 13): `legacy` pushes the legacy
+  # writers' value (the compatibility table, or the column where it has no row yet);
+  # `merged` pushes the canonical state, and an unknown device has no value, so it is
+  # withheld as missing_availability.
   defp availability_by_device(source, observations) do
     case availability_source_agent_id(source) do
-      nil -> Map.new(observations, &{&1.device_id, &1.canonical_availability})
-      "" -> Map.new(observations, &{&1.device_id, &1.canonical_availability})
-      agent_id -> agent_availability(agent_id, Enum.map(observations, & &1.device_id))
+      agent_id when agent_id in [nil, ""] ->
+        canonical_availability(ArmisNorthboundRunner.availability_semantics(source), observations)
+
+      agent_id ->
+        agent_availability(agent_id, Enum.map(observations, & &1.device_id))
     end
   end
+
+  defp canonical_availability(:legacy, observations),
+    do: Map.new(observations, &{&1.device_id, &1.legacy_availability})
+
+  defp canonical_availability(:merged, observations),
+    do: Map.new(observations, &{&1.device_id, state_availability(&1.canonical_state)})
+
+  defp state_availability("available"), do: true
+  defp state_availability("unavailable"), do: false
+  defp state_availability(_state), do: nil
 
   defp agent_availability(_agent_id, []), do: %{}
 

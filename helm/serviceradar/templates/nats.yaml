@@ -362,6 +362,7 @@ spec:
                       "config.>",
                       "inventory.k8s.>",
                       "trivy.report.>",
+                      "vulnerability.assessment.transitions.>",
                       "falco.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
