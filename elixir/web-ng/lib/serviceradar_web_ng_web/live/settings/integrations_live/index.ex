@@ -579,7 +579,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
            |> Ash.update(actor: actor) do
       {:noreply,
        socket
-       |> put_flash(:info, "#{adopted.name} now pushes merged device availability")
+       |> put_flash(
+         :info,
+         "#{adopted.name} uses merged availability. Until the deployment cuts over merged availability its pushes do not change; from cutover they follow the merged state and withhold unknown devices."
+       )
        |> assign(:selected_source, refresh_selected_source(adopted, actor))
        |> assign(:selected_source_availability_preview, nil)
        |> assign(:sources, list_sources(actor, active_filters(socket)))}
@@ -2646,13 +2649,21 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
         <% @source.northbound_availability_semantics == :merged -> %>
           <div class="text-sm">
-            Pushes merged device availability. Devices whose availability is unknown are withheld.
+            Pushes the merged availability state, which before the deployment's availability
+            cutover equals the legacy value, so adopting before cutover changes nothing pushed
+            until cutover. From cutover, unknown devices are withheld.
           </div>
         <% true -> %>
           <div class="text-sm">
-            Pushes the legacy availability value. Choose merged availability below, or select an
-            availability agent in Edit.
+            Pushes the legacy availability value. Select an availability agent in Edit, or adopt
+            merged availability below. Merged semantics push the merged availability state, which
+            before the deployment's availability cutover equals the legacy value, so adopting
+            before cutover changes nothing pushed until cutover.
           </div>
+          <p :if={@preview} class="text-xs text-sr-muted">
+            What this source would push once merged availability is cut over. Until then the
+            preview shows the shadow decision; from cutover it shows the merged state.
+          </p>
           <div
             :if={@preview}
             id="integration-source-availability-preview"
@@ -2663,11 +2674,11 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               <div class="sr-ui-stat-value text-lg">{@preview.linked_ids}</div>
             </div>
             <div class="stat bg-sr-subtle rounded-lg p-3">
-              <div class="sr-ui-stat-title text-xs">Would Change</div>
+              <div class="sr-ui-stat-title text-xs">Change After Cutover</div>
               <div class="sr-ui-stat-value text-lg">{@preview.would_change}</div>
             </div>
             <div class="stat bg-sr-subtle rounded-lg p-3">
-              <div class="sr-ui-stat-title text-xs">Would Be Withheld</div>
+              <div class="sr-ui-stat-title text-xs">Withheld After Cutover</div>
               <div class="sr-ui-stat-value text-lg">{@preview.withheld}</div>
             </div>
           </div>
@@ -2676,7 +2687,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               :for={direction <- @preview.by_direction}
               :if={direction.legacy_push != direction.merged_push}
             >
-              {direction.count}: {direction.legacy_push} to {direction.merged_push}
+              After cutover, {direction.count}: {direction.legacy_push} to {direction.merged_push}
             </li>
           </ul>
           <.ui_button
@@ -2684,7 +2695,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             size="sm"
             phx-click="adopt_merged_availability"
             phx-value-id={@source.id}
-            data-confirm="Push merged device availability for this source from its next run?"
+            data-confirm="Use merged availability for this source? Until the deployment cuts over merged availability its pushes do not change; from cutover they follow the merged state and withhold unknown devices."
           >
             Adopt merged availability
           </.ui_button>
