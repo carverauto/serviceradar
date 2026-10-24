@@ -29,12 +29,14 @@
 
 ## 5. Starlink Cloud Plugin
 - [x] 5.1 Scaffold `go/cmd/wasm-plugins/starlink/` (module, pinned tagged SDK, committed `vendor/`, `BUILD.bazel`, `main_tinygo.go`/`main_stub.go`), and register both bundles in `build/wasm_plugins/plugin_inventory.bzl`.
-- [x] 5.2 Write `plugin.yaml` (`starlink-cloud`): producer schedules for inventory and telemetry with the OAuth2 client-credentials credential requirement, capabilities, permissions, credential profile (`mode: producer_schedule`), split read/management allow lists, inventory source, signal schemas, proposed alert rules, actions.
-- [x] 5.3 Management API client: response envelope parsing, index and cursor pagination, 429/`Retry-After` handling, per-run request budget.
+- [x] 5.2 Write `plugin.yaml` (`starlink-cloud`): producer schedules for inventory and telemetry with the OAuth2 client-credentials credential requirement, capabilities, permissions, credential profile (`mode: producer_schedule`), inventory source, signal schemas, and proposed alert rules.
+- [x] 5.3 Management API client: response envelope parsing, index pagination, 429/`Retry-After` handling, per-run request budget.
 - [x] 5.4 Inventory: terminals, routers, service lines to `device_discovery.v1` complete snapshots with the identity rules from design D3.
 - [x] 5.5 Telemetry: bounded stream draining, name-based column decoding, enum decoding, metric mapping to `serviceradar.metric.v1` via `EmitTelemetry`, gap detection.
 - [x] 5.6 Alerts: query-based level alerts to OCSF events with condition keys, enum-only code mapping, unknown stream codes counted on the metric and not emitted as events, severity table.
 - [x] 5.7 Tests with synthetic fixtures only: pagination, partial snapshot, identity (shared public IP, placeholders), column reorder, unknown alert code, secret rejection in guest config.
+- [ ] 5.8 Add the management-purpose mutating allow list and declare management actions in `plugin.yaml`.
+- [ ] 5.9 Page managed-account lists with the vendor `nextKey` cursor.
 
 ## 6. Management Actions
 - [ ] 6.1 Bind each management action's named credential requirements to the account's provisioned Starlink credential rule (multiple named grants per invocation are already supported by `credential_grants.ex`); add tests for the two-account move.
