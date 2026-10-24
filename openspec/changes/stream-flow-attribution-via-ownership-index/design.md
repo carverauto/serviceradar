@@ -1108,7 +1108,10 @@ default history cap or Rust implementation is selected from these assumed profil
 accepting P1, the complete representative store and replay path must meet the original gates;
 any architecture adjustment still requires a concrete reviewed decision.
 
-Reproduce the scale baseline (the default 2,500-key runs only check correctness):
+Evidence for this uninstrumented baseline: [all three scale runs](https://carverauto.buildbuddy.io/invocation/36684ef2-51b7-4560-8892-f463319a71d1),
+[small corpus checks](https://carverauto.buildbuddy.io/invocation/4ac6a3cf-4ae6-456a-a527-e351b34c2076),
+and [close-guard negative control](https://carverauto.buildbuddy.io/invocation/82e8a2fc-5111-41cc-a75f-ff96b446f6a6).
+That run submitted the three scale targets together. Default 2,500-key runs only check correctness:
 
 ```sh
 bazel test -c opt --config=remote \
@@ -1119,9 +1122,10 @@ bazel test -c opt --config=remote \
   --test_output=all --flaky_test_attempts=1
 ```
 
-Evidence: [all three scale runs](https://carverauto.buildbuddy.io/invocation/36684ef2-51b7-4560-8892-f463319a71d1),
-[small corpus checks](https://carverauto.buildbuddy.io/invocation/4ac6a3cf-4ae6-456a-a527-e351b34c2076),
-and [close-guard negative control](https://carverauto.buildbuddy.io/invocation/82e8a2fc-5111-41cc-a75f-ff96b446f6a6).
+Those targets now print `protocol=2` and time phase instrumentation inside replay, so this
+command does not reproduce the table. The [replay cost investigation](replay-costs.md) records
+that instrumented protocol, the copy modes and the later measurements. It keeps this corpus,
+its correctness checks and the original gates.
 
 ## Known edge cases and deferred decisions
 
