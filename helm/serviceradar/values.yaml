@@ -762,12 +762,16 @@ core:
   #   stored, and core logs a warning about it every minute.
   # - active: alert rules evaluate events, logs and metrics.
   # - draining: admission stops while accepted work finishes.
-  # Set active once no core pod older than 1.4.85 is running anywhere in the
-  # deployment, including disconnected ones: an older pod evaluates on its
-  # own, and active admission refuses only the ones it can see. An install
-  # that never ran a release older than 1.4.85 can start active.
+  # Empty (the default) resolves automatically: a fresh install starts
+  # active, because it never ran a release older than 1.4.85, while an
+  # upgrade of a pre-existing install stays prepared until set active
+  # here. Set active once no core pod older than 1.4.85 is running
+  # anywhere in the deployment, including disconnected ones: an older pod
+  # evaluates on its own, and active admission refuses only the ones it
+  # can see. Renderers that always report an upgrade (Argo CD) resolve
+  # empty to prepared, so GitOps installs set the mode explicitly.
   alertEvaluation:
-    mode: prepared
+    mode: ""
   database:
     # Core refuses to start result ingestion below 8 (see
     # docs/result-ingestion-operations.md, "Capacity").
