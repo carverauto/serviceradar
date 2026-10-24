@@ -142,27 +142,39 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   @spec enter_shadow() :: {:ok, %{from: t(), to: :shadow}} | {:error, term()}
   def enter_shadow do
     switch(fn
-      from when from in [:legacy, :shadow] ->
-        # Rows left by an earlier shadow period are stale.
-        if from == :legacy, do: Repo.query!("TRUNCATE platform.device_availability_shadow")
+      # A rollback whose restore has not finished would leave resolver values in
+      # is_available, and the shadow entry seed would copy them into the compatibility
+      # table, losing the legacy values the restore puts back.
+      :legacy = from ->
+        if CutoverWorker.outstanding?("restore"),
+          do: {:error, :restore_pending},
+          else: shadow_from(from)
 
-        # Entering from legacy starts the expiry window now; a repeat keeps it.
-        Repo.query!("""
-        UPDATE platform.availability_settings
-        SET mode = 'shadow',
-            updated_at = (now() AT TIME ZONE 'utc'),
-            expiry_watermark = CASE WHEN mode = 'shadow' AND expiry_watermark IS NOT NULL
-                                    THEN expiry_watermark
-                                    ELSE (now() AT TIME ZONE 'utc') END
-        WHERE singleton
-        """)
-
-        :ok = ShadowEntryWorker.enqueue()
-        {:ok, %{from: from, to: :shadow}}
+      :shadow = from ->
+        shadow_from(from)
 
       from ->
         {:error, {:unsupported_switch, from, :shadow}}
     end)
+  end
+
+  defp shadow_from(from) do
+    # Rows left by an earlier shadow period are stale.
+    if from == :legacy, do: Repo.query!("TRUNCATE platform.device_availability_shadow")
+
+    # Entering from legacy starts the expiry window now; a repeat keeps it.
+    Repo.query!("""
+    UPDATE platform.availability_settings
+    SET mode = 'shadow',
+        updated_at = (now() AT TIME ZONE 'utc'),
+        expiry_watermark = CASE WHEN mode = 'shadow' AND expiry_watermark IS NOT NULL
+                                THEN expiry_watermark
+                                ELSE (now() AT TIME ZONE 'utc') END
+    WHERE singleton
+    """)
+
+    :ok = ShadowEntryWorker.enqueue()
+    {:ok, %{from: from, to: :shadow}}
   end
 
   @doc """

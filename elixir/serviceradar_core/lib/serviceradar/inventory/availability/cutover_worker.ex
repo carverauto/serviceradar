@@ -108,7 +108,7 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
   SELECT d.uid FROM platform.ocsf_devices AS d
   JOIN platform.device_availability_legacy AS l ON l.device_uid = d.uid
   WHERE d.uid > $1::text AND d.deleted_at IS NULL
-    AND d.availability_state = 'available' AND l.is_available IS NOT TRUE
+    AND d.availability_state = 'available' AND l.is_available = false
   ORDER BY d.uid
   LIMIT $2
   """
@@ -126,6 +126,11 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
 
     :ok
   end
+
+  @doc "Whether a job of `phase` is waiting or executing."
+  @spec outstanding?(String.t()) :: boolean()
+  def outstanding?(phase) when phase in @phases,
+    do: Repo.exists?(phase_jobs(phase, @queued_or_running), prefix: "platform")
 
   defp queued_states("reconcile"), do: @queued_or_running
   defp queued_states(_phase), do: @queued_states

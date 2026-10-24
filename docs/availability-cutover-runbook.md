@@ -127,7 +127,9 @@ WHERE d.is_available IS DISTINCT FROM l.is_available
 ```
 
 Pass: 0 once `cutover_jobs` no longer lists `restore`. To try again later, re-enter
-`shadow` first (`switch("shadow")`), then `switch("cutover")`.
+`shadow` first (`switch("shadow")`), then `switch("cutover")`. `switch("shadow")`
+returns `{:error, :restore_pending}` while the restore job is still waiting or running,
+because entering `shadow` re-seeds the compatibility table from `is_available`.
 
 ## What changes for readers
 
