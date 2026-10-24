@@ -67,7 +67,6 @@ defmodule ServiceRadar.Camera.ArchiveUploadDispatch do
 
     create :prepare do
       accept [
-        :id,
         :archive_upload_intent_id,
         :upload_epoch,
         :upload_token_sha256,

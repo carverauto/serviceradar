@@ -126,7 +126,6 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
         |> Ash.Changeset.for_create(
           :prepare,
           Map.merge(identity, %{
-            id: Ecto.UUID.generate(),
             prepared_at: block.database_now,
             deadline_at: deadline
           })
