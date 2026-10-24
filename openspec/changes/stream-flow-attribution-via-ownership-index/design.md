@@ -860,9 +860,9 @@ label the prerequisite ready or start P2-P8. The recorded investigation is task 
 
 This is the reviewed implementation plan for #5738. The shared
 `ExecutableOwnership` message and its initial producer/ingest path landed through
-[#5919](https://github.com/carverauto/serviceradar/pull/5919). This satisfies the handoff's
-proto dependency for planning; it does not certify the separate ownership workstream's
-live validation or complete exposure task 0.3.
+[#5919](https://github.com/carverauto/serviceradar/pull/5919). Exposure task 0.3
+records that delivery. This plan does not certify live validation of that
+workstream.
 
 **Current pickup:** Decision 13's bounded source investigation found no acceptable
 closure mechanism under the approved constraints. The [spike findings](closure-spike.md)
@@ -991,9 +991,10 @@ sides. Neither a raw-tuple ratio nor the existence of a summary table passes it.
 
 Exposure Decision 21
 (`openspec/changes/add-srql-exposure-intelligence/design.md`) lets the assessment
-foundation in tasks 1.x proceed while tasks 0.3-0.5 still gate traffic evidence
-integration and launch. The network measurement still needs the later address and
-stamping work. This plan does not move or waive that gate. If the measured network
+foundation in tasks 1.x proceed while the remaining Phase 0 attribution and
+measurement gates still block traffic evidence integration and launch. The network
+measurement still needs the later address and stamping work. This plan does not
+move or waive that gate. If the measured network
 ratio exceeds 25%, its approved async-view fallback must be selected before exposure
 3.x; a failed host ratio requires its own design review.
 

@@ -21,7 +21,7 @@ What exists today:
 The gaps that block the six operator questions are:
 
 - nothing maps a flow endpoint or a host peer to a device;
-- nothing maps a process to the package that owns its executable (#5752);
+- executable ownership is on flow attribution events and process snapshots (task 0.3); lease owner records and connection summary rows still lack it (task 0.4);
 - host connection summaries (#5753) are not yet in the lab warehouse (Task 0.5), so nothing joins them to devices, exposure or flows, and nothing records whether an agent's capture was complete for an interval;
 - the exposure tables above are not yet written or exposed as SRQL.
 
@@ -923,10 +923,12 @@ task 1.6. No implementation of this path is part of this documentation change.
 On 2026-10-24 the product owner directed work to stop codec tuning and continue
 the exposure workstream, accepting the proposed sequencing of the independent
 assessment foundation ahead of the remaining attribution gates. Tasks 1.x may
-proceed using the delivered assessment outbox and ordinal dictionaries. Tasks
-0.3-0.5 still gate traffic evidence integration and launch. No capacity threshold,
-evidence requirement, or launch scope is waived. Snapshot and reconciliation must
-pass before exposure SRQL entities become available.
+proceed using the delivered assessment outbox and ordinal dictionaries. The
+decision named tasks 0.3-0.5 as the gates on traffic evidence integration and
+launch. Task 0.3 has since landed; tasks 0.4 and 0.5 still gate that work.
+No capacity threshold, evidence requirement, or launch scope is waived.
+Snapshot and reconciliation must pass before exposure SRQL entities become
+available.
 
 Migration 0032 creates the four tables in task 1.2. The fact key and columns follow
 Decision 2, including BIGINT device ordinals and the default snapshot marker from

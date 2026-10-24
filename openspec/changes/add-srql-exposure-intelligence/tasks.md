@@ -6,8 +6,9 @@ deployment.
 ## 0. Prerequisites and gates
 
 Decision 21 permits the assessment foundation in 1.x to proceed independently of
-0.3-0.5. Those gates still block traffic evidence integration and remain required
-for launch; their thresholds and the full feature scope are unchanged.
+the remaining attribution gates. Tasks 0.4 and 0.5 still block traffic evidence
+integration and remain required for launch; their thresholds and the full feature
+scope are unchanged.
 
 - [x] 0.1 #5748 merged: incremental, write-on-change matching that publishes assessment transitions through a transactional outbox with `transition_seq` and ordinals, per *Assessment Transitions Are Published On JetStream*. Delivered with the producer-side parts of 1.1 and 1.3; see design.md, *Implementation record*.
 - [x] 0.2 #5749 fixed: superseded-package matches resolve. The read-only follow-up verified no active orphan matches and re-checked the actionable count after a subsequent successful matcher run; see design.md, *Task 0.2: read-only cleanup follow-up*.
