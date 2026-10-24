@@ -64,6 +64,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         netflow_cache_scheduler_child(),
         endpoint_vulnerability_match_scheduler_child(),
         exposure_transition_relay_child(),
+        exposure_dimension_relay_child(),
         device_risk_assessment_scheduler_child(),
         armis_northbound_scheduler_child(),
         mtr_baseline_scheduler_child(),
@@ -358,6 +359,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
          true
        ) do
       ServiceRadar.Inventory.ExposureTransitionRelay
+    end
+  end
+
+  defp exposure_dimension_relay_child do
+    if enabled?("EXPOSURE_DIMENSION_RELAY_ENABLED", :exposure_dimension_relay_enabled, true) do
+      ServiceRadar.Inventory.ExposureDimensionRelay
     end
   end
 

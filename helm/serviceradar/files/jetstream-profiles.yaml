@@ -26,13 +26,13 @@
 # enabled; flows and ARANCINI_CAUSAL are always counted at the collector size.
 #
 #   profile  servers  need (GiB)                     limit (GiB)
-#   small    3        17 + 11.25/3 + 2 = 22.75       28.50
-#   small    1        23.25                          28.50
-#   medium   3        53 + 29.5/3 + 12 = 74.83       79.16
-#   medium   1        74.5                           79.16
-#   large    3        266 + 132/3 + 64 = 374         395.81
-#   large    1        366                            395.81
-#   tenant-2g 3       0.91 + 0.25 + 0.25 = 1.41      1.58
+#   small    3        17 + 12.25/3 + 2 = 23.08       28.50
+#   small    1        24.25                          28.50
+#   medium   3        53 + 31.5/3 + 12 = 75.50       79.16
+#   medium   1        76.5                           79.16
+#   large    3        266 + 140/3 + 64 = 376.67         395.81
+#   large    1        374                            395.81
+#   tenant-2g 3       0.91 + 0.26 + 0.25 = 1.42      1.58
 profiles:
   small:
     maxFileStore: 36G
@@ -51,6 +51,7 @@ profiles:
       scan_results: 256Mi
       notifications: 1Gi
       exposureTransitions: 1Gi
+      exposureDimensions: 1Gi
       trivy_reports: 1Gi
       fieldsurvey: 1Gi
       threatIntel: 1Gi
@@ -70,6 +71,7 @@ profiles:
       scan_results: 256Mi
       notifications: 1Gi
       exposureTransitions: 1Gi
+      exposureDimensions: 1Gi
       trivy_reports: 1Gi
       fieldsurvey: 1Gi
       threatIntel: 1Gi
@@ -92,6 +94,7 @@ profiles:
       scan_results: 512Mi
       notifications: 1Gi
       exposureTransitions: 2Gi
+      exposureDimensions: 2Gi
       trivy_reports: 2Gi
       fieldsurvey: 2Gi
       threatIntel: 2Gi
@@ -111,6 +114,7 @@ profiles:
       scan_results: 512Mi
       notifications: 1Gi
       exposureTransitions: 2Gi
+      exposureDimensions: 2Gi
       trivy_reports: 2Gi
       fieldsurvey: 2Gi
       threatIntel: 2Gi
@@ -133,6 +137,7 @@ profiles:
       scan_results: 2Gi
       notifications: 2Gi
       exposureTransitions: 8Gi
+      exposureDimensions: 8Gi
       trivy_reports: 8Gi
       fieldsurvey: 8Gi
       threatIntel: 8Gi
@@ -152,6 +157,7 @@ profiles:
       scan_results: 2Gi
       notifications: 2Gi
       exposureTransitions: 8Gi
+      exposureDimensions: 8Gi
       trivy_reports: 8Gi
       fieldsurvey: 8Gi
       threatIntel: 8Gi
@@ -183,6 +189,7 @@ profiles:
       scan_results: 32Mi
       notifications: 32Mi
       exposureTransitions: 32Mi
+      exposureDimensions: 32Mi
       trivy_reports: 64Mi
       fieldsurvey: 64Mi
       threatIntel: 64Mi
@@ -205,6 +212,7 @@ replicas:
   scan_results: 1
   notifications: 1
   exposureTransitions: 1
+  exposureDimensions: 1
   trivy_reports: 1
   fieldsurvey: 1
   threatIntel: 1

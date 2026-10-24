@@ -7,6 +7,7 @@ alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
 alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
+alias ServiceRadar.Inventory.ExposureDimensionRelay
 alias ServiceRadar.Inventory.ExposureTransitionRelay
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
@@ -526,6 +527,13 @@ mtr_stage_enabled = fn env_name ->
     value -> value in ~w(true 1 yes)
   end
 end
+
+config :serviceradar_core, ExposureDimensionRelay,
+  max_bytes:
+    StateBucketSizing.bytes_from_env!(
+      "SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES",
+      ExposureDimensionRelay.default_max_bytes()
+    )
 
 # Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
 # relay starts). Unset or blank means 1 GiB; an invalid value fails boot.
@@ -1280,6 +1288,7 @@ if config_env() == :prod do
       # observability sweep, the 03:37 ledger prune, and the 03:43
       # credential-broker delete. Kept in step with serviceradar_core's
       # runtime.exs and config.exs.
+      {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker, queue: :maintenance},
       {"23 3 * * *", SecurityEventsRetentionWorker, queue: :maintenance},
       {"51 3 * * *", ApiEventsRetentionWorker, queue: :maintenance},
       {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
@@ -1718,6 +1727,7 @@ if config_env() == :prod do
         Config.scan_results_stream(),
         Config.mtr_results_stream(),
         Config.exposure_transitions_stream(),
+        Config.exposure_dimensions_stream(),
         %{
           name: "BMP_CAUSAL",
           stream_name: "events",

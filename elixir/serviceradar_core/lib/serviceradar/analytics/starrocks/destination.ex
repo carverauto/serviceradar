@@ -70,6 +70,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :flow_attribution_observations
           | :exposure_facts
           | :exposure_transitions_log
+          | :exposure_cve_dim
+          | :exposure_package_dim
   @type dest :: :cnpg | :starrocks
 
   @tables %{
@@ -86,7 +88,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     bmp_routing_events: "bmp_routing_events",
     flow_attribution_observations: "flow_process_attribution_observations",
     exposure_facts: "exposure_facts",
-    exposure_transitions_log: "exposure_transitions_log"
+    exposure_transitions_log: "exposure_transitions_log",
+    exposure_cve_dim: "exposure_cve_dim",
+    exposure_package_dim: "exposure_package_dim"
   }
 
   @spec table_for(dataset()) :: String.t()
@@ -346,7 +350,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   defp classify_load(result, dataset, table) do
     case result do
       {:quarantine, reason}
-      when dataset in [:flow_attribution, :exposure_facts, :exposure_transitions_log] ->
+      when dataset in [
+             :flow_attribution,
+             :exposure_facts,
+             :exposure_transitions_log,
+             :exposure_cve_dim,
+             :exposure_package_dim
+           ] ->
         {:error, reason}
 
       {:quarantine, reason} ->
@@ -550,7 +560,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   # Flow observation identities do not include assessment keys or sequences.
   # Each chunk needs a stable, exposure-specific label, including on redelivery.
   defp exposure_load_label(opts, dataset, table, rows)
-       when dataset in [:exposure_facts, :exposure_transitions_log] do
+       when dataset in [
+              :exposure_facts,
+              :exposure_transitions_log,
+              :exposure_cve_dim,
+              :exposure_package_dim
+            ] do
     sequences = rows |> Enum.map(& &1["transition_seq"]) |> Enum.sort() |> Enum.join(",")
     digest = :sha256 |> :crypto.hash(table <> ":" <> sequences) |> Base.encode16(case: :lower)
     Keyword.put(opts, :label, "exposure-" <> digest)
@@ -563,6 +578,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     |> Keyword.put(:partial_update, true)
     |> Keyword.put(:merge_condition, "transition_seq")
     |> Keyword.put(:columns, Rows.exposure_fact_columns())
+  end
+
+  defp dataset_load_opts(opts, dataset)
+       when dataset in [:exposure_cve_dim, :exposure_package_dim] do
+    Keyword.put(opts, :merge_condition, "transition_seq")
   end
 
   defp dataset_load_opts(opts, :flow_attribution) do

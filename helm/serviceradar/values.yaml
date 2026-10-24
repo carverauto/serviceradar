@@ -620,6 +620,8 @@ core:
     # exposure_transitions is the EXPOSURE_TRANSITIONS stream core's exposure
     # transition relay creates (one replica, 7 days), rendered as
     # SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES.
+    # exposure_dimensions is the corresponding CVE/package dictionary stream,
+    # rendered as SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES.
     streams:
       metrics: {}
       k8s_inventory: {}
@@ -629,6 +631,7 @@ core:
       trivy_reports: {}
       notifications: {}
       exposure_transitions: {}
+      exposure_dimensions: {}
       flows: {}
       ARANCINI_CAUSAL: {}
   # Core's threat-intel raw payload object store (OBJ_serviceradar_threat_intel,

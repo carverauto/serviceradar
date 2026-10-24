@@ -18,6 +18,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :flow_attribution_observations
           | :exposure_facts
           | :exposure_transitions_log
+          | :exposure_cve_dim
+          | :exposure_package_dim
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -141,7 +143,10 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   end
 
   defp encode_row(:exposure_facts, row), do: Map.take(row, @exposure_fact_columns)
-  defp encode_row(:exposure_transitions_log, row), do: row
+
+  defp encode_row(dataset, row)
+       when dataset in [:exposure_transitions_log, :exposure_cve_dim, :exposure_package_dim],
+       do: row
 
   defp encode_row(:flow_attribution, row) do
     %{

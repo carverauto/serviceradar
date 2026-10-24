@@ -782,6 +782,19 @@ defmodule ServiceRadar.EventWriter.Config do
     }
   end
 
+  @doc "CVE and package descriptions on the stream owned by the dimension outbox relay."
+  @spec exposure_dimensions_stream() :: stream_config()
+  def exposure_dimensions_stream do
+    %{
+      name: "EXPOSURE_DIMENSIONS",
+      subject: "exposure.dimensions.*",
+      processor: ServiceRadar.EventWriter.Processors.ExposureDimensions,
+      ensure_stream: false,
+      batch_size: 100,
+      batch_timeout: 1_000
+    }
+  end
+
   @doc """
   Returns the default stream configurations.
 
@@ -894,6 +907,7 @@ defmodule ServiceRadar.EventWriter.Config do
       scan_results_stream(),
       mtr_results_stream(),
       exposure_transitions_stream(),
+      exposure_dimensions_stream(),
       %{
         name: "BMP_CAUSAL",
         stream_name: "events",
@@ -1390,7 +1404,7 @@ defmodule ServiceRadar.EventWriter.Config do
     |> load_streams()
     |> Enum.reject(&flow_stream?/1)
     |> Enum.reject(
-      &(Map.get(&1, :name) == "EXPOSURE_TRANSITIONS" and
+      &(Map.get(&1, :name) in ["EXPOSURE_TRANSITIONS", "EXPOSURE_DIMENSIONS"] and
           not ServiceRadar.Analytics.StarRocks.Destination.enabled?())
     )
   end

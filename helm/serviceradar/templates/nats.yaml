@@ -341,7 +341,10 @@ spec:
                       # publishes wait for a PubAck, so a missing entry leaves
                       # transitions in the outbox and fires its age alert.
                       "vulnerability.assessment.transitions.>",
+                      "exposure.dimensions.cve",
+                      "exposure.dimensions.package",
                       "metrics.exposure_transitions",
+                      "metrics.exposure_dimensions",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
@@ -363,6 +366,8 @@ spec:
                       "inventory.k8s.>",
                       "trivy.report.>",
                       "vulnerability.assessment.transitions.>",
+                      "exposure.dimensions.cve",
+                      "exposure.dimensions.package",
                       "falco.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",

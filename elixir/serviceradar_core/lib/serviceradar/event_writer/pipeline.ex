@@ -429,6 +429,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   # `Destination`), so their batch shape is the warehouse load shape.
   @warehouse_batchers [
     :exposure_transitions,
+    :exposure_dimensions,
     :flows_raw,
     :flow_attribution_observations,
     :flow_attribution,
@@ -582,6 +583,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:pdns_ocsf, &pdns_ocsf_subject?/1},
       {:falco, &falco_subject?/1},
       {:trivy, &trivy_subject?/1},
+      {:exposure_dimensions, &String.starts_with?(&1, "exposure.dimensions.")},
       {:exposure_transitions, &String.starts_with?(&1, "vulnerability.assessment.transitions.")},
       {:k8s_nodes, &k8s_nodes_subject?/1},
       {:k8s_inventory, &k8s_inventory_subject?/1},
@@ -666,6 +668,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp get_processor(:flow_attribution),
     do: ServiceRadar.EventWriter.Processors.FlowAttributionUpdates
+
+  defp get_processor(:exposure_dimensions),
+    do: ServiceRadar.EventWriter.Processors.ExposureDimensions
 
   defp get_processor(:exposure_transitions),
     do: ServiceRadar.EventWriter.Processors.ExposureTransitions
