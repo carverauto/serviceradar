@@ -314,6 +314,30 @@ This matters on long ranges with narrow buckets: `time:last_30d bucket:5m` spans
 buckets, so `limit:100` returns a fraction of the window either way. Widen the bucket
 rather than raising the limit — `bucket:1h` over 30 days is 720 buckets.
 
+### Flow volume across buckets
+
+A flow record carries the flow's start and end time and is stamped with its end time.
+For `in:flows` and `in:attributed_flows`, a bucketed `agg:sum`, `rate` or `rate_sum`
+over a byte or packet field (`bytes_total`, `bytes_in`, `bytes_out`, `packets_total`,
+`packets_in`, `packets_out`) spreads each flow over the buckets its interval
+overlaps, in proportion to the overlap. A five-minute flow on `bucket:1m` adds a fifth
+of its bytes to each of five buckets instead of all of them to the bucket it ended
+in. `stats:"sum(bytes_total) as bytes by time:1m"` is spread the same way.
+
+- The total is preserved exactly. A flow that started before the window adds only
+  the part that falls in the window's buckets.
+- A flow with no start time, with zero duration, or that fits inside one bucket is
+  counted in its own bucket, as before.
+- One flow covers at most 240 buckets. When the window holds more buckets than that
+  and a flow is longer, the part of its in-window share before those 240 buckets is
+  added to the earliest of them.
+- Other aggregates (`count`, `avg`, `min`, `max`) still count each flow once, in the
+  bucket it ended in.
+- Buckets of a whole number of hours, when the hourly rollup can answer the query,
+  count each flow in the hour it ended. The raw table answers the same query the
+  same way, so the two sources agree. The cost is that the part of a flow that ran
+  before an hour boundary appears in the hour it ended.
+
 ## Queryable entities
 
 Target data with `in:<entity>`. Each entity exposes its own set of filterable
