@@ -350,39 +350,84 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   # the ceiling must not undo that widening; only an explicit value may
   # narrow the aggregate, and only with the cold tier disabled.
   defp reconcile_traces_stats_retention(config) do
-    explicit = Keyword.get(config, :traces_stats_retention_days)
+    query_result = query_cagg_retention_days("traces_stats_5m")
 
-    desired =
-      migration_cagg_retention_days(
-        config,
-        "traces_stats_5m",
-        :traces_stats_retention_days,
-        @default_traces_stats_retention_days
-      )
+    case traces_stats_retention_to_apply(config, query_result, Config.enabled?()) do
+      {:skip, :unreadable} ->
+        Logger.warning(
+          "Skipped traces_stats_5m retention; the current drop_after could not be read",
+          reason: cagg_retention_read_reason(query_result)
+        )
 
-    current = current_cagg_retention_days("traces_stats_5m")
+      :skip ->
+        :ok
+
+      days ->
+        run_rollup_sql(
+          "traces_stats_5m",
+          :retention,
+          rollup_retention_sql("traces_stats_5m", days)
+        )
+    end
+  end
+
+  @doc """
+  Days to write onto `traces_stats_5m`, `:skip` when the installed window must
+  stay, or `{:skip, :unreadable}` when the catalog read did not prove the window.
+
+  `query_result` is the `{:ok, %{rows: _}} | {:error, _}` result of reading
+  `drop_after`. `cold_tier_enabled?` is `ColdTier.Config.enabled?/0`. Once the
+  installed window is at least `RetentionFence.cagg_cold_window_days/1`, the
+  telemetry ceiling does not choose a shorter target. An explicit positive
+  `traces_stats_retention_days` narrows that window only while the tier is
+  disabled, and the written number is that explicit value. A missing policy,
+  or a window still below the fence target (the 14-day migration interval),
+  keeps the ceiling-capped migration retention.
+  """
+  @spec traces_stats_retention_to_apply(
+          keyword(),
+          {:ok, map()} | {:error, term()},
+          boolean()
+        ) :: :skip | {:skip, :unreadable} | pos_integer()
+  def traces_stats_retention_to_apply(config, query_result, cold_tier_enabled?)
+      when is_list(config) and is_boolean(cold_tier_enabled?) do
+    case normalize_cagg_retention_read(query_result) do
+      {:error, _reason} ->
+        {:skip, :unreadable}
+
+      {:ok, current} ->
+        traces_stats_retention_days_to_apply(config, current, cold_tier_enabled?)
+    end
+  end
+
+  defp traces_stats_retention_days_to_apply(config, current, cold_tier_enabled?) do
+    explicit = positive_integer(Keyword.get(config, :traces_stats_retention_days), nil)
     cold_window = RetentionFence.cagg_cold_window_days("traces_stats_5m")
 
     widened? =
       is_integer(current) and is_integer(cold_window) and current >= cold_window
 
     cond do
-      widened? and desired < current and Config.enabled?() ->
-        :ok
+      widened? and cold_tier_enabled? ->
+        :skip
 
-      widened? and desired < current and is_nil(explicit) ->
-        :ok
+      widened? and is_integer(explicit) and explicit < current ->
+        explicit
+
+      widened? ->
+        :skip
 
       true ->
-        run_rollup_sql(
+        migration_cagg_retention_days(
+          config,
           "traces_stats_5m",
-          :retention,
-          rollup_retention_sql("traces_stats_5m", desired)
+          :traces_stats_retention_days,
+          @default_traces_stats_retention_days
         )
     end
   end
 
-  defp current_cagg_retention_days(view) do
+  defp query_cagg_retention_days(view) do
     sql = """
     SELECT (EXTRACT(EPOCH FROM (j.config->>'drop_after')::interval) / 86400)::float8
     FROM timescaledb_information.continuous_aggregates ca
@@ -394,11 +439,23 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     LIMIT 1
     """
 
-    case SQL.query(Repo, sql, [view], timeout: @query_timeout_ms) do
-      {:ok, %{rows: [[days]]}} when is_number(days) -> round(days)
-      _ -> nil
-    end
+    SQL.query(Repo, sql, [view], timeout: @query_timeout_ms)
   end
+
+  defp normalize_cagg_retention_read({:ok, %{rows: [[days]]}}) when is_number(days) do
+    {:ok, round(days)}
+  end
+
+  defp normalize_cagg_retention_read({:ok, %{rows: [[nil]]}}), do: {:ok, nil}
+  defp normalize_cagg_retention_read({:ok, %{rows: []}}), do: {:ok, nil}
+  defp normalize_cagg_retention_read({:error, reason}), do: {:error, reason}
+
+  defp normalize_cagg_retention_read({:ok, other}) do
+    {:error, {:unexpected_cagg_retention_row, other}}
+  end
+
+  defp cagg_retention_read_reason({:error, reason}), do: format_error(reason)
+  defp cagg_retention_read_reason(other), do: inspect(other)
 
   # otel_metrics_hourly_stats refreshes from raw otel metrics into itself:
   # its window must stay under both the raw retention and its own.
