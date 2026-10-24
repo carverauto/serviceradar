@@ -30,6 +30,10 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
   `availability_state`, in any mode.
 
   The mode-switch phases check the mode first and stop when it no longer applies.
+  Reconciliation checks again, under the shared mode-switch lock, before every page and
+  before rebuilding rollups or calling `Mode.finish_cutover/0`: once the mode is no
+  longer `cutover` it resolves nothing further. A phase that is already executing counts
+  as queued; `cancel_waiting/0` still removes only jobs that have not started.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 20
@@ -46,6 +50,8 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
 
   @switch_phases ["reconcile", "announce", "restore"]
   @phases ["refresh_rollups" | @switch_phases]
+  @queued_states ["available", "scheduled", "retryable"]
+  @queued_or_running ["executing" | @queued_states]
   @page_size 500
 
   @live_page """
@@ -106,11 +112,11 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
 
   @doc """
   Enqueues `phase` through the repo, inside the caller's transaction when there is one
-  (the mode switch), unless that phase is already waiting.
+  (the mode switch), unless that phase is already waiting or executing.
   """
   @spec enqueue(String.t()) :: :ok
   def enqueue(phase) when phase in @phases do
-    if not Repo.exists?(waiting(phase), prefix: "platform") do
+    if not Repo.exists?(phase_jobs(phase, @queued_or_running), prefix: "platform") do
       Repo.insert!(new(%{"phase" => phase}), prefix: "platform")
     end
 
@@ -124,11 +130,13 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
     :ok
   end
 
-  defp waiting(phase) do
+  defp waiting(phase), do: phase_jobs(phase, @queued_states)
+
+  defp phase_jobs(phase, states) do
     worker = inspect(__MODULE__)
 
     Oban.Job
-    |> where([j], j.worker == ^worker and j.state in ["available", "scheduled", "retryable"])
+    |> where([j], j.worker == ^worker and j.state in ^states)
     |> where([j], fragment("?->>'phase' = ?", j.args, ^phase))
   end
 
@@ -156,25 +164,36 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
   def perform(%Oban.Job{}), do: :ok
 
   @doc """
-  Re-resolves every live device (in `cutover` only), rebuilds the rollups and moves the
-  mode to `authoritative`. Returns the number of devices resolved.
+  Re-resolves every live device while the mode stays `cutover`, then rebuilds the
+  rollups and moves the mode to `authoritative`. A mode change ends the run first.
   """
   @spec reconcile() :: :ok | {:error, term()}
   def reconcile do
-    {pages, resolved, written} = reconcile_pages("", 0, 0, 0)
+    case reconcile_pages("", 0, 0, 0) do
+      :left_cutover ->
+        :ok
 
-    :ok = DeviceWrites.refresh_inventory_rollups()
+      {pages, resolved, written} ->
+        case refresh_while_cutover() do
+          :left_cutover ->
+            :ok
 
-    Logger.info("availability cutover: reconciliation done",
-      pages: pages,
-      devices: resolved,
-      written: written
-    )
+          :ok ->
+            Logger.info("availability cutover: reconciliation done",
+              pages: pages,
+              devices: resolved,
+              written: written
+            )
 
-    case Mode.finish_cutover() do
-      {:ok, _switched} -> :ok
-      {:error, {:unsupported_switch, _from, _to}} -> :ok
-      {:error, reason} -> {:error, reason}
+            case Mode.finish_cutover() do
+              {:ok, _switched} -> :ok
+              {:error, {:unsupported_switch, _from, _to}} -> :ok
+              {:error, reason} -> {:error, reason}
+            end
+
+          {:error, reason} ->
+            {:error, reason}
+        end
     end
   end
 
@@ -186,14 +205,45 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
         {pages, resolved, written}
 
       uids ->
-        {:ok, result} = Repo.transaction(fn -> Resolution.resolve_locked(uids) end)
+        case Repo.transaction(fn -> resolve_cutover_page(uids) end) do
+          {:ok, :left_cutover} ->
+            :left_cutover
 
-        reconcile_pages(
-          List.last(uids),
-          pages + 1,
-          resolved + result.resolved,
-          written + result.written
-        )
+          {:ok, result} ->
+            reconcile_pages(
+              List.last(uids),
+              pages + 1,
+              resolved + result.resolved,
+              written + result.written
+            )
+        end
+    end
+  end
+
+  defp resolve_cutover_page(uids) do
+    if Mode.admit() == :cutover do
+      Resolution.resolve_locked(uids)
+    else
+      :left_cutover
+    end
+  end
+
+  defp refresh_while_cutover do
+    case Repo.transaction(fn -> refresh_cutover_rollups() end, timeout: :infinity) do
+      {:ok, :left_cutover} -> :left_cutover
+      {:ok, :ok} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp refresh_cutover_rollups do
+    if Mode.admit() == :cutover do
+      case DeviceWrites.refresh_inventory_rollups() do
+        :ok -> :ok
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    else
+      :left_cutover
     end
   end
 
