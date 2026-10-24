@@ -90,9 +90,8 @@ impl SignatureVerificationAlgorithm for EcdsaP521Sha512 {
 
         // `public_key` is the subjectPublicKey BIT STRING contents: an
         // uncompressed SEC1 point (0x04 || X || Y).
-        let point = p521::EncodedPoint::from_bytes(public_key).map_err(|_| InvalidSignature)?;
         let key =
-            p521::ecdsa::VerifyingKey::from_encoded_point(&point).map_err(|_| InvalidSignature)?;
+            p521::ecdsa::VerifyingKey::from_sec1_bytes(public_key).map_err(|_| InvalidSignature)?;
 
         // TLS carries ECDSA signatures DER-encoded as SEQUENCE { r, s }.
         let sig = p521::ecdsa::Signature::from_der(signature).map_err(|_| InvalidSignature)?;
@@ -395,11 +394,11 @@ mod p521_tests {
     #[test]
     fn verifies_a_real_signature_and_rejects_everything_else() {
         use p521::ecdsa::signature::Signer as _;
-        use p521::elliptic_curve::rand_core::OsRng;
+        use p521::elliptic_curve::Generate as _;
 
-        let signing = p521::ecdsa::SigningKey::random(&mut OsRng);
+        let signing = p521::ecdsa::SigningKey::generate();
         let verifying = p521::ecdsa::VerifyingKey::from(&signing);
-        let point = verifying.to_encoded_point(false);
+        let point = verifying.to_sec1_point(false);
         let sig: p521::ecdsa::Signature = signing.sign(b"the signed message");
         let der = sig.to_der();
 
