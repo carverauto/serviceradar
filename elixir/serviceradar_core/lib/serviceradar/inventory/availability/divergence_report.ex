@@ -375,8 +375,8 @@ defmodule ServiceRadar.Inventory.Availability.DivergenceReport do
     end
   end
 
-  # The per-source preview the source settings page shows: legacy (the compatibility
-  # value) against merged (the shadow state here), per Armis id.
+  # The same per-source counts the settings preview shows once a forecast exists:
+  # legacy (the compatibility value) against merged (the shadow state here).
   defp armis_source(source, samples, query_opts) do
     preview = ArmisAvailabilityPreview.build(source, samples: samples, query_opts: query_opts)
 

@@ -7,14 +7,15 @@ defmodule ServiceRadar.Integrations.ArmisAvailabilityPreview do
 
   An Armis id is pushed as the AND of its linked devices, as the runner collapses it.
   `legacy` is the compatibility value (`ArmisNorthboundRunner.canonical_availability_query/1`).
-  `merged` is the canonical state: the shadow decision while the deployment is in
-  `legacy` or `shadow` mode (so the preview shows what a cutover would push), the device's
-  `availability_state` from `cutover` on. An id with any unknown or undecided device is
-  withheld under `merged`.
+  `merged` is the canonical state: the shadow decision in `shadow` mode, and the
+  device's `availability_state` from `cutover` on. The query expression also reads
+  the shadow column in `legacy` mode, where no shadow rows are written, so that
+  result is not a cutover forecast. Callers that forecast use `forecast_available?/1`
+  and skip `legacy`. An id with any unknown or undecided device is withheld under
+  `merged`.
 
-  The source settings page shows this before an operator adopts merged semantics,
-  and only once `forecast_available?/1` is true. In `legacy` there are no shadow
-  decisions, so a missing shadow row is not a forecast. The shadow divergence
+  The source settings page shows these counts before an operator adopts merged
+  semantics, and only once `forecast_available?/1` is true. The shadow divergence
   report (`ServiceRadar.Inventory.Availability.DivergenceReport`) includes the
   same counts for every canonical source.
   """

@@ -189,7 +189,8 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
       description """
       Operator choice: canonical northbound pushes (no availability agent selected) send
       the merged availability state instead of the legacy value, and withhold unknown
-      devices. Never applied automatically; the source settings show a preview first.
+      devices. Never applied automatically. Source settings count how many pushes would
+      change only once the deployment is out of legacy mode.
       """
 
       accept []
