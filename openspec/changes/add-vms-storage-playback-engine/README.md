@@ -28,9 +28,10 @@ and the exact-parent pass.
 merged at `29b30748dfe212ba0672bd2cd53342303ecbbc26`. It retains
 [immutable upload intent](upload-intent.md) on that archive parent. Object
 identity is derived under the existing upload fence and retained independently of
-later upload leases. No storage request is sent. Migration `20261024030000` adds
-one Ash table with restrictive block and destination references; the chart
-migration floor follows it. Focused and full non-database results are in
+later upload leases. No storage request is sent. Migration `20261024030000` added
+that intent table with restrictive block and destination references. The chart
+migration floor has since moved; [validation.md](validation.md) owns the current
+version. Focused and full non-database results are in
 [validation.md](validation.md). Its final guarded suite
 [853e4601](https://carverauto.buildbuddy.io/invocation/853e4601-ef2c-419e-b9c3-cfc8349da412)
 passes all 12 targets uncached; the owning serial lane runs 260 tests with no
@@ -55,6 +56,9 @@ on this merged parent. It retains one operation per intent, one committed marker
 the original deadline and bounded late-response/conflict evidence. The coordinator
 does not perform provider I/O. Its database validation must come from the new
 checkpoint's own guarded PR CI; earlier green suites cannot prove new code.
+[validation.md](validation.md) records the approved prepublication exception.
+That exception lets BazelCI Core Integration run these cases first. It passes
+no scenario and does not waive final CI.
 
 Production recording admission and unknown UTC are unchanged. Recording stays
 disabled. The operator-confirmed live RTSP transport must remain working. No

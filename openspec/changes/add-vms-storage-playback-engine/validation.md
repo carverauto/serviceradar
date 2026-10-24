@@ -314,3 +314,10 @@ as the submitted dispatch candidate; the following evidence edit changes this
 document only. Integration/acceptance bodies are excluded by that command.
 Neither this result nor selection equivalence proves the 12 new guarded database
 cases. No deployment, provider call, qualification or availability is claimed.
+
+Draft publication is approved so BazelCI Core Integration may be the first
+execution of these twelve database scenarios. The approval is prepublication
+only. None of the twelve scenarios has passed. checks-passed still requires
+that owning lane to execute the cases and to return successful observer,
+teardown, and lease-release commands. This note changes documentation only.
+It does not create a database, copy credentials, or improvise that lane.

@@ -548,8 +548,8 @@ receives the same record after lease replacement. It does not create a mutable
 attempt row or claim that a storage request happened. The plan required durable
 publication intent but left the implementation boundary open. Splitting the
 immutable identity from dispatch observations makes each boundary independently
-reviewable and leaves provider operations disabled. The next pass still owes the
-marker, original-deadline fence, late-response and conflict persistence contracts.
+reviewable and leaves provider operations disabled. Those contracts now live
+in [upload-dispatch.md](upload-dispatch.md). Provider send remains absent.
 
 Preparation also rejects an existing caller transaction. Otherwise a caller could
 receive an intent ID, hand it to another worker, then roll back its outer
