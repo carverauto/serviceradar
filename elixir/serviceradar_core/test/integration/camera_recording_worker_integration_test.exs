@@ -5,6 +5,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
+  alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source
@@ -139,6 +141,27 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert id == analysis.id
     assert snapshot.sealed?
 
+    [block] =
+      RecordingBlock
+      |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+      |> Ash.read!(actor: ctx.actor)
+
+    assert block.state == :sealed
+    assert block.descriptor["identity"] == snapshot.identity
+    assert block.descriptor["init"] == snapshot.init
+    assert block.descriptor["media"]["sha256"] == snapshot.sha256
+    assert block.descriptor["format"]["codec"] =~ "avc1.42"
+
+    assert {:ok, upload} =
+             RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), 30_000,
+               actor: ctx.actor
+             )
+
+    assert upload.storage_id ==
+             Application.fetch_env!(:serviceradar_core_elx, :camera_recording_storage_id)
+
+    assert {:ok, :released} = RecordingBlocks.release_upload(upload, actor: ctx.actor)
+
     assert %{next_block_sequence: 1, recorder_epoch: epoch, state: :released} =
              recorder_claim(ctx)
 
@@ -224,6 +247,18 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
     assert File.ls!(ctx.root) == []
+
+    [block] =
+      RecordingBlock
+      |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+      |> Ash.read!(actor: ctx.actor)
+
+    assert block.state == :open_local
+
+    assert {:error, :recording_block_unfrozen} =
+             RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), 30_000,
+               actor: ctx.actor
+             )
   end
 
   defp owner(ctx, ttl) do

@@ -27,8 +27,11 @@ When: storage endpoint feasibility pass.
 
 The opt-in diagnostic uses the production release with an empty release config,
 so its executable startup needs no database or deployment credentials. Requests
-are bounded to two fresh unversioned buckets, a small object, one multipart
-object and an aborted multipart upload. A durable, directory-synced receipt
+stay inside two fresh unversioned buckets. The original controls are a small
+object, one large multipart object and an aborted multipart upload. Conditional
+writes and explicit SSE-S3 add exact keys inside the same limits; the
+[provider runbook](../../../build/media/provider-probe.md) owns that inventory.
+A durable, directory-synced receipt
 precedes each external mutation. A finite recovery pod reads the receipt from
 the dedicated PVC even when the probe fails. Operator cleanup owns the exact
 fresh resources and verifies their absence; it never adopts existing buckets.
@@ -162,7 +165,8 @@ a second database read for publication so a callback cannot commit on an expired
 lease. The transaction cannot make S3 writes atomic and must never contain network
 or filesystem work. This is sound because immutable object names isolate stale
 uploads, while the database controls which objects become available. Guarded
-execution of these database races is recorded in [the handoff](README.md).
+ownership execution is recorded in [the handoff](README.md). Integration tests
+for these publication races remain a required gate.
 
 ### One local block before archive-driven rotation
 
@@ -292,10 +296,11 @@ is replaced. Provisioning and verifying that mapping is a deployment prerequisit
 this code does not provision a volume or enable recording.
 
 The claim retains its epoch and counter, not a historical block catalogue.
-Recovery of a previous epoch, archive upload/publication after recorder release,
-per-block storage-location history, rotation, and reclamation still need their
-own durable authorization and state transitions. A new claim cannot reuse its
-predecessor's token or silently adopt old local bytes.
+Frozen descriptors and their upload leases now live on the block row; see
+[Historical recording block authority](block-authority.md). Archive
+upload and publication, object-location history, rotation, and reclamation
+still need their own durable authorization and state transitions. A new claim
+cannot reuse its predecessor's token or silently adopt old local bytes.
 
 ### Admit recording work before mailbox enqueue
 
@@ -339,7 +344,9 @@ The worker owns a recorder consumer lease independently of viewers. Its local
 deadline is the monotonic time at request start plus the database's remaining
 lease duration. Time spent in a database request therefore shortens local
 admission. Checks before and after disk work withhold a new readable receipt if
-the lease expires during that work; committed bytes remain for fenced recovery.
+the lease expires during that work. Those local bytes stay on disk and grant no
+upload authority; an unfrozen tail is not recovered here. See
+[Historical recording block authority](block-authority.md).
 
 Consumer release and captured-relay idle close are a separate best-effort step.
 One linked task belongs only to its stopping worker, which traps exits, waits
@@ -407,3 +414,125 @@ context. Disk block names depend only on source, profile, recorder epoch and
 block sequence. Changing clock metadata cannot create a second copy of the same
 block identity. This is sound because an unsupported clock claim stays visible
 instead of becoming a false timestamp in exported evidence.
+
+### Freeze historical block authority before recorder release
+
+When: retained block authority pass. Verdict: sound, high confidence.
+
+A recorder can finish a local file and exit before anyone uploads it. The file
+now has its own retained database row, allocated with its sequence before disk
+creation. While the original recorder is still authorized, it freezes the exact
+init, format, clock, byte map and hashes into that row. A later upload worker
+gets a separate expiring token for those bytes, even after another recorder
+starts. It cannot substitute new bytes or borrow the current recorder's rights.
+
+The plan required historical ownership but did not prescribe its resource shape.
+One block row owns both immutable capture metadata and its upload lease; an
+additional generic job or lease table would duplicate the same lock boundary.
+The receipt-free descriptor validator is shared with the archive manifest so
+their finite format limits cannot drift. Details and the remaining recovery
+boundary are in [Historical recording block authority](block-authority.md).
+
+### Leave unregistered historical tails unavailable
+
+When: retained block authority pass. Verdict: sound, high confidence.
+
+If the recorder seals a file and dies before the database accepts its descriptor,
+the file remains on disk but cannot be uploaded through this API. A replacement
+recorder must not turn a plausible old journal into new authority. Recovering
+that interval requires an earlier database-authorized prefix and a safe way to
+inspect storage without racing the old writer. This narrow pass deliberately
+does not invent either proof, delete the tail or call it an archive. The choice
+keeps later recovery work explicit and prevents a stale writer from extending
+historical coverage after its lease expired.
+
+### Measure provider operations within one bounded diagnostic
+
+When: conditional-write and explicit-encryption diagnostic pass. Verdict: sound,
+medium confidence until exercised against the provider.
+
+The existing multipart control retains its 5 MiB part and cross-part read.
+Additional completion and encryption cases use a single 64 KiB final part;
+they exercise distinct commit semantics without repeating the large transfer.
+The successful path uses 75 diagnostic requests and 21 cleanup requests, below
+the existing 80/30 limits. Failure paths retain exact cleanup receipts and fit
+the same limits or explicitly report incomplete cleanup.
+
+Conditional acceptance requires exactly one successful writer and one
+`412 PreconditionFailed`, followed by verification of the surviving bytes.
+Unexpected statuses, including 409, fail closed without retries or an inferred
+support claim. One competing pair per operation is bounded qualification, not a
+proof over every request ordering. PUT and multipart results stay separate;
+their summary cannot hide a failed or untested operation.
+
+### Keep concurrency subordinate to the diagnostic's authority
+
+When: provider contention pass. Verdict: sound, high confidence.
+
+The caller reserves both requests and their complete byte ceilings before two
+short-lived workers send them. Only the caller updates cleanup receipts and the
+durable journal. Each transport carries its existing absolute deadline, including
+time waiting to start; a second task timeout would create ambiguous ownership
+without strengthening that bound. This keeps the two-writer experiment within
+the same budget and recovery authority as the serial controls.
+
+Explicit AES256 request headers are signed, and HEAD must attest encryption on
+each tested object. That establishes neither a bucket policy rejecting plaintext
+uploads nor safe recorder credentials. Synthetic TLS tests qualify the diagnostic
+only; no provider capability or Cloud readiness follows from their passing.
+
+### Keep destination identity canonical and immutable
+
+When: archive-binding pass. Verdict: sound, medium confidence for endpoint syntax;
+high confidence for immutable identity.
+
+Version 1 accepts canonical HTTPS DNS origins on implicit port 443, without a
+trailing slash, and bounded ASCII allocation, region and bucket tokens. It rejects
+equivalent-looking URLs instead of normalizing an already registered identity.
+Custom-port S3 deployments need a deliberate contract extension; syntax alone
+does not establish DNS or egress safety.
+
+One provisioning reference and generation owns exactly eleven input fields.
+Product derives the local UUID and ordered-JSON SHA-256. An identical provisioning
+retry succeeds; changed content at the same generation fails without rewriting
+history. A new destination needs a new generation, while credential rotation
+changes neither that identity nor old blocks. The synthetic golden digest owns
+the serialization contract.
+
+### Separate destination registration from storage authority
+
+When: archive-binding pass. Verdict: sound, high confidence.
+
+Registration can retain a destination before provider qualification exists.
+Every row remains unqualified in this pass, with no activation or credential API.
+Persisting identity therefore cannot enable an upload. Qualification, credential
+generations and SaaS reconciliation remain separate contracts.
+
+### Bind a retained block through its existing upload fence
+
+When: archive-binding pass. Verdict: sound, high confidence.
+
+A nullable restrictive foreign key binds a frozen block once under the existing
+upload coordinator's token, epoch, descriptor and original deadline. Later leases
+retain the destination; expiry rolls back a pending bind. Ash's atomic
+changing-from-null validation also rejects replacement from a stale resource
+struct. This reuses the block's row-lock owner rather than adding another lease
+or table, and does not treat a local fence as cancellation of remote I/O.
+
+### Encode recovery metadata from the retained descriptor
+
+When: persisted-descriptor manifest pass. Verdict: sound, high confidence.
+
+After restart, a publisher has the frozen descriptor rather than the live
+packager's native initialization structure. `Manifest.encode_descriptor/2`
+validates that whole descriptor before attaching storage receipts; the existing
+snapshot encoder delegates to the same path. This preserves v1 bytes and object
+keys without another format validator or a fabricated packaging snapshot.
+Encoding still establishes neither remote byte integrity nor publication authority.
+
+An independently calculated digest and object-key constant guard compatibility.
+Negative controls also verify the actual invalid-input paths. One existing
+unsupported-profile test updated the outer test context instead of its format;
+correcting the operand preserves the assertion and makes it fail when the codec
+guard is deliberately weakened. The new descriptor mutations use the same
+correct local-root pattern. Every earlier assertion remains.

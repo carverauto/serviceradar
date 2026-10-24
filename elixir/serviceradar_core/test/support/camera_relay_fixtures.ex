@@ -39,6 +39,22 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     %{source: source, profile: profile, actor: actor, opts: opts}
   end
 
+  def archive_destination(provisioning_ref) do
+    %{
+      "schema_version" => 1,
+      "provisioning_ref" => provisioning_ref,
+      "generation" => 1,
+      "purpose" => "recording",
+      "provider" => "s3_compatible",
+      "endpoint" => "https://objects.example.com",
+      "region" => "example-region",
+      "bucket" => "example-recordings",
+      "namespace" => "recordings/v1",
+      "archive_format_version" => 1,
+      "required_encryption" => "sse_s3_aes256"
+    }
+  end
+
   def open(ctx, opts \\ []) do
     defaults = [
       actor: ctx.actor,
@@ -109,6 +125,8 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
 
   defp cleanup(source_id) do
     id = Ecto.UUID.dump!(source_id)
+
+    Repo.query!("DELETE FROM platform.camera_recording_blocks WHERE camera_source_id = $1", [id])
 
     Repo.query!(
       "DELETE FROM platform.camera_recorder_claims WHERE ingest_owner_id IN " <>

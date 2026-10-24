@@ -14,8 +14,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   No media or filesystem work runs in the global relay manager. Lease receipts
   establish a conservative monotonic deadline using the request's start time.
   Every storage operation is checked before and after it. A write completing
-  after expiry is never published as a receipt; its committed bytes remain for
-  fenced recovery. Local durability is not an archive acknowledgement.
+  after expiry is never published as a receipt. Those local bytes stay on disk
+  and grant no upload authority. Local durability is not an archive acknowledgement.
 
   This first worker stops at one block's finite capacity. It neither rotates nor
   deletes recordings. A codec/clock/sequence reset stops the recorder and requires
@@ -31,6 +31,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderOwnership
+  alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.RelaySessionManager
   alias ServiceRadarCoreElx.CameraRecording.Inbox
   alias ServiceRadarCoreElx.CameraRecording.Packaging
@@ -62,7 +65,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
         media_ingest_id: media_ingest_id,
         storage_id: storage_id,
         claim_token: Ecto.UUID.generate(),
-        block_sequence: nil,
+        block: nil,
+        init_format: nil,
         pipeline: pipeline,
         monitor: Process.monitor(pipeline),
         root: Keyword.fetch!(opts, :spool_root),
@@ -176,10 +180,17 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
           utc_mapping: :unknown
         }
 
+        retained_clock = %{
+          "clock_epoch" => clock.clock_epoch,
+          "timebase" => clock.timebase,
+          "dts_source" => "pts_no_reordering",
+          "utc_mapping" => "unknown"
+        }
+
         with :ok <- Inbox.usable(inbox),
-             {:ok, sequence} <- RecorderOwnership.reserve_block(state.owner, state.claim, actor: state.actor),
+             {:ok, block} <- RecorderOwnership.reserve_block(state.owner, state.claim, retained_clock, actor: state.actor),
              {:ok, packager} <- Packaging.start(clock: clock, wait_for_keyframe?: true) do
-          attach(%{state | packager: packager, block_sequence: sequence})
+          attach(%{state | packager: packager, block: block})
         else
           {:error, reason} -> stop(state, reason)
         end
@@ -205,9 +216,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   defp persist(events, state) do
     Enum.reduce_while(events, {:ok, state}, fn event, {:ok, state} ->
       with :ok <- Inbox.usable(state.inbox),
-           {:ok, spool} <- store(event, state),
+           {:ok, next} <- store(event, state),
            :ok <- Inbox.usable(state.inbox) do
-        {:cont, {:ok, %{state | spool: spool}}}
+        {:cont, {:ok, next}}
       else
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -215,20 +226,16 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   end
 
   defp store({:init, init}, state) do
-    identity = %{
-      source_id: state.owner.camera_source_id,
-      profile: state.owner.stream_profile_id,
-      recorder_epoch: state.claim.recorder_epoch,
-      block_sequence: state.block_sequence,
-      clock: init.clock
-    }
+    identity = state.block |> RecordingBlock.identity() |> Map.put("clock", init.clock)
 
-    Spool.create(state.root, identity, init.payload, state.spool_limits)
+    with {:ok, spool} <- Spool.create(state.root, identity, init.payload, state.spool_limits) do
+      {:ok, %{state | spool: spool, init_format: Map.take(init, [:sha256, :timescale, :codecs])}}
+    end
   end
 
   defp store({:fragment, fragment}, state) do
     case Spool.append(state.spool, fragment.payload, fragment) do
-      {:ok, spool, _entry} -> {:ok, spool}
+      {:ok, spool, _entry} -> {:ok, %{state | spool: spool}}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -238,8 +245,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   defp seal(state) do
     with :ok <- Inbox.usable(state.inbox),
          {:ok, spool} <- Spool.seal(state.spool),
+         :ok <- Inbox.usable(state.inbox),
+         {:ok, descriptor} <- RecordingDescriptor.from_snapshot(Spool.snapshot(spool), state.init_format),
+         {:ok, block} <- RecordingBlocks.freeze(state.owner, state.claim, state.block, descriptor, actor: state.actor),
          :ok <- Inbox.usable(state.inbox) do
-      {:ok, %{state | spool: spool}}
+      {:ok, %{state | spool: spool, block: block}}
     end
   end
 

@@ -2,57 +2,134 @@
 
 ## Current pickup
 
-Foundation PR #5950 is merged. Runtime PR #5952 merged at its existing published
-head `b80465bfd6a7eca5c7a298e2d34530a93ba8ae8b` with all 20 checks passing,
-including guarded suite
+Foundation PR #5950 and [runtime PR #5952](https://github.com/carverauto/serviceradar/pull/5952)
+are merged. #5952 landed at `b80465bfd6a7eca5c7a298e2d34530a93ba8ae8b` with all
+20 checks passing. Its guarded suite
 [23177e08](https://carverauto.buildbuddy.io/invocation/23177e08-ea4b-45c8-b90e-8f9a24b11d1a)
-(12/12, observer, teardown, and release 0). Its CI repair skips a nested
-ownership transaction and promotes a plain-map user when actor is nil.
+executed 12 of 12, with observer, teardown, and release each returning 0. That
+merged code skipped a nested ownership transaction and promoted a plain-map user
+when actor was nil.
 
-Follow-up draft PR #5954 is this repair. It published that production code plus two keeper
+[PR #5954](https://github.com/carverauto/serviceradar/pull/5954) is the
+regression repair. It merged at `9c3388359ad9a5ef079c2aa1b1ae7a0e7100f692` from
+published head `89d50a7f0d`. It published those two behaviors plus the keeper
 regressions at `158aa45657`. Guarded workflow
 [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8),
-suite `d607f3a0-48a9-4299-9c01-2fdd395a6bb8`, executed 12/12: 10 passed and the
-two new keepers failed. Observer, teardown, and release each returned 0. Broad
-child
+suite `d607f3a0-48a9-4299-9c01-2fdd395a6bb8`, executed 12 of 12: 10 passed and
+the two new keepers failed as intended. Observer, teardown, and release each
+returned 0. Broad child
 [9470b885](https://carverauto.buildbuddy.io/invocation/9470b885-eab0-49d4-8a20-3c5c0f3c5791)
-passed 440 tests, with 2 skipped and 45 executed. GitHub's broad BazelCI check
-succeeded. Those two failures are the intended code regressions.
+passed 440 tests, with 2 skipped and 45 executed, and GitHub's broad BazelCI
+check succeeded. `camera_ingest_ownership_integration_test.exs:250` (serial_6)
+returned `{:ok, :handled}` where the keeper requires
+`{:error, :publication_rejected}`. The callback receipt passed. The persisted
+display-name assertion was not reached. `relay_session_manager_test.exs:83`
+(serial_0) opened `%{user: user, actor: nil}` and returned
+`{:ok, %RelaySession{}}` where the keeper requires `{:error, :not_found}`.
 
-`camera_ingest_ownership_integration_test.exs:250` (serial_6) returned
-`{:ok, :handled}` where the keeper requires `{:error, :publication_rejected}`.
-The callback receipt assertion passed. The later persisted display-name
-assertion was not reached. `relay_session_manager_test.exs:83` (serial_0) opened
-`%{user: user, actor: nil}` and returned `{:ok, %RelaySession{}}` where the
-keeper requires `{:error, :not_found}`.
-
-This revision restores unconditional `Ash.transact` in
-`IngestOwnership.transaction/1`, keeps the typed atom/tuple domain-error
-envelope and genuine Ash or database errors, and calls
+This draft is [PR #5955](https://github.com/carverauto/serviceradar/pull/5955).
+It imports the reviewed repair `a8590062edff8c3cd31418562c740bf4f854bd22`.
+`IngestOwnership.transaction/1` always uses `Ash.transact`, still wrapping atom
+and tagged-tuple domain refusals and passing genuine Ash or database errors
+through. `RelaySessionManager.fenced_close/5` calls
 `IngestOwnership.require_idle/2` immediately before `begin_idle_close` on the
-default branch of `RelaySessionManager.fenced_close/5` under the profile lock
-already held. Forced close, the soft viewer retain branch, legacy close, and
-`begin_idle_close`'s epoch, token, captured relay, database time, and deadline
-checks stay as they were. The plain-map user-to-actor fallback in
-`read_ash_opts/2` is removed. The successful plain-map fixture supplies
-`actor: user` beside `user`. Explicit `actor: nil` and every earlier assertion
-stay. Positive database proof is the next Core Integration run on this same
-draft PR. Readiness waits on that run's test bodies, observer, teardown, and
-release. Recording stays disabled; this pass makes no runtime rollout or
-archive-availability claim.
+default branch, under the profile lock already held. Forced close, the soft
+viewer retain branch, legacy close, and `begin_idle_close`'s epoch, token,
+relay, database-time, and deadline checks stay as they were. The plain-map
+user-to-actor fallback is gone from `read_ash_opts/2`. The successful plain-map
+fixture passes `actor: user` beside `user`. The explicit `actor: nil` assertion
+is unchanged. Focused repair proof
+[3fa1b9f1](https://carverauto.buildbuddy.io/invocation/3fa1b9f1-8003-4245-b11c-e2c3ada4224c)
+passed four targets, three executed, with the formatter cached. On that repair
+head, invocation
+[958221fc](https://carverauto.buildbuddy.io/invocation/958221fc-4bfe-4cfa-a52a-cd2e659fd2e0)
+cached four passes (quality, selection equivalence, CI registration, and
+selection formatter; Bazel executed 0 of 4) and strict OpenSpec validation
+exited 0. Those checks do not run guarded database bodies. Merged #5954 head
+`89d50a7f0d` then recorded positive runtime proof. Its GitHub check rollup is
+success across 18 checks, including BazelCI, Web-NG DB, and Core Integration.
+Workflow
+[a74b1f9f](https://carverauto.buildbuddy.io/invocation/a74b1f9f-ee0d-450f-88a0-7d26eeed15ed),
+child
+[7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a),
+executed 12 of 12 tests and all passed. Suite, observer, teardown, and release
+each returned 0. `integration_tests_serial_6` finished 256 tests with 0
+failures. `integration_tests_serial_0` finished 401 tests with 0 failures and
+1 skip. That run validates the imported runtime correction only.
 
-On head `a8590062edff8c3cd31418562c740bf4f854bd22`, `bazel test --config=remote` of
-`//elixir/serviceradar_core:quality_check`,
-`//build:integration_selection_equivalence_test`,
-`//build/contracts:ci_heavy_gate_contract_test`, and
-`//build:integration_selection_formatter_test` is invocation
-[958221fc](https://carverauto.buildbuddy.io/invocation/958221fc-4bfe-4cfa-a52a-cd2e659fd2e0).
-Bazel exited 0, executed 0 of 4, and reported four cached passes: quality 40.5s,
-selection equivalence 40.9s, CI registration 27.4s, and selection formatter 0.9s.
-`openspec validate add-vms-storage-playback-engine --strict` exited 0. These
-checks do not run the guarded database bodies. Those stay untested until draft
-PR #5954 is republished and Core Integration runs them.
+Published #5955 head `bf480fdcb1` ran Core Integration workflow
+[7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690),
+suite `24917750-4926-455c-9a40-c07e00291d5d`. All 12 targets executed once,
+uncached, and 11 passed. The only failure is `integration_tests_serial_2` at
+`test/integration/camera_recording_blocks_integration_test.exs:204`. Deleting
+the referenced destination was rejected. The test expected
+`:foreign_key_violation`. PostgreSQL 18 returned `:restrict_violation`, pg_code
+`23001`, constraint `camera_recording_blocks_archive_binding_id_fkey`.
+Migration `20261023180000` still uses `on_delete: :restrict`. This tree now
+expects that exact code, pg_code, and constraint. The release, replacement,
+and retained-binding assertions after that line stay in the test. Matching-head
+CI has not re-executed them. `integration_tests_serial_3` finished 329 tests,
+0 failures, and 8 excluded, including the 3 worker cases. Suite returned 3.
+Observer, teardown, and release each returned 0. Earlier workflows
+[b69c483d](https://carverauto.buildbuddy.io/invocation/b69c483d-c501-40f9-9c37-4576d286f037),
+[2f02bddf](https://carverauto.buildbuddy.io/invocation/2f02bddf-6744-4eca-a7ff-5e89c9796d19),
+and
+[36f56b1b](https://carverauto.buildbuddy.io/invocation/36f56b1b-1d45-4eb2-8d17-2c4ee9807a6c)
+stopped on the README merge conflict before any test body. The database cases are
+`elixir/serviceradar_core/test/integration/camera_recording_blocks_integration_test.exs`
+and
+`elixir/serviceradar_core/test/integration/camera_recording_worker_integration_test.exs`,
+both owned by `//elixir/serviceradar_core:integration_tests`. `bf480fdcb1`
+executed both lanes. Serial_2 failed the stale error-code expectation, and
+serial_3 passed its worker cases. The corrected expectation still needs a
+republished Core Integration run.
+Descriptor encoding is
+`elixir/serviceradar_core_elx/test/serviceradar_core_elx/camera_recording/manifest_test.exs`
+on `//elixir/serviceradar_core_elx:unit_tests`. Destination identity without a
+database is
+`elixir/serviceradar_core/test/serviceradar/camera/archive_destination_test.exs`
+on `//elixir/serviceradar_core:unit_tests`. The chart floor target is
+`//helm/serviceradar:migrations_expected_version_test`. The synthetic provider
+target is `//elixir/serviceradar_core_elx:provider_probe_test`.
 
+This pass keeps retained block authority, immutable archive destinations,
+persisted-descriptor manifest encoding, and conditional-write/encryption
+diagnostics. A recorder freezes one immutable descriptor while its original
+recorder fence is still valid, before the claim is released. A later uploader
+takes a separate lease and binds one destination once under that lease. The
+final fresh database-time check uses the deadline captured at the start of
+`with_current_upload/3`, so a nested renewal cannot extend an already expired
+upload. Identical destination registration is idempotent, conflicting content
+is rejected, and a referenced destination cannot be deleted. Registration
+grants no credentials or storage operations. Block migration
+`20261023160000` and binding migration `20261023180000` stay additive, and the
+chart migration floor is `20261023180000`. Fixture cleanup deletes dependent
+blocks before the other committed rows. Provider cleanup stays exact, under the
+unchanged 80/30 request limits, and keeps unresolved receipts when absence is
+not verified. No uploader, archive index, availability state, or recording
+enablement is in this pass. Recording stays disabled and no runtime rollout has
+occurred.
+
+An earlier combined sweep passes 436 targets, with 49 executed and two Swift
+platform skips, in
+[5c992fa7](https://carverauto.buildbuddy.io/invocation/5c992fa7-55d0-448b-a0eb-a4f02b23aea5).
+All three Chromium seeking cases execute and pass in
+[d031da58](https://carverauto.buildbuddy.io/invocation/d031da58-b919-470f-8725-45a7f853e0ab).
+Five focused non-database targets passed in
+[87633a67](https://carverauto.buildbuddy.io/invocation/87633a67-0e9a-4b03-b886-614b01200cec):
+`//build/media:provider_probe_release_startup_test`,
+`//elixir/serviceradar_core_elx:provider_probe_test`,
+`//elixir/serviceradar_core_elx:unit_tests_serviceradar_core_elx`,
+`//elixir/serviceradar_core:unit_tests_serviceradar_other`, and
+`//helm/serviceradar:migrations_expected_version_test`. Those invocations
+predate `8a5b83b0` and did not execute the guarded database scenarios. A
+non-database `make test` of `8a5b83b0` finished in
+[b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958):
+452 tests passed, 49 executed, and 2 skipped
+(`//build/arrow_swift:ios_compile_test` and
+`//build/arrow_swift:swift_regression_test`). The command excludes
+`integration_test` and `acceptance_test`. Strict OpenSpec validation of this
+change passed on `8a5b83b0`.
 The operator has confirmed the agent-to-gateway-to-core live RTSP path works.
 Preserve that path; live viewing does not establish archive durability or seeking.
 
@@ -67,53 +144,59 @@ Preserve that path; live viewing does not establish archive durability or seekin
 4. Run synthetic failure/security/capacity acceptance before the operator-designated
    live environment. Never commit captured media, environment values or credentials.
 
-## Evidence ledger
+## Current validation
 
-| Contract | Evidence | Remaining proof |
+| Contract | Current evidence | Remaining gate |
 | --- | --- | --- |
-| Scope and ownership | Planning PR #5945 merged; operator requested implementation | Runtime and Cloud acceptance remain unchecked |
-| Existing live transport | Operator-confirmed agent/gateway/core live stream | Recorder lifetime, bounded fanout, archive and seek |
-| Local spool and CMAF | Integrated RBE: eight media cases, provider protocol tests, core-elx quality and Chromium checks pass in [b4f35d58](https://carverauto.buildbuddy.io/invocation/b4f35d58-a326-4b32-98da-e80bfa728b3a). A recorder joining between keyframes waits for real in-band configuration and IDR; recovered fragments decode independently | Guarded recorder-claim execution, archive publication, rotation/reclamation and power-loss/deployment acceptance |
-| Synthetic RTSP | The real Go receiver feeds Packaging and recovered Spool bytes; independent decoding matches the generated source. Three integrated cases and quality pass in [d9c4389a](https://carverauto.buildbuddy.io/invocation/d9c4389a-5306-494a-86c2-3ffb37c65e97). Forced TCP loss, fresh receiver clocks, RTP wrap, changed configuration and missing keyframes are exercised. A deliberate receiver timebase mutation fails | Authenticated agent/gateway/core recovery and automatic reconnect orchestration; the harness explicitly starts the fresh receiver |
-| Browser fragment seek | Actual packaged and recovered bytes decode in Chromium MSE. Evicting the buffer between seeks forces ranges in order 0, 2, 1, 0 and produces the expected decoded colors. Three cases pass after foundation reconciliation in [468a68df](https://carverauto.buildbuddy.io/invocation/468a68df-accb-49c7-b508-f171dfc3b10a); the wrong-color mutation fails | Product player/timeline integration and authorization; the fixture server does not establish the production gateway's access boundary |
-| Recovery manifest | Version 1 metadata rejects open blocks, unbound object receipts, identity/path substitution, discontinuous fragment maps and excessive metadata allocations. Restored source passes 203 core-elx tests and quality in [6d3c95b2](https://carverauto.buildbuddy.io/invocation/6d3c95b2-1def-4657-a3b3-db4e25458a63). Permitting timing gaps fails in [79789014](https://carverauto.buildbuddy.io/invocation/79789014-5e3c-415e-96b8-63d8269ae90d); permitting excessive fragment counts fails in [ff07d967](https://carverauto.buildbuddy.io/invocation/ff07d967-e611-40a0-b4e5-0473f68c6875) | Remote byte/init/manifest verification and idempotent fenced publication; metadata alone establishes neither durability nor authorization |
-| Durable ownership | The published runtime passes all 12 guarded DB targets in [23177e08](https://carverauto.buildbuddy.io/invocation/23177e08-ea4b-45c8-b90e-8f9a24b11d1a), with successful teardown and lease release. Head `158aa45657` then failed the two added keepers in [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8) as recorded above | Repeat the guarded suite after the rollback and explicit-actor repair on draft PR #5954 |
-| Recorder exclusion | Retained claims carry a separate recorder epoch, authenticated ingress ID, provisioned storage UUID and durable sequence counter. The published runtime's guarded suite passes | This revision restores unconditional ownership transactions. Repeat guarded validation; full authenticated deployment recovery remains separate |
-| Provider access | Authenticated bounded ranges pass synthetic TLS loopback and CONNECT, response-status, object-identity, byte/header/deadline tests in [eedb3bc5](https://carverauto.buildbuddy.io/invocation/eedb3bc5-2d1a-41ed-8c64-ab3cd22d74a0). Deliberately accepting HTTP 200 failed the control | Actual endpoint capability/security probes, gateway authorization and measured request cost |
-| Provider diagnostic | Eight executable protocol cases, release startup and quality pass after the opaque-receipt correction in [4a5dd038](https://carverauto.buildbuddy.io/invocation/4a5dd038-3a46-4e1d-a944-7a00b9aed942). The corrected second live exercise verified private access, roles, conditional reads, checksums, multipart completion/hash/cross-part range and abort. All temporary resources from both exercises were removed and absence rechecked | Both object types lack confirmed default SSE-S3, so the overall live result remains failed. Explicit SSE-S3, atomic no-overwrite, policy/Object Lock are untested. Broad provider keys are not recorder credentials. [Operator runbook](../../../build/media/provider-probe.md) |
-| A/V diagnostic | Stream Doctor measured 3 ms control drift and 503 ms with a 500 ms injected delay; removing the delay made the fault assertion fail. Integrated target passes in [90139de1](https://carverauto.buildbuddy.io/invocation/90139de1-7abd-4d0d-8489-6fb40a65f9ea), using the verified cached result | Product audio support and RTSP fault coverage; [scope, bounds and fresh-run evidence](stream-doctor.md) |
-| Foundation validation | [PR #5950](https://github.com/carverauto/serviceradar/pull/5950) merged with all 20 checks passing. Core Integration executes all 12 targets in [681ba460](https://carverauto.buildbuddy.io/invocation/681ba460-25c3-4cdb-af7a-94a14e169724), with successful fixture teardown and lease release | Does not establish the later runtime or archive contracts |
-| Regression checkpoint | [5042be95](https://carverauto.buildbuddy.io/invocation/5042be95-4711-4ae6-853e-d266fbdacdd8) ran core quality, integration selection, and CI registration while the regression assertions were already in the tree, uncommitted. That invocation executed no database bodies. The full sweep passes 436 targets, with two executed and two Swift skips, in [01f10928](https://carverauto.buildbuddy.io/invocation/01f10928-9ba6-406f-a942-de1a663b340f), and also executed no database bodies for these keepers. Independent review found no defects in the two test extensions or prepared repair. Published execution is [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8) | Positive database proof of this repair is still outstanding |
+| Foundation | [PR #5950](https://github.com/carverauto/serviceradar/pull/5950) merged with all 20 checks passing, including 12 guarded DB targets in [681ba460](https://carverauto.buildbuddy.io/invocation/681ba460-25c3-4cdb-af7a-94a14e169724) | Does not cover the later runtime, block, or binding scenarios |
+| Runtime repair | #5952 is merged at `b80465bfd6a7eca5c7a298e2d34530a93ba8ae8b`. #5954 is merged at `9c3388359ad9a5ef079c2aa1b1ae7a0e7100f692`. Negative suite `d607f3a0` on [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8): 12 executed, 10 passed, 2 intended failures; observer, teardown, and release 0. Broad child [9470b885](https://carverauto.buildbuddy.io/invocation/9470b885-eab0-49d4-8a20-3c5c0f3c5791): 440 passed, 2 skipped, 45 executed. Repair `a8590062`. Focused proof [3fa1b9f1](https://carverauto.buildbuddy.io/invocation/3fa1b9f1-8003-4245-b11c-e2c3ada4224c): 4 passed, 3 executed, formatter cached. Cached non-database recheck [958221fc](https://carverauto.buildbuddy.io/invocation/958221fc-4bfe-4cfa-a52a-cd2e659fd2e0): 4 cached passes, 0 executed. Positive proof is merged head `89d50a7f0d`: workflow [a74b1f9f](https://carverauto.buildbuddy.io/invocation/a74b1f9f-ee0d-450f-88a0-7d26eeed15ed) / child [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a), 12 of 12 passed; suite, observer, teardown, and release 0; serial_6 256/0; serial_0 401/0 and 1 skip. GitHub rollup success, 18 checks | That runtime result does not execute archive block or binding database cases |
+| Historical block authority | Nine focused targets pass in [27053d5a](https://carverauto.buildbuddy.io/invocation/27053d5a-0d1c-45ae-9fda-2e9a412a4b16). Weakening descriptor continuity and count fails two manifest cases in [1c617b24](https://carverauto.buildbuddy.io/invocation/1c617b24-b950-4ef8-9bbf-58881832e059); restored source passes. The original upload deadline and migration `20261023160000` stay. Source is `test/integration/camera_recording_blocks_integration_test.exs` on `//elixir/serviceradar_core:integration_tests` | Published `bf480fdcb1` ran this file in [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690). `integration_tests_serial_2` failed only at line 204. The corrected RESTRICT expectation has not been re-executed. [Authority boundary](block-authority.md) |
+| Immutable archive destination | Six focused targets pass in [f6c00dae](https://carverauto.buildbuddy.io/invocation/f6c00dae-99ab-4c6c-907d-a30a0d00ab4e). Allowing an unexpected field fails in [4c35622e](https://carverauto.buildbuddy.io/invocation/4c35622e-1396-4beb-bded-45596214e4ae); the parser is restored byte-for-byte. Bind-once and migration floor `20261023180000` stay. Database cases share `camera_recording_blocks_integration_test.exs`; canonical identity without a database is `test/serviceradar/camera/archive_destination_test.exs` on `//elixir/serviceradar_core:unit_tests` | On `bf480fdcb1`, the referenced delete was rejected as `:restrict_violation` / `23001` / `camera_recording_blocks_archive_binding_id_fkey`. The test expected `:foreign_key_violation`, so the same test's later release and replacement assertions did not run. Worker serial_3 passed 329 tests, 0 failures, 8 excluded, including 3 worker cases. The corrected expectation has no matching-head CI result. [Binding contract](archive-binding.md) |
+| Persisted descriptor | Four focused targets pass in [51ca7192](https://carverauto.buildbuddy.io/invocation/51ca7192-b501-4c2b-b3fe-85425239f51a): 207 unit cases, eight cached media cases, three freshly executed Chromium cases, and quality. Validation bypass [09d56db4](https://carverauto.buildbuddy.io/invocation/09d56db4-88d1-44bd-82f8-3f97f7cd66ea) and unsupported profile [b0368339](https://carverauto.buildbuddy.io/invocation/b0368339-fdfe-4fc6-8ec5-2b8ef3ecf7f7) fail the intended assertions | Remote byte verification and publication remain separate |
+| Combined archive pass | Earlier [5c992fa7](https://carverauto.buildbuddy.io/invocation/5c992fa7-55d0-448b-a0eb-a4f02b23aea5): 436 targets pass, 49 execute, two Swift platform skips. Historical non-database [87633a67](https://carverauto.buildbuddy.io/invocation/87633a67-0e9a-4b03-b886-614b01200cec) passed five focused targets. Strict OpenSpec validation passed on `8a5b83b0`. Non-database `make test` [b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958) finished: 452 passed, 49 executed, 2 Swift skips | Runtime DB proof is the merged #5954 run above. Published archive Core Integration [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690) failed one assertion. The corrected expectation has no guarded rerun yet |
+| Browser/media | [d031da58](https://carverauto.buildbuddy.io/invocation/d031da58-b919-470f-8725-45a7f853e0ab): three Chromium cases execute and pass; 16 provider and eight media cases reuse verified cache results. An earlier wrong-color mutation fails in [468a68df](https://carverauto.buildbuddy.io/invocation/468a68df-accb-49c7-b508-f171dfc3b10a) | Product playback authorization and full authenticated deployment recovery |
+| Provider/Cloud | Synthetic conditional-write and explicit-SSE diagnostics pass in [373125cd](https://carverauto.buildbuddy.io/invocation/373125cd-3ffc-4b55-9618-359fb128eb2c). Separate controls reject missing conditional headers, missing explicit encryption headers, and HTTP 200 completion errors. The earlier opaque-receipt diagnostic is [4a5dd038](https://carverauto.buildbuddy.io/invocation/4a5dd038-3a46-4e1d-a944-7a00b9aed942). Both earlier live exercises were cleaned and absence/revocation rechecked. Exact cleanup stays under the 80/30 limits | Live readiness remains failed: default SSE was not confirmed, the new explicit-SSE and conditional-write checks are not live-tested, and policy/Object Lock remain untested. No third live probe |
 
-Local spool tests cover committed reads after writer exit, interrupted-tail
-recovery, corruption rejection, immutable sealing, stale snapshots, independent
-bounds and epoch-qualified block identity. The separate media target generates
-75 synthetic baseline H.264 frames with pinned FFmpeg, then independently probes
-and decodes every recovered fragment and compares all decoded pixels with the
-source. Final-sample duration inference survives recovery as explicit provenance.
-The separate browser suite establishes fragment seeking, and the RTSP suite
-establishes recording behavior after an explicitly restarted synthetic receiver.
-Neither proves the full authenticated deployment recovery path. No live recording
-path is enabled by this checkpoint. Implementation choices live in
-[choices.md](choices.md). The published keeper failures and this repair are in
-Current pickup.
+[Detailed validation evidence](validation.md) retains the individual invocation
+links, negative controls, and the limits of each proof, including the merged
+runtime ledger for local spool, synthetic RTSP, recovery manifest, provider
+access, and Stream Doctor. The regression checkpoint
+[5042be95](https://carverauto.buildbuddy.io/invocation/5042be95-4711-4ae6-853e-d266fbdacdd8)
+executed no database bodies, and the separate sweep
+[01f10928](https://carverauto.buildbuddy.io/invocation/01f10928-9ba6-406f-a942-de1a663b340f)
+passed 436 targets with two executed and two Swift skips, also without those
+keeper database bodies. The existing live RTSP path is operator-confirmed; no
+recording runtime has been deployed. The runtime pass changes live relay
+ownership and closure even while recording is disabled. Implementation choices
+live in [choices.md](choices.md).
 
 ## Next agent prompt
 
-Read [design.md](design.md), [tasks.md](tasks.md), and the current diff. The
-narrow repair is already in this tree: unconditional ownership transactions,
-the idle precheck on the locked default close branch, and no plain-map actor
-fallback. Revalidate from Review. Require the final Core Integration bodies,
-observer, teardown, and release to pass before any readiness claim. Leave PR
-#5954 draft. Do not merge, deploy, enable recording, provision storage, or run
-a third provider probe.
+Read [design.md](design.md), [tasks.md](tasks.md), and the current diff. This
+draft is PR #5955. #5952 and #5954 are merged. Published head `bf480fdcb1`
+failed Core Integration
+[7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690)
+on the referenced-destination error code. The runtime repair in this tree has
+positive guarded CI on merged #5954 head `89d50a7f0d`. The corrected
+`:restrict_violation` / `23001` /
+`camera_recording_blocks_archive_binding_id_fkey` expectation has not been
+re-executed. Revalidate from Review after publication. Require guarded Core
+Integration bodies, observer, teardown, and release to pass before any archive
+readiness claim. Leave this PR draft. Do not merge, deploy, enable recording, provision
+storage, start an uploader or index, or run a third provider probe.
 
-Carry the corrected published runtime into the dependent archive block/binding
-and media feasibility branches through their review workflows. Then implement
-immutable upload, verification and index publication. Releasing a current claim
-must not grant a stale recorder publication rights. Manifest encoding establishes
-metadata validity only; provider capability and deployment recovery remain
-separate gates.
+Releasing a current claim must not turn a stale recorder into a valid publisher,
+and a destination change must not retarget a retained block. Then implement
+immutable upload, verification, and index publication. The manifest validates
+metadata only. Baseline-only admission does not establish other codec support.
+Recovery uses `Manifest.encode_descriptor/2` with the frozen descriptor.
+`with_current_upload/3` deliberately requires `:uploading` after its callback
+and checks the original deadline. Live provider probe completion and guarded
+database race tests remain independent gates.
+
+Persist exact bounded remote-operation intent before dispatch; a timeout leaves
+reconciliation work, not proof of cancellation. Keep provider I/O outside CNPG
+transactions and credentials behind the isolated storage boundary.
 Update this handoff with concise measured evidence and the next incomplete gate;
 keep the authoritative checklist in `tasks.md`. Every implementation PR uses
 Treehouse and no-mistakes. Do not close #4913 or #4915 until their acceptance passes.

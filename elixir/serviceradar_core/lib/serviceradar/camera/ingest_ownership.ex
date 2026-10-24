@@ -30,12 +30,13 @@ defmodule ServiceRadar.Camera.IngestOwnership do
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwner
   alias ServiceRadar.Camera.RecorderClaim
+  alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.StreamProfile
 
   require Ash.Query
 
-  @resources [IngestOwner, ConsumerLease, RecorderClaim]
+  @resources [IngestOwner, ConsumerLease, RecorderClaim, RecordingBlock]
   @maximum_ttl_ms 300_000
   @close_grace_ms 5_000
 

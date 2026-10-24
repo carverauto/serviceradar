@@ -20,6 +20,8 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
   alias ServiceRadar.Camera.ConsumerLease
   alias ServiceRadar.Camera.IngestOwnership
   alias ServiceRadar.Camera.RecorderClaim
+  alias ServiceRadar.Camera.RecordingBlock
+  alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.RelaySession
 
   require Ash.Query
@@ -84,16 +86,42 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
     end
   end
 
-  def reserve_block(ingest, claim, opts \\ []) do
+  @doc "Reserve a retained block and burn its sequence before filesystem creation; clock uses JSON keys."
+  def reserve_block(ingest, claim, clock, opts \\ []) do
     with_current(
       ingest,
       claim,
-      fn _owner, current ->
+      fn owner, current ->
         if current.next_block_sequence < @max_counter do
           sequence = current.next_block_sequence
 
-          with {:ok, _updated} <- transition(current, %{next_block_sequence: sequence + 1}, opts),
-               do: {:ok, sequence}
+          attrs = %{
+            camera_source_id: owner.camera_source_id,
+            stream_profile_id: owner.stream_profile_id,
+            ingest_owner_id: owner.id,
+            ingest_epoch: owner.epoch,
+            recorder_claim_id: current.id,
+            recorder_epoch: current.recorder_epoch,
+            block_sequence: sequence,
+            relay_session_id: current.relay_session_id,
+            media_ingest_id: current.media_ingest_id,
+            storage_id: current.storage_id,
+            clock: clock
+          }
+
+          identity = RecordingBlock.identity(attrs)
+
+          with true <-
+                 RecordingDescriptor.valid_identity?(identity) ||
+                   {:error, :invalid_recording_identity},
+               {:ok, _updated} <- transition(current, %{next_block_sequence: sequence + 1}, opts) do
+            RecordingBlock
+            |> Ash.Changeset.for_create(
+              :reserve,
+              Map.put(attrs, :block_key, RecordingDescriptor.block_key(identity))
+            )
+            |> Ash.create(opts)
+          end
         else
           {:error, :block_sequence_exhausted}
         end

@@ -11,6 +11,13 @@ defmodule ServiceRadar.Camera.RecorderOwnershipIntegrationTest do
 
   require Ash.Query
 
+  @clock %{
+    "clock_epoch" => "invented-clock",
+    "timebase" => 90_000,
+    "dts_source" => "pts_no_reordering",
+    "utc_mapping" => "unknown"
+  }
+
   @moduletag :integration
   @moduletag sandbox: :unboxed
 
@@ -41,23 +48,33 @@ defmodule ServiceRadar.Camera.RecorderOwnershipIntegrationTest do
   test "reserved sequences survive caller crashes and released generations never regain publication",
        ctx do
     assert {:ok, old} = acquire(ctx)
-    results = race(fn -> RecorderOwnership.reserve_block(ctx.owner, old, ctx.opts) end)
-    assert Enum.sort(results) == Enum.map(0..7, &{:ok, &1})
-    assert {:ok, 8} = RecorderOwnership.reserve_block(ctx.owner, old, ctx.opts)
+    results = race(fn -> RecorderOwnership.reserve_block(ctx.owner, old, @clock, ctx.opts) end)
+
+    assert Enum.sort(Enum.map(results, fn {:ok, block} -> block.block_sequence end)) ==
+             Enum.to_list(0..7)
+
+    assert length(Enum.uniq(Enum.map(results, fn {:ok, block} -> block.id end))) == 8
+
+    assert {:ok, %{block_sequence: 8}} =
+             RecorderOwnership.reserve_block(ctx.owner, old, @clock, ctx.opts)
+
     parent = self()
 
     {allocator, monitor} =
       spawn_monitor(fn ->
-        result = RecorderOwnership.reserve_block(ctx.owner, old, ctx.opts)
+        result = RecorderOwnership.reserve_block(ctx.owner, old, @clock, ctx.opts)
         send(parent, {:allocated, result})
         receive do: (:unexpected -> :ok), after: (5_000 -> :ok)
       end)
 
     on_exit(fn -> Process.exit(allocator, :kill) end)
-    assert_receive {:allocated, {:ok, 9}}, 5_000
+    assert_receive {:allocated, {:ok, %{block_sequence: 9}}}, 5_000
     Process.exit(allocator, :kill)
     assert_receive {:DOWN, ^monitor, :process, ^allocator, :killed}, 5_000
-    assert {:ok, 10} = RecorderOwnership.reserve_block(ctx.owner, old, ctx.opts)
+
+    assert {:ok, %{block_sequence: 10}} =
+             RecorderOwnership.reserve_block(ctx.owner, old, @clock, ctx.opts)
+
     assert {:ok, renewed} = RecorderOwnership.renew(ctx.owner, old, 30_000, ctx.opts)
     assert renewed.claim_token == old.claim_token
     assert renewed.recorder_epoch == old.recorder_epoch
@@ -65,10 +82,12 @@ defmodule ServiceRadar.Camera.RecorderOwnershipIntegrationTest do
     assert {:error, :recorder_token_reused} = acquire(ctx, old.claim_token)
     assert {:ok, current} = acquire(ctx)
     assert current.recorder_epoch == old.recorder_epoch + 1
-    assert {:ok, 0} = RecorderOwnership.reserve_block(ctx.owner, current, ctx.opts)
+
+    assert {:ok, %{block_sequence: 0}} =
+             RecorderOwnership.reserve_block(ctx.owner, current, @clock, ctx.opts)
 
     assert {:error, :recorder_claim_lost} =
-             RecorderOwnership.reserve_block(ctx.owner, old, ctx.opts)
+             RecorderOwnership.reserve_block(ctx.owner, old, @clock, ctx.opts)
 
     assert {:error, :recorder_claim_lost} =
              RecorderOwnership.renew(ctx.owner, old, 30_000, ctx.opts)
