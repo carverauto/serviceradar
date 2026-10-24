@@ -3,19 +3,24 @@
 ## Current pickup
 
 Foundation PR #5950 and [runtime PR #5952](https://github.com/carverauto/serviceradar/pull/5952)
-are merged. #5952 landed at `b80465bfd6`. Its guarded suite
+are merged. #5952 landed at `b80465bfd6a7eca5c7a298e2d34530a93ba8ae8b` with all
+20 checks passing. Its guarded suite
 [23177e08](https://carverauto.buildbuddy.io/invocation/23177e08-ea4b-45c8-b90e-8f9a24b11d1a)
 executed 12 of 12, with observer, teardown, and release each returning 0. That
 merged code skipped a nested ownership transaction and promoted a plain-map user
 when actor was nil.
 
 [PR #5954](https://github.com/carverauto/serviceradar/pull/5954) is the
-regression repair. It published those two behaviors plus the keeper regressions
-at `158aa45657`. Guarded workflow
+regression repair. It merged at `9c3388359ad9a5ef079c2aa1b1ae7a0e7100f692` from
+published head `89d50a7f0d`. It published those two behaviors plus the keeper
+regressions at `158aa45657`. Guarded workflow
 [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8),
 suite `d607f3a0-48a9-4299-9c01-2fdd395a6bb8`, executed 12 of 12: 10 passed and
 the two new keepers failed as intended. Observer, teardown, and release each
-returned 0. `camera_ingest_ownership_integration_test.exs:250` (serial_6)
+returned 0. Broad child
+[9470b885](https://carverauto.buildbuddy.io/invocation/9470b885-eab0-49d4-8a20-3c5c0f3c5791)
+passed 440 tests, with 2 skipped and 45 executed, and GitHub's broad BazelCI
+check succeeded. `camera_ingest_ownership_integration_test.exs:250` (serial_6)
 returned `{:ok, :handled}` where the keeper requires
 `{:error, :publication_rejected}`. The callback receipt passed. The persisted
 display-name assertion was not reached. `relay_session_manager_test.exs:83`
@@ -35,9 +40,15 @@ user-to-actor fallback is gone from `read_ash_opts/2`. The successful plain-map
 fixture passes `actor: user` beside `user`. The explicit `actor: nil` assertion
 is unchanged. Focused repair proof
 [3fa1b9f1](https://carverauto.buildbuddy.io/invocation/3fa1b9f1-8003-4245-b11c-e2c3ada4224c)
-passed four targets, three executed, with the formatter cached. Draft #5954
-published `89d50a7f0d` afterward. Its GitHub check rollup is success across 18
-checks, including BazelCI, Web-NG DB, and Core Integration. Workflow
+passed four targets, three executed, with the formatter cached. On that repair
+head, invocation
+[958221fc](https://carverauto.buildbuddy.io/invocation/958221fc-4bfe-4cfa-a52a-cd2e659fd2e0)
+cached four passes (quality, selection equivalence, CI registration, and
+selection formatter; Bazel executed 0 of 4) and strict OpenSpec validation
+exited 0. Those checks do not run guarded database bodies. Merged #5954 head
+`89d50a7f0d` then recorded positive runtime proof. Its GitHub check rollup is
+success across 18 checks, including BazelCI, Web-NG DB, and Core Integration.
+Workflow
 [a74b1f9f](https://carverauto.buildbuddy.io/invocation/a74b1f9f-ee0d-450f-88a0-7d26eeed15ed),
 child
 [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a),
@@ -138,27 +149,35 @@ Preserve that path; live viewing does not establish archive durability or seekin
 | Contract | Current evidence | Remaining gate |
 | --- | --- | --- |
 | Foundation | [PR #5950](https://github.com/carverauto/serviceradar/pull/5950) merged with all 20 checks passing, including 12 guarded DB targets in [681ba460](https://carverauto.buildbuddy.io/invocation/681ba460-25c3-4cdb-af7a-94a14e169724) | Does not cover the later runtime, block, or binding scenarios |
-| Runtime repair | #5952 is merged at `b80465bfd6`. Negative suite `d607f3a0` on [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8): 12 executed, 10 passed, 2 intended failures; observer, teardown, and release 0. Repair `a8590062`. Focused proof [3fa1b9f1](https://carverauto.buildbuddy.io/invocation/3fa1b9f1-8003-4245-b11c-e2c3ada4224c): 4 passed, 3 executed, formatter cached. Positive proof is draft #5954 `89d50a7f0d`: workflow [a74b1f9f](https://carverauto.buildbuddy.io/invocation/a74b1f9f-ee0d-450f-88a0-7d26eeed15ed) / child [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a), 12 of 12 passed; suite, observer, teardown, and release 0; serial_6 256/0; serial_0 401/0 and 1 skip. GitHub rollup success, 18 checks | That runtime result does not execute archive block or binding database cases |
+| Runtime repair | #5952 is merged at `b80465bfd6a7eca5c7a298e2d34530a93ba8ae8b`. #5954 is merged at `9c3388359ad9a5ef079c2aa1b1ae7a0e7100f692`. Negative suite `d607f3a0` on [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8): 12 executed, 10 passed, 2 intended failures; observer, teardown, and release 0. Broad child [9470b885](https://carverauto.buildbuddy.io/invocation/9470b885-eab0-49d4-8a20-3c5c0f3c5791): 440 passed, 2 skipped, 45 executed. Repair `a8590062`. Focused proof [3fa1b9f1](https://carverauto.buildbuddy.io/invocation/3fa1b9f1-8003-4245-b11c-e2c3ada4224c): 4 passed, 3 executed, formatter cached. Cached non-database recheck [958221fc](https://carverauto.buildbuddy.io/invocation/958221fc-4bfe-4cfa-a52a-cd2e659fd2e0): 4 cached passes, 0 executed. Positive proof is merged head `89d50a7f0d`: workflow [a74b1f9f](https://carverauto.buildbuddy.io/invocation/a74b1f9f-ee0d-450f-88a0-7d26eeed15ed) / child [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a), 12 of 12 passed; suite, observer, teardown, and release 0; serial_6 256/0; serial_0 401/0 and 1 skip. GitHub rollup success, 18 checks | That runtime result does not execute archive block or binding database cases |
 | Historical block authority | Nine focused targets pass in [27053d5a](https://carverauto.buildbuddy.io/invocation/27053d5a-0d1c-45ae-9fda-2e9a412a4b16). Weakening descriptor continuity and count fails two manifest cases in [1c617b24](https://carverauto.buildbuddy.io/invocation/1c617b24-b950-4ef8-9bbf-58881832e059); restored source passes. The original upload deadline and migration `20261023160000` stay. Source is `test/integration/camera_recording_blocks_integration_test.exs` on `//elixir/serviceradar_core:integration_tests` | Published `bf480fdcb1` ran this file in [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690). `integration_tests_serial_2` failed only at line 204. The corrected RESTRICT expectation has not been re-executed. [Authority boundary](block-authority.md) |
 | Immutable archive destination | Six focused targets pass in [f6c00dae](https://carverauto.buildbuddy.io/invocation/f6c00dae-99ab-4c6c-907d-a30a0d00ab4e). Allowing an unexpected field fails in [4c35622e](https://carverauto.buildbuddy.io/invocation/4c35622e-1396-4beb-bded-45596214e4ae); the parser is restored byte-for-byte. Bind-once and migration floor `20261023180000` stay. Database cases share `camera_recording_blocks_integration_test.exs`; canonical identity without a database is `test/serviceradar/camera/archive_destination_test.exs` on `//elixir/serviceradar_core:unit_tests` | On `bf480fdcb1`, the referenced delete was rejected as `:restrict_violation` / `23001` / `camera_recording_blocks_archive_binding_id_fkey`. The test expected `:foreign_key_violation`, so the same test's later release and replacement assertions did not run. Worker serial_3 passed 329 tests, 0 failures, 8 excluded, including 3 worker cases. The corrected expectation has no matching-head CI result. [Binding contract](archive-binding.md) |
 | Persisted descriptor | Four focused targets pass in [51ca7192](https://carverauto.buildbuddy.io/invocation/51ca7192-b501-4c2b-b3fe-85425239f51a): 207 unit cases, eight cached media cases, three freshly executed Chromium cases, and quality. Validation bypass [09d56db4](https://carverauto.buildbuddy.io/invocation/09d56db4-88d1-44bd-82f8-3f97f7cd66ea) and unsupported profile [b0368339](https://carverauto.buildbuddy.io/invocation/b0368339-fdfe-4fc6-8ec5-2b8ef3ecf7f7) fail the intended assertions | Remote byte verification and publication remain separate |
-| Combined archive pass | Earlier [5c992fa7](https://carverauto.buildbuddy.io/invocation/5c992fa7-55d0-448b-a0eb-a4f02b23aea5): 436 targets pass, 49 execute, two Swift platform skips. Historical non-database [87633a67](https://carverauto.buildbuddy.io/invocation/87633a67-0e9a-4b03-b886-614b01200cec) passed five focused targets. Strict OpenSpec validation passed on `8a5b83b0`. Non-database `make test` [b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958) finished: 452 passed, 49 executed, 2 Swift skips | Runtime DB proof is the separate #5954 run above. Published archive Core Integration [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690) failed one assertion. The corrected expectation has no guarded rerun yet |
-| Browser/media | [d031da58](https://carverauto.buildbuddy.io/invocation/d031da58-b919-470f-8725-45a7f853e0ab): three Chromium cases execute and pass; 16 provider and eight media cases reuse verified cache results | Product playback authorization and full authenticated deployment recovery |
-| Provider/Cloud | Synthetic conditional-write and explicit-SSE diagnostics pass in [373125cd](https://carverauto.buildbuddy.io/invocation/373125cd-3ffc-4b55-9618-359fb128eb2c). Separate controls reject missing conditional headers, missing explicit encryption headers, and HTTP 200 completion errors. Both earlier live exercises were cleaned and absence/revocation rechecked. Exact cleanup stays under the 80/30 limits | Live readiness remains failed: default SSE was not confirmed, the new explicit-SSE and conditional-write checks are not live-tested, and policy/Object Lock remain untested. No third live probe |
+| Combined archive pass | Earlier [5c992fa7](https://carverauto.buildbuddy.io/invocation/5c992fa7-55d0-448b-a0eb-a4f02b23aea5): 436 targets pass, 49 execute, two Swift platform skips. Historical non-database [87633a67](https://carverauto.buildbuddy.io/invocation/87633a67-0e9a-4b03-b886-614b01200cec) passed five focused targets. Strict OpenSpec validation passed on `8a5b83b0`. Non-database `make test` [b0d27739](https://carverauto.buildbuddy.io/invocation/b0d27739-061d-4722-87e7-cd3a711b9958) finished: 452 passed, 49 executed, 2 Swift skips | Runtime DB proof is the merged #5954 run above. Published archive Core Integration [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690) failed one assertion. The corrected expectation has no guarded rerun yet |
+| Browser/media | [d031da58](https://carverauto.buildbuddy.io/invocation/d031da58-b919-470f-8725-45a7f853e0ab): three Chromium cases execute and pass; 16 provider and eight media cases reuse verified cache results. An earlier wrong-color mutation fails in [468a68df](https://carverauto.buildbuddy.io/invocation/468a68df-accb-49c7-b508-f171dfc3b10a) | Product playback authorization and full authenticated deployment recovery |
+| Provider/Cloud | Synthetic conditional-write and explicit-SSE diagnostics pass in [373125cd](https://carverauto.buildbuddy.io/invocation/373125cd-3ffc-4b55-9618-359fb128eb2c). Separate controls reject missing conditional headers, missing explicit encryption headers, and HTTP 200 completion errors. The earlier opaque-receipt diagnostic is [4a5dd038](https://carverauto.buildbuddy.io/invocation/4a5dd038-3a46-4e1d-a944-7a00b9aed942). Both earlier live exercises were cleaned and absence/revocation rechecked. Exact cleanup stays under the 80/30 limits | Live readiness remains failed: default SSE was not confirmed, the new explicit-SSE and conditional-write checks are not live-tested, and policy/Object Lock remain untested. No third live probe |
 
 [Detailed validation evidence](validation.md) retains the individual invocation
-links, negative controls, and the limits of each proof. The existing live RTSP
-path is operator-confirmed; no recording runtime has been deployed. The runtime
-pass changes live relay ownership and closure even while recording is disabled.
-Implementation choices live in [choices.md](choices.md).
+links, negative controls, and the limits of each proof, including the merged
+runtime ledger for local spool, synthetic RTSP, recovery manifest, provider
+access, and Stream Doctor. The regression checkpoint
+[5042be95](https://carverauto.buildbuddy.io/invocation/5042be95-4711-4ae6-853e-d266fbdacdd8)
+executed no database bodies, and the separate sweep
+[01f10928](https://carverauto.buildbuddy.io/invocation/01f10928-9ba6-406f-a942-de1a663b340f)
+passed 436 targets with two executed and two Swift skips, also without those
+keeper database bodies. The existing live RTSP path is operator-confirmed; no
+recording runtime has been deployed. The runtime pass changes live relay
+ownership and closure even while recording is disabled. Implementation choices
+live in [choices.md](choices.md).
 
 ## Next agent prompt
 
 Read [design.md](design.md), [tasks.md](tasks.md), and the current diff. This
-draft is PR #5955. Published head `bf480fdcb1` failed Core Integration
+draft is PR #5955. #5952 and #5954 are merged. Published head `bf480fdcb1`
+failed Core Integration
 [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690)
 on the referenced-destination error code. The runtime repair in this tree has
-positive guarded CI on #5954 `89d50a7f0d`. The corrected
+positive guarded CI on merged #5954 head `89d50a7f0d`. The corrected
 `:restrict_violation` / `23001` /
 `camera_recording_blocks_archive_binding_id_fkey` expectation has not been
 re-executed. Revalidate from Review after publication. Require guarded Core

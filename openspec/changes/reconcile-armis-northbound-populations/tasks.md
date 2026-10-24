@@ -117,26 +117,18 @@
 
 - [x] 7.1 Add unit tests for count equations, ID normalization, compatible same-ID
   repeats, conflicting same-ID repeats, and distinct-ID alias candidates.
-- [ ] 7.2 Add database tests for immutable collection binding, one disposition
+- [x] 7.2 Add database tests for immutable collection binding, one disposition
   per source ID, all withholding reasons, stopped batches, idempotent reruns,
   retention, and legacy accounting-unavailable collections.
-  Still open: an idempotent rerun of a finalized northbound run, retention that
-  keeps unresolved conflict rows, and a legacy collection that stays
-  accounting-unavailable. Binding, one disposition, withholding, and a stopped
-  batch already have tests.
 - [ ] 7.3 Extend the hermetic Armis/DIRE E2E with query-overlap duplicates, two
   distinct IDs sharing hardware evidence, isolated two-device merge attempts,
   transitive components, and exact captured-operation/ledger parity.
   Still open: the e2e does not name a transitive component or
   captured-operation/ledger parity. The pair fence and the size block already
   have unit owners; do not copy those into the e2e.
-- [ ] 7.4 Add UI tests for a fully reconciled run, a transport-successful but
+- [x] 7.4 Add UI tests for a fully reconciled run, a transport-successful but
   withheld run, stale/missing collection state, duplicate occurrences, and a
   stopped batch with unattempted IDs.
-  Still open: a fully reconciled run, and a stopped batch with a nonzero
-  unattempted count. The degraded funnel, duplicate examples, the accepted-by
-  Armis label, ledger export, and the accounting-unavailable label already
-  have LiveView coverage.
 - [ ] 7.5 Run focused Go and Elixir tests, then the repository Bazel test target.
   Verification must assert persisted per-ID outcomes from a run started after
   the merge-fence rollout, and must include an explicit failing branch for every
