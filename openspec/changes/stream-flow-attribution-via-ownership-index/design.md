@@ -1067,11 +1067,12 @@ correctness checks, but **all three exceeded both the 120-second replay target a
 | 70% depth 1, 25% depth 4, 5% depth 32 | ~23.3M | ~17 GB | ~385 s | ~390 bytes |
 
 Replay exceeded the target by about 31, 117 and 265 seconds, respectively. Each profile
-starts with 2.5M keys at logical time -7200 seconds and four fleet-wide observation/renewal
-epochs spaced 30 minutes apart. The final epoch renews unchanged leases or closes and reuses
-keys to produce the selected 15-minute history distribution. Six additional control events
-exercise duplicate closure, a stale renewal after closure, and expiry inside/outside the
-history horizon. These are invented distributions, not measurements of host activity.
+starts with 2.5M keys at logical time -7200 seconds. Four fleet-wide renewals of that
+original lease follow, at -7200, -5400, -3600 and -1800 seconds. A later per-key tail then
+renews an unchanged lease or closes and reuses the key so the retained 15-minute history
+matches the selected depth. Six additional control events exercise duplicate closure, a
+stale renewal after closure, and expiry inside/outside the history horizon. These are
+invented distributions, not measurements of host activity.
 
 The pinned NATS 2.14 server runs beside OTP 28 on the remote executor, with a file-backed,
 single-replica stream, `max_age` two hours, `discard: new`, and a 24 GiB byte limit. Each JSON
