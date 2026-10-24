@@ -184,6 +184,7 @@ ex_unit_tests(
             "test/serviceradar_core_elx/camera_recording/packaging_test.exs",
             "test/serviceradar_core_elx/camera_recording/provider_probe_test.exs",
             "test/serviceradar_core_elx/camera_recording/rtsp_recording_test.exs",
+            "test/serviceradar_core_elx/camera_recording/codec_capability_test.exs",
         ],
     ),
     config_loader = "//build:elixir_test_config_loader.exs",
@@ -247,10 +248,43 @@ ex_unit_tests(
 camera_browser_fixture(
     name = "recording_browser_fixture",
     testonly = True,
+    exec_properties = {
+        "default-timeout": "120s",
+        "termination-grace-period": "0s",
+    },
     app = ":erlang_app",
     generator = "test/fixtures/camera_browser_fixture.exs",
     media_tools = "//third_party/membrane:media_test_tools",
     out = "recording_browser_fixture.json",
+    target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
+)
+
+# Finite dependency capability experiment. It never enters production recording.
+ex_unit_tests(
+    name = "codec_capability_tests",
+    size = "medium",
+    timeout = "moderate",
+    srcs = ["test/serviceradar_core_elx/camera_recording/codec_capability_test.exs"],
+    config_loader = "//build:elixir_test_config_loader.exs",
+    data = glob(["config/**"]) + ["test/fixtures/camera_codec_capability.exs", "//third_party/membrane:media_test_tools"],
+    test_helper = "test/test_helper.exs",
+    exec_properties = {"test.network": "off"},
+    deps = [":erlang_app"],
+    target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
+)
+
+camera_browser_fixture(
+    name = "codec_capability_fixture",
+    testonly = True,
+    exec_properties = {
+        "default-timeout": "120s",
+        "termination-grace-period": "0s",
+    },
+    app = ":erlang_app",
+    generator = "test/fixtures/camera_codec_fixture.exs",
+    srcs = ["test/fixtures/camera_codec_capability.exs"],
+    media_tools = "//third_party/membrane:media_test_tools",
+    out = "codec_capability_fixture.json",
     target_compatible_with = ["@platforms//cpu:x86_64", "@platforms//os:linux"],
 )
 

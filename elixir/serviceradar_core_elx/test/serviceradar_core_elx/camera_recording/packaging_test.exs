@@ -1,6 +1,7 @@
 defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadarCoreElx.CameraRecording.Packaging
   alias ServiceRadarCoreElx.CameraRecording.Spool
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
@@ -73,6 +74,76 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     assert {:ok, _} = Packaging.push(pipeline, first)
     assert {:error, :non_monotonic_timestamp} = Packaging.push(pipeline, first)
     assert {:error, :non_monotonic_timestamp} = Packaging.finish(pipeline)
+  end
+
+  @tag :tmp_dir
+  test "block grouping conserves decoded media and reports actual logical byte overhead", ctx do
+    # Repeat a complete invented GOP, not container bytes or fabricated fragment
+    # metadata. The native parser/muxer sees every AU and its increasing clock.
+    gop = Enum.take(ctx.baseline.units, 30)
+
+    units =
+      for cycle <- 0..31, {unit, frame} <- Enum.with_index(gop) do
+        index = cycle * 30 + frame
+        %{unit | pts: 90_000 + index * 6_000, dts: 90_000 + index * 6_000, sequence: index + 1}
+      end
+
+    {:ok, pipeline} = Packaging.start(clock: @clock)
+    on_exit(fn -> Packaging.stop(pipeline) end)
+    events = push_all(pipeline, units)
+    assert {:ok, tail} = Packaging.finish(pipeline)
+    assert [{:init, init} | media] = events ++ tail
+    fragments = Enum.map(media, fn {:fragment, fragment} -> fragment end)
+    assert length(fragments) == 32
+    assert Enum.sum(Enum.map(fragments, & &1.sample_count)) == 960
+    assert Enum.all?(fragments, &(&1.independent? and &1.duration_ns == 2_000_000_000))
+    media_bytes = Enum.sum(Enum.map(fragments, &byte_size(&1.payload)))
+    assert media_bytes <= 8_388_608
+
+    expected = ctx.baseline.path |> decode() |> binary_part(0, 30 * @frame_bytes) |> :binary.copy(32)
+
+    measurements =
+      for per_block <- [1, 8, 32] do
+        root = Path.join(ctx.tmp_dir, "grouping-#{per_block}")
+        File.mkdir!(root)
+        File.chmod!(root, 0o700)
+
+        blocks =
+          fragments
+          |> Enum.chunk_every(per_block)
+          |> Enum.with_index(fn group, index -> measure_block(root, index, init, group) end)
+
+        decoded = blocks |> Enum.map(& &1.decoded) |> IO.iodata_to_binary()
+        assert byte_size(decoded) == 960 * @frame_bytes
+        assert digest(decoded) == digest(expected)
+
+        totals =
+          Map.new(
+            [:media_bytes, :init_bytes, :journal_bytes, :descriptor_bytes, :logical_spool_bytes, :fragments],
+            fn key ->
+              {key, Enum.sum(Enum.map(blocks, &Map.fetch!(&1, key)))}
+            end
+          )
+
+        assert totals.media_bytes == media_bytes
+        assert totals.fragments == 32
+        assert totals.init_bytes == div(32, per_block) * byte_size(init.payload)
+
+        Map.merge(totals, %{
+          fragments_per_block: per_block,
+          blocks: length(blocks),
+          max_descriptor_bytes: blocks |> Enum.map(& &1.descriptor_bytes) |> Enum.max()
+        })
+      end
+
+    IO.puts(
+      Jason.encode!(%{
+        measurement: "synthetic_logical_block_bytes",
+        frames: 960,
+        media_duration_ns: 64_000_000_000,
+        groupings: measurements
+      })
+    )
   end
 
   @tag :tmp_dir
@@ -220,6 +291,61 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
     snapshot
   end
 
+  defp measure_block(root, index, init, group) do
+    identity = %{
+      source_id: "00000000-0000-4000-8000-000000000001",
+      profile: "recording",
+      recorder_epoch: 1,
+      block_sequence: index,
+      clock: @clock
+    }
+
+    assert {:ok, spool} = Spool.create(root, identity, init.payload)
+
+    spool =
+      Enum.reduce(group, spool, fn fragment, spool ->
+        assert {:ok, updated, _} = Spool.append(spool, fragment.payload, fragment)
+        updated
+      end)
+
+    assert {:ok, sealed} = Spool.seal(spool)
+    assert {:ok, recovered} = Spool.recover(sealed.directory, identity)
+    snapshot = Spool.snapshot(recovered)
+    assert {:ok, descriptor} = RecordingDescriptor.from_snapshot(snapshot, init)
+    assert {:ok, descriptor_bytes} = RecordingDescriptor.encode(descriptor)
+
+    # File sizes measure logical content, not disk allocation or database cost.
+    sizes =
+      Map.new(File.ls!(snapshot.directory), fn name ->
+        stat = File.stat!(Path.join(snapshot.directory, name))
+        assert stat.type == :regular
+        {name, stat.size}
+      end)
+
+    assert {:ok, init_payload} = Spool.read_init(snapshot)
+
+    media =
+      Enum.map(snapshot.entries, fn entry ->
+        assert {:ok, payload} = Spool.read_fragment(snapshot, entry["sequence"])
+        payload
+      end)
+
+    assert IO.iodata_length(media) == Map.fetch!(sizes, "media.m4s")
+    assert byte_size(init_payload) == Map.fetch!(sizes, "init.mp4")
+    path = Path.join(root, "readback-block-#{index}.mp4")
+    File.write!(path, [init_payload | media])
+
+    %{
+      decoded: decode(path),
+      fragments: length(snapshot.entries),
+      media_bytes: Map.fetch!(sizes, "media.m4s"),
+      init_bytes: Map.fetch!(sizes, "init.mp4"),
+      journal_bytes: Map.fetch!(sizes, "journal"),
+      logical_spool_bytes: sizes |> Map.values() |> Enum.sum(),
+      descriptor_bytes: byte_size(descriptor_bytes)
+    }
+  end
+
   defp probe(path) do
     args = [
       "-v",
@@ -257,6 +383,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
       "-v",
       "error",
       "-xerror",
+      "-threads",
+      "1",
+      "-filter_threads",
+      "1",
       "-i",
       path,
       "-map",

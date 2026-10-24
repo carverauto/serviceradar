@@ -557,3 +557,68 @@ transaction. A successful return now means preparation committed; it does not
 authorize the recipient to send bytes. This limits future bulk orchestration to
 calls outside an ambient transaction. The choice is sound because it keeps the
 durable handoff explicit, with no extra process or nested-commit fiction.
+
+### Measure optional codecs without widening recording admission
+
+When: native codec capability pass. Verdict: sound, high confidence.
+
+One finite synthetic fixture exercises the pinned parsers and CMAF muxer, then
+supplies independently decoded bytes to Chromium. Production Packaging, Sink,
+Descriptor and Worker stay baseline-only. An explicit HEVC rejection is a browser
+capability result; an accepted stream still has to decode correctly. This keeps
+library feasibility separate from an unimplemented product contract.
+
+### Keep experimental timing budgets separate from capture accuracy
+
+When: native codec capability pass. Verdict: sound, medium confidence.
+
+Native decoded-marker measurement allows 50 ms around the injected offset;
+browser observation allows 150 ms for callback scheduling. The browser uses its
+pinned ScriptProcessor API with silent output and explicit cleanup. These choices
+make a short dependency experiment observable without promising physical clock
+accuracy or setting the eventual production synchronization objective. Six seconds
+of fixed input establish correctness only; sustained load and adversarial-input
+bounds need separate acceptance.
+
+### Observe sender reports without promoting them to trusted UTC
+
+When: RTCP clock capability pass. Verdict: sound, high confidence.
+
+The existing synthetic RTSP harness sends fixed invented reports over TCP and
+waits for their receipt before checking actual RTP callbacks. Independent calendar
+constants provide the oracle. A fresh client starts without a mapping, while a
+contradictory report is recorded as a library limitation. This isolates clock
+mapping from packet loss and preserves unknown UTC in production; authentication,
+report age, discontinuity and uncertainty policy remain product decisions.
+
+### Measure grouping with synthetic GOPs and an independent decoder
+
+When: logical block-byte pass. Verdict: sound, high confidence.
+
+The plan left the finite input shape unspecified. One synthetic two-second GOP
+(a keyframe followed by its dependent frames) is repeated with increasing media
+timestamps. Production packaging makes every fragment; no container bytes or
+fragment metadata are fabricated. A separate decoder must recover all 960
+expected frames after each grouping is stored and recovered. Omitting an append
+was observed to fail this check. Repetition keeps the existing media keeper small
+and bounded, but cannot establish diverse-scene compression or capacity.
+
+Actual spool file lengths and receipt-free encoded descriptor lengths are
+reported in [block-byte-costs.md](block-byte-costs.md). They expose repeated
+per-block bytes without inventing a database or uploader. Future task 0.6 work
+must measure index/WAL, cache and object requests at their real owners before
+turning this grouping comparison into a production size or cost decision.
+
+### Let the remote executor own the fixture action deadline
+
+When: fixture timeout repair. Verdict: sound, high confidence.
+
+If a synthetic encoder hangs, the BuildBuddy executor now ends its fixture action
+after 120 seconds with no extra termination grace. The earlier Bazel execution
+requirement was silently filtered out, so normal passing tests could not prove
+the advertised ceiling. The plan required a finite experiment but left the build
+mechanism unspecified. Both existing targets now use the executor's supported
+properties, without adding a wrapper, dependency or production timeout setting.
+An actual stalled generator was terminated after 120.01 seconds; the temporary
+delay was removed before positive checks. Future local execution cannot inherit
+this RBE-only guarantee, and product media deadlines remain separate contracts.

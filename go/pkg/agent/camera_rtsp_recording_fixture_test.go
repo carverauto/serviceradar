@@ -21,6 +21,8 @@ import (
 	"github.com/bluenviron/gortsplib/v5/pkg/format"
 	"github.com/bluenviron/gortsplib/v5/pkg/format/rtph264"
 	"github.com/bluenviron/mediacommon/v2/pkg/codecs/h264"
+	"github.com/pion/rtcp"
+	"github.com/pion/rtp"
 )
 
 var (
@@ -84,26 +86,7 @@ func TestCameraRTSPRecordingCapture(t *testing.T) {
 	if len(requests) == 0 || len(requests) > 4 {
 		t.Fatal("capture requires one to four bounded synthetic connections")
 	}
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = listener.Close() })
-	handler := &syntheticCameraRTSPServer{connections: make(chan *gortsplib.ServerConn, 4)}
-	server := &gortsplib.Server{
-		Handler:        handler,
-		RTSPAddress:    listener.Addr().String(),
-		Listen:         func(string, string) (net.Listener, error) { return listener, nil },
-		ReadTimeout:    2 * time.Second,
-		WriteTimeout:   2 * time.Second,
-		IdleTimeout:    3 * time.Second,
-		WriteQueueSize: 256,
-	}
-	if err := server.Start(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(server.Close)
-	url := "rtsp://" + listener.Addr().String() + "/synthetic-camera"
+	server, handler, url := startSyntheticCameraRTSP(t, false)
 	var captures []cameraRTSPCapture
 	for _, request := range requests {
 		captures = append(captures, captureCameraRTSP(t, server, handler, url, request))
@@ -118,6 +101,165 @@ func TestCameraRTSPRecordingCapture(t *testing.T) {
 	if err := os.WriteFile(*cameraRTSPOutput, output, 0o600); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func startSyntheticCameraRTSP(t *testing.T, disableSenderReports bool) (*gortsplib.Server, *syntheticCameraRTSPServer, string) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	handler := &syntheticCameraRTSPServer{connections: make(chan *gortsplib.ServerConn, 4)}
+	server := &gortsplib.Server{
+		Handler:                  handler,
+		RTSPAddress:              listener.Addr().String(),
+		Listen:                   func(string, string) (net.Listener, error) { return listener, nil },
+		ReadTimeout:              2 * time.Second,
+		WriteTimeout:             2 * time.Second,
+		IdleTimeout:              3 * time.Second,
+		WriteQueueSize:           256,
+		DisableRTCPSenderReports: disableSenderReports,
+	}
+	if err := server.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(server.Close)
+	return server, handler, "rtsp://" + listener.Addr().String() + "/synthetic-camera"
+}
+
+// PacketNTP is library clock evidence, not physical capture accuracy. Reports
+// below are independently invented wire values, never local receive timestamps.
+// The production receiver continues to emit relative PTS/DTS with unknown UTC.
+func TestCameraRTCPClockEvidence(t *testing.T) {
+	server, handler, url := startSyntheticCameraRTSP(t, true)
+	for _, epoch := range []struct {
+		name string
+		ntp  uint64
+		want time.Time
+	}{
+		{"first-source", uint64(2_208_988_923)<<32 | 0x40000000, time.Date(1970, 1, 1, 0, 2, 3, 250_000_000, time.UTC)},
+		{"fresh-source", uint64(2_208_992_523)<<32 | 0x40000000, time.Date(1970, 1, 1, 1, 2, 3, 250_000_000, time.UTC)},
+	} {
+		t.Run(epoch.name, func(t *testing.T) {
+			observeCameraClockEpoch(t, server, handler, url, epoch.ntp, epoch.want)
+		})
+	}
+}
+
+func observeCameraClockEpoch(t *testing.T, server *gortsplib.Server, handler *syntheticCameraRTSPServer, url string, wireNTP uint64, wantAnchor time.Time) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	media := &description.Media{Type: description.MediaTypeVideo, Formats: []format.Format{&format.H264{PayloadTyp: 96, PacketizationMode: 1}}}
+	stream := &gortsplib.ServerStream{Server: server, Desc: &description.Session{Medias: []*description.Media{media}}}
+	if err := stream.Initialize(); err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	handler.mu.Lock()
+	handler.stream = stream
+	handler.mu.Unlock()
+	u, err := base.ParseURL(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transport := gortsplib.ProtocolTCP
+	client := &gortsplib.Client{Scheme: u.Scheme, Host: u.Host, Protocol: &transport, ReadTimeout: 2 * time.Second, WriteTimeout: 2 * time.Second}
+	if err := client.Start(); err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	desc, _, err := client.Describe(u)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var forma *format.H264
+	clientMedia := desc.FindFormat(&forma)
+	if clientMedia == nil {
+		t.Fatal("synthetic H264 clock track missing")
+	}
+	if _, err := client.Setup(desc.BaseURL, clientMedia, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	type observation struct {
+		sequence        uint16
+		timestamp, ssrc uint32
+		ntp             time.Time
+		mapped          bool
+	}
+	packets := make(chan observation, 1)
+	reports := make(chan rtcp.SenderReport, 1)
+	client.OnPacketRTP(clientMedia, forma, func(packet *rtp.Packet) {
+		ntp, ok := client.PacketNTP(clientMedia, packet)
+		select {
+		case packets <- observation{packet.SequenceNumber, packet.Timestamp, packet.SSRC, ntp, ok}:
+		default:
+			t.Error("clock diagnostic exceeded one outstanding RTP packet")
+		}
+	})
+	client.OnPacketRTCP(clientMedia, func(packet rtcp.Packet) {
+		if report, ok := packet.(*rtcp.SenderReport); ok {
+			select {
+			case reports <- *report:
+			default:
+				t.Error("clock diagnostic exceeded one outstanding sender report")
+			}
+		}
+	})
+	if _, err := client.Play(nil); err != nil {
+		t.Fatal(err)
+	}
+	observe := func(sequence uint16, timestamp uint32, want time.Time) observation {
+		// This invented payload is only a clock-track marker, not decoded video.
+		packet := &rtp.Packet{Header: rtp.Header{Version: 2, PayloadType: 96, SequenceNumber: sequence, Timestamp: timestamp, Marker: true}, Payload: []byte{0x65, 0x88, 0x84}}
+		if err := stream.WritePacketRTP(media, packet); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case got := <-packets:
+			if got.sequence != sequence || got.timestamp != timestamp {
+				t.Fatalf("received unexpected RTP packet: %+v", got)
+			}
+			if got.mapped != !want.IsZero() || !got.ntp.Equal(want) {
+				t.Fatalf("PacketNTP(%d): mapped=%t time=%s, want mapped=%t time=%s", timestamp, got.mapped, got.ntp.Format(time.RFC3339Nano), !want.IsZero(), want.Format(time.RFC3339Nano))
+			}
+			t.Logf("rtp=%d mapped=%t sender_time=%s", timestamp, got.mapped, got.ntp.Format(time.RFC3339Nano))
+			return got
+		case <-ctx.Done():
+			t.Fatal("clock diagnostic RTP deadline exceeded")
+		}
+		return observation{}
+	}
+	// A fresh client/source epoch must not inherit the preceding report, even
+	// when RTP timestamp values are reused on the same RTSP URL.
+	first := observe(10, 0xffffdcd8, time.Time{})
+	report := func(timestamp uint32, ntp uint64, packetCount uint32) {
+		sr := &rtcp.SenderReport{SSRC: first.ssrc, NTPTime: ntp, RTPTime: timestamp, PacketCount: packetCount, OctetCount: 3 * packetCount}
+		if err := stream.WritePacketRTCP(media, sr); err != nil {
+			t.Fatal(err)
+		}
+		select {
+		case got := <-reports:
+			if got.SSRC != sr.SSRC || got.NTPTime != sr.NTPTime || got.RTPTime != sr.RTPTime {
+				t.Fatal("sender report changed in loopback transport")
+			}
+		case <-ctx.Done():
+			t.Fatal("clock diagnostic sender report deadline exceeded")
+		}
+	}
+	report(0xffffdcd8, wireNTP, 1)
+	observe(11, 0xffffee6c, wantAnchor.Add(50*time.Millisecond))
+	beforeJump := observe(12, 9000, wantAnchor.Add(200*time.Millisecond))
+	// gortsplib v5.6.6 accepts the latest matching-SSRC report without a clock
+	// plausibility test. A contradictory +30s anchor still returns mapped=true.
+	// This is a measured limitation, never a precision/UTC-readiness claim.
+	report(9000, wireNTP+uint64(30)<<32, 3)
+	afterJump := observe(13, 13500, wantAnchor.Add(30*time.Second+50*time.Millisecond))
+	if delta := afterJump.ntp.Sub(beforeJump.ntp); delta != 29_850*time.Millisecond {
+		t.Fatalf("contradictory report behavior changed: observed jump %s", delta)
+	}
+	t.Log("capability=latest-sender-report-without-plausibility-validation capture_accuracy=unknown")
 }
 
 func captureCameraRTSP(t *testing.T, server *gortsplib.Server, handler *syntheticCameraRTSPServer, url string, request cameraRTSPCaptureRequest) cameraRTSPCapture {
