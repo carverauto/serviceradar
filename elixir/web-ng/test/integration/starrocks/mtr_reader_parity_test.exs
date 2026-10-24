@@ -402,11 +402,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
       assert metadata["mvPartitionsToRefresh"] == ["p#{day}_#{next_day}"]
 
       for key <- ["refBasePartitionsToRefreshMap", "basePartitionsToRefreshMap"] do
-        assert metadata[key] == %{"mtr_traces" => [partition], "mtr_hops" => [partition]}
+        assert fixture_refresh_tables(metadata[key], database) ==
+                 %{"mtr_traces" => [partition], "mtr_hops" => [partition]}
       end
 
       # This is the engine's generated refresh plan, not a grep of SQL source.
-      assert metadata["planBuilderMessage"] == %{"mtr_traces" => partition, "mtr_hops" => partition}
+      assert fixture_refresh_tables(metadata["planBuilderMessage"], database) ==
+               %{"mtr_traces" => partition, "mtr_hops" => partition}
 
       assert {:ok, %{rows: rows}} =
                MySQL.query(
@@ -658,6 +660,30 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrReaderParityTest do
         flunk("refresh #{query_id} failed or returned unexpected task metadata: #{inspect(terminal)}")
     end
   end
+
+  # StarRocks qualifies refresh-plan table keys with the fixture database
+  # (`srql_parity_ci.mtr_traces`) or leaves them bare. Strip only that known
+  # database. A different catalog, a different table, or a different event-day
+  # partition still fails the exact map comparison.
+  defp fixture_refresh_tables(plan, database) when is_map(plan) do
+    Map.new(plan, fn {table, value} ->
+      {fixture_table_name(table, database), value}
+    end)
+  end
+
+  defp fixture_refresh_tables(plan, _database), do: plan
+
+  defp fixture_table_name(table, database) when is_binary(table) and is_binary(database) do
+    prefix = database <> "."
+
+    if String.starts_with?(table, prefix) do
+      String.replace_prefix(table, prefix, "")
+    else
+      table
+    end
+  end
+
+  defp fixture_table_name(table, _database), do: table
 
   # The CNPG half extracts the two MTR tables from the committed baseline (the
   # same source the Rust harness reads), creates them unqualified so the

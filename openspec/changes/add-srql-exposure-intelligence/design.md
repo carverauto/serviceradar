@@ -16,13 +16,14 @@ What exists today:
 | Topology | graph (AGE / Dgraph) | device uid | `in:device_graph`, `in:graph_cypher` |
 | BGP | StarRocks BMP events | peer, prefix | `in:bmp_events` |
 | Small current-state dimensions | CNPG, reachable from StarRocks through the opt-in `cnpg_platform` JDBC catalog, with column-scoped grants to `serviceradar_starrocks_reader` and an allowlist in `CatalogAllowlist` | | used by flow enrichment joins |
+| Current exposure facts, CVE and package dimensions, and transition history | StarRocks migration 0032 (`exposure_facts`, `exposure_cve_dim`, `exposure_package_dim`, `exposure_transitions_log`); see Decision 21 | fact key `(device_ord, cve_ord, pkg_ord)` | none yet |
 
 The gaps that block the six operator questions are:
 
 - nothing maps a flow endpoint or a host peer to a device;
 - nothing maps a process to the package that owns its executable (#5752);
 - host connection summaries (#5753) are not yet in the lab warehouse (Task 0.5), so nothing joins them to devices, exposure or flows, and nothing records whether an agent's capture was complete for an interval;
-- there is no current-state exposure store next to flows.
+- the exposure tables above are not yet written or exposed as SRQL.
 
 A pre-fix lab measurement for #5749 found about 97% of "active" match rows were orphans. The 2026-10-22 read-only follow-up, after a successful matcher completion, found no active orphan matches and an actionable assessment count rounded to zero (nearest hundred). See *Task 0.2: read-only cleanup follow-up*.
 
@@ -917,6 +918,32 @@ This extends the producer contract beyond the delivered row-trigger implementati
 recorded below; the fact-key serialization and missing-source repair remain work in
 task 1.6. No implementation of this path is part of this documentation change.
 
+### Decision 21: Build the assessment foundation independently
+
+On 2026-10-24 the product owner directed work to stop codec tuning and continue
+the exposure workstream, accepting the proposed sequencing of the independent
+assessment foundation ahead of the remaining attribution gates. Tasks 1.x may
+proceed using the delivered assessment outbox and ordinal dictionaries. Tasks
+0.3-0.5 still gate traffic evidence integration and launch. No capacity threshold,
+evidence requirement, or launch scope is waived. Snapshot and reconciliation must
+pass before exposure SRQL entities become available.
+
+Migration 0032 creates the four tables in task 1.2. The fact key and columns follow
+Decision 2, including BIGINT device ordinals and the default snapshot marker from
+Decision 19. The CVE dimension maps `cve_ord` to the advisory identifier and nullable
+EPSS score. The package dimension is keyed by `pkgver_ord`, carrying `pkg_ord`,
+package identity, display name and installed version: different installed versions
+must coexist across devices. Both dimensions carry their last update time. Fixed
+versions are assessment-specific and are not stored as a package-wide attribute.
+
+The daily Duplicate Key history carries transition identity, state, exposure and
+resolution times, and the complete transition JSON. Its initial partition retention
+is 365 daily partitions; wiring the database-backed history retention setting remains
+task 3.4.
+Current facts and dimensions have no partition expiry. This migration does not
+start ingestion or expose a query entity; processors, retirement handling,
+snapshot repair and reconciliation remain separate tasks.
+
 ## Section 0 evidence (2026-10-21)
 
 ### Task 0.6: synthetic warehouse spike
@@ -1103,9 +1130,11 @@ Refresh budgets:
 
 ## Migration Plan
 
-1. Phase 0 prerequisites and gates (`tasks.md`).
-2. Dictionaries, fact table, transitions processor, snapshot. Seed by snapshot and verify
-   with reconciliation before any SRQL entity is exposed.
+1. Phase 0 prerequisites and gates (`tasks.md`); finish the remaining attribution
+   and measurement gates before traffic evidence integration and launch.
+2. Independently build dictionaries, fact table, transitions processor and snapshot
+   (Decision 21). Seed by snapshot and verify with reconciliation before any SRQL
+   entity is exposed.
 3. Address dimension and flow stamping (a straight switch; history is not backfilled).
 4. Evidence, views, snapshots, and the SRQL entities.
 5. Coverage attestation, discrepancy evaluation, alerting.

@@ -1,5 +1,7 @@
 //! Task 1.4: seed CNPG and StarRocks with the same synthetic rows, run every inventory entry
-//! through both SRQL dialects, diff the results.
+//! through both SRQL dialects, diff the results. After those entries, `exposure` checks the
+//! migration 0032 tables in the same disposable warehouse. A filter that selects no inventory
+//! entry still fails before that check.
 //!
 //! The SQL under test is the SRQL crate's own: `srql::query::translate_request` with the CNPG
 //! mode and with `mode: "starrocks"`, exactly the entry point the product's NIF calls. The CNPG
@@ -1008,6 +1010,14 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
             outcomes.push((entry.id.clone(), outcome));
         }
         write_detail(&detail);
+        if outcomes.is_empty() {
+            bail!("no inventory entry ran");
+        }
+        let storage = match crate::exposure::verify(&mut sr, &sr_database, &ddl_dir).await {
+            Ok(()) => Outcome::Pass("exposure storage and migration replay".into()),
+            Err(error) => Outcome::Fail(format!("exposure storage: {error:#}")),
+        };
+        outcomes.push(("exposure_storage".into(), storage));
         Ok::<_, anyhow::Error>(outcomes)
     }
     .await;
