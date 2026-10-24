@@ -758,6 +758,20 @@ spec:
           value: {{ default 4 $observabilityRetention.timeseriesMetricsChunkIntervalHours | quote }}
         - name: SERVICERADAR_HOURLY_ROLLUP_RETENTION_DAYS
           value: {{ default 395 $observabilityRetention.hourlyRollupDays | quote }}
+        - name: SERVICERADAR_ADHOC_SCAN_RESULTS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.adhocScanResultsDays | quote }}
+        - name: SERVICERADAR_SERVICE_STATUS_RETENTION_DAYS
+          value: {{ default 14 $observabilityRetention.serviceStatusDays | quote }}
+        - name: SERVICERADAR_ENDPOINT_INVENTORY_HISTORY_RETENTION_DAYS
+          value: {{ default 395 $observabilityRetention.endpointInventoryHistoryDays | quote }}
+        - name: SERVICERADAR_SPANS_RED_RETENTION_DAYS
+          value: {{ default 90 $observabilityRetention.spansRedDays | quote }}
+        - name: SERVICERADAR_OTEL_METRICS_HOURLY_STATS_RETENTION_DAYS
+          value: {{ default 90 $observabilityRetention.otelMetricsHourlyStatsDays | quote }}
+        {{- if $observabilityRetention.tracesStatsDays }}
+        - name: SERVICERADAR_TRACES_STATS_RETENTION_DAYS
+          value: {{ $observabilityRetention.tracesStatsDays | quote }}
+        {{- end }}
         - name: SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS
           value: {{ default 6 $observabilityRetention.otelTracesChunkIntervalHours | quote }}
         - name: SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS

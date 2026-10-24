@@ -652,6 +652,36 @@ if config_env() == :prod do
   capacity_forecasts_retention_days =
     "SERVICERADAR_CAPACITY_FORECASTS_RETENTION_DAYS" |> parse_int_env.(395) |> max(1)
 
+  adhoc_scan_results_retention_days =
+    "SERVICERADAR_ADHOC_SCAN_RESULTS_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+
+  service_status_retention_days =
+    "SERVICERADAR_SERVICE_STATUS_RETENTION_DAYS" |> parse_int_env.(14) |> max(1)
+
+  endpoint_inventory_history_retention_days =
+    "SERVICERADAR_ENDPOINT_INVENTORY_HISTORY_RETENTION_DAYS" |> parse_int_env.(395) |> max(1)
+
+  spans_red_retention_days =
+    "SERVICERADAR_SPANS_RED_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
+  otel_metrics_hourly_stats_retention_days =
+    "SERVICERADAR_OTEL_METRICS_HOURLY_STATS_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
+  # Unset stays nil: the worker must tell an explicit tracesStatsDays from
+  # the shipped default, because only an explicit value may narrow the
+  # cold-tier fence's widened traces_stats_5m window.
+  traces_stats_retention_days =
+    case System.get_env("SERVICERADAR_TRACES_STATS_RETENTION_DAYS") do
+      value when value in [nil, ""] ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {int, ""} when int > 0 -> int
+          _ -> nil
+        end
+    end
+
   raw_metrics_chunk_interval_hours =
     "SERVICERADAR_RAW_METRICS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
 
@@ -1312,6 +1342,12 @@ if config_env() == :prod do
     ocsf_events_retention_days: ocsf_events_retention_days,
     raw_metrics_retention_days: raw_metrics_retention_days,
     capacity_forecasts_retention_days: capacity_forecasts_retention_days,
+    adhoc_scan_results_retention_days: adhoc_scan_results_retention_days,
+    service_status_retention_days: service_status_retention_days,
+    endpoint_inventory_history_retention_days: endpoint_inventory_history_retention_days,
+    spans_red_retention_days: spans_red_retention_days,
+    traces_stats_retention_days: traces_stats_retention_days,
+    otel_metrics_hourly_stats_retention_days: otel_metrics_hourly_stats_retention_days,
     cnpg_telemetry_default_days: cnpg_telemetry_default_days,
     timeseries_metrics_retention_days: timeseries_metrics_retention_days,
     timeseries_metrics_compress_after_hours: timeseries_metrics_compress_after_hours,

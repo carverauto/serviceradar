@@ -58,7 +58,47 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     :ocsf_events_retention_days,
     :timeseries_metrics_retention_days,
     :raw_metrics_retention_days,
-    :hourly_rollup_retention_days
+    :hourly_rollup_retention_days,
+    :adhoc_scan_results_retention_days,
+    :service_status_retention_days,
+    :spans_red_retention_days,
+    :traces_stats_retention_days,
+    :otel_metrics_hourly_stats_retention_days
+  ]
+  # Hypertables and continuous aggregates whose retention only migrations set
+  # before this worker reconciled them. Defaults equal the migration values,
+  # so an unset install keeps today's windows. Reconciliation is retention
+  # only: chunk intervals and compression stay migration-owned. Endpoint
+  # inventory history keeps its own horizon like capacity forecasts, so its
+  # key stays out of the ceiling list above.
+  @default_adhoc_scan_results_retention_days 30
+  @default_service_status_retention_days 14
+  @default_endpoint_inventory_history_retention_days 395
+  @default_spans_red_retention_days 90
+  @default_traces_stats_retention_days 14
+  @default_otel_metrics_hourly_stats_retention_days 90
+
+  # {table, retention_key, retention_default}
+  @migration_tables [
+    {"adhoc_scan_results", :adhoc_scan_results_retention_days,
+     @default_adhoc_scan_results_retention_days},
+    {"service_status", :service_status_retention_days, @default_service_status_retention_days},
+    {"events", :service_status_retention_days, @default_service_status_retention_days},
+    {"endpoint_inventory_scan_history", :endpoint_inventory_history_retention_days,
+     @default_endpoint_inventory_history_retention_days},
+    {"endpoint_inventory_package_events", :endpoint_inventory_history_retention_days,
+     @default_endpoint_inventory_history_retention_days},
+    {"endpoint_inventory_package_count_history", :endpoint_inventory_history_retention_days,
+     @default_endpoint_inventory_history_retention_days},
+    {"endpoint_inventory_cpe_count_history", :endpoint_inventory_history_retention_days,
+     @default_endpoint_inventory_history_retention_days}
+  ]
+  # {view, retention_key, retention_default}. traces_stats_5m is reconciled
+  # separately because of the cold-tier widened window.
+  @migration_caggs [
+    {"spans_red_1h", :spans_red_retention_days, @default_spans_red_retention_days},
+    {"otel_metrics_hourly_stats", :otel_metrics_hourly_stats_retention_days,
+     @default_otel_metrics_hourly_stats_retention_days}
   ]
   # {table, retention_key, retention_default, chunk_key, chunk_default}
   @timescale_tables [
@@ -150,7 +190,13 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     {"ocsf_events_hourly_stats", :ocsf_events_retention_days, @default_ocsf_events_retention_days,
      26, "5 minutes", "5 minutes"},
     {"logs_severity_stats_5m", :logs_retention_days, @default_logs_retention_days, 3,
-     "30 minutes", "10 minutes"}
+     "30 minutes", "10 minutes"},
+    {"endpoint_inventory_package_counts_hourly", :endpoint_inventory_history_retention_days,
+     @default_endpoint_inventory_history_retention_days, 31 * 24, "5 minutes", "5 minutes"},
+    {"endpoint_inventory_cpe_counts_hourly", :endpoint_inventory_history_retention_days,
+     @default_endpoint_inventory_history_retention_days, 31 * 24, "5 minutes", "5 minutes"},
+    {"services_availability_5m", :service_status_retention_days,
+     @default_service_status_retention_days, 24, "5 minutes", "5 minutes"}
   ]
   @query_timeout_ms 120_000
 
@@ -160,6 +206,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     batch_size = Keyword.get(config, :batch_size, @default_batch_size)
 
     reconcile_timescale_tables(config)
+    reconcile_migration_tables(config)
     reconcile_timeseries_metrics_compression(config)
     reconcile_hourly_rollups(config)
     # Widening rollup retention costs storage on every deployment and only pays
@@ -252,6 +299,122 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       set_chunk_interval(table_name, chunk_hours)
       drop_expired_chunks(table_name, retention_days)
     end)
+  end
+
+  @doc """
+  Reconcile retention for the hypertables and continuous aggregates that
+  only migrations configured before this pass existed.
+
+  Retention only: chunk intervals and compression for these objects stay
+  migration-owned. Refresh windows are clamped first, through the same
+  specs `reconcile_timescale_tables/1` uses, so a shortened source never
+  leaves a wider refresh registered. Objects that do not exist are
+  skipped.
+  """
+  @spec reconcile_migration_tables(keyword()) :: :ok
+  def reconcile_migration_tables(config) do
+    reconcile_cagg_refresh_windows(config)
+
+    Enum.each(@migration_tables, fn {table_name, key, default} ->
+      days = retention_days(config, key, default)
+      RetentionFence.reconcile_policy(table_name, days)
+      drop_expired_chunks(table_name, days)
+    end)
+
+    Enum.each(@migration_caggs, fn {view, key, default} ->
+      days = migration_cagg_retention_days(config, view, key, default)
+      run_rollup_sql(view, :retention, rollup_retention_sql(view, days))
+    end)
+
+    reconcile_traces_stats_retention(config)
+  end
+
+  # A continuous aggregate's retention, floored at its already-clamped
+  # refresh window. The clamp keeps the window strictly under the
+  # configured retention, so the floor never holds drop_after above it.
+  defp migration_cagg_retention_days(config, view, key, default) do
+    configured = retention_days(config, key, default)
+
+    floor_days =
+      case Enum.find(cagg_refresh_policy_specs(config), &(&1.view == view)) do
+        %{start_offset_hours: hours} -> div(hours + 23, 24)
+        nil -> 1
+      end
+
+    max(configured, floor_days)
+  end
+
+  # traces_stats_5m also has a cold-tier owner: RetentionFence widens it
+  # while the tier is enabled and never
+  # shrinks it back. An unset tracesStatsDays (the runtime passes nil) and
+  # the ceiling must not undo that widening; only an explicit value may
+  # narrow the aggregate, and only with the cold tier disabled.
+  defp reconcile_traces_stats_retention(config) do
+    explicit = Keyword.get(config, :traces_stats_retention_days)
+
+    desired =
+      migration_cagg_retention_days(
+        config,
+        "traces_stats_5m",
+        :traces_stats_retention_days,
+        @default_traces_stats_retention_days
+      )
+
+    current = current_cagg_retention_days("traces_stats_5m")
+    cold_window = RetentionFence.cagg_cold_window_days("traces_stats_5m")
+
+    widened? =
+      is_integer(current) and is_integer(cold_window) and current >= cold_window
+
+    cond do
+      widened? and desired < current and Config.enabled?() ->
+        :ok
+
+      widened? and desired < current and is_nil(explicit) ->
+        :ok
+
+      true ->
+        run_rollup_sql(
+          "traces_stats_5m",
+          :retention,
+          rollup_retention_sql("traces_stats_5m", desired)
+        )
+    end
+  end
+
+  defp current_cagg_retention_days(view) do
+    sql = """
+    SELECT (EXTRACT(EPOCH FROM (j.config->>'drop_after')::interval) / 86400)::float8
+    FROM timescaledb_information.continuous_aggregates ca
+    JOIN timescaledb_information.jobs j
+      ON j.proc_name = 'policy_retention'
+     AND j.hypertable_schema IN (ca.materialization_hypertable_schema, ca.view_schema)
+     AND j.hypertable_name IN (ca.view_name, ca.materialization_hypertable_name)
+    WHERE ca.view_schema = 'platform' AND ca.view_name = $1
+    LIMIT 1
+    """
+
+    case SQL.query(Repo, sql, [view], timeout: @query_timeout_ms) do
+      {:ok, %{rows: [[days]]}} when is_number(days) -> round(days)
+      _ -> nil
+    end
+  end
+
+  # otel_metrics_hourly_stats refreshes from raw otel metrics into itself:
+  # its window must stay under both the raw retention and its own.
+  defp cagg_source_retention_days(config, "otel_metrics_hourly_stats", key, default) do
+    min(
+      retention_days(config, key, default),
+      retention_days(
+        config,
+        :otel_metrics_hourly_stats_retention_days,
+        @default_otel_metrics_hourly_stats_retention_days
+      )
+    )
+  end
+
+  defp cagg_source_retention_days(config, _view, key, default) do
+    retention_days(config, key, default)
   end
 
   @doc """
@@ -529,7 +692,8 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   def cagg_refresh_policy_specs(config \\ []) do
     Enum.map(@cagg_refresh_policies, fn {view, retention_key, retention_default,
                                          default_start_hours, end_offset, schedule_interval} ->
-      retention_days = retention_days(config, retention_key, retention_default)
+      retention_days =
+        cagg_source_retention_days(config, view, retention_key, retention_default)
 
       start_offset_hours = clamp_cagg_start_offset_hours(default_start_hours, retention_days)
 

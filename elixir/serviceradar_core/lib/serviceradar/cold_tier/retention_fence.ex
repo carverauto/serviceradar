@@ -334,6 +334,19 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
   defp parse_interval_days(_), do: nil
 
   @doc """
+  The window, in days, this fence widens `view` to while the cold tier is
+  enabled, or `nil` when the fence does not manage the view. Retention
+  reconciliation reads it from here so the widen target has one owner.
+  """
+  @spec cagg_cold_window_days(String.t()) :: pos_integer() | nil
+  def cagg_cold_window_days(view) do
+    case List.keyfind(@cagg_cold_windows, view, 0) do
+      {^view, days} -> days
+      nil -> nil
+    end
+  end
+
+  @doc """
   Widen under-retained continuous-aggregate windows to what a cold-tier
   deployment needs (design task 2.8).
 
