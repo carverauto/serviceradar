@@ -100,11 +100,21 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
           Logger.error("SweepCompiler: failed to compile config - #{inspect(reason)}")
           {:error, reason}
 
+        {:shared_targets_v1, document, compiled_groups} ->
+          log_compiled_groups(compiled_groups, partition, agent_id)
+
+          # Declared targets are recorded from the legacy groups either way:
+          # the shared document is a wire encoding of the same targets, and
+          # the declared-target relation stays format-independent.
+          DeclaredTargets.record_compiled(compiled_groups)
+
+          {:ok,
+           document
+           |> Map.put("compiled_at", DateTime.to_iso8601(DateTime.utc_now()))
+           |> Map.put("config_hash", shared_config_hash(document))}
+
         compiled_groups ->
-          Logger.info(
-            "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
-            groups: Enum.map(compiled_groups, &compiled_group_summary/1)
-          )
+          log_compiled_groups(compiled_groups, partition, agent_id)
 
           # Record what this agent is about to receive as each group's declared
           # targets, so query-derived declarations follow inventory changes and
@@ -150,14 +160,37 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # `:query_page_fn` is given, no aliases are loaded. `:agent_capabilities`
   # is the compiling agent's capability list (nil when unknown), which
   # withholds the modes the agent reports it cannot run; `:agent_id` names the
-  # agent in the resulting log lines.
+  # agent in the resulting log lines. `:format` selects the emitted shape:
+  # `:legacy` (default) returns the compiled groups, `:shared_targets_v1`
+  # returns `{:shared_targets_v1, document, compiled_groups}` with the
+  # shared-targets document derived from the same groups, and any other value
+  # is `{:error, {:unsupported_sweep_format, format}}`.
   #
   # Returns the compiled groups, or `{:error, reason}` when a target-query read
   # fails. A successful compile stays a list so callers can sort and hash it;
   # a failed read must not come back as groups that quietly sweep nothing.
   @spec compile_groups([SweepGroup.t()], %{optional(term()) => SweepProfile.t()}, keyword()) ::
-          [map()] | {:error, term()}
+          [map()] | {:shared_targets_v1, map(), [map()]} | {:error, term()}
   def compile_groups(groups, profile_map, opts \\ []) do
+    case Keyword.get(opts, :format, :legacy) do
+      :legacy ->
+        compile_legacy_groups(groups, profile_map, opts)
+
+      :shared_targets_v1 ->
+        case compile_legacy_groups(groups, profile_map, opts) do
+          {:error, reason} ->
+            {:error, reason}
+
+          compiled ->
+            {:shared_targets_v1, shared_targets_document(compiled, groups), compiled}
+        end
+
+      format ->
+        {:error, {:unsupported_sweep_format, format}}
+    end
+  end
+
+  defp compile_legacy_groups(groups, profile_map, opts) do
     resolvers = target_resolvers(opts)
 
     agent = %{
@@ -188,6 +221,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   @spec config_hash([map()]) :: String.t()
   def config_hash(compiled_groups) when is_list(compiled_groups) do
     compute_config_hash(compiled_groups)
+  end
+
+  @doc """
+  Computes the shared-targets/v1 config hash for a compiled document.
+
+  Covers the sorted `groups`, `device_table` and `target_sets` only, so
+  `compiled_at` and any `config_hash` already in the document do not
+  affect it.
+  """
+  @spec shared_config_hash(map()) :: String.t()
+  def shared_config_hash(document) when is_map(document) do
+    %{
+      "device_table" => Enum.sort_by(document["device_table"] || [], & &1["ref"]),
+      "groups" => Enum.sort_by(document["groups"] || [], & &1["id"]),
+      "target_sets" => Enum.sort_by(document["target_sets"] || [], & &1["key"])
+    }
+    |> Jason.encode!()
+    |> sha256_16()
   end
 
   @doc """
@@ -281,14 +332,120 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
 
   defp compute_config_hash(compiled_groups) do
     # Sort groups by ID for deterministic hashing
-    sorted_groups = Enum.sort_by(compiled_groups, & &1["id"])
-
-    # Compute SHA256 hash of the JSON-encoded config
-    sorted_groups
+    compiled_groups
+    |> Enum.sort_by(& &1["id"])
     |> Jason.encode!()
-    |> then(&:crypto.hash(:sha256, &1))
+    |> sha256_16()
+  end
+
+  defp sha256_16(data) do
+    :sha256
+    |> :crypto.hash(data)
     |> Base.encode16(case: :lower)
     |> String.slice(0, 16)
+  end
+
+  defp target_set_key(normalized_query), do: "q-" <> sha256_16(normalized_query)
+
+  # The shared-targets/v1 document, derived from the legacy compiled groups
+  # so agent rehydration reproduces each group's legacy `device_targets`
+  # exactly: the same (ip, device_uid) pairs, in the same legacy order.
+  defp shared_targets_document(compiled_groups, groups) do
+    source_by_id = Map.new(groups, &{&1.id, &1})
+
+    # One pair list per normalized query (groups sharing a query compile to
+    # the same device targets, so the first stands for the set), and each
+    # device-target group's normalized query.
+    {pairs_by_query, query_by_group} =
+      Enum.reduce(compiled_groups, {%{}, %{}}, fn compiled, {sets, by_group} ->
+        case compiled["device_targets"] do
+          nil ->
+            {sets, by_group}
+
+          device_targets ->
+            source = Map.fetch!(source_by_id, compiled["id"])
+            query = normalize_target_query(source.target_query, source.partition)
+
+            pairs =
+              Enum.map(
+                device_targets,
+                &{&1["network"], get_in(&1, ["metadata", "device_uid"])}
+              )
+
+            {Map.put_new(sets, query, pairs), Map.put(by_group, compiled["id"], query)}
+        end
+      end)
+
+    sorted_sets = Enum.sort_by(pairs_by_query, fn {query, _pairs} -> target_set_key(query) end)
+    ref_by_pair = shared_refs(sorted_sets)
+
+    %{
+      "format" => "shared-targets/v1",
+      "device_table" => shared_device_table(ref_by_pair),
+      "target_sets" =>
+        Enum.map(sorted_sets, fn {query, pairs} ->
+          %{
+            "key" => target_set_key(query),
+            "target_query" => query,
+            "refs" => Enum.map(pairs, &Map.fetch!(ref_by_pair, &1))
+          }
+        end),
+      "groups" => Enum.map(compiled_groups, &shared_group(&1, query_by_group))
+    }
+  end
+
+  # Every (ip, device_uid) pair gets one ref: the device_uid for the first
+  # pair carrying it (in deterministic set-then-legacy order), "ip:" <> ip
+  # otherwise. A device reached at several IPs (primary plus aliases) thus
+  # keeps one uid ref and one ip ref per further address, each table entry
+  # still carrying the owning device_uid.
+  defp shared_refs(sorted_sets) do
+    {ref_by_pair, _claimed_uids} =
+      Enum.reduce(sorted_sets, {%{}, MapSet.new()}, fn {_query, pairs}, acc ->
+        Enum.reduce(pairs, acc, fn {ip, uid} = pair, {ref_by_pair, claimed} ->
+          cond do
+            Map.has_key?(ref_by_pair, pair) ->
+              {ref_by_pair, claimed}
+
+            is_binary(uid) and not MapSet.member?(claimed, uid) ->
+              {Map.put(ref_by_pair, pair, uid), MapSet.put(claimed, uid)}
+
+            true ->
+              {Map.put(ref_by_pair, pair, "ip:" <> ip), claimed}
+          end
+        end)
+      end)
+
+    ref_by_pair
+  end
+
+  defp shared_device_table(ref_by_pair) do
+    ref_by_pair
+    |> Enum.map(fn {{ip, uid}, ref} ->
+      maybe_put_string(%{"ref" => ref, "ip" => ip}, "device_uid", uid)
+    end)
+    |> Enum.sort_by(& &1["ref"])
+  end
+
+  defp shared_group(compiled, query_by_group) do
+    shared = Map.delete(compiled, "device_targets")
+
+    case Map.fetch(query_by_group, compiled["id"]) do
+      {:ok, query} ->
+        shared
+        |> Map.put("target_query", query)
+        |> Map.put("device_target_set", target_set_key(query))
+
+      :error ->
+        shared
+    end
+  end
+
+  defp log_compiled_groups(compiled_groups, partition, agent_id) do
+    Logger.info(
+      "SweepCompiler: compiled #{length(compiled_groups)} group(s) for partition=#{inspect(partition)}, agent_id=#{inspect(agent_id)}",
+      groups: Enum.map(compiled_groups, &compiled_group_summary/1)
+    )
   end
 
   defp compiled_group_summary(group) do
