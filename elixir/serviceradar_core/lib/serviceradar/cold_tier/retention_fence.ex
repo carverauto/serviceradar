@@ -362,8 +362,9 @@ defmodule ServiceRadar.ColdTier.RetentionFence do
     * cold tier disabled -> returns immediately, touching nothing. A window
       widened by an earlier enabled period STAYS widened: shrinking it back
       would DELETE the materialized history between the two windows, and a
-      flag toggle must never be a data-deletion event. An operator who wants
-      that storage back narrows the policy by hand (see the cold-tier runbook);
+      flag toggle must never be a data-deletion event. Reclaiming that storage
+      is described in the cold-tier runbook: `ocsf_events_hourly_stats` is
+      narrowed by hand, and `traces_stats_5m` follows `tracesStatsDays`;
     * no retention policy on the CAGG at all -> left alone. Installing one
       would delete everything past the window, which is the opposite of what
       this is for;

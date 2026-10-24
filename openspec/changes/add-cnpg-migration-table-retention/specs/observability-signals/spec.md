@@ -40,7 +40,7 @@ Reconciliation covers retention only: chunk intervals and compression policies f
 - **THEN** `traces_stats_5m` stays at 90 days
 - **AND** a later run with the cold tier disabled still leaves it at 90 days
 
-#### Scenario: Explicit traces stats retention narrows a widened window only while the cold tier is disabled
+#### Scenario: Explicit traces stats shorter than the fence waits until the cold tier is disabled
 
 - **GIVEN** `traces_stats_5m` retention is 90 days because the cold-tier fence widened it and `tracesStatsDays` is 30
 - **WHEN** `DataRetentionWorker` runs while the cold tier is enabled
