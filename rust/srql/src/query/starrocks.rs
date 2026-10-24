@@ -3262,6 +3262,8 @@ mod tests {
     use crate::query::{QueryDirection, QueryRequest, build_query_plan};
     use std::time::Duration as StdDuration;
 
+    mod flow_spread_exec;
+
     fn config() -> AppConfig {
         AppConfig {
             database_url: "postgres://example/db".to_string(),
