@@ -10,10 +10,13 @@ defmodule ServiceRadar.Inventory.Availability do
 
   ## Capture
 
-  Evidence is recorded alongside the legacy writes, which still own
-  `ocsf_devices.is_available`. Writers call `capture/2`, which never fails the write it
-  accompanies: it is skipped when capture is switched off, isolates its statements in a
-  savepoint inside a caller's transaction, and logs instead of raising.
+  Evidence is recorded alongside the legacy writes. Those writes own
+  `ocsf_devices.is_available` in `legacy` and `shadow`; from `cutover` the resolver owns
+  the column and the legacy writers record only the compatibility table
+  (`ServiceRadar.Inventory.Availability.LegacyWrites`). Writers call `capture/2`, which
+  never fails the write it accompanies: it is skipped when capture is switched off,
+  isolates its statements in a savepoint inside a caller's transaction, and logs instead
+  of raising.
 
   ## Resolution
 
@@ -66,9 +69,9 @@ defmodule ServiceRadar.Inventory.Availability do
   skipped. Rows are written in key order, so concurrent writers lock in one order.
 
   Planning and writing run in one transaction that locks the existing rows, so
-  concurrent submissions for one key are serialized. In `shadow` the devices' rows are
-  locked first, in uid order, and the devices whose evidence was written are resolved
-  before the transaction ends.
+  concurrent submissions for one key are serialized. Outside `legacy` the devices' rows
+  are locked first, in uid order, and the devices whose evidence was written are
+  resolved before the transaction ends.
 
   Options: `:now` (defaults to the current time).
   """
