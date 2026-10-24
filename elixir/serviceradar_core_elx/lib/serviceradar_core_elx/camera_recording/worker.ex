@@ -21,6 +21,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   deletes recordings. A codec/clock/sequence reset stops the recorder and requires
   a new epoch; it never silently joins incompatible streams.
 
+  Administrative stop is discovered during lease renewal. The sole producer
+  detaches this recorder and places its ordered end marker without ending live
+  delivery. Draining uses the existing lease deadline and normal sealing path;
+  it grants no extra time to finish or permission to start another block.
+
   Teardown attempts consumer release and captured-relay idle close for at most
   one second of external work. This is separate from sealing and never upgrades
   a failed media outcome. Lease expiry/reaping remains the fallback after timeout,
@@ -79,6 +84,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
         packager: nil,
         spool: nil,
         timer: nil,
+        drain_reason: nil,
         last_sequence: nil,
         terminal: nil,
         seal_error: nil
@@ -135,7 +141,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
          {:ok, events} <- Packaging.finish(state.packager),
          {:ok, state} <- persist(events, state),
          {:ok, state} <- seal(state) do
-      stop(state, :completed)
+      stop(state, state.drain_reason || :completed)
     else
       {:error, reason} -> stop(state, reason)
     end
@@ -145,6 +151,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   def handle_info({Packaging, pid, {:error, reason}}, %{packager: pid} = state), do: stop(state, reason)
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{monitor: ref} = state), do: stop(state, :ingest_stopped)
 
+  def handle_info(:renew_lease, %{drain_reason: reason} = state) when not is_nil(reason), do: {:noreply, state}
+
   def handle_info(:renew_lease, state) do
     request_start = System.monotonic_time(:millisecond)
 
@@ -153,6 +161,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
          :ok <- Inbox.renew(state.inbox, deadline(request_start, claim)) do
       {:noreply, schedule_renewal(%{state | claim: claim, timer: nil})}
     else
+      {:error, :recording_stopped} -> drain(state)
       {:error, reason} -> stop(state, reason)
     end
   end
@@ -211,6 +220,20 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     end
   catch
     :exit, _reason -> stop(state, :ingest_stopped)
+  end
+
+  defp drain(state) do
+    if state.timer, do: Process.cancel_timer(state.timer)
+    timeout = min(5_000, max(1, Inbox.remaining_ms(state.inbox)))
+
+    with :ok <- Inbox.usable(state.inbox),
+         :ok <- Membrane.Pipeline.call(state.pipeline, {:drain_recorder, state.inbox.id}, timeout) do
+      {:noreply, %{state | timer: nil, drain_reason: :recording_stopped}}
+    else
+      {:error, reason} -> stop(state, reason)
+    end
+  catch
+    :exit, _reason -> stop(state, :recording_drain_failed)
   end
 
   defp persist(events, state) do

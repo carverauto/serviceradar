@@ -7,6 +7,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.RecorderClaim
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RelayPubSub
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source
@@ -228,6 +229,83 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert %{next_block_sequence: 1} = recorder_claim(ctx)
     assert {:ok, _old} = Spool.recover(snapshot.directory, snapshot.identity)
     assert {:ok, _new} = Spool.recover(next.directory, next.identity)
+  end
+
+  test "administrative stop drains and seals the recorder without renewing or interrupting its viewer",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    {:ok, viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    {worker, ref} = start_worker(ctx, owner)
+
+    for unit <- Enum.take(ctx.media.units, 45) do
+      send(ctx.pipeline, {:media_chunk, unit})
+      assert :ok = await_progress(worker, unit.sequence)
+    end
+
+    assert {:ok, _control} =
+             RecordingControl.stop(
+               %{deployment_ref: Ecto.UUID.generate(), generation: 1},
+               %{"contract_version" => 1, "revision" => "1", "admission" => "stopped"},
+               actor: ctx.actor
+             )
+
+    stopped_claim = recorder_claim(ctx)
+
+    # Let the existing renewal timer discover the durable stop. A synthetic
+    # renewal message would not prove that an idle camera stops recording.
+    assert_receive {:camera_recording, ^worker,
+                    {:stopped, %{reason: :recording_stopped, snapshot: snapshot, seal_error: nil}}},
+                   7_000
+
+    assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
+    assert snapshot.sealed?
+    assert [%{id: viewer_id, kind: :viewer}] = consumers(owner, ctx.actor)
+    assert viewer_id == viewer.id
+    released_claim = recorder_claim(ctx)
+    assert released_claim.state == :released
+    assert released_claim.lease_expires_at == stopped_claim.lease_expires_at
+    assert_live_delivery(ctx, List.last(ctx.media.units))
+
+    [block] =
+      RecordingBlock
+      |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+      |> Ash.read!(actor: ctx.actor)
+
+    assert block.state == :sealed
+    assert block.descriptor["media"]["sha256"] == snapshot.sha256
+    assert List.last(snapshot.entries)["tail_duration_source"] == "previous_sample"
+    assert {:ok, recovered} = Spool.recover(snapshot.directory, snapshot.identity)
+    assert_packet_count(Spool.snapshot(recovered), ctx.tmp_dir, 45)
+
+    assert {:ok, replacement} =
+             RecordingSupervisor.start_recorder(
+               owner: owner,
+               media_ingest_id: ctx.relay.media_ingest_id,
+               spool_root: ctx.root,
+               notify: self()
+             )
+
+    replacement_ref = Process.monitor(replacement)
+
+    assert_receive {:camera_recording, ^replacement,
+                    {:stopped, %{reason: :recording_stopped, snapshot: nil}}},
+                   5_000
+
+    refute_receive {:camera_recording, ^replacement, :ready}
+    assert_receive {:DOWN, ^replacement_ref, :process, ^replacement, replacement_reason}, 5_000
+    assert replacement_reason in [:normal, :noproc]
+    assert recorder_claim(ctx).recorder_epoch == released_claim.recorder_epoch
+
+    assert [block.id] ==
+             RecordingBlock
+             |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+             |> Ash.read!(actor: ctx.actor)
+             |> Enum.map(& &1.id)
   end
 
   test "an expired real consumer lease admits no queued work or readable receipt", ctx do
