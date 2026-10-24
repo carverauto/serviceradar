@@ -40,8 +40,9 @@ that caused it.
   query results across agents for an explicit TTL, so partition-wide groups
   stop re-running the same SRQL for every agent.
 - Add a normalized sweep config format, `shared-targets/v1`:
-  - `device_table`: one entry per device, keyed by device (`device_uid`), not
-    by IP, holding `ip` and `device_uid`, stated once.
+  - `device_table`: one entry per `(ip, device_uid)` pair, including alias
+    addresses. Ref spelling is design.md Decision 3. Two devices that share
+    an IP stay two entries.
   - `target_sets`: one device reference list per distinct normalized
     `target_query`, stated once.
   - Groups carry their own settings once (modes, ports, schedule, settings,

@@ -98,12 +98,15 @@ regardless of the order in which the database returns rows.
 ### Requirement: Shared Device Targets in Compiled Sweep Config
 
 The system SHALL be able to compile an agent's sweep configuration in the
-`shared-targets/v1` format. In that format each device selected by any
-eligible group appears once in a `device_table`, keyed by device rather than
-by IP; each distinct normalized `target_query` result appears once in
-`target_sets`; and each group references its target set by key instead of
-embedding `device_targets`. Group-level settings SHALL be stated once per
-group. Static `targets` SHALL remain on the group unchanged.
+`shared-targets/v1` format. In that format each `(ip, device_uid)` pair
+selected by any eligible group appears once in a `device_table`. A device
+with alias addresses has one entry per address, each carrying that device's
+`device_uid`, and two devices that share an IP stay separate entries. Ref
+spelling is design.md Decision 3. Each distinct normalized `target_query`
+result appears once in `target_sets`, and each group references its target
+set by key instead of embedding `device_targets`. Group-level settings SHALL
+be stated once per group. Static `targets` SHALL remain on the group
+unchanged.
 
 #### Scenario: Three groups over one device set with different scan profiles
 - **GIVEN** three sweep groups with the same `target_query`

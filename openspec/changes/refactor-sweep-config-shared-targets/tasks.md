@@ -52,13 +52,13 @@
 
 ## 3. Core shared-targets format
 
-- [ ] 3.1 Add a `format` option to `SweepCompiler.compile/3` (`:legacy`
+- [x] 3.1 Add a `format` option to `SweepCompiler.compile/3` (`:legacy`
       default, `:shared_targets_v1`) that emits `device_table`,
       `target_sets`, and per-group `device_target_set`, as specified in
       design.md Decision 3.
-- [ ] 3.2 Compute the shared-targets `config_hash` over the sorted `groups`,
+- [x] 3.2 Compute the shared-targets `config_hash` over the sorted `groups`,
       `device_table` and `target_sets` (Decision 6).
-- [ ] 3.3 Tests: the three-profiles-over-one-query scenario (one table entry
+- [x] 3.3 Tests: the three-profiles-over-one-query scenario (one table entry
       per device, one set, three groups); partial overlap; determinism under
       shuffled rows (no shared IPs); two devices sharing an IP under
       different queries stay two table entries with their own `device_uid`.
