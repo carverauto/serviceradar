@@ -154,7 +154,7 @@ struct StoredFact {
 
 impl FromRow for StoredFact {
     fn from_row_opt(row: mysql_async::Row) -> Result<Self, mysql_async::FromRowError> {
-        read_stored_fact(&row).ok_or_else(|| mysql_async::FromRowError(row))
+        read_stored_fact(&row).ok_or(mysql_async::FromRowError(row))
     }
 }
 
