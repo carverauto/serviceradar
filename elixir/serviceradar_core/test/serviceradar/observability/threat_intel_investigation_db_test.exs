@@ -421,25 +421,29 @@ defmodule ServiceRadar.Observability.ThreatIntelInvestigationDBTest do
       nil
     )
 
-    on_exit(fn -> :telemetry.detach(handler) end)
+    try do
+      scope = %{actor: actor}
 
-    scope = %{actor: actor}
+      ThreatIntelInvestigation.list_current_matches(scope,
+        source: "telemetry-source",
+        ip: "192.0.2.77"
+      )
 
-    ThreatIntelInvestigation.list_current_matches(scope,
-      source: "telemetry-source",
-      ip: "192.0.2.77"
-    )
+      assert_receive {:investigation_query, %{duration: _}, metadata}
 
-    assert_receive {:investigation_query, %{duration: _}, metadata}
+      assert %{entity: :current_matches, filters: [:ip, :source], result: :ok, result_count: 0} =
+               metadata
 
-    assert %{entity: :current_matches, filters: [:ip, :source], result: :ok, result_count: 0} =
-             metadata
+      refute inspect(metadata) =~ "192.0.2.77"
+      refute inspect(metadata) =~ "telemetry-source"
 
-    refute inspect(metadata) =~ "192.0.2.77"
-    refute inspect(metadata) =~ "telemetry-source"
+      ThreatIntelInvestigation.list_current_matches(scope, ip: "not-an-ip")
 
-    ThreatIntelInvestigation.list_current_matches(scope, ip: "not-an-ip")
-    assert_receive {:investigation_query, _measurements, %{result: :error, error: :invalid_input}}
+      assert_receive {:investigation_query, _measurements,
+                      %{result: :error, error: :invalid_input}}
+    after
+      :telemetry.detach(handler)
+    end
   end
 
   defp count_queries(fun) do
