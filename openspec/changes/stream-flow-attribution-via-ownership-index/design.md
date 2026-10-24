@@ -989,12 +989,13 @@ those belong to exposure tasks 2.1-2.4. Exposure task 0.5 remains open until its
 keys and per-batch ratios can be measured, including host summaries and mapped network
 sides. Neither a raw-tuple ratio nor the existence of a summary table passes it.
 
-The exposure task list currently places all Section 0 gates before 1.x, while the network
-measurement needs the later address/stamping work. Resolve that sequencing with the
-coordinator in the exposure change before starting those tasks. This implementation plan
-does not silently move or waive that gate. If the measured network ratio exceeds 25%, its
-approved async-view fallback must be selected before exposure 3.x; a failed host ratio
-requires its own design review.
+Exposure Decision 21
+(`openspec/changes/add-srql-exposure-intelligence/design.md`) lets the assessment
+foundation in tasks 1.x proceed while tasks 0.3-0.5 still gate traffic evidence
+integration and launch. The network measurement still needs the later address and
+stamping work. This plan does not move or waive that gate. If the measured network
+ratio exceeds 25%, its approved async-view fallback must be selected before exposure
+3.x; a failed host ratio requires its own design review.
 
 ## Phase 0 preflight evidence (2026-10-22)
 
