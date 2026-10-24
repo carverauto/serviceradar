@@ -335,6 +335,7 @@ defmodule ServiceRadar.Inventory.Device do
       Devices whose is_available boolean is true. That boolean is the last decided
       value; unknown is availability_state.
       """
+
       filter expr(is_available == true and is_nil(deleted_at))
     end
 
