@@ -2,6 +2,60 @@
 
 ## Sound, medium confidence
 
+### Receive qualification claims before installing storage authority
+
+When: private qualification receipt pass. Verdict: sound, medium confidence.
+
+A provisioner can submit an all-passed report while the runtime still lacks a
+storage workload, current evidence or an authenticated environment identity.
+The private API now records that submission and returns unavailable status with
+no applied revision. It reuses the existing private control-plane credential;
+that credential currently identifies a control caller and is account-scoped in
+SaaS, so it cannot establish the missing environment identity. The plan required
+an authenticated desired/applied exchange but did not select its implementation
+sequence. Keeping this receipt sub-contract explicit lets that exchange gain a
+real durable ingress without inventing authority or a second credential system.
+Full desired configuration and environment-bound fresh installation remain
+separate requirements, and future code cannot promote these receipts unchanged.
+
+### Keep one current receipt and retain withdrawal ordering
+
+When: private qualification receipt pass. Verdict: sound, medium confidence.
+
+If revision two withdraws a report and a delayed revision one arrives afterward,
+the runtime retains revision two and refuses the older request. An exact retry
+of the current revision returns its original receipt and arrival time. The plan
+required stale/conflict handling but left storage shape open. A current row per
+binding, serialized under the existing binding lock, provides that order without
+an unbounded history. Withdrawal clears the report but retains its revision; it
+claims no provider revocation. Evidence history stays with the producer's named
+evidence bundle. Callers needing a historical audit must not treat this current
+row as one.
+
+
+### Retain the received report without turning it into evidence verification
+
+When: private qualification receipt pass. Verdict: sound, medium confidence.
+
+If a report claims an encrypted upload passed, the current row retains that exact
+validated report, not just its digest. A future installer can inspect the claim
+but must still verify its evidence and freshness through the required exchange.
+The plan did not choose what a receipt stores. The report is marked sensitive and
+is not echoed by the API; replacement or withdrawal removes the old report.
+Expired or failed observations remain acceptable claims. Retention does not make
+them current or true, and no expiry cleanup process is introduced.
+
+### Keep revision enforcement at the submission owner
+
+When: private qualification receipt pass. Verdict: sound, medium confidence.
+
+Two concurrent callers must compare revisions under the same retained-binding
+lock before either changes the receipt. `ArchiveQualifications` owns that whole
+operation; the Ash receive/replace actions are trusted persistence primitives.
+The plan left that ownership boundary open. Future callers must enter through
+the coordinator instead of writing the resource directly. This fits existing
+Ash ownership without a second revision implementation in a database trigger.
+
 ### One evidence bundle for an exact qualification context
 
 When: qualification report pass. Verdict: sound, medium confidence.
@@ -246,6 +300,37 @@ support file and directory sync. The guarantee covers the local node only;
 another node cannot recover footage that never reached an archive.
 
 ## Sound, high confidence
+
+### Use arrival time for observation and revisions for ordering
+
+When: private qualification receipt pass. Verdict: sound, high confidence.
+
+When a newer revision arrives, the accepting application node records its UTC
+clock. An exact retry keeps that original timestamp. The plan did not choose a
+receipt clock; nodes can disagree, so only revisions order submissions and the
+timestamp never proves freshness. Actor-label bounds and input-before-revision
+validation are internal/API discretion; neither establishes caller identity.
+
+
+### Bound the receipt wire contract and return only receipt metadata
+
+When: private qualification receipt pass. Verdict: sound, high confidence.
+
+A duplicate JSON key can disappear when a general parser converts input to a
+map. The private receipt route therefore reads at most 16 KiB with a five-second
+body-read timeout and uses ordered JSON objects until duplicate rejection is
+complete. That size accommodates the existing bounded report and envelope; it
+is a transport limit, not a retention or freshness policy. PUT replaces one
+binding's current receipt and GET reloads it. Stable status codes distinguish
+bad input, revision conflicts, oversized bodies and storage failure without
+returning submitted reports, custody references or database details.
+
+The plan required bounded exact input but did not choose these wire details.
+The receipt's identity hashes a fixed ordered array containing the binding,
+revision, state and existing report digest. This binds the complete envelope
+while preserving the report module as the only owner of report canonicalization.
+It deliberately does not substitute for the larger desired-configuration digest.
+
 
 ### Define reported observations before installing storage authority
 

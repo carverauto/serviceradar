@@ -9,12 +9,14 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter do
   use Plug.Router
 
   alias ServiceRadarWebNGWeb.Auth.PasswordResetDelivery
+  alias ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveQualifications
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneRuntimeAuth
 
   require Logger
 
   plug Plug.RequestId
   plug ControlPlaneRuntimeAuth
+  plug ControlPlaneArchiveQualifications
 
   plug Plug.Parsers,
     parsers: [:json],

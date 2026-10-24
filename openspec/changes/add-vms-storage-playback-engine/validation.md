@@ -430,3 +430,40 @@ passes after the formatting correction: 459 targets pass, 49 execute and 410 use
 cache; the two Swift platform targets are skipped. The owning core unit shard
 executes again. Integration/acceptance bodies are excluded by this command; no
 new database case or schema change is part of this checkpoint.
+
+
+## Private qualification receipts
+
+The private listener now receives a bounded qualification submission or withdrawal
+and reloads its durable receipt. Three new database-free wire cases cover auth
+before parsing, malformed/duplicate keys (including escaped equivalent keys),
+media type and the exact 16 KiB boundary. Two new guarded HTTP cases own real
+persistence and status; three additions to the existing archive-upload integration
+suite own concurrency, input/transaction refusal and binding retention. Every
+existing assertion is retained. Unboxed cases delete only their own rows and
+re-query absence.
+
+Focused remote run
+[7ee73b1b](https://carverauto.buildbuddy.io/invocation/7ee73b1b-12ea-4339-a370-08832d49a80f)
+passes all three targets: web unit owner and web quality execute; core quality
+uses its passing cache. The web shard reports 819 tests, zero failures and 220
+exclusions, including the new guarded cases reserved for their database lane.
+The first run exposed a long guard and the existing formatter inventory's missing
+classification for the new machine timestamp. The guard is equivalent after
+formatting and the inventory gains one canonical-machine entry; no assertion is
+removed or weakened. The corrected shard also passes that inventory.
+
+Full remote `make test`
+[3fe23e48](https://carverauto.buildbuddy.io/invocation/3fe23e48-5967-426f-b2ea-326dec32bc55)
+passes 459 targets: 61 execute, 398 use cache, and two Swift platform targets are
+skipped. This includes source routing, migration-version/Helm agreement and image
+checks. The registration check reports 65 tests with one skip. Strict OpenSpec,
+changed-document ASCII/relative links and `git diff --check` pass.
+
+These prepublication checks exclude guarded database bodies. Their five new
+cases must execute in the sanctioned Core Integration and Web-NG DB PR lanes;
+publication may use the approved prepublication-only Test exception, but final
+CI is not waived. No database migration against a live environment, provider
+probe, rollout or recording enablement ran. Receipt acceptance still establishes
+neither environment identity, evidence freshness, applied configuration nor
+storage authority.

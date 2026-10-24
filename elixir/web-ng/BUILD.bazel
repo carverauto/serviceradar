@@ -487,6 +487,7 @@ ex_unit_tests(
 # shard keeps `max_cases: 1`. `networks_live_db_test` stays the name callers run.
 NETWORKS_LIVE_DB_SHARD_SRCS = [
     [
+        "test/phoenix/control_plane_archive_qualifications_db_test.exs",
         "test/app_domain/accounts_test.exs",
         "test/app_domain/authorization/permissions_test.exs",
         "test/app_domain/bootstrap/admin_user_test.exs",
