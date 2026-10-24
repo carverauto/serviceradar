@@ -328,8 +328,9 @@ in. `stats:"sum(bytes_total) as bytes by time:1m"` is spread the same way.
   the part that falls in the window's buckets.
 - A flow with no start time, with zero duration, or that fits inside one bucket is
   counted in its own bucket, as before.
-- One flow covers at most 240 buckets. A longer flow is spread over the 240 buckets
-  that end with its own.
+- One flow covers at most 240 buckets. When the window holds more buckets than that
+  and a flow is longer, the part of its in-window share before those 240 buckets is
+  added to the earliest of them.
 - Other aggregates (`count`, `avg`, `min`, `max`) still count each flow once, in the
   bucket it ended in.
 - Buckets of a whole number of hours, when the hourly rollup can answer the query,
