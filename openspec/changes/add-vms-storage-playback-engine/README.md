@@ -2,13 +2,14 @@
 
 ## Current pickup
 
-Foundation PR #5950 is merged. Runtime PR #5952 remains a draft at `b80465bfd6`
-with all 20 checks passing, including guarded suite
+Foundation PR #5950 is merged. Runtime PR #5952 merged at its existing published
+head `b80465bfd6a7eca5c7a298e2d34530a93ba8ae8b` with all 20 checks passing,
+including guarded suite
 [23177e08](https://carverauto.buildbuddy.io/invocation/23177e08-ea4b-45c8-b90e-8f9a24b11d1a)
 (12/12, observer, teardown, and release 0). Its CI repair skips a nested
 ownership transaction and promotes a plain-map user when actor is nil.
 
-Follow-up draft PR #5954 published that production code plus two keeper
+Follow-up draft PR #5954 is this repair. It published that production code plus two keeper
 regressions at `158aa45657`. Guarded workflow
 [f1ecf78d](https://carverauto.buildbuddy.io/invocation/f1ecf78d-80ec-42ce-9c17-de022207c6c8),
 suite `d607f3a0-48a9-4299-9c01-2fdd395a6bb8`, executed 12/12: 10 passed and the
@@ -39,6 +40,18 @@ stay. Positive database proof is the next Core Integration run on this same
 draft PR. Readiness waits on that run's test bodies, observer, teardown, and
 release. Recording stays disabled; this pass makes no runtime rollout or
 archive-availability claim.
+
+On head `a8590062edff8c3cd31418562c740bf4f854bd22`, `bazel test --config=remote` of
+`//elixir/serviceradar_core:quality_check`,
+`//build:integration_selection_equivalence_test`,
+`//build/contracts:ci_heavy_gate_contract_test`, and
+`//build:integration_selection_formatter_test` is invocation
+[958221fc](https://carverauto.buildbuddy.io/invocation/958221fc-4bfe-4cfa-a52a-cd2e659fd2e0).
+Bazel exited 0, executed 0 of 4, and reported four cached passes: quality 40.5s,
+selection equivalence 40.9s, CI registration 27.4s, and selection formatter 0.9s.
+`openspec validate add-vms-storage-playback-engine --strict` exited 0. These
+checks do not run the guarded database bodies. Those stay untested until draft
+PR #5954 is republished and Core Integration runs them.
 
 The operator has confirmed the agent-to-gateway-to-core live RTSP path works.
 Preserve that path; live viewing does not establish archive durability or seeking.
