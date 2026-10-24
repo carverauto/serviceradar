@@ -255,3 +255,62 @@ Swift platform targets are skipped. The fresh target is
 `aabf88b7` above. No integration bodies execute in this command. This following
 README/validation checkpoint changes no tested source, build definition or
 assertion. Strict OpenSpec and diff checks pass; required media PR CI remains.
+
+## Merged parent evidence before dispatch work
+
+Upload-intent #5960 merged at `29b30748dfe212ba0672bd2cd53342303ecbbc26`.
+Its guarded workflow
+[aa0dd0ca](https://carverauto.buildbuddy.io/invocation/aa0dd0ca-22f9-425b-99f4-9a049ef9f469)
+and suite
+[853e4601](https://carverauto.buildbuddy.io/invocation/853e4601-ef2c-419e-b9c3-cfc8349da412)
+pass all 12 targets uncached. The owning serial lane runs 260 tests, with no
+failures or exclusions, including all five intent cases. Suite, observer,
+teardown and lease release return zero. This final CI follows the explicitly
+approved prepublication Test exception; it does not erase that exception.
+
+Media #5959 merged at `ad424ac6b794f73abddd02e51c560a77d9af10fa` from
+`10a70e71c39f91fcb30fa90389c6fc0130840213` after all 19 GitHub checks passed,
+without a Test or CI exception. Final broad suite
+[fcb92879](https://carverauto.buildbuddy.io/invocation/fcb92879-933e-43f6-b0bc-c30579f21371)
+passes 442 targets (17 fresh, 425 cached) with two platform skips. Guarded core
+[f78de788](https://carverauto.buildbuddy.io/invocation/f78de788-748e-4f40-afe1-9c10965c9069)
+passes 12 fresh targets; guarded web
+[95718b50](https://carverauto.buildbuddy.io/invocation/95718b50-7cd7-4caf-ae44-3671a8d4ad4d)
+passes seven fresh targets. Both workflows have successful suite, observer,
+teardown and release commands. The final supported timeout negative control
+[d2dcf987](https://carverauto.buildbuddy.io/invocation/d2dcf987-efd2-44b4-a113-586266d51edd)
+enters the injected delay and fails after 120.01 seconds; restored-source positive
+[74da0d14](https://carverauto.buildbuddy.io/invocation/74da0d14-a881-4590-89f5-96d655e6406a)
+passes. No temporary delay is retained.
+
+These parent results establish their own code only. New dispatch tests require
+fresh guarded CI on the dispatch candidate. Recording remains disabled and no
+deployment or provider probe is implied.
+
+## Bounded dispatch checkpoint
+
+The schema is generated with pinned AshPostgres and migration
+`20261024070623`; the Helm migration floor matches. Independent review confirmed
+the restrictive/unique intent reference, atomic one-way observations and late
+observation constraints. It found an inconsistent missing-ID error and a conflict
+digest assertion that admitted nil. Both are corrected: all observation/marking
+entry points return the same domain error, and tests require the exact fixed
+conflict digest plus a non-null digest in the concurrent case. Every pre-existing
+assertion remains.
+
+Fresh focused run
+[bb9e4ddf](https://carverauto.buildbuddy.io/invocation/bb9e4ddf-ab0f-430c-9cdf-c3e56589e1cc)
+passes all six targets uncached in 124.013 seconds: core format/Credo, integration
+selection equivalence, shard topology with its two refusal controls, and Helm
+migration floor. This compiles/selects the new integration cases; it does not
+execute their database bodies. Strict OpenSpec validation and changed handoff
+link/ASCII checks pass. Final guarded CI remains required for this checkpoint.
+
+Full `make test`
+[a79ef08e](https://carverauto.buildbuddy.io/invocation/a79ef08e-f310-4d4e-80a0-c49d19e171b0)
+passes 459 targets: 59 execute, 400 use cache, and the two Swift platform targets
+are skipped. It runs on the same executable source, tests and build definitions
+as the submitted dispatch candidate; the following evidence edit changes this
+document only. Integration/acceptance bodies are excluded by that command.
+Neither this result nor selection equivalence proves the 12 new guarded database
+cases. No deployment, provider call, qualification or availability is claimed.

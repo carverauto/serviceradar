@@ -2,6 +2,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.ArchiveUploadIntent
   alias ServiceRadar.Camera.ArchiveUploads
   alias ServiceRadar.Camera.RecorderOwnership
@@ -50,6 +51,19 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     binding_id = Ecto.UUID.dump!(binding.id)
 
     on_exit(fn ->
+      %{rows: dispatch_ids} =
+        Repo.query!(
+          "DELETE FROM platform.camera_archive_upload_dispatches WHERE archive_upload_intent_id IN " <>
+            "(SELECT id FROM platform.camera_archive_upload_intents WHERE recording_block_id = $1) RETURNING id",
+          [block_id]
+        )
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_archive_upload_dispatches WHERE id = ANY($1::uuid[])",
+                 [List.flatten(dispatch_ids)]
+               )
+
       Repo.query!(
         "DELETE FROM platform.camera_archive_upload_intents WHERE recording_block_id = $1",
         [block_id]
@@ -208,8 +222,409 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert {:error, :archive_upload_intent_conflict} =
              ArchiveUploads.prepare(ctx.lease, :init, ctx.opts)
 
+    assert {:error, :archive_upload_intent_conflict} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    assert [] = dispatches(ctx)
+
     assert [retained] = intents(ctx)
     assert persisted_identity(retained) == persisted_identity(conflicting)
+  end
+
+  test "dispatch identity and its original deadline survive retries but cannot be rearmed", ctx do
+    bind(ctx)
+    assert {:ok, dispatch} = dispatch(ctx)
+    assert [intent] = intents(ctx)
+    assert dispatch.archive_upload_intent_id == intent.id
+    assert dispatch.upload_epoch == ctx.lease.upload_epoch
+    assert dispatch.upload_token_sha256 == digest(ctx.lease.upload_token)
+    assert dispatch.dispatcher_actor_id == ctx.actor.id
+    assert dispatch.operation == :put_object
+    assert byte_size(dispatch.request_sha256) == 64
+    assert DateTime.compare(dispatch.deadline_at, ctx.lease.upload_expires_at) in [:lt, :eq]
+    assert is_nil(dispatch.marked_at)
+
+    assert {:ok, _renewed} = RecordingBlocks.renew_upload(ctx.lease, 300_000, ctx.opts)
+
+    assert {:ok, retry} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :media, :put_object, 300_000, ctx.opts)
+
+    assert dispatch_identity(retry) == dispatch_identity(dispatch)
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.prepare_dispatch(
+               ctx.lease,
+               :media,
+               :create_multipart_upload,
+               30_000,
+               ctx.opts
+             )
+
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+
+    assert {:ok, replacement} =
+             RecordingBlocks.acquire_upload(ctx.block.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.prepare_dispatch(replacement, :media, :put_object, 30_000, ctx.opts)
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.mark_dispatch(replacement, dispatch.id, ctx.opts)
+
+    assert [retained] = dispatches(ctx)
+    assert dispatch_identity(retained) == dispatch_identity(dispatch)
+    assert is_nil(retained.marked_at)
+  end
+
+  test "concurrent preparation and marking commit one attempt and one fresh marker", ctx do
+    bind(ctx)
+    attempts = race(fn -> dispatch(ctx) end)
+    assert Enum.all?(attempts, &match?({:ok, %ArchiveUploadDispatch{}}, &1))
+    assert [id] = attempts |> Enum.map(fn {:ok, d} -> d.id end) |> Enum.uniq()
+
+    results = race(fn -> ArchiveUploads.mark_dispatch(ctx.lease, id, ctx.opts) end)
+    assert [{:ok, {:marked, marked}}] = Enum.filter(results, &match?({:ok, {:marked, _}}, &1))
+    assert Enum.count(results, &match?({:ok, {:already_marked, _}}, &1)) == 7
+    assert [retained] = dispatches(ctx)
+    assert retained.id == id and retained.marked_at == marked.marked_at
+
+    assert {:error, %Postgrex.Error{postgres: %{code: :restrict_violation}}} =
+             Repo.query("DELETE FROM platform.camera_archive_upload_intents WHERE id = $1", [
+               Ecto.UUID.dump!(retained.archive_upload_intent_id)
+             ])
+
+    assert [%{id: ^id}] = dispatches(ctx)
+    assert [intent] = intents(ctx)
+    assert intent.id == retained.archive_upload_intent_id
+    assert {:ok, %{state: :uploading}} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+
+    assert {:ok, %{capability_state: :unqualified}} =
+             Ash.get(ArchiveBinding, ctx.binding.id, ctx.opts)
+  end
+
+  test "renewal cannot extend the prepared operation deadline", ctx do
+    bind(ctx)
+    assert {:ok, dispatch} = dispatch(ctx, 2_000)
+    assert {:ok, _} = RecordingBlocks.renew_upload(ctx.lease, 30_000, ctx.opts)
+    Process.sleep(2_100)
+
+    assert {:error, :upload_dispatch_expired} =
+             ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+    assert {:ok, retry} = dispatch(ctx, 30_000)
+    assert dispatch_identity(retry) == dispatch_identity(dispatch)
+    assert is_nil(retry.marked_at)
+    assert :ok = RecordingBlocks.with_current_upload(ctx.lease, fn _ -> :ok end, ctx.opts)
+  end
+
+  test "invalid preparation and wrong actors cannot create or mark attempts", ctx do
+    bind(ctx)
+
+    for actor <- [%{role: :viewer, id: "reader"}, %{role: :system}, %{role: :system, id: ""}] do
+      assert {:error, :invalid_dispatcher} =
+               ArchiveUploads.prepare_dispatch(ctx.lease, :media, :put_object, 30_000,
+                 actor: actor
+               )
+    end
+
+    assert {:error, :invalid_object_role} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :manifest, :put_object, 30_000, ctx.opts)
+
+    assert {:error, :invalid_upload_operation} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :media, :delete_object, 30_000, ctx.opts)
+
+    assert {:error, :invalid_ttl} = dispatch(ctx, 300_001)
+    assert [] = intents(ctx)
+    assert [] = dispatches(ctx)
+    assert {:ok, dispatch} = dispatch(ctx)
+    other = Keyword.put(ctx.opts, :actor, %{role: :system, id: "system:another_dispatcher"})
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, other)
+
+    assert {:error, :upload_lease_lost} =
+             ArchiveUploads.mark_dispatch(
+               %{ctx.lease | descriptor_sha256: digest("forged")},
+               dispatch.id,
+               ctx.opts
+             )
+
+    assert {:error, :upload_dispatch_unmarked} =
+             ArchiveUploads.observe_unknown(ctx.lease, dispatch.id, ctx.opts)
+
+    assert {:error, :upload_dispatch_unmarked} =
+             ArchiveUploads.observe_response(ctx.lease, dispatch.id, %{"status" => 200}, ctx.opts)
+
+    assert [retained] = dispatches(ctx)
+
+    assert is_nil(retained.marked_at) and is_nil(retained.unknown_at) and
+             is_nil(retained.response_at)
+  end
+
+  test "all dispatch mutations reject ambient transactions before writing", ctx do
+    bind(ctx)
+
+    assert {:ok, :checked} =
+             Repo.transaction(fn ->
+               assert {:error, :ambient_transaction} = dispatch(ctx)
+               assert [] = intents(ctx)
+               assert [] = dispatches(ctx)
+               :checked
+             end)
+
+    assert {:ok, dispatch} = dispatch(ctx)
+
+    assert {:ok, :checked} =
+             Repo.transaction(fn ->
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.observe_unknown(ctx.lease, dispatch.id, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.observe_response(
+                          ctx.lease,
+                          dispatch.id,
+                          %{"status" => 200},
+                          ctx.opts
+                        )
+
+               :checked
+             end)
+
+    assert [retained] = dispatches(ctx)
+
+    assert is_nil(retained.marked_at) and is_nil(retained.unknown_at) and
+             is_nil(retained.response_at)
+  end
+
+  test "missing dispatches return the same error for marking and observations", ctx do
+    missing = Ecto.UUID.generate()
+
+    assert {:error, :upload_dispatch_not_found} =
+             ArchiveUploads.mark_dispatch(ctx.lease, missing, ctx.opts)
+
+    assert {:error, :upload_dispatch_not_found} =
+             ArchiveUploads.observe_unknown(ctx.lease, missing, ctx.opts)
+
+    assert {:error, :upload_dispatch_not_found} =
+             ArchiveUploads.observe_response(ctx.lease, missing, %{"status" => 200}, ctx.opts)
+
+    assert [] = dispatches(ctx)
+  end
+
+  test "late unknown and receipt races retain both facts after lease replacement", ctx do
+    bind(ctx)
+    assert {:ok, dispatch} = dispatch(ctx)
+
+    assert {:ok, {:marked, marked}} =
+             ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+
+    assert {:ok, replacement} =
+             RecordingBlocks.acquire_upload(ctx.block.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    response = %{"status" => 200, "etag" => "invented-etag", "version_id" => "invented-version"}
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.observe_response(replacement, dispatch.id, response, ctx.opts)
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.observe_unknown(ctx.lease, dispatch.id,
+               actor: %{role: :system, id: "system:another_dispatcher"}
+             )
+
+    results =
+      race(fn index ->
+        if rem(index, 2) == 0,
+          do: ArchiveUploads.observe_unknown(ctx.lease, dispatch.id, ctx.opts),
+          else: ArchiveUploads.observe_response(ctx.lease, dispatch.id, response, ctx.opts)
+      end)
+
+    assert Enum.all?(results, &match?({:ok, %ArchiveUploadDispatch{}}, &1))
+    assert [retained] = dispatches(ctx)
+    assert retained.marked_at == marked.marked_at
+    assert retained.unknown_at != nil and retained.response_at != nil
+    assert retained.response == response and is_nil(retained.conflict_at)
+    assert {:ok, block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+
+    assert block.upload_epoch == replacement.upload_epoch and
+             block.upload_token == replacement.upload_token
+
+    assert block.state == :uploading
+
+    assert {:error, :upload_lease_lost} =
+             ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+  end
+
+  test "a conflicting receipt commits permanent evidence and preserves the first receipt", ctx do
+    bind(ctx)
+    assert {:ok, dispatch} = dispatch(ctx)
+    assert {:ok, {:marked, _}} = ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+    first = %{"status" => 200, "etag" => "invented-first"}
+    second = %{"status" => 503, "request_id" => "invented-second"}
+
+    assert {:ok, original} =
+             ArchiveUploads.observe_response(ctx.lease, dispatch.id, first, ctx.opts)
+
+    assert {:ok, retry} = ArchiveUploads.observe_response(ctx.lease, dispatch.id, first, ctx.opts)
+    assert retry.response_at == original.response_at
+
+    assert {:error, :archive_upload_response_conflict} =
+             ArchiveUploads.observe_response(ctx.lease, dispatch.id, second, ctx.opts)
+
+    assert [conflict] = dispatches(ctx)
+    assert conflict.response == first and conflict.response_sha256 == original.response_sha256
+    assert conflict.response_at == original.response_at and conflict.conflict_at != nil
+    assert conflict.first_conflict_sha256 != original.response_sha256
+
+    assert conflict.first_conflict_sha256 ==
+             "28d045054527d841f571f04f3b00c1ea79ad1bc12772f9568b1ce40d737399ec"
+
+    assert {:error, :archive_upload_response_conflict} =
+             ArchiveUploads.observe_response(ctx.lease, dispatch.id, first, ctx.opts)
+
+    assert {:ok, unknown} = ArchiveUploads.observe_unknown(ctx.lease, dispatch.id, ctx.opts)
+    assert unknown.conflict_at == conflict.conflict_at and unknown.unknown_at != nil
+    assert unknown.first_conflict_sha256 == conflict.first_conflict_sha256
+  end
+
+  test "competing different responses retain exactly one receipt and permanent conflict", ctx do
+    bind(ctx)
+    assert {:ok, dispatch} = dispatch(ctx)
+    assert {:ok, {:marked, _}} = ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+    results =
+      race(fn index ->
+        ArchiveUploads.observe_response(
+          ctx.lease,
+          dispatch.id,
+          %{"status" => 200, "etag" => "invented-#{index}"},
+          ctx.opts
+        )
+      end)
+
+    assert [{:ok, winner}] = Enum.filter(results, &match?({:ok, _}, &1))
+    assert Enum.count(results, &(&1 == {:error, :archive_upload_response_conflict})) == 7
+    assert [retained] = dispatches(ctx)
+    assert retained.response == winner.response and retained.response_at == winner.response_at
+
+    assert is_binary(retained.first_conflict_sha256) and
+             byte_size(retained.first_conflict_sha256) == 64
+
+    assert retained.conflict_at != nil and
+             retained.first_conflict_sha256 != retained.response_sha256
+  end
+
+  test "marking rederives every retained intent field before committing its marker", ctx do
+    bind(ctx)
+    assert {:ok, dispatch} = dispatch(ctx)
+    assert [intent] = intents(ctx)
+    substituted = digest("invented-corruption")
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "UPDATE platform.camera_archive_upload_intents SET object_sha256 = $1 WHERE id = $2",
+               [substituted, Ecto.UUID.dump!(intent.id)]
+             )
+
+    assert {:error, :archive_upload_intent_conflict} =
+             ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+    assert [retained] = dispatches(ctx)
+    assert is_nil(retained.marked_at)
+    assert [retained_intent] = intents(ctx)
+    assert retained_intent.object_sha256 == substituted
+  end
+
+  test "multipart observations require bounded receipts and cannot recover a lost upload id",
+       ctx do
+    bind(ctx)
+
+    assert {:ok, dispatch} =
+             ArchiveUploads.prepare_dispatch(
+               ctx.lease,
+               :media,
+               :create_multipart_upload,
+               30_000,
+               ctx.opts
+             )
+
+    assert {:ok, {:marked, _}} = ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+    for response <- [
+          %{"status" => 200},
+          %{"status" => 200, "upload_id" => ""},
+          %{"status" => 200, "upload_id" => String.duplicate("x", 1025)},
+          %{"status" => 200, "upload_id" => "invented", "headers" => %{}},
+          %{"status" => 200, "upload_id" => "invented\nheader"},
+          %{status: 200},
+          %{"status" => 100}
+        ] do
+      assert {:error, :invalid_upload_response} =
+               ArchiveUploads.observe_response(ctx.lease, dispatch.id, response, ctx.opts)
+    end
+
+    assert [empty] = dispatches(ctx)
+    assert is_nil(empty.response_at) and is_nil(empty.conflict_at)
+    assert {:ok, unknown} = ArchiveUploads.observe_unknown(ctx.lease, dispatch.id, ctx.opts)
+    assert unknown.unknown_at != nil and is_nil(unknown.response)
+
+    assert {:ok, {:already_marked, _}} =
+             ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+    response = %{"status" => 200, "upload_id" => "invented+opaque/id~="}
+
+    assert {:ok, late} =
+             ArchiveUploads.observe_response(ctx.lease, dispatch.id, response, ctx.opts)
+
+    assert late.response == response and late.unknown_at == unknown.unknown_at
+  end
+
+  defp dispatch(ctx, ttl \\ 30_000),
+    do: ArchiveUploads.prepare_dispatch(ctx.lease, :media, :put_object, ttl, ctx.opts)
+
+  defp dispatches(ctx) do
+    ids = Enum.map(intents(ctx), & &1.id)
+
+    ArchiveUploadDispatch
+    |> Ash.Query.filter(archive_upload_intent_id in ^ids)
+    |> Ash.read!(ctx.opts)
+  end
+
+  defp dispatch_identity(dispatch) do
+    Map.take(dispatch, [
+      :id,
+      :archive_upload_intent_id,
+      :upload_epoch,
+      :upload_token_sha256,
+      :dispatcher_actor_id,
+      :operation,
+      :request_sha256,
+      :prepared_at,
+      :deadline_at
+    ])
+  end
+
+  defp race(fun) do
+    parent = self()
+
+    tasks =
+      for index <- 1..8 do
+        Task.async(fn ->
+          send(parent, :ready)
+
+          receive do
+            :go -> if is_function(fun, 1), do: fun.(index), else: fun.()
+          end
+        end)
+      end
+
+    for _ <- tasks, do: assert_receive(:ready, 5_000)
+    Enum.each(tasks, &send(&1.pid, :go))
+    Enum.map(tasks, &Task.await(&1, 10_000))
   end
 
   defp bind(ctx) do

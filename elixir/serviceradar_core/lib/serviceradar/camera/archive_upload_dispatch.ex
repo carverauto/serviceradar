@@ -2,8 +2,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadDispatch do
   @moduledoc """
   Durable dispatch identity and observations for one immutable archive upload intent.
 
-  The actions are trusted persistence primitives. `ArchiveUploads` authenticates
-  the dispatcher, fences the upload lease and supplies database-clock timestamps.
+  The actions are trusted persistence primitives. `ArchiveUploads` checks the
+  trusted internal actor, fences the lease and supplies database-clock timestamps.
   Identity cannot be changed, and marking or observing a dispatch never rearms it.
   """
   use Ash.Resource,
