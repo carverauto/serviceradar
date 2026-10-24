@@ -309,15 +309,27 @@ link/ASCII checks pass. Final guarded CI remains required for this checkpoint.
 Full `make test`
 [a79ef08e](https://carverauto.buildbuddy.io/invocation/a79ef08e-f310-4d4e-80a0-c49d19e171b0)
 passes 459 targets: 59 execute, 400 use cache, and the two Swift platform targets
-are skipped. It runs on the same executable source, tests and build definitions
-as the submitted dispatch candidate; the following evidence edit changes this
-document only. Integration/acceptance bodies are excluded by that command.
+are skipped. That run predates the `:id` repair below, so it is not evidence for
+the current head. Integration/acceptance bodies are excluded by that command.
 Neither this result nor selection equivalence proves the 12 new guarded database
 cases. No deployment, provider call, qualification or availability is claimed.
 
-Draft publication is approved so BazelCI Core Integration may be the first
+Draft publication was approved so BazelCI Core Integration could be the first
 execution of these twelve database scenarios. The approval is prepublication
-only. None of the twelve scenarios has passed. checks-passed still requires
-that owning lane to execute the cases and to return successful observer,
-teardown, and lease-release commands. This note changes documentation only.
-It does not create a database, copy credentials, or improvise that lane.
+only. It does not waive final CI, and it does not count a failed run as a pass.
+
+Core Integration then ran at the pre-repair head. Invocation
+[ed8fbb26](https://carverauto.buildbuddy.io/invocation/ed8fbb26-da5c-4141-a0aa-4723e8934ec6)
+failed only `//elixir/serviceradar_core:integration_tests_serial_6`: 297 tests,
+10 failures. Each failure is `Ash.Error.Invalid.NoSuchInput` on
+`ArchiveUploadDispatch` action `:prepare`, input `:id`. The other 11 targets
+passed. Observer, teardown, and lease release completed. `suite_status=3` is
+those 10 dispatch tests. None of the twelve scenarios passed.
+
+The repair stops accepting and supplying `:id`. `Ash.UUID.generate/0` on
+`uuid_primary_key :id` is the only id source, and [the dispatch contract](upload-dispatch.md)
+owns that rule. Remote `//elixir/serviceradar_core:quality_check` passed in
+[dcebd82e](https://carverauto.buildbuddy.io/invocation/dcebd82e-593d-42df-b7bc-f177ff445d45).
+Fresh Core Integration at this head is still required, including observer,
+teardown, and lease release. This note changes documentation only. It does not
+create a database, copy credentials, or improvise that lane.

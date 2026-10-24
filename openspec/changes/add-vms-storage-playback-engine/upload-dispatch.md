@@ -4,10 +4,12 @@
 `prepare_dispatch/5` accepts the existing upload lease, object role, operation
 (`:put_object` or `:create_multipart_upload`), and a TTL of 1..300000 milliseconds.
 The coordinator rederives the complete object intent under the recording block
-lock. It derives a logical request digest, records a new operation UUID, and
-retains the original upload epoch, token fingerprint, internal actor ID and
-deadline. A retry returns that same record; a changed actor, operation or lease
-cannot replace it. Increasing the requested TTL never extends the retained cap.
+lock. It derives a logical request digest and inserts one dispatch row. The
+primary key is the resource default on `uuid_primary_key :id`; `prepare` does
+not accept `:id`. The row retains the original upload epoch, token fingerprint,
+internal actor ID and deadline. A retry returns that same record; a changed
+actor, operation or lease cannot replace it. Increasing the requested TTL
+never extends the retained cap.
 
 `mark_dispatch/3` takes the block lock before the dispatch lock and rechecks the
 complete intent. The retained operation deadline and the original locked upload

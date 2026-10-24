@@ -56,9 +56,9 @@ on this merged parent. It retains one operation per intent, one committed marker
 the original deadline and bounded late-response/conflict evidence. The coordinator
 does not perform provider I/O. Its database validation must come from the new
 checkpoint's own guarded PR CI; earlier green suites cannot prove new code.
-[validation.md](validation.md) records the approved prepublication exception.
-That exception lets BazelCI Core Integration run these cases first. It passes
-no scenario and does not waive final CI.
+[validation.md](validation.md) records the approved prepublication exception
+and the failed Core Integration run. No dispatch scenario has passed, and the
+exception does not waive final CI.
 
 Production recording admission and unknown UTC are unchanged. Recording stays
 disabled. The operator-confirmed live RTSP transport must remain working. No
