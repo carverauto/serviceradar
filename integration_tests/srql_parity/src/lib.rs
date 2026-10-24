@@ -12,6 +12,7 @@
 
 pub mod compare;
 pub mod coverage;
+mod exposure;
 pub mod fixture;
 pub mod inventory;
 pub mod runner;

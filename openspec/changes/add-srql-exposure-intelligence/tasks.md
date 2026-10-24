@@ -3,7 +3,12 @@ is synthetic: documentation address ranges (`192.0.2.0/24`, `198.51.100.0/24`,
 `203.0.113.0/24`, `2001:db8::/32`), invented names, and no values exported from a running
 deployment.
 
-## 0. Prerequisites and gates (no build work in 1.x until these pass)
+## 0. Prerequisites and gates
+
+Decision 21 permits the assessment foundation in 1.x to proceed independently of
+0.3-0.5. Those gates still block traffic evidence integration and remain required
+for launch; their thresholds and the full feature scope are unchanged.
+
 - [x] 0.1 #5748 merged: incremental, write-on-change matching that publishes assessment transitions through a transactional outbox with `transition_seq` and ordinals, per *Assessment Transitions Are Published On JetStream*. Delivered with the producer-side parts of 1.1 and 1.3; see design.md, *Implementation record*.
 - [x] 0.2 #5749 fixed: superseded-package matches resolve. The read-only follow-up verified no active orphan matches and re-checked the actionable count after a subsequent successful matcher run; see design.md, *Task 0.2: read-only cleanup follow-up*.
 - [ ] 0.3 #5752 merged: executable -> package ownership (`ExecutableOwnership`) on FlowAttributionEvent and ProcessSnapshotEntry, per *Running Executables Resolve To Owning Packages*.
@@ -23,7 +28,7 @@ deployment.
 
 ## 1. Dictionaries, fact table and transitions
 - [ ] 1.1 CNPG migrations: `exposure_fact_watermarks` (key, terminal state, new sequence), `device_fleet_ordinals.retired_seq`, `exposure_advisory_ordinals` (starting at 10^12), `exposure_package_ordinals`, `exposure_package_version_ordinals`, the `transition_seq` sequence (drawn under the assessment row lock and stored on the assessment row), and `transition_xid` on outbox rows. Add a CVE ordinal function with unit tests at the 10^7 boundary.
-- [ ] 1.2 StarRocks DDL under `elixir/serviceradar_core/priv/starrocks/`: `exposure_facts`, `exposure_cve_dim`, `exposure_package_dim` and `exposure_transitions_log`.
+- [x] 1.2 StarRocks DDL under `elixir/serviceradar_core/priv/starrocks/`: `exposure_facts`, `exposure_cve_dim`, `exposure_package_dim` and `exposure_transitions_log` (migration 0032; storage contract checks run in the disposable SrqlParity fixture).
 - [ ] 1.3 NATS: the transitions and `exposure.dimensions.*` subjects, stream limits, and Helm permissions (core publishes, EventWriter consumes).
 - [ ] 1.4 EventWriter `ExposureTransitions` and `ExposureDimensions` processors: Stream Load of complete after-images with `merge_condition = transition_seq`, resolution as a state change, and transition log appends.
 - [ ] 1.5 Merge and deletion handling: `device_retired` with a new sequence from `endpoint_inventory_moves.ex` and device deletion; assessment-row deletion as a `resolved` transition with a new sequence; StarRocks `exposure_retired_ordinals` and the ingestion-boundary drop for retired ordinals. Grep for every writer of `device_fleet_ordinals.tombstoned` and of device deletion, not only the obvious one.

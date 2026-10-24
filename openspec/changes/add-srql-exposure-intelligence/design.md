@@ -917,6 +917,32 @@ This extends the producer contract beyond the delivered row-trigger implementati
 recorded below; the fact-key serialization and missing-source repair remain work in
 task 1.6. No implementation of this path is part of this documentation change.
 
+### Decision 21: Build the assessment foundation independently
+
+On 2026-10-24 the product owner directed work to stop codec tuning and continue
+the exposure workstream, accepting the proposed sequencing of the independent
+assessment foundation ahead of the remaining attribution gates. Tasks 1.x may
+proceed using the delivered assessment outbox and ordinal dictionaries. Tasks
+0.3-0.5 still gate traffic evidence integration and launch. No capacity threshold,
+evidence requirement, or launch scope is waived. Snapshot and reconciliation must
+pass before exposure SRQL entities become available.
+
+Migration 0032 creates the four tables in task 1.2. The fact key and columns follow
+Decision 2, including BIGINT device ordinals and the default snapshot marker from
+Decision 19. The CVE dimension maps `cve_ord` to the advisory identifier and nullable
+EPSS score. The package dimension is keyed by `pkgver_ord`, carrying `pkg_ord`,
+package identity, display name and installed version: different installed versions
+must coexist across devices. Both dimensions carry their last update time. Fixed
+versions are assessment-specific and are not stored as a package-wide attribute.
+
+The daily Duplicate Key history carries transition identity, state, exposure and
+resolution times, and the complete transition JSON. Its initial partition retention
+is 365 daily partitions; wiring the database-backed history retention setting remains
+task 3.4.
+Current facts and dimensions have no partition expiry. This migration does not
+start ingestion or expose a query entity; processors, retirement handling,
+snapshot repair and reconciliation remain separate tasks.
+
 ## Section 0 evidence (2026-10-21)
 
 ### Task 0.6: synthetic warehouse spike
@@ -1103,9 +1129,11 @@ Refresh budgets:
 
 ## Migration Plan
 
-1. Phase 0 prerequisites and gates (`tasks.md`).
-2. Dictionaries, fact table, transitions processor, snapshot. Seed by snapshot and verify
-   with reconciliation before any SRQL entity is exposed.
+1. Phase 0 prerequisites and gates (`tasks.md`); finish the remaining attribution
+   and measurement gates before traffic evidence integration and launch.
+2. Independently build dictionaries, fact table, transitions processor and snapshot
+   (Decision 21). Seed by snapshot and verify with reconciliation before any SRQL
+   entity is exposed.
 3. Address dimension and flow stamping (a straight switch; history is not backfilled).
 4. Evidence, views, snapshots, and the SRQL entities.
 5. Coverage attestation, discrepancy evaluation, alerting.

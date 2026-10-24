@@ -31,6 +31,7 @@
 # 0028 aligns both MTR destination fact tables' event-day dependencies and
 # defers rebuilding derived state to the existing schedule, one day per task.
 # 0031 adds executable_ownership to the flow process attribution observations.
+# 0032 creates exposure current-state facts, dictionaries, and transition history.
 # The cnpg_platform JDBC catalog is not here: it is created by
 # helm/serviceradar/templates/starrocks-catalog-job.yaml, and the relations it
 # may expose are owned by ServiceRadar.Analytics.StarRocks.CatalogAllowlist.

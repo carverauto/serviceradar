@@ -1008,6 +1008,14 @@ pub async fn run() -> Result<Vec<(String, Outcome)>> {
             outcomes.push((entry.id.clone(), outcome));
         }
         write_detail(&detail);
+        if outcomes.is_empty() {
+            bail!("no inventory entry ran");
+        }
+        let storage = match crate::exposure::verify(&mut sr, &sr_database, &ddl_dir).await {
+            Ok(()) => Outcome::Pass("exposure storage and migration replay".into()),
+            Err(error) => Outcome::Fail(format!("exposure storage: {error:#}")),
+        };
+        outcomes.push(("exposure_storage".into(), storage));
         Ok::<_, anyhow::Error>(outcomes)
     }
     .await;
