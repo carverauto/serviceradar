@@ -504,6 +504,26 @@ core:
     # timeseries_metrics_*_hourly), which back long-range charts and seasonal
     # anomaly baselines. Chunks older than 7 days are compressed. Minimum 7.
     hourlyRollupDays: 395
+    # Tables whose retention only migrations set before the worker reconciled
+    # them. Defaults equal the migration values. Retention only: chunk
+    # intervals and compression for these tables stay migration-owned.
+    # Capped by defaultDays except endpointInventoryHistoryDays and
+    # tracesStatsDays. endpointInventoryHistoryDays keeps its own horizon
+    # like capacityForecastsDays.
+    adhocScanResultsDays: 30
+    # service_status and events.
+    serviceStatusDays: 14
+    endpointInventoryHistoryDays: 395
+    # Trace and metric rollup aggregates. Their refresh windows are clamped
+    # strictly inside these retentions before a shorter value applies.
+    spansRedDays: 90
+    otelMetricsHourlyStatsDays: 90
+    # traces_stats_5m. Leave unset to keep the migration window (14 days) and
+    # to leave a window the cold-tier fence widened unchanged. A target
+    # shorter than the fence window is not written while the cold tier is
+    # on. A target at or above that window is written whether or not the
+    # tier is on.
+    # tracesStatsDays: 14
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 24
     ocsfNetworkActivityChunkIntervalHours: 24

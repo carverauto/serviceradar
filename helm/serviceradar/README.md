@@ -341,6 +341,8 @@ Installs that keep telemetry in CNPG set retention under `core.observabilityRete
 
 Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored only in StarRocks. Migration `20261019160000` dropped `platform.ocsf_network_activity`, so `ocsfNetworkActivityDays` and `ocsfNetworkActivityChunkIntervalHours` no longer govern a live CNPG hypertable and `defaultDays` does not apply to them. They remain for the older migration that still reads them.
 
+The migration-only tables (`adhocScanResultsDays`, `serviceStatusDays`, `endpointInventoryHistoryDays`) and rollup aggregates (`spansRedDays`, `tracesStatsDays`, `otelMetricsHourlyStatsDays`) are reconciled retention-only: their chunk intervals and compression stay as migrations installed them. Before a shorter retention applies, the worker clamps the refresh `start_offset` of `endpoint_inventory_package_counts_hourly`, `endpoint_inventory_cpe_counts_hourly`, `services_availability_5m`, and `otel_metrics_hourly_stats` strictly inside it, and floors each aggregate's own retention at that clamped window. `endpointInventoryHistoryDays` and `tracesStatsDays` are not capped by `defaultDays`. `tracesStatsDays` is the explicit value, or 14 days when omitted, floored at the clamped refresh window. While the cold tier is enabled the fence widens `traces_stats_5m`, and the worker does not write a shorter target first, including when no retention policy is installed. An unset `tracesStatsDays` leaves a widened window in place after the cold tier is disabled. A target shorter than the fence window is not written while the cold tier is on. A target at or above that window is written whether or not the tier is on. A later run leaves an installed value that already equals `tracesStatsDays`, including 14 days and shorter.
+
 | Parameter | Description | Default |
 |-----------|-------------|---------|
 | `core.observabilityRetention.defaultDays` | Optional ceiling, in days, for raw CNPG telemetry. Omit it to leave each dataset on its own window | unset |
@@ -355,6 +357,12 @@ Flow records (NetFlow, sFlow, IPFIX, and process attribution) are stored only in
 | `core.observabilityRetention.timeseriesMetricsDays` | Raw `timeseries_metrics` retention | `7` |
 | `core.observabilityRetention.capacityForecastsDays` | Capacity forecast retention. Not capped by `defaultDays` | `395` |
 | `core.observabilityRetention.hourlyRollupDays` | Hourly rollup retention. Floored at 7 days | `395` |
+| `core.observabilityRetention.adhocScanResultsDays` | Ad-hoc scan result retention | `30` |
+| `core.observabilityRetention.serviceStatusDays` | `service_status` and `events` retention | `14` |
+| `core.observabilityRetention.endpointInventoryHistoryDays` | Endpoint inventory scan/package history retention. Not capped by `defaultDays` | `395` |
+| `core.observabilityRetention.spansRedDays` | `spans_red_1h` aggregate retention | `90` |
+| `core.observabilityRetention.otelMetricsHourlyStatsDays` | `otel_metrics_hourly_stats` aggregate retention | `90` |
+| `core.observabilityRetention.tracesStatsDays` | `traces_stats_5m` aggregate retention. Not capped by `defaultDays`. Omit to keep the 14-day migration window and leave a cold-tier-widened window unchanged. A target shorter than the fence window is not written while the cold tier is on. A target at or above that window is written whether or not the tier is on. A later run leaves an installed value that already equals it | unset |
 | `core.observabilityRetention.otelTracesChunkIntervalHours` | Chunk interval for new trace chunks | `6` |
 | `core.observabilityRetention.logsChunkIntervalHours` | Chunk interval for new log chunks | `24` |
 | `core.observabilityRetention.otelMetricsChunkIntervalHours` | Chunk interval for new OTel metric chunks | `24` |

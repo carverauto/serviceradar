@@ -157,10 +157,62 @@ defmodule ServiceRadar.Observability.DataRetentionRuntimeConfigTest do
 
     specs = DataRetentionWorker.cagg_refresh_policy_specs(cnpg_telemetry_default_days: 1)
 
+    # The endpoint inventory count rollups refresh from the history tables,
+    # whose horizon the ceiling deliberately does not cap.
+    uncapped = ~w(
+      endpoint_inventory_package_counts_hourly
+      endpoint_inventory_cpe_counts_hourly
+    )
+
     for spec <- specs do
-      assert spec.source_retention_days == 1
+      if spec.view in uncapped do
+        assert spec.source_retention_days == 395
+      else
+        assert spec.source_retention_days == 1
+      end
+
       assert spec.start_offset_hours < spec.source_retention_days * 24
     end
+  end
+
+  test "the deployed core passes migration-table retention to the worker" do
+    worker =
+      worker_config(%{
+        "SERVICERADAR_ADHOC_SCAN_RESULTS_RETENTION_DAYS" => "11",
+        "SERVICERADAR_SERVICE_STATUS_RETENTION_DAYS" => "12",
+        "SERVICERADAR_ENDPOINT_INVENTORY_HISTORY_RETENTION_DAYS" => "40",
+        "SERVICERADAR_SPANS_RED_RETENTION_DAYS" => "13",
+        "SERVICERADAR_TRACES_STATS_RETENTION_DAYS" => "21",
+        "SERVICERADAR_OTEL_METRICS_HOURLY_STATS_RETENTION_DAYS" => "22"
+      })
+
+    assert worker[:adhoc_scan_results_retention_days] == 11
+    assert worker[:service_status_retention_days] == 12
+    assert worker[:endpoint_inventory_history_retention_days] == 40
+    assert worker[:spans_red_retention_days] == 13
+    assert worker[:traces_stats_retention_days] == 21
+    assert worker[:otel_metrics_hourly_stats_retention_days] == 22
+  end
+
+  test "unset migration-table retention keeps the migration windows; traces stats stays unset" do
+    worker =
+      worker_config(%{
+        "SERVICERADAR_ADHOC_SCAN_RESULTS_RETENTION_DAYS" => nil,
+        "SERVICERADAR_SERVICE_STATUS_RETENTION_DAYS" => nil,
+        "SERVICERADAR_ENDPOINT_INVENTORY_HISTORY_RETENTION_DAYS" => nil,
+        "SERVICERADAR_SPANS_RED_RETENTION_DAYS" => nil,
+        "SERVICERADAR_TRACES_STATS_RETENTION_DAYS" => nil,
+        "SERVICERADAR_OTEL_METRICS_HOURLY_STATS_RETENTION_DAYS" => nil
+      })
+
+    assert worker[:adhoc_scan_results_retention_days] == 30
+    assert worker[:service_status_retention_days] == 14
+    assert worker[:endpoint_inventory_history_retention_days] == 395
+    assert worker[:spans_red_retention_days] == 90
+    # Nil, not the 14-day default: the worker must tell an explicit
+    # tracesStatsDays from an unset one to protect a fence-widened window.
+    assert worker[:traces_stats_retention_days] == nil
+    assert worker[:otel_metrics_hourly_stats_retention_days] == 90
   end
 
   defp worker_config(overrides) do

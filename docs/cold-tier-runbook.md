@@ -197,18 +197,30 @@ past the hot window comes from cold objects, but the stats surfaces over that
 same range are served by these in-database rollups, so a 24-hour rollup under a
 90-day cold window leaves them blank.
 
-This is widen-only, and it is deliberately not reversed on disable: shrinking a
-window back would DELETE the materialized history between the two, and toggling
-a flag must never be a data-deletion event. To reclaim that storage after
-disabling, narrow the policy yourself, e.g.:
+This widening is not reversed when the tier is disabled: shrinking a window
+would delete the materialized history between the two, and toggling the flag
+must not do that.
+
+`ocsf_events_hourly_stats` stays at the widened window until you narrow that
+policy yourself:
 
 ```sql
 SELECT remove_retention_policy('platform.ocsf_events_hourly_stats', if_exists => true);
 SELECT add_retention_policy('platform.ocsf_events_hourly_stats', INTERVAL '1 day');
 ```
 
-A CAGG with no retention policy at all is left alone -- installing one would
-delete everything past the window.
+`traces_stats_5m` retention is also set by `DataRetentionWorker` from
+`core.observabilityRetention.tracesStatsDays` (Helm chart README, CNPG
+telemetry retention). While the cold tier is disabled, an unset value leaves
+a window already at or above the fence target unchanged and writes the 14-day
+migration default onto any shorter window, so a hand-written policy below
+that target does not stick. Set `tracesStatsDays` to choose another window.
+While the cold tier is enabled, a target shorter than the fence window is
+not written, including when no policy is installed. A target at or above
+that window is written whether or not the tier is on.
+
+The fence leaves a continuous aggregate with no retention policy alone.
+Installing one there would delete everything past the window.
 
 ## Retired tables (`ocsf_network_activity`)
 
@@ -246,8 +258,9 @@ bin/serviceradar_core rpc 'ServiceRadar.ColdTier.Admin.waive(
 
 After the waive, standard retention policies re-arm on the next retention
 run. Archived Parquet already in the bucket is untouched (prune it manually
-if the deployment is being retired). Widened rollup windows also stay widened
--- see "Rollup retention widening" for why, and how to reclaim the storage.
+if the deployment is being retired). Disabling the tier does not shrink a
+widened rollup window by itself. See "Rollup retention widening" for which
+windows stay widened and how to reclaim that storage.
 
 To take the export role's login away again, set
 `coldTier.exportRole.enabled=false`. Note that CNPG only manages roles it is

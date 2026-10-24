@@ -354,6 +354,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/observability/interface_rates_db_test.exs": 1,
     "test/serviceradar/observability/ip_enrichment_scheduling_test.exs": 1,
     "test/serviceradar/observability/log_promotion_test.exs": 1,
+    "test/serviceradar/observability/migration_table_retention_db_test.exs": 1,
     "test/serviceradar/observability/mtr_graph_integration_test.exs": 1,
     "test/serviceradar/observability/netflow_dataset_refresh_worker_integration_test.exs": 1,
     "test/serviceradar/observability/netflow_dataset_refresh_worker_test.exs": 1,
