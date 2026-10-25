@@ -91,7 +91,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :addon_id,
       ref: %{
         "producer_id" => "anomaly",
-        "producer_version" => "0.3.14",
+        "producer_version" => "0.3.15",
         "schema_id" => "com.carverauto.anomaly.detection_finding",
         "schema_version" => "1.0.0"
       }
@@ -101,7 +101,7 @@ defmodule ServiceRadarWebNG.Observability.ContractRegistryTest do
       package_key: :addon_id,
       ref: %{
         "producer_id" => "powerdns",
-        "producer_version" => "0.1.11",
+        "producer_version" => "0.1.12",
         "schema_id" => "com.carverauto.powerdns.dns_activity",
         "schema_version" => "1.0.0"
       }
