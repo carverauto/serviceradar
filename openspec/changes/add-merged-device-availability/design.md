@@ -334,13 +334,16 @@ same transaction. Both paths then run the same steps, in batches of at most
    pure `Availability.Resolver.resolve/3`. Resolution never reads, locks or
    waits on the invalidation log.
 4. Run `UPDATE ocsf_devices ... WHERE` any of `availability_state`,
-   `availability_decided_by`, `availability_conflict` or
-   `availability_agents` `IS DISTINCT FROM` the new value. The returned old
-   and new values determine whether this is a state transition (Decision 8)
-   or a display-only change.
-5. Insert state transitions into the existing outbox (the pattern from
-   #4733) in the same transaction, so a rollback publishes nothing.
-   Display-only changes broadcast a UI invalidation and emit no event.
+   `availability_decided_by`, `availability_conflict`,
+   `availability_agents` or `is_available` `IS DISTINCT FROM` the new value,
+   so a NULL or drifted boolean is rewritten with the projection. The
+   returned old and new values determine whether this is a state transition
+   (Decision 8) or a display-only change.
+5. In `authoritative`, insert one transition job into the outbox
+   (`Transitions`) in the same transaction, so a rollback publishes nothing.
+   The job broadcasts a UI invalidation for every changed device and emits
+   an event only for a state transition. In `cutover` every side effect is
+   suppressed (Decision 10).
 
 **Invalidation.** Every mutation that can change a resolution appends one
 row per affected device to an append-only log,
@@ -611,7 +614,8 @@ Proposed:
   Unchanged observations coalesce, so a steady pair writes about twice per
   TTL. Decision-bearing changes are written immediately (review finding R3).
 - **Device row.** It is written only when the state, provenance, conflict
-  flag or agent counters change (Decision 1, step 5). Provenance is stable
+  flag, agent counters or the `is_available` projection change (Decision 1,
+  step 4). A NULL or drifted boolean is rewritten. Provenance is stable
   (Decision 3, step 8).
 - **Sweep metadata.** The legacy writers keep the `metadata.sweep_*` keys
   until stage d, because the compatibility computation needs them
@@ -619,8 +623,10 @@ Proposed:
   unchanged in this change, as the "Device re-sighting" scenario requires.
   Coalescing re-sighting writes is decided for a follow-up change (Open
   Question 10).
-- **Rollup trigger.** It fires only when its inputs change: state, type,
-  vendor, deletion or retirement.
+- **Rollup trigger.** It counts by `availability_state`, including an
+  `unknown` key. The statement triggers keep their shape: a `WHEN` clause
+  cannot narrow a trigger that uses transition tables (migration
+  `20261024120000`).
 - **Shadow and compatibility tables.** Both are written on change only.
 
 Net effect: device-row writes driven by availability fall from
@@ -629,21 +635,24 @@ stops writing anything once it has resolved.
 
 ### Decision 8: Transitions come from the resolver, once
 
-- **Events.** After cutover, `device.available` and `device.unavailable` are
-  emitted only for state transitions. They use the same event types and the
-  same internal log publisher, so the seeded StatefulAlertRule keeps working.
-  New attributes: `source_kind`, `authority_class`, `reporter_agent_id`,
-  `previous_state` and `conflict`.
+- **Events.** In `authoritative`, `device.available` and `device.unavailable`
+  are emitted for state transitions, through the outbox in the resolving
+  transaction. `cutover` emits none per device. After the mode is
+  `authoritative`, announce also emits `device.available` for devices whose
+  legacy value was false and whose merged state is available (Decision 10).
+  They use the same event types and the same internal log publisher, so the
+  seeded StatefulAlertRule keeps working. New attributes: `source_kind`,
+  `authority_class`, `reporter_agent_id`, `previous_state` and `conflict`.
 - **Display-only changes.** Changes to conflict, agent counters or
   provenance emit no events.
 - **Gating.** Emission stays opt-in. A deployment setting gates it, and each
   sweep group's `emit_availability_events` remains as a filter on
   transitions decided by that group's ledger rows (Open Question 6, decided).
   The `signals.state` feed is not gated, as today.
-- **State feed.** `signals.state.ocsf_devices` `is_available` and
-  `availability_state` transitions are published from the resolver.
-  `state_events.ex` stops publishing `is_available` and keeps publishing
-  `is_managed`.
+- **State feed.** In `authoritative`, `signals.state.ocsf_devices`
+  `is_available` and `availability_state` transitions are published from the
+  resolver. `state_events.ex` publishes `is_available` only in `legacy` and
+  `shadow`, and keeps publishing `is_managed`.
 - **Policy violations.** These signals already exist as composite-check
   verdicts (`not_isolated`, `inverted_reachability`) and their
   `VerdictEventWriter` events. The resolver does **not** emit a second event
@@ -685,10 +694,12 @@ events travel on JetStream through the existing publishers.
 
 `inventory.availability_mode` takes the values `legacy`, `shadow`, `cutover`
 and `authoritative`. It is stored in a settings row that writers and the
-mirror trigger can read. Writers read the mode inside their transaction while
-holding a shared transaction-level advisory lock. Changing the mode takes
-that lock exclusively, so the switch waits for in-flight writers to finish
-(drain) and no writer can straddle two modes.
+mirror trigger can read. Sweep, sync, camera and composite writers read the
+mode inside their transaction while holding a shared transaction-level
+advisory lock. Changing the mode takes that lock exclusively, so the switch
+waits for those writers to finish (drain) and none of them can straddle two
+modes. An agent check-in does not take the lock; that exception is
+`LegacyWrites`.
 
 **Phasing.** Phase 1 is stages a and b: evidence capture plus shadow mode with
 the divergence report, with no behavior change. It ships first and is
@@ -773,36 +784,46 @@ Stage b as built:
 reader is switched, `device_availability_legacy` is seeded from the current
 `is_available` of every device, so a device that no legacy writer touches
 after cutover still has its legacy value. From then on:
-1. Legacy writers no longer write `ocsf_devices.is_available`. They keep
-   their full computation against the compatibility table until stage d.
-2. The resolver writes device rows with **all** transition side effects
-   suppressed: no `device.*` events, no `signals.state` messages and no
-   per-device PubSub. This applies to ordinary ingestion as well as to the
-   reconciliation job.
-3. The reconciliation job re-resolves every device from its current ledger
-   rows, evidence and vantage expectations, in uid-ordered batches under the
-   same device locks and through the same `resolve_devices/2` path as
-   ingestion. It never copies the shadow table, so it cannot restore a
-   decision that newer evidence has already superseded. It then refreshes
-   the rollups once and reconciles stateful alerts that were opened from the
-   flapping state (closing them with a reconciliation reason where the
-   device is now available).
-4. It emits one summary event: "availability reconciliation: N to
-   available, M to unavailable, K to unknown".
-5. Only after reconciliation completes does the mode move to
-   `authoritative`, which enables normal transition emission.
+1. Legacy writers admitted under the shared lock no longer write
+   `ocsf_devices.is_available`. They keep their full computation against the
+   compatibility table until stage d. An agent check-in is the
+   `LegacyWrites` exception.
+2. While the mode is `cutover`, the resolver writes device rows with
+   **all** transition side effects suppressed: no `device.*` events, no
+   `signals.state` messages and no per-device PubSub. This applies to
+   ordinary ingestion as well as to the reconciliation job.
+3. The reconciliation job (`CutoverWorker`, phase `reconcile`) re-resolves
+   every device from its current ledger rows, evidence and vantage
+   expectations, in uid-ordered batches under the same device locks, through
+   `Resolution.resolve_locked/2`. It never copies the shadow table, so it
+   cannot restore a decision that newer evidence has already superseded. It
+   stops if the mode leaves `cutover`, then refreshes the rollups once,
+   still in `cutover`.
+4. Only after that pass finishes does the mode move to `authoritative`.
+   The same transaction enqueues `announce`, which publishes one summary
+   event ("availability reconciliation: N to available, M to unavailable,
+   K to unknown") and, when transition events are on, a `device.available`
+   recovery for each device whose legacy value was false and whose merged
+   state is available. The alert engine closes those alerts on its own
+   recovery path. Announce stops unless the mode is still `authoritative`.
+5. In `authoritative` the resolver emits transitions through the outbox.
 
-No legacy write can land on the device column after the switch, and no
-per-device transition fires while reconciliation is running.
+A legacy writer admitted under the shared lock cannot land on the device
+column after the switch. No per-device transition fires while the mode is
+`cutover`.
 
 Rollback from `cutover` or `authoritative`: switch to `legacy`, draining the
-same way. Under that drained boundary, `is_available` is restored from
-`device_availability_legacy` in uid-ordered pages. The mirror fires on each
+same way, and delete waiting transition jobs. The switch enqueues
+`CutoverWorker` phase `restore`, which runs after the switch commits and
+sets `is_available` from `device_availability_legacy` in uid-ordered pages.
+It stops unless the mode is still `legacy`. The mirror fires on each
 restored row, so `availability_state`, the badge, the ordering and the
 state-based rollups return to the legacy values together. The legacy
 publishers resume with the mode, and Armis sources in `legacy` semantics keep
 reading the same compatibility table, which the legacy writers never stopped
-maintaining. The ledger and the evidence are untouched.
+maintaining. The ledger and the evidence are untouched. A transition job
+already running publishes nothing once the mode is no longer
+`authoritative`.
 
 **(d) Removal.** Gated on Decision 13 having no Armis source left in
 `legacy` semantics. Stage d removes code only:
@@ -1037,18 +1058,18 @@ composite inputs are untouched. Armis is covered by Decision 13.
 
 | Risk | Mitigation |
 |---|---|
-| **Alert or notification storm at cutover** | `cutover` mode suppresses every transition side effect until reconciliation finishes, then emits one summary event and reconciles stateful alerts. Stage b sizes the flip in advance. |
+| **Alert or notification storm at cutover** | `cutover` suppresses every per-device transition until reconciliation finishes and the mode is `authoritative`. Announce then emits one summary and recovery `device.available` events for devices the legacy value held down (Decision 10). Stage b sizes the flip in advance. |
 | **Available count changes on existing installs** (devices that were "available" only through `DEFAULT true` or stale writes become unknown) | Measured in stage b by source and class; an Unknown stat card and a release note. Boolean readers keep the last decided value (Decision 6). |
 | **Hysteresis and "available wins" drift** | The one-to-one mapping in Decision 5, the governing-class hold, the ledger trigger that counts failures for every ledger writer, and table-driven resolver tests built from today's W1/W2 cases. |
 | **Devices with no evidence at all** | They become `unknown`, which is visible, filterable and counted in stage b. |
 | **Write amplification** | Decision 7. WAL per hour is measured in stages a to c, and stage c must not exceed the stage-a baseline. |
-| **API consumers of `is_available`** | The field keeps its name, type and non-null values; unknown devices keep their last decided boolean. The MCP cookbook documents `availability_state` for unknown. OpenAPI is generated from the core Device resource and gains the same fields with that resource, not by a web-ng edit. A boolean `is_available:true` count can exceed the state-based Available count by the unknown devices that last decided true; the release note says so. |
+| **API consumers of `is_available`** | The field keeps its name, type and non-null values; unknown devices keep their last decided boolean. The MCP cookbook documents `availability_state` for unknown. How `priv/static/openapi.json` records the fields is the web-ng reader row below. A boolean `is_available:true` count can exceed the state-based Available count by the unknown devices that last decided true; the release note says so. |
 | **Per-agent results lost or reinterpreted** | The ledger is unchanged except for one additive column (Tier 1a). Every per-agent consumer is listed as untouched (Decision 13). One DB-tier test asserts that the Armis agent path returns identical rows before and after resolution. |
 | **Negative-control agents dragging devices down** | Their down results are excluded from the decision (Decision 12); a reach counts as liveness and the violation is surfaced through the existing composite verdicts. |
 | **Silent change to Armis pushes** | Per-source `legacy` semantics with a compatibility table seeded at cutover and maintained in every mode, a preview, an explicit operator choice, and stage d gated on the choice. |
 | **Readers disagree about unknown** | No new NULL is introduced; readers that need unknown switch to `availability_state` (sort, counts, badge, rollups, `basic_summaries`). |
 | **The correlation engine sees transitions it never saw before** | Intended; measured on the lab deployment after stage c. |
-| **Rollback leaves readers on stale merged values** | The mirror re-derives `availability_state` from `is_available` in `legacy` and `shadow`, the rollback restores `is_available` from the compatibility table under the drain, and publishers switch with the mode (Decision 10). |
+| **Rollback leaves readers on stale merged values** | The mirror re-derives `availability_state` from `is_available` in `legacy` and `shadow`. Rollback restores `is_available` from the compatibility table after the switch commits (Decision 10), and publishers switch with the mode. |
 | **Lock contention** | Uid-ordered `FOR NO KEY UPDATE`, as W1/W2 already do; batches of at most 500; the device row is updated only on change. |
 | **A misdeclared class** | Assigned at registration and capped by the manifest; operators can lower it. Shown on the device page and grouped in the report. |
 | **Clock skew** | `observed_at` is clamped. |
@@ -1078,7 +1099,7 @@ composite inputs are untouched. Armis is covered by Decision 13.
 3. **Stage c:**
    - seed `device_availability_legacy` from `is_available` under the drained
      cutover boundary;
-   - add the rollup `unknown` key and narrow the trigger;
+   - add the rollup `unknown` key and count by `availability_state` (the statement triggers keep their shape; see the rollup reader row);
    - run the reconciliation job, which is the only bulk write to
      `ocsf_devices` (it also replaces any NULL `is_available` with false).
 4. **Stage d:**
