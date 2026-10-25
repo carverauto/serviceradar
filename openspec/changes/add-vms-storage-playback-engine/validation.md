@@ -671,3 +671,49 @@ new actual private-TLS HTTP roundtrip. Compilation and excluded bodies are not
 execution evidence. Both guarded lifecycles, their actual suites and cleanup
 must pass before this change is ready for review. These synthetic checks do not
 qualify a live provider or complete any broad runtime/Cloud acceptance task.
+
+
+## Private archive registration checkpoint
+
+This checkpoint adds metadata registration through the existing authenticated
+private media listener. It reuses `ArchiveDestination` and `ArchiveBinding`;
+there is no provider I/O, qualification producer, recording enablement or
+provisioning operation in this change.
+
+Focused remote invocation
+[9dea8457](https://carverauto.buildbuddy.io/invocation/9dea8457-ecf0-4190-9d44-11be1e19d7f5)
+passed four targets: the owning Phoenix unit shard, Web format/Credo, database
+runner registration and lane routing. Three targets executed and one was cached.
+The Phoenix shard ran 833 tests with zero failures and 223 excluded database-tagged
+cases, including the new registration case. Literal and encoded routes reject
+incorrect media authentication, absent or repeated installation headers, duplicate
+JSON keys, unknown fields, invalid destinations and bodies larger than 4096 bytes.
+
+The negative control increased only the registration body limit to 4097 bytes.
+[38b6ca6e](https://carverauto.buildbuddy.io/invocation/38b6ca6e-38f7-48b1-897c-732ce1e24ecc)
+failed the intended bounded-request keeper on both attempts: the oversized request
+returned 400 instead of the required 413. Each attempt reported 833 tests,
+one failure and 223 excluded. The production source was restored byte-for-byte
+before subsequent validation.
+
+The restored-source repository sweep, `make test`, passed
+[dad78500](https://carverauto.buildbuddy.io/invocation/dad78500-6425-4866-b528-bb7de69db756):
+460 targets passed, 11 executed and 449 were cached. The two platform skips were
+`//build/arrow_swift:ios_compile_test` and
+`//build/arrow_swift:swift_regression_test`. The unchanged owning Phoenix shard
+passed from cache; its executed result is the focused invocation above.
+Strict OpenSpec validation, whitespace checks and relative document links passed.
+Only documentation evidence was updated after the sweep.
+
+The single new guarded case lives in
+`elixir/web-ng/test/phoenix/control_plane_archive_bindings_db_test.exs`, registered
+on `//elixir/web-ng:networks_live_db_test_0` in disposable lane `webng_net_0`.
+It sends three concurrent HTTP POSTs through a supervised Bandit listener and
+Req into independent committed database transactions, then checks identical
+receipts, the retained destination, a rejected conflicting destination, a distinct
+new generation and absence of qualification/init authority. Cleanup deletes only
+the test's unique synthetic provisioning reference and rechecks zero rows.
+Authentication and malformed-body cases remain owned by the unit router suite.
+The new guarded case is compiled but excluded from ordinary `make test`; its body
+has not executed in this worktree. Published-head guarded Web CI remains mandatory,
+and no current result establishes provider readiness or hosted installation.

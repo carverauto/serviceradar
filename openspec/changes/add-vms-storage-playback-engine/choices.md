@@ -1070,3 +1070,35 @@ late facts but did not specify these retained fields. This keeps verification
 possible after revocation without restoring permission to send. A database
 index also prevents one boot/request-nonce pair from being reused for a different
 dispatch; a collision fails closed and leaves the first marker unchanged.
+
+### Register immutable product identity through the existing private media listener
+
+When: private archive-registration checkpoint. Verdict: sound, high confidence.
+
+If Cloud loses a registration reply, it retries the same destination and receives
+the same product binding ID. The request is a POST with an exact two-field
+versioned envelope and a 4096-byte limit. The existing destination parser and
+registration action remain the only owners of accepted fields, digest and
+same-generation conflict behavior. The plan required provisioning input but did
+not choose its transport or receipt. Reusing the installed media authentication
+avoids a second credential or new tenant-routing mechanism. Cloud stores the
+returned digest rather than copying the product serializer. Registration still
+reports unavailable readiness, so a successful metadata call cannot be mistaken
+for permission to upload. Future Cloud allocation must independently establish
+provider ownership; no registration response constitutes bucket adoption.
+
+
+### Distinguish destination conflicts from unavailable persistence
+
+When: private archive-registration checkpoint. Verdict: sound, medium confidence.
+
+When Cloud repeats a reference and generation with a different bucket, the
+existing registration action reports a destination conflict. The HTTP adapter
+returns 409 so Cloud keeps the original intent instead of retrying a replacement.
+It validates input with the existing parser first, returning 400 for unsupported
+metadata; other action errors return a bounded 503 without leaking database
+information. The plan did not choose these HTTP statuses. First registration
+and an identical retry both return 200 and the same receipt, avoiding a separate
+created-versus-retried branch in Cloud. The guarded HTTP/database case must still
+execute on the published head to prove the action's conflict reaches this status;
+ordinary unit validation does not establish that persistence behavior.

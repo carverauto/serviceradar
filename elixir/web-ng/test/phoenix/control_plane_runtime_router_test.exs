@@ -168,15 +168,17 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
           {@generation_header, "2"},
           {@generation_header, "01"}
         ],
-        path <- [
-          "/v1/media/installation",
-          "/v1/media/configuration",
-          "/v1/media/init-authorities/not-a-uuid",
-          "/v1/media/init-authorities/not-a-uuid/revoke",
-          "/v1/archive-bindings/not-a-uuid/qualification"
+        {method, path} <- [
+          {:put, "/v1/media/installation"},
+          {:post, "/v1/media/archive-bindings"},
+          {:post, "/v1/%6dedia/archive-bindings"},
+          {:put, "/v1/media/configuration"},
+          {:put, "/v1/media/init-authorities/not-a-uuid"},
+          {:put, "/v1/media/init-authorities/not-a-uuid/revoke"},
+          {:put, "/v1/archive-bindings/not-a-uuid/qualification"}
         ] do
       conn =
-        :put
+        method
         |> conn(path, "invalid-json")
         |> media_headers()
         |> put_req_header(header, value)
@@ -187,8 +189,13 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     end
 
     for header <- [@authorization_header, @deployment_header, @generation_header],
-        path <- ["/v1/media/installation", "/v1/media/configuration"] do
-      conn = :get |> conn(path) |> media_headers()
+        {method, path} <- [
+          {:get, "/v1/media/installation"},
+          {:get, "/v1/media/configuration"},
+          {:post, "/v1/media/archive-bindings"},
+          {:post, "/v1/%6dedia/archive-bindings"}
+        ] do
+      conn = method |> conn(path) |> media_headers()
       missing = conn |> delete_req_header(header) |> ControlPlaneRuntimeRouter.call([])
       assert missing.status == 401
 
@@ -390,6 +397,90 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
       assert conn.status == 404
       assert json_response(conn) == %{"status" => "not_found"}
     end
+  end
+
+  test "archive registration rejects duplicate keys before the general JSON parser" do
+    for path <- ["/v1/media/archive-bindings", "/v%31/%6dedia/archive-bindings"],
+        body <- [
+          "{",
+          "[]",
+          ~s({"schema_version":1,"schema_version":1,"destination":{}}),
+          ~s({"schema_version":1,"destination":{"generation":1,"generation":2}}),
+          ~s({"schema_version":1,"destination":{"generation":1,"generat\\u0069on":1}})
+        ] do
+      conn = binding_request(body, path)
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_request"}
+    end
+  end
+
+  test "archive registration validates its exact envelope and destination before storage" do
+    destination = %{
+      "schema_version" => 1,
+      "provisioning_ref" => "synthetic-binding-input",
+      "generation" => 1,
+      "purpose" => "recording",
+      "provider" => "s3_compatible",
+      "endpoint" => "https://objects.example.com",
+      "region" => "example-region",
+      "bucket" => "synthetic-recordings",
+      "namespace" => "recordings/v1",
+      "archive_format_version" => 1,
+      "required_encryption" => "sse_s3_aes256"
+    }
+
+    valid = %{"schema_version" => 1, "destination" => destination}
+
+    for document <- [
+          Map.put(valid, "schema_version", 2),
+          Map.put(valid, "actor", "system"),
+          Map.put(valid, "deployment_ref", @deployment_ref),
+          Map.delete(valid, "destination")
+        ] do
+      conn = binding_request(Jason.encode!(document))
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_archive_registration"}
+    end
+
+    for invalid <- [
+          Map.put(destination, "generation", "1"),
+          Map.put(destination, "purpose", "evidence"),
+          Map.put(destination, "access_key_id", "synthetic-forbidden-credential"),
+          Map.put(destination, "endpoint", "https://objects.example.com/path"),
+          Map.delete(destination, "required_encryption")
+        ] do
+      conn = binding_request(Jason.encode!(%{valid | "destination" => invalid}))
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_archive_destination"}
+    end
+  end
+
+  test "archive registration enforces the bounded JSON media contract on literal and encoded routes" do
+    body = ~s({"schema_version":2,"destination":{}})
+    padded = body <> String.duplicate(" ", 4096 - byte_size(body))
+
+    for path <- ["/v1/media/archive-bindings", "/v%31/%6dedia/archive-bindings"] do
+      conn = binding_request(padded, path)
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => "invalid_archive_registration"}
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+
+      conn = binding_request(padded <> " ", path)
+      assert conn.status == 413
+      assert json_response(conn) == %{"status" => "request_too_large"}
+
+      conn = binding_request(body, path, "text/plain")
+      assert conn.status == 415
+      assert json_response(conn) == %{"status" => "unsupported_media_type"}
+    end
+  end
+
+  defp binding_request(body, path \\ "/v1/media/archive-bindings", content_type \\ "application/json") do
+    :post
+    |> conn(path, body)
+    |> put_req_header("content-type", content_type)
+    |> media_headers()
+    |> ControlPlaneRuntimeRouter.call([])
   end
 
   defp configuration_request(body, path \\ "/v1/media/configuration", content_type \\ "application/json") do
