@@ -423,7 +423,10 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
       )
       SELECT 'status', 'total', COUNT(*) FROM active HAVING COUNT(*) <> 0
       UNION ALL
-      SELECT 'status', CASE WHEN COALESCE(is_available, false) THEN 'available' ELSE 'unavailable' END,
+      -- Same key as refresh_device_inventory_rollups() after 20261024120000:
+      -- available and unavailable stay themselves; every other state, including
+      -- the mirror's projection of NULL is_available, is unknown.
+      SELECT 'status', CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END,
              COUNT(*) FROM active GROUP BY 2
       UNION ALL
       SELECT 'type', COALESCE(NULLIF(trim(type), ''), 'Unknown'), COUNT(*) FROM active GROUP BY 2

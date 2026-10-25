@@ -10,6 +10,8 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
 
   use ServiceRadar.DataCase, async: false
 
+  import ServiceRadar.TestSupport.AvailabilityFixtures
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.CompositeCheckInput
@@ -23,13 +25,9 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
   alias ServiceRadar.Inventory.Availability.ResolverWorker
   alias ServiceRadar.Inventory.Availability.ShadowEntryWorker
   alias ServiceRadar.Inventory.Availability.VantageExpectations
-  alias ServiceRadar.Inventory.Device
-  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
-  alias ServiceRadar.SweepJobs.SweepGroup
-  alias ServiceRadar.SweepJobs.SweepResultsIngestor
   alias ServiceRadar.TestSupport
 
   @moduletag :integration
@@ -500,108 +498,6 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
 
   # -- fixtures -------------------------------------------------------------------------
 
-  defp create_device!(actor, ip) do
-    {:ok, device} =
-      Device
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          uid: "sr:" <> Ash.UUID.generate(),
-          ip: ip,
-          hostname: "host-" <> String.replace(ip, ".", "-") <> ".example.com",
-          discovery_sources: ["netbox"],
-          tags: %{}
-        },
-        actor: actor
-      )
-      |> Ash.create()
-
-    device
-  end
-
-  defp sweep_group!(actor) do
-    {:ok, group} =
-      SweepGroup
-      |> Ash.Changeset.for_create(
-        :create,
-        %{name: "SITE01 sweep " <> Ash.UUID.generate(), partition: "default", agent_ids: []},
-        actor: actor
-      )
-      |> Ash.create()
-
-    {group, "agent-" <> Ash.UUID.generate()}
-  end
-
-  defp sweep!(actor, group, agent_id, ip, available?, checked_at) do
-    result = %{
-      "host_ip" => ip,
-      "available" => available?,
-      "port_results" => [],
-      "last_sweep_time" => DateTime.to_iso8601(checked_at)
-    }
-
-    assert {:ok, _stats} =
-             SweepResultsIngestor.ingest_results([result], Ash.UUID.generate(),
-               actor: actor,
-               sweep_group_id: group.id,
-               agent_id: agent_id,
-               authenticated_agent_id: agent_id,
-               authenticated_partition_id: "default"
-             )
-  end
-
-  defp ledger_row!(actor, device, agent_id, available?, checked_at) do
-    {:ok, row} =
-      DeviceAgentAvailability
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          device_uid: device.uid,
-          agent_id: agent_id,
-          is_available: available?,
-          checked_at: checked_at
-        },
-        actor: actor
-      )
-      |> Ash.create()
-
-    row
-  end
-
-  defp update_ledger!(row, actor, attrs) do
-    {:ok, row} =
-      row
-      |> Ash.Changeset.for_update(:update, attrs, actor: actor)
-      |> Ash.update()
-
-    row
-  end
-
-  # Two validation-scan failures from one agent: confirmed down.
-  defp confirmed_down!(actor, device, agent_id) do
-    row = ledger_row!(actor, device, agent_id, false, minutes_ago(3))
-    update_ledger!(row, actor, %{is_available: false, checked_at: minutes_ago(2)})
-  end
-
-  defp pin!(actor, device, agent_id) do
-    {:ok, _} =
-      device
-      |> Ash.Changeset.for_update(:update, %{availability_source_agent_id: agent_id},
-        actor: actor
-      )
-      |> Ash.update()
-  end
-
-  defp wifi(uid, state, observed_at) do
-    %{
-      device_uid: uid,
-      source_kind: "wifi_map",
-      source_instance: "SITE01-wlc",
-      state: state,
-      observed_at: observed_at
-    }
-  end
-
   defp enabled_check!(actor) do
     {:ok, check} =
       CompositeCheck
@@ -672,22 +568,11 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
     :ok = SyncIngestor.ingest_updates([update], actor: actor)
   end
 
-  defp set_mode!(mode) do
-    Repo.query!("UPDATE platform.availability_settings SET mode = $1", [mode])
-  end
-
   defp append!(uids) do
     Repo.query!(
       "INSERT INTO platform.availability_invalidations (device_uid) SELECT unnest($1::text[])",
       [uids]
     )
-  end
-
-  defp drain! do
-    case ResolverWorker.pass() do
-      %{claimed: 0} -> :ok
-      _ -> drain!()
-    end
   end
 
   # Polls (100 ms apart, bounded) until a backend waits on a row lock of a device.
@@ -751,12 +636,6 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
     end
   end
 
-  defp minutes_ago(minutes) do
-    DateTime.utc_now() |> DateTime.shift(minute: -minutes) |> DateTime.truncate(:microsecond)
-  end
-
-  defp perform_job(worker, args), do: worker.perform(%Oban.Job{args: args})
-
   # -- reads ----------------------------------------------------------------------------
 
   defp shadow(uid) do
@@ -795,19 +674,6 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
     xmin
   end
 
-  defp device_state(uid) do
-    %{rows: [[available, state, rule]]} =
-      Repo.query!(
-        """
-        SELECT is_available, availability_state, availability_decided_by ->> 'rule'
-        FROM platform.ocsf_devices WHERE uid = $1
-        """,
-        [uid]
-      )
-
-    {available, state, rule}
-  end
-
   defp device_by_ip(ip) do
     %{rows: [[uid]]} =
       Repo.query!("SELECT uid FROM platform.ocsf_devices WHERE ip = $1 AND deleted_at IS NULL", [
@@ -815,19 +681,6 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
       ])
 
     %{uid: uid}
-  end
-
-  defp ledger(uid) do
-    %{rows: rows} =
-      Repo.query!(
-        """
-        SELECT agent_id, is_available, checked_at, consecutive_down
-        FROM platform.device_agent_availability WHERE device_uid = $1 ORDER BY agent_id
-        """,
-        [uid]
-      )
-
-    Enum.map(rows, &List.to_tuple/1)
   end
 
   defp evidence_keys(uid) do
@@ -841,23 +694,6 @@ defmodule ServiceRadar.Inventory.AvailabilityShadowIntegrationTest do
       )
 
     Enum.map(rows, &List.to_tuple/1)
-  end
-
-  defp legacy_value(uid) do
-    %{rows: [[available]]} =
-      Repo.query!(
-        "SELECT is_available FROM platform.device_availability_legacy WHERE device_uid = $1",
-        [uid]
-      )
-
-    available
-  end
-
-  defp invalidation_uids do
-    %{rows: rows} =
-      Repo.query!("SELECT device_uid FROM platform.availability_invalidations ORDER BY id")
-
-    Enum.map(rows, &hd/1)
   end
 
   defp watermark_lag_seconds do

@@ -31,7 +31,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - The sync path records only registered sources: the Go `DeviceUpdate.IsAvailable` is a plain boolean, so an unregistered sync source's value is not evidence (design, Go readers).
 - [ ] 1.5a Legacy writers (W1-W3, W5-W11, the W14 create default) also maintain `device_availability_legacy`, write-on-change, with their full computation; legacy publishers emit only in `legacy` and `shadow`.
   - Stage a (done): in `legacy` and `shadow` an `ocsf_devices` trigger copies every change of the value the legacy writers computed (`is_available`, including the create default) into the table, write-on-change. The publishers still emit unconditionally, which is the same thing while `legacy` is the only reachable mode.
-  - Remaining for stage c (3.1, 3.2, 3.5): writers that write the table directly and compute against it in `cutover`, and publishers gated on the mode read under the draining lock.
+  - Stage c: in `cutover` and `authoritative`, sweep, sync, camera and composite writers compute against the compatibility table and write only it, reading the mode under the shared lock. An agent check-in reads `Mode.current/0` without that lock (`LegacyWrites`). Legacy publishers emit only in `legacy` and `shadow`.
 - [x] 1.5b Add the plugin manifest `availability_authority` for proxmox, starlink and opentext-nom, and `inventory_declared` for the awx `enabled` flag, before shadow collection starts.
 - [x] 1.6 The composite evaluation pass materializes vantage expectations, write-on-change; every expectation change appends its device to the invalidation log.
 - [x] 1.6a `availability_invalidations (id bigserial, device_uid, enqueued_at)`, written only by plain `INSERT` (no `ON CONFLICT`, no reads) from the ledger `AFTER` trigger, an `AFTER UPDATE` trigger on `availability_source_agent_id`, the expectation trigger and the availability source profile update path.
@@ -69,16 +69,14 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 
 ## 3. Stage c: cutover (`cutover` then `authoritative`)
 
-- [ ] 3.1 The mode switch takes an advisory lock that drains in-flight writers; writers read the mode under the shared lock.
+- [ ] 3.1 The mode switch takes an advisory lock that drains in-flight writers. Sweep, sync, camera and composite writers read the mode under the shared lock. An agent check-in reads `Mode.current/0` without it (`LegacyWrites`).
 - [ ] 3.2 Under the drained switch to `cutover`, seed `device_availability_legacy` from `is_available` before any reader switches. In `cutover`, legacy writers write only that table, computing against it, and the resolver suppresses all transition side effects.
-- [ ] 3.3 The reconciliation job:
-  - re-resolves every device from its current ledger rows, evidence and vantage expectations under the device lock, through `resolve_devices/2` (never copying shadow output), writing false where `is_available` is NULL;
-  - refreshes the rollups once;
-  - reconciles stateful alerts;
-  - emits one summary event;
-  - moves the mode to `authoritative` only when it has finished.
-- [ ] 3.3a Rollback to `legacy`: under the drain, restore `is_available` from `device_availability_legacy` in uid-ordered pages so the mirror re-derives `availability_state`; legacy publishers resume with the mode.
-- [ ] 3.4 Rollup migration: an `unknown` key, the trigger counting by state, and a narrowed `WHEN`.
+- [ ] 3.3 The reconciliation job (`CutoverWorker`, phase `reconcile`):
+  - re-resolves every device from its current ledger rows, evidence and vantage expectations under the device lock, through `Resolution.resolve_locked/2` (never copying shadow output), writing false where `is_available` is NULL, and stops if the mode leaves `cutover`;
+  - refreshes the rollups once, still in `cutover`;
+  - moves the mode to `authoritative` only when that pass finishes, and enqueues `announce` in the same transaction. Announce publishes the summary and, when transition events are on, `device.available` for devices whose legacy value was false and whose merged state is available. Announce stops unless the mode is still `authoritative`.
+- [ ] 3.3a Rollback to `legacy`: the switch deletes waiting transition jobs and enqueues a paged restore of `is_available` from `device_availability_legacy`. The restore runs after the switch commits and stops unless the mode is still `legacy`; the mirror re-derives `availability_state`. Legacy publishers resume with the mode. A transition job already running publishes nothing once the mode is no longer `authoritative`.
+- [ ] 3.4 Rollup migration: an `unknown` key and triggers that count by `availability_state`. The statement triggers keep their shape; migration `20261024120000` records why a `WHEN` clause cannot narrow them.
 - [ ] 3.5 Resolver-emitted transitions go through the outbox and are emitted only in `authoritative`. Display-only changes broadcast a UI invalidation only. `state_events.ex` publishes `is_available` only in `legacy` and `shadow`.
 - [ ] 3.6 Armis runner:
   - the canonical path reads `device_availability_legacy` for `legacy` sources in every mode, and the state (withholding unknown) for `merged` sources;
@@ -97,7 +95,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - the evidence section and the agent role labels on the device page;
   - the API JSON;
   - the MCP cookbook.
-  - `priv/static/openapi.json` is generated from the core Device Ash resource and is not hand-edited here. The core change adds `availability_state` and its provenance.
+  - `elixir/web-ng/priv/static/openapi.json` is generated from the core Device Ash resource. This cutover edited that generated document in place (the merged availability read attributes and the `is_available` description) because regenerating it needs `mix`.
 - [ ] 3.9 Lab-deployment proof, each check with an explicit failure branch:
   - order, count and badge agree for every device;
   - Armis agent-path candidate rows are byte-identical to stage a for the same ledger contents;

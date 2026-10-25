@@ -250,8 +250,8 @@ The system SHALL move a merged-away device's evidence records to the surviving d
 - **AND** the survivor's availability SHALL be re-resolved before the merge commits
 
 ### Requirement: Staged Availability Cutover
-The system SHALL support availability modes `legacy`, `shadow`, `cutover` and `authoritative`, SHALL drain in-flight writers on every mode change, and SHALL publish a divergence report in `shadow` mode before any device's canonical availability is decided by the resolver.
-The report SHALL count devices by legacy value, legacy badge value, shadow state, deciding source kind and authority class, SHALL count devices that would become unknown, policy violations and invalid pins, SHALL include per-source Armis northbound push changes, and SHALL include sample device uids. In `legacy` and `shadow` modes `availability_state` SHALL equal the projection of `is_available`, and the legacy transition publishers SHALL emit. Until the legacy writers are removed they SHALL maintain the legacy availability value in a compatibility store in every mode, and that store SHALL be seeded from `is_available` under the drained cutover boundary. In `cutover` mode legacy writers SHALL NOT write device availability, and every availability transition side effect SHALL be suppressed while reconciliation re-resolves every device from its current evidence under the device lock; `authoritative` mode SHALL begin only after reconciliation completes. Returning to `legacy` SHALL restore `is_available` from the compatibility store and the legacy writers and publishers.
+The system SHALL support availability modes `legacy`, `shadow`, `cutover` and `authoritative`, SHALL drain writers admitted under the mode-switch lock on every mode change, and SHALL publish a divergence report in `shadow` mode before any device's canonical availability is decided by the resolver.
+The report SHALL count devices by legacy value, legacy badge value, shadow state, deciding source kind and authority class, SHALL count devices that would become unknown, policy violations and invalid pins, SHALL include per-source Armis northbound push changes, and SHALL include sample device uids. In `legacy` and `shadow` modes `availability_state` SHALL equal the projection of `is_available`, and the legacy transition publishers SHALL emit. Until the legacy writers are removed they SHALL maintain the legacy availability value in a compatibility store in every mode, and that store SHALL be seeded from `is_available` under the drained cutover boundary. In `cutover` mode a legacy writer admitted under the shared lock SHALL NOT write device availability. An agent check-in reads the mode without that lock (`LegacyWrites`). Every availability transition side effect SHALL be suppressed while reconciliation re-resolves every device from its current evidence under the device lock; `authoritative` mode SHALL begin only after reconciliation completes. Returning to `legacy` SHALL restore `is_available` from the compatibility store and the legacy writers and publishers.
 
 #### Scenario: Shadow mode changes nothing visible
 - **GIVEN** availability mode `shadow`
@@ -265,7 +265,7 @@ The report SHALL count devices by legacy value, legacy badge value, shadow state
 - **WHEN** the mode is switched to `cutover` and reconciliation runs while ingestion continues
 - **THEN** no per-device `device.available` or `device.unavailable` event and no state-feed transition SHALL be emitted until the mode becomes `authoritative`
 - **AND** one summary event with the counts per resulting state SHALL be emitted
-- **AND** no legacy writer SHALL change a reconciled device's availability
+- **AND** no legacy writer admitted under the shared lock SHALL change a reconciled device's availability
 
 #### Scenario: Reconciliation does not restore a superseded decision
 - **GIVEN** a shadow decision of `available` for a device

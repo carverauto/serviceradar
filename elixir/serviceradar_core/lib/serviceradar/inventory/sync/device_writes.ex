@@ -13,6 +13,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Availability.LegacyWrites
+  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
@@ -424,16 +426,42 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   # One statement per chunk, so a wide batch stays under the bound-parameter
   # limit without losing whole-batch atomicity.
+  #
+  # A record's non-nil is_available is the legacy value the sync path computed. While
+  # the legacy writers own the column (mode legacy or shadow) it is upserted as before;
+  # from cutover the column belongs to the merged resolver, so the records go in with
+  # is_available nil (the upsert's COALESCE keeps the stored value) and the values go to
+  # the compatibility table instead (LegacyWrites). The mode is read under the shared
+  # mode-switch lock in this transaction.
   defp insert_devices(records, update_query, false) do
-    chunks =
+    within_transaction(fn ->
+      {records, legacy_values} = route_legacy_availability(records, LegacyWrites.admit())
+
       records
       |> jsonb_safe()
       |> ParameterChunking.insert_all_chunks()
+      |> Enum.each(fn chunk -> insert_device_chunk(chunk, update_query) end)
 
-    within_transaction(fn ->
-      Enum.each(chunks, fn chunk -> insert_device_chunk(chunk, update_query) end)
+      _written = LegacyWrites.record(legacy_values)
+      :ok
     end)
   end
+
+  defp route_legacy_availability(records, mode) do
+    if Mode.legacy_column?(mode) do
+      {records, []}
+    else
+      values =
+        for %{uid: uid, is_available: available?} <- records,
+            is_boolean(available?),
+            do: {uid, available?}
+
+      {Enum.map(records, &clear_availability/1), values}
+    end
+  end
+
+  defp clear_availability(%{is_available: _} = record), do: %{record | is_available: nil}
+  defp clear_availability(record), do: record
 
   # A caller that already owns a transaction (the identity fence) gets the work
   # inline inside it; an unfenced caller (mapper discovery) gets a transaction
@@ -1704,7 +1732,12 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     end)
   end
 
-  defp refresh_inventory_rollups do
+  @doc """
+  Rebuilds the inventory rollup counters from the device table, under the rollup
+  refresh lock. Returns `:ok` or `{:error, reason}`.
+  """
+  @spec refresh_inventory_rollups() :: :ok | {:error, term()}
+  def refresh_inventory_rollups do
     if inventory_rollups_supported?(), do: run_inventory_rollup_refresh(), else: :ok
   end
 
