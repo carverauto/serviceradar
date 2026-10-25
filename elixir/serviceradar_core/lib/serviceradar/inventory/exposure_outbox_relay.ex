@@ -85,19 +85,23 @@ defmodule ServiceRadar.Inventory.ExposureOutboxRelay do
     spec = Keyword.fetch!(opts, :spec)
 
     rows =
-      Repo.all(
-        from(o in spec.table,
-          order_by: [asc: o.id],
-          limit: ^batch_size,
-          select: %{
-            id: o.id,
-            transition_seq: o.transition_seq,
-            route: field(o, ^spec.routing_field),
-            payload: fragment("?::text", o.payload)
-          }
-        ),
-        prefix: "platform"
-      )
+      spec.table
+      |> eligible_rows()
+      |> then(fn query ->
+        Repo.all(
+          from(o in query,
+            order_by: [asc: o.id],
+            limit: ^batch_size,
+            select: %{
+              id: o.id,
+              transition_seq: o.transition_seq,
+              route: field(o, ^spec.routing_field),
+              payload: fragment("?::text", o.payload)
+            }
+          ),
+          prefix: "platform"
+        )
+      end)
 
     {acked, failures} = publish_rows(rows, opts)
     delete_acked(acked, spec.table)
@@ -114,6 +118,27 @@ defmodule ServiceRadar.Inventory.ExposureOutboxRelay do
       Logger.warning("Exposure outbox relay failed: #{Exception.message(error)}")
       {:error, error}
   end
+
+  # PubAck the lifecycle marker before its facts can occupy the consumer's
+  # bounded pending window; otherwise deferred facts could hide their marker.
+  defp eligible_rows("exposure_transition_outbox" = table) do
+    from(o in table,
+      where:
+        fragment(
+          """
+          NOT EXISTS (
+            SELECT 1 FROM platform.exposure_transition_outbox marker
+            WHERE marker.transition_seq = (?->>'device_lifecycle_seq')::bigint
+              AND marker.transition_seq <> ?
+          )
+          """,
+          o.payload,
+          o.transition_seq
+        )
+    )
+  end
+
+  defp eligible_rows(table), do: table
 
   defp publish_rows([], _opts), do: {[], []}
 
