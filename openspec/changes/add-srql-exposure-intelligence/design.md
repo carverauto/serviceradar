@@ -16,7 +16,7 @@ What exists today:
 | Topology | graph (AGE / Dgraph) | device uid | `in:device_graph`, `in:graph_cypher` |
 | BGP | StarRocks BMP events | peer, prefix | `in:bmp_events` |
 | Small current-state dimensions | CNPG, reachable from StarRocks through the opt-in `cnpg_platform` JDBC catalog, with column-scoped grants to `serviceradar_starrocks_reader` and an allowlist in `CatalogAllowlist` | | used by flow enrichment joins |
-| Current exposure facts, CVE and package dimensions, and transition history | StarRocks migration 0032 (`exposure_facts`, `exposure_cve_dim`, `exposure_package_dim`, `exposure_transitions_log`); see Decision 21 | fact key `(device_ord, cve_ord, pkg_ord)` | none yet |
+| Current exposure facts, CVE and package dimensions, and transition history | StarRocks migration 0032 (`exposure_facts`, `exposure_cve_dim`, `exposure_package_dim`, `exposure_transitions_log`) plus 0033 (`transition_seq` on the two dimensions); see Decisions 21 and 22 | fact key `(device_ord, cve_ord, pkg_ord)` | none yet |
 
 The gaps that block the six operator questions are:
 
@@ -1307,7 +1307,8 @@ This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequenc
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and
 package-version dictionaries and the CVE ordinal function) and 1.3 (the transitions subject,
 its stream limits and the core publish permission). Device retirement (`retired_seq`,
-task 1.5), the snapshot (1.6) and the `exposure.dimensions.*` subjects remain open.
+task 1.5), the snapshot (1.6) and the address dimension remain open. CVE and package
+dimension publication is Decision 22.
 
 **Incremental matching.** The hourly full recompute is replaced by a run every 5 minutes
 that evaluates only devices whose inputs changed:
@@ -1376,9 +1377,10 @@ a failed or filtered load fails acknowledgement. History uses at-least-once
 append semantics: regrouping deliveries can append the same transition again,
 so future history readers must identify transitions by `transition_seq`.
 
-This delivers the transition-consumer half of 1.3/1.4. Dimension publishing and
-consumption, retirement, snapshot/reconciliation and the remaining lifecycle
-scenarios are still open. No exposure query entity is enabled by this slice.
+This delivers the transition-consumer half of 1.3/1.4. Retirement,
+snapshot/reconciliation and the remaining lifecycle scenarios are still open.
+CVE and package dimension ingestion is Decision 22. No exposure query entity
+is enabled by this slice.
 
 ## Open Questions
 

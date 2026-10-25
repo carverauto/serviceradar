@@ -108,6 +108,7 @@ func inventory() []inventoryStream {
 		{Stream: "trivy_reports", Service: "core-elx", MaxBytesKey: "SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES"},
 		{Stream: "NOTIFICATIONS", Service: "core-elx", MaxBytesKey: "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES"},
 		{Stream: "EXPOSURE_TRANSITIONS", Service: "core-elx", MaxBytesKey: "SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES"},
+		{Stream: "EXPOSURE_DIMENSIONS", Service: "core-elx", MaxBytesKey: "SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES"},
 		{Stream: "threat-intel object store", Service: "core-elx", MaxBytesKey: "SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES"},
 		{Stream: "OBJ_serviceradar_plugins", Service: "web-ng", MaxBytesKey: "PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES", ReplicasKey: "PLUGIN_STORAGE_JS_REPLICAS"},
 		{Stream: "fieldsurvey object store", Service: "web-ng", MaxBytesKey: "FIELD_SURVEY_JS_MAX_BUCKET_BYTES"},
