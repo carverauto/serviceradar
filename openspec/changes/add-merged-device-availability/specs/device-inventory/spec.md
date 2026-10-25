@@ -128,7 +128,7 @@ The policy-violation signal SHALL be the composite check's existing verdict and 
 
 ### Requirement: Availability Hysteresis Is Preserved
 The system SHALL treat a `down` record as decisive only after the number of consecutive `down` observations from that source reaches its authority class's confirmation threshold, SHALL treat an `up` record as decisive immediately, and SHALL keep a device's previous state while its governing class holds only records awaiting confirmation.
-The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be stored on the per-agent ledger row or evidence record, capped at the threshold. The per-agent counter SHALL be maintained at the ledger write boundary for every ledger writer, SHALL advance only for an observation newer than the stored one, SHALL be 0 for a stored `up` result and at least 1 for a stored `down` result, and SHALL NOT change the stored result or its timestamps.
+The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be stored on the per-agent ledger row or evidence record, capped at the threshold. The per-agent counter SHALL be maintained at the ledger write boundary for every ledger writer, SHALL be recomputed when the observation is newer than the stored one or the stored result changes, SHALL stay unchanged when the same result is stored again at the same check time, SHALL be 0 for a stored `up` result and at least 1 for a stored `down` result, and SHALL NOT change the stored result or its timestamps.
 
 #### Scenario: Single failed probe does not flip a device
 - **GIVEN** a device resolved `available` from per-agent results

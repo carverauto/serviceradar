@@ -7,8 +7,7 @@ defmodule ServiceRadar.Inventory.Availability.CaptureBackfillWorker do
      device, the value the mirror trigger keeps for every later write.
   2. Seeds `device_agent_availability.consecutive_down` for each unreachable ledger row
      from its device's `metadata.sweep_consecutive_failures`, at least 1 and capped at
-     the `active_probe` threshold of 2. Apart from the legacy hysteresis computation,
-     this is the only reader of that key.
+     the `active_probe` threshold of 2.
 
   Vantage expectations and `operator_policy` evidence need no backfill here: the next
   full pass of each enabled composite check writes both.

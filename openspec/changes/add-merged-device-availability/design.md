@@ -574,7 +574,7 @@ without new evidence (pins, expectations) go through the invalidation log
 | Recovery is immediate (W1) | An `up` row is decisive at once |
 | "Available wins" across agents, with a window of one sweep interval (W2) | Step 6, with the ledger freshness TTL as the window |
 | Reporter expectation gates who may write | Step 1 (eligibility) |
-| The unbounded `metadata.sweep_consecutive_failures` | Capped at the threshold on the ledger row by the ledger trigger; the metadata keys remain only for the legacy computation and are stripped at stage e |
+| The unbounded `metadata.sweep_consecutive_failures` | Capped at the threshold on the ledger row by the ledger trigger. The backfill and migration `20261025150000` seed from that key; it then remains for the legacy computation until stage e strips it |
 
 ### Decision 6: Unknown is a state; the boolean is a compatibility projection
 
@@ -1196,7 +1196,8 @@ composite inputs are untouched. Armis is covered by Decision 13.
 2. **Backfill:**
    - Set `consecutive_down` from `metadata.sweep_consecutive_failures`,
      capped. Apart from the legacy computation, which keeps using that key
-     until stage d, this is its only read.
+     until stage d, and the one-time seed in migration `20261025150000`,
+     the backfill is the only read of that key.
    - Seed vantage expectations from the current composite checks.
    - Copy composite verdicts into `operator_policy` evidence for checks with
      `write_canonical_availability`.
