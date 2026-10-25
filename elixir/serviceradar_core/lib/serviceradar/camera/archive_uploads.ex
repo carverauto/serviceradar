@@ -20,6 +20,7 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.ArchiveUploadIntent
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Repo
 
@@ -65,18 +66,23 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     with :ok <- outside_transaction(),
          {:ok, actor_id} <- dispatcher(opts),
          {:ok, retained} <- get_dispatch(dispatch_id, opts) do
-      RecordingBlocks.with_current_upload(
-        lease,
-        fn block ->
-          with {:ok, dispatch} <- lock_dispatch(dispatch_id, opts),
-               {:ok, intent} <- matching_origin(dispatch, lease, actor_id, opts),
-               {:ok, derived} <- prepare_locked(block, intent.object_role, opts),
-               true <- derived.id == intent.id || {:error, :archive_upload_dispatch_conflict},
-               :ok <- matching_request(dispatch, derived) do
-            mark_locked(dispatch, opts)
-          end
+      RecordingControl.with_admission(
+        fn ->
+          RecordingBlocks.with_current_upload(
+            lease,
+            fn block ->
+              with {:ok, dispatch} <- lock_dispatch(dispatch_id, opts),
+                   {:ok, intent} <- matching_origin(dispatch, lease, actor_id, opts),
+                   {:ok, derived} <- prepare_locked(block, intent.object_role, opts),
+                   true <- derived.id == intent.id || {:error, :archive_upload_dispatch_conflict},
+                   :ok <- matching_request(dispatch, derived) do
+                mark_locked(dispatch, opts)
+              end
+            end,
+            retained.deadline_at,
+            opts
+          )
         end,
-        retained.deadline_at,
         opts
       )
     end

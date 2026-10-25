@@ -516,3 +516,64 @@ passes 459 targets, with two Swift platform skips. Strict OpenSpec and the eight
 changed documents' ASCII/relative links pass. The modified guarded HTTP bodies
 remain explicitly unexecuted before publication; their final in-cluster PR lane
 must execute on the published head. No provider or live deployment operation ran.
+
+
+Final media authentication PR #5983 merged at
+`07e895e9b104fb7345b67f873af99e6704253e64` from head
+`66d2262431d9d08614177109dc52a763238975c8`. All final checks passed. The
+prepublication database exception was satisfied by the actual final-head
+[Core suite](https://carverauto.buildbuddy.io/invocation/59ceece3-2978-49f7-8142-5e1d23ffe855)
+and [Web suite](https://carverauto.buildbuddy.io/invocation/f8b9178b-6750-4eef-ae3a-0f44b7807291):
+all 12/seven targets executed and passed, with zero lifecycle failure statuses.
+Web HTTP owner shard 0 reported 819 tests plus two properties and zero failures;
+its normal test trace includes both qualification cases. The final full unit
+invocation `7f88b797-695e-472d-bb74-77fb87083f7a` passed 442 targets with two
+platform skips; benchmark and race invocations passed 17 and 71 targets.
+
+
+## Durable recording stop
+
+The stop-only checkpoint preserves existing local recording until explicitly
+stopped, then fences recorder acquire, renewal, block reservation and dispatch
+marking. Producer-owned drain preserves live viewing and the original deadline.
+HTTP status deliberately reports no full applied revision or drain attestation.
+
+Independent review corrected two test weaknesses: the three unboxed recorder
+fixture owners now clean only their own control row and recheck the complete
+prior state; the concurrency owner now uses independent database sessions and
+actual blocking relationships to prove stop waits behind earlier admission.
+All prior assertions remain. Final read-only review of HTTP, core and runtime
+found no unresolved issues.
+
+[Runtime checks](https://carverauto.buildbuddy.io/invocation/53a5ed1f-da51-4824-858e-4919bc87fe84)
+passed 211 tests and strict quality. The
+[core follow-up](https://carverauto.buildbuddy.io/invocation/6e6d9dec-b611-4e96-800e-dcb1601cdf62)
+passed quality and integration compilation, while guarded database bodies remain
+unexecuted. The inventory/workflow contract passed 65 tests with one intentional
+skip after an unchanged rerun of a synthetic subprocess timeout.
+
+The [combined HTTP checks](https://carverauto.buildbuddy.io/invocation/f3d8cdce-549c-4693-9a3a-57881ecc39e3)
+passed 827 tests with zero failures and 221 exclusions, plus strict web quality
+and Helm rendering. The new HTTP persistence body is one of the guarded
+exclusions, not executed evidence. Both web database routing contracts passed
+in `d66b959c-d144-4b82-8d53-e722436e854a`.
+
+A temporary one-byte increase of the HTTP body limit failed the owning boundary
+assertion in [81ea7320](https://carverauto.buildbuddy.io/invocation/81ea7320-a981-46dc-85d1-6b454b8ea85e):
+the oversized document incorrectly returned 400 instead of 413. Both automatic
+attempts reported 827 tests and exactly that one failure. The positive handler
+was restored byte-for-byte before further checks.
+
+Full remote `make test`
+[cad55d76](https://carverauto.buildbuddy.io/invocation/cad55d76-96a7-4c64-8fa4-e5cf60bc1356)
+then passed 459 targets: 59 executed, 400 used cache, and two Swift platform
+targets were skipped. The run completed successfully without source changes or
+a restart after a delayed remote Go compile response. This includes the restored
+HTTP owner, migration/Helm agreement, test routing and image checks.
+
+Actual final-head database execution remains mandatory: four new archive-upload
+owner cases (origin/revision, preservation, real-session ordering and missing-row
+initialization), the worker drain/seal/live-view case and the new HTTP persistence
+case, plus existing recorder/block/upload/qualification assertions. The approved
+prepublication exception does not waive final in-cluster Core/Web CI, fixture
+lifecycle success or exact-head verification. No provider or live rollout ran.

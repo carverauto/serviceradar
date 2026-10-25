@@ -83,6 +83,34 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
     assert id == inbox.id
   end
 
+  test "only the attached recorder can drain its exact inbox while live forwarding continues" do
+    {pipeline, relay, _viewer} = live_pipeline()
+    {consumer, inbox} = attach_consumer(pipeline, relay, [], 30_000)
+
+    assert {:error, :recording_drain_refused} = Membrane.Pipeline.call(pipeline, {:drain_recorder, inbox.id})
+    send(consumer, {:drain, make_ref()})
+    assert_receive {:drained, {:error, :recording_drain_refused}}
+
+    for sequence <- 1..2 do
+      send(pipeline, {:media_chunk, chunk(sequence)})
+      assert_receive {:camera_relay_viewer_chunk, %{relay_session_id: ^relay, sequence: ^sequence}}, 1_000
+    end
+
+    send(consumer, {:drain, inbox.id})
+    assert_receive {:drained, :ok}
+
+    assert {:messages,
+            [{:recording_media, id, %{sequence: 1}}, {:recording_media, id, %{sequence: 2}}, {:recording_end, id}]} =
+             Process.info(consumer, :messages)
+
+    assert id == inbox.id
+    assert :ok = Inbox.usable(inbox)
+    send(pipeline, {:media_chunk, chunk(3)})
+    assert_receive {:camera_relay_viewer_chunk, %{relay_session_id: ^relay, sequence: 3}}, 1_000
+    assert {:message_queue_len, 3} = Process.info(consumer, :message_queue_len)
+    assert Process.alive?(pipeline)
+  end
+
   defp live_pipeline do
     relay = "synthetic-relay-#{System.unique_integer([:positive])}"
     viewer = "synthetic-viewer"
@@ -109,12 +137,23 @@ defmodule ServiceRadarCoreElx.CameraRecording.InboxTest do
         send(parent, {:attached, inbox})
         # Deliberately consume no media: the production admission gate must enforce
         # its limit before this process ever looks at its mailbox.
-        receive do: (:stop -> Inbox.cancel(inbox))
+        consumer_commands(pipeline, inbox, parent)
       end)
 
     on_exit(fn -> send(consumer, :stop) end)
     assert_receive {:attached, inbox}, 1_000
     {consumer, inbox}
+  end
+
+  defp consumer_commands(pipeline, inbox, parent) do
+    receive do
+      :stop ->
+        Inbox.cancel(inbox)
+
+      {:drain, id} ->
+        send(parent, {:drained, Membrane.Pipeline.call(pipeline, {:drain_recorder, id})})
+        consumer_commands(pipeline, inbox, parent)
+    end
   end
 
   defp chunk(sequence) do

@@ -114,8 +114,10 @@ expiry belong to the later authenticated eligibility check, not this format.
 
 This is a partial delivery of product task 0.8 and Cloud proposal task 1.2.
 The [private receipt endpoint](qualification-receipts.md) now persists bounded,
-revisioned submissions and withdrawals from the existing authenticated control
-caller. It does not independently authenticate a deployment or install authority.
+revisioned submissions and withdrawals. [Media authentication](media-authentication.md)
+identifies the installed deployment for that listener. A receipt still does not
+install storage authority.
+
 The full desired-content digest, desired/applied revisions, authenticated
 deployment/report origin, fresh correlated exchange, replay prevention,
 revocation/drift, selected protection-mode evidence and installed credential

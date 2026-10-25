@@ -2,18 +2,19 @@
 
 ## Current pickup
 
-[Receipt PR #5979](https://github.com/carverauto/serviceradar/pull/5979) is merged
-at `37d7f26a61e8d5c3d2caf28eb2b6c5da3c5ee5d3`; all 19 final checks passed.
-The [Cloud storage plan #185](https://github.com/carverauto/serviceradar-control/pull/185)
+[Media authentication PR #5983](https://github.com/carverauto/serviceradar/pull/5983)
+is merged at `07e895e9b104fb7345b67f873af99e6704253e64`; its final product CI
+passed, including the actual guarded database bodies. The
+[Cloud storage plan #185](https://github.com/carverauto/serviceradar-control/pull/185)
 is also merged and remains planning only.
 
-The current checkpoint protects [private qualification receipts](qualification-receipts.md)
-with [deployment-scoped media authentication](media-authentication.md). The
-separate media credential and exact installed identity protect existing receipt
-operations. Installation status identifies the responding process and remains
-unapplied/unavailable. Bindings remain unqualified until full desired/applied
-installation, evidence/freshness checks and isolated storage credential custody
-exist. The Cloud companion owns initial Secret installation and acknowledgment.
+The current checkpoint adds a [durable recording stop](recording-control.md)
+under the installed media identity. It restricts recorder acquire/renew/block
+reservation and new dispatch marking, and requests recorder-only drain within
+existing deadlines. Status distinguishes stop enforcement from full applied
+configuration, storage readiness and fleet drain completion. Positive admission,
+freshness and isolated storage credential authority remain the next dependency.
+The Cloud companion still owns initial installation and acknowledgment.
 
 Production recording stays disabled. Preserve the operator-confirmed live RTSP
 path and all existing ownership, manifest, archive, intent and dispatch
@@ -22,7 +23,8 @@ activation or local-media reclamation is introduced here.
 
 ## Priority order
 
-1. Finish the shared desired/applied contract around the qualification report:
+1. Validate and publish the stop-only checkpoint, then finish the shared
+   desired/applied contract around the qualification report:
    full desired-content identity bound to the installed origin, conservative
    freshness, revocation and isolated storage-service credential authority. Cloud
    [issue #182](https://github.com/carverauto/serviceradar-control/issues/182) and
@@ -47,7 +49,8 @@ activation or local-media reclamation is introduced here.
 | Durable dispatch observations | #5966 merged; final head `831e8893`, guarded Core `d85a7307` and Web `6aafb922` passed 12 and seven targets uncached, with all lifecycle statuses zero | Current qualification and isolated storage boundary |
 | Qualification report | #5973 merged; 18 final checks passed. Six protocol cases; full remote `fc10c612` passes 459 targets after formatting, with two Swift platform skips; see [validation](validation.md) | Authenticated desired/applied contract, evidence verification and current authority enforcement |
 | Private qualification receipts | #5979 merged; 19 final checks passed. Core `42cf4965` and Web `8a15b4d4` executed all 12/seven guarded targets uncached; all lifecycle statuses zero, all five new DB cases included | Full desired/applied installation remains open |
-| Deployment-scoped media authentication | Repaired focused `ad739b15`: 824 tests, zero failures, web quality and Helm passed. Full remote `23ede7bb`: 459 passed, two platform skips. Encoded-route negative control `2098b2d2` failed before repair | Final guarded HTTP CI and no-mistakes publication |
+| Deployment-scoped media authentication | #5983 merged; final head `66d22624` passed all checks. Core `59ceece3` and Web `f8b9178b` executed all 12/seven guarded targets; lifecycle statuses zero. HTTP shard 0: 819 tests + two properties, zero failures, both receipt cases traced | Full desired/applied authority remains open |
+| Durable recording stop | Independent review clean; runtime 211 tests and combined HTTP 827 tests pass. Body-limit negative control fails as intended. Full remote `cad55d76` passes 459 targets with two Swift platform skips; [contract](recording-control.md) | No-mistakes and actual final guarded DB execution |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -59,10 +62,13 @@ runtime or live acceptance tasks.
 ## Next agent prompt
 
 Read [design.md](design.md), [tasks.md](tasks.md), [qualification-report.md](qualification-report.md),
-[qualification-receipts.md](qualification-receipts.md), [media-authentication.md](media-authentication.md), [upload-intent.md](upload-intent.md),
+[qualification-receipts.md](qualification-receipts.md), [media-authentication.md](media-authentication.md),
+[recording-control.md](recording-control.md), [upload-intent.md](upload-intent.md),
 [upload-dispatch.md](upload-dispatch.md) and
-the current diff. The immediate dependency is the shared full desired/applied
-installation and expiry/revocation of storage authority. A persisted receipt is
+the current diff. Complete validation/publication of the stop-only checkpoint,
+then implement full desired/applied installation and expiry/revocation of storage
+authority. A stopped configuration has no resume variant; do not add one without
+fencing in-flight work and enforcing current positive authority. A persisted receipt is
 not an applied revision. Media authentication identifies the responding process;
 it does not prove fleet-wide credential retirement or provider access. Do not promote old
 receipts into authority or treat withdrawal as provider cancellation/revocation.

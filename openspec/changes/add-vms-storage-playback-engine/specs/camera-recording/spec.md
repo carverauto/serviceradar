@@ -8,6 +8,18 @@ The system SHALL authorize recording policies in CNPG/Ash and maintain one fence
 - **THEN** publication SHALL be rejected without corrupting the new owner's index
 - **AND** retries within the valid epoch SHALL preserve one stable block identity
 
+#### Scenario: Durable stop races new recorder work
+- **WHEN** an authenticated recording stop races recorder acquisition, renewal, block reservation or new dispatch marking
+- **THEN** one durable control row SHALL serialize stop before the existing ownership locks and deny new rights after stop commits
+- **AND** preservation through the original publication, freeze, release and late-observation fences SHALL remain available
+- **AND** stop SHALL NOT erase retained bytes, reset unresolved dispatches or claim cancellation of remote work
+
+#### Scenario: Recorder drains while live viewing continues
+- **WHEN** an active recorder observes durable stop during renewal
+- **THEN** its exact producer SHALL order recorder end after accepted media and retain unrelated live viewers
+- **AND** the recorder SHALL finish and seal only within its original lease deadline
+- **AND** failure or expiry SHALL preserve recoverable journaled bytes without claiming a completed seal or fleet-wide drain
+
 ### Requirement: Bounded seekable recording format
 The system SHALL produce bounded keyframe-aligned fragments and immutable packed blocks with initialization references, versioned byte maps, codec configuration, clock provenance and explicit discontinuities.
 

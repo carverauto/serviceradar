@@ -2,7 +2,8 @@
 
 The private control listener uses a separate credential for media operations.
 It protects both methods of the [qualification receipt API](qualification-receipts.md)
-and `GET /v1/media/installation`. The account-level password-reset credential
+and `GET /v1/media/installation`, plus both methods of the
+[recording stop contract](recording-control.md). The account-level password-reset credential
 cannot call those routes; the media credential cannot request password resets.
 There is no account-token fallback for media.
 

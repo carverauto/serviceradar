@@ -87,6 +87,19 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     end
   end
 
+  def handle_call(
+        {:drain_recorder, id},
+        %{from: {worker, _}},
+        %{recorder: %{inbox: %Inbox{id: id, worker: worker} = inbox, monitor: monitor}} = state
+      ) do
+    # Only this producer can place the end marker after every admitted unit.
+    Inbox.finish(inbox)
+    Process.demonitor(monitor, [:flush])
+    {[reply: :ok], %{state | recorder: nil}}
+  end
+
+  def handle_call({:drain_recorder, _id}, _ctx, state), do: {[reply: {:error, :recording_drain_refused}], state}
+
   def handle_call({:add_webrtc_viewer, viewer_session_id, signaling, opts}, _ctx, state) do
     if Map.has_key?(state.viewers, viewer_session_id) do
       {[reply: {:error, :already_exists}], state}
