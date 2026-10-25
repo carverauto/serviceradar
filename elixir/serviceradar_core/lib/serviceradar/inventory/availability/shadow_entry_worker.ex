@@ -22,7 +22,9 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
       later run: the job snoozes while any device still differs.
 
   Neither phase writes `ocsf_devices`, so no legacy reader, rollup or publisher sees it.
-  Both stop when the mode is no longer `shadow`.
+  Both stop when the mode is no longer `shadow`. The seed re-checks the mode before
+  every page under the shared mode-switch lock, and does not snooze once that mode
+  has left `shadow`.
   """
 
   use Oban.Worker, queue: :maintenance, max_attempts: 20
@@ -166,9 +168,15 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
 
   def perform(%Oban.Job{args: %{"phase" => "seed_legacy"}}) do
     if Mode.current() == :shadow do
-      seeded = seed_all("", 0)
-      Logger.info("availability shadow entry: compatibility table seeded", rows: seeded)
-      if pending?(), do: {:snooze, @retry_seconds}, else: :ok
+      case seed_all("", 0) do
+        {:left_shadow, seeded} ->
+          Logger.info("availability shadow entry: compatibility table seeded", rows: seeded)
+          :ok
+
+        seeded ->
+          Logger.info("availability shadow entry: compatibility table seeded", rows: seeded)
+          if pending?(), do: {:snooze, @retry_seconds}, else: :ok
+      end
     else
       :ok
     end
@@ -190,13 +198,25 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
   end
 
   defp seed_all(cursor, seeded) do
-    {:ok, [count, last, written]} =
-      Repo.transaction(fn ->
-        %{rows: [row]} = Repo.query!(@seed_page, [cursor, @seed_page_size])
-        row
-      end)
+    case Repo.transaction(fn -> seed_page(cursor) end) do
+      {:ok, :left_shadow} ->
+        {:left_shadow, seeded}
 
-    if count == 0, do: seeded, else: seed_all(last, seeded + written)
+      {:ok, [count, _last, _written]} when count == 0 ->
+        seeded
+
+      {:ok, [_count, last, written]} ->
+        seed_all(last, seeded + written)
+    end
+  end
+
+  defp seed_page(cursor) do
+    if Mode.admit() == :shadow do
+      %{rows: [row]} = Repo.query!(@seed_page, [cursor, @seed_page_size])
+      row
+    else
+      :left_shadow
+    end
   end
 
   defp pending? do
