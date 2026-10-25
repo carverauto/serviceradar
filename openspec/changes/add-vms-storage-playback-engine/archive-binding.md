@@ -4,6 +4,9 @@
 with system authorization. Every record stays `unqualified`; there is no update,
 activation, deletion, credential or storage operation. Registering a destination
 does not qualify a provider, enable recording or make any block available.
+The control-plane request and receipt are
+[private archive registration](archive-registration.md); this page owns the
+retained fields, digest and database identity.
 
 Version 1 accepts exactly these eleven string-keyed fields. Unknown and missing
 fields fail. All tokens are bounded ASCII; no DNS or provider request occurs.
