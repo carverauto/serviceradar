@@ -625,11 +625,11 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       update_statement?(sql)
   end
 
+  defp freeze_update?(_metadata), do: false
+
   defp update_statement?(sql) do
     String.match?(sql, ~r/(?:^|\s)update\s/) and not String.match?(sql, ~r/(?:^|\s)for\s+update\b/)
   end
-
-  defp freeze_update?(_metadata), do: false
 
   defp successful_query?(%{result: {:ok, _}}), do: true
   defp successful_query?(%{result: %{num_rows: rows}}) when is_integer(rows), do: true
