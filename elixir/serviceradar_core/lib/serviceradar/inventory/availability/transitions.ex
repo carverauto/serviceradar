@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
   transaction, for each batch that changed a device row: it commits with the decision
   and a rollback discards it, so nothing is announced for a decision that did not
   commit. The job publishes only while the mode is still `authoritative`.
-  `Mode.enter_legacy/0` deletes a job that has not started, and one that runs after the
+  `Mode.enter_legacy/1` deletes a job that has not started, and one that runs after the
   mode has left publishes nothing. While the mode is `authoritative` the job, after
   commit:
 

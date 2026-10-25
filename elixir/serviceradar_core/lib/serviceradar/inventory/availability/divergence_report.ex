@@ -43,6 +43,9 @@ defmodule ServiceRadar.Inventory.Availability.DivergenceReport do
   alias ServiceRadar.Repo
 
   @samples 20
+  # A shadow decision whose agents include a negative-control vantage point that reached
+  # the device (`agents.policy_violation`, Decision 12).
+  @policy_violation "COALESCE((agents ->> 'policy_violation')::int, 0) > 0"
   @statement_timeout_ms 120_000
   @log_count_cap 100_000
 
@@ -99,9 +102,9 @@ defmodule ServiceRadar.Inventory.Availability.DivergenceReport do
                  AND shadow_state <> platform.availability_projection(is_available)))[1:$1],
                count(*) FILTER (WHERE resolved
                  AND shadow_state <> platform.availability_projection(legacy_badge)),
-               count(*) FILTER (WHERE COALESCE((agents ->> 'policy_violation')::int, 0) > 0),
+               count(*) FILTER (WHERE #{@policy_violation}),
                (array_agg(uid ORDER BY uid)
-                 FILTER (WHERE COALESCE((agents ->> 'policy_violation')::int, 0) > 0))[1:$1],
+                 FILTER (WHERE #{@policy_violation}))[1:$1],
                count(*) FILTER (WHERE COALESCE((decided_by ->> 'invalid_pin')::boolean, false)),
                (array_agg(uid ORDER BY uid)
                  FILTER (WHERE COALESCE((decided_by ->> 'invalid_pin')::boolean, false)))[1:$1],
@@ -182,6 +185,18 @@ defmodule ServiceRadar.Inventory.Availability.DivergenceReport do
   SELECT count(*), (array_agg(device_uid ORDER BY device_uid))[1:$2] FROM near
   """
 
+  # The samples come from their own LIMIT, so a deployment with many violations never
+  # aggregates every uid.
+  @policy_violations """
+  WITH dev AS (
+    SELECT s.device_uid AS uid, s.agents
+    FROM platform.device_availability_shadow AS s
+    JOIN platform.ocsf_devices AS d ON d.uid = s.device_uid AND d.deleted_at IS NULL
+  )
+  SELECT (SELECT count(*) FROM dev WHERE #{@policy_violation}),
+         ARRAY(SELECT uid FROM dev WHERE #{@policy_violation} ORDER BY uid LIMIT $1)
+  """
+
   @status """
   SELECT platform.availability_mode(),
          (SELECT expiry_watermark FROM platform.availability_settings WHERE singleton),
@@ -219,6 +234,18 @@ defmodule ServiceRadar.Inventory.Availability.DivergenceReport do
       )
 
     report
+  end
+
+  @doc """
+  The report's policy-violation count on its own, with up to `samples` device uids: one
+  pass over the shadow decisions, for the automatic cutover's readiness check.
+  """
+  @spec policy_violations(non_neg_integer()) :: %{count: non_neg_integer(), samples: [String.t()]}
+  def policy_violations(samples \\ @samples) do
+    %{rows: [[count, uids]]} =
+      Repo.query!(@policy_violations, [samples], timeout: @statement_timeout_ms)
+
+    %{count: count, samples: uids || []}
   end
 
   @doc "A short human summary of a built report."

@@ -818,6 +818,16 @@ core:
     queueIntervalMs: 2000
     timeoutMs: 120000
     poolTimeoutMs: 120000
+  # Merged device availability (openspec add-merged-device-availability). Core moves
+  # through the availability modes by itself (legacy -> shadow -> cutover) once the
+  # readiness conditions hold; see docs/availability-cutover-runbook.md.
+  availability:
+    # Pins the mode control, overriding the settings UI, which then shows it
+    # read-only. "" (the default) leaves it to the UI, where it starts as "auto".
+    #   auto        - progress automatically, and cut over when ready
+    #   hold_legacy - stay in, or roll back to, legacy availability
+    #   hold_shadow - stay in, or return to, shadow; never cut over
+    modeControl: ""
   # Notification platform (openspec add-notification-platform).
   notifications:
     # Which serviceradar-agent runs `:control_plane` wasm notification plugins.

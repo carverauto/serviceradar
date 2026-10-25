@@ -101,6 +101,12 @@ config :serviceradar_core,
 config :serviceradar_core, ServiceRadar.Inventory.Availability,
   evidence_capture: System.get_env("SERVICERADAR_AVAILABILITY_EVIDENCE_CAPTURE", "true") != "false"
 
+# The availability mode control pin (Helm `core.availability.modeControl`): auto,
+# hold_legacy or hold_shadow. Unset leaves the control to the settings UI; when set it
+# wins and the UI shows it read-only. Any other value holds the mode where it is.
+config :serviceradar_core, ServiceRadar.Inventory.Availability.ModeControl,
+  pin: System.get_env("SERVICERADAR_AVAILABILITY_MODE_CONTROL")
+
 config :serviceradar_core, ServiceRadar.Inventory.SyncIngestorQueue,
   max_bytes: ingestion_positive_env.("SERVICERADAR_SYNC_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)
 
@@ -1313,6 +1319,9 @@ if config_env() == :prod do
       # in step with serviceradar_core's runtime.exs and config.exs.
       {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
       {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+      # Moves the availability mode on by itself (legacy -> shadow -> cutover) as the
+      # deployment's mode control says. Kept in step with the two entries above.
+      {"* * * * *", ServiceRadar.Inventory.Availability.ProgressionWorker, queue: :maintenance},
       # Composite checks' only scheduler: one evaluation job per enabled check per
       # minute; each job runs the full pass when it is due and the incremental
       # pass otherwise. Kept in step with serviceradar_core's runtime.exs.

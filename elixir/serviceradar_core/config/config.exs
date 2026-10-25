@@ -92,6 +92,9 @@ config :serviceradar_core, Oban,
        # in step with serviceradar_core's runtime.exs and serviceradar_core_elx's runtime.exs.
        {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+       # Moves the availability mode on by itself (legacy -> shadow -> cutover) as the
+       # deployment's mode control says. Kept in step with the two entries above.
+       {"* * * * *", ServiceRadar.Inventory.Availability.ProgressionWorker, queue: :maintenance},
        {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
         queue: :maintenance}
      ]}

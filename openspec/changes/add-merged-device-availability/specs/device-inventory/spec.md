@@ -275,8 +275,81 @@ The report SHALL count devices by legacy value, legacy badge value, shadow state
 
 #### Scenario: Rollback to legacy
 - **GIVEN** availability mode `authoritative`
-- **WHEN** an operator switches the mode back to `legacy`
+- **WHEN** the mode is switched back to `legacy`, by the `hold_legacy` mode control or by a support switch
 - **THEN** `is_available` SHALL be restored from the compatibility store
 - **AND** `availability_state` SHALL equal the projection of the restored `is_available`
 - **AND** the legacy writers and legacy transition publishers SHALL resume
 - **AND** stored evidence and per-agent results SHALL be retained
+
+### Requirement: Automatic Availability Progression
+The system SHALL move the availability mode from `legacy` to `shadow`, and from `shadow` through `cutover` to `authoritative`, without an operator action, under a deployment mode control whose default is `auto`, and SHALL make each step through the same mode switches an operator uses.
+Under `auto`, the system SHALL enter `cutover` only when every readiness condition holds: the capture backfill has nothing left; a full shadow resolution that started after entering `shadow` has finished; at most one resolver pass of invalidation entries (500) is waiting; every active sweep group (enabled, and started by an agent in the last 24 hours) has completed a run, per agent, that started after entering `shadow`; and the divergence report counts no policy violation. The system SHALL record the last readiness evaluation, naming each unmet condition, and while any condition is unmet 24 hours after entering `shadow` SHALL stay in `shadow` and record an unhealthy core health check naming the unmet conditions. A later run SHALL record that check healthy when the deployment is no longer in that stall and the check is already unhealthy, and SHALL write no health row for it otherwise. The control `hold_legacy` SHALL keep or roll back to `legacy`, restoring `is_available` from the compatibility store when leaving `cutover` or `authoritative`. The control `hold_shadow` SHALL keep or return to `shadow` and SHALL NOT cut over; from `cutover` or `authoritative` it SHALL roll back to `legacy` first and enter `shadow` only after the restore has finished. When the compatibility snapshot still differs and no restore is waiting, it SHALL enqueue the restore again and SHALL NOT enter `shadow`. A control pinned by deployment configuration SHALL take precedence over the stored control, the stored control SHALL NOT be editable while a pin is recorded, and a pinned value that is not a control SHALL hold the mode where it is. Runs on several nodes SHALL NOT switch twice, and a run SHALL NOT switch from a control that changed after it was read. The automatic cutover SHALL NOT emit per-device transitions, and SHALL NOT change any Armis northbound source's semantics.
+
+#### Scenario: An install whose conditions hold reaches authoritative unattended
+- **GIVEN** an install in `legacy` with the control `auto`
+- **AND** devices, and an enabled sweep group whose agent completed a run after the install entered `shadow`
+- **WHEN** the progression runs and the full shadow resolution finishes
+- **THEN** the mode SHALL become `shadow`, then `cutover`, then `authoritative` with no operator action
+- **AND** the reconciliation SHALL publish one summary event and no per-device transition
+
+#### Scenario: A zero-device install reaches authoritative
+- **GIVEN** an install with no devices and no enabled sweep group, in `legacy` with the control `auto`
+- **WHEN** the progression runs and the full shadow resolution over zero devices finishes
+- **THEN** the mode SHALL reach `authoritative` through the same steps
+
+#### Scenario: Each unmet condition blocks the cutover and is named
+- **GIVEN** a deployment in `shadow` with the control `auto` and exactly one readiness condition unmet
+- **WHEN** the progression runs
+- **THEN** the mode SHALL stay `shadow`
+- **AND** the recorded readiness evaluation SHALL name that condition as unmet
+
+#### Scenario: A sweep run before the shadow entry does not count
+- **GIVEN** an enabled sweep group whose agent last completed a run before the deployment entered `shadow`
+- **WHEN** the progression evaluates readiness
+- **THEN** the sweep-group condition SHALL be unmet until that agent completes a run started after the entry
+
+#### Scenario: Unmet conditions after 24 hours raise a health warning
+- **GIVEN** a deployment that entered `shadow` more than 24 hours ago with a readiness condition still unmet
+- **WHEN** the progression runs
+- **THEN** the mode SHALL stay `shadow`
+- **AND** the core health check for availability readiness SHALL be unhealthy and name the unmet condition
+- **AND** a later run SHALL record the check healthy when the stall no longer holds and the check is already unhealthy
+- **AND** a deployment that never raised the check SHALL get no health row for it
+
+#### Scenario: hold_legacy rolls back an authoritative deployment
+- **GIVEN** an `authoritative` deployment where a device's merged value differs from its legacy value
+- **WHEN** the control is set to `hold_legacy`
+- **THEN** the mode SHALL become `legacy`
+- **AND** the device's `is_available` SHALL be restored from the compatibility store
+- **AND** later runs SHALL leave the mode `legacy`
+
+#### Scenario: hold_shadow returns an authoritative deployment to shadow
+- **GIVEN** an `authoritative` deployment
+- **WHEN** the control is set to `hold_shadow`
+- **THEN** the mode SHALL become `legacy`, SHALL NOT enter `shadow` while the restore is outstanding, and SHALL enter `shadow` after it finished
+- **AND** when that restore is gone and the snapshot still differs, a later run SHALL enqueue it again and SHALL NOT enter `shadow`
+- **AND** the mode SHALL stay `shadow` even when every readiness condition holds
+
+#### Scenario: A pin overrides the stored control
+- **GIVEN** a stored control of `hold_shadow` and a pinned control of `hold_legacy`
+- **WHEN** the progression runs in `shadow`
+- **THEN** the mode SHALL become `legacy`
+- **AND** the pin SHALL be recorded on the settings row
+- **AND** an attempt to edit the stored control SHALL be refused
+
+#### Scenario: An invalid pin holds the mode
+- **GIVEN** a pinned value that is not `auto`, `hold_legacy` or `hold_shadow`
+- **WHEN** the progression runs
+- **THEN** the mode SHALL NOT change
+
+#### Scenario: A refused support switch keeps the hold
+- **GIVEN** a deployment in `legacy` under `hold_legacy`
+- **WHEN** a support switch to `cutover` is refused because the mode is not `shadow`
+- **THEN** the stored control SHALL remain `hold_legacy`
+- **AND** the progression SHALL leave the mode `legacy`
+
+#### Scenario: Concurrent runs switch once
+- **GIVEN** two progression runs that both read `authoritative` under `hold_legacy`
+- **WHEN** both switch
+- **THEN** the mode SHALL be switched to `legacy` once
+- **AND** the restore the first switch enqueued SHALL remain enqueued

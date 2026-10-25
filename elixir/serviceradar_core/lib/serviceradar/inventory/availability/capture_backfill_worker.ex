@@ -97,9 +97,7 @@ defmodule ServiceRadar.Inventory.Availability.CaptureBackfillWorker do
         ledger_rows_counted: counted
       )
 
-      if pending?(@projection_pending) or pending?(@counter_pending),
-        do: {:snooze, @retry_seconds},
-        else: :ok
+      if pending?(), do: {:snooze, @retry_seconds}, else: :ok
     else
       # The mirror only applies in legacy and shadow; another mode owns the state.
       :ok
@@ -131,6 +129,15 @@ defmodule ServiceRadar.Inventory.Availability.CaptureBackfillWorker do
       count -> run_pages(sql, last, pages + 1, total + count)
     end
   end
+
+  @doc """
+  Whether the backfill has work left: a device whose `availability_state` is not the
+  projection of its `is_available`, or an unreachable ledger row with no counter. The
+  automatic cutover waits until neither remains
+  (`ServiceRadar.Inventory.Availability.Readiness`).
+  """
+  @spec pending?() :: boolean()
+  def pending?, do: pending?(@projection_pending) or pending?(@counter_pending)
 
   defp pending?(sql) do
     %{rows: [[pending?]]} = Repo.query!(sql)

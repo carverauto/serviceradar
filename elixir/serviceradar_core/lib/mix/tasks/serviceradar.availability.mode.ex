@@ -13,8 +13,11 @@ defmodule Mix.Tasks.Serviceradar.Availability.Mode do
   `cutover` (from `shadow`) seeds the compatibility table under the drained switch and
   enqueues the reconciliation, which moves the mode to `authoritative` when done.
   `legacy` is the rollback from any mode; from `cutover` or `authoritative` it also
-  restores `is_available` from the compatibility table. See
-  `ServiceRadar.Inventory.Availability.Mode`.
+  restores `is_available` from the compatibility table. Each also sets the mode control
+  that keeps the mode there (`legacy` holds legacy, `shadow` holds shadow, `cutover`
+  returns to automatic), so the automatic progression does not undo it. No switch is
+  needed to roll out merged availability: core progresses by itself. See
+  `ServiceRadar.Inventory.Availability.Operator`.
 
   On a deployment, use the release instead:
   `bin/serviceradar_core rpc 'ServiceRadar.Inventory.Availability.Operator.switch("shadow")'`.
