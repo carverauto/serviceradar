@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   alias ServiceRadar.Inventory.ExposureDeviceRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRelay
+  alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -46,6 +47,9 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert is_integer(entered["pkg_ord"]) and is_integer(entered["pkgver_ord"])
     assert is_integer(entered["transition_xid"])
     assert is_binary(entered["first_exposed_at"])
+    assert "source_scope" in entered["changed_fields"]
+    assert entered["source_scope"] == "host"
+    assert publication(ctx.device_uid, cve_id) == entered
 
     # Metadata, timestamps and the trigger-owned sequence column are not
     # exposure state: no transition, and the sequence cannot be overwritten.
@@ -57,6 +61,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert [_entered] = transitions(ctx.device_uid)
     assert last_transition_seq(ctx.device_uid, cve_id) == entered["transition_seq"]
+    assert publication(ctx.device_uid, cve_id) == entered
 
     update_assessment!(ctx.device_uid, cve_id, kev: true)
 
@@ -79,6 +84,41 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     update_assessment!(ctx.device_uid, "CVE-2024-0002", severity: "critical")
     assert [_entered, _kev_changed] = transitions(ctx.device_uid)
+    assert publication(ctx.device_uid, cve_id) == kev_changed
+
+    assert {:ok, %{failed: 0}} =
+             ExposureTransitionRelay.relay_once(
+               batch_size: 10_000,
+               publish: fn _subject, _body, _opts -> :ok end
+             )
+
+    assert transitions(ctx.device_uid) == []
+    update_assessment!(ctx.device_uid, cve_id, updated_at: ~N[2026-02-01 00:00:00])
+    assert publication(ctx.device_uid, cve_id) == kev_changed
+    assert transitions(ctx.device_uid) == []
+
+    update_assessment!(ctx.device_uid, cve_id, source_scope: "container:synthetic")
+
+    assert [scoped] = transitions(ctx.device_uid)
+    assert scoped["reason"] == "actionable_attributes_changed"
+    assert scoped["changed_fields"] == ["source_scope"]
+    assert scoped["transition_seq"] > kev_changed["transition_seq"]
+    assert scoped["source_scope"] == "container:synthetic"
+    assert scoped["severity"] == "high"
+    assert scoped["cvss_score"] == 7.5
+    assert scoped["kev"] == true
+    assert scoped["installed_version"] == "1.0.0"
+    assert scoped["first_exposed_at"] == kev_changed["first_exposed_at"]
+    assert scoped["pkg_ord"] == kev_changed["pkg_ord"]
+    assert publication(ctx.device_uid, cve_id) == scoped
+
+    update_assessment!(ctx.device_uid, cve_id, source_scope: "container:synthetic")
+    assert [^scoped] = transitions(ctx.device_uid)
+    assert publication(ctx.device_uid, cve_id) == scoped
+
+    update_assessment!(ctx.device_uid, "CVE-2024-0002", source_scope: "container:synthetic")
+    assert [^scoped] = transitions(ctx.device_uid)
+    assert publication(ctx.device_uid, "CVE-2024-0002") == nil
   end
 
   test "deleting a published key resolves it at a new sequence and records its watermark; re-creating it clears the watermark",
@@ -102,6 +142,12 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert [%{state: "resolved", transition_seq: watermark_seq}] = watermarks(ctx.device_uid)
     assert watermark_seq == deleted["transition_seq"]
 
+    assert %{rows: [[^deleted]]} =
+             Repo.query!(
+               "SELECT payload FROM platform.exposure_fact_watermarks WHERE device_uid = $1",
+               [ctx.device_uid]
+             )
+
     insert_assessment!(ctx, endpoint_package_ref, cve_id)
 
     assert last_transition_seq(ctx.device_uid, cve_id) > watermark_seq
@@ -119,6 +165,343 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
              end)
 
     assert transitions(ctx.device_uid) == []
+  end
+
+  test "repair retains rollback safety and uses current source state above the observed warehouse sequence",
+       ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+    package = insert_endpoint_package!(ctx.unique)
+    cve = "CVE-2024-0020"
+    insert_assessment!(ctx, package, cve)
+    original = publication(ctx.device_uid, cve)
+
+    assert {:error, :rollback} =
+             Repo.transaction(fn ->
+               update_assessment!(ctx.device_uid, cve, kev: true)
+               assert publication(ctx.device_uid, cve)["kev"]
+               Repo.rollback(:rollback)
+             end)
+
+    assert publication(ctx.device_uid, cve) == original
+    assert transitions(ctx.device_uid) == [original]
+
+    repaired = repair_publication(ctx, cve, original["transition_seq"] + 100)
+    assert repaired["transition_seq"] > original["transition_seq"] + 100
+    assert repaired["state"] == "active"
+    assert repaired["kev"] == false
+    assert repaired["pkgver_ord"] == original["pkgver_ord"]
+    assert publication(ctx.device_uid, cve) == repaired
+    assert transitions(ctx.device_uid) == [original, repaired]
+  end
+
+  @tag sandbox: :unboxed
+  test "absent-source repair keeps a retained terminal and republishes its facts only at or above its sequence",
+       ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+    package = insert_endpoint_package!(ctx.unique)
+    on_exit(fn -> cleanup_source(ctx, package) end)
+    cve = "CVE-2024-0024"
+
+    insert_assessment!(ctx, package, cve,
+      kev: true,
+      exploit_available: true,
+      fixed_version: "1.2.0",
+      transition_reason: "synthetic-exposure"
+    )
+
+    assert [entered] = transitions(ctx.device_uid)
+
+    Repo.delete_all(
+      from(a in "endpoint_vulnerability_assessments", where: a.device_uid == ^ctx.device_uid),
+      prefix: "platform"
+    )
+
+    assert [^entered, terminal] = transitions(ctx.device_uid)
+    assert terminal["state"] == "resolved"
+    assert terminal["reason"] == "assessment_deleted"
+    assert is_binary(terminal["first_exposed_at"])
+    oracle = retained_terminal_oracle(terminal["first_exposed_at"])
+    assert retained_terminal_facts(entered) == oracle
+    assert retained_terminal_facts(terminal) == oracle
+
+    assert watermark_record(ctx.device_uid, cve) == %{
+             transition_seq: terminal["transition_seq"],
+             payload: terminal
+           }
+
+    assert repair_publication(ctx, cve, terminal["transition_seq"] + 100, true) == terminal
+    assert transitions(ctx.device_uid) == [entered, terminal]
+
+    replayed = repair_publication(ctx, cve, terminal["transition_seq"] - 1)
+    assert replayed == terminal
+    assert replayed["transition_seq"] == terminal["transition_seq"]
+    assert replayed["transition_xid"] == terminal["transition_xid"]
+    assert watermark_record(ctx.device_uid, cve).payload == terminal
+    assert transitions(ctx.device_uid) == [entered, terminal]
+
+    assert {:error, :rollback} =
+             Repo.transaction(fn ->
+               published = repair_publication(ctx, cve, terminal["transition_seq"])
+               assert published["transition_seq"] > terminal["transition_seq"]
+               assert published["transition_xid"] != terminal["transition_xid"]
+               assert published["reason"] == "snapshot_repair"
+               assert retained_terminal_facts(published) == oracle
+               Repo.rollback(:rollback)
+             end)
+
+    assert watermark_record(ctx.device_uid, cve).payload == terminal
+    assert transitions(ctx.device_uid) == [entered, terminal]
+
+    refreshed = repair_publication(ctx, cve, terminal["transition_seq"])
+    assert refreshed["state"] == "resolved"
+    assert refreshed["reason"] == "snapshot_repair"
+    assert refreshed["transition_seq"] > terminal["transition_seq"]
+    assert refreshed["transition_xid"] != terminal["transition_xid"]
+    assert retained_terminal_facts(refreshed) == oracle
+    assert refreshed["device_ord"] == terminal["device_ord"]
+    assert refreshed["pkg_ord"] == terminal["pkg_ord"]
+    assert refreshed["pkgver_ord"] == terminal["pkgver_ord"]
+    assert refreshed["cve_ord"] == terminal["cve_ord"]
+    assert refreshed["device_lifecycle_seq"] == terminal["device_lifecycle_seq"]
+
+    assert %{transition_seq: refreshed_seq, payload: stored} =
+             watermark_record(ctx.device_uid, cve)
+
+    assert refreshed_seq == refreshed["transition_seq"]
+    assert stored == refreshed
+    assert terminal in transitions(ctx.device_uid)
+    assert refreshed in transitions(ctx.device_uid)
+
+    observed = refreshed["transition_seq"] + 40
+    later = repair_publication(ctx, cve, observed)
+    assert later["transition_seq"] > observed
+    assert later["transition_xid"] != refreshed["transition_xid"]
+    assert later["state"] == "resolved"
+    assert retained_terminal_facts(later) == oracle
+    assert watermark_record(ctx.device_uid, cve).payload == later
+    assert terminal in transitions(ctx.device_uid)
+
+    assert repair_publication(ctx, cve, later["transition_seq"] + 100, true) == later
+
+    %{rows: [[legacy_seq]]} =
+      Repo.query!(
+        """
+        INSERT INTO platform.exposure_fact_watermarks
+          (device_uid, package_identity_key, cve_id, state, transition_seq, transition_xid)
+        VALUES ($1, $2, 'EXAMPLE-NULL-TERMINAL', 'resolved',
+          platform.exposure_next_sequence(), pg_current_xact_id())
+        RETURNING transition_seq
+        """,
+        [ctx.device_uid, "pkgkey:examplelib:#{ctx.unique}"]
+      )
+
+    legacy = repair_publication(ctx, "EXAMPLE-NULL-TERMINAL", 0)
+    assert legacy["state"] == "resolved"
+    assert legacy["reason"] == "snapshot_repair"
+    assert legacy["transition_seq"] > legacy_seq
+    assert legacy["installed_version"] == ""
+    assert is_nil(legacy["severity"])
+    assert is_nil(legacy["cvss_score"])
+    assert is_nil(legacy["first_exposed_at"])
+    assert watermark_record(ctx.device_uid, "EXAMPLE-NULL-TERMINAL").payload == legacy
+    assert watermark_record(ctx.device_uid, cve).payload == later
+
+    Repo.query!("UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = $1", [
+      ctx.device_uid
+    ])
+
+    assert Enum.any?(transitions(ctx.device_uid), &(&1["event_type"] == "device_retired"))
+    fenced = watermark_record(ctx.device_uid, cve)
+    assert repair_publication(ctx, cve, fenced.transition_seq + 100, true) == fenced.payload
+    assert repair_publication(ctx, cve, fenced.transition_seq - 1) == nil
+    assert repair_publication(ctx, cve, fenced.transition_seq) == nil
+    assert watermark_record(ctx.device_uid, cve) == fenced
+
+    refute Enum.any?(transitions(ctx.device_uid), fn payload ->
+             payload["cve_id"] == cve and payload["transition_seq"] > fenced.transition_seq
+           end)
+  end
+
+  @tag sandbox: :unboxed
+  test "missing-source repair and creation serialize in either order and rollback leaves no watermark",
+       ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+    package = insert_endpoint_package!(ctx.unique)
+    on_exit(fn -> cleanup_source(ctx, package) end)
+    parent = self()
+    cve = "CVE-2024-0021"
+
+    assert {:error, :rollback} =
+             Repo.transaction(fn ->
+               assert repair_publication(ctx, cve, 10)["state"] == "resolved"
+               Repo.rollback(:rollback)
+             end)
+
+    assert watermarks(ctx.device_uid) == []
+    assert transitions(ctx.device_uid) == []
+
+    repair =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          terminal = repair_publication(ctx, cve, 10)
+          send(parent, {:terminal, terminal})
+
+          receive do
+            :commit -> terminal
+          after
+            10_000 -> Repo.rollback(:timeout)
+          end
+        end)
+      end)
+
+    assert_receive {:terminal, terminal}, 5_000
+    creator = Task.async(fn -> insert_assessment!(ctx, package, cve) end)
+    refute Task.yield(creator, 200)
+    send(repair.pid, :commit)
+    assert {:ok, ^terminal} = Task.await(repair, 10_000)
+    assert :ok = Task.await(creator, 10_000)
+    current = publication(ctx.device_uid, cve)
+    assert terminal["state"] == "resolved"
+    assert terminal["transition_seq"] > 10
+    assert current["transition_seq"] > terminal["transition_seq"]
+    assert current["state"] == "active"
+    assert current["transition_xid"] != terminal["transition_xid"]
+    update_assessment!(ctx.device_uid, cve, updated_at: ~N[2026-02-01 00:00:00])
+    assert publication(ctx.device_uid, cve) == current
+    assert %{rows: [[later_xid]]} = Repo.query!("SELECT pg_current_xact_id()::text")
+    assert String.to_integer(later_xid) != current["transition_xid"]
+    assert watermarks(ctx.device_uid) == []
+
+    second_cve = "CVE-2024-0022"
+
+    creator =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          insert_assessment!(ctx, package, second_cve)
+          send(parent, :created)
+
+          receive do
+            :commit -> :ok
+          after
+            10_000 -> Repo.rollback(:timeout)
+          end
+        end)
+      end)
+
+    assert_receive :created, 5_000
+    repair = Task.async(fn -> repair_publication(ctx, second_cve, 10) end)
+    refute Task.yield(repair, 200)
+    send(creator.pid, :commit)
+    assert {:ok, :ok} = Task.await(creator, 10_000)
+    assert %{"state" => "active", "kev" => false} = Task.await(repair, 10_000)
+    assert watermarks(ctx.device_uid) == []
+  end
+
+  test "preparation commits one bounded page and resumes without republishing it", ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+    package = insert_endpoint_package!(ctx.unique)
+    # Never-published candidates exercise legacy preparation without disabling
+    # triggers or manufacturing a retained publication in the fixture.
+    for n <- 1..501 do
+      insert_assessment!(ctx, package, "EXAMPLE-PREPARE-#{n}",
+        assessment: "candidate",
+        disposition: "unknown"
+      )
+    end
+
+    assert transitions(ctx.device_uid) == []
+    # The old deletion watermark schema had no payload column. Seed that shape
+    # using only invented identifiers; preparation must allocate a fresh event.
+    %{rows: [[legacy_seq]]} =
+      Repo.query!(
+        """
+        INSERT INTO platform.exposure_fact_watermarks
+          (device_uid, package_identity_key, cve_id, state, transition_seq, transition_xid)
+        VALUES ($1, $2, 'EXAMPLE-PREPARE-DELETED', 'resolved',
+          platform.exposure_next_sequence(), pg_current_xact_id())
+        RETURNING transition_seq
+        """,
+        [ctx.device_uid, "pkgkey:examplelib:#{ctx.unique}"]
+      )
+
+    {:ok, job} =
+      %{"device_uid" => ctx.device_uid, "stage" => "assessments"}
+      |> ExposurePublicationPrepareWorker.new()
+      |> Oban.insert()
+
+    started = System.monotonic_time(:millisecond)
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    elapsed = System.monotonic_time(:millisecond) - started
+    first = transitions(ctx.device_uid)
+    assert length(first) == 500
+    assert Enum.all?(first, &(&1["state"] == "resolved" and &1["reason"] == "snapshot_repair"))
+    assert Repo.get!(Oban.Job, job.id).args["cursor"]
+
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    assert [last] = transitions(ctx.device_uid) -- first
+    assert last["state"] == "resolved"
+    assert last["transition_seq"] > Enum.max_by(first, & &1["transition_seq"])["transition_seq"]
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    assert [terminal] = transitions(ctx.device_uid) -- (first ++ [last])
+    assert terminal["cve_id"] == "EXAMPLE-PREPARE-DELETED"
+    assert terminal["state"] == "resolved"
+    assert terminal["transition_seq"] > legacy_seq
+    assert :ok = ExposurePublicationPrepareWorker.perform(job)
+    assert transitions(ctx.device_uid) == first ++ [last, terminal]
+
+    [[bytes]] =
+      Repo.query!(
+        "SELECT avg(pg_column_size(last_exposure_publication))::int FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1",
+        [ctx.device_uid]
+      ).rows
+
+    assert bytes > 0
+
+    IO.puts(
+      "Synthetic retained publication average bytes: #{bytes}; 500-row preparation ms: #{elapsed}"
+    )
+  end
+
+  test "preparation reconstructs a legacy retirement and reports its deferred assessments", ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+
+    Repo.query!("UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = $1", [
+      ctx.device_uid
+    ])
+
+    # Model an ordinal tombstoned before lifecycle publication existed.
+    Repo.query!(
+      """
+      UPDATE platform.device_fleet_ordinals SET lifecycle_seq = 0, lifecycle_xid = NULL,
+        lifecycle_at = NULL, retired_seq = NULL, retired_xid = NULL, retired_at = NULL
+      WHERE uid = $1
+      """,
+      [ctx.device_uid]
+    )
+
+    Repo.query!("DELETE FROM platform.exposure_transition_outbox WHERE device_uid = $1", [
+      ctx.device_uid
+    ])
+
+    package = insert_endpoint_package!(ctx.unique)
+    insert_assessment!(ctx, package, "CVE-2024-0023")
+
+    {:ok, job} =
+      %{"device_uid" => ctx.device_uid}
+      |> ExposurePublicationPrepareWorker.new()
+      |> Oban.insert()
+
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    assert [marker] = transitions(ctx.device_uid)
+    assert marker["event_type"] == "device_retired"
+    assert marker["retired_seq"] == marker["transition_seq"]
+    assert marker["retired_seq"] > 0
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    assert Repo.get!(Oban.Job, job.id).args["deferred"] == 1
+    assert publication(ctx.device_uid, "CVE-2024-0023") == nil
+    assert transitions(ctx.device_uid) == [marker]
   end
 
   test "raw deletion, repeated retirement and restoration preserve identity and publish fresh current facts",
@@ -891,6 +1274,87 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       )
 
     :ok
+  end
+
+  defp publication(uid, cve) do
+    Repo.one(
+      from(a in "endpoint_vulnerability_assessments",
+        where: a.device_uid == ^uid and a.cve_id == ^cve,
+        select: a.last_exposure_publication
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp repair_publication(ctx, cve, observed, missing_only \\ false) do
+    %{rows: [[payload]]} =
+      Repo.query!(
+        "SELECT platform.exposure_repair_publication($1, $2, $3, $4, $5)",
+        [ctx.device_uid, "pkgkey:examplelib:#{ctx.unique}", cve, observed, missing_only]
+      )
+
+    payload
+  end
+
+  defp retained_terminal_facts(payload) do
+    Map.take(payload, [
+      "installed_version",
+      "severity",
+      "cvss_score",
+      "kev",
+      "exploit_available",
+      "fixed_version",
+      "fix_available",
+      "source_scope",
+      "first_exposed_at",
+      "assessment_status",
+      "assessment",
+      "disposition",
+      "assessment_transition_reason"
+    ])
+  end
+
+  defp retained_terminal_oracle(first_exposed_at) do
+    %{
+      "installed_version" => "1.0.0",
+      "severity" => "high",
+      "cvss_score" => 7.5,
+      "kev" => true,
+      "exploit_available" => true,
+      "fixed_version" => "1.2.0",
+      "fix_available" => true,
+      "source_scope" => "host",
+      "first_exposed_at" => first_exposed_at,
+      "assessment_status" => "active",
+      "assessment" => "confirmed",
+      "disposition" => "affected",
+      "assessment_transition_reason" => "synthetic-exposure"
+    }
+  end
+
+  defp watermark_record(device_uid, cve) do
+    case Repo.query!(
+           """
+           SELECT transition_seq, payload
+           FROM platform.exposure_fact_watermarks
+           WHERE device_uid = $1 AND cve_id = $2
+           """,
+           [device_uid, cve]
+         ).rows do
+      [[seq, payload]] -> %{transition_seq: seq, payload: payload}
+      [] -> nil
+    end
+  end
+
+  defp cleanup_source(ctx, package) do
+    Repo.query!("DELETE FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1", [
+      ctx.device_uid
+    ])
+
+    TestSupport.delete_device_fixtures!([ctx.device_uid])
+    ExposureTransitionCleanup.delete_for_devices!([ctx.device_uid])
+
+    Repo.query!("DELETE FROM platform.endpoint_packages WHERE id = $1", [Ecto.UUID.dump!(package)])
   end
 
   defp last_transition_seq(device_uid, cve_id) do

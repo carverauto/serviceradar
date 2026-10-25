@@ -673,11 +673,11 @@ snapshots.
     read in that transaction sees exactly `V`.
   - It emits every actionable assessment visible in `V` as a `SNAPSHOT` upsert carrying the
     row's complete after-image, last `transition_seq` and `transition_xid`. It also emits
-    a `SNAPSHOT` watermark (key, terminal state, sequence) for every other fact key known
-    to CNPG in `V`: non-actionable assessment rows carry their last sequence, and
-    `platform.exposure_fact_watermarks` covers deleted ones. That table holds the key, the
-    `resolved` state and the **new** sequence that the deleting transaction drew and
-    published. It also emits `RETIRED(device_ord, retired_seq)` for every tombstoned
+    a `SNAPSHOT` watermark for every other fact key known to CNPG in `V`, copied from the
+    retained publication (Decision 24): non-actionable assessment rows and
+    `platform.exposure_fact_watermarks` for deleted keys. That table holds the key, the
+    `resolved` state, the **new** sequence that the deleting transaction drew, and the
+    retained terminal publication. It also emits `RETIRED(device_ord, retired_seq)` for every tombstoned
     ordinal, plus the latest lifecycle state and sequence for restored ordinals,
     preserving the last retirement watermark (Decision 23). Assessment after-images
     carry their lifecycle sequence. It then emits `SNAPSHOT_END(G, V)`.
@@ -721,8 +721,8 @@ snapshots.
     fact ends resolved.
 - **Per-device reconciliation.** A daily job compares, per device between CNPG and
   StarRocks, the actionable count and an order-independent digest over each fact's
-  `(cve_ord, pkg_ord, transition_seq)` and a content hash of its actionable attributes
-  (state, `pkgver_ord`, severity, CVSS, KEV, exploit and fix flags), so a lost update that
+  `(cve_ord, pkg_ord, transition_seq)` and a content hash of the actionable attributes
+  named by *Exposure Is Rebuildable And Reconciled Against The Assessment Store*, so a lost update that
   changes only an attribute is detected as well as a changed membership.
   Mismatched devices get a per-device snapshot, fenced the same way and scoped to the
   device. Mismatch counts are exported, so the check can fail visibly.
@@ -925,9 +925,10 @@ delivery order. Re-creation removes the terminal watermark in the same transacti
 the new assessment transition. The repair carries its producing transaction's
 `transition_xid`, like any other transition.
 
-This extends the producer contract beyond the delivered row-trigger implementation
-recorded below; the fact-key serialization and missing-source repair remain work in
-task 1.6. No implementation of this path is part of this documentation change.
+Migration `20261025185606` implements this source repair under Decision 24, including
+fact-key serialization. Snapshot invocation, finalization and reconciliation remain
+task 1.6. The repair contract for a stored terminal is the exposure-intelligence
+requirement *Exposure Is Rebuildable And Reconciled Against The Assessment Store*.
 
 ### Decision 21: Build the assessment foundation independently
 
@@ -1177,7 +1178,128 @@ checks remain required; no product rollout or end-to-end live validation is
 claimed here.
 
 
-Task 1.5 remains unchecked until the producer and ingestion guarantees pass.
+**Hosted validation (2026-10-25).** PR [#5995](https://github.com/carverauto/serviceradar/pull/5995)
+merged after all 21 checks passed, including BazelCI Core Integration, BazelCI
+Web-NG DB and SrqlParity. The core integration run passed all twelve targets,
+including its eight core lanes
+([invocation](https://carverauto.buildbuddy.io/invocation/9e928a26-fb67-4566-a470-98e17c4beb1d)).
+SrqlParity executed migration 0034 and passed the exposure storage contracts
+([invocation](https://carverauto.buildbuddy.io/invocation/3973de20-13d3-468f-8a1c-0516045116d0)).
+Task 1.5 is complete at this producer/ingestion boundary. Task 1.6 still owns
+snapshot reconstruction and readiness; this is not evidence of a live rollout.
+
+### Decision 24: Retain the source publication needed for snapshot replay
+
+**Approved by the product owner on 2026-10-25.** This decision covers the source-side
+prerequisite for task 1.6. It does not approve or complete the snapshot transport,
+warehouse finalization, delivery-journal recovery or daily reconciliation.
+
+**Gap this decision closes.** Before migration `20261025185606`, an assessment retained
+`last_transition_seq`, `last_device_lifecycle_seq` and `exposed_at`, but not the
+publishing transaction's `transition_xid`, publication time, or exact after-image.
+`exposure_record_transition` constructed those values only in the outbox, and
+`ExposureOutboxRelay` deleted the row after PubAck. Deletion watermarks retained
+sequence, xid and time but not the complete terminal after-image. Unrelated assessment
+updates could change fields without publishing a transition. Snapshot code could not
+reconstruct an identical old publication from the current assessment, its PostgreSQL
+row version, or the surviving watermark. Decisions 14 and 19 require the original
+transaction fence and forbid changing content under an existing sequence.
+
+**Producer state.** Retain one last published schema-version-1 payload
+on each assessment, and one terminal payload on each deletion watermark. These
+are source publication records, owned by the same transaction and full fact-key
+serialization as sequence allocation and the outbox insert. The retained payload
+and the outbox payload must be identical, including sequence, xid, lifecycle and
+timestamps. An unrelated assessment update must preserve that payload. Source scope is
+actionable fact content: a change on an actionable assessment publishes a fresh
+complete after-image under a new sequence and the producing transaction id.
+Setting the same scope again, or changing only metadata, preserves the retained
+publication. A candidate's scope change publishes nothing. A rollback
+must preserve neither a new publication record nor its outbox message.
+
+This state serves publication and recovery only. Exposure queries continue to
+read StarRocks; no catalog grant, exposure reader or CNPG fallback may use these
+payloads. Store only the latest publication for a key, not an additional event
+history. Deletion atomically transfers the new terminal publication to the
+watermark; re-creation removes that watermark with its new assessment transition,
+as already required by Decision 20.
+
+The cost is additional CNPG storage and write volume for one payload per current
+assessment or deleted key. Record the payload-size and write-cost measurements
+on synthetic fixtures during implementation. Keeping only an xid and timestamp
+would use less space, but would not recover attributes changed since publication
+or the deleted assessment's terminal after-image. Keeping every acknowledged
+outbox event would grow with transition history instead of fact-key cardinality.
+
+**Replay and repair.** Snapshot replay copies the retained publication with its
+original sequence and xid. It does not rebuild that publication from mutable
+assessment columns or substitute the snapshot transaction's xid. Reconciliation
+still compares current source attributes with warehouse content: retaining an
+old publication must not hide source drift. If current source state needs a new
+after-image, the source-locked repair records and publishes it under a new
+sequence, then a subsequent snapshot can replay it exactly. The existing
+Decision 20 absent-key serialization and source recheck remain required.
+
+**Existing rows.** A migration adds nullable publication fields without a fleet
+rewrite. Before an authoritative snapshot is admitted, bounded, resumable source
+preparation supplies missing publication records through fresh transitions under
+the same serialization. It uses current source state, assigns a new sequence
+greater than the key's known watermark, and records the actual producing xid.
+It must not invent the xid of an old acknowledged message or republish changed
+content at its old sequence. An unsequenced legacy assessment therefore receives
+its first real publication before snapshot emission; NULL remains equivalent to
+zero for comparison during preparation. Stored-terminal repair, including exact
+replay below the stored sequence and sparse preparation of a null legacy payload,
+follows *Exposure Is Rebuildable And Reconciled Against The Assessment Store*.
+Preparation must respect device lifecycle
+fences and finish or explicitly report outstanding work, including the existing
+restore queue and pre-migration retirement bootstrap. Dictionary preparation and
+replay remain part of the Decision 22 rebuild gate.
+
+**Acceptance evidence for the source slice.** Extend the canonical assessment
+transition integration suite to cover retained replay after successful PubAck
+removes the outbox row; an unrelated update preserving the original xid and
+payload; rollback; deletion and re-creation; concurrent repair and creation in
+both orders; and bounded restartable preparation of legacy rows. Each source
+repair must reach the existing JetStream outbox path. Hosted CNPG integration
+is required before readiness. Later snapshot tests must additionally prove that
+the retained publications survive delivery reordering and enforce the recorded
+`pg_current_snapshot()` fence. Task 1.6 remains unchecked until those consumer,
+recovery and reconciliation guarantees also pass.
+
+**Source implementation boundary.** Migration `20261025185606` adds the two
+nullable publication fields and replaces the source trigger functions. Fact-key
+locks cover insert, update, key change and deletion. Repair runs in a fresh
+`READ COMMITTED` transaction and uses a non-waiting assessment row lock after the
+fact-key lock, so it retries instead of waiting on a writer with the reverse
+row/key lock order. An empty publication assignment is the internal regeneration
+request; the trigger replaces it with a complete fresh publication atomically.
+Ordinary NULL legacy records and unrelated source writes do not request repair.
+All exposure sequence allocators share a short session lock around allocation
+and any required sequence advance, released before the transaction completes.
+This keeps a high observed sequence from causing an unbounded allocation loop
+or racing another allocator.
+
+`ExposurePublicationPrepareWorker` runs an hourly maintenance pass, at most 500
+source rows per invocation. Its lifecycle, assessment and watermark cursors are
+stored in the Oban job in the same transaction as each page. It snoozes while the
+combined transition/dimension outbox backlog reaches 10,000 rows, and records
+prepared and deferred counts. A tombstoned assessment remains deferred to its
+lifecycle fence; an ordinal retired before lifecycle publication is bootstrapped
+first. A pass can finish while a later insert falls behind its cursor, so pass
+completion is deliberately not a snapshot readiness signal. The future snapshot
+coordinator must verify its own preparation scope, restore queues, delivery
+journals, dimensions and warehouse reconciliation. This source slice supplies
+no warehouse snapshot transport or finalization and leaves task 1.6 unchecked.
+
+**Pre-publication validation (2026-10-25).** The full remote Bazel unit sweep,
+including all Elixir format/Credo checks, passed: 460 test targets passed and
+the two platform-specific Swift targets were skipped
+([invocation](https://carverauto.buildbuddy.io/invocation/e50948fa-aa95-412e-b111-3b41ecd3182f)).
+Strict OpenSpec validation passed. These checks do not execute the new SQL
+migration or database scenarios. Hosted CNPG integration, a database negative
+control, and synthetic storage/write-cost measurements remain required before
+readiness. No live rollout is claimed.
 
 ## Section 0 evidence (2026-10-21)
 
@@ -1398,13 +1520,16 @@ Refresh budgets:
 
 ## Implementation record: matcher transitions and incremental matching (#5748, task 0.1)
 
-**Producer.** Triggers on `platform.endpoint_vulnerability_assessments` own the outbox, so
+**Producer.** Migration `20261025185606` (Decision 24) replaces the original trigger
+functions, retains the latest publication on the assessment and the terminal publication
+on the watermark, and provides `exposure_repair_publication`. Triggers on
+`platform.endpoint_vulnerability_assessments` own the outbox, so
 every writer (matcher upsert, absence resolution, unconfirmed marking, Ash actions, row
 deletion) is covered in the transaction that changes the row:
 
 - a `BEFORE INSERT OR UPDATE` row trigger decides whether the write is a transition (the
   actionable predicate is entered or left, or an actionable row's installed version, KEV,
-  exploit, CVSS, severity or fixed version changed) and, if so, draws `transition_seq` from
+  exploit, CVSS, severity, fixed version or source scope changed) and, if so, draws `transition_seq` from
   `platform.exposure_transition_seq` while the row is locked and stores it in the
   trigger-owned column `last_transition_seq` (with `exposed_at`, the start of the current
   actionable episode);
@@ -1441,7 +1566,8 @@ This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequenc
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and
 package-version dictionaries and the CVE ordinal function) and 1.3 (the transitions subject,
 its stream limits and the core publish permission). Device retirement (`retired_seq`,
-task 1.5), the snapshot (1.6) and the address dimension remain open. CVE and package
+task 1.5) landed in #5995. Source publication retention is Decision 24. The snapshot
+(1.6) and the address dimension remain open. CVE and package
 dimension publication is Decision 22.
 
 **Incremental matching.** The hourly full recompute is replaced by a run every 5 minutes
