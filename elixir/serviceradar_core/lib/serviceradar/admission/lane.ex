@@ -192,6 +192,7 @@ defmodule ServiceRadar.Admission.Lane do
           Keyword.get(opts, :lease_supervisor, Keyword.fetch!(opts, :task_supervisor)),
         processor: Keyword.fetch!(opts, :processor),
         on_accepted_result: Keyword.get(opts, :on_accepted_result),
+        on_execution_timeout: Keyword.get(opts, :on_execution_timeout),
         preserve_result: Keyword.get(opts, :preserve_result, false),
         execution_gate: Keyword.get(opts, :execution_gate),
         source_max_bytes: Keyword.fetch!(opts, :source_max_bytes),
@@ -531,9 +532,10 @@ defmodule ServiceRadar.Admission.Lane do
 
   defp begin_execution_termination(state, job, reason) do
     Process.cancel_timer(job.execution_timer)
-    reply(job.reply_to, {:error, reason})
     Process.exit(job.lease, :kill)
     Process.exit(job.worker, :kill)
+    notify_execution_timeout(state.on_execution_timeout, job.status, job.payload_bytes)
+    reply(job.reply_to, {:error, reason})
 
     emit(
       state.lane,
@@ -775,6 +777,22 @@ defmodule ServiceRadar.Admission.Lane do
   end
 
   defp notify_accepted_result(_callback, _result), do: :ok
+
+  defp notify_execution_timeout(nil, _status, _payload_bytes), do: :ok
+
+  defp notify_execution_timeout({module, function, extra_args}, status, payload_bytes) do
+    apply(module, function, [status, payload_bytes | extra_args])
+  rescue
+    _ -> :ok
+  end
+
+  defp notify_execution_timeout(fun, status, payload_bytes) when is_function(fun, 2) do
+    fun.(status, payload_bytes)
+  rescue
+    _ -> :ok
+  end
+
+  defp notify_execution_timeout(_callback, _status, _payload_bytes), do: :ok
 
   defp dispatch(state) when map_size(state.running) >= state.concurrency, do: state
 

@@ -18,6 +18,7 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
     :ordering,
     :processor,
     :on_accepted_result,
+    :on_execution_timeout,
     :lease_supervisor,
     :source_max_bytes,
     :gateway_max_ms
@@ -60,6 +61,8 @@ defmodule ServiceRadar.Admission.RetainedPluginLane do
           task_supervisor: ServiceRadar.Admission.RetainedPluginTaskSupervisor,
           lease_supervisor: lease_supervisor,
           processor: {ServiceRadar.ResultsRouter, :process_retained_plugin, []},
+          on_execution_timeout:
+            {ServiceRadar.Observability.PluginResultQuarantine, :record_execution_timeout, []},
           source_max_bytes: 16 * 1_024 * 1_024,
           gateway_max_ms: 15_000,
           config: config
