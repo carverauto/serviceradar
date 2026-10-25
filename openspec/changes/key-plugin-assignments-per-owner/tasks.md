@@ -24,7 +24,7 @@
 
 - [x] 4.1 Plugin fleet rows per owner, with a unit test.
 
-## 5. Follow-ups (not in this change)
+## 5. Follow-ups (#6006, not in this change)
 
 - [ ] 5.1 Plugin result service identity per assignment.
 - [ ] 5.2 AWX verb commands, northbound dispatch and assignment-scoped producer

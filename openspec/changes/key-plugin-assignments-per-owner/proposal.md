@@ -24,7 +24,7 @@ therefore could not work. Tracked in #5835.
 Not changed here: plugin result service identity is still keyed by package name
 per agent, so two coexisting instances share one service state row, and a few
 consumers still pick one assignment per plugin (AWX verb commands, northbound
-action dispatch, assignment-scoped producer schedules). These are follow-ups.
+action dispatch, assignment-scoped producer schedules). These are tracked in #6006.
 
 ## Impact
 
