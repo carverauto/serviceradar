@@ -1,21 +1,22 @@
 ## ADDED Requirements
 
 ### Requirement: Assessment Transitions Are Published On JetStream
-The matcher SHALL publish an assessment transition on JetStream whenever an assessment enters or leaves the exact actionable state (`status = active`, `assessment = confirmed`, `disposition = affected`), or when an actionable assessment's installed version, KEV flag, exploit flag, CVSS score, severity or fixed version changes. Assessments whose relevant fields did not change SHALL NOT produce transitions.
+The matcher SHALL publish an assessment transition on JetStream whenever an assessment enters or leaves the exact actionable state (`status = active`, `assessment = confirmed`, `disposition = affected`), or when an actionable assessment's installed version, KEV flag, exploit flag, CVSS score, severity or fixed version changes. Assessments whose relevant fields and device lifecycle did not change SHALL NOT produce transitions.
 
 **Transactionality.** Each transition SHALL be recorded in a transactional outbox in the same CNPG transaction as the assessment change, and SHALL be relayed at least once. The age of the oldest unrelayed outbox row SHALL be exported, and exceeding its bound (default 10 minutes) SHALL raise a health alert. A transaction that physically deletes an assessment row SHALL draw a new `transition_seq`, greater than the key's last one, publish a transition with the explicit `resolved` state at that sequence, and record the key, the `resolved` state and that new sequence in `platform.exposure_fact_watermarks`. A terminal transition SHALL NOT reuse the key's last sequence.
 
 **Content.** Each transition SHALL carry:
 - `transition_seq`, drawn from one sequence while the transaction holds the assessment row's lock, and stored on the assessment row as its last transition sequence;
 - `transition_xid`, the producing transaction's `pg_current_xact_id()`;
+- `device_lifecycle_seq`, the source device lifecycle sequence (initially zero);
 - `device_uid`, `package_identity_key`, `installed_version`, `cve_id`;
 - the device, CVE, package and package-version ordinals, allocated in that transaction;
 - the complete after-image of the fact (state, installed version and its ordinal, severity, CVSS, KEV, exploit and fix flags, source scope, exposure and resolution times), never only the changed fields;
 - the list of changed fields, and the reason.
 
-**Device lifecycle.** Device merges and deletions SHALL publish a `device_retired` transition for the retired ordinal, with a new `transition_seq` drawn in the transaction that tombstones the ordinal and recorded on the ordinal as its `retired_seq`. It carries the explicit `retired` state, and no later transition SHALL be produced for the ordinal.
+**Device lifecycle.** Device merges and deletions SHALL publish a `device_retired` transition for the retired ordinal, with a new `transition_seq` drawn in the transaction that tombstones the ordinal and recorded on the ordinal as its `retired_seq`. It carries the explicit `retired` state, and no later assessment transition SHALL be produced while the ordinal remains tombstoned. An authorized restoration SHALL retain the fleet ordinal and publish a newer `device_restored` lifecycle transition in the restoring transaction. Lifecycle and assessment publication SHALL serialize per device. Restoration SHALL durably schedule bounded republication of current actionable assessments with fresh sequences and the restored lifecycle sequence; completion SHALL be part of snapshot readiness. Repeated unchanged lifecycle writes SHALL publish nothing. These rules SHALL also cover temporary deactivation, raw SQL writers, retention cleanup and authorized unmerge, without changing restore authorization.
 
-**Snapshots.** The publisher SHALL support a generation snapshot of all actionable assessments, bracketed by start and end markers. The snapshot SHALL read in one `REPEATABLE READ` transaction, record that transaction's `pg_current_snapshot()` on the end marker, and emit each assessment with its last `transition_seq` and `transition_xid`, plus a terminal watermark for every other fact key it knows, from non-actionable assessment rows and `platform.exposure_fact_watermarks`, and a retirement marker with its `retired_seq` for every tombstoned ordinal.
+**Snapshots.** The publisher SHALL support a generation snapshot of all actionable assessments, bracketed by start and end markers. The snapshot SHALL read in one `REPEATABLE READ` transaction, record that transaction's `pg_current_snapshot()` on the end marker, and emit each assessment with its last `transition_seq` and `transition_xid`, plus a terminal watermark for every other fact key it knows, from non-actionable assessment rows and `platform.exposure_fact_watermarks`, and the latest lifecycle state and sequence, retaining the last `retired_seq`, for each ordinal whose lifecycle changed. Assessment snapshot rows SHALL carry their lifecycle sequence.
 
 #### Scenario: Upgrade that fixes the CVE emits a resolution
 - **GIVEN** an actionable assessment for a package at version 1.0

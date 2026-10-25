@@ -784,6 +784,7 @@ defmodule ServiceRadar.EventWriter.Config do
       subject: "vulnerability.assessment.transitions.>",
       processor: ServiceRadar.EventWriter.Processors.ExposureTransitions,
       ensure_stream: false,
+      consumer_max_deliver: -1,
       batch_size: 100,
       batch_timeout: 1_000
     }

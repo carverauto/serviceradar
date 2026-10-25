@@ -1460,7 +1460,8 @@ defmodule ServiceRadar.EventWriter.Producer do
     config.streams
     |> Enum.find(&stream_matches_message?(&1, jetstream_ack, subject))
     |> case do
-      %{consumer_max_deliver: max_deliver} when is_integer(max_deliver) and max_deliver > 0 ->
+      %{consumer_max_deliver: max_deliver}
+      when is_integer(max_deliver) and (max_deliver == -1 or max_deliver > 0) ->
         max_deliver
 
       _ ->

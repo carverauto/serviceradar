@@ -138,6 +138,38 @@ pub(crate) async fn verify(conn: &mut Conn, database: &str, ddl_dir: &Path) -> R
         history == vec![(11, 1, "created".into()), (13, 0, "resolved".into())],
         "history did not retain both after-images: {history:?}"
     );
+    // Migration 0034 preserves the initial lifecycle of existing fact writers.
+    let lifecycles: Vec<(i64, i64)> = conn
+        .query(format!(
+            "SELECT device_ord, device_lifecycle_seq FROM {database}.exposure_facts ORDER BY device_ord"
+        ))
+        .await?;
+    ensure!(
+        lifecycles == vec![(2147483648, 0), (4294967295, 0)],
+        "legacy fact lifecycle defaults changed: {lifecycles:?}"
+    );
+    conn.query_drop(format!(
+        "INSERT INTO {database}.exposure_retired_ordinals \
+         (device_ord, transition_seq, transition_xid, state, updated_at, retired_seq, retired_xid, retired_at) \
+         VALUES (4294967295, 50, 150, 2, NOW(), 50, 150, NOW())"
+    ))
+    .await?;
+    conn.query_drop(format!(
+        "INSERT INTO {database}.exposure_retired_ordinals \
+         (device_ord, transition_seq, transition_xid, state, updated_at, retired_seq, retired_xid, retired_at) \
+         VALUES (4294967295, 60, 160, 1, NOW(), 50, 150, NOW())"
+    ))
+    .await?;
+    let restored: Option<(i64, i64, i8, i64, i64)> = conn
+        .query_first(format!(
+            "SELECT device_ord, transition_seq, state, retired_seq, retired_xid \
+             FROM {database}.exposure_retired_ordinals WHERE device_ord = 4294967295"
+        ))
+        .await?;
+    ensure!(
+        restored == Some((4294967295, 60, 1, 50, 150)),
+        "restoration lost the stable identity or retirement watermark: {restored:?}"
+    );
     Ok(())
 }
 

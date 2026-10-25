@@ -179,6 +179,9 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
     An older sequence is rejected. Live Stream Load uses row-mode partial updates with
     every event-owned column explicitly listed, excluding `snapshot_generation`, so
     replay preserves the snapshot marker. A newly inserted fact defaults that marker to 0.
+  - Device lifecycle sequencing (Decision 23) is checked before a fact load. An
+    authorized restoration can publish fresh facts under the same fleet ordinal;
+    messages from its earlier lifecycle can never reactivate it.
   - A resolution is written as `state = 0` and the row stays as a tombstone carrying its
     `transition_seq`.
   - **The row is the fact's sequence watermark, and it is kept permanently.** A daily
@@ -263,12 +266,17 @@ carries an `as_of` for each source it read.
   - When a merge or deletion tombstones an ordinal, the publisher emits a `device_retired`
     transition with a new `transition_seq` `R`, drawn in the transaction that tombstones the
     ordinal and recorded on the ordinal row (`retired_seq`); it is greater than every
-    sequence the ordinal's facts carry. No later transition is produced for that ordinal.
+    sequence the ordinal's facts carry. No later assessment transition is produced
+    while that ordinal remains tombstoned.
     EventWriter sets every fact of the ordinal to `state = 2` (retired) at `R`, closes its
     address intervals, and records the ordinal in the permanent
-    `serviceradar.exposure_retired_ordinals`. The shared transition-ingestion boundary drops
-    and counts any transition for a retired ordinal, so a fact whose first transition is
-    delivered after the retirement never appears. The survivor's assessments then re-emit under the survivor's ordinal.
+    `serviceradar.exposure_retired_ordinals`. This permanent lifecycle record retains the
+    last retirement watermark and the latest lifecycle state and sequence. An authorized
+    restoration keeps the ordinal and emits a newer `device_restored` marker; current
+    assessments are republished under that lifecycle (Decision 23). The ingestion boundary
+    drops and counts older-lifecycle facts, including previously unseen keys, and defers
+    future-lifecycle facts until their marker arrives. The survivor's assessments re-emit
+    under the survivor's ordinal.
 - **`cve_ord`.**
   - For `CVE-YYYY-N` with `N < 10^7`, the ordinal is `YYYY * 10^7 + N` (for example
     `CVE-2024-0001` -> `20240000001`). It is deterministic, needs no lookup on the hot
@@ -669,7 +677,9 @@ snapshots.
     `platform.exposure_fact_watermarks` covers deleted ones. That table holds the key, the
     `resolved` state and the **new** sequence that the deleting transaction drew and
     published. It also emits `RETIRED(device_ord, retired_seq)` for every tombstoned
-    ordinal. It then emits `SNAPSHOT_END(G, V)`.
+    ordinal, plus the latest lifecycle state and sequence for restored ordinals,
+    preserving the last retirement watermark (Decision 23). Assessment after-images
+    carry their lifecycle sequence. It then emits `SNAPSHOT_END(G, V)`.
   - A snapshot row is compared with the stored row on sequence, state and content.
     A greater sequence applies the source after-image. An equal sequence with equal
     state and equal content changes only `snapshot_generation`. An equal-sequence state or content
@@ -1044,6 +1054,129 @@ and separate package versions retained their newest descriptions. The scratch
 database was removed and its absence rechecked. This proves the warehouse
 boundary; it does not claim deployed end-to-end product delivery. Dimension
 bootstrap and recovery remain task 1.6, and address evidence remains 2.1/2.2.
+
+### Decision 23: Restore exposure without changing fleet identity
+
+Approved by the product owner on 2026-10-24. This decision changes the unconditional permanent-retirement rule in Decisions 2
+and 4; it does not change who may restore a device.
+
+**Conflict found during implementation planning.** Fleet identity deliberately
+retains the same ordinal across deletion and legitimate restoration, including
+an explicitly authorized unmerge. The existing integration test
+`endpoint_inventory_fleet_ordinal_test.exs`, scenario "delete and legitimate
+restore retain identity while stale merge restores are denied", asserts that
+behavior. `ensure_device_fleet_ordinal` clears `tombstoned` on restoration and
+also sets it when `is_active` becomes false. A permanent exposure denylist keyed
+only by that ordinal would therefore hide a restored device forever. Allocating
+a different fleet ordinal would change the shared identity contract, including
+other bitmap consumers, and is outside this exposure slice.
+
+**Behavior.** Preserve the fleet ordinal and make exposure retirement
+reversible only by an explicit, newer source lifecycle transition:
+
+- A live-to-tombstoned change publishes `device_retired` at a new sequence `R`
+  in the same source transaction. No assessment after-image is published for
+  that ordinal while it remains tombstoned. Assessment storage and its CNPG
+  query surfaces continue to work.
+- An already-authorized tombstoned-to-live change publishes `device_restored`
+  at a new sequence `U > R`, in that source transaction. It does not replay
+  pre-retirement assessment messages as current. Current actionable assessments
+  are re-read and published under fresh sequences greater than `U`. This
+  resynchronization must be durable, bounded and included in snapshot readiness;
+  restoration alone is not evidence that exposure has caught up.
+- Source lifecycle publication and assessment publication serialize per device,
+  in addition to the full fact-key serialization in Decision 20. A retirement
+  sequence exceeds every assessment sequence published in the earlier lifecycle.
+  Rollback leaves no lifecycle state change or outbox message. Repeated writes
+  of the same lifecycle state do not allocate new sequences.
+- Each assessment after-image carries its device lifecycle sequence, initially
+  zero before the first lifecycle change. The warehouse keeps the latest
+  lifecycle state and sequence and the last retirement watermark permanently.
+  Restoration advances this record; it never deletes the retirement evidence.
+  Device lifecycle messages travel through the existing transitions outbox and
+  JetStream stream, not a direct warehouse write.
+- The ingestion boundary drops and counts facts from older lifecycles, including
+  keys never previously delivered. Facts from a newer lifecycle whose marker
+  has not arrived are deferred for retry, not acknowledged and lost. Only a
+  current live lifecycle accepts its after-images. Reordered retirement and
+  restoration markers cannot roll the lifecycle backwards. Identical replay
+  remains allowed; changed content always needs a new sequence.
+- Applying a lifecycle marker and loading facts must be serialized across
+  EventWriter replicas, not merely within one process. A check followed by an
+  unguarded load is insufficient: retirement racing an in-flight fact load must
+  leave no active fact behind. This is an implementation acceptance condition,
+  not a claim that the existing warehouse client supplies that guarantee.
+
+This applies equally to ordinary soft deletion, temporary deactivation,
+retention cleanup and a merge followed by an authorized unmerge. It grants no
+new restore permission and makes no changes to identity resolution or topology.
+Address-interval closure and reopening remain in tasks 2.1 and 2.2.
+
+**Alternatives.** Keeping permanent denial would require preventing exposure
+from ever returning for a restored identity. Giving each restoration a new
+fleet ordinal would violate the current stable-identity contract. A separate
+exposure-only ordinal would diverge from the shared device ordinal used by
+flows, catalogs and bitmap joins. The lifecycle fence preserves those
+joins and prevents stale messages from reviving an earlier incarnation.
+
+**Required evidence before task 1.5 is complete.** Transactional retirement and
+rollback; repeated retirement; restore and authorized unmerge retaining the
+ordinal; retirement before first fact delivery; pre-retirement facts arriving
+after restoration; restored facts arriving before their marker; markers in
+reverse order; and retirement racing a fact load in another consumer. Existing
+assessment-deletion coverage remains the owner of its new-sequence `resolved`
+transition contract. Snapshot reconstruction must retain the lifecycle fence.
+
+Decisions 2, 4 and 14 and the specification deltas incorporate this contract.
+
+**Implementation boundary.** Migration `20261025030000` attaches sequencing and
+outbox publication to the fleet-ordinal dictionary itself. Its current writers
+are `ensure_device_fleet_ordinal` (including canonical device lifecycle triggers),
+`EndpointInventoryMoves` and `DeviceCleanupWorker`. This covers Ash actions and
+raw updates of canonical deletion/activation fields without adding parallel
+application callbacks. Assessment transactions hold shared ordinal locks before
+allocating sequences; a lifecycle change waits for them. Repeated writes keep
+the same lifecycle. Restoration queues current assessments transactionally;
+the maintenance worker republishes at most 500 rows per page and ten pages per
+run, preserving work across retries.
+
+EventWriter serializes each of the existing sixteen transition subject buckets
+using a CNPG session advisory lock. Its durable control journal contains only
+JetStream stream positions, never exposure payloads. A replacement owner fetches
+and replays an unfinished batch before admitting another, settling its immutable
+warehouse load labels. Every physical load, including a size-split chunk, checks
+connection ownership. Retirement uses bounded pages and retains unfinished work.
+Retirement appends each known fact's terminal after-image to transition history
+before loading its terminal current state. A retry after a committed fact load
+will no longer select that key, so appending first prevents a crash from losing
+the history entry. The history payload identifies `device_retired` and carries
+its derived terminal after-image; it is not an assessment wire message.
+Labels include fact keys and sequences because separate retirement pages share
+one retirement sequence. Exposure delivery has unlimited attempts within stream
+retention, so waiting for a lifecycle marker cannot become a terminal ACK.
+The source relay withholds a lifecycle's facts until its marker receives PubAck;
+otherwise future facts could fill the bounded pending window before the marker
+is delivered. Independent subject buckets continue even when one is blocked.
+
+A journal position no longer retained by JetStream fails closed. It must be
+recovered by the snapshot protocol in task 1.6; deleting the journal manually is
+not a safe repair. Snapshot readiness must include unfinished delivery journals,
+restoration queues, and reconstruction of lifecycle state for ordinals retired
+before this migration. This slice supplies the lifecycle path; it does not mark
+snapshot recovery, address interval handling, or exposure readiness complete.
+
+**Validation (2026-10-24).** The full remote Bazel unit sweep and all seven
+Elixir format/Credo checks passed on the final implementation. The two
+platform-specific Swift targets were skipped. A negative control restored the
+old delivery-limit handling and failed with a terminal ACK instead of the
+required retry; restoring the fix passed. HTTP boundary coverage verifies stale
+and future lifecycle handling, physical-load ownership loss, and retirement's
+history-before-fact ordering. Hosted CNPG integration and warehouse storage
+checks remain required; no product rollout or end-to-end live validation is
+claimed here.
+
+
+Task 1.5 remains unchecked until the producer and ingestion guarantees pass.
 
 ## Section 0 evidence (2026-10-21)
 

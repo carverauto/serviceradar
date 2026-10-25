@@ -9,6 +9,7 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Producer
 
   # A consumer reply_to subject so the producer treats it as a JetStream message
@@ -204,6 +205,45 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
              }
 
       assert message.metadata.max_deliver == 9
+    end
+
+    test "exposure failures remain retryable beyond the ordinary delivery limit" do
+      config = build_config(streams: [Config.exposure_transitions_stream()])
+      state = init_state(config)
+      {:noreply, [], state} = Producer.handle_demand(1, state)
+
+      {:noreply, [message], _state} =
+        Producer.handle_info(
+          {:msg,
+           %{
+             body: "deferred exposure",
+             topic: "vulnerability.assessment.transitions.3",
+             reply_to: "$JS.ACK.EXPOSURE_TRANSITIONS.consumer.9.9.9.0.0",
+             headers: %{}
+           }},
+          state
+        )
+
+      parent = self()
+
+      message =
+        Pipeline.transform(
+          %{
+            message
+            | ack_data: %{
+                ack_fun: fn action ->
+                  send(parent, {:ack, action})
+                  :ok
+                end
+              }
+          },
+          []
+        )
+
+      failed = Broadway.Message.failed(message, :exposure_lifecycle_pending)
+      assert :ok = Pipeline.ack(:ack_ref, [], [failed])
+      assert_receive {:ack, :nack}
+      refute_receive {:ack, :term}, 20
     end
 
     test "max_deliver resolution uses subject filters when streams share a JetStream stream" do
