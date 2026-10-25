@@ -545,6 +545,20 @@ The system SHALL rebuild exposure facts through a generation snapshot of all act
 
 Every assessment creation, update, deletion and snapshot repair SHALL serialize on the full fact key, including when no assessment row exists, and SHALL lock any existing assessment before drawing a transition sequence. A repair SHALL re-read the current assessment and watermark under that serialization. If neither exists and the warehouse fact still requires resolution, the repair SHALL atomically record a terminal watermark and a complete terminal outbox after-image in CNPG, then publish through JetStream. The repair SHALL allocate a new `transition_seq` greater than the stored warehouse fact's `transition_seq`. The terminal outbox after-image SHALL separately record the repair transaction's `transition_xid`; `transition_seq` SHALL NOT be compared with `transition_xid`. If a source record exists after the recheck, the repair SHALL use its current state through the normal repair path. A later creation of the same fact key SHALL obtain the same serialization, draw a sequence greater than the terminal watermark's, and remove that watermark in the same transaction as its new assessment transition. Repair SHALL NOT depend on locking an absent assessment row or writing directly to StarRocks.
 
+The source SHALL retain the latest complete publication on each assessment and the complete terminal publication on each deletion watermark, atomically with its sequence and outbox row. Outbox acknowledgement SHALL NOT remove this retained publication. An unrelated source update SHALL preserve its original sequence, transaction ID and content. Snapshot replay SHALL use the retained publication, while reconciliation SHALL still compare current source attributes and repair drift under a new sequence. Missing legacy publication records SHALL be prepared in bounded, resumable transactions under the shared fact-key and lifecycle serialization, using fresh sequences and actual producing transaction IDs. Preparation SHALL report outstanding work; completing a preparation pass SHALL NOT by itself make exposure queries ready. Retained publications SHALL serve source publication and recovery only, with no exposure query fallback or catalog access.
+
+#### Scenario: Replay after outbox cleanup preserves the original publication
+- **GIVEN** a source transition was acknowledged and removed from its outbox
+- **AND** an unrelated update subsequently changes assessment bookkeeping
+- **WHEN** snapshot publication reads the retained source record
+- **THEN** its complete after-image, sequence and transaction ID match the acknowledged transition
+
+#### Scenario: Legacy preparation resumes after interruption
+- **GIVEN** legacy assessments and deletion watermarks lack retained publications
+- **WHEN** preparation commits a bounded page and is interrupted
+- **THEN** its committed progress and publications survive
+- **AND** retry prepares the remaining rows without changing an existing publication under its sequence
+
 #### Scenario: Snapshot removes stale facts and keeps live updates
 - **GIVEN** StarRocks holds a fact that CNPG no longer considers actionable
 - **AND** a live transition arrives during the snapshot
