@@ -2112,11 +2112,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       is_nil(g_node) or is_nil(awx.node) or
         String.downcase(g_node) == String.downcase(awx.node)
 
+    awx_ip_matches? =
+      MapSet.size(g_ips) > 0 and present?(awx.ip) and MapSet.member?(g_ips, awx.ip)
+
     ip_contradicts? =
       MapSet.size(g_ips) > 0 and present?(awx.ip) and not MapSet.member?(g_ips, awx.ip)
 
     corroborated_or_unique? =
-      mac_match? or ip_match? or (unique_node_vmid? and present?(g_node) and present?(awx.node))
+      mac_match? or ip_match? or awx_ip_matches? or
+        (unique_node_vmid? and present?(g_node) and present?(awx.node))
 
     vmid_matches? and node_matches? and not mac_contradicts? and not ip_contradicts? and
       corroborated_or_unique?
@@ -2138,8 +2142,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       |> string_value("node")
 
     meta_node ||
-      node_name_from_provider_ref(
-        Map.get(guest, :host_provider_ref) || Map.get(guest, :provider_ref)
+      Enum.find_value(
+        [Map.get(guest, :host_provider_ref), Map.get(guest, :provider_ref)] ++
+          List.wrap(Map.get(guest, :legacy_provider_refs)),
+        &node_name_from_provider_ref/1
       )
   end
 
@@ -2567,10 +2573,24 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp node_name_from_provider_ref(value) when is_binary(value) do
     case String.split(value, ":") do
-      [_provider, "node", node | _] -> node
-      [_provider, "host", host | _] -> host
-      [_provider, kind, node | _] when kind in ["disk", "nic", "guest"] -> node
-      _ -> nil
+      [_provider, "v3", _controller_id, _cluster_id, kind, node | _]
+      when kind in ["node", "host"] ->
+        node
+
+      [_provider, "v2", _cluster_id, kind, node | _] when kind in ["node", "host"] ->
+        node
+
+      [_provider, "node", node | _] ->
+        node
+
+      [_provider, "host", host | _] ->
+        host
+
+      [_provider, kind, node | _] when kind in ["disk", "nic", "guest"] ->
+        node
+
+      _ ->
+        nil
     end
   end
 
