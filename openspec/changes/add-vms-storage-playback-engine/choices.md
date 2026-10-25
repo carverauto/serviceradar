@@ -431,9 +431,10 @@ alone cannot authorize it.
 When: durable recorder claim pass.
 
 A retained CNPG RecorderClaim row belongs to the unique source/profile ingest
-owner. All claim operations lock ingest owner before claim, atomically manage
-the recorder consumer, and recheck database time before committing. Competing
-live claimants are refused. Each worker generates its token once; it never reads
+owner. Claim operations lock ingest owner before claim, atomically manage
+the recorder consumer, and recheck database time before committing. New-work
+admission takes the outer fence first; [recording control](recording-control.md)
+owns that order. Competing live claimants are refused. Each worker generates its token once; it never reads
 back a token to resume another worker's publication rights. Reacquisition after
 release or expiry increments a separate recorder epoch without restarting live
 ingest. A block sequence is reserved durably before filesystem creation; failed

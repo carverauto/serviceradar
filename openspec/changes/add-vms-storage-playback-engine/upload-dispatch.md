@@ -11,9 +11,10 @@ internal actor ID and deadline. A retry returns that same record; a changed
 actor, operation or lease cannot replace it. Increasing the requested TTL
 never extends the retained cap.
 
-`mark_dispatch/3` takes the block lock before the dispatch lock and rechecks the
-complete intent. The retained operation deadline and the original locked upload
-deadline both bound the operation using fresh database time. Only the first
+`mark_dispatch/3` takes the [recording-control](recording-control.md) fence
+before the block lock, then the block lock before the dispatch lock, and
+rechecks the complete intent. The retained operation deadline and the original
+locked upload deadline both bound the operation using fresh database time. Only the first
 committed marker returns `{:ok, {:marked, record}}`; a repeat inside the window
 returns `{:ok, {:already_marked, record}}`. An expired window returns an error,
 even when the upload lease has been renewed. The four public dispatch mutations
