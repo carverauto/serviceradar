@@ -147,8 +147,11 @@ This table already exists. It keeps:
 - its writers: the sweep ingestor (W4), validation scans (W18) and merge
   reassignment (W19).
 
-This change does not prune, age out or rewrite these rows. The resolver
-*reads* them. The ledger is the `active_probe` evidence for each agent.
+This change does not prune or age out these rows. Writers do not change
+`is_available`, `checked_at` or `updated_at`. Migration `20261025150000`
+sets only `consecutive_down` on unavailable rows whose counter is 0. The
+resolver *reads* them. The ledger is the `active_probe` evidence for each
+agent.
 Keeping it as the store, instead of copying it into the generic evidence
 table, means there is one row per agent result and no duplicate writes.
 
@@ -166,9 +169,9 @@ gets the same counter without any change to its code:
   (the upsert accepts an equal `checked_at`, which has one-second
   resolution), it is recomputed by the same rule, so a stored `down` result
   never carries a counter of 0 (migration `20261025150000`);
-- on any other update (merge reassignment, a replayed result with the same
-  `checked_at`, the backfill), the value the statement wrote is kept, which
-  is the old value unless the statement sets it.
+- on any other update (merge reassignment, a replay of the same result at
+  the same `checked_at`, the backfill), the value the statement wrote is
+  kept, which is the old value unless the statement sets it.
 
 A separate `AFTER INSERT OR UPDATE` trigger appends the device to the
 invalidation log (Decision 1, "Invalidation"). Because it runs on the row that was
@@ -574,7 +577,7 @@ without new evidence (pins, expectations) go through the invalidation log
 | Recovery is immediate (W1) | An `up` row is decisive at once |
 | "Available wins" across agents, with a window of one sweep interval (W2) | Step 6, with the ledger freshness TTL as the window |
 | Reporter expectation gates who may write | Step 1 (eligibility) |
-| The unbounded `metadata.sweep_consecutive_failures` | Capped at the threshold on the ledger row by the ledger trigger. The backfill and migration `20261025150000` seed from that key; it then remains for the legacy computation until stage e strips it |
+| The unbounded `metadata.sweep_consecutive_failures` | Capped at the threshold on the ledger row by the ledger trigger. The backfill and migration `20261025150000` seed from that key; the legacy computation keeps using it until stage d, and stage e strips it |
 
 ### Decision 6: Unknown is a state; the boolean is a compatibility projection
 
