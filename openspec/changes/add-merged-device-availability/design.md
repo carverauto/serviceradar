@@ -902,6 +902,21 @@ change exists to fix. Core therefore drives stages a to c itself.
   entry; core runs the cron only on the Oban leader, which is a new node
   once the old leader stops. A cluster-wide release check was not added.
 
+  The same decision covers the rolling restart that adds or removes
+  `core.availability.modeControl`. Replicas of this release can disagree on
+  `SERVICERADAR_AVAILABILITY_MODE_CONTROL` for that window only. Oban runs
+  the progression worker on any replica, and the replica reads only its own
+  env. A replica whose env is unset follows the stored control and writes
+  `mode_control_pin` NULL, which clears a pin a restarted replica just
+  recorded, then can enter shadow or cut over. A replica that has the pin
+  does not pass a control guard, so the switch lock does not refuse that
+  opposite step. Once every replica has the new env the deployment
+  converges to the pin. The worst case inside the rollout window is a
+  shadow entry, or a cutover followed by the paged rollback. Honoring a
+  recorded pin from a replica without the env would also block unpinning
+  when the Helm value is removed, and that needs a product decision, so
+  this was not built.
+
 **(d) Removal.** Gated on Decision 13 having no Armis source left in
 `legacy` semantics. Stage d removes code only:
 - the legacy writers W1, W2 and W5-W11;

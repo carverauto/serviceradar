@@ -69,7 +69,8 @@ Switching back to `auto` progresses again from `legacy`.
 core as `SERVICERADAR_AVAILABILITY_MODE_CONTROL`. A pin wins over the Settings value,
 and the Settings page then shows the control read-only. The chart refuses any other
 value. If core is given one some other way, it logs an error and holds the mode where
-it is.
+it is. Set the pin before an upgrade that should stay held, because replicas may
+disagree on the env while the pin rolls out.
 
 Transition events are unchanged. `transition_events` keeps the value the cutover
 migration set: on exactly when some sweep group already emitted availability events.
