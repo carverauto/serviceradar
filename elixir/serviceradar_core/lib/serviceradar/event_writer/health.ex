@@ -101,23 +101,26 @@ defmodule ServiceRadar.EventWriter.Health do
   @doc """
   `status/0` of every core node that hosts EventWriter workers, keyed by node,
   with `healthy` true only when every one of them is healthy. A node that does
-  not answer within `timeout` is reported unhealthy; a node that does not host
-  workers (web-ng, or an older release during a rollout) is left out.
+  not answer, or whose call exits, throws, or errors, is reported unhealthy. A
+  node that does not host workers (web-ng, or an older release during a rollout)
+  is left out: it returns nil, or `node_status/0` itself is undefined.
   """
   @spec cluster_status(timeout()) :: %{healthy: boolean(), nodes: %{node() => map()}}
   def cluster_status(timeout \\ 5_000) do
     nodes = [node() | Node.list()]
+    cluster_status_from(nodes, :erpc.multicall(nodes, __MODULE__, :node_status, [], timeout))
+  end
 
+  @doc false
+  @spec cluster_status_from([node()], [term()]) :: %{
+          healthy: boolean(),
+          nodes: %{node() => map()}
+        }
+  def cluster_status_from(nodes, results) when is_list(nodes) and is_list(results) do
     statuses =
-      nodes
-      |> :erpc.multicall(__MODULE__, :node_status, [], timeout)
+      results
       |> Enum.zip(nodes)
-      |> Enum.flat_map(fn
-        {{:ok, nil}, _node} -> []
-        {{:ok, status}, node} -> [{node, status}]
-        {{:error, {:exception, :undef, _}}, _node} -> []
-        {{:error, reason}, node} -> [{node, unreachable(reason)}]
-      end)
+      |> Enum.flat_map(&node_call/1)
       |> Map.new()
 
     %{healthy: Enum.all?(statuses, fn {_node, status} -> status.healthy end), nodes: statuses}
@@ -140,6 +143,19 @@ defmodule ServiceRadar.EventWriter.Health do
   defp unreachable(reason) do
     %{enabled: true, running: false, healthy: false, reason: {:error, {:unreachable, reason}}}
   end
+
+  defp node_call({{:ok, nil}, _node}), do: []
+  defp node_call({{:ok, status}, node}) when is_map(status), do: [{node, status}]
+
+  defp node_call(
+         {{:error, {:exception, :undef, [{__MODULE__, :node_status, arity, _} | _]}}, _node}
+       )
+       when arity == 0 or arity == [] do
+    []
+  end
+
+  defp node_call({{:error, reason}, node}), do: [{node, unreachable(reason)}]
+  defp node_call({result, node}), do: [{node, unreachable(result)}]
 
   # Private functions
 

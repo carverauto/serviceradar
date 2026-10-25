@@ -225,7 +225,7 @@ defmodule ServiceRadar.ClusterHealth do
         enabled: status.enabled,
         running: status.running,
         healthy: status.healthy and cluster.healthy,
-        reason: inspect(status.reason),
+        reason: event_writer_reason(status, cluster),
         pipelines: status.pipelines,
         pipeline: Map.get(status, :pipeline),
         producer: Map.get(status, :producer),
@@ -245,6 +245,18 @@ defmodule ServiceRadar.ClusterHealth do
         }
     end
   end
+
+  defp event_writer_reason(%{reason: :ok}, %{healthy: false, nodes: nodes}) do
+    nodes
+    |> Enum.flat_map(fn
+      {_node, %{healthy: false, reason: reason}} -> [inspect(reason)]
+      _node_status -> []
+    end)
+    |> Enum.sort()
+    |> Enum.join(", ")
+  end
+
+  defp event_writer_reason(%{reason: reason}, _cluster), do: inspect(reason)
 
   defp node_summaries(nodes) do
     Map.new(nodes, fn {node, status} ->
