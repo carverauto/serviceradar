@@ -1,0 +1,197 @@
+{{- $mediaStorage := default (dict) .Values.mediaStorage -}}
+{{- if $mediaStorage.enabled }}
+{{- $web := default (dict) .Values.webNg -}}
+{{- $control := default (dict) $web.archiveStorage -}}
+{{- if or (eq (toString $web.enabled) "false") (not $control.enabled) -}}
+{{- fail "mediaStorage requires webNg.archiveStorage.enabled and webNg.enabled" -}}
+{{- end -}}
+{{- $revision := required "mediaStorage.revision is required" $mediaStorage.revision -}}
+{{- $configSecret := required "mediaStorage.configSecretName is required" $mediaStorage.configSecretName -}}
+{{- $providerSecret := required "mediaStorage.providerSecretName is required" $mediaStorage.providerSecretName -}}
+{{- $authSecret := required "mediaStorage.authSecretName is required" $mediaStorage.authSecretName -}}
+{{- $tlsSecret := required "mediaStorage.tlsSecretName is required" $mediaStorage.tlsSecretName -}}
+{{- $egress := default (dict) $mediaStorage.providerEgress -}}
+{{- if not $egress.cidrs -}}
+{{- fail "mediaStorage.providerEgress.cidrs must explicitly allow the provider or CONNECT proxy" -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-media-storage-release
+data:
+  isolated.config: "[].\n"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-media-storage
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: serviceradar-media-storage
+  template:
+    metadata:
+      labels:
+        app: serviceradar-media-storage
+        app.kubernetes.io/part-of: serviceradar-media
+      annotations:
+        serviceradar.io/init-storage-revision: {{ $revision | quote }}
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $mediaStorage.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: storage
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          command: [/app/bin/serviceradar_core_elx]
+          args: [eval, "ServiceRadarCoreElx.CameraStorage.Service.main()"]
+          ports:
+            - name: storage-https
+              containerPort: {{ $mediaStorage.port }}
+          env:
+            - name: VMS_INIT_STORAGE_CONFIG
+              value: /etc/serviceradar/init-storage/config/config.json
+            - name: RELEASE_SYS_CONFIG
+              value: /etc/serviceradar/init-storage/release/isolated
+            - name: RELEASE_DISTRIBUTION
+              value: none
+            - name: ENABLE_TLS_DIST
+              value: "false"
+            - name: RELEASE_COOKIE
+              value: unused_isolated_storage_cookie
+            - name: ERL_CRASH_DUMP
+              value: /dev/null
+            - name: ERL_FLAGS
+              value: "+S 2:2 +fnu"
+            - name: TMPDIR
+              value: /tmp
+            {{- with $mediaStorage.egressProxy }}
+            - name: SERVICERADAR_EGRESS_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml $mediaStorage.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: release
+              mountPath: /etc/serviceradar/init-storage/release
+              readOnly: true
+            - name: config
+              mountPath: /etc/serviceradar/init-storage/config
+              readOnly: true
+            - name: provider
+              mountPath: /etc/serviceradar/init-storage/provider
+              readOnly: true
+            - name: auth
+              mountPath: /etc/serviceradar/init-storage/auth
+              readOnly: true
+            - name: tls
+              mountPath: /etc/serviceradar/init-storage/tls
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+        - name: release
+          configMap:
+            name: serviceradar-media-storage-release
+        - name: config
+          secret:
+            secretName: {{ $configSecret | quote }}
+            defaultMode: 0440
+            items: [{key: config.json, path: config.json}]
+        - name: provider
+          secret:
+            secretName: {{ $providerSecret | quote }}
+            defaultMode: 0440
+            items: [{key: credentials.json, path: credentials.json}]
+        - name: auth
+          secret:
+            secretName: {{ $authSecret | quote }}
+            defaultMode: 0440
+            items:
+              - {key: runtime-token, path: runtime-token}
+              - {key: recorder-token, path: recorder-token}
+        - name: tls
+          secret:
+            secretName: {{ $tlsSecret | quote }}
+            defaultMode: 0440
+            items:
+              - {key: tls.crt, path: tls.crt}
+              - {key: tls.key, path: tls.key}
+              - {key: ca.crt, path: ca.crt}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-media-storage
+spec:
+  type: ClusterIP
+  selector:
+    app: serviceradar-media-storage
+  ports:
+    - name: storage-https
+      port: {{ $mediaStorage.port }}
+      targetPort: storage-https
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: serviceradar-media-storage
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-media-storage
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-core
+      ports:
+        - protocol: TCP
+          port: {{ $mediaStorage.port }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-web-ng
+      ports:
+        - protocol: TCP
+          port: {{ $control.port }}
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        {{- range $egress.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $egress.port }}
+{{- end }}

@@ -371,6 +371,34 @@ observability:
       annotations: {}
       folder: ServiceRadar
 
+# Init-only storage executor. This is not recording activation or a qualified
+# archive. Infrastructure custody creates the named Secrets before enabling it.
+mediaStorage:
+  enabled: false
+  # Bump with every desired configuration/credential change to force a new boot.
+  revision: ""
+  port: 4443
+  configSecretName: ""
+  providerSecretName: ""
+  authSecretName: ""
+  tlsSecretName: ""
+  # Keep the initial release on its supported image architecture.
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  # Explicit provider IPs or the CONNECT proxy IPs, never implicit Internet access.
+  providerEgress:
+    cidrs: []
+    port: 443
+  egressProxy: ""
+  resources:
+    requests:
+      cpu: "250m"
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 512Mi
+      ephemeral-storage: 64Mi
+
 core:
   replicas: 3
   # Graceful shutdown for the core-elx pod, which runs every core Oban queue.
@@ -1581,6 +1609,17 @@ webNg:
       # Never supply token bytes in values or extraEnv.
       existingSecretName: serviceradar-control-plane-media-access
       tokenSecretKey: token
+  # Storage-workload-only HTTPS listener. Its Service is private and separate
+  # from account/media administration and every public web route.
+  archiveStorage:
+    enabled: false
+    port: 4002
+    # Bump after changing any mounted file: the listener loads these at boot.
+    revision: ""
+    configSecretName: ""
+    authSecretName: ""
+    tokenSecretKey: runtime-token
+    tlsSecretName: ""
   # Dedicated internal listener for Prometheus metrics scraping (/metrics).
   # Kept on a separate port so in-cluster Prometheus scrapes port 9090 without
   # exposing /metrics on public Ingress or Gateway listeners.

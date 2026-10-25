@@ -168,7 +168,13 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
           {@generation_header, "2"},
           {@generation_header, "01"}
         ],
-        path <- ["/v1/media/installation", "/v1/media/configuration", "/v1/archive-bindings/not-a-uuid/qualification"] do
+        path <- [
+          "/v1/media/installation",
+          "/v1/media/configuration",
+          "/v1/media/init-authorities/not-a-uuid",
+          "/v1/media/init-authorities/not-a-uuid/revoke",
+          "/v1/archive-bindings/not-a-uuid/qualification"
+        ] do
       conn =
         :put
         |> conn(path, "invalid-json")

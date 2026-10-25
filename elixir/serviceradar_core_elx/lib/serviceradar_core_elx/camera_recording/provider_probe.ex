@@ -10,7 +10,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   """
 
   alias ServiceRadar.HTTP.EgressProxy
-  alias ServiceRadarCoreElx.CameraRecording.ProviderProbeHTTP
+  alias ServiceRadarCoreElx.CameraStorage.HTTP
 
   @run_ms 900_000
   @cleanup_ms 180_000
@@ -576,7 +576,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
     timeout = prepared.deadline - now()
 
     if timeout > 0 do
-      ProviderProbeHTTP.request(
+      HTTP.request(
         config,
         prepared.method,
         prepared.url,

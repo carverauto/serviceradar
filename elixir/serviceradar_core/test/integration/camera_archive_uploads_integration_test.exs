@@ -2,6 +2,9 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.ArchiveInitAuthorities
+  alias ServiceRadar.Camera.ArchiveInitAuthority
+  alias ServiceRadar.Camera.ArchiveInitConfig
   alias ServiceRadar.Camera.ArchiveQualificationReceipt
   alias ServiceRadar.Camera.ArchiveQualifications
   alias ServiceRadar.Camera.ArchiveUploadDispatch
@@ -57,6 +60,17 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     binding_id = Ecto.UUID.dump!(binding.id)
 
     on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.camera_archive_init_authorities WHERE archive_binding_id = $1",
+        [binding_id]
+      )
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_archive_init_authorities WHERE archive_binding_id = $1",
+                 [binding_id]
+               )
+
       Repo.query!(
         "DELETE FROM platform.camera_archive_qualification_receipts WHERE archive_binding_id = $1",
         [binding_id]
@@ -994,6 +1008,725 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
                30_000,
                ctx.opts
              )
+  end
+
+  test "init authority retains its original window and consumes revisions before application",
+       ctx do
+    {principal, desired, challenge, context} = init_documents(ctx)
+    assert {:ok, pending} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+    assert pending["state"] == "pending" and pending["applied_revision"] == nil
+    assert pending["remaining_ms"] in 1..30_000
+    assert {:ok, retry} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+    assert Map.delete(retry, "remaining_ms") == Map.delete(pending, "remaining_ms")
+    assert retry["remaining_ms"] <= pending["remaining_ms"]
+    application = %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]}
+    assert {:ok, applied} = ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+    assert applied["applied_revision"] == "1"
+    assert applied["recording_readiness"] == "unavailable"
+    assert applied["archive_readiness"] == "unavailable"
+    assert {:ok, repeated} = ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+    assert repeated["expires_at_ms"] == applied["expires_at_ms"]
+
+    assert {:ok, stored} =
+             fn -> ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts) end
+             |> Task.async()
+             |> Task.await()
+
+    assert Map.delete(stored, "remaining_ms") == Map.delete(applied, "remaining_ms")
+
+    assert {:error, :init_authority_revision_conflict} =
+             ArchiveInitAuthorities.challenge(
+               principal,
+               Map.put(challenge, "storage_boot_id", Ecto.UUID.generate()),
+               ctx.opts
+             )
+
+    assert {:error, :init_authority_origin_mismatch} =
+             ArchiveInitAuthorities.status(
+               %{@installation | deployment_ref: Ecto.UUID.generate()},
+               ctx.binding.id,
+               ctx.opts
+             )
+
+    next_principal = %{principal | generation: 2}
+    next_desired = Map.put(desired, "revision", "2")
+    assert {:ok, parsed} = ArchiveInitConfig.parse(next_principal, next_desired)
+
+    next_challenge =
+      Map.merge(challenge, %{
+        "revision" => "2",
+        "desired_sha256" => parsed.desired_sha256,
+        "storage_boot_id" => Ecto.UUID.generate(),
+        "nonce" => digest("invented-next-challenge")
+      })
+
+    assert {:ok, %{"state" => "pending", "applied_revision" => nil}} =
+             ArchiveInitAuthorities.challenge(next_principal, next_challenge, ctx.opts)
+
+    assert {:error, :init_authority_generation_stale} =
+             ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts)
+
+    assert {:error, :init_authority_generation_stale} =
+             ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+
+    assert {:ok, revoked} =
+             ArchiveInitAuthorities.revoke(next_principal, revoke_document(ctx, "3"), ctx.opts)
+
+    assert revoked["state"] == "revoked" and revoked["applied_revision"] == nil
+
+    assert {:ok, ^revoked} =
+             ArchiveInitAuthorities.revoke(next_principal, revoke_document(ctx, "3"), ctx.opts)
+
+    assert {:error, :init_authority_revision_stale} =
+             ArchiveInitAuthorities.challenge(next_principal, next_challenge, ctx.opts)
+
+    assert {:ok, retained} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
+    assert retained.desired_document == nil and retained.nonce == nil and retained.revision == 3
+    assert context.desired_sha256 == applied["desired_sha256"]
+
+    assert {:error, %Postgrex.Error{postgres: %{code: :restrict_violation}}} =
+             Repo.query("DELETE FROM platform.camera_archive_bindings WHERE id = $1", [
+               Ecto.UUID.dump!(ctx.binding.id)
+             ])
+  end
+
+  test "init authority rejects invalid actors, exact schemas and ambient transactions before writes",
+       ctx do
+    {principal, desired, challenge, _} = init_documents(ctx)
+    application = %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]}
+
+    for opts <- [[], [actor: %{role: :viewer, id: "invented-viewer"}], [actor: %{role: :system}]] do
+      assert {:error, :invalid_init_principal} =
+               ArchiveInitAuthorities.challenge(principal, challenge, opts)
+
+      assert {:error, :invalid_init_principal} =
+               ArchiveInitAuthorities.apply(@installation, application, opts)
+    end
+
+    for invalid <- [
+          Map.put(challenge, "revision", "01"),
+          Map.put(challenge, "schema_version", 1.0),
+          Map.put(challenge, "extra", true),
+          Map.put(challenge, "nonce", "invalid")
+        ] do
+      assert {:error, :invalid_init_challenge} =
+               ArchiveInitAuthorities.challenge(principal, invalid, ctx.opts)
+    end
+
+    assert {:error, :invalid_init_application} =
+             ArchiveInitAuthorities.apply(
+               @installation,
+               Map.put(application, "ready", true),
+               ctx.opts
+             )
+
+    assert {:error, :invalid_init_revocation} =
+             ArchiveInitAuthorities.revoke(
+               @installation,
+               Map.put(revoke_document(ctx, "1"), "revision", 1),
+               ctx.opts
+             )
+
+    assert {:ok, :checked} =
+             Repo.transaction(fn ->
+               assert {:error, :ambient_transaction} =
+                        ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveInitAuthorities.revoke(
+                          @installation,
+                          revoke_document(ctx, "1"),
+                          ctx.opts
+                        )
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.authorize_init(
+                          ctx.lease,
+                          Ecto.UUID.generate(),
+                          principal,
+                          %{},
+                          ctx.opts
+                        )
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.observe_init_verification(
+                          ctx.lease,
+                          Ecto.UUID.generate(),
+                          principal,
+                          %{},
+                          %{},
+                          ctx.opts
+                        )
+
+               :checked
+             end)
+
+    assert {:ok, %{"state" => "not_configured"}} =
+             ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts)
+  end
+
+  test "init application cannot promote failed, stale or retargeted qualification reports", ctx do
+    {principal, desired, _, _} = init_documents(ctx)
+
+    variations = [
+      {put_in(desired, ["qualification_report", "checks", "anonymous_access_denied"], "failed"),
+       :init_authority_report_unqualified},
+      {desired
+       |> put_in(["qualification_report", "issued_at_ms"], 1)
+       |> put_in(["qualification_report", "expires_at_ms"], 2), :init_authority_expired},
+      {put_in(
+         desired,
+         ["qualification_report", "destination", "bucket"],
+         "invented-other-recordings"
+       ), :init_authority_context_mismatch}
+    ]
+
+    for {{changed, reason}, revision} <- Enum.with_index(variations, 1) do
+      desired = Map.put(changed, "revision", Integer.to_string(revision))
+      {challenge, _} = challenge_for(principal, desired)
+      assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+
+      assert {:error, ^reason} =
+               ArchiveInitAuthorities.apply(
+                 @installation,
+                 %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]},
+                 ctx.opts
+               )
+
+      assert {:ok, %{"state" => "pending", "applied_revision" => nil}} =
+               ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts)
+    end
+
+    newer_origin = %{@installation | generation: 2}
+    crossed_desired = Map.put(desired, "revision", "4")
+    {crossed_challenge, _} = challenge_for(principal, crossed_desired)
+    assert {:ok, newer_identity} = ArchiveInitConfig.parse(newer_origin, crossed_desired)
+
+    crossed_challenge =
+      Map.put(crossed_challenge, "desired_sha256", newer_identity.desired_sha256)
+
+    assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, crossed_challenge, ctx.opts)
+
+    assert {:error, :init_authority_context_mismatch} =
+             ArchiveInitAuthorities.apply(
+               newer_origin,
+               %{
+                 "schema_version" => 1,
+                 "desired" => crossed_desired,
+                 "nonce" => crossed_challenge["nonce"]
+               },
+               ctx.opts
+             )
+
+    assert {:ok, %{"state" => "pending", "applied_revision" => nil}} =
+             ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts)
+
+    assert {:ok, %{capability_state: :unqualified}} =
+             Ash.get(ArchiveBinding, ctx.binding.id, ctx.opts)
+  end
+
+  test "one init grant commits once and late verification preserves the original frozen media",
+       ctx do
+    bind(ctx)
+    {principal, context} = install_init(ctx)
+
+    assert {:ok, dispatch} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    results =
+      race(fn _ ->
+        ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+      end)
+
+    assert [{:ok, grant}] = Enum.filter(results, &match?({:ok, _}, &1))
+    assert Enum.count(results, &(&1 == {:error, :init_dispatch_already_marked})) == 7
+    assert grant["remaining_ms"] in 1..5000
+    assert grant["byte_length"] == 1 and grant["object_sha256"] == digest("i")
+    assert grant["local_storage_id"] == ctx.block.storage_id
+    assert grant["object_key"] == "recordings/v1/#{ctx.block.block_key}/init.mp4"
+    assert [marked] = dispatches(ctx)
+
+    assert marked.init_authority_revision == 1 and
+             marked.init_authority_sha256 == context.desired_sha256
+
+    assert marked.init_storage_boot_id == context.storage_boot_id and
+             marked.init_nonce_sha256 == digest(context.nonce)
+
+    assert DateTime.diff(marked.init_deadline_at, marked.marked_at, :millisecond) in 1..5000
+
+    assert {:ok, {:already_marked, _}} =
+             ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+    assert {:ok, _} =
+             ArchiveInitAuthorities.revoke(@installation, revoke_document(ctx, "2"), ctx.opts)
+
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+
+    assert {:ok, replacement} =
+             RecordingBlocks.acquire_upload(ctx.block.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    verification = %{
+      "schema_version" => 1,
+      "put_request_sha256" => digest("invented-signed-request"),
+      "etag" => "\"invented-strong-etag\"",
+      "version_id" => "invented-version",
+      "byte_length" => 1,
+      "object_sha256" => digest("i"),
+      "encryption" => "AES256"
+    }
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.observe_init_verification(
+               replacement,
+               dispatch.id,
+               principal,
+               context,
+               verification,
+               ctx.opts
+             )
+
+    assert {:error, :init_verification_origin_mismatch} =
+             ArchiveUploads.observe_init_verification(
+               ctx.lease,
+               dispatch.id,
+               %{principal | credential_generation: 2},
+               context,
+               verification,
+               ctx.opts
+             )
+
+    for invalid <- [
+          Map.put(verification, "object_sha256", digest("wrong")),
+          Map.put(verification, "byte_length", 2),
+          Map.put(verification, "etag", "W/\"weak\""),
+          Map.put(verification, "encryption", "none"),
+          Map.put(verification, "extra", true)
+        ] do
+      assert {:error, :invalid_init_verification} =
+               ArchiveUploads.observe_init_verification(
+                 ctx.lease,
+                 dispatch.id,
+                 principal,
+                 context,
+                 invalid,
+                 ctx.opts
+               )
+    end
+
+    assert {:ok, first} =
+             ArchiveUploads.observe_init_verification(
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               verification,
+               ctx.opts
+             )
+
+    assert {:ok, retry} =
+             ArchiveUploads.observe_init_verification(
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               verification,
+               ctx.opts
+             )
+
+    assert first.init_verified_at == retry.init_verified_at
+
+    assert {:error, :init_verification_conflict} =
+             ArchiveUploads.observe_init_verification(
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               Map.put(verification, "etag", "\"invented-other-etag\""),
+               ctx.opts
+             )
+
+    assert {:ok, unknown} = ArchiveUploads.observe_unknown(ctx.lease, dispatch.id, ctx.opts)
+
+    assert unknown.init_verification == verification and
+             unknown.init_verified_at == first.init_verified_at
+
+    assert unknown.init_verification_conflict_at != nil and unknown.marked_at == marked.marked_at
+
+    assert {:ok, received} =
+             ArchiveUploads.observe_response(ctx.lease, dispatch.id, %{"status" => 200}, ctx.opts)
+
+    assert received.init_verification == verification and received.unknown_at != nil
+    assert {:ok, block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert block.state == :uploading and block.descriptor == ctx.block.descriptor
+
+    assert {:ok, %{capability_state: :unqualified}} =
+             Ash.get(ArchiveBinding, ctx.binding.id, ctx.opts)
+  end
+
+  test "init grants reject changed boot, local storage, media operation and bookkeeping markers",
+       ctx do
+    bind(ctx)
+    {principal, context} = install_init(ctx)
+
+    assert {:ok, dispatch} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    assert {:error, :init_authority_context_mismatch} =
+             ArchiveUploads.authorize_init(
+               ctx.lease,
+               dispatch.id,
+               principal,
+               %{context | storage_boot_id: Ecto.UUID.generate()},
+               ctx.opts
+             )
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.authorize_init(
+               %{ctx.lease | upload_token: "invented-wrong"},
+               dispatch.id,
+               principal,
+               context,
+               ctx.opts
+             )
+
+    assert {:ok, media} = dispatch(ctx)
+
+    assert {:error, :init_authority_context_mismatch} =
+             ArchiveUploads.authorize_init(ctx.lease, media.id, principal, context, ctx.opts)
+
+    assert Enum.all?(dispatches(ctx), &is_nil(&1.marked_at))
+
+    {principal, context} =
+      install_init(ctx, "2", &Map.put(&1, "local_storage_id", Ecto.UUID.generate()))
+
+    assert {:error, :init_authority_context_mismatch} =
+             ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+
+    {principal, context} = install_init(ctx, "3")
+
+    assert {:ok, {:marked, original}} =
+             ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
+
+    assert {:error, :init_dispatch_already_marked} =
+             ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+
+    assert {:ok, retained} = Ash.get(ArchiveUploadDispatch, dispatch.id, ctx.opts)
+    assert retained.marked_at == original.marked_at and retained.init_authority_revision == nil
+  end
+
+  for {restriction, denial} <- [stop: :recording_stopped, revoke: :init_authority_not_applied] do
+    test "#{restriction} acknowledges only after an in-flight init grant commits", ctx do
+      bind(ctx)
+      {principal, context} = install_init(ctx)
+
+      assert {:ok, dispatch} =
+               ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+      holder = hold_block(ctx)
+      assert_receive {:block_holder, holder_pid}, 5_000
+      assert_receive :block_locked, 5_000
+
+      admission =
+        database_client(:init_grant, fn ->
+          ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+        end)
+
+      assert_receive {:init_grant, admission_pid}, 5_000
+      assert blocked_by?(admission_pid, holder_pid)
+      restriction = unquote(restriction)
+
+      restriction_task =
+        database_client(:restriction, fn ->
+          restrict_init(restriction, ctx)
+        end)
+
+      assert_receive {:restriction, restriction_pid}, 5_000
+      assert blocked_by?(restriction_pid, admission_pid)
+      reference = restriction_task.ref
+      refute_receive {^reference, _}, 0
+      send(holder.pid, :release_block)
+      assert {:ok, :released} = Task.await(holder, 5_000)
+      assert {:ok, %{"status" => "granted"}} = Task.await(admission, 5_000)
+      assert {:ok, _} = Task.await(restriction_task, 5_000)
+
+      expected = unquote(denial)
+
+      assert {:error, ^expected} =
+               ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+
+      assert [marked] = dispatches(ctx)
+      assert marked.marked_at != nil and marked.init_authority_revision == 1
+    end
+  end
+
+  test "authority expiry while waiting on the frozen block rolls back the first marker", ctx do
+    bind(ctx)
+
+    {principal, context} =
+      install_init(ctx, "1", fn desired ->
+        put_in(desired, ["qualification_report", "expires_at_ms"], database_ms() + 2_000)
+      end)
+
+    assert {:ok, dispatch} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    holder = hold_block(ctx)
+    assert_receive {:block_holder, holder_pid}, 5_000
+    assert_receive :block_locked, 5_000
+
+    admission =
+      database_client(:expiring_grant, fn ->
+        ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+      end)
+
+    assert_receive {:expiring_grant, admission_pid}, 5_000
+    assert blocked_by?(admission_pid, holder_pid)
+    Process.sleep(2_100)
+    send(holder.pid, :release_block)
+    assert {:ok, :released} = Task.await(holder, 5_000)
+    assert {:error, :upload_dispatch_expired} = Task.await(admission, 5_000)
+    assert [retained] = dispatches(ctx)
+    assert retained.marked_at == nil and retained.init_authority_revision == nil
+
+    assert {:error, :init_authority_expired} =
+             ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+
+    assert {:ok, block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert block.descriptor == ctx.block.descriptor and block.state == :uploading
+  end
+
+  test "a fractional millisecond cannot commit the only init grant", ctx do
+    bind(ctx)
+    {principal, context} = install_init(ctx)
+
+    assert {:ok, dispatch} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    granted =
+      Enum.reduce_while([500, 2_000, 8_000, 20_000, 80_000, 250_000], false, fn lead, _ ->
+        assert %{num_rows: 1} = shift_dispatch_deadline(dispatch.id, lead)
+
+        case ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts) do
+          {:ok, grant} ->
+            assert grant["remaining_ms"] in 1..5000
+            assert [marked] = dispatches(ctx)
+            assert DateTime.diff(marked.init_deadline_at, marked.marked_at, :millisecond) >= 1
+            {:halt, true}
+
+          {:error, :upload_dispatch_expired} ->
+            assert [retained] = dispatches(ctx)
+            assert retained.marked_at == nil and retained.init_authority_revision == nil
+            {:cont, false}
+
+          other ->
+            flunk("short init grant returned #{inspect(other)}")
+        end
+      end)
+
+    if granted == false do
+      assert %{num_rows: 1} = restore_dispatch_deadline(dispatch.id)
+
+      assert {:ok, grant} =
+               ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+
+      assert grant["remaining_ms"] in 1..5000
+      assert [marked] = dispatches(ctx)
+      assert marked.marked_at != nil and marked.init_authority_revision == 1
+    end
+  end
+
+  test "a fractional millisecond cannot apply an init authority", ctx do
+    {principal, desired, challenge, _} = init_documents(ctx)
+    assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+    application = %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]}
+
+    applied =
+      Enum.reduce_while([500, 2_000, 8_000, 20_000, 80_000, 250_000], false, fn lead, _ ->
+        assert %{num_rows: 1} = shift_authority_expiry(ctx.binding.id, lead)
+
+        case ArchiveInitAuthorities.apply(@installation, application, ctx.opts) do
+          {:ok, %{"state" => "applied"}} ->
+            assert {:ok, authority} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
+            assert DateTime.diff(authority.expires_at, authority.applied_at, :millisecond) >= 1
+            {:halt, true}
+
+          {:error, :init_authority_expired} ->
+            assert {:ok, %{state: :pending, applied_at: nil}} =
+                     Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
+
+            {:cont, false}
+
+          other ->
+            flunk("short init application returned #{inspect(other)}")
+        end
+      end)
+
+    if applied == false do
+      assert %{num_rows: 1} = restore_authority_expiry(ctx.binding.id)
+
+      assert {:ok, %{"state" => "applied"}} =
+               ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+
+      assert {:ok, authority} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
+      assert DateTime.diff(authority.expires_at, authority.applied_at, :millisecond) >= 1
+    end
+  end
+
+  defp restrict_init(:stop, ctx),
+    do: RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+  defp restrict_init(:revoke, ctx),
+    do: ArchiveInitAuthorities.revoke(@installation, revoke_document(ctx, "2"), ctx.opts)
+
+  defp shift_dispatch_deadline(id, lead_us) do
+    Repo.query!(
+      "UPDATE platform.camera_archive_upload_dispatches " <>
+        "SET deadline_at = clock_timestamp() + ($2 * interval '1 microsecond') WHERE id = $1",
+      [Ecto.UUID.dump!(id), lead_us]
+    )
+  end
+
+  defp restore_dispatch_deadline(id) do
+    Repo.query!(
+      "UPDATE platform.camera_archive_upload_dispatches " <>
+        "SET deadline_at = prepared_at + interval '20 seconds' WHERE id = $1",
+      [Ecto.UUID.dump!(id)]
+    )
+  end
+
+  defp shift_authority_expiry(id, lead_us) do
+    Repo.query!(
+      "UPDATE platform.camera_archive_init_authorities " <>
+        "SET expires_at = clock_timestamp() + ($2 * interval '1 microsecond') " <>
+        "WHERE archive_binding_id = $1 AND state = 'pending'",
+      [Ecto.UUID.dump!(id), lead_us]
+    )
+  end
+
+  defp restore_authority_expiry(id) do
+    Repo.query!(
+      "UPDATE platform.camera_archive_init_authorities " <>
+        "SET expires_at = issued_at + interval '20 seconds' " <>
+        "WHERE archive_binding_id = $1 AND state = 'pending'",
+      [Ecto.UUID.dump!(id)]
+    )
+  end
+
+  defp database_ms do
+    %{rows: [[now]]} =
+      Repo.query!("SELECT floor(extract(epoch FROM clock_timestamp()) * 1000)::bigint")
+
+    now
+  end
+
+  defp init_documents(ctx, revision \\ "1", transform \\ &Function.identity/1) do
+    principal =
+      Map.merge(@installation, %{
+        storage_service_id: "storage-worker-example",
+        credential_reference: "storage-key-example",
+        credential_generation: 1
+      })
+
+    now = database_ms()
+
+    checks =
+      ~w(intended_operations anonymous_access_denied foreign_environment_access_denied recorder_privilege_boundary reader_privilege_boundary private_acl_policy endpoint_tls_redirect_boundary browser_cors put_aes256_attestation multipart_aes256_attestation put_missing_aes256_denied put_noncompliant_aes256_denied multipart_missing_aes256_denied multipart_noncompliant_aes256_denied atomic_put_no_overwrite atomic_completion_no_overwrite integrity_object_identity conditional_ranges multipart_recovery)
+
+    desired = %{
+      "schema_version" => 1,
+      "revision" => revision,
+      "binding_id" => ctx.binding.id,
+      "local_storage_id" => ctx.block.storage_id,
+      "operation" => "init_put_verified_v1",
+      "protection_mode" => "sse_s3_aes256",
+      "limits" => %{
+        "max_init_bytes" => 1_048_576,
+        "max_operation_ms" => 5000,
+        "max_in_flight" => 1
+      },
+      "qualification_report" => %{
+        "schema_version" => 1,
+        "binding_id" => ctx.binding.id,
+        "destination" => Fixtures.archive_destination(ctx.binding.provisioning_ref),
+        "provider_resource_id" => "region-example/bucket-example",
+        "endpoint_type" => "endpoint-class-example",
+        "credential" => %{
+          "reference" => principal.credential_reference,
+          "generation" => 1,
+          "storage_service_id" => principal.storage_service_id
+        },
+        "policy_revision" => "policy-example",
+        "operation_mode" => "mediated_immutable_archive_v1",
+        "issued_at_ms" => now - 1_000,
+        "expires_at_ms" => now + 60_000,
+        "result_ref" => "report-example",
+        "checks" => Map.new(checks, &{&1, "passed"})
+      }
+    }
+
+    desired = transform.(desired)
+    {challenge, context} = challenge_for(principal, desired)
+    {principal, desired, challenge, context}
+  end
+
+  defp challenge_for(principal, desired) do
+    assert {:ok, parsed} = ArchiveInitConfig.parse(principal, desired)
+    boot = Ecto.UUID.generate()
+    nonce = digest(Ecto.UUID.generate())
+
+    {%{
+       "schema_version" => 1,
+       "revision" => desired["revision"],
+       "binding_id" => desired["binding_id"],
+       "desired_sha256" => parsed.desired_sha256,
+       "storage_boot_id" => boot,
+       "nonce" => nonce
+     },
+     %{
+       desired_sha256: parsed.desired_sha256,
+       storage_boot_id: boot,
+       nonce: digest("grant:" <> nonce)
+     }}
+  end
+
+  defp install_init(ctx, revision \\ "1", transform \\ &Function.identity/1) do
+    {principal, desired, challenge, context} = init_documents(ctx, revision, transform)
+    assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+
+    assert {:ok, %{"state" => "applied"}} =
+             ArchiveInitAuthorities.apply(
+               @installation,
+               %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]},
+               ctx.opts
+             )
+
+    {principal, context}
+  end
+
+  defp revoke_document(ctx, revision),
+    do: %{"schema_version" => 1, "binding_id" => ctx.binding.id, "revision" => revision}
+
+  defp hold_block(ctx) do
+    parent = self()
+
+    database_client(:block_holder, fn ->
+      Repo.transaction(fn ->
+        Repo.query!("SELECT id FROM platform.camera_recording_blocks WHERE id = $1 FOR UPDATE", [
+          Ecto.UUID.dump!(ctx.block.id)
+        ])
+
+        send(parent, :block_locked)
+
+        receive do
+          :release_block -> :released
+        after
+          15_000 -> flunk("test block lock was not released")
+        end
+      end)
+    end)
   end
 
   defp stop_document(revision \\ "1"),

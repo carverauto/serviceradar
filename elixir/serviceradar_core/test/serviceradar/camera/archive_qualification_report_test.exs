@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Camera.ArchiveInitAuthorities
+  alias ServiceRadar.Camera.ArchiveInitConfig
   alias ServiceRadar.Camera.ArchiveQualificationReport
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
 
@@ -158,6 +160,117 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
       assert {:error, :invalid_archive_qualification_report} =
                input |> put_in(["credential", field], value) |> ArchiveQualificationReport.parse()
     end
+  end
+
+  test "init configuration binds the complete document and installed origin to an independent digest" do
+    origin = %{
+      deployment_ref: "33333333-3333-4333-8333-333333333333",
+      generation: 9_007_199_254_740_993
+    }
+
+    document = init_configuration()
+    assert {:ok, parsed} = ArchiveInitConfig.parse(origin, document)
+
+    assert parsed.desired_sha256 ==
+             "640efa2bc7fa06e27032c7a3ca6bd90c13de0dcea404fc0db3ab100a833d3a26"
+
+    assert parsed.revision == 9_007_199_254_740_993
+
+    assert parsed.report_sha256 ==
+             "5b4fede25e7a08387c8a2844f7964c65d8241368350f9510f5dda7d3c369eb67"
+
+    assert parsed.document == document
+
+    for {installed, changed} <- [
+          {%{origin | generation: origin.generation + 1}, document},
+          {%{origin | deployment_ref: "44444444-4444-4444-8444-444444444444"}, document},
+          {origin, Map.put(document, "revision", "9007199254740994")},
+          {origin, Map.put(document, "local_storage_id", "55555555-5555-4555-8555-555555555555")},
+          {origin, put_in(document, ["limits", "max_operation_ms"], 4999)},
+          {origin, put_in(document, ["qualification_report", "credential", "generation"], 2)}
+        ] do
+      assert {:ok, different} = ArchiveInitConfig.parse(installed, changed)
+      refute different.desired_sha256 == parsed.desired_sha256
+    end
+
+    # Format identity is not eligibility: this intentionally expired diagnostic
+    # report still contains failed/unsupported claims, retained unchanged.
+    assert parsed.report["checks"]["put_missing_aes256_denied"] == "failed"
+  end
+
+  test "init configuration rejects ambiguous revisions and unsupported operation limits" do
+    origin = %{deployment_ref: "33333333-3333-4333-8333-333333333333", generation: 1}
+    document = init_configuration()
+
+    for invalid <-
+          [
+            Map.delete(document, "local_storage_id"),
+            Map.put(document, "extra", true),
+            Map.put(document, "schema_version", 1.0),
+            Map.put(document, "operation", "media_put"),
+            Map.put(document, "protection_mode", "none"),
+            Map.put(document, "binding_id", "22222222-2222-4222-8222-222222222222"),
+            Map.put(document, "local_storage_id", "not-a-uuid"),
+            put_in(document, ["limits", "max_init_bytes"], 1_048_577),
+            put_in(document, ["limits", "max_operation_ms"], 5001),
+            put_in(document, ["limits", "max_operation_ms"], 1.0),
+            put_in(document, ["limits", "max_in_flight"], 2),
+            put_in(document, ["limits", "max_in_flight"], 1.0),
+            update_in(document, ["limits"], &Map.put(&1, "extra", 1))
+          ] ++
+            Enum.map(
+              [1, "0", "01", "+1", "1.0", "9223372036854775808"],
+              &Map.put(document, "revision", &1)
+            ) do
+      assert {:error, :invalid_init_configuration} = ArchiveInitConfig.parse(origin, invalid)
+    end
+
+    for invalid <- [
+          %{},
+          %{origin | generation: 0},
+          %{origin | generation: 1.0},
+          %{origin | deployment_ref: "invalid"}
+        ] do
+      assert {:error, :invalid_init_configuration} = ArchiveInitConfig.parse(invalid, document)
+    end
+  end
+
+  test "a deadline admits a write only when a whole millisecond remains" do
+    now = DateTime.from_unix!(1_700_000_000_000_000, :microsecond)
+
+    for offset <- [-1, 0, 1, 500, 999] do
+      assert :expired =
+               ArchiveInitAuthorities.operation_budget(
+                 DateTime.add(now, offset, :microsecond),
+                 now
+               )
+    end
+
+    assert {:ok, 1} =
+             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 1_000, :microsecond), now)
+
+    assert {:ok, 1} =
+             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 1_500, :microsecond), now)
+
+    assert {:ok, 2} =
+             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 2_000, :microsecond), now)
+  end
+
+  defp init_configuration do
+    %{
+      "schema_version" => 1,
+      "revision" => "9007199254740993",
+      "binding_id" => "11111111-1111-4111-8111-111111111111",
+      "local_storage_id" => "22222222-2222-4222-8222-222222222222",
+      "qualification_report" => report(),
+      "operation" => "init_put_verified_v1",
+      "protection_mode" => "sse_s3_aes256",
+      "limits" => %{
+        "max_init_bytes" => 1_048_576,
+        "max_operation_ms" => 5000,
+        "max_in_flight" => 1
+      }
+    }
   end
 
   defp report do

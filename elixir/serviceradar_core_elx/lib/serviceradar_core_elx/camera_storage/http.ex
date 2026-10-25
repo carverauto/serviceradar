@@ -1,5 +1,12 @@
-defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeHTTP do
-  @moduledoc false
+defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
+  @moduledoc """
+  One bounded HTTPS exchange for the isolated storage service and its diagnostic.
+
+  The caller owns authorization, signing and the total operation deadline. This
+  transport owns its socket, never retries or follows redirects, and buffers at
+  most the caller's response ceiling. Provider verification reads use the shared
+  exact-range egress contract.
+  """
 
   alias ServiceRadar.HTTP.EgressClient
 
@@ -13,6 +20,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeHTTP do
 
     {pid, monitor} =
       spawn_monitor(fn ->
+        # The socket owner remains bounded even if its waiting caller exits.
+        {:ok, timer} = :timer.exit_after(timeout, self(), :request_timeout)
+
         result =
           try do
             execute(config, method, url, headers, body, timeout, max_bytes, range)
@@ -20,6 +30,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeHTTP do
             _ -> {:error, :transport_error}
           catch
             _, _ -> {:error, :transport_error}
+          after
+            :timer.cancel(timer)
           end
 
         send(caller, {token, result})
@@ -29,6 +41,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeHTTP do
       {^token, result} ->
         Process.demonitor(monitor, [:flush])
         result
+
+      {:DOWN, ^monitor, :process, ^pid, :request_timeout} ->
+        {:error, :request_timeout}
 
       {:DOWN, ^monitor, :process, ^pid, _} ->
         {:error, :transport_error}
@@ -42,9 +57,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeHTTP do
   end
 
   defp execute(config, :get, url, headers, _body, timeout, max_bytes, {first, last, size, etag}) do
+    execute(config, :get, url, headers, nil, timeout, max_bytes, {first, last, size, etag, nil})
+  end
+
+  defp execute(config, :get, url, headers, _body, timeout, max_bytes, {first, last, size, etag, version}) do
     EgressClient.fetch_range(url, {first, last},
       expected_size: size,
       expected_etag: etag,
+      expected_version: version,
       max_bytes: max_bytes,
       headers: Enum.reject(headers, fn {key, _} -> key in ~w(range if-match accept-encoding) end),
       proxy: config.proxy,
@@ -61,7 +81,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeHTTP do
       mode: :passive,
       protocols: [:http1],
       max_header_list_size: @header_limit,
-      transport_opts: [cacerts: config.cacerts, timeout: timeout]
+      transport_opts: [cacerts: config.cacerts, timeout: timeout] ++ Map.get(config, :client_tls, [])
     ]
 
     options =

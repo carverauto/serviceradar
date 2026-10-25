@@ -571,9 +571,103 @@ targets were skipped. The run completed successfully without source changes or
 a restart after a delayed remote Go compile response. This includes the restored
 HTTP owner, migration/Helm agreement, test routing and image checks.
 
-Actual final-head database execution remains mandatory: four new archive-upload
-owner cases (origin/revision, preservation, real-session ordering and missing-row
-initialization), the worker drain/seal/live-view case and the new HTTP persistence
-case, plus existing recorder/block/upload/qualification assertions. The approved
-prepublication exception does not waive final in-cluster Core/Web CI, fixture
-lifecycle success or exact-head verification. No provider or live rollout ran.
+The required final-head database execution passed for published head `fb6c740f`
+in [PR #5989](https://github.com/carverauto/serviceradar/pull/5989), subsequently
+merged at `b06d0b6b12e42519aa0bda8157692feedbffd12d`. All 20 checks passed.
+The [Core suite](https://carverauto.buildbuddy.io/invocation/e00f8d32-c39e-4d96-a91b-ec76e74c7d6f)
+executed all 12 targets and the [Web suite](https://carverauto.buildbuddy.io/invocation/2602f4c1-2649-4981-80a6-7914dabbe78d)
+executed all seven. Both parents reported zero suite, observer, teardown and
+release statuses.
+
+The tested prospective staging merge assigns the four new archive-upload cases
+to Core serial lane 6 (243 tests, zero failures, eight unrelated exclusions) and
+the worker drain case to lane 4 (392 tests, zero failures). Registration, explicit
+integration inclusion and absence of case skips establish their coverage; the
+Core console is aggregate output, not an individual case trace. Web shard 0
+reported 820 tests and two properties with zero failures and explicitly traced
+the new HTTP persistence case completing in 172.7 milliseconds. The approved
+prepublication exception was therefore satisfied by actual guarded execution.
+No provider or live rollout ran.
+
+Cloud [PR #187](https://github.com/carverauto/serviceradar-control/pull/187)
+merged at `a55f904cd9f929a58e133ca02c9b6dbe58323b73`. Its final CI used the
+sanctioned Timescale fixture and reported 3230 tests, zero failures and 10 skips;
+all 17 required owner cases were enabled. Earlier proxy-local PostgreSQL testing
+was a workflow deviation, not a substitute for this CI. Exact local aliases were
+not rerun and temporary-directory removal was not independently verified; the
+PR retains those limits. This validates installation/chart persistence only.
+
+## Isolated init-object authority
+
+This checkpoint adds one nonrenewable installed authority window and one fresh
+conditional init PUT per existing dispatch. It retains exact verification as
+separate evidence; recording, archive publication and local reclamation remain
+unavailable. No live provider, bucket, deployment or camera operation ran.
+
+Focused validation before integration:
+
+- [Core quality and integration-source compilation](https://carverauto.buildbuddy.io/invocation/1520ac21-e52e-4135-ad6a-eefefb426865)
+  passed. The compile owner reported zero executed tests and 132 exclusions.
+  Its eight new database cases are that pre-fix compile's historical scope:
+  those bodies stayed excluded and did not execute. The two deadline cases
+  added with the review corrections below were outside this invocation. The
+  [database-free owner](https://carverauto.buildbuddy.io/invocation/f03fc020-eb6e-4af1-b8b2-3edf4c882457)
+  also passed.
+- [Web TLS, quality and routing contracts](https://carverauto.buildbuddy.io/invocation/6f611c6b-7700-4e96-a418-103630b924b2)
+  passed: 830 tests, zero failures and 222 exclusions. Three new database-free
+  cases use real TLS sockets. The new boxed HTTP/database roundtrip is excluded
+  here and must execute in guarded Web CI.
+- [Storage runtime and quality](https://carverauto.buildbuddy.io/invocation/529180f7-7332-4c08-ba1b-557ea03eb7da)
+  passed all 15 cases. The
+  [packaged release smoke test](https://carverauto.buildbuddy.io/invocation/f6227e4c-1192-455e-b104-e2cd168ff0f3)
+  passed the original probe startup assertions and isolated storage's real TLS
+  authentication/startup behavior. The
+  [existing provider probe](https://carverauto.buildbuddy.io/invocation/5717b5e6-74d9-4c9a-95fd-521e202c2a78)
+  retained all 16 passing cases.
+- [Helm rendering](https://carverauto.buildbuddy.io/invocation/9e82a6fa-8e80-411c-b1c8-061cb9b9cd1f)
+  passed 410 cases. The new semantic render cases exercise default absence,
+  credential projections, private ports, required configuration, process
+  isolation and narrow network policy even with broad custom selectors.
+
+The provider wire-identity assertion exposed a transport-added User-Agent after
+signing. The runtime now supplies that header before signing and hashing; the
+independent server-observed digest assertion remains. Release startup testing
+also rejected an incorrectly generated synthetic client certificate; the fixture
+now uses a proper CA-signed leaf without changing production TLS policy.
+Independent review found that apply needed exact challenged-generation equality
+in addition to digest equality. That guard and its crossed-generation regression
+are included. A Helm case initially selected the wrong rendered resource name;
+its selector was corrected without dropping the network-policy assertion.
+
+Integrated remote `make test`
+[8c77cc64](https://carverauto.buildbuddy.io/invocation/8c77cc64-cffa-4ca6-9e0e-0e6c526c5225)
+passed 460 targets: 63 executed, 397 used cache and two Swift platform targets
+were skipped. This includes generated schema agreement, migration/chart version
+`20261025020000`, the complete Helm suite, test routing and integrated application
+owners. Strict OpenSpec validation also passed. All existing assertions remain.
+
+Review corrections require a positive whole-millisecond remainder before an
+authority apply or grant write, finish HEAD/range verification before the
+separately bounded evidence callbacks, and reject surrounding whitespace in web
+token files. No existing assertion was removed. The deadline budget owner,
+actual storage HTTPS flow and listener installation checks each fail when their
+faulty behavior is reinstated in
+[5af88402](https://carverauto.buildbuddy.io/invocation/5af88402-9f6b-4f99-ab3b-3c99ea6ab589).
+The failures respectively report a zero-millisecond admission, unavailable
+verification, and a missing rejection of padded credentials. The three source
+owners were restored byte-for-byte before formatting and positive validation.
+
+With those corrections, full remote `make test`
+[e901eb3e](https://carverauto.buildbuddy.io/invocation/e901eb3e-f6b1-4942-b443-e585383c9e01)
+passed 460 targets: 52 executed, 408 used cache and two Swift platform targets
+were skipped. All three regression owners, Elixir quality, packaged startup and
+the multiarch image contract passed. Two additional database cases check that
+short deadlines leave pending authority and dispatch state unconsumed.
+
+Publication through no-mistakes and actual guarded database execution on the
+final published head remain outstanding at this authored checkpoint. Required
+database coverage is ten cases in the existing archive-upload owner plus the
+new actual private-TLS HTTP roundtrip. Compilation and excluded bodies are not
+execution evidence. Both guarded lifecycles, their actual suites and cleanup
+must pass before this change is ready for review. These synthetic checks do not
+qualify a live provider or complete any broad runtime/Cloud acceptance task.

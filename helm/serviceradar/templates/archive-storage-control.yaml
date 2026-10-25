@@ -1,0 +1,36 @@
+{{- $web := default (dict) .Values.webNg -}}
+{{- $storage := default (dict) $web.archiveStorage -}}
+{{- if and (ne (toString $web.enabled) "false") $storage.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-archive-storage-control
+spec:
+  type: ClusterIP
+  selector:
+    app: serviceradar-web-ng
+  ports:
+    - name: archive-storage
+      port: {{ $storage.port }}
+      targetPort: archive-storage
+{{- if (default (dict) .Values.networkPolicy).enabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: serviceradar-archive-storage-control
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-web-ng
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-media-storage
+      ports:
+        - protocol: TCP
+          port: {{ $storage.port }}
+{{- end }}
+{{- end }}

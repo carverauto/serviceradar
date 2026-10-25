@@ -208,6 +208,26 @@ write_source_files(
     tags = ["manual"],
 )
 
+ash_schema(
+    name = "camera_init_authority_schema",
+    outs = ["generated_camera_init_authority/authority.json", "generated_camera_init_authority/dispatch.json", "generated_camera_init_authority/migration.exs"],
+    srcs = ["priv/resource_snapshots/repo/platform.camera_archive_upload_dispatches/20261024070623.json"],
+    app = ":erlang_app",
+    generator = "//build:camera_init_authority_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_init_authority_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_archive_init_authorities/20261025020000.json": ":generated_camera_init_authority/authority.json",
+        "priv/resource_snapshots/repo/platform.camera_archive_upload_dispatches/20261025020000.json": ":generated_camera_init_authority/dispatch.json",
+        "priv/repo/migrations/20261025020000_add_camera_init_authority.exs": ":generated_camera_init_authority/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.
