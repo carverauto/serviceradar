@@ -8,8 +8,8 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   future request. Dispatch marking is committed before returning, and only the
   first caller receives `:marked`; a retry receives `:already_marked`. This is
   local coordination evidence, not provider qualification or permission to send.
-  No provider adapter is wired here. A future adapter must separately require a
-  qualified destination before any external I/O.
+  Only `authorize_init/5` adds a current, short-lived init authority grant to
+  that same marker. Ordinary bookkeeping markers never authorize provider I/O.
 
   Observation methods retain bounded facts from the original trusted internal
   actor and lease, even after that lease expires or is replaced. Unknown and a
@@ -17,6 +17,8 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   """
   alias Ash.Error.Query.InvalidArgument
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.ArchiveCanonicalJSON
+  alias ServiceRadar.Camera.ArchiveInitAuthorities
   alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.ArchiveUploadIntent
   alias ServiceRadar.Camera.RecordingBlocks
@@ -71,11 +73,8 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
           RecordingBlocks.with_current_upload(
             lease,
             fn block ->
-              with {:ok, dispatch} <- lock_dispatch(dispatch_id, opts),
-                   {:ok, intent} <- matching_origin(dispatch, lease, actor_id, opts),
-                   {:ok, derived} <- prepare_locked(block, intent.object_role, opts),
-                   true <- derived.id == intent.id || {:error, :archive_upload_dispatch_conflict},
-                   :ok <- matching_request(dispatch, derived) do
+              with {:ok, dispatch, _intent} <-
+                     current_dispatch(block, lease, dispatch_id, actor_id, opts) do
                 mark_locked(dispatch, opts)
               end
             end,
@@ -85,6 +84,221 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
         end,
         opts
       )
+    end
+  end
+
+  @doc "Commits the existing first marker with current init authority; only this fresh result grants I/O."
+  def authorize_init(lease, dispatch_id, principal, context, opts \\ []) do
+    result =
+      with :ok <- outside_transaction(),
+           {:ok, actor_id} <- dispatcher(opts),
+           {:ok, retained} <- get_dispatch(dispatch_id, opts),
+           {:ok, intent} <- matching_origin(retained, lease, actor_id, opts) do
+        RecordingControl.with_admission(
+          fn ->
+            ArchiveInitAuthorities.with_current(
+              intent.archive_binding_id,
+              principal,
+              context,
+              fn authority ->
+                deadline =
+                  earliest([
+                    retained.deadline_at,
+                    authority.expires_at,
+                    DateTime.add(
+                      authority.database_now,
+                      authority.desired_document["limits"]["max_operation_ms"],
+                      :millisecond
+                    )
+                  ])
+
+                RecordingBlocks.with_current_upload(
+                  lease,
+                  fn block ->
+                    with {:ok, dispatch, frozen} <-
+                           current_dispatch(block, lease, dispatch_id, actor_id, opts),
+                         :ok <- init_context(dispatch, frozen, block, authority),
+                         true <-
+                           is_nil(dispatch.marked_at) || {:error, :init_dispatch_already_marked} do
+                      grant_init(
+                        dispatch,
+                        frozen,
+                        block,
+                        authority,
+                        context,
+                        earliest([deadline, block.upload_expires_at]),
+                        opts
+                      )
+                    end
+                  end,
+                  deadline,
+                  opts
+                )
+              end,
+              opts
+            )
+          end,
+          opts
+        )
+      end
+
+    bounded_init_result(result)
+  rescue
+    _ in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, :init_authority_storage_unavailable}
+  end
+
+  @doc "Retains exact init verification under the original grant, including after revocation or expiry."
+  def observe_init_verification(lease, dispatch_id, principal, context, verification, opts \\ []) do
+    result =
+      with {:ok, fingerprint} <- ArchiveInitAuthorities.principal_sha256(principal) do
+        observe(lease, dispatch_id, opts, fn dispatch ->
+          with :ok <- verification_origin(dispatch, fingerprint, context),
+               {:ok, intent} <-
+                 Ash.get(ArchiveUploadIntent, dispatch.archive_upload_intent_id, opts),
+               :ok <- valid_verification(verification, intent) do
+            retain_verification(dispatch, verification, opts)
+          end
+        end)
+      end
+
+    bounded_init_result(result)
+  rescue
+    _ in [DBConnection.ConnectionError, Postgrex.Error] ->
+      {:error, :init_authority_storage_unavailable}
+  end
+
+  defp bounded_init_result({:ok, _} = result), do: result
+  defp bounded_init_result({:error, reason} = result) when is_atom(reason), do: result
+  defp bounded_init_result(_), do: {:error, :init_authority_storage_unavailable}
+
+  defp current_dispatch(block, lease, id, actor_id, opts) do
+    with {:ok, dispatch} <- lock_dispatch(id, opts),
+         {:ok, intent} <- matching_origin(dispatch, lease, actor_id, opts),
+         {:ok, derived} <- prepare_locked(block, intent.object_role, opts),
+         true <- derived.id == intent.id || {:error, :archive_upload_dispatch_conflict},
+         :ok <- matching_request(dispatch, derived) do
+      {:ok, dispatch, derived}
+    end
+  end
+
+  defp init_context(dispatch, intent, block, authority) do
+    if dispatch.operation == :put_object and intent.object_role == :init and
+         block.storage_id == authority.desired_document["local_storage_id"] and
+         intent.byte_length <= authority.desired_document["limits"]["max_init_bytes"],
+       do: :ok,
+       else: {:error, :init_authority_context_mismatch}
+  end
+
+  defp grant_init(dispatch, intent, block, authority, context, deadline, opts) do
+    attrs = %{
+      marked_at: dispatch.database_now,
+      init_authority_revision: authority.revision,
+      init_authority_sha256: authority.desired_sha256,
+      init_storage_boot_id: context.storage_boot_id,
+      init_nonce_sha256: digest(context.nonce),
+      init_principal_sha256: authority.principal_sha256,
+      init_deadline_at: deadline
+    }
+
+    with true <-
+           DateTime.after?(deadline, dispatch.database_now) || {:error, :upload_dispatch_expired},
+         {:ok, _} <- update(dispatch, :grant_init, attrs, opts) do
+      {:ok,
+       %{
+         "schema_version" => 1,
+         "status" => "granted",
+         "dispatch_id" => dispatch.id,
+         "binding_id" => authority.archive_binding_id,
+         "revision" => Integer.to_string(authority.revision),
+         "desired_sha256" => authority.desired_sha256,
+         "storage_boot_id" => context.storage_boot_id,
+         "nonce" => context.nonce,
+         "remaining_ms" => DateTime.diff(deadline, dispatch.database_now, :millisecond),
+         "request_sha256" => dispatch.request_sha256,
+         "object_key" => intent.object_key,
+         "byte_length" => intent.byte_length,
+         "object_sha256" => intent.object_sha256,
+         "descriptor_sha256" => intent.descriptor_sha256,
+         "local_storage_id" => block.storage_id
+       }}
+    end
+  end
+
+  defp earliest(times), do: Enum.min_by(times, &DateTime.to_unix(&1, :microsecond))
+
+  defp verification_origin(
+         dispatch,
+         fingerprint,
+         %{storage_boot_id: boot, desired_sha256: sha, nonce: nonce} = context
+       )
+       when map_size(context) == 3 and is_binary(nonce) do
+    if dispatch.init_principal_sha256 == fingerprint and dispatch.init_storage_boot_id == boot and
+         dispatch.init_authority_sha256 == sha and dispatch.init_nonce_sha256 == digest(nonce),
+       do: :ok,
+       else: {:error, :init_verification_origin_mismatch}
+  end
+
+  defp verification_origin(_, _, _), do: {:error, :init_verification_origin_mismatch}
+
+  defp valid_verification(
+         %{
+           "schema_version" => 1,
+           "put_request_sha256" => wire_sha,
+           "etag" => etag,
+           "version_id" => version,
+           "byte_length" => length,
+           "object_sha256" => sha,
+           "encryption" => "AES256"
+         } = value,
+         intent
+       )
+       when map_size(value) == 7 do
+    valid =
+      is_binary(wire_sha) and Regex.match?(~r/\A[0-9a-f]{64}\z/, wire_sha) and
+        is_binary(etag) and byte_size(etag) in 3..256 and Regex.match?(~r/\A"[!#-~]+"\z/, etag) and
+        (is_nil(version) or bounded_text?(version, 1024)) and is_integer(length) and
+        length in 1..1_048_576 and length == intent.byte_length and sha == intent.object_sha256
+
+    if valid, do: :ok, else: {:error, :invalid_init_verification}
+  end
+
+  defp valid_verification(_, _), do: {:error, :invalid_init_verification}
+
+  defp retain_verification(dispatch, verification, opts) do
+    sha = verification |> ArchiveCanonicalJSON.encode() |> digest()
+
+    cond do
+      dispatch.init_verification_conflict_at ->
+        {:error, :init_verification_conflict}
+
+      is_nil(dispatch.init_verified_at) ->
+        update(
+          dispatch,
+          :verify_init,
+          %{
+            init_verification: verification,
+            init_verification_sha256: sha,
+            init_verified_at: dispatch.database_now
+          },
+          opts
+        )
+
+      dispatch.init_verification == verification and dispatch.init_verification_sha256 == sha ->
+        {:ok, dispatch}
+
+      true ->
+        with {:ok, _} <-
+               update(
+                 dispatch,
+                 :conflict_init_verification,
+                 %{
+                   init_verification_conflict_at: dispatch.database_now,
+                   init_verification_conflict_sha256: sha
+                 },
+                 opts
+               ),
+             do: {:ok, :init_verification_conflict_committed}
     end
   end
 
@@ -348,6 +562,9 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
       end
     end)
     |> case do
+      {:ok, {:ok, :init_verification_conflict_committed}} ->
+        {:error, :init_verification_conflict}
+
       {:ok, {:ok, :response_conflict_committed}} ->
         {:error, :archive_upload_response_conflict}
 
