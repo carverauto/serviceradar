@@ -785,15 +785,19 @@ regular single-link preflight pass the final positive runs above.
 
 An earlier [full sweep](https://carverauto.buildbuddy.io/invocation/33f0eddd-ad10-4b9c-9fc0-f083c0b80a33)
 failed on local disk exhaustion and is not success evidence. The final sweep
-ran after space was restored. Guarded database execution is still required on
-the published head: the current owning target is
-`//elixir/serviceradar_core:integration_tests_serial_4`, with all six recorder
-worker cases (four retained, two new). These source checks do not establish
-provider readiness, physical-volume identity or live deployment acceptance.
+ran after space was restored. Recomputing the checked-in serial partition from
+module weights still places `RecordingWorkerIntegrationTest` on
+`//elixir/serviceradar_core:integration_tests_serial_4`. CI readiness on the
+published head requires that lane to execute all six recorder worker cases
+(four retained, two new) and requires the full selected Core and Web database
+lifecycles, including cleanup and fixture-generation lease release. Those cases
+execute generated synthetic media. They do not establish provider readiness,
+physical-volume identity, or deployed-camera validation.
 
 The first publication run stopped before push. Its preserved document/format
-commit `8b4d8fea` is replayed on this branch as `6fee12020d` with the same tree,
-on the author feature head `8fc730f53a`. Subsequent reconciliation only updates
-the handoff documents. No runtime behavior or test assertion changed during
-this recovery, and no new test execution is claimed. Fresh no-mistakes
-validation and the published-head guarded database gate remain required.
+commit `8b4d8fea` was replayed as `6fee12020d` with the same tree, on the author
+feature head `8fc730f53a`. Subsequent reconciliation only updated the handoff
+documents. This staging rebase keeps that attestation and does not claim a new
+test run. No runtime behavior or test assertion changed during this recovery.
+Fresh no-mistakes validation and the published-head database gate above remain
+required.

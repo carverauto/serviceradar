@@ -80,9 +80,11 @@ physical volume. Cloud must establish that association separately.
 root/marker substitution, unchanged error evidence and restart recovery.
 `RecordingWorkerIntegrationTest` owns startup refusal before persisted recorder
 authority and rejection during real synthetic media delivery without freezing a
-block or interrupting a viewer. Its guarded database lane remains mandatory on
-the published head. Existing media, RTSP, browser, manifest-byte and lifecycle
-assertions remain required.
+block or interrupting a viewer. CI readiness still requires its recomputed
+`integration_tests_serial_4` lane to run all six synthetic cases, with the full
+selected Core and Web database lifecycles, cleanup, and fixture-generation
+lease release. That lane is not deployed-camera validation. Existing media,
+RTSP, browser, manifest-byte and lifecycle assertions remain required.
 
 This supplies part of tasks 1.4/1.7, not complete recovery or hosted readiness.
 Production recording remains disabled. There is no new database resource,

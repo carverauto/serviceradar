@@ -19,7 +19,7 @@ or live acceptance task below.
 
 - [ ] 1.1 Add Ash policy/lease/block resources and migrations, independent consumer leases and fenced recorder takeover.
   - [x] Durable recorder claims, generation fencing, block reservation and frozen archive descriptors exist with guarded database coverage; see [the handoff](README.md).
-  - [ ] Verify provisioned spool lifetime before acquiring recorder ownership and at mutating filesystem boundaries. The [spool lifetime checkpoint](spool-lifetime.md) implements the local guards and synthetic filesystem coverage; published-head guarded worker database execution remains required.
+  - [ ] Verify provisioned spool lifetime before acquiring recorder ownership and at mutating filesystem boundaries. The [spool lifetime checkpoint](spool-lifetime.md) implements the local guards and synthetic filesystem coverage. Published-head CI readiness still requires `integration_tests_serial_4` to run all six synthetic worker cases and the full selected Core and Web database lifecycles, including cleanup and fixture-generation lease release.
   - [ ] Complete operator recording policy/admission and coordinated restart/takeover without disturbing other consumers.
 - [ ] 1.2 Implement bounded append/journal/seal and complete-fragment high-water publication; separate packer writes from range readers.
   - [x] Local spool append/fsync journal/seal, complete-fragment snapshots and independent readers are implemented and covered by synthetic filesystem/media tests.
