@@ -6028,8 +6028,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a135375fbac5ba723bb6a48f432a72f81539cedde422f0121a86c7c4e96d8e0d"
 dependencies = [
  "either",
- "rquickjs-core",
+ "rquickjs-core 0.10.0",
  "rquickjs-macro",
+]
+
+[[package]]
+name = "rquickjs"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a0a22bf72f515cc4189dd7c63d016f6de92a11eee98ddf7dd64794198f6eb34e"
+dependencies = [
+ "rquickjs-core 0.14.0",
 ]
 
 [[package]]
@@ -6042,7 +6051,18 @@ dependencies = [
  "either",
  "hashbrown 0.16.1",
  "relative-path",
- "rquickjs-sys",
+ "rquickjs-sys 0.10.0",
+]
+
+[[package]]
+name = "rquickjs-core"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6657979a24d543e5fc66f32cef2f47ca82ce8eb55cec5f7d59a12b7b570bbf24"
+dependencies = [
+ "hashbrown 0.17.1",
+ "relative-path",
+ "rquickjs-sys 0.14.0",
 ]
 
 [[package]]
@@ -6058,7 +6078,7 @@ dependencies = [
  "proc-macro-crate",
  "proc-macro2",
  "quote",
- "rquickjs-core",
+ "rquickjs-core 0.10.0",
  "syn 2.0.119",
 ]
 
@@ -6069,6 +6089,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "57b1b6528590d4d65dc86b5159eae2d0219709546644c66408b2441696d1d725"
 dependencies = [
  "bindgen",
+ "cc",
+]
+
+[[package]]
+name = "rquickjs-sys"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cee271d0eeba64f0915b846cb7ae02e16faf3dfdffdca91731101d9d30fe3423"
+dependencies = [
  "cc",
 ]
 
@@ -6939,7 +6968,7 @@ name = "serviceradar-topology-atlas"
 version = "0.1.0"
 dependencies = [
  "roaring",
- "rquickjs",
+ "rquickjs 0.14.0",
  "serde_json",
  "sha2 0.11.0",
 ]
@@ -9375,7 +9404,7 @@ dependencies = [
  "petgraph",
  "reqsign",
  "reqwest 0.12.28",
- "rquickjs",
+ "rquickjs 0.10.0",
  "rust_decimal",
  "self_cell",
  "serde",
