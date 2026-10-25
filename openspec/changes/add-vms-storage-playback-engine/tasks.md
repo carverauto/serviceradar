@@ -19,11 +19,11 @@ or live acceptance task below.
 
 - [ ] 1.1 Add Ash policy/lease/block resources and migrations, independent consumer leases and fenced recorder takeover.
   - [x] Durable recorder claims, generation fencing, block reservation and frozen archive descriptors exist with guarded database coverage; see [the handoff](README.md).
-  - [ ] Verify provisioned spool lifetime before acquiring recorder ownership and at mutating filesystem boundaries.
+  - [ ] Verify provisioned spool lifetime before acquiring recorder ownership and at mutating filesystem boundaries. The [spool lifetime checkpoint](spool-lifetime.md) implements the local guards and synthetic filesystem coverage; published-head guarded worker database execution remains required.
   - [ ] Complete operator recording policy/admission and coordinated restart/takeover without disturbing other consumers.
 - [ ] 1.2 Implement bounded append/journal/seal and complete-fragment high-water publication; separate packer writes from range readers.
   - [x] Local spool append/fsync journal/seal, complete-fragment snapshots and independent readers are implemented and covered by synthetic filesystem/media tests.
-  - [ ] Integrate lifetime verification and prove recovery ownership and concurrent reader/write behavior through the runtime; the authorized external range gateway belongs to 1.5.
+  - [ ] Integrate lifetime verification and prove recovery ownership and concurrent reader/write behavior through the runtime. The [spool lifetime checkpoint](spool-lifetime.md) adds verified handles and refusal of aliased recovery files; full runtime takeover and reader/write acceptance remain open. The authorized external range gateway belongs to 1.5.
 - [ ] 1.3 Implement immutable upload, checksum/init/manifest verification and idempotent index publication. The [init-only checkpoint](init-authority.md) adds conditional PUT and exact init-byte verification; streaming media, multipart reconciliation, recovery manifests and index publication remain open.
   - [x] Immutable destination, frozen intent and dispatch identity; isolated conditional init PUT with exact byte verification.
   - [ ] Stream a bounded sealed media object under operation-specific authority and verify exact digest/length before recording success.
