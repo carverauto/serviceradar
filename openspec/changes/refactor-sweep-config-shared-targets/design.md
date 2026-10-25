@@ -39,9 +39,10 @@
 
 - `ConfigCache` keys are `{config_type, partition, agent_id, scope}`
   (`agent_config/config_cache.ex:194-196`) with a 5-minute default TTL
-  (`config_cache.ex:27`), and `cache_scope/2` returns `nil` for `:sweep`
-  (`config_server.ex:229`). The compiled result is cached per agent, and
-  every agent in a partition runs the same SRQL queries on its own compile.
+  (`config_cache.ex:27`). Before format selection, `cache_scope/2` returned
+  `nil` for `:sweep`, so one entry covered every format. The compiled result
+  is cached per agent, and every agent in a partition runs the same SRQL
+  queries on its own compile.
 - Core tells agents how often to poll through `config_poll_interval_sec`
   (`proto/monitoring.proto:328`), which defaults to 300 seconds
   (`agent_config_generator.ex:71`); the agent's 60-second constant is only a
@@ -54,11 +55,9 @@
 
 ### Delivery
 
-- `AgentConfigGenerator.load_sweep_config/2` (`agent_config_generator.ex:2981`)
-  fetches the compiled sweep config through
-  `ConfigServer.get_config(:sweep, partition, agent_id)`
-  (`agent_config_generator.ex:2986`) and embeds it as `config_json["sweep"]`
-  (`agent_config_generator.ex:2236`).
+- `AgentConfigGenerator.load_sweep_config!/2` fetches the compiled sweep
+  config through `ConfigServer.get_config/4`, passing the format from
+  Decision 4, and embeds it as `config_json["sweep"]`.
 - The poll path streams `config_json` in 1 MiB chunks, with a 2 MiB per-chunk
   cap and a 64 MiB window (`agent_gateway_server.ex:74-76`). The push path
   sent it as one message until `fix/agent-config-push-chunks`. Both paths
@@ -278,13 +277,16 @@ the legacy format.
 ### Decision 4: Capability-gated format selection
 
 - The Go agent adds `sweep-config-shared-targets:v1` to `agentCapabilities/1`.
-- `AgentConfigGenerator.load_sweep_config/2` resolves the agent's persisted
+- `AgentConfigGenerator.load_sweep_config!/2` resolves the agent's persisted
   capabilities, using the same `Agent.get_by_uid/2` lookup as
   `resolve_agent_addon_profile/2`, and passes
   `sweep_format: :shared_targets_v1 | :legacy` to `ConfigServer.get_config/4`.
-- `cache_scope(:sweep, opts)` returns `{:sweep_format, format}`. A capability
-  change then produces a different cache key rather than serving a cached
-  document in the wrong format. No extra invalidation hook is needed.
+- `cache_scope(:sweep, opts)` returns `{:sweep_format, format}` for any
+  format other than `:legacy`. `:legacy` keeps the historical unscoped
+  (`nil`) entry, so existing readers and warmed legacy entries stay valid.
+  A capability change then produces a different cache key rather than
+  serving a cached document in the wrong format. No extra invalidation hook
+  is needed.
 - A legacy agent must never receive the new format. Its parser would silently
   ignore `device_target_set`, so its groups would run with static targets
   only: silent coverage loss, not an error. Gating is therefore the safety
