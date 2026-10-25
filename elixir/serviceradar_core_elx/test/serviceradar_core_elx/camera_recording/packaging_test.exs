@@ -4,6 +4,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
   alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadarCoreElx.CameraRecording.Packaging
   alias ServiceRadarCoreElx.CameraRecording.Spool
+  alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
 
   @clock %{clock_epoch: "synthetic-clock-1", timebase: 90_000, dts_source: :pts_no_reordering, utc_mapping: :unknown}
@@ -269,7 +270,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
   defp persist_and_recover(init, fragments, root) do
     File.chmod!(root, 0o700)
     identity = %{source_id: "synthetic-camera", profile: "recording", recorder_epoch: 1, block_sequence: 0, clock: @clock}
-    assert {:ok, spool} = Spool.create(root, identity, init.payload)
+    assert {:ok, storage} = Storage.initialize(root, "00000000-0000-4000-8000-000000000011")
+    assert {:ok, spool} = Spool.create(storage, identity, init.payload)
     first = hd(fragments)
 
     assert {:error, :invalid_tail_duration_source} =
@@ -282,7 +284,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
       end)
 
     assert {:ok, sealed} = Spool.seal(spool)
-    assert {:ok, recovered} = Spool.recover(sealed.directory, identity)
+    assert {:ok, recovered} = Spool.recover(storage, sealed.directory, identity)
     snapshot = Spool.snapshot(recovered)
     assert snapshot.sealed?
     assert snapshot.identity["clock"]["utc_mapping"] == "unknown"
@@ -300,7 +302,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
       clock: @clock
     }
 
-    assert {:ok, spool} = Spool.create(root, identity, init.payload)
+    assert {:ok, storage} = Storage.initialize(root, "00000000-0000-4000-8000-000000000011")
+    assert {:ok, spool} = Spool.create(storage, identity, init.payload)
 
     spool =
       Enum.reduce(group, spool, fn fragment, spool ->
@@ -309,7 +312,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.PackagingTest do
       end)
 
     assert {:ok, sealed} = Spool.seal(spool)
-    assert {:ok, recovered} = Spool.recover(sealed.directory, identity)
+    assert {:ok, recovered} = Spool.recover(storage, sealed.directory, identity)
     snapshot = Spool.snapshot(recovered)
     assert {:ok, descriptor} = RecordingDescriptor.from_snapshot(snapshot, init)
     assert {:ok, descriptor_bytes} = RecordingDescriptor.encode(descriptor)

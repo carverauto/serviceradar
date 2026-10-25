@@ -13,6 +13,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
   alias ServiceRadarCoreElx.CameraRecording.Spool
+  alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.CameraRecording.Supervisor, as: RecordingSupervisor
   alias ServiceRadarCoreElx.CameraRecording.Worker
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
@@ -88,6 +89,13 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     root = Path.join(ctx.tmp_dir, "spool")
     File.mkdir!(root)
     File.chmod!(root, 0o700)
+
+    {:ok, storage} =
+      Storage.initialize(
+        root,
+        Application.fetch_env!(:serviceradar_core_elx, :camera_recording_storage_id)
+      )
+
     media = SyntheticCameraMedia.generate(ctx.tmp_dir, "source")
     media = %{media | units: Enum.map(media.units, &Map.put(&1, :media_ingest_id, ingest_id))}
 
@@ -98,6 +106,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       pipeline: pipeline,
       actor: actor,
       root: root,
+      storage: storage,
       media: media
     }
   end
@@ -169,7 +178,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert snapshot.identity["recorder_epoch"] == epoch
     assert snapshot.identity["clock"]["utc_mapping"] == "unknown"
     assert List.last(snapshot.entries)["tail_duration_source"] == "previous_sample"
-    assert {:ok, recovered} = Spool.recover(snapshot.directory, snapshot.identity)
+    assert {:ok, recovered} = Spool.recover(ctx.storage, snapshot.directory, snapshot.identity)
     assert hd(snapshot.entries)["start_ns"] == 3_000_000_000
     assert_packet_count(Spool.snapshot(recovered), ctx.tmp_dir, 45)
   end
@@ -227,8 +236,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert next.directory != snapshot.directory
     assert next.identity["clock"]["clock_epoch"] != snapshot.identity["clock"]["clock_epoch"]
     assert %{next_block_sequence: 1} = recorder_claim(ctx)
-    assert {:ok, _old} = Spool.recover(snapshot.directory, snapshot.identity)
-    assert {:ok, _new} = Spool.recover(next.directory, next.identity)
+    assert {:ok, _old} = Spool.recover(ctx.storage, snapshot.directory, snapshot.identity)
+    assert {:ok, _new} = Spool.recover(ctx.storage, next.directory, next.identity)
   end
 
   test "administrative stop drains and seals the recorder without renewing or interrupting its viewer",
@@ -279,7 +288,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert block.state == :sealed
     assert block.descriptor["media"]["sha256"] == snapshot.sha256
     assert List.last(snapshot.entries)["tail_duration_source"] == "previous_sample"
-    assert {:ok, recovered} = Spool.recover(snapshot.directory, snapshot.identity)
+    assert {:ok, recovered} = Spool.recover(ctx.storage, snapshot.directory, snapshot.identity)
     assert_packet_count(Spool.snapshot(recovered), ctx.tmp_dir, 45)
 
     assert {:ok, replacement} =
@@ -324,7 +333,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
                    5_000
 
     assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
-    assert File.ls!(ctx.root) == []
+    assert File.ls!(ctx.root) == [".storage-id"]
 
     [block] =
       RecordingBlock
@@ -332,6 +341,99 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       |> Ash.read!(actor: ctx.actor)
 
     assert block.state == :open_local
+
+    assert {:error, :recording_block_unfrozen} =
+             RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), 30_000,
+               actor: ctx.actor
+             )
+  end
+
+  test "missing or misbound storage refuses startup before recorder authority and leaves live delivery",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    {:ok, viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    marker = Path.join(ctx.root, ".storage-id")
+    File.rm!(marker)
+
+    for {reason, sequence} <- [{:storage_identity_missing, 0}, {:storage_identity_mismatch, 1}] do
+      if reason == :storage_identity_mismatch do
+        {:ok, _} = Storage.initialize(ctx.root, Ecto.UUID.generate())
+      end
+
+      assert {:error, ^reason} =
+               RecordingSupervisor.start_recorder(
+                 owner: owner,
+                 media_ingest_id: ctx.relay.media_ingest_id,
+                 spool_root: ctx.root,
+                 notify: self()
+               )
+
+      assert recorder_claim(ctx) == nil
+
+      assert [] =
+               RecordingBlock
+               |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+               |> Ash.read!(actor: ctx.actor)
+
+      assert [%{id: viewer_id, kind: :viewer}] = consumers(owner, ctx.actor)
+      assert viewer_id == viewer.id
+      assert_live_delivery(ctx, Enum.at(ctx.media.units, sequence))
+    end
+  end
+
+  test "a changed marker stops recording without a new receipt or freeze and preserves live delivery",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    {:ok, _viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    {worker, ref} = start_worker(ctx, owner)
+    {first, remaining} = Enum.split(ctx.media.units, 45)
+
+    for unit <- first do
+      send(ctx.pipeline, {:media_chunk, unit})
+      assert :ok = await_progress(worker, unit.sequence)
+    end
+
+    assert {:ok, %{snapshot: %{entries: [_ | _]} = snapshot}} = Worker.status(worker)
+
+    before =
+      Map.new(File.ls!(snapshot.directory), &{&1, File.read!(Path.join(snapshot.directory, &1))})
+
+    File.write!(Path.join(ctx.root, ".storage-id"), "00000000-0000-4000-8000-000000000012\n")
+    assert {:error, :storage_identity_mismatch} = Worker.status(worker)
+    for unit <- remaining, do: send(ctx.pipeline, {:media_chunk, unit})
+
+    assert_receive {:camera_recording, ^worker,
+                    {:stopped, %{reason: :storage_identity_mismatch, snapshot: nil}}},
+                   5_000
+
+    assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
+
+    assert Map.new(
+             File.ls!(snapshot.directory),
+             &{&1, File.read!(Path.join(snapshot.directory, &1))}
+           ) == before
+
+    assert %{state: :released, next_block_sequence: 1} = recorder_claim(ctx)
+    assert [%{kind: :viewer}] = consumers(owner, ctx.actor)
+    assert_live_delivery(ctx, List.last(ctx.media.units))
+
+    [block] =
+      RecordingBlock
+      |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+      |> Ash.read!(actor: ctx.actor)
+
+    assert block.state == :open_local
+    assert block.descriptor == nil
 
     assert {:error, :recording_block_unfrozen} =
              RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), 30_000,
