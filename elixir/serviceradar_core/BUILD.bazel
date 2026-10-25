@@ -277,6 +277,9 @@ ALL_TEST_SRCS = glob(
         # below so the normal helper's :cluster exclusion cannot skip them.
         "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
         "test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs",
+        # Brings up a real JetStream broker. The unit helper has no nats-server
+        # runfile, so the file has the target below instead of a unit lane.
+        "test/serviceradar/event_writer/retired_durable_cleanup_test.exs",
     ],
 )
 
@@ -877,6 +880,24 @@ ex_unit_test(
     size = "medium",
     srcs = ["test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs"],
     data = ["test/cluster_test_helper.exs"],
+    elixir_opts = [
+        "-r",
+        "test/cluster_test_helper.exs",
+    ],
+    deps = [":erlang_app"],
+)
+
+# EventWriter startup against a disposable JetStream broker: retired durables
+# with a backlog are deleted, a failed live consumer leaves them, and a second
+# boot treats a missing durable as a no-op.
+ex_unit_test(
+    name = "retired_durable_cleanup_test",
+    size = "medium",
+    srcs = ["test/serviceradar/event_writer/retired_durable_cleanup_test.exs"],
+    data = [
+        "test/cluster_test_helper.exs",
+        "@nats_server_linux_amd64//:nats_server",
+    ],
     elixir_opts = [
         "-r",
         "test/cluster_test_helper.exs",
