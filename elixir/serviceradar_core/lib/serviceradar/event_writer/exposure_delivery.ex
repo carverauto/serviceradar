@@ -11,10 +11,12 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   The bucket locks are held on a `ServiceRadar.Repo.DirectSession`, never on the
   pooled Repo: a transaction-mode pooler can run the lock and the unlock on
   different server backends and strand the lock on a shared one. Each run opens
-  its own session, so a dead owner's locks end with its connection, and every
-  ownership check asks whether that session still holds the bucket lock. The
-  journal is written through the Repo, one autocommitted statement at a time, so
-  a batch is journaled durably before its load starts.
+  its own session, so a dead owner's locks end with its connection. Every
+  ownership check asks whether that session still holds the bucket lock; when
+  it does not, the batch fails with `:exposure_delivery_ownership_lost` and its
+  journal entry stays for the next owner to replay. The journal is written
+  through the Repo, one autocommitted statement at a time, so a batch is
+  journaled durably before its load starts.
   """
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
@@ -52,17 +54,22 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     end
   end
 
-  @doc "Checks ownership before every physical load, including size-split batches."
+  @doc """
+  Checks ownership before and after every physical load, including size-split
+  batches. A lost bucket lock is returned as an error, never raised, so the
+  batch fails and is redelivered while its journal stays for the next owner.
+  """
   def persist(dataset, rows, locked) do
     limits = Keyword.put(Destination.stream_load_limits(), :max_in_flight, 1)
 
     Destination.persist_warehouse(dataset, rows,
       stream_load: limits,
       persist: fn table, chunk, opts ->
-        :ok = locked.()
-        result = StreamLoad.persist(table, chunk, opts)
-        :ok = locked.()
-        result
+        with :ok <- locked.(),
+             result = StreamLoad.persist(table, chunk, opts),
+             :ok <- locked.() do
+          result
+        end
       end
     )
   end
@@ -96,24 +103,10 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   end
 
   defp deliver(session, bucket, entries, ingest) do
-    case Postgrex.query!(session, "SELECT pg_try_advisory_lock($1, $2)", [@lock_namespace, bucket]).rows do
-      [[true]] ->
+    case Postgrex.query(session, "SELECT pg_try_advisory_lock($1, $2)", [@lock_namespace, bucket]) do
+      {:ok, %Postgrex.Result{rows: [[true]]}} ->
         try do
-          locked = fn ->
-            [[true]] = Postgrex.query!(session, @lock_held_sql, [@lock_namespace, bucket]).rows
-            :ok
-          end
-
-          with :ok <- recover(bucket, ingest, locked) do
-            entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
-
-            Repo.query!(
-              "INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences) VALUES ($1, $2)",
-              [bucket, Enum.map(entries, &elem(&1, 0))]
-            )
-
-            finish(bucket, ingest.(Enum.map(entries, &elem(&1, 1)), locked), locked)
-          end
+          deliver_owned(bucket, entries, ingest, fn -> owned(session, bucket) end)
         after
           # Frees the bucket while later buckets of this run deliver. If the
           # session was lost, it holds nothing and closing it is enough.
@@ -121,8 +114,34 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
             Postgrex.query(session, "SELECT pg_advisory_unlock($1, $2)", [@lock_namespace, bucket])
         end
 
-      [[false]] ->
+      {:ok, %Postgrex.Result{rows: [[false]]}} ->
         {:error, :exposure_delivery_busy}
+
+      {:error, reason} ->
+        {:error, {:exposure_delivery_session_unavailable, reason}}
+    end
+  end
+
+  defp deliver_owned(bucket, entries, ingest, locked) do
+    with :ok <- recover(bucket, ingest, locked) do
+      entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
+
+      Repo.query!(
+        "INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences) VALUES ($1, $2)",
+        [bucket, Enum.map(entries, &elem(&1, 0))]
+      )
+
+      finish(bucket, ingest.(Enum.map(entries, &elem(&1, 1)), locked), locked)
+    end
+  end
+
+  # Whether this run's session still holds the bucket lock. A dropped session
+  # reconnects holding nothing, and a failed query proves nothing, so both fail
+  # closed.
+  defp owned(session, bucket) do
+    case Postgrex.query(session, @lock_held_sql, [@lock_namespace, bucket]) do
+      {:ok, %Postgrex.Result{rows: [[true]]}} -> :ok
+      _ -> {:error, :exposure_delivery_ownership_lost}
     end
   end
 
@@ -143,12 +162,13 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   end
 
   defp finish(bucket, result, locked) when elem(result, 0) in [:ok, :retry] do
-    :ok = locked.()
-    Repo.query!("DELETE FROM platform.exposure_delivery_batches WHERE bucket = $1", [bucket])
+    with :ok <- locked.() do
+      Repo.query!("DELETE FROM platform.exposure_delivery_batches WHERE bucket = $1", [bucket])
 
-    case result do
-      {:retry, reason} -> {:error, reason}
-      success -> success
+      case result do
+        {:retry, reason} -> {:error, reason}
+        success -> success
+      end
     end
   end
 

@@ -780,29 +780,42 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     stranded = start_supervised!({Postgrex, DirectSession.connection_opts()})
     Postgrex.query!(stranded, "SELECT pg_advisory_lock(74523, $1)", [bucket])
 
-    holders = fn ->
-      Repo.query!(
-        """
-        SELECT pid FROM pg_locks
-        WHERE locktype = 'advisory' AND granted
-          AND classid = 74524 AND objid = $1 AND objsubid = 2
-        """,
-        [bucket]
-      ).rows
-    end
-
     parent = self()
 
     assert {:ok, 1} =
              ExposureDelivery.run([message], fn [_message], locked ->
                # Ownership checks run on the session that holds the lock.
                :ok = locked.()
-               send(parent, {:holders, holders.()})
+               send(parent, {:holders, delivery_lock_holders(bucket)})
                {:ok, 1}
              end)
 
     assert_received {:holders, [[_session]]}
-    assert holders.() == []
+    assert delivery_lock_holders(bucket) == []
+  end
+
+  test "a delivery whose lock session ends fails closed with an error and keeps its journal",
+       ctx do
+    message = delivery_message(ctx, ctx.unique * 10)
+    bucket = :erlang.phash2(ctx.device_uid, 16)
+
+    assert {:error, :exposure_delivery_ownership_lost} =
+             ExposureDelivery.run([message], fn [_message], locked ->
+               :ok = locked.()
+               [[session]] = delivery_lock_holders(bucket)
+               Repo.query!("SELECT pg_terminate_backend($1::int, 5000)", [session])
+               # The load itself succeeded; only the ownership check stands
+               # between it and retiring the journal entry.
+               {:ok, 1}
+             end)
+
+    assert %{rows: [[[sequence]]]} =
+             Repo.query!(
+               "SELECT stream_sequences FROM platform.exposure_delivery_batches WHERE bucket = $1",
+               [bucket]
+             )
+
+    assert sequence == ctx.unique * 10
   end
 
   test "a blocked bucket does not starve independent delivery buckets", ctx do
@@ -915,6 +928,17 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       {:error, :closed} ->
         :ok
     end
+  end
+
+  defp delivery_lock_holders(bucket) do
+    Repo.query!(
+      """
+      SELECT pid FROM pg_locks
+      WHERE locktype = 'advisory' AND granted
+        AND classid = 74524 AND objid = $1 AND objsubid = 2
+      """,
+      [bucket]
+    ).rows
   end
 
   defp delivery_message(ctx, seq) do
