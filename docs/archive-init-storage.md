@@ -49,12 +49,20 @@ and media administrator tokens; the recorder token must differ from the storage
 token. Web projects only the runtime token even when both workloads use the same
 authentication Secret. Web never mounts provider credentials.
 
+Each token file must contain exactly 32 to 512 bytes, without leading or trailing
+whitespace or a newline. Storage rejects a token file with surrounding whitespace
+at startup; do not rely on the web listener's whitespace trimming.
+
 ## Deployment and network contract
 
 The private storage-control Service is `serviceradar-archive-storage-control`,
 port 4002 by default; the storage Service is `serviceradar-media-storage`, port
 4443. Set the config ports to the chart ports. Server certificates must contain
 the DNS names clients actually use. Neither Service has a public Gateway route.
+The storage certificate serves both its listener and its control client, so its
+leaf must permit both server and client TLS authentication. Each peer must trust
+its issuing CA chain. A server-authentication-only leaf can listen successfully
+while its control challenge fails.
 The storage process runs the core-elx release's dedicated `eval` entry point
 with an empty release configuration and distribution disabled. It receives no
 core cookie, CNPG/NATS credentials or Kubernetes API token.
@@ -76,6 +84,17 @@ purposes and both must be advanced when replacing an installation.
 
 ## Authority and failure behavior
 
+Install and roll the web control listener first, and confirm its authenticated
+HTTPS endpoint is reachable before starting the storage pod. Use an authenticated
+`GET /v1/init-authorities/challenge` and expect HTTP 404: authentication runs
+before the unsupported method is rejected. Do not POST a challenge as a preflight;
+that would consume the desired revision with a different boot identity and nonce.
+The storage process
+makes one challenge request with a five-second transport cap; it has no automatic
+retry or renewal loop. Starting both workloads simultaneously is not a readiness
+handshake. A failed startup challenge leaves storage unavailable until an
+explicit new installation. Pod readiness alone never means storage authority.
+
 On startup, storage loads its exact desired document and credentials, generates
 a boot identity and issues its authenticated challenge. The media administrator
 reads the challenge and applies the same desired document and nonce through the
@@ -94,3 +113,5 @@ Revoke denies later grants. Earlier grants may finish within their original
 five-second maximum; revocation cannot cancel a request the provider already
 received. Expiry and stop do not prove drain, credential retirement, safe bucket
 teardown or safe local deletion. Recording and archive readiness stay unavailable.
+After expiry, status retains the historical `applied_revision` with
+`remaining_ms: 0`; consumers must not use that revision alone as permission.

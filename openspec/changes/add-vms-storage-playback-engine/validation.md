@@ -596,3 +596,58 @@ all 17 required owner cases were enabled. Earlier proxy-local PostgreSQL testing
 was a workflow deviation, not a substitute for this CI. Exact local aliases were
 not rerun and temporary-directory removal was not independently verified; the
 PR retains those limits. This validates installation/chart persistence only.
+
+## Isolated init-object authority
+
+This checkpoint adds one nonrenewable installed authority window and one fresh
+conditional init PUT per existing dispatch. It retains exact verification as
+separate evidence; recording, archive publication and local reclamation remain
+unavailable. No live provider, bucket, deployment or camera operation ran.
+
+Focused validation before integration:
+
+- [Core quality and integration-source compilation](https://carverauto.buildbuddy.io/invocation/1520ac21-e52e-4135-ad6a-eefefb426865)
+  passed. The compile owner reported zero executed tests and 132 exclusions;
+  its eight new database cases remain required in guarded Core CI. The
+  [database-free owner](https://carverauto.buildbuddy.io/invocation/f03fc020-eb6e-4af1-b8b2-3edf4c882457)
+  also passed.
+- [Web TLS, quality and routing contracts](https://carverauto.buildbuddy.io/invocation/6f611c6b-7700-4e96-a418-103630b924b2)
+  passed: 830 tests, zero failures and 222 exclusions. Three new database-free
+  cases use real TLS sockets. The new boxed HTTP/database roundtrip is excluded
+  here and must execute in guarded Web CI.
+- [Storage runtime and quality](https://carverauto.buildbuddy.io/invocation/529180f7-7332-4c08-ba1b-557ea03eb7da)
+  passed all 15 cases. The
+  [packaged release smoke test](https://carverauto.buildbuddy.io/invocation/f6227e4c-1192-455e-b104-e2cd168ff0f3)
+  passed the original probe startup assertions and isolated storage's real TLS
+  authentication/startup behavior. The
+  [existing provider probe](https://carverauto.buildbuddy.io/invocation/5717b5e6-74d9-4c9a-95fd-521e202c2a78)
+  retained all 16 passing cases.
+- [Helm rendering](https://carverauto.buildbuddy.io/invocation/9e82a6fa-8e80-411c-b1c8-061cb9b9cd1f)
+  passed 410 cases. The new semantic render cases exercise default absence,
+  credential projections, private ports, required configuration, process
+  isolation and narrow network policy even with broad custom selectors.
+
+The provider wire-identity assertion exposed a transport-added User-Agent after
+signing. The runtime now supplies that header before signing and hashing; the
+independent server-observed digest assertion remains. Release startup testing
+also rejected an incorrectly generated synthetic client certificate; the fixture
+now uses a proper CA-signed leaf without changing production TLS policy.
+Independent review found that apply needed exact challenged-generation equality
+in addition to digest equality. That guard and its crossed-generation regression
+are included. A Helm case initially selected the wrong rendered resource name;
+its selector was corrected without dropping the network-policy assertion.
+
+Integrated remote `make test`
+[8c77cc64](https://carverauto.buildbuddy.io/invocation/8c77cc64-cffa-4ca6-9e0e-0e6c526c5225)
+passed 460 targets: 63 executed, 397 used cache and two Swift platform targets
+were skipped. This includes generated schema agreement, migration/chart version
+`20261025020000`, the complete Helm suite, test routing and integrated application
+owners. Strict OpenSpec validation also passed. All existing assertions remain.
+
+Publication through no-mistakes and actual guarded database execution on the
+final published head remain outstanding at this authored checkpoint. Required
+database coverage is eight cases in the existing archive-upload owner plus the
+new actual private-TLS HTTP roundtrip. Compilation and excluded bodies are not
+execution evidence. Both guarded lifecycles, their actual suites and cleanup
+must pass before this change is ready for review. These synthetic checks do not
+qualify a live provider or complete any broad runtime/Cloud acceptance task.

@@ -15,6 +15,10 @@ dispatch grant, isolated credential custody, conditional PUT and exact-byte
 verification. Its 30-second installation window and at-most-five-second grant
 are nonrenewable. Old qualification receipts remain diagnostic. Permanent stop,
 original operation deadlines and late evidence remain enforced.
+The integrated remote suite passed 460 targets with two platform skips.
+No-mistakes publication and actual guarded Core/Web database execution remain
+the immediate gates; [validation.md](validation.md) distinguishes executed
+checks from the nine pending database cases.
 
 Production recording stays disabled. Preserve the operator-confirmed live RTSP
 path and all existing ownership, manifest, archive, intent and dispatch
@@ -24,7 +28,8 @@ belongs to the new checkpoint's executable acceptance, not a live rollout.
 
 ## Priority order
 
-1. Complete and validate the init-only authority and exact-byte upload checkpoint.
+1. Finish no-mistakes validation/publication and guarded database execution for
+   the implemented init-only authority and exact-byte upload checkpoint.
    Keep broader desired/applied media configuration and continuous admission
    unavailable. Cloud
    [issue #182](https://github.com/carverauto/serviceradar-control/issues/182) and
@@ -51,6 +56,7 @@ belongs to the new checkpoint's executable acceptance, not a live rollout.
 | Deployment-scoped media authentication | #5983 merged; final head `66d22624` passed all checks. Core `59ceece3` and Web `f8b9178b` executed all 12/seven guarded targets; lifecycle statuses zero. HTTP shard 0: 819 tests + two properties, zero failures, both receipt cases traced | Full desired/applied authority remains open |
 | Durable recording stop | #5989 merged; 20 checks passed. Core `e00f8d32` and Web `2602f4c1` executed 12 and seven guarded targets; all lifecycle statuses zero. Five core cases covered by included owners; HTTP case explicitly traced | Full fleet drain and positive authority remain separate |
 | Cloud media installation | #187 merged; all five checks passed; Timescale CI 3230 tests, zero failures, 10 skips, all 17 required cases enabled | Provider provisioning, qualification, isolated workload and lifecycle preservation |
+| Init-object authority | Integrated full remote `8c77cc64` passed 460 targets with two platform skips; TLS/runtime/release/Helm owners passed; see [validation](validation.md) | No-mistakes publication and final-head execution of eight Core cases and one Web HTTP/database case |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -65,8 +71,9 @@ Read [design.md](design.md), [tasks.md](tasks.md), [qualification-report.md](qua
 [qualification-receipts.md](qualification-receipts.md), [media-authentication.md](media-authentication.md),
 [recording-control.md](recording-control.md), [init-authority.md](init-authority.md), [upload-intent.md](upload-intent.md),
 [upload-dispatch.md](upload-dispatch.md) and
-the current diff. Complete the init-only authority, isolated execution and exact
-verification checkpoint, then extend archive transport and full media configuration.
+the current diff. Finish no-mistakes validation/publication and actual guarded
+Core/Web database execution for the init-only checkpoint before extending archive
+transport and full media configuration.
 A stopped configuration has no resume variant; do not add one without
 fencing in-flight work and enforcing current positive authority. A persisted receipt is
 not an applied revision. Media authentication identifies the responding process;

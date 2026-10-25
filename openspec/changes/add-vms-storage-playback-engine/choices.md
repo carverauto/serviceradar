@@ -322,6 +322,103 @@ and all reads, records and block sizes have finite limits. The filesystem must
 support file and directory sync. The guarantee covers the local node only;
 another node cannot recover footage that never reached an archive.
 
+### Limit the first positive authority to one short init-only installation
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+When a storage process starts, it can request a fresh challenge for one complete
+configuration. An administrator has at most 30 seconds from that request to
+apply it; a granted init upload has at most five seconds and one MiB of media.
+These are checkpoint ceilings, not recording capacity targets. The plan required
+fresh positive authority but did not choose its first executable scope or these
+bounds. Keeping the window nonrenewable makes replay, restart and lost-response
+behavior testable before continuous recording exists. A long-running installation
+protocol still needs its own implementation and capacity measurements; this
+checkpoint must not become an undocumented production renewal loop.
+
+### Keep the configuration and evidence identity in one complete document
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+If a provider credential is rotated, the desired document changes because it
+contains the full report naming that credential generation. Its digest, a
+SHA-256 fingerprint of the complete content and installed origin, therefore
+changes too. There is no second editable destination or credential field to
+silently disagree with the report. The plan required exact desired/applied
+identity without choosing this representation. The authenticated administrator
+is responsible for the truth of the report's observations; the storage and core
+processes check identity, freshness and compatibility, not the truth of remote
+policy statements merely because their text says `passed`. A future Cloud
+issuer must produce current evidence before using this API.
+
+### Use private HTTPS for bounded storage coordination
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+A recorder hands a small init object to one isolated storage process. That
+process requests a committed grant from the private web API and talks directly
+to the provider within the remaining deadline. It does not join the Erlang
+cluster or put media onto a new broker queue. The plan required isolated provider
+credentials but left this transport unspecified. HTTPS gives this short exchange
+an existing bounded request/response path; durable state remains in CNPG, and
+late provider facts return to the same owner. This choice does not select the
+GPU job transport: comparable RPC/JetStream measurements are still required for
+that independently scoped work.
+
+### Pin workload certificates in addition to trusting their issuer
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+A certificate signed by the deployment CA proves membership in that trust
+domain, but it should not let every workload act as storage. Each listener also
+checks the exact configured certificate fingerprint and a separate bearer token.
+The plan required workload authorization without choosing between a dedicated
+SPIFFE policy and a certificate pin. A pin keeps this single-workload checkpoint
+explicit and avoids adding another identity controller. Rotation requires new
+mounted configuration, a rollout and a new desired revision; it does not prove
+old processes or provider keys have been retired across a fleet.
+
+### Retain installation history without turning it into permission
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+After an applied window expires, an administrator can still see which revision
+was applied, but its remaining time is zero and both readiness fields remain
+unavailable. The grant owner checks the live database window again before
+committing any send permission. The plan left this status representation open.
+Keeping the acknowledgment helps diagnose a failed installation without erasing
+history; clients must check the actual grant, never infer permission from the
+presence of `applied_revision`. Applying a shorter-lived report only shortens
+the existing expiry. Its original issue time already defines the thirty-second
+ceiling, so another independently mutable challenge-expiry column is unnecessary.
+
+### Bound ingress, active work and evidence callbacks separately
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+A slow recorder can consume the upload deadline while sending its request body;
+the storage process does not reset that clock when it receives the last byte.
+One active task serves uploads, with a finite listener connection budget and a
+1.4 MB JSON ceiling for at most one MiB of decoded init bytes. The plan required
+bounded work but did not select those transport limits. A later observation or
+verification callback gets its own one-second cap so an expired provider budget
+does not discard already-observed facts. Those callbacks cannot authorize a
+second PUT. Capacity beyond this checkpoint requires measurement and its own
+admission design.
+
+### Require explicit installation sequencing instead of background renewal
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+If storage starts while the private control listener is unavailable, its single
+five-second challenge attempt fails and it stays unavailable. It does not keep
+retrying until an old configuration unexpectedly becomes active. The plan did
+not specify startup orchestration. Infrastructure must install the control
+listener first, then start storage and apply its fresh challenge. A new boot needs
+a greater desired revision. This makes this checkpoint's behavior finite and
+explicit; Cloud still needs to implement the orchestration and cannot treat a
+running pod as evidence of storage readiness.
+
 ## Sound, high confidence
 
 ### Share the private listener while separating credential purposes
@@ -935,62 +1032,6 @@ connection/PostgreSQL failures become a bounded unavailable response; programmin
 errors remain visible. Future callers must still acquire the control lock before
 ownership locks and keep preservation paths outside the stop gate.
 
-### Limit the first positive authority to one short init-only installation
-
-When: init-authority checkpoint. Verdict: sound, medium confidence.
-
-When a storage process starts, it can request a fresh challenge for one complete
-configuration. An administrator has at most 30 seconds from that request to
-apply it; a granted init upload has at most five seconds and one MiB of media.
-These are checkpoint ceilings, not recording capacity targets. The plan required
-fresh positive authority but did not choose its first executable scope or these
-bounds. Keeping the window nonrenewable makes replay, restart and lost-response
-behavior testable before continuous recording exists. A long-running installation
-protocol still needs its own implementation and capacity measurements; this
-checkpoint must not become an undocumented production renewal loop.
-
-### Keep the configuration and evidence identity in one complete document
-
-When: init-authority checkpoint. Verdict: sound, medium confidence.
-
-If a provider credential is rotated, the desired document changes because it
-contains the full report naming that credential generation. Its digest, a
-SHA-256 fingerprint of the complete content and installed origin, therefore
-changes too. There is no second editable destination or credential field to
-silently disagree with the report. The plan required exact desired/applied
-identity without choosing this representation. The authenticated administrator
-is responsible for the truth of the report's observations; the storage and core
-processes check identity, freshness and compatibility, not the truth of remote
-policy statements merely because their text says `passed`. A future Cloud
-issuer must produce current evidence before using this API.
-
-### Use private HTTPS for bounded storage coordination
-
-When: init-authority checkpoint. Verdict: sound, medium confidence.
-
-A recorder hands a small init object to one isolated storage process. That
-process requests a committed grant from the private web API and talks directly
-to the provider within the remaining deadline. It does not join the Erlang
-cluster or put media onto a new broker queue. The plan required isolated provider
-credentials but left this transport unspecified. HTTPS gives this short exchange
-an existing bounded request/response path; durable state remains in CNPG, and
-late provider facts return to the same owner. This choice does not select the
-GPU job transport: comparable RPC/JetStream measurements are still required for
-that independently scoped work.
-
-### Pin workload certificates in addition to trusting their issuer
-
-When: init-authority checkpoint. Verdict: sound, medium confidence.
-
-A certificate signed by the deployment CA proves membership in that trust
-domain, but it should not let every workload act as storage. Each listener also
-checks the exact configured certificate fingerprint and a separate bearer token.
-The plan required workload authorization without choosing between a dedicated
-SPIFFE policy and a certificate pin. A pin keeps this single-workload checkpoint
-explicit and avoids adding another identity controller. Rotation requires new
-mounted configuration, a rollout and a new desired revision; it does not prove
-old processes or provider keys have been retired across a fleet.
-
 ### Reuse the release while isolating its process and mounted credentials
 
 When: init-authority checkpoint. Verdict: sound, high confidence.
@@ -1016,3 +1057,16 @@ configured provider/proxy addresses. The plan did not specify this interaction.
 Policies outside the chart remain an operator responsibility. The private web
 ingress addition only renders when ordinary network isolation is enabled, so
 enabling storage control alone cannot accidentally block normal web traffic.
+
+### Keep late evidence tied to the identity that actually sent the object
+
+When: init-authority checkpoint. Verdict: sound, high confidence.
+
+If an upload finishes after credentials rotate, its verification still needs to
+match the original authenticated sender. Each grant therefore retains a SHA-256
+fingerprint of the full installed principal, including credential generation,
+rather than reading the replacement authority row. The plan required preserving
+late facts but did not specify these retained fields. This keeps verification
+possible after revocation without restoring permission to send. A database
+index also prevents one boot/request-nonce pair from being reused for a different
+dispatch; a collision fails closed and leaves the first marker unchanged.
