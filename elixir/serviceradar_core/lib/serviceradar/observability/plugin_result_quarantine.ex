@@ -384,12 +384,14 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     :ets.delete_all_objects(@ets_table)
 
     if repo_available?() do
-      _ = Repo.query("DELETE FROM platform.plugin_result_ingestion_attempts", [])
+      _ = run_repo_query("DELETE FROM platform.plugin_result_ingestion_attempts", [])
     end
 
     :ok
   rescue
     _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   defp do_retry_quarantined(record, opts) do
@@ -936,6 +938,10 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
       {:error, _reason} = error ->
         error
     end
+  rescue
+    _ -> {:error, :repo_unavailable}
+  catch
+    _, _ -> {:error, :repo_unavailable}
   end
 
   defp ensure_repo_table do
@@ -973,6 +979,10 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     _ = Repo.query(ddl, [])
     _ = Repo.query(idx_sql, [])
     :ok
+  rescue
+    _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   defp row_to_record([
@@ -1055,7 +1065,7 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     )
   end
 
-  defp compute_payload_digest(payload, status) when is_map(payload) and map_size(payload) > 0 do
+  defp compute_payload_digest(payload, _status) when is_map(payload) and map_size(payload) > 0 do
     payload
     |> Map.delete(PluginResultReportedMarker.marker_key())
     |> PluginResultReportedMarker.payload_digest()

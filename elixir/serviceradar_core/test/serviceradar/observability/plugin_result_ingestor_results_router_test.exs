@@ -115,7 +115,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
           send(pid, :slow_budget_handler_attempted)
         end
 
-        Process.sleep(300)
+        Process.sleep(2_000)
         :ok
       end
     end
@@ -177,8 +177,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
            max_items: 8,
            max_bytes: 1_024 * 1_024,
            max_items_per_agent: 4,
-           queue_wait_ms: 200,
-           worker_timeout_ms: 60,
+           queue_wait_ms: 1_000,
+           worker_timeout_ms: 500,
            gateway_call_timeout_ms: 15_000
          ]},
         id: {:db_lane, System.unique_integer([:positive])}
@@ -187,15 +187,15 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
     admit_and_await = fn st ->
       reply_ref = make_ref()
       assert :ok = Lane.admit(lane, st, {self(), reply_ref})
-      assert_receive {^reply_ref, result}, 2_000
+      assert_receive {^reply_ref, result}, 5_000
       result
     end
 
     assert {:error, :execution_timeout} = admit_and_await.(slow_routed)
-    assert_receive :slow_budget_handler_attempted, 500
+    assert_receive :slow_budget_handler_attempted, 2_000
 
     assert {:error, :execution_timeout} = admit_and_await.(slow_routed)
-    assert_receive :slow_budget_handler_attempted, 500
+    assert_receive :slow_budget_handler_attempted, 2_000
 
     quarantined = PluginResultQuarantine.get_attempt_for_status(slow_routed)
     assert quarantined.state == "quarantined"

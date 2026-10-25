@@ -784,12 +784,16 @@ defmodule ServiceRadar.Admission.Lane do
     apply(module, function, [status, payload_bytes | extra_args])
   rescue
     _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   defp notify_execution_timeout(fun, status, payload_bytes) when is_function(fun, 2) do
     fun.(status, payload_bytes)
   rescue
     _ -> :ok
+  catch
+    _, _ -> :ok
   end
 
   defp notify_execution_timeout(_callback, _status, _payload_bytes), do: :ok
