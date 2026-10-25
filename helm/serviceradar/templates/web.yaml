@@ -676,6 +676,9 @@ spec:
         {{- /* hasKey, not default: `default true false` renders true, which would make the kill switch unable to turn off. */}}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_AUTO_APPROVE
           value: {{ ternary $webNgFirstPartyImport.autoApproveWithinGrant true (hasKey $webNgFirstPartyImport "autoApproveWithinGrant") | quote }}
+        {{- /* web-ng also runs the rollout reconcile job, so it honors core's kill switch. */}}
+        - name: SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS
+          value: {{ include "serviceradar.boolDefaultTrue" (list (default (dict) $.Values.core) "wasmPluginAutomaticRollouts") | eq "true" | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_COSIGN_BINARY
           value: {{ default "/usr/local/bin/cosign" $webNgFirstPartyImport.cosignBinary | quote }}
         {{- if $webNgFirstPartyImport.cosignPublicKey }}

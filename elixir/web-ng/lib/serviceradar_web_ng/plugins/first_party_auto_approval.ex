@@ -21,8 +21,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyAutoApproval do
   left staged says which check held it and, for a widened grant, which fields
   widened.
 
-  Approval only makes a version available. It never changes which version an
-  assignment runs.
+  Approval only makes a version available. It does not rewrite an assignment.
+  Tracking owners move later, on the rollout reconcile
+  (`ServiceRadar.Plugins.WasmPluginRolloutArtifact`).
   """
 
   alias ServiceRadar.Actors.SystemActor

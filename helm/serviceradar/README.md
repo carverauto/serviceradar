@@ -279,6 +279,7 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `webNg.nativeAddonImport.syncIntervalSeconds` | Seconds between add-on catalog syncs | `3600` |
 | `webNg.nativeAddonImport.autoApproveAddonIds` | Add-on ids whose imports are approved automatically; approval is the security boundary, so this is empty by default | `[]` |
 | `webNg.firstPartyPluginImport.autoApproveWithinGrant` | Approve a verified first-party Wasm plugin package automatically (audited) when it requests nothing beyond its plugin's latest approved grant; first versions, widened grants and non-first-party packages stay staged | `true` |
+| `core.wasmPluginAutomaticRollouts` | Roll Wasm plugin owners that track the latest approved version (manual assignments and target policies) forward to a newly approved stable version through a health-gated rollout; `false` leaves them until an operator starts one | `true` |
 | `logCollector.rfc3164Timezone` | Assumed IANA time zone for RFC3164 messages without a zone, shared by UDP and TCP collectors | `UTC` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `3` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | unset (profile supplies it; 2 GiB in `small`) |

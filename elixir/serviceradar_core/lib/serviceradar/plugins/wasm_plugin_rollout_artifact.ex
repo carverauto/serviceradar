@@ -10,7 +10,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
 
   ## Automatic rollouts
 
-  When automatic rollouts are enabled (`automatic_rollouts_enabled?/0`),
+  Unless automatic rollouts are turned off (`automatic_rollouts_enabled?/0`),
   `managed_sources/1` returns every enabled owner whose `update_policy` is
   `:track_latest_approved` and whose stable package is behind the newest
   eligible package of its plugin. The periodic reconcile
@@ -171,17 +171,17 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutArtifact do
   Whether the reconcile starts rollouts for owners that track the latest
   approved package.
 
-  Off by default: the design enables automatic rollouts only once operators can
-  see which owners are behind and pin them (Migration Plan step 4). The
-  `#{@automatic_rollouts_env}` environment variable overrides the
-  `:wasm_plugin_automatic_rollouts` application setting. Rollouts an operator
-  starts run either way.
+  On by default: an owner that tracks the latest approved package moves to it
+  without an operator. The `#{@automatic_rollouts_env}` environment variable
+  (chart value `core.wasmPluginAutomaticRollouts`) overrides the
+  `:wasm_plugin_automatic_rollouts` application setting, and only an explicit
+  `false` setting turns them off. Rollouts an operator starts run either way.
   """
   @spec automatic_rollouts_enabled?() :: boolean()
   def automatic_rollouts_enabled? do
     case System.get_env(@automatic_rollouts_env) do
       nil ->
-        Application.get_env(:serviceradar_core, :wasm_plugin_automatic_rollouts, false) == true
+        Application.get_env(:serviceradar_core, :wasm_plugin_automatic_rollouts, true) != false
 
       value ->
         String.downcase(String.trim(value)) in ["1", "true", "yes", "on"]

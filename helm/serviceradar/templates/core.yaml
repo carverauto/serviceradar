@@ -356,6 +356,8 @@ spec:
           value: {{ mul $coreObanShutdownGrace 1000 | quote }}
         - name: SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED
           value: {{ include "serviceradar.boolDefaultTrue" (list $coreVals "ashObanSchedulerEnabled") | eq "true" | quote }}
+        - name: SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS
+          value: {{ include "serviceradar.boolDefaultTrue" (list $coreVals "wasmPluginAutomaticRollouts") | eq "true" | quote }}
         - name: SERVICERADAR_CORE_REPO_ENABLED
           value: "true"
         - name: SERVICERADAR_CORE_REGISTRIES_ENABLED

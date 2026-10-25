@@ -385,18 +385,16 @@ Do not conflate these extension mechanisms.
 | UI | **Settings → Plugins Manager** (`/settings/agents/plugins`) | **Settings → Add-ons Catalog** (`/settings/agents/addons`) and **Add-on Fleet** (`/settings/agents/addons/fleet`) |
 | Runtime | Sandboxed Wasm (`wazero`) | Host process / sidecar / systemd unit |
 | Typical uses | AWX bridge, custom checks, OTX edge collector | `netprobe`, `workload-identity`, `powerdns` |
-| **Update model** | **Manual** — import/stage, approve, assign/promote each package version in the UI | **Managed tracking** — first-party packages can track the newest **approved** compatible version with a health-gated rollout; pins stay manual |
+| **Update model** | First-party manual assignments and target policies track the newest approved stable version through a health-gated rollout; pins stay on the chosen version. See [Wasm Plugins](./wasm-plugins.md#first-party-plugin-import) | **Managed tracking** — first-party packages can track the newest **approved** compatible version with a health-gated rollout; pins stay manual |
 
-### Wasm plugins (manual lifecycle)
+### Wasm plugins
 
 1. Import or stage a signed plugin package.
 2. Review capabilities and allowlists; **approve**.
 3. Assign the plugin (and schedules/actions) to the agents that need it.
-4. When a new version ships, **repeat** import → approve → assign. Agents do not
-   silently replace Wasm packages without operator action.
 
-Overview: [Wasm Plugins](./wasm-plugins.md). Authoring lives on the
-[developer portal](https://developer.serviceradar.cloud).
+A later version follows [Wasm Plugins](./wasm-plugins.md#first-party-plugin-import).
+Authoring lives on the [developer portal](https://developer.serviceradar.cloud).
 
 ### Native add-ons (managed lifecycle)
 
@@ -711,7 +709,7 @@ Cloud pattern:
 
 1. Deploy a ServiceRadar **agent** that can reach your private AWX/AAP.
 2. Import and assign the **AWX Wasm plugin** to that agent  
-   (**Settings → Plugins Manager**)—manual package lifecycle.
+   (**Settings → Plugins Manager**). Version updates follow [Wasm Plugins](./wasm-plugins.md#first-party-plugin-import).
 3. Register the AWX controller, purpose-scoped OAuth tokens, and playbook sources
    under **Settings → Ansible**.
 4. Launch playbooks from ServiceRadar; watch run status and activity.
@@ -759,8 +757,8 @@ Progressive rollout beats enabling everything on day one.
 
 - **Agents:** canary first; treat digest/signature failures as release-pipeline
   problems until proven otherwise ([Agent Release Management](./agent-release-management.md)).
-- **Wasm plugins:** schedule periodic version reviews; promote deliberately in
-  **Plugins Manager**.
+- **Wasm plugins:** first-party tracking assignments move on their own; pin a
+  version that must stay put ([Wasm Plugins](./wasm-plugins.md#first-party-plugin-import)).
 - **Native add-ons:** leave first-party packages on track-latest unless you need a
   pin; investigate health-gated rollbacks if a batch fails ([Native Add-ons](./native-addons.md)).
 - **Credentials:** rotate via credential rules; keep the `admin` set small.

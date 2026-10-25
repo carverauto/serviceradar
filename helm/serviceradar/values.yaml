@@ -422,6 +422,16 @@ core:
   kubernetesSelector: "app=serviceradar-core"
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
+  # Kill switch for automatic Wasm plugin rollouts. When true (the default),
+  # every enabled manual assignment and target policy whose update policy is
+  # track_latest_approved, and whose package is behind the newest approved
+  # stable package of its plugin, gets a health-gated rollout to that package
+  # (canary, soak, rollback when the health gate fails). Pinned owners never
+  # move. The reconcile runs periodically, so owners that are already behind
+  # catch up on its first pass. Set to false to keep tracking owners on their
+  # current package until an operator starts a rollout. Rendered on core and
+  # web-ng, which both run the rollout reconcile job.
+  wasmPluginAutomaticRollouts: true
   # Outbound mail for the native email notification transport and the auth
   # senders (confirmation, password reset).
   #
@@ -1474,8 +1484,10 @@ webNg:
     # version; the approval is audited as automatic. A plugin's first version,
     # any widened grant, and every upload, GitHub or third-party repository
     # package always stay staged for review, with the reason recorded on the
-    # package. Approval never changes which version an assignment runs. Set to
-    # false to require a manual decision for every import.
+    # package. Approval never rewrites an assignment: owners that track the
+    # latest approved version move through a rollout
+    # (core.wasmPluginAutomaticRollouts). Set to false to require a manual
+    # decision for every import.
     autoApproveWithinGrant: true
     cosignBinary: "/usr/local/bin/cosign"
     # Cosign public key used to verify first-party Wasm plugin OCI artifacts

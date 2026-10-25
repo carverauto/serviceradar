@@ -1,0 +1,54 @@
+suite: Wasm plugin automatic rollouts kill switch
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: rolls tracking owners forward by default on every node that runs the reconcile
+    asserts:
+      - template: templates/core.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - template: templates/web.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS
+            value: "true"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: lets an operator turn automatic rollouts off on every node that runs the reconcile
+    set:
+      core.wasmPluginAutomaticRollouts: false
+    asserts:
+      - template: templates/core.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+      - template: templates/web.yaml
+        contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS
+            value: "false"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
