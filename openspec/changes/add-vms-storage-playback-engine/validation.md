@@ -792,9 +792,8 @@ worker cases (four retained, two new). These source checks do not establish
 provider readiness, physical-volume identity or live deployment acceptance.
 
 The first publication run stopped before push. Its preserved document/format
-commit was replayed as `65c7106262` after guarded custody recovery. The replay's
-camera-recording source, tests and OpenSpec files matched the preserved pipeline
-head `8b4d8fea` exactly; subsequent reconciliation only updates the handoff and
-validation history. No runtime behavior or test assertion changed during this
-recovery, and no new test execution is claimed. Fresh no-mistakes validation and
-the published-head guarded database gate remain required.
+commit `8b4d8fea` is replayed on this branch as `6fee12020d` with the same tree,
+on the author feature head `8fc730f53a`. Subsequent reconciliation only updates
+the handoff documents. No runtime behavior or test assertion changed during
+this recovery, and no new test execution is claimed. Fresh no-mistakes
+validation and the published-head guarded database gate remain required.
