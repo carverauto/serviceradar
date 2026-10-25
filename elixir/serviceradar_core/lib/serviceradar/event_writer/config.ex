@@ -125,7 +125,14 @@ defmodule ServiceRadar.EventWriter.Config do
     # Core's standalone log promotion consumer. The LOGS consumer below already
     # promotes every log on the same stream, so the two promoted each processed
     # log twice, under different event ids.
-    %{stream_name: "events", consumer_name: "log-promotion"}
+    %{stream_name: "events", consumer_name: "log-promotion"},
+    # The retired Go db-event-writer service, which this EventWriter replaced.
+    %{stream_name: "events", consumer_name: "db-event-writer"},
+    # The retired zen rules engine; the LOGS consumer reads its logs.* subjects.
+    %{stream_name: "events", consumer_name: "zen-consumer"},
+    # EventWriter's former FLOW_ATTRIBUTION stream config; EVENTS now reads
+    # events.flow.attribution and routes it to the :flow_attribution batcher.
+    %{stream_name: "events", consumer_name: "serviceradar-event-writer-flow-attribution"}
   ]
 
   defstruct [

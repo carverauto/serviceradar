@@ -805,6 +805,27 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                "serviceradar-event-writer-arancini-causal"
     end
 
+    # The producer deletes every retired durable on startup, so a retired name
+    # that matches a durable EventWriter still builds would delete a live
+    # consumer, and its pending messages with it, on every restart.
+    test "no retired consumer is a durable the shared or flow pipeline builds" do
+      config = Config.load()
+
+      live =
+        for pipeline <- [config, Config.load_flow()],
+            stream <- pipeline.streams,
+            into: MapSet.new() do
+          key = Map.get(stream, :durable_source_name) || stream.name
+
+          {Config.jetstream_stream_name(stream), Config.durable_name(pipeline.consumer_name, key)}
+        end
+
+      for retired <- config.retired_consumers do
+        refute MapSet.member?(live, {retired.stream_name, retired.consumer_name}),
+               "retired consumer #{retired.stream_name}/#{retired.consumer_name} is a live durable"
+      end
+    end
+
     test "uses default batch settings" do
       config = Config.load()
 
