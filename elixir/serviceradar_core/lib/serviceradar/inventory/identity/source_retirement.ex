@@ -1073,6 +1073,178 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     end
   end
 
+  @legacy_proxmox_candidates_sql """
+  SELECT di.id, di.device_id, di.identifier_value, COALESCE(di.partition, 'default')
+  FROM platform.device_identifiers AS di
+  JOIN platform.ocsf_devices AS d ON d.uid = di.device_id
+  WHERE di.identifier_type = 'integration_id'
+    AND btrim(di.identifier_value) ~* '^proxmox:(vm|container|hypervisor):'
+    AND (CAST($1 AS text) IS NULL OR COALESCE(di.partition, 'default') = CAST($1 AS text))
+    AND d.deleted_at IS NULL
+  ORDER BY di.device_id, di.id
+  """
+
+  @legacy_proxmox_mark_sql """
+  UPDATE platform.ocsf_devices AS d
+  SET source_retired_at = CAST($5 AS timestamp)
+  WHERE d.uid = CAST($4 AS text) AND #{@retired_only}
+    AND NOT EXISTS (
+      SELECT 1 FROM platform.device_identifiers AS di
+      WHERE di.device_id = d.uid
+    )
+  RETURNING d.source_retired_at
+  """
+
+  @legacy_proxmox_unmarked_sql """
+  SELECT d.uid
+  FROM (
+    SELECT a.device_id, max(a.archived_at) AS archived_at
+    FROM platform.device_identifier_archive AS a
+    WHERE a.identifier_type = 'integration_id'
+      AND btrim(a.identifier_value) ~* '^proxmox:(vm|container|hypervisor):'
+      AND (CAST($4 AS text) IS NULL OR COALESCE(a.partition, 'default') = CAST($4 AS text))
+    GROUP BY a.device_id
+  ) AS r
+  JOIN platform.ocsf_devices AS d ON d.uid = r.device_id
+  WHERE #{@retired_only}
+    AND NOT EXISTS (
+      SELECT 1 FROM platform.device_identifiers AS di
+      WHERE di.device_id = d.uid
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM platform.device_revival_audit AS v
+      WHERE v.device_uid = d.uid AND v.revived_at >= (r.archived_at AT TIME ZONE 'UTC')
+    )
+    AND NOT platform.device_held_for_review(d.uid)
+  ORDER BY d.uid
+  """
+
+  @doc """
+  Retires legacy unscoped Proxmox `integration_id` identifiers (`proxmox:vm:*`,
+  `proxmox:container:*`, `proxmox:hypervisor:*`) through source retirement, moving
+  them to `platform.device_identifier_archive` with `archive_reason = "source_absent"`,
+  recording `:source_id_retired` decisions, and marking retired-only orphan records
+  `source_retired`.
+  """
+  @spec retire_legacy_proxmox_identifiers(keyword()) :: {:ok, map()}
+  def retire_legacy_proxmox_identifiers(opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:source_retirement))
+    partition = Keyword.get(opts, :partition)
+    now = DateTime.utc_now()
+
+    %{rows: raw_rows} = Repo.query!(@legacy_proxmox_candidates_sql, [partition])
+
+    candidates =
+      Enum.map(raw_rows, fn [id, device_id, value, row_partition] ->
+        %{
+          id: id,
+          device_id: device_id,
+          identifier_value: value,
+          partition: row_partition
+        }
+      end)
+
+    retired_results =
+      candidates
+      |> Enum.group_by(& &1.device_id)
+      |> Enum.sort_by(&elem(&1, 0))
+      |> Enum.map(fn {device_id, rows} ->
+        retire_legacy_proxmox_device(device_id, rows, actor, now)
+      end)
+
+    retired = for {:ok, %{} = res} <- retired_results, do: res
+
+    %{rows: unmarked_rows} =
+      Repo.query!(@legacy_proxmox_unmarked_sql, retired_only_params(now) ++ [partition])
+
+    newly_marked_unmarked =
+      unmarked_rows
+      |> Enum.map(&hd/1)
+      |> Enum.count(fn uid ->
+        mark_legacy_proxmox_orphan(uid, actor, now)
+      end)
+
+    {:ok,
+     %{
+       candidates: length(candidates),
+       retired: Enum.sum(Enum.map(retired, &length(&1.rows))),
+       devices: length(retired),
+       marked: Enum.count(retired, & &1.marked) + newly_marked_unmarked
+     }}
+  end
+
+  defp retire_legacy_proxmox_device(device_id, rows, actor, now) do
+    Device
+    |> Ash.transact(fn ->
+      with {:ok, device} <- lock_live_device(device_id, actor),
+           :ok <- lock_identifier_owner(device_id) do
+        ids = Enum.map(rows, & &1.id)
+
+        %{num_rows: archived} =
+          Repo.query!(@archive_sql, [device_id, ids, now, @archive_reason])
+
+        if archived > 0 do
+          with {:ok, _device} <- Device.bump_identity_revision(device, actor: actor),
+               marked_at = mark_legacy_proxmox(device_id, now),
+               marked = not is_nil(marked_at),
+               decisions =
+                 Enum.map(rows, fn row ->
+                   %{
+                     kind: :source_id_retired,
+                     reason: @archive_reason,
+                     device_uids: [device_id],
+                     subject: row.identifier_value,
+                     source: @decision_source,
+                     evidence: %{
+                       "identifier_type" => "integration_id",
+                       "identifier_value" => row.identifier_value,
+                       "identifier_partition" => row.partition,
+                       "archived_identifier_id" => row.id,
+                       "source" => "proxmox",
+                       "marked_source_retired" => marked
+                     }
+                   }
+                 end),
+               :ok <- DecisionLog.record_many_strict(decisions) do
+            {:ok, %{device_id: device_id, rows: rows, marked: marked}}
+          end
+        else
+          {:ok, :not_retirable}
+        end
+      else
+        {:error, _} = error -> error
+        _ -> {:ok, :not_retirable}
+      end
+    end)
+    |> case do
+      {:ok, {:ok, result}} -> {:ok, result}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp mark_legacy_proxmox(device_id, now) do
+    case Repo.query!(@legacy_proxmox_mark_sql, retired_only_params(now) ++ [device_id, now]) do
+      %{rows: [[marked_at]]} -> marked_at
+      %{rows: []} -> nil
+    end
+  end
+
+  defp mark_legacy_proxmox_orphan(device_id, actor, now) do
+    Device
+    |> Ash.transact(fn ->
+      with {:ok, _device} <- lock_live_device(device_id, actor),
+           :ok <- lock_identifier_owner(device_id) do
+        {:ok, not is_nil(mark_legacy_proxmox(device_id, now))}
+      else
+        _ -> {:ok, false}
+      end
+    end)
+    |> case do
+      {:ok, {:ok, true}} -> true
+      _ -> false
+    end
+  end
+
   defp retired_only_params(cutoff) do
     [cutoff, @operator_sources, Enum.map(marking_identifier_types(), &Atom.to_string/1)]
   end

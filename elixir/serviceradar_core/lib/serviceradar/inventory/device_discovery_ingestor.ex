@@ -36,9 +36,15 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Inventory.Availability.Sources
   alias ServiceRadar.Inventory.Availability.SyncEvidence
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
+  alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.Identity.GuestAddress
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Repo
 
   require Logger
 
@@ -159,6 +165,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   defp sync_device_inventory(updates, context) when is_list(updates) do
+    updates = enrich_and_reconcile_awx_updates(updates, context.actor)
     opts = [actor: context.actor, availability_evidence: context.availability_evidence]
 
     opts =
@@ -315,10 +322,14 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   defp device_update(device, envelope, payload, status) when is_map(device) do
     metadata = device_metadata(device, envelope, payload)
 
+    mac =
+      string_value(device, ["mac", "mac_address", "macAddress"]) ||
+        first_metadata_mac(metadata)
+
     update = %{
       "device_id" => string_value(device, ["device_id", "deviceId", "uid"]),
       "ip" => device_ip(device),
-      "mac" => string_value(device, ["mac", "mac_address", "macAddress"]),
+      "mac" => mac,
       "hostname" => string_value(device, ["hostname", "name", "host"]),
       "partition" => partition_value(status),
       "source" =>
@@ -345,6 +356,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp device_update(_device, _envelope, _payload, _status), do: nil
 
+  defp first_metadata_mac(%{"mac_addresses" => [mac | _]}) when is_binary(mac), do: mac
+  defp first_metadata_mac(_metadata), do: nil
+
   defp strong_enough?(update) do
     present?(update["device_id"]) or present?(update["ip"]) or present?(update["mac"]) or
       present?(get_in(update, ["metadata", "integration_id"]))
@@ -370,13 +384,19 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   defp awx_ansible_host_ip(device) do
-    with awx when is_map(awx) <- awx_metadata(device),
-         host when is_binary(host) <- awx_ansible_host_value(awx),
-         true <- valid_ip?(host) do
-      host
-    else
-      _ -> nil
-    end
+    candidates = [
+      awx_metadata(device),
+      map_value(device, ["metadata"]),
+      device
+    ]
+
+    host =
+      Enum.find_value(candidates, fn
+        map when is_map(map) -> awx_ansible_host_value(map)
+        _ -> nil
+      end)
+
+    if is_binary(host) and valid_ip?(host), do: host
   end
 
   defp awx_ansible_host_value(awx) do
@@ -385,8 +405,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
         host
 
       _ ->
-        case string_value(awx, ["variables"]) do
+        case Map.get(awx, "variables") || Map.get(awx, :variables) do
           raw when is_binary(raw) -> ansible_host_from_variables(raw)
+          raw when is_map(raw) -> string_value(raw, ["ansible_host", "ansible_ssh_host"])
           _ -> nil
         end
     end
@@ -399,17 +420,16 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end
   end
 
-  # AWX returns a host's `variables` as a stringified JSON object (the proxmox
-  # dynamic inventory emits JSON). Decode it and read `ansible_host` (or the
-  # legacy `ansible_ssh_host`). A non-object blob or a decode failure yields nil.
+  # AWX returns a host's `variables` as a stringified JSON object or YAML lines.
+  # Decode it and read `ansible_host` (or the legacy `ansible_ssh_host`).
   defp ansible_host_from_variables(raw) do
     trimmed = String.trim(raw)
 
-    with "{" <> _ <- trimmed,
-         {:ok, decoded} when is_map(decoded) <- Jason.decode(trimmed) do
-      string_value(decoded, ["ansible_host", "ansible_ssh_host"])
+    if trimmed == "" do
+      nil
     else
-      _ -> nil
+      decoded = HypervisorEnrichmentIngestor.parse_awx_variables(trimmed)
+      string_value(decoded, ["ansible_host", "ansible_ssh_host"])
     end
   end
 
@@ -433,7 +453,13 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   defp device_metadata(device, envelope, payload) do
     location = map_value(device, ["location"])
     envelope_metadata = map_value(envelope, ["metadata"]) || %{}
-    base = stringify_map(map_value(device, ["metadata"]) || %{})
+
+    base =
+      device
+      |> map_value(["metadata"])
+      |> Kernel.||(%{})
+      |> stringify_map()
+      |> enrich_awx_proxmox_metadata(device, envelope)
 
     base
     |> maybe_put_new("integration_type", string_value(envelope, ["source"]) || "plugin")
@@ -690,4 +716,519 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
 
   defp blank_to_nil(""), do: nil
   defp blank_to_nil(value), do: value
+
+  defp enrich_awx_proxmox_metadata(base, device, envelope) when is_map(base) and is_map(device) do
+    merged_input = Map.merge(stringify_map(device), base)
+
+    if awx_context?(base, merged_input, envelope) do
+      case HypervisorEnrichmentIngestor.extract_awx_proxmox_info(merged_input) do
+        nil -> base
+        info -> apply_awx_proxmox_info(base, info)
+      end
+    else
+      base
+    end
+  end
+
+  defp enrich_awx_proxmox_metadata(base, _device, _envelope), do: base
+
+  defp awx_context?(base, merged_input, envelope) do
+    envelope_source = String.downcase(to_string(string_value(envelope || %{}, ["source"]) || ""))
+
+    Map.has_key?(base, "awx") or
+      envelope_source == "awx" or
+      String.downcase(to_string(Map.get(base, "integration_type") || "")) == "awx" or
+      String.downcase(to_string(Map.get(merged_input, "source") || "")) == "awx" or
+      Enum.any?(
+        [
+          "proxmox_vmid",
+          "proxmox_node",
+          "proxmox_vmtype",
+          "ansible_host",
+          "ansible_ssh_host",
+          "variables"
+        ],
+        &present?(Map.get(merged_input, &1))
+      )
+  end
+
+  defp apply_awx_proxmox_info(base, info) do
+    awx =
+      case Map.get(base, "awx") do
+        map when is_map(map) -> stringify_map(map)
+        _ -> %{}
+      end
+
+    updated_awx =
+      awx
+      |> maybe_put_new("proxmox_vmid", info.vmid)
+      |> maybe_put_new("proxmox_node", info.node)
+      |> maybe_put_new("proxmox_vmtype", info.vmtype)
+      |> maybe_put_new("ansible_host", info.ip)
+
+    base =
+      if map_size(updated_awx) > 0 do
+        Map.put(base, "awx", updated_awx)
+      else
+        base
+      end
+
+    merge_awx_proxmox_macs(base, info.macs)
+  end
+
+  defp merge_awx_proxmox_macs(base, []), do: base
+
+  defp merge_awx_proxmox_macs(base, macs) when is_list(macs) do
+    existing_macs =
+      case Map.get(base, "mac_addresses") do
+        list when is_list(list) -> list
+        _ -> []
+      end
+
+    combined_macs =
+      (existing_macs ++ macs)
+      |> Enum.map(&IdentityReconciler.normalize_mac/1)
+      |> Enum.filter(&present?/1)
+      |> Enum.uniq()
+
+    if combined_macs == [] do
+      base
+    else
+      Map.put(base, "mac_addresses", combined_macs)
+    end
+  end
+
+  defp awx_update?(update) when is_map(update) do
+    source = String.downcase(to_string(Map.get(update, "source") || ""))
+    metadata = Map.get(update, "metadata") || %{}
+    integration_type = String.downcase(to_string(Map.get(metadata, "integration_type") || ""))
+
+    source == "awx" or integration_type == "awx" or is_map(Map.get(metadata, "awx"))
+  end
+
+  defp awx_update?(_update), do: false
+
+  defp enrich_and_reconcile_awx_updates(updates, actor) when is_list(updates) do
+    if Enum.any?(updates, &awx_update?/1) do
+      do_enrich_and_reconcile_awx_updates(updates, actor)
+    else
+      updates
+    end
+  rescue
+    e ->
+      Logger.warning(
+        "DeviceDiscoveryIngestor: AWX/Proxmox enrichment fallback after error: #{Exception.message(e)}"
+      )
+
+      updates
+  end
+
+  defp do_enrich_and_reconcile_awx_updates(updates, actor) do
+    vmids =
+      updates
+      |> Enum.filter(&awx_update?/1)
+      |> Enum.map(&awx_update_vmid/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    guests_by_vmid = query_virtualization_guests_by_vmid(vmids)
+
+    enriched_updates =
+      Enum.map(updates, fn update ->
+        if awx_update?(update) do
+          attach_matching_virtualization_guest(update, guests_by_vmid)
+        else
+          {update, nil}
+        end
+      end)
+
+    reconcile_awx_device_links(enriched_updates, actor)
+  end
+
+  defp awx_update_vmid(update) do
+    metadata = Map.get(update, "metadata") || %{}
+
+    case HypervisorEnrichmentIngestor.extract_awx_proxmox_info(metadata, Map.get(update, "ip")) do
+      %{vmid: vmid} when is_integer(vmid) and vmid > 0 -> vmid
+      _ -> nil
+    end
+  end
+
+  defp query_virtualization_guests_by_vmid([]), do: %{}
+
+  defp query_virtualization_guests_by_vmid(vmids) do
+    sql = """
+    SELECT g.provider_ref,
+           g.vmid,
+           COALESCE(g.metadata->>'node', h.name) AS node_name,
+           g.device_uid,
+           g.status,
+           COALESCE(
+             ARRAY(
+               SELECT n.mac_address
+               FROM platform.virtualization_network_interfaces n
+               WHERE n.guest_id = g.id
+                 AND n.mac_address IS NOT NULL
+                 AND btrim(n.mac_address) <> ''
+                 AND lower(COALESCE(n.name, '')) <> 'lo'
+             ),
+             ARRAY[]::text[]
+           ) AS nic_macs,
+           COALESCE(
+             ARRAY(
+               SELECT unnest(n.ip_addresses)
+               FROM platform.virtualization_network_interfaces n
+               WHERE n.guest_id = g.id
+             ),
+             ARRAY[]::text[]
+           ) AS nic_ips
+    FROM platform.virtualization_guests g
+    LEFT JOIN platform.virtualization_hosts h ON h.id = g.host_id
+    WHERE g.vmid = ANY($1::integer[])
+    """
+
+    case Repo.query(sql, [vmids]) do
+      {:ok, %{rows: rows}} ->
+        Enum.reduce(rows, %{}, fn [
+                                    provider_ref,
+                                    vmid,
+                                    node_name,
+                                    device_uid,
+                                    status,
+                                    nic_macs,
+                                    nic_ips
+                                  ],
+                                  acc ->
+          macs =
+            nic_macs
+            |> List.wrap()
+            |> Enum.map(&IdentityReconciler.normalize_mac/1)
+            |> Enum.filter(&present?/1)
+            |> Enum.uniq()
+
+          ips =
+            nic_ips
+            |> List.wrap()
+            |> Enum.map(fn raw ->
+              raw |> to_string() |> String.split("/", parts: 2) |> hd() |> String.trim()
+            end)
+            |> Enum.filter(&valid_ip?/1)
+            |> Enum.reject(&GuestAddress.host_internal_address?(%{name: "eth0"}, &1))
+            |> Enum.uniq()
+
+          entry = %{
+            provider_ref: provider_ref,
+            vmid: vmid,
+            node: node_name,
+            device_uid: device_uid,
+            status: status,
+            macs: macs,
+            ips: ips
+          }
+
+          Map.update(acc, vmid, [entry], &[entry | &1])
+        end)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp attach_matching_virtualization_guest(update, guests_by_vmid) do
+    metadata = Map.get(update, "metadata") || %{}
+    info = HypervisorEnrichmentIngestor.extract_awx_proxmox_info(metadata, Map.get(update, "ip"))
+
+    case info do
+      %{vmid: vmid} when is_integer(vmid) and vmid > 0 ->
+        candidates = Map.get(guests_by_vmid, vmid, [])
+
+        matching =
+          Enum.filter(candidates, fn guest ->
+            is_nil(info.node) or is_nil(guest.node) or
+              String.downcase(to_string(info.node)) == String.downcase(to_string(guest.node))
+          end)
+
+        case select_matching_guest(matching, update, info) do
+          nil ->
+            {update, nil}
+
+          guest ->
+            existing_macs =
+              case Map.get(metadata, "mac_addresses") do
+                list when is_list(list) -> list
+                _ -> []
+              end
+
+            macs =
+              ([Map.get(update, "mac") | existing_macs] ++ guest.macs)
+              |> Enum.map(&IdentityReconciler.normalize_mac/1)
+              |> Enum.filter(&present?/1)
+              |> Enum.uniq()
+
+            ip = Map.get(update, "ip") || List.first(guest.ips)
+
+            updated_metadata =
+              if macs == [] do
+                metadata
+              else
+                Map.put(metadata, "mac_addresses", macs)
+              end
+
+            updated =
+              update
+              |> maybe_put("ip", ip)
+              |> maybe_put("mac", Map.get(update, "mac") || List.first(macs))
+              |> Map.put("metadata", updated_metadata)
+
+            {updated, guest}
+        end
+
+      _ ->
+        {update, nil}
+    end
+  end
+
+  defp select_matching_guest([single], _update, _info), do: single
+
+  defp select_matching_guest(candidates, update, info) when is_list(candidates) do
+    update_ip = Map.get(update, "ip") || (info && info.ip)
+
+    update_macs =
+      ([Map.get(update, "mac") | List.wrap(get_in(update, ["metadata", "mac_addresses"]))] ++
+         ((info && info.macs) || []))
+      |> Enum.map(&IdentityReconciler.normalize_mac/1)
+      |> Enum.filter(&present?/1)
+      |> MapSet.new()
+
+    Enum.find(candidates, fn guest ->
+      (present?(update_ip) and update_ip in guest.ips) or
+        (MapSet.size(update_macs) > 0 and
+           not MapSet.disjoint?(update_macs, MapSet.new(guest.macs)))
+    end)
+  end
+
+  defp reconcile_awx_device_links(enriched_updates, actor) do
+    Enum.map(enriched_updates, fn
+      {update, guest} ->
+        if awx_update?(update) do
+          reconcile_one_awx_update(update, guest, actor)
+        else
+          update
+        end
+    end)
+  end
+
+  defp reconcile_one_awx_update(update, guest, actor) do
+    partition = Map.get(update, "partition") || "default"
+    metadata = Map.get(update, "metadata") || %{}
+    integration_id = Map.get(metadata, "integration_id")
+    legacy_ids = List.wrap(Map.get(metadata, "legacy_integration_ids"))
+    ip = Map.get(update, "ip")
+
+    macs =
+      [Map.get(update, "mac") | List.wrap(Map.get(metadata, "mac_addresses"))]
+      |> Enum.map(&IdentityReconciler.normalize_mac/1)
+      |> Enum.filter(&present?/1)
+      |> Enum.uniq()
+
+    guest_uid =
+      if is_map(guest) and is_binary(guest.device_uid) and
+           String.starts_with?(guest.device_uid, "sr:") do
+        live_device_uid(guest.device_uid)
+      end
+
+    existing_awx_uid =
+      lookup_awx_integration_owner([integration_id | legacy_ids], partition)
+
+    network_holder_uid =
+      lookup_corroborated_network_holder(
+        ip,
+        macs,
+        partition,
+        guest_uid || existing_awx_uid,
+        guest != nil
+      )
+
+    candidate_uids =
+      [guest_uid, existing_awx_uid, network_holder_uid]
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    case candidate_uids do
+      [] ->
+        update
+
+      [survivor_uid | rest] ->
+        Enum.each(rest, fn source_uid ->
+          if source_uid != survivor_uid do
+            _ =
+              IdentityReconciler.merge_devices(source_uid, survivor_uid,
+                actor: actor,
+                reason: "awx_proxmox_network_match",
+                details: %{
+                  "awx_integration_id" => integration_id,
+                  "guest_provider_ref" => guest && guest.provider_ref
+                }
+              )
+          end
+        end)
+
+        if is_nil(existing_awx_uid) do
+          Map.put(update, "device_id", survivor_uid)
+        else
+          update
+        end
+    end
+  end
+
+  defp live_device_uid(uid) when is_binary(uid) do
+    case Repo.query(
+           "SELECT uid FROM platform.ocsf_devices WHERE uid = $1 AND deleted_at IS NULL LIMIT 1",
+           [uid]
+         ) do
+      {:ok, %{rows: [[found]]}} -> found
+      _ -> nil
+    end
+  end
+
+  defp lookup_awx_integration_owner(ids, partition) do
+    clean_ids =
+      ids
+      |> Enum.filter(&present?/1)
+      |> Enum.uniq()
+
+    if clean_ids == [] do
+      nil
+    else
+      sql = """
+      SELECT di.device_id
+      FROM platform.device_identifiers di
+      JOIN platform.ocsf_devices d ON d.uid = di.device_id AND d.deleted_at IS NULL
+      WHERE di.identifier_type = 'integration_id'
+        AND di.identifier_value = ANY($1::text[])
+        AND COALESCE(di.partition, 'default') = $2
+      ORDER BY di.last_seen DESC NULLS LAST
+      LIMIT 1
+      """
+
+      case Repo.query(sql, [clean_ids, partition]) do
+        {:ok, %{rows: [[uid]]}} -> uid
+        _ -> nil
+      end
+    end
+  end
+
+  defp lookup_corroborated_network_holder(ip, macs, partition, anchor_uid, has_proxmox_link?) do
+    cond do
+      macs != [] ->
+        lookup_mac_holder_uid(macs, partition, anchor_uid) ||
+          if(present?(ip), do: lookup_ip_holder_uid(ip, macs, partition, anchor_uid, true))
+
+      present?(ip) and has_proxmox_link? ->
+        lookup_ip_holder_uid(ip, [], partition, anchor_uid, true)
+
+      present?(ip) ->
+        lookup_ip_holder_uid(ip, [], partition, anchor_uid, false)
+
+      true ->
+        nil
+    end
+  end
+
+  defp lookup_mac_holder_uid(macs, partition, anchor_uid) do
+    sql = """
+    SELECT d.uid, d.agent_id, COALESCE(d.discovery_sources, ARRAY[]::text[]), COALESCE(d.metadata, '{}'::jsonb)
+    FROM platform.ocsf_devices d
+    WHERE d.deleted_at IS NULL
+      AND COALESCE(d.partition, 'default') = $2
+      AND (
+        upper(replace(replace(btrim(COALESCE(d.mac, '')), '-', ':'), '.', ':')) = ANY($1::text[])
+        OR EXISTS (
+          SELECT 1
+          FROM platform.device_identifiers di
+          WHERE di.device_id = d.uid
+            AND di.identifier_type = 'mac'
+            AND di.identifier_value = ANY($1::text[])
+        )
+      )
+    LIMIT 1
+    """
+
+    case Repo.query(sql, [macs, partition]) do
+      {:ok, %{rows: [[uid, agent_id, discovery_sources, metadata]]}} ->
+        device = %Device{
+          uid: uid,
+          agent_id: agent_id,
+          discovery_sources: List.wrap(discovery_sources),
+          metadata: metadata || %{}
+        }
+
+        if DeviceClaimPolicy.reusable_for_claim?(device, :managed_child_asset) and
+             (is_nil(anchor_uid) or uid == anchor_uid or
+                SourceAuthorityGuard.ensure_merge_allowed([uid, anchor_uid]) == :ok) do
+          uid
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp lookup_ip_holder_uid(ip, guest_macs, partition, anchor_uid, corroborated_by_proxmox?) do
+    sql = """
+    SELECT d.uid,
+           d.agent_id,
+           COALESCE(d.discovery_sources, ARRAY[]::text[]),
+           COALESCE(d.metadata, '{}'::jsonb),
+           d.mac,
+           COALESCE(
+             ARRAY(
+               SELECT di.identifier_value
+               FROM platform.device_identifiers di
+               WHERE di.device_id = d.uid AND di.identifier_type = 'mac'
+             ),
+             ARRAY[]::text[]
+           ) AS device_macs
+    FROM platform.ocsf_devices d
+    WHERE d.deleted_at IS NULL
+      AND COALESCE(d.partition, 'default') = $2
+      AND btrim(COALESCE(d.ip, '')) = $1
+    LIMIT 1
+    """
+
+    case Repo.query(sql, [ip, partition]) do
+      {:ok, %{rows: [[uid, agent_id, discovery_sources, metadata, d_mac, device_macs]]}} ->
+        device = %Device{
+          uid: uid,
+          agent_id: agent_id,
+          discovery_sources: List.wrap(discovery_sources),
+          metadata: metadata || %{}
+        }
+
+        holder_macs =
+          [d_mac | List.wrap(device_macs)]
+          |> Enum.map(&IdentityReconciler.normalize_mac/1)
+          |> Enum.filter(&present?/1)
+          |> MapSet.new()
+
+        g_macs = MapSet.new(guest_macs)
+
+        mac_contradicts? =
+          MapSet.size(g_macs) > 0 and MapSet.size(holder_macs) > 0 and
+            MapSet.disjoint?(g_macs, holder_macs)
+
+        unanchored_holder? = MapSet.size(holder_macs) == 0
+
+        if not mac_contradicts? and
+             (corroborated_by_proxmox? or unanchored_holder?) and
+             DeviceClaimPolicy.reusable_for_claim?(device, :managed_child_asset) and
+             (is_nil(anchor_uid) or uid == anchor_uid or
+                SourceAuthorityGuard.ensure_merge_allowed([uid, anchor_uid]) == :ok) do
+          uid
+        end
+
+      _ ->
+        nil
+    end
+  end
 end

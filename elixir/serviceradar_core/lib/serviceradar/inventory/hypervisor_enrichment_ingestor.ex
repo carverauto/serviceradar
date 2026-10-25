@@ -16,9 +16,13 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.Identity.GuestAddress
+  alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
+  alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Inventory.Sync.IdentifierRecords
+  alias ServiceRadar.Inventory.Sync.Normalize
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Inventory.VirtualizationCluster
   alias ServiceRadar.Inventory.VirtualizationDatastore
@@ -338,6 +342,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
          {:ok, _} <- upsert_group(VirtualizationNetworkInterface, nics, actor),
          {:ok, _} <- upsert_group(VirtualizationStorageSystem, storage_systems, actor),
          :ok <- VirtualizationIdentityAliases.reconcile(records),
+         :ok <- retire_legacy_proxmox_records(records, actor),
          :ok <- reconcile_saved_guest_ids(Map.values(guest_ids), actor) do
       if !Repo.in_transaction?() do
         nics |> Stream.map(& &1[:device_uid]) |> DevicePubSub.broadcast_invalidated()
@@ -346,6 +351,40 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       enqueue_world_reconcile()
     end
   end
+
+  defp retire_legacy_proxmox_records(records, actor) when is_map(records) do
+    proxmox_records =
+      [:clusters, :hosts, :guests]
+      |> Enum.flat_map(&Map.get(records, &1, []))
+      |> Enum.filter(&(to_string(Map.get(&1, :provider) || Map.get(&1, "provider")) == "proxmox"))
+
+    if proxmox_records == [] do
+      :ok
+    else
+      partitions =
+        proxmox_records
+        |> Enum.map(fn record ->
+          metadata = Map.get(record, :metadata) || Map.get(record, "metadata") || %{}
+          string_value(metadata, "partition") || "default"
+        end)
+        |> Enum.uniq()
+
+      Enum.each(partitions, fn partition ->
+        _ = SourceRetirement.retire_legacy_proxmox_identifiers(partition: partition, actor: actor)
+      end)
+
+      :ok
+    end
+  rescue
+    e ->
+      Logger.warning(
+        "HypervisorEnrichmentIngestor: legacy Proxmox retirement failed: #{Exception.message(e)}"
+      )
+
+      :ok
+  end
+
+  defp retire_legacy_proxmox_records(_records, _actor), do: :ok
 
   @doc "Repairs one bounded page of saved owners and existing projections."
   def reconcile_hosted_topology(checkpoint \\ %{}) do
@@ -887,9 +926,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       |> Enum.filter(&present?/1)
 
     with {:ok, integration_identity} <- integration_identity_by_ref(records),
-         {:ok, network_identity} <- network_identity_by_guest(records.network_interfaces, actor),
+         {:ok, guest_resolution} <-
+           resolve_guest_network_and_awx_candidates(records, integration_identity, actor),
          {:ok, host_network_identity} <- network_identity_by_host(records, actor),
          {:ok, devices} <- lookup_devices(current_uids, names, actor) do
+      network_identity = guest_resolution.by_ref
       guest_identity_maps = [integration_identity, network_identity]
       host_identity_maps = [integration_identity, host_network_identity]
 
@@ -931,56 +972,81 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   end
 
   defp ensure_inventory_devices(records, actor) do
-    guest_ip_by_ref = primary_ip_by_guest(records.network_interfaces)
-    host_ip_by_ref = primary_ip_by_host(records.network_interfaces)
-    guest_macs = guest_macs_by_ref(records.network_interfaces)
-
-    host_updates =
-      records.hosts
-      |> Enum.filter(&missing_device_uid?/1)
-      |> Enum.map(fn record ->
-        placeholder_device_update(
-          record,
-          :hypervisor,
-          Map.get(host_ip_by_ref, Map.get(record, :provider_ref)),
-          guest_macs
+    with {:ok, integration_identity} <- integration_identity_by_ref(records),
+         {:ok, guest_resolution} <-
+           resolve_guest_network_and_awx_candidates(records, integration_identity, actor),
+         :ok <-
+           reconcile_guest_device_merges(
+             records.guests,
+             guest_resolution.merge_sources,
+             actor
+           ) do
+      guest_ip_by_ref =
+        Map.merge(
+          guest_resolution.inferred_ips,
+          primary_ip_by_guest(records.network_interfaces)
         )
-      end)
 
-    guest_updates =
-      records.guests
-      |> Enum.filter(&missing_device_uid?/1)
-      |> Enum.map(fn record ->
-        placeholder_device_update(
-          record,
-          :virtual_guest,
-          Map.get(guest_ip_by_ref, Map.get(record, :provider_ref)),
-          guest_macs
-        )
-      end)
-      |> reject_guests_without_network_identity()
+      host_ip_by_ref = primary_ip_by_host(records.network_interfaces)
+      guest_macs = guest_macs_by_ref(records.network_interfaces)
+      host_macs = host_macs_by_ref(records.network_interfaces)
 
-    updates =
-      host_updates ++
-        guest_updates ++
-        existing_device_updates(records.hosts, :hypervisor, host_ip_by_ref, guest_macs) ++
-        existing_device_updates(records.guests, :virtual_guest, guest_ip_by_ref, guest_macs)
+      host_updates =
+        records.hosts
+        |> Enum.filter(&missing_device_uid?/1)
+        |> Enum.map(fn record ->
+          placeholder_device_update(
+            record,
+            :hypervisor,
+            Map.get(host_ip_by_ref, Map.get(record, :provider_ref)),
+            host_macs
+          )
+        end)
 
-    case updates do
-      [] ->
-        {:ok, records}
+      guest_updates =
+        records.guests
+        |> Enum.filter(&missing_device_uid?/1)
+        |> Enum.map(fn record ->
+          placeholder_device_update(
+            record,
+            :virtual_guest,
+            Map.get(guest_ip_by_ref, Map.get(record, :provider_ref)),
+            guest_macs
+          )
+        end)
+        |> reject_guests_without_network_identity()
 
-      _ ->
-        # Records left without a device_uid get resolved by the follow-up
-        # resolve_existing_device_uids pass via the integration_id identifier
-        # rows the reconciler registered for these updates.
-        case SyncIngestor.ingest_updates(updates,
-               actor: actor,
-               availability_evidence: &availability_observation/1
-             ) do
-          :ok -> {:ok, records}
-          {:error, reason} -> {:error, reason}
+      updates =
+        host_updates ++
+          guest_updates ++
+          existing_device_updates(records.hosts, :hypervisor, host_ip_by_ref, host_macs) ++
+          existing_device_updates(records.guests, :virtual_guest, guest_ip_by_ref, guest_macs)
+
+      ingest_result =
+        case updates do
+          [] ->
+            :ok
+
+          _ ->
+            # Records left without a device_uid get resolved by the follow-up
+            # resolve_existing_device_uids pass via the integration_id identifier
+            # rows the reconciler registered for these updates.
+            SyncIngestor.ingest_updates(updates,
+              actor: actor,
+              availability_evidence: &availability_observation/1
+            )
         end
+
+      case ingest_result do
+        :ok ->
+          :ok =
+            sync_existing_device_mac_identities(records, guest_macs, host_macs, actor)
+
+          {:ok, records}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 
@@ -996,24 +1062,23 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   # update's identity evidence (integration_id metadata, IP), and the
   # follow-up resolution pass links the virtualization record to whatever
   # device the reconciler chose.
-  defp placeholder_device_update(record, role, ip_override, guest_macs) do
+  defp placeholder_device_update(record, role, ip_override, macs_by_ref) do
     provider_ref = Map.fetch!(record, :provider_ref)
     partition = metadata_partition(record)
     ip = first_non_empty(ip_override, metadata_ip(record))
+    macs = Map.get(macs_by_ref, provider_ref, [])
 
-    metadata = placeholder_device_metadata(record, role, guest_macs)
+    metadata = placeholder_device_metadata(record, role, macs_by_ref)
 
-    maybe_put(
-      %{
-        "hostname" => Map.get(record, :name) || provider_ref,
-        "partition" => partition,
-        "source" => "hypervisor_enrichment",
-        "is_available" => available_status?(Map.get(record, :status)),
-        "metadata" => metadata
-      },
-      "ip",
-      ip
-    )
+    %{
+      "hostname" => Map.get(record, :name) || provider_ref,
+      "partition" => partition,
+      "source" => "hypervisor_enrichment",
+      "is_available" => available_status?(Map.get(record, :status)),
+      "metadata" => metadata
+    }
+    |> maybe_put("ip", ip)
+    |> maybe_put("mac", List.first(macs))
   end
 
   # A virtual guest only earns a device when we discovered an IP the reconciler
@@ -1034,29 +1099,31 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     kept
   end
 
-  defp existing_device_updates(records, role, ip_by_ref, guest_macs) do
+  defp existing_device_updates(records, role, ip_by_ref, macs_by_ref) do
     records
     |> Enum.reject(&missing_device_uid?/1)
     |> Enum.flat_map(fn record ->
+      provider_ref = Map.get(record, :provider_ref)
+
       ip =
         first_non_empty(
-          Map.get(ip_by_ref, Map.get(record, :provider_ref)),
+          Map.get(ip_by_ref, provider_ref),
           metadata_ip(record)
         )
+
+      macs = Map.get(macs_by_ref, provider_ref, [])
 
       case existing_sr_uid(Map.get(record, :device_uid)) do
         uid when is_binary(uid) ->
           [
-            maybe_put(
-              %{
-                "device_id" => uid,
-                "partition" => metadata_partition(record),
-                "source" => "hypervisor_enrichment",
-                "metadata" => placeholder_device_metadata(record, role, guest_macs)
-              },
-              "ip",
-              ip
-            )
+            %{
+              "device_id" => uid,
+              "partition" => metadata_partition(record),
+              "source" => "hypervisor_enrichment",
+              "metadata" => placeholder_device_metadata(record, role, macs_by_ref)
+            }
+            |> maybe_put("ip", ip)
+            |> maybe_put("mac", List.first(macs))
           ]
 
         _ ->
@@ -1065,9 +1132,10 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end)
   end
 
-  defp placeholder_device_metadata(record, role, guest_macs) do
+  defp placeholder_device_metadata(record, role, macs_by_ref) do
     provider_ref = Map.fetch!(record, :provider_ref)
     integration_id = record_integration_id(record) || provider_ref
+    macs = Map.get(macs_by_ref, provider_ref, [])
 
     legacy_integration_ids =
       if authoritative_v3_record?(record) do
@@ -1080,7 +1148,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
           provider_ref
           | IntegrationIdentity.legacy_candidates(
               integration_id,
-              legacy_record_fields(record, guest_macs)
+              legacy_record_fields(record, macs_by_ref)
             )
         ]
         |> Enum.uniq()
@@ -1098,9 +1166,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     |> maybe_put("hypervisor_host_provider_ref", Map.get(record, :host_provider_ref))
     |> maybe_put("hypervisor_vmid", Map.get(record, :vmid))
     |> maybe_put("hypervisor_status", Map.get(record, :status))
+    |> maybe_put_mac_addresses(macs)
     |> maybe_put_legacy_integration_ids(legacy_integration_ids)
     |> maybe_put_proxmox_candidate(record, role)
   end
+
+  defp maybe_put_mac_addresses(metadata, []), do: metadata
+
+  defp maybe_put_mac_addresses(metadata, macs) when is_list(macs),
+    do: Map.put(metadata, "mac_addresses", macs)
 
   defp maybe_put_legacy_integration_ids(metadata, []), do: metadata
 
@@ -1469,13 +1543,24 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp guest_macs_by_ref(network_interfaces) do
     network_interfaces
-    |> Enum.filter(&present?(Map.get(&1, :guest_provider_ref)))
+    |> Enum.filter(fn iface ->
+      present?(Map.get(iface, :guest_provider_ref)) and
+        not host_internal_guest_interface?(iface)
+    end)
+    |> Enum.sort_by(fn iface ->
+      {
+        guest_interface_identity_rank(iface),
+        to_string(Map.get(iface, :name) || ""),
+        to_string(Map.get(iface, :provider_ref) || "")
+      }
+    end)
     |> mac_list_by_ref(:guest_provider_ref)
   end
 
   defp host_macs_by_ref(network_interfaces) do
     network_interfaces
     |> Enum.reject(&present?(Map.get(&1, :guest_provider_ref)))
+    |> Enum.reject(&host_internal_guest_interface?/1)
     |> mac_list_by_ref(:host_provider_ref)
   end
 
@@ -1491,6 +1576,32 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       end
     end)
   end
+
+  defp guest_interface_identity_rank(iface) do
+    if hypervisor_attached_interface?(iface), do: 0, else: 1
+  end
+
+  defp hypervisor_attached_interface?(iface) do
+    iface
+    |> Map.get(:source)
+    |> to_string()
+    |> String.split(",", trim: true)
+    |> Enum.any?(&(String.trim(&1) == "config"))
+  end
+
+  defp host_internal_guest_interface?(iface) when is_map(iface) do
+    name =
+      iface
+      |> Map.get(:name)
+      |> to_string()
+      |> String.trim()
+      |> String.downcase()
+
+    name == "lo" or
+      (not hypervisor_attached_interface?(iface) and GuestAddress.host_internal_name?(name))
+  end
+
+  defp host_internal_guest_interface?(_iface), do: false
 
   # Resolve hypervisor hosts by their own NIC MACs (when the provider
   # supplies them) through the DIRE lookup path, so a host that already
@@ -1549,11 +1660,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       guest_ref = Map.fetch!(iface, :guest_provider_ref)
 
       macs =
-        iface
-        |> Map.get(:mac_address)
-        |> List.wrap()
-        |> Enum.map(&normalize_mac_identifier/1)
-        |> Enum.filter(&present?/1)
+        if host_internal_guest_interface?(iface) do
+          []
+        else
+          iface
+          |> Map.get(:mac_address)
+          |> List.wrap()
+          |> Enum.map(&normalize_mac_identifier/1)
+          |> Enum.filter(&present?/1)
+        end
 
       ips =
         iface
@@ -1574,35 +1689,741 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end)
   end
 
-  defp network_identity_by_guest(network_interfaces, _actor) do
-    identities = guest_lookup_identities(network_interfaces)
+  defp resolve_guest_network_and_awx_candidates(records, integration_identity, _actor) do
+    identities = guest_lookup_identities(records.network_interfaces)
+    guest_macs = guest_macs_by_ref(records.network_interfaces)
+    guest_ips = guest_discoverable_ips_by_ref(records.network_interfaces)
 
-    if identities == [] do
-      {:ok, %{}}
+    all_macs =
+      identities
+      |> Enum.filter(&(&1.type == :mac))
+      |> Enum.map(& &1.value)
+      |> Enum.uniq()
+
+    all_ips =
+      identities
+      |> Enum.filter(&(&1.type == :ip))
+      |> Enum.map(& &1.value)
+      |> Enum.uniq()
+
+    has_vmids? =
+      Enum.any?(records.guests, fn guest ->
+        not is_nil(normalize_guest_vmid(Map.get(guest, :vmid)))
+      end)
+
+    if all_macs == [] and all_ips == [] and not has_vmids? do
+      {:ok, %{by_ref: %{}, merge_sources: %{}, inferred_ips: %{}}}
     else
-      identifiers =
-        identities
-        |> Enum.map(&Map.take(&1, [:type, :value, :partition]))
-        |> Enum.uniq()
-
-      case lookup_identifier_devices(identifiers) do
-        {:ok, identifier_to_device} ->
-          identity_map =
-            Enum.reduce(identities, %{}, fn identity, acc ->
-              key = {identity.type, identity.value, identity.partition}
-
-              case Map.get(identifier_to_device, key) do
-                uid when is_binary(uid) and uid != "" -> Map.put_new(acc, identity.guest_ref, uid)
-                _ -> acc
-              end
-            end)
-
-          {:ok, identity_map}
+      case query_guest_candidate_devices(all_ips, all_macs, has_vmids?) do
+        {:ok, candidates} ->
+          {:ok,
+           build_guest_resolution(
+             records,
+             identities,
+             guest_macs,
+             guest_ips,
+             integration_identity,
+             candidates
+           )}
 
         {:error, _} = error ->
           error
       end
     end
+  end
+
+  defp guest_discoverable_ips_by_ref(network_interfaces) do
+    network_interfaces
+    |> guest_lookup_identities()
+    |> Enum.filter(&(&1.type == :ip))
+    |> Enum.reduce(%{}, fn %{guest_ref: guest_ref, value: ip}, acc ->
+      Map.update(acc, guest_ref, [ip], &Enum.uniq(&1 ++ [ip]))
+    end)
+  end
+
+  defp query_guest_candidate_devices(all_ips, all_macs, has_vmids?) do
+    sql = """
+    SELECT d.uid,
+           d.ip,
+           d.mac,
+           d.hostname,
+           COALESCE(d.partition, 'default') AS partition,
+           COALESCE(d.metadata, '{}'::jsonb) AS metadata,
+           COALESCE(d.discovery_sources, ARRAY[]::text[]) AS discovery_sources,
+           d.agent_id,
+           COALESCE(
+             ARRAY(
+               SELECT di.identifier_value
+               FROM platform.device_identifiers di
+               WHERE di.device_id = d.uid AND di.identifier_type = 'mac'
+             ),
+             ARRAY[]::text[]
+           ) AS mac_identifiers,
+           COALESCE(
+             ARRAY(
+               SELECT di.identifier_value
+               FROM platform.device_identifiers di
+               WHERE di.device_id = d.uid AND di.identifier_type = 'ip'
+             ),
+             ARRAY[]::text[]
+           ) AS ip_identifiers,
+           COALESCE(
+             ARRAY(
+               SELECT di.identifier_value
+               FROM platform.device_identifiers di
+               WHERE di.device_id = d.uid AND di.identifier_type = 'integration_id'
+             ),
+             ARRAY[]::text[]
+           ) AS integration_identifiers
+    FROM platform.ocsf_devices d
+    WHERE d.deleted_at IS NULL
+      AND (
+        btrim(COALESCE(d.ip, '')) = ANY($1::text[])
+        OR upper(replace(replace(btrim(COALESCE(d.mac, '')), '-', ':'), '.', ':')) = ANY($2::text[])
+        OR EXISTS (
+          SELECT 1
+          FROM platform.device_identifiers di
+          WHERE di.device_id = d.uid
+            AND (
+              (di.identifier_type = 'mac' AND di.identifier_value = ANY($2::text[]))
+              OR (di.identifier_type = 'ip' AND di.identifier_value = ANY($1::text[]))
+            )
+        )
+        OR (
+          $3::boolean
+          AND (
+            'awx' = ANY(COALESCE(d.discovery_sources, ARRAY[]::text[]))
+            OR COALESCE(d.metadata->>'integration_type', '') = 'awx'
+            OR COALESCE(d.metadata, '{}'::jsonb) ? 'awx'
+          )
+        )
+      )
+    """
+
+    case Repo.query(sql, [all_ips, all_macs, has_vmids?]) do
+      {:ok, %{rows: rows}} ->
+        {:ok, Enum.map(rows, &row_to_guest_candidate/1)}
+
+      {:error, reason} ->
+        Logger.warning("Hypervisor enrichment guest candidate lookup failed: #{inspect(reason)}")
+
+        {:error, {:identifier_lookup_failed, reason}}
+    end
+  end
+
+  defp row_to_guest_candidate([
+         uid,
+         ip,
+         mac,
+         hostname,
+         partition,
+         metadata,
+         discovery_sources,
+         agent_id,
+         mac_identifiers,
+         ip_identifiers,
+         integration_identifiers
+       ]) do
+    metadata = if is_map(metadata), do: metadata, else: %{}
+    awx_info = extract_awx_proxmox_info(metadata, ip)
+
+    macs =
+      ([mac | List.wrap(mac_identifiers)] ++ ((awx_info && awx_info.macs) || []))
+      |> Enum.map(&normalize_mac_identifier/1)
+      |> Enum.filter(&present?/1)
+      |> MapSet.new()
+
+    ips =
+      [ip | List.wrap(ip_identifiers)]
+      |> Enum.map(&normalize_ip_identifier/1)
+      |> Enum.filter(&present?/1)
+      |> MapSet.new()
+
+    %{
+      uid: uid,
+      ip: normalize_ip_identifier(ip),
+      mac: normalize_mac_identifier(mac),
+      hostname: hostname,
+      partition: partition || "default",
+      metadata: metadata,
+      discovery_sources: List.wrap(discovery_sources),
+      agent_id: agent_id,
+      macs: macs,
+      ips: ips,
+      integration_identifiers: List.wrap(integration_identifiers),
+      awx: awx_info
+    }
+  end
+
+  defp build_guest_resolution(
+         records,
+         identities,
+         guest_macs,
+         guest_ips,
+         integration_identity,
+         candidates
+       ) do
+    reserved_host_uids =
+      records.hosts
+      |> Enum.flat_map(fn host ->
+        ref = Map.get(host, :provider_ref)
+        [Map.get(host, :device_uid), Map.get(integration_identity, ref)]
+      end)
+      |> Enum.filter(&present?/1)
+      |> MapSet.new()
+
+    guests_by_ref =
+      Map.new(records.guests, fn guest -> {Map.get(guest, :provider_ref), guest} end)
+
+    all_guest_refs =
+      (Map.keys(guests_by_ref) ++ Enum.map(identities, & &1.guest_ref))
+      |> Enum.filter(&present?/1)
+      |> Enum.uniq()
+
+    node_vmid_counts =
+      Enum.reduce(records.guests, %{}, fn guest, acc ->
+        key = {guest_node_name(guest), normalize_guest_vmid(Map.get(guest, :vmid))}
+
+        if elem(key, 1) do
+          Map.update(acc, key, 1, &(&1 + 1))
+        else
+          acc
+        end
+      end)
+
+    Enum.reduce(
+      all_guest_refs,
+      %{by_ref: %{}, merge_sources: %{}, inferred_ips: %{}},
+      fn guest_ref, acc ->
+        guest = Map.get(guests_by_ref, guest_ref, %{provider_ref: guest_ref})
+        partition = guest_partition_for_ref(guest, identities, guest_ref)
+        integration_uid = Map.get(integration_identity, guest_ref)
+        g_macs = guest_macs |> Map.get(guest_ref, []) |> MapSet.new()
+        g_ips = guest_ips |> Map.get(guest_ref, []) |> MapSet.new()
+        active? = not stopped_guest_status?(Map.get(guest, :status))
+        g_vmid = normalize_guest_vmid(Map.get(guest, :vmid))
+        g_node = guest_node_name(guest)
+        unique_node_vmid? = Map.get(node_vmid_counts, {g_node, g_vmid}, 0) <= 1
+
+        other_guest_uids =
+          integration_identity
+          |> Enum.reject(fn {ref, _uid} -> ref == guest_ref end)
+          |> MapSet.new(&elem(&1, 1))
+
+        matched =
+          candidates
+          |> Enum.filter(fn cand ->
+            cand.partition == partition and
+              eligible_guest_candidate?(
+                cand,
+                guest_ref,
+                record_integration_id(guest),
+                reserved_host_uids,
+                other_guest_uids,
+                integration_uid
+              )
+          end)
+          |> Enum.flat_map(fn cand ->
+            case classify_guest_candidate_match(
+                   cand,
+                   g_macs,
+                   g_ips,
+                   active?,
+                   g_node,
+                   g_vmid,
+                   unique_node_vmid?
+                 ) do
+              nil -> []
+              rank -> [{rank, cand}]
+            end
+          end)
+          |> Enum.sort_by(fn {rank, cand} -> {rank, cand.uid} end)
+          |> Enum.map(&elem(&1, 1))
+          |> Enum.uniq_by(& &1.uid)
+
+        matched_uids = Enum.map(matched, & &1.uid)
+
+        inferred_ip =
+          if MapSet.size(g_ips) == 0 do
+            Enum.find_value(matched, fn cand ->
+              cand.ip || (cand.awx && cand.awx.ip)
+            end)
+          end
+
+        by_ref =
+          case matched_uids do
+            [primary_uid | _] -> Map.put(acc.by_ref, guest_ref, primary_uid)
+            [] -> acc.by_ref
+          end
+
+        merge_sources =
+          case matched_uids do
+            [] -> acc.merge_sources
+            uids -> Map.put(acc.merge_sources, guest_ref, uids)
+          end
+
+        inferred_ips =
+          if present?(inferred_ip) do
+            Map.put(acc.inferred_ips, guest_ref, inferred_ip)
+          else
+            acc.inferred_ips
+          end
+
+        %{by_ref: by_ref, merge_sources: merge_sources, inferred_ips: inferred_ips}
+      end
+    )
+  end
+
+  defp guest_partition_for_ref(guest, identities, guest_ref) do
+    case Map.get(guest, :metadata) do
+      %{} = meta when is_map_key(meta, "partition") ->
+        metadata_partition(guest)
+
+      _ ->
+        identities
+        |> Enum.find_value(fn identity ->
+          if identity.guest_ref == guest_ref, do: identity.partition
+        end)
+        |> Kernel.||(metadata_partition(guest))
+    end
+  end
+
+  defp eligible_guest_candidate?(
+         cand,
+         guest_ref,
+         guest_integration_id,
+         reserved_host_uids,
+         other_guest_uids,
+         integration_uid
+       ) do
+    device_struct = %Device{
+      uid: cand.uid,
+      agent_id: cand.agent_id,
+      discovery_sources: cand.discovery_sources,
+      metadata: cand.metadata
+    }
+
+    cand_hv_ids = Enum.filter(cand.integration_identifiers, &hypervisor_integration_id?/1)
+
+    owns_other_hypervisor_id? =
+      cand_hv_ids != [] and
+        not Enum.any?(cand_hv_ids, &(&1 in [guest_integration_id, guest_ref]))
+
+    not MapSet.member?(reserved_host_uids, cand.uid) and
+      not MapSet.member?(other_guest_uids, cand.uid) and
+      not owns_other_hypervisor_id? and
+      DeviceClaimPolicy.reusable_for_claim?(device_struct, :managed_child_asset) and
+      merge_allowed_with_integration_uid?(cand.uid, integration_uid)
+  end
+
+  defp hypervisor_integration_id?(value) when is_binary(value) do
+    String.starts_with?(value, ["proxmox:", "vsphere:", "esxi:", "hypervisor:"])
+  end
+
+  defp hypervisor_integration_id?(_value), do: false
+
+  defp merge_allowed_with_integration_uid?(_cand_uid, nil), do: true
+  defp merge_allowed_with_integration_uid?(uid, uid), do: true
+
+  defp merge_allowed_with_integration_uid?(cand_uid, integration_uid) do
+    case SourceAuthorityGuard.ensure_merge_allowed([cand_uid, integration_uid]) do
+      :ok -> true
+      _ -> false
+    end
+  end
+
+  defp classify_guest_candidate_match(
+         cand,
+         g_macs,
+         g_ips,
+         active?,
+         g_node,
+         g_vmid,
+         unique_node_vmid?
+       ) do
+    mac_match? = MapSet.size(g_macs) > 0 and not MapSet.disjoint?(g_macs, cand.macs)
+
+    mac_contradicts? =
+      MapSet.size(g_macs) > 0 and MapSet.size(cand.macs) > 0 and
+        MapSet.disjoint?(g_macs, cand.macs)
+
+    ip_match? =
+      active? and MapSet.size(g_ips) > 0 and not MapSet.disjoint?(g_ips, cand.ips) and
+        not mac_contradicts?
+
+    awx_match? =
+      awx_candidate_matches_guest?(
+        cand.awx,
+        g_node,
+        g_vmid,
+        g_ips,
+        mac_match?,
+        ip_match?,
+        mac_contradicts?,
+        unique_node_vmid?
+      )
+
+    cond do
+      mac_match? -> 0
+      awx_match? and ip_match? -> 1
+      ip_match? -> 2
+      awx_match? -> 3
+      true -> nil
+    end
+  end
+
+  defp awx_candidate_matches_guest?(
+         nil,
+         _g_node,
+         _g_vmid,
+         _g_ips,
+         _mac_match?,
+         _ip_match?,
+         _mac_contradicts?,
+         _unique_node_vmid?
+       ),
+       do: false
+
+  defp awx_candidate_matches_guest?(
+         _awx,
+         _g_node,
+         nil,
+         _g_ips,
+         _mac_match?,
+         _ip_match?,
+         _mac_contradicts?,
+         _unique_node_vmid?
+       ),
+       do: false
+
+  defp awx_candidate_matches_guest?(
+         awx,
+         g_node,
+         g_vmid,
+         g_ips,
+         mac_match?,
+         ip_match?,
+         mac_contradicts?,
+         unique_node_vmid?
+       ) do
+    vmid_matches? = awx.vmid == g_vmid
+
+    node_matches? =
+      is_nil(g_node) or is_nil(awx.node) or
+        String.downcase(g_node) == String.downcase(awx.node)
+
+    ip_contradicts? =
+      MapSet.size(g_ips) > 0 and present?(awx.ip) and not MapSet.member?(g_ips, awx.ip)
+
+    corroborated_or_unique? =
+      mac_match? or ip_match? or (unique_node_vmid? and present?(g_node) and present?(awx.node))
+
+    vmid_matches? and node_matches? and not mac_contradicts? and not ip_contradicts? and
+      corroborated_or_unique?
+  end
+
+  defp stopped_guest_status?(status) when is_binary(status) do
+    status
+    |> String.downcase()
+    |> String.trim()
+    |> Kernel.in(["stopped", "poweredoff", "off", "halted", "suspended", "paused", "template"])
+  end
+
+  defp stopped_guest_status?(_status), do: false
+
+  defp guest_node_name(guest) when is_map(guest) do
+    meta_node =
+      guest
+      |> Map.get(:metadata, %{})
+      |> string_value("node")
+
+    meta_node ||
+      node_name_from_provider_ref(
+        Map.get(guest, :host_provider_ref) || Map.get(guest, :provider_ref)
+      )
+  end
+
+  defp normalize_guest_vmid(value) when is_integer(value) and value > 0, do: value
+
+  defp normalize_guest_vmid(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed > 0 -> parsed
+      _ -> nil
+    end
+  end
+
+  defp normalize_guest_vmid(_value), do: nil
+
+  @doc false
+  def extract_awx_proxmox_info(metadata, fallback_ip \\ nil) when is_map(metadata) do
+    awx =
+      case Map.get(metadata, "awx") || Map.get(metadata, :awx) do
+        map when is_map(map) -> map
+        _ -> %{}
+      end
+
+    vars =
+      parse_awx_variables(
+        Map.get(awx, "variables") || Map.get(awx, :variables) ||
+          Map.get(metadata, "variables") || Map.get(metadata, :variables)
+      )
+
+    vmid =
+      normalize_guest_vmid(
+        first_present_in_maps([awx, metadata, vars], [
+          "proxmox_vmid",
+          "vmid",
+          "hypervisor_vmid"
+        ])
+      )
+
+    node =
+      first_present_in_maps([awx, metadata, vars], [
+        "proxmox_node",
+        "node",
+        "hypervisor_node"
+      ])
+
+    vmtype =
+      first_present_in_maps([awx, metadata, vars], [
+        "proxmox_vmtype",
+        "vmtype",
+        "hypervisor_vmtype"
+      ])
+
+    raw_ip =
+      first_present_in_maps([awx, metadata, vars], [
+        "ansible_host",
+        "ansible_ssh_host"
+      ]) || fallback_ip
+
+    ip = normalize_ip_identifier(raw_ip)
+    macs = extract_awx_proxmox_macs(awx, metadata, vars)
+
+    if not is_nil(vmid) or present?(node) or present?(vmtype) or present?(ip) or macs != [] do
+      %{vmid: vmid, node: node, vmtype: vmtype, ip: ip, macs: macs}
+    end
+  end
+
+  defp first_present_in_maps(maps, keys) do
+    Enum.find_value(maps, fn map ->
+      if is_map(map) do
+        Enum.find_value(keys, fn key ->
+          case Map.get(map, key) do
+            value when is_integer(value) -> Integer.to_string(value)
+            value when is_binary(value) -> if String.trim(value) != "", do: String.trim(value)
+            _ -> nil
+          end
+        end)
+      end
+    end)
+  end
+
+  @doc false
+  def parse_awx_variables(raw) when is_map(raw), do: raw
+
+  def parse_awx_variables(raw) when is_binary(raw) do
+    trimmed = String.trim(raw)
+
+    if trimmed == "" do
+      %{}
+    else
+      case Jason.decode(trimmed) do
+        {:ok, decoded} when is_map(decoded) ->
+          decoded
+
+        _ ->
+          parse_simple_yaml_variables(trimmed)
+      end
+    end
+  end
+
+  def parse_awx_variables(_raw), do: %{}
+
+  defp parse_simple_yaml_variables(text) do
+    text
+    |> String.split(~r/\r?\n/, trim: true)
+    |> Enum.reduce(%{}, fn line, acc ->
+      trimmed = String.trim(line)
+
+      if trimmed == "" or String.starts_with?(trimmed, ["#"]) do
+        acc
+      else
+        case String.split(trimmed, ":", parts: 2) do
+          [key, value] ->
+            clean_key = String.trim(key)
+
+            clean_val =
+              value
+              |> String.trim()
+              |> String.trim_leading("\"")
+              |> String.trim_trailing("\"")
+              |> String.trim_leading("'")
+              |> String.trim_trailing("'")
+
+            if clean_key != "" and clean_val != "" do
+              Map.put(acc, clean_key, clean_val)
+            else
+              acc
+            end
+
+          _ ->
+            acc
+        end
+      end
+    end)
+  end
+
+  defp extract_awx_proxmox_macs(awx, metadata, vars) do
+    direct_macs =
+      List.flatten([
+        Map.get(awx, "mac_addresses"),
+        Map.get(metadata, "mac_addresses"),
+        Map.get(vars, "proxmox_hwaddr"),
+        Map.get(awx, "proxmox_hwaddr")
+      ])
+
+    net_macs =
+      [awx, metadata, vars]
+      |> Enum.filter(&is_map/1)
+      |> Enum.flat_map(fn map ->
+        Enum.flat_map(map, fn {k, v} ->
+          key = to_string(k)
+
+          if String.starts_with?(key, "proxmox_net") do
+            extract_macs_from_proxmox_net_value(v)
+          else
+            []
+          end
+        end)
+      end)
+
+    (direct_macs ++ net_macs)
+    |> Enum.map(&normalize_mac_identifier/1)
+    |> Enum.filter(&present?/1)
+    |> Enum.uniq()
+  end
+
+  defp extract_macs_from_proxmox_net_value(value) when is_binary(value) do
+    ~r/(?:[0-9A-Fa-f]{2}[:-]){5}[0-9A-Fa-f]{2}/
+    |> Regex.scan(value)
+    |> List.flatten()
+  end
+
+  defp extract_macs_from_proxmox_net_value(value) when is_map(value) do
+    value
+    |> Map.values()
+    |> Enum.flat_map(&extract_macs_from_proxmox_net_value/1)
+  end
+
+  defp extract_macs_from_proxmox_net_value(value) when is_list(value) do
+    Enum.flat_map(value, &extract_macs_from_proxmox_net_value/1)
+  end
+
+  defp extract_macs_from_proxmox_net_value(_value), do: []
+
+  defp reconcile_guest_device_merges(guests, merge_sources_by_ref, actor) do
+    Enum.each(guests, fn guest ->
+      provider_ref = Map.get(guest, :provider_ref)
+      target_uid = existing_sr_uid(Map.get(guest, :device_uid))
+      source_uids = Map.get(merge_sources_by_ref, provider_ref, [])
+
+      if is_binary(target_uid) do
+        Enum.each(source_uids, fn source_uid ->
+          if is_binary(source_uid) and source_uid != target_uid do
+            case IdentityReconciler.merge_devices(source_uid, target_uid,
+                   actor: actor,
+                   reason: "hypervisor_guest_network_match",
+                   details: %{
+                     "guest_provider_ref" => provider_ref,
+                     "hypervisor_vmid" => Map.get(guest, :vmid)
+                   }
+                 ) do
+              :ok ->
+                :ok
+
+              {:ok, _} ->
+                :ok
+
+              {:error, reason} ->
+                Logger.debug(
+                  "HypervisorEnrichment: skipped guest merge #{source_uid} -> #{target_uid}: #{inspect(reason)}"
+                )
+            end
+          end
+        end)
+      end
+    end)
+
+    :ok
+  end
+
+  defp sync_existing_device_mac_identities(records, guest_macs, host_macs, _actor) do
+    host_entries =
+      Enum.flat_map(records.hosts, fn record ->
+        uid = existing_sr_uid(Map.get(record, :device_uid))
+        ref = Map.get(record, :provider_ref)
+        macs = Map.get(host_macs, ref, [])
+
+        if is_binary(uid) and macs != [] do
+          [{record, :hypervisor, uid, macs, host_macs}]
+        else
+          []
+        end
+      end)
+
+    guest_entries =
+      Enum.flat_map(records.guests, fn record ->
+        uid = existing_sr_uid(Map.get(record, :device_uid))
+        ref = Map.get(record, :provider_ref)
+        macs = Map.get(guest_macs, ref, [])
+
+        if is_binary(uid) and macs != [] do
+          [{record, :virtual_guest, uid, macs, guest_macs}]
+        else
+          []
+        end
+      end)
+
+    entries = host_entries ++ guest_entries
+
+    if entries != [] do
+      Enum.each(entries, fn {_record, _role, uid, macs, _macs_by_ref} ->
+        _ =
+          Repo.query(
+            """
+            UPDATE platform.ocsf_devices
+            SET mac = COALESCE(NULLIF(btrim(mac), ''), $2),
+                metadata = jsonb_set(
+                  COALESCE(metadata, '{}'::jsonb),
+                  '{mac_addresses}',
+                  $3::jsonb,
+                  true
+                )
+            WHERE uid = $1 AND deleted_at IS NULL
+            """,
+            [uid, List.first(macs), macs]
+          )
+      end)
+
+      resolved_updates =
+        Enum.map(entries, fn {record, role, uid, macs, macs_by_ref} ->
+          raw_update = %{
+            "device_id" => uid,
+            "mac" => List.first(macs),
+            "partition" => metadata_partition(record),
+            "source" => "hypervisor_enrichment",
+            "metadata" => placeholder_device_metadata(record, role, macs_by_ref)
+          }
+
+          {Normalize.normalize_update(raw_update), uid}
+        end)
+
+      identifier_records = IdentifierRecords.build_identifier_records(resolved_updates)
+      _ = IdentifierRecords.bulk_upsert_identifiers(identifier_records)
+    end
+
+    :ok
   end
 
   defp lookup_identifier_devices(identifiers) do

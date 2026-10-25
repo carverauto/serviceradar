@@ -969,4 +969,252 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                [provider, host_ref]
              ).rows
   end
+
+  test "merges pre-existing IP-less Proxmox guest, swept IP holder, and AWX host into one device and retires legacy proxmox:vm:* records",
+       %{actor: actor} do
+    suffix = System.unique_integer([:positive])
+    provider = "proxmox"
+    node_name = "pve-merge-#{suffix}"
+    vmid = 500 + rem(suffix, 400)
+    host_ref = "proxmox:node:#{node_name}"
+    guest_ref = "proxmox:guest:#{node_name}:qemu:#{vmid}"
+    guest_integration_id = "proxmox:v2:cluster-#{suffix}:vm:#{vmid}"
+    guest_uid = "sr:" <> Ecto.UUID.generate()
+    swept_uid = "sr:" <> Ecto.UUID.generate()
+    awx_uid = "sr:" <> Ecto.UUID.generate()
+    legacy_uid = "sr:" <> Ecto.UUID.generate()
+    legacy_integration_id = "proxmox:vm:qemu/#{vmid}"
+
+    octet4 = rem(suffix, 200) + 10
+    guest_ip = "198.51.100.#{rem(octet4, 240) + 10}"
+    guest_cidr = "#{guest_ip}/24"
+    mac_hex = suffix |> rem(250) |> Integer.to_string(16) |> String.pad_leading(2, "0")
+    guest_mac = "02:AA:BB:CC:#{String.upcase(mac_hex)}:11"
+    normalized_mac = "02AABBCC#{String.upcase(mac_hex)}11"
+
+    # 1. Pre-existing IP-less Proxmox guest device
+    {:ok, _} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: guest_uid,
+          type: "Virtual",
+          type_id: 1,
+          name: "vm-#{vmid}",
+          hostname: "vm-#{vmid}",
+          discovery_sources: ["proxmox"],
+          metadata: %{
+            "integration_id" => guest_integration_id,
+            "hypervisor_provider" => "proxmox",
+            "hypervisor_guest_ref" => guest_ref
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(
+        :register,
+        %{
+          device_id: guest_uid,
+          identifier_type: :integration_id,
+          identifier_value: guest_integration_id,
+          partition: "default",
+          source: "proxmox"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    # 2. Live swept device holding the guest's IP (without a MAC identifier yet)
+    {:ok, _} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: swept_uid,
+          ip: guest_ip,
+          type: "Server",
+          type_id: 1,
+          name: "swept-#{vmid}",
+          hostname: "swept-#{vmid}",
+          discovery_sources: ["sweep", "mapper"]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    # 3. Live IP-less AWX host referencing the same Proxmox (node, vmid) and ansible_host
+    awx_integration_id = "awx:v2:ctrl-#{suffix}:host:#{vmid}"
+
+    {:ok, _} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: awx_uid,
+          type: "Server",
+          type_id: 1,
+          name: "awx-#{vmid}",
+          hostname: "awx-#{vmid}",
+          discovery_sources: ["awx"],
+          metadata: %{
+            "integration_id" => awx_integration_id,
+            "awx" => %{
+              "ansible_host" => guest_ip,
+              "proxmox_vmid" => Integer.to_string(vmid),
+              "proxmox_node" => node_name
+            }
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(
+        :register,
+        %{
+          device_id: awx_uid,
+          identifier_type: :integration_id,
+          identifier_value: awx_integration_id,
+          partition: "default",
+          source: "awx"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    # 4. Legacy proxmox:vm:qemu/<vmid> device record
+    {:ok, _} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: legacy_uid,
+          type: "Virtual",
+          type_id: 1,
+          name: "qemu/#{vmid}",
+          hostname: "qemu/#{vmid}",
+          discovery_sources: ["proxmox"]
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    Repo.query!(
+      """
+      INSERT INTO platform.device_identifiers
+        (device_id, identifier_type, identifier_value, partition, confidence, source, first_seen, last_seen, verified, metadata)
+      VALUES ($1, 'integration_id', $2, 'default', 'strong', 'proxmox', NOW(), NOW(), false, '{}'::jsonb)
+      """,
+      [legacy_uid, legacy_integration_id]
+    )
+
+    payload = %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => provider,
+        "hosts" => [
+          %{
+            "provider_ref" => host_ref,
+            "name" => node_name,
+            "status" => "online",
+            "metadata" => %{"ip" => "192.0.2.#{rem(octet4, 200) + 1}"}
+          }
+        ],
+        "guests" => [
+          %{
+            "provider_ref" => guest_ref,
+            "host_provider_ref" => host_ref,
+            "device_uid" => guest_uid,
+            "name" => "vm-#{vmid}",
+            "guest_type" => "vm",
+            "vmid" => vmid,
+            "status" => "running",
+            "metadata" => %{"integration_id" => guest_integration_id}
+          }
+        ],
+        "network_interfaces" => [
+          %{
+            "provider_ref" => "proxmox:guest-nic:#{guest_ref}:#{normalized_mac}",
+            "host_provider_ref" => host_ref,
+            "guest_provider_ref" => guest_ref,
+            "device_uid" => guest_uid,
+            "name" => "eth0",
+            "mac_address" => guest_mac,
+            "ip_addresses" => [guest_cidr],
+            "source" => "config+agent",
+            "metadata" => %{"partition" => "default"}
+          }
+        ]
+      }
+    }
+
+    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+
+    # Guest device now owns the IP, MAC, and AWX integration_id; swept and AWX duplicates are merged
+    assert [[^guest_uid, ^guest_ip, ^normalized_mac, nil]] =
+             Repo.query!(
+               """
+               SELECT uid, ip, mac, deleted_at
+               FROM platform.ocsf_devices
+               WHERE uid = $1
+               """,
+               [guest_uid]
+             ).rows
+
+    assert [[swept_deleted_at]] =
+             Repo.query!(
+               "SELECT deleted_at FROM platform.ocsf_devices WHERE uid = $1",
+               [swept_uid]
+             ).rows
+
+    assert swept_deleted_at
+
+    assert [[awx_deleted_at]] =
+             Repo.query!(
+               "SELECT deleted_at FROM platform.ocsf_devices WHERE uid = $1",
+               [awx_uid]
+             ).rows
+
+    assert awx_deleted_at
+
+    assert [[^guest_uid]] =
+             Repo.query!(
+               """
+               SELECT device_id
+               FROM platform.device_identifiers
+               WHERE identifier_type = 'mac' AND identifier_value = $1 AND partition = 'default'
+               """,
+               [normalized_mac]
+             ).rows
+
+    # Legacy proxmox:vm:qemu/<vmid> record is retired through source retirement
+    assert [[^legacy_uid, "source_absent"]] =
+             Repo.query!(
+               """
+               SELECT device_id, archive_reason
+               FROM platform.device_identifier_archive
+               WHERE device_id = $1 AND identifier_value = $2
+               """,
+               [legacy_uid, legacy_integration_id]
+             ).rows
+
+    assert [[legacy_retired_at, "source_retired"]] =
+             Repo.query!(
+               """
+               SELECT source_retired_at, metadata->>'identity_state'
+               FROM platform.ocsf_devices
+               WHERE uid = $1
+               """,
+               [legacy_uid]
+             ).rows
+
+    assert legacy_retired_at
+  end
 end

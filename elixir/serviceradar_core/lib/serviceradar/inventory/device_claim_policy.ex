@@ -12,6 +12,10 @@ defmodule ServiceRadar.Inventory.DeviceClaimPolicy do
 
   alias ServiceRadar.Inventory.Device
 
+  @spec reusable_for_claim?(Device.t(), atom()) :: boolean()
+  def reusable_for_claim?(%Device{} = device, claim_type),
+    do: reusable_device?(device, claim_type)
+
   @spec reusable_for_claim?(String.t() | nil, atom(), term()) :: boolean()
   def reusable_for_claim?(uid, claim_type, actor)
 
