@@ -673,11 +673,11 @@ snapshots.
     read in that transaction sees exactly `V`.
   - It emits every actionable assessment visible in `V` as a `SNAPSHOT` upsert carrying the
     row's complete after-image, last `transition_seq` and `transition_xid`. It also emits
-    a `SNAPSHOT` watermark (key, terminal state, sequence) for every other fact key known
-    to CNPG in `V`: non-actionable assessment rows carry their last sequence, and
-    `platform.exposure_fact_watermarks` covers deleted ones. That table holds the key, the
-    `resolved` state and the **new** sequence that the deleting transaction drew and
-    published. It also emits `RETIRED(device_ord, retired_seq)` for every tombstoned
+    a `SNAPSHOT` watermark for every other fact key known to CNPG in `V`, copied from the
+    retained publication (Decision 24): non-actionable assessment rows and
+    `platform.exposure_fact_watermarks` for deleted keys. That table holds the key, the
+    `resolved` state, the **new** sequence that the deleting transaction drew, and the
+    retained terminal publication. It also emits `RETIRED(device_ord, retired_seq)` for every tombstoned
     ordinal, plus the latest lifecycle state and sequence for restored ordinals,
     preserving the last retirement watermark (Decision 23). Assessment after-images
     carry their lifecycle sequence. It then emits `SNAPSHOT_END(G, V)`.
@@ -925,9 +925,10 @@ delivery order. Re-creation removes the terminal watermark in the same transacti
 the new assessment transition. The repair carries its producing transaction's
 `transition_xid`, like any other transition.
 
-This extends the producer contract beyond the delivered row-trigger implementation
-recorded below; the fact-key serialization and missing-source repair remain work in
-task 1.6. No implementation of this path is part of this documentation change.
+Migration `20261025040000` implements this source repair under Decision 24, including
+fact-key serialization. Snapshot invocation, finalization and reconciliation remain
+task 1.6. The repair contract for a stored terminal is the exposure-intelligence
+requirement *Exposure Is Rebuildable And Reconciled Against The Assessment Store*.
 
 ### Decision 21: Build the assessment foundation independently
 
@@ -1244,8 +1245,10 @@ greater than the key's known watermark, and records the actual producing xid.
 It must not invent the xid of an old acknowledged message or republish changed
 content at its old sequence. An unsequenced legacy assessment therefore receives
 its first real publication before snapshot emission; NULL remains equivalent to
-zero for comparison during preparation. Existing deletion watermarks receive a
-new complete terminal publication. Preparation must respect device lifecycle
+zero for comparison during preparation. Stored-terminal repair, including exact
+replay below the stored sequence and sparse preparation of a null legacy payload,
+follows *Exposure Is Rebuildable And Reconciled Against The Assessment Store*.
+Preparation must respect device lifecycle
 fences and finish or explicitly report outstanding work, including the existing
 restore queue and pre-migration retirement bootstrap. Dictionary preparation and
 replay remain part of the Decision 22 rebuild gate.
@@ -1514,7 +1517,11 @@ Refresh budgets:
 
 ## Implementation record: matcher transitions and incremental matching (#5748, task 0.1)
 
-**Producer.** Triggers on `platform.endpoint_vulnerability_assessments` own the outbox, so
+**Producer.** The bullets below describe the producer as first delivered. Migration
+`20261025040000` (Decision 24) replaces those trigger functions, retains the latest
+publication on the assessment and the terminal publication on the watermark, and
+provides `exposure_repair_publication`. Triggers on
+`platform.endpoint_vulnerability_assessments` own the outbox, so
 every writer (matcher upsert, absence resolution, unconfirmed marking, Ash actions, row
 deletion) is covered in the transaction that changes the row:
 
@@ -1557,7 +1564,8 @@ This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequenc
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and
 package-version dictionaries and the CVE ordinal function) and 1.3 (the transitions subject,
 its stream limits and the core publish permission). Device retirement (`retired_seq`,
-task 1.5), the snapshot (1.6) and the address dimension remain open. CVE and package
+task 1.5) landed in #5995. Source publication retention is Decision 24. The snapshot
+(1.6) and the address dimension remain open. CVE and package
 dimension publication is Decision 22.
 
 **Incremental matching.** The hourly full recompute is replaced by a run every 5 minutes
