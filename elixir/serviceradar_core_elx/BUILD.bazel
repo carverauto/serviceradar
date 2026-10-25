@@ -183,6 +183,7 @@ ex_unit_tests(
         exclude = [
             "test/serviceradar_core_elx/camera_recording/packaging_test.exs",
             "test/serviceradar_core_elx/camera_recording/provider_probe_test.exs",
+            "test/serviceradar_core_elx/camera_storage_test.exs",
             "test/serviceradar_core_elx/camera_recording/rtsp_recording_test.exs",
             "test/serviceradar_core_elx/camera_recording/codec_capability_test.exs",
         ],
@@ -199,6 +200,14 @@ ex_unit_tests(
         exclude = ["test/**/*_test.exs"],
     ),
     test_helper = "test/test_helper.exs",
+    deps = [":erlang_app"],
+)
+
+ex_unit_test(
+    name = "camera_storage_test",
+    size = "medium",
+    srcs = ["test/serviceradar_core_elx/camera_storage_test.exs"],
+    exec_properties = {"test.network": "off"},
     deps = [":erlang_app"],
 )
 
