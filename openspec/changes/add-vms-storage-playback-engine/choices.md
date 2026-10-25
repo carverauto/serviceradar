@@ -934,3 +934,85 @@ plan required durable stop without choosing these API semantics. Only database
 connection/PostgreSQL failures become a bounded unavailable response; programming
 errors remain visible. Future callers must still acquire the control lock before
 ownership locks and keep preservation paths outside the stop gate.
+
+### Limit the first positive authority to one short init-only installation
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+When a storage process starts, it can request a fresh challenge for one complete
+configuration. An administrator has at most 30 seconds from that request to
+apply it; a granted init upload has at most five seconds and one MiB of media.
+These are checkpoint ceilings, not recording capacity targets. The plan required
+fresh positive authority but did not choose its first executable scope or these
+bounds. Keeping the window nonrenewable makes replay, restart and lost-response
+behavior testable before continuous recording exists. A long-running installation
+protocol still needs its own implementation and capacity measurements; this
+checkpoint must not become an undocumented production renewal loop.
+
+### Keep the configuration and evidence identity in one complete document
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+If a provider credential is rotated, the desired document changes because it
+contains the full report naming that credential generation. Its digest, a
+SHA-256 fingerprint of the complete content and installed origin, therefore
+changes too. There is no second editable destination or credential field to
+silently disagree with the report. The plan required exact desired/applied
+identity without choosing this representation. The authenticated administrator
+is responsible for the truth of the report's observations; the storage and core
+processes check identity, freshness and compatibility, not the truth of remote
+policy statements merely because their text says `passed`. A future Cloud
+issuer must produce current evidence before using this API.
+
+### Use private HTTPS for bounded storage coordination
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+A recorder hands a small init object to one isolated storage process. That
+process requests a committed grant from the private web API and talks directly
+to the provider within the remaining deadline. It does not join the Erlang
+cluster or put media onto a new broker queue. The plan required isolated provider
+credentials but left this transport unspecified. HTTPS gives this short exchange
+an existing bounded request/response path; durable state remains in CNPG, and
+late provider facts return to the same owner. This choice does not select the
+GPU job transport: comparable RPC/JetStream measurements are still required for
+that independently scoped work.
+
+### Pin workload certificates in addition to trusting their issuer
+
+When: init-authority checkpoint. Verdict: sound, medium confidence.
+
+A certificate signed by the deployment CA proves membership in that trust
+domain, but it should not let every workload act as storage. Each listener also
+checks the exact configured certificate fingerprint and a separate bearer token.
+The plan required workload authorization without choosing between a dedicated
+SPIFFE policy and a certificate pin. A pin keeps this single-workload checkpoint
+explicit and avoids adding another identity controller. Rotation requires new
+mounted configuration, a rollout and a new desired revision; it does not prove
+old processes or provider keys have been retired across a fleet.
+
+### Reuse the release while isolating its process and mounted credentials
+
+When: init-authority checkpoint. Verdict: sound, high confidence.
+
+The storage pod uses the existing core-elx image, but starts only its dedicated
+storage supervisor through `eval` with an empty release configuration. It gets
+provider keys; the ordinary core and web processes do not. The plan required a
+separate credential boundary but did not mandate a new image build. One existing
+release avoids another dependency graph while explicit startup checks refuse a
+distributed or already-running core process. The chart uses one replica and
+`Recreate` updates; this does not establish distributed drain or high availability.
+
+### Keep broad chart network rules from overriding storage restrictions
+
+When: init-authority checkpoint. Verdict: sound, high confidence.
+
+An operator may configure the chart's ordinary network policy to select every
+pod. Because Kubernetes adds permissions from matching policies, that setting
+would otherwise let the storage pod reach destinations outside its own narrow
+policy. Enabling storage explicitly excludes it from both broad chart policies
+and gives it a separate policy for recorder ingress, private control, DNS and
+configured provider/proxy addresses. The plan did not specify this interaction.
+Policies outside the chart remain an operator responsibility. The private web
+ingress addition only renders when ordinary network isolation is enabled, so
+enabling storage control alone cannot accidentally block normal web traffic.

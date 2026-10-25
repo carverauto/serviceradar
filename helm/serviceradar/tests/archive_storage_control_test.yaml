@@ -1,0 +1,114 @@
+suite: private storage control listener installation
+templates:
+  - templates/web.yaml
+  - templates/archive-storage-control.yaml
+set:
+  webNg.archiveStorage.revision: "8"
+  webNg.archiveStorage.configSecretName: example-storage-control-config
+  webNg.archiveStorage.authSecretName: example-storage-auth
+  webNg.archiveStorage.tlsSecretName: example-storage-control-tls
+  webNg.controlPlaneRuntime.media.enabled: true
+  webNg.controlPlaneRuntime.media.deploymentRef: "11111111-2222-4333-8444-555555555555"
+  webNg.controlPlaneRuntime.media.generation: "3"
+tests:
+  - it: leaves storage control routing absent by default
+    template: templates/archive-storage-control.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: installs only the control token projection and a dedicated server identity in web
+    template: templates/web.yaml
+    set:
+      webNg.archiveStorage.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/archive-storage-revision"]
+          value: "8"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_ARCHIVE_STORAGE_ENABLED, value: "true"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_ARCHIVE_STORAGE_CONFIG_FILE, value: /etc/serviceradar/archive-storage/config.json}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_ARCHIVE_STORAGE_TOKEN_FILE, value: /etc/serviceradar/archive-storage-auth/token}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: archive-storage-auth
+            secret:
+              secretName: example-storage-auth
+              defaultMode: 288
+              items: [{key: runtime-token, path: token}]
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: archive-storage-tls
+            secret:
+              secretName: example-storage-control-tls
+              defaultMode: 288
+              items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}, {key: ca.crt, path: ca.crt}]
+
+  - it: exposes storage only through a dedicated ClusterIP without isolating normal web traffic
+    template: templates/archive-storage-control.yaml
+    set:
+      webNg.archiveStorage.enabled: true
+    asserts:
+      - hasDocuments:
+          count: 1
+      - equal:
+          path: spec.type
+          value: ClusterIP
+      - equal:
+          path: spec.ports
+          value: [{name: archive-storage, port: 4002, targetPort: archive-storage}]
+
+  - it: leaves the public web Service ports unchanged
+    template: templates/web.yaml
+    set:
+      webNg.archiveStorage.enabled: true
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: web-ng
+    asserts:
+      - notContains:
+          path: spec.ports
+          content: {port: 4002}
+
+  - it: supplements enabled web network isolation with only the storage caller
+    template: templates/archive-storage-control.yaml
+    set:
+      webNg.archiveStorage.enabled: true
+      networkPolicy.enabled: true
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - podSelector: {matchLabels: {app: serviceradar-media-storage}}
+              ports: [{protocol: TCP, port: 4002}]
+
+  - it: rejects shadowing the dedicated gate through generic environment values
+    template: templates/web.yaml
+    set:
+      webNg.extraEnv.SERVICERADAR_ARCHIVE_STORAGE_ENABLED: "true"
+    asserts:
+      - failedTemplate:
+          errorMessage: SERVICERADAR_ARCHIVE_STORAGE_ENABLED must be configured through webNg.archiveStorage
+
+  - it: requires a boot revision for mounted identity changes
+    template: templates/web.yaml
+    set:
+      webNg.archiveStorage.enabled: true
+      webNg.archiveStorage.revision: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: webNg.archiveStorage.revision is required

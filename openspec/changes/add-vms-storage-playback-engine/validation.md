@@ -571,9 +571,28 @@ targets were skipped. The run completed successfully without source changes or
 a restart after a delayed remote Go compile response. This includes the restored
 HTTP owner, migration/Helm agreement, test routing and image checks.
 
-Actual final-head database execution remains mandatory: four new archive-upload
-owner cases (origin/revision, preservation, real-session ordering and missing-row
-initialization), the worker drain/seal/live-view case and the new HTTP persistence
-case, plus existing recorder/block/upload/qualification assertions. The approved
-prepublication exception does not waive final in-cluster Core/Web CI, fixture
-lifecycle success or exact-head verification. No provider or live rollout ran.
+The required final-head database execution passed for published head `fb6c740f`
+in [PR #5989](https://github.com/carverauto/serviceradar/pull/5989), subsequently
+merged at `b06d0b6b12e42519aa0bda8157692feedbffd12d`. All 20 checks passed.
+The [Core suite](https://carverauto.buildbuddy.io/invocation/e00f8d32-c39e-4d96-a91b-ec76e74c7d6f)
+executed all 12 targets and the [Web suite](https://carverauto.buildbuddy.io/invocation/2602f4c1-2649-4981-80a6-7914dabbe78d)
+executed all seven. Both parents reported zero suite, observer, teardown and
+release statuses.
+
+The tested prospective staging merge assigns the four new archive-upload cases
+to Core serial lane 6 (243 tests, zero failures, eight unrelated exclusions) and
+the worker drain case to lane 4 (392 tests, zero failures). Registration, explicit
+integration inclusion and absence of case skips establish their coverage; the
+Core console is aggregate output, not an individual case trace. Web shard 0
+reported 820 tests and two properties with zero failures and explicitly traced
+the new HTTP persistence case completing in 172.7 milliseconds. The approved
+prepublication exception was therefore satisfied by actual guarded execution.
+No provider or live rollout ran.
+
+Cloud [PR #187](https://github.com/carverauto/serviceradar-control/pull/187)
+merged at `a55f904cd9f929a58e133ca02c9b6dbe58323b73`. Its final CI used the
+sanctioned Timescale fixture and reported 3230 tests, zero failures and 10 skips;
+all 17 required owner cases were enabled. Earlier proxy-local PostgreSQL testing
+was a workflow deviation, not a substitute for this CI. Exact local aliases were
+not rerun and temporary-directory removal was not independently verified; the
+PR retains those limits. This validates installation/chart persistence only.

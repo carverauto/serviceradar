@@ -1,0 +1,188 @@
+suite: isolated init storage deployment and network boundary
+templates:
+  - templates/media-storage.yaml
+  - templates/network-policy.yaml
+  - templates/calico-network-policy.yaml
+  - templates/web.yaml
+set:
+  webNg.archiveStorage.enabled: true
+  webNg.archiveStorage.revision: "8"
+  webNg.archiveStorage.configSecretName: example-storage-control-config
+  webNg.archiveStorage.authSecretName: example-storage-auth
+  webNg.archiveStorage.tlsSecretName: example-storage-control-tls
+  webNg.controlPlaneRuntime.media.enabled: true
+  webNg.controlPlaneRuntime.media.deploymentRef: "11111111-2222-4333-8444-555555555555"
+  webNg.controlPlaneRuntime.media.generation: "3"
+  mediaStorage.revision: "8"
+  mediaStorage.configSecretName: example-storage-config
+  mediaStorage.providerSecretName: example-provider-credentials
+  mediaStorage.authSecretName: example-storage-auth
+  mediaStorage.tlsSecretName: example-storage-tls
+  mediaStorage.providerEgress.cidrs: [192.0.2.17/32]
+tests:
+  - it: leaves all executor resources absent until explicitly enabled
+    template: templates/media-storage.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: launches only the isolated service with bounded writable space and projected secrets
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/init-storage-revision"]
+          value: "8"
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [eval, "ServiceRadarCoreElx.CameraStorage.Service.main()"]
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: RELEASE_DISTRIBUTION, value: none}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: RELEASE_SYS_CONFIG, value: /etc/serviceradar/init-storage/release/isolated}
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {sizeLimit: 32Mi}
+            - name: release
+              configMap: {name: serviceradar-media-storage-release}
+            - name: config
+              secret:
+                secretName: example-storage-config
+                defaultMode: 288
+                items: [{key: config.json, path: config.json}]
+            - name: provider
+              secret:
+                secretName: example-provider-credentials
+                defaultMode: 288
+                items: [{key: credentials.json, path: credentials.json}]
+            - name: auth
+              secret:
+                secretName: example-storage-auth
+                defaultMode: 288
+                items: [{key: runtime-token, path: runtime-token}, {key: recorder-token, path: recorder-token}]
+            - name: tls
+              secret:
+                secretName: example-storage-tls
+                defaultMode: 288
+                items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}, {key: ca.crt, path: ca.crt}]
+
+  - it: keeps provider credentials out of the web workload when storage is enabled
+    template: templates/web.yaml
+    set:
+      mediaStorage.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notContains:
+          path: spec.template.spec.volumes
+          content:
+            secret:
+              secretName: example-provider-credentials
+          any: true
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            valueFrom:
+              secretKeyRef:
+                name: example-provider-credentials
+          any: true
+
+  - it: allows only recorder ingress and explicit API DNS and provider destinations
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - podSelector: {matchLabels: {app: serviceradar-core}}
+              ports: [{protocol: TCP, port: 4443}]
+      - equal:
+          path: spec.egress
+          value:
+            - to:
+                - podSelector: {matchLabels: {app: serviceradar-web-ng}}
+              ports: [{protocol: TCP, port: 4002}]
+            - to:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+              ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+            - to:
+                - ipBlock: {cidr: 192.0.2.17/32}
+              ports: [{protocol: TCP, port: 443}]
+
+  - it: excludes storage even when the ordinary policy selects every pod
+    template: templates/network-policy.yaml
+    set:
+      mediaStorage.enabled: true
+      networkPolicy.enabled: true
+      networkPolicy.podSelectorMatchAll: true
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value:
+            matchExpressions:
+              - {key: app, operator: NotIn, values: [serviceradar-media-storage]}
+
+  - it: excludes storage from an operator supplied Calico selector too
+    template: templates/calico-network-policy.yaml
+    set:
+      mediaStorage.enabled: true
+      networkPolicy.calicoLogDenied.enabled: true
+      networkPolicy.calicoLogDenied.selector: all()
+    asserts:
+      - equal:
+          path: spec.selector
+          value: "(all()) && app != 'serviceradar-media-storage'"
+
+  - it: rejects enabling storage without explicit provider or proxy egress
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+      mediaStorage.providerEgress.cidrs: []
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaStorage.providerEgress.cidrs must explicitly allow the provider or CONNECT proxy
+
+  - it: rejects enabling storage without credential custody
+    template: templates/media-storage.yaml
+    set:
+      mediaStorage.enabled: true
+      mediaStorage.providerSecretName: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: mediaStorage.providerSecretName is required

@@ -26,6 +26,25 @@
 {{- $controlPlaneListenerEnabled := or $controlPlaneRuntimeEnabled $controlPlaneMediaEnabled -}}
 {{- $controlPlaneMediaSecretName := default "serviceradar-control-plane-media-access" $controlPlaneMedia.existingSecretName -}}
 {{- $controlPlaneMediaSecretKey := default "token" $controlPlaneMedia.tokenSecretKey -}}
+{{- $archiveStorage := default (dict) $webNg.archiveStorage -}}
+{{- range $key := list "SERVICERADAR_ARCHIVE_STORAGE_ENABLED" "SERVICERADAR_ARCHIVE_STORAGE_CONFIG_FILE" "SERVICERADAR_ARCHIVE_STORAGE_TOKEN_FILE" "SERVICERADAR_ARCHIVE_STORAGE_PORT" -}}
+{{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
+{{- fail (printf "%s must be configured through webNg.archiveStorage" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- if $archiveStorage.enabled -}}
+{{- if not $controlPlaneMediaEnabled -}}
+{{- fail "webNg.archiveStorage requires webNg.controlPlaneRuntime.media.enabled" -}}
+{{- end -}}
+{{- range $key := list "revision" "configSecretName" "authSecretName" "tokenSecretKey" "tlsSecretName" -}}
+{{- if not (get $archiveStorage $key) -}}
+{{- fail (printf "webNg.archiveStorage.%s is required" $key) -}}
+{{- end -}}
+{{- end -}}
+{{- if has (int $archiveStorage.port) (list 4000 (int $controlPlaneRuntimePort) (int (default 9090 $webNg.metricsPort)) 4369 9100) -}}
+{{- fail "webNg.archiveStorage.port must be distinct from the other web listeners" -}}
+{{- end -}}
+{{- end -}}
 {{- range $key := list "SERVICERADAR_CONTROL_PLANE_MEDIA_TOKEN" "SERVICERADAR_CONTROL_PLANE_DEPLOYMENT_REF" "SERVICERADAR_CONTROL_PLANE_MEDIA_GENERATION" -}}
 {{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
 {{- fail (printf "%s must be configured through webNg.controlPlaneRuntime.media" $key) -}}
@@ -214,6 +233,9 @@ spec:
       annotations:
         {{- include "serviceradar.runtimeCertRollAnnotations" . | nindent 8 }}
         checksum/db-credentials: {{ include "serviceradar.dbCredentialsChecksum" . }}
+        {{- if $archiveStorage.enabled }}
+        serviceradar.io/archive-storage-revision: {{ $archiveStorage.revision | quote }}
+        {{- end }}
         {{- if $controlPlaneMediaEnabled }}
         serviceradar.io/media-deployment-ref: {{ $controlPlaneMedia.deploymentRef | quote }}
         serviceradar.io/media-generation: {{ $controlPlaneMedia.generation | quote }}
@@ -380,12 +402,26 @@ spec:
         {{- end }}
         - containerPort: 4369
           name: epmd
+        {{- if $archiveStorage.enabled }}
+        - containerPort: {{ $archiveStorage.port }}
+          name: archive-storage
+        {{- end }}
         - containerPort: 9100
           name: dist
         env:
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         - name: PORT
           value: "4000"
+        {{- if $archiveStorage.enabled }}
+        - name: SERVICERADAR_ARCHIVE_STORAGE_ENABLED
+          value: "true"
+        - name: SERVICERADAR_ARCHIVE_STORAGE_PORT
+          value: {{ $archiveStorage.port | quote }}
+        - name: SERVICERADAR_ARCHIVE_STORAGE_CONFIG_FILE
+          value: /etc/serviceradar/archive-storage/config.json
+        - name: SERVICERADAR_ARCHIVE_STORAGE_TOKEN_FILE
+          value: /etc/serviceradar/archive-storage-auth/token
+        {{- end }}
         - name: SERVICERADAR_METRICS_PORT
           value: {{ default 9090 $webNg.metricsPort | quote }}
         - name: SERVICERADAR_METRICS_TOKEN
@@ -898,6 +934,17 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- if $archiveStorage.enabled }}
+        - name: archive-storage-config
+          mountPath: /etc/serviceradar/archive-storage
+          readOnly: true
+        - name: archive-storage-auth
+          mountPath: /etc/serviceradar/archive-storage-auth
+          readOnly: true
+        - name: archive-storage-tls
+          mountPath: /etc/serviceradar/archive-storage-tls
+          readOnly: true
+        {{- end }}
         {{- include "serviceradar.dgraph.caVolumeMount" $ | nindent 8 }}
         - name: cert-data
           mountPath: /etc/serviceradar/certs
@@ -977,6 +1024,28 @@ spec:
       - name: tmp
         emptyDir:
           sizeLimit: 512Mi
+      {{- if $archiveStorage.enabled }}
+      - name: archive-storage-config
+        secret:
+          secretName: {{ $archiveStorage.configSecretName | quote }}
+          defaultMode: 0440
+          items: [{key: config.json, path: config.json}]
+      - name: archive-storage-auth
+        secret:
+          secretName: {{ $archiveStorage.authSecretName | quote }}
+          defaultMode: 0440
+          items:
+            - key: {{ $archiveStorage.tokenSecretKey | quote }}
+              path: token
+      - name: archive-storage-tls
+        secret:
+          secretName: {{ $archiveStorage.tlsSecretName | quote }}
+          defaultMode: 0440
+          items:
+            - {key: tls.crt, path: tls.crt}
+            - {key: tls.key, path: tls.key}
+            - {key: ca.crt, path: ca.crt}
+      {{- end }}
       {{- include "serviceradar.dgraph.caVolume" $ | nindent 6 }}
       - name: cert-data
         secret:
