@@ -212,12 +212,6 @@ config :serviceradar_core, :plugin_storage,
 
 config :serviceradar_core, :required_agent_addons, ["otel-collector"]
 
-# Whether the rollout reconcile moves Wasm plugin owners that track the latest
-# approved package to a newly approved version. Off until operators can see and
-# pin the owners that would move; SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS
-# overrides it. See ServiceRadar.Plugins.WasmPluginRolloutArtifact.
-config :serviceradar_core, :wasm_plugin_automatic_rollouts, false
-
 config :serviceradar_core,
   age_graph_name: "platform_graph",
   graph_backend: :age,

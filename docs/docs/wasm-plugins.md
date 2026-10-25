@@ -608,7 +608,9 @@ A new version of a first-party plugin is approved automatically, and audited as 
 - the plugin already has an approved version (a plugin's first version always needs an operator);
 - it requests no capability, allowed domain, network or port, or resource budget beyond the grant of the plugin's latest approved version. Coverage is compared literally, so a wildcard or CIDR that would contain the new value still counts as a widening.
 
-The automatic approval grants exactly what the new version requests. Any other package stays staged, and the reason (including which fields widened) is recorded on the package. Approval never changes which version an assignment runs. Set the Helm value `webNg.firstPartyPluginImport.autoApproveWithinGrant` to `false` to require a manual decision for every import.
+The automatic approval grants exactly what the new version requests. Any other package stays staged, and the reason (including which fields widened) is recorded on the package. Set the Helm value `webNg.firstPartyPluginImport.autoApproveWithinGrant` to `false` to require a manual decision for every import.
+
+Approval itself never rewrites an assignment. A manual assignment or target policy whose update policy is `track_latest_approved` (the default for first-party packages) moves to the newest approved stable version of its plugin through a health-gated rollout, whichever way that version was approved; a pinned one stays on its version. The rollout reconcile runs every 30 seconds, so an owner that is already behind starts its rollout on the next pass. Set the Helm value `core.wasmPluginAutomaticRollouts` to `false` to keep tracking owners on their current version until an operator starts a rollout.
 
 ### Third-party plugin repositories
 

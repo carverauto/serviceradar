@@ -14,6 +14,8 @@ policies and credential rules.
   `track_latest_approved`.
 - Owners of uploaded, GitHub-imported or third-party packages SHALL default to
   `pinned`.
+- Tracking owners SHALL move without an operator by default. A deployment
+  setting SHALL be able to turn these automatic rollouts off.
 
 #### Scenario: Tracking owner after a new approval
 - **WHEN** a newer version of a first-party plugin is approved

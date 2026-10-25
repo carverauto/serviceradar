@@ -506,9 +506,9 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     end
   end
 
+  # Run with the shipped setting, not one the case turns on: tracking owners
+  # roll forward by default.
   describe "automatic rollouts for owners tracking the latest approved package" do
-    setup :enable_automatic_rollouts
-
     test "approving a newer package starts rollouts for tracking owners only", ctx do
       tracking = member!(ctx, "agent-#{ctx.unique}-tracking", "manual", nil, tracking_owner(ctx))
       pinned = member!(ctx, "agent-#{ctx.unique}-pinned", "manual", nil, package: ctx.candidate)
@@ -622,7 +622,7 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     end
   end
 
-  test "owners tracking the latest approved package stay put while automatic rollouts are off",
+  test "owners tracking the latest approved package stay put when automatic rollouts are turned off",
        ctx do
     set_automatic_rollouts(false)
 
@@ -637,15 +637,20 @@ defmodule ServiceRadar.Plugins.WasmPluginRolloutDbTest do
     assert %{rollout_plugin_package_id: nil} = assignment(tracking)
   end
 
-  defp enable_automatic_rollouts(_ctx), do: set_automatic_rollouts(true)
-
-  # The setting is global, so the case restores whatever was configured before.
+  # The setting is global, so the case restores whatever was configured before,
+  # including leaving it unset.
   defp set_automatic_rollouts(enabled?) do
-    previous = Application.get_env(:serviceradar_core, :wasm_plugin_automatic_rollouts)
+    previous = Application.fetch_env(:serviceradar_core, :wasm_plugin_automatic_rollouts)
     Application.put_env(:serviceradar_core, :wasm_plugin_automatic_rollouts, enabled?)
 
     on_exit(fn ->
-      Application.put_env(:serviceradar_core, :wasm_plugin_automatic_rollouts, previous)
+      case previous do
+        {:ok, value} ->
+          Application.put_env(:serviceradar_core, :wasm_plugin_automatic_rollouts, value)
+
+        :error ->
+          Application.delete_env(:serviceradar_core, :wasm_plugin_automatic_rollouts)
+      end
     end)
   end
 

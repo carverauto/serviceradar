@@ -292,12 +292,23 @@ collaborators, so the generalization is an engine/adapter split (a
   owner moves on to the newer package on a later pass; a paused one is
   superseded (`newer_candidate_approved`) by a rollout to the newer package.
   A rolled-back candidate stays blocked for the owner; a newer one is not.
-- Automatic rollouts are off by default
-  (`config :serviceradar_core, :wasm_plugin_automatic_rollouts`, overridden by
-  `SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS`). Migration Plan step 4
-  enables them once operators can see which owners are behind and pin them
-  (tasks 1.1, 2.5). The auto-approval kill switch (task 3.1) gates approval
+- Automatic rollouts are on by default. `SERVICERADAR_WASM_PLUGIN_AUTOMATIC_ROLLOUTS`
+  (chart value `core.wasmPluginAutomaticRollouts`, rendered on core and
+  web-ng, which both run the `integrations` queue that executes the reconcile)
+  or `config :serviceradar_core, :wasm_plugin_automatic_rollouts, false`
+  turns them off. The auto-approval kill switch (task 3.1) gates approval
   only, so it does not apply here. Rollouts an operator starts run either way.
+  Step E first shipped them off, pending Migration Plan step 4. Nothing turned
+  them on: the setting lived only in `serviceradar_core`'s own `config.exs`,
+  which neither release loads, and the chart rendered no value. So every
+  tracking owner, including the ones the update-policy backfill converted,
+  stayed on its package after a newer one was approved, contrary to the
+  "Tracking owner after a new approval" scenario. Owners that were already
+  behind need no catch-up job: the level-triggered reconcile starts their
+  rollouts on its first pass after the upgrade. The fleet summary (task 1.1)
+  already shows how many owners are behind latest. Until the per-owner control
+  (task 2.5) ships, pinning an owner means writing `update_policy: pinned`
+  (task 2.2), and the setting above holds back every owner at once.
 - Every rollout audit event carries `trigger` and `automatic` (true for
   `:track_latest`), for add-ons too.
 - A source deleted during its rollout cancels the rollout on the next advance,
@@ -390,6 +401,8 @@ They share function components. Rules:
    Remove the old LiveView once the new tabs cover every action.
 4. Enable auto-approval and automatic rollouts. Before enabling, report
    "N assignments behind latest" so the first fleet movement is anticipated.
+   Both now ship enabled, each with a deployment kill switch; the Installed
+   tab reports the behind-latest count (see "Step E as built").
 
 ## Open Questions
 
