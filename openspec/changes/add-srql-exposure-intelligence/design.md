@@ -16,7 +16,7 @@ What exists today:
 | Topology | graph (AGE / Dgraph) | device uid | `in:device_graph`, `in:graph_cypher` |
 | BGP | StarRocks BMP events | peer, prefix | `in:bmp_events` |
 | Small current-state dimensions | CNPG, reachable from StarRocks through the opt-in `cnpg_platform` JDBC catalog, with column-scoped grants to `serviceradar_starrocks_reader` and an allowlist in `CatalogAllowlist` | | used by flow enrichment joins |
-| Current exposure facts, CVE and package dimensions, and transition history | StarRocks migration 0032 (`exposure_facts`, `exposure_cve_dim`, `exposure_package_dim`, `exposure_transitions_log`) plus 0033 (`transition_seq` on the two dimensions); see Decisions 21 and 22 | fact key `(device_ord, cve_ord, pkg_ord)` | none yet |
+| Current exposure facts, CVE and package dimensions, and transition history | StarRocks migration 0032 (`exposure_facts`, `exposure_cve_dim`, `exposure_package_dim`, `exposure_transitions_log`) plus 0033 (`transition_seq` on the two dimensions) and 0034 (`device_lifecycle_seq`, `exposure_retired_ordinals`); see Decisions 21, 22 and 23 | fact key `(device_ord, cve_ord, pkg_ord)` | none yet |
 
 The gaps that block the six operator questions are:
 
@@ -148,7 +148,8 @@ CREATE TABLE IF NOT EXISTS serviceradar.exposure_facts (
   updated_at          DATETIME  NOT NULL,
   transition_seq      BIGINT    NOT NULL,
   transition_xid      BIGINT    NOT NULL,   -- CNPG xact id of the producing transaction
-  snapshot_generation BIGINT    NOT NULL DEFAULT "0"
+  snapshot_generation BIGINT    NOT NULL DEFAULT "0",
+  device_lifecycle_seq BIGINT   NOT NULL DEFAULT "0"  -- appended by migration 0034; Decision 23
 )
 PRIMARY KEY (device_ord, cve_ord, pkg_ord)
 DISTRIBUTED BY HASH(device_ord) BUCKETS 16
@@ -1382,7 +1383,7 @@ Refresh budgets:
 
 | Case | Intended handling |
 |---|---|
-| A transition for a retired ordinal arrives after the retirement | Dropped at the ingestion boundary and counted; the ordinal's facts stay retired. |
+| A transition for a retired ordinal arrives after the retirement | An older lifecycle is dropped and counted. A future lifecycle stays retryable until its marker. An authorized restore republishes current facts on the same ordinal (Decision 23). |
 | A deleted assessment key is re-created later | Under the shared full fact-key serialization, the re-creating transaction draws a new sequence above the terminal watermark's and removes the key's row from `platform.exposure_fact_watermarks` in the same transaction. |
 | An active warehouse fact has neither an assessment nor a source watermark | Snapshot repair rechecks under the same fact-key serialization as creation, then records a new terminal watermark and outbox transition atomically if the source is still absent (Decision 20). |
 | A transitions-stream message expires (`max_age`) before it is consumed | Freshness is lost and the stream-age health alert fires; the daily reconciliation finds the device mismatched and a per-device snapshot repairs it. Watermarks still prevent any older state from winning. |

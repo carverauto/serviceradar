@@ -1,7 +1,7 @@
 //! Task 1.4: seed CNPG and StarRocks with the same synthetic rows, run every inventory entry
 //! through both SRQL dialects, diff the results. After those entries, `exposure` checks the
-//! migration 0032 tables in the same disposable warehouse. A filter that selects no inventory
-//! entry still fails before that check.
+//! exposure migrations, including 0034 device lifecycle, in the same disposable warehouse. A
+//! filter that selects no inventory entry still fails before that check.
 //!
 //! The SQL under test is the SRQL crate's own: `srql::query::translate_request` with the CNPG
 //! mode and with `mode: "starrocks"`, exactly the entry point the product's NIF calls. The CNPG

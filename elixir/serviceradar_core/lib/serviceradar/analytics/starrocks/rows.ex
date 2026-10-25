@@ -129,8 +129,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     executable_ownership: 65_533
   }
 
-  # Every live event-owned column from migration 0032. In particular, a live
-  # after-image must never overwrite the snapshot generation.
+  # Live event-owned exposure fact columns (migrations 0032 and 0034).
+  # A live after-image must never overwrite the snapshot generation.
   @exposure_fact_columns ~w(device_lifecycle_seq device_ord cve_ord pkg_ord pkgver_ord state source_scope
                             severity_rank cvss_score kev exploit_available fix_available
                             first_exposed_at resolved_at updated_at transition_seq transition_xid)
