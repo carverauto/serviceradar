@@ -1,0 +1,658 @@
+{
+  "attributes": [
+    {
+      "allow_nil?": false,
+      "default": "fragment(\"gen_random_uuid()\")",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": true,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "1",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "schema_version",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": {
+        "deferrable": false,
+        "destination_attribute": "id",
+        "destination_attribute_default": null,
+        "destination_attribute_generated": null,
+        "index?": false,
+        "index_where": null,
+        "match_tenant?": false,
+        "match_type": null,
+        "match_with": null,
+        "multitenancy": {
+          "attribute": null,
+          "global": null,
+          "strategy": null
+        },
+        "name": "camera_archive_upload_dispatches_archive_upload_intent_id_fkey",
+        "on_delete": "restrict",
+        "on_update": null,
+        "primary_key?": true,
+        "schema": "platform",
+        "table": "camera_archive_upload_intents"
+      },
+      "scale": null,
+      "size": null,
+      "source": "archive_upload_intent_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "upload_epoch",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "upload_token_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "dispatcher_actor_id",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "operation",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "request_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "prepared_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": false,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "deadline_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_authority_revision",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_authority_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_storage_boot_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_nonce_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_principal_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_deadline_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_verification",
+      "type": "map"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_verification_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_verified_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_verification_conflict_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "init_verification_conflict_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_authority_revision",
+      "type": "bigint"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_authority_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_storage_boot_id",
+      "type": "uuid"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_nonce_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_principal_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_deadline_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_verification",
+      "type": "map"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_verification_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_verified_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_verification_conflict_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "media_verification_conflict_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "marked_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "unknown_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "response_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "response",
+      "type": "map"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "response_sha256",
+      "type": "text"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "conflict_at",
+      "type": "utc_datetime_usec"
+    },
+    {
+      "allow_nil?": true,
+      "default": "nil",
+      "generated?": false,
+      "precision": null,
+      "primary_key?": false,
+      "references": null,
+      "scale": null,
+      "size": null,
+      "source": "first_conflict_sha256",
+      "type": "text"
+    }
+  ],
+  "base_filter": null,
+  "check_constraints": [
+    {
+      "attribute": [
+        "init_authority_revision"
+      ],
+      "base_filter": null,
+      "check": "(init_authority_revision IS NULL AND init_authority_sha256 IS NULL AND\n init_storage_boot_id IS NULL AND init_nonce_sha256 IS NULL AND\n init_principal_sha256 IS NULL AND init_deadline_at IS NULL) OR\n(init_authority_revision IS NOT NULL AND init_authority_revision > 0 AND\n init_authority_sha256 IS NOT NULL AND init_authority_sha256 ~ '^[0-9a-f]{64}$' AND\n init_storage_boot_id IS NOT NULL AND init_nonce_sha256 IS NOT NULL AND\n init_nonce_sha256 ~ '^[0-9a-f]{64}$' AND init_principal_sha256 IS NOT NULL AND\n init_principal_sha256 ~ '^[0-9a-f]{64}$' AND init_deadline_at IS NOT NULL AND\n marked_at IS NOT NULL AND operation = 'put_object' AND\n init_deadline_at > marked_at AND init_deadline_at <= marked_at + interval '5 seconds' AND\n init_deadline_at <= deadline_at)\n",
+      "name": "camera_upload_init_grant_bounds"
+    },
+    {
+      "attribute": [
+        "init_verification"
+      ],
+      "base_filter": null,
+      "check": "(init_verification IS NULL AND init_verification_sha256 IS NULL AND init_verified_at IS NULL) OR\n(init_verification IS NOT NULL AND init_verification_sha256 IS NOT NULL AND init_verified_at IS NOT NULL AND\n init_authority_revision IS NOT NULL AND jsonb_typeof(init_verification) = 'object' AND\n octet_length(init_verification::text) <= 4096 AND init_verification_sha256 ~ '^[0-9a-f]{64}$')\n",
+      "name": "camera_upload_init_verification_bounds"
+    },
+    {
+      "attribute": [
+        "init_verification_conflict_at"
+      ],
+      "base_filter": null,
+      "check": "(init_verification_conflict_at IS NULL AND init_verification_conflict_sha256 IS NULL) OR\n(init_verification_conflict_at IS NOT NULL AND init_verification_conflict_sha256 IS NOT NULL AND\n init_verified_at IS NOT NULL AND init_verification_conflict_sha256 ~ '^[0-9a-f]{64}$')\n",
+      "name": "camera_upload_init_verification_conflict"
+    },
+    {
+      "attribute": [
+        "media_authority_revision"
+      ],
+      "base_filter": null,
+      "check": "(media_authority_revision IS NULL AND media_authority_sha256 IS NULL AND\n media_storage_boot_id IS NULL AND media_nonce_sha256 IS NULL AND\n media_principal_sha256 IS NULL AND media_deadline_at IS NULL) OR\n(media_authority_revision IS NOT NULL AND media_authority_revision > 0 AND\n media_authority_sha256 IS NOT NULL AND media_authority_sha256 ~ '^[0-9a-f]{64}$' AND\n media_storage_boot_id IS NOT NULL AND media_nonce_sha256 IS NOT NULL AND\n media_nonce_sha256 ~ '^[0-9a-f]{64}$' AND media_principal_sha256 IS NOT NULL AND\n media_principal_sha256 ~ '^[0-9a-f]{64}$' AND media_deadline_at IS NOT NULL AND\n marked_at IS NOT NULL AND operation = 'put_object' AND\n media_deadline_at > marked_at AND media_deadline_at <= marked_at + interval '30 seconds' AND\n media_deadline_at <= deadline_at)\n",
+      "name": "camera_upload_media_grant_bounds"
+    },
+    {
+      "attribute": [
+        "media_verification"
+      ],
+      "base_filter": null,
+      "check": "(media_verification IS NULL AND media_verification_sha256 IS NULL AND media_verified_at IS NULL) OR\n(media_verification IS NOT NULL AND media_verification_sha256 IS NOT NULL AND media_verified_at IS NOT NULL AND\n media_authority_revision IS NOT NULL AND jsonb_typeof(media_verification) = 'object' AND\n octet_length(media_verification::text) <= 4096 AND media_verification_sha256 ~ '^[0-9a-f]{64}$')\n",
+      "name": "camera_upload_media_verification_bounds"
+    },
+    {
+      "attribute": [
+        "media_verification_conflict_at"
+      ],
+      "base_filter": null,
+      "check": "(media_verification_conflict_at IS NULL AND media_verification_conflict_sha256 IS NULL) OR\n(media_verification_conflict_at IS NOT NULL AND media_verification_conflict_sha256 IS NOT NULL AND\n media_verified_at IS NOT NULL AND media_verification_conflict_sha256 ~ '^[0-9a-f]{64}$')\n",
+      "name": "camera_upload_media_verification_conflict"
+    },
+    {
+      "attribute": [
+        "media_authority_revision"
+      ],
+      "base_filter": null,
+      "check": "init_authority_revision IS NULL OR media_authority_revision IS NULL",
+      "name": "camera_upload_grant_purpose"
+    },
+    {
+      "attribute": [
+        "upload_epoch"
+      ],
+      "base_filter": null,
+      "check": "schema_version = 1 AND upload_epoch > 0 AND\nupload_token_sha256 ~ '^[0-9a-f]{64}$' AND\nrequest_sha256 ~ '^[0-9a-f]{64}$' AND\nchar_length(dispatcher_actor_id) BETWEEN 1 AND 128 AND\noperation IN ('put_object', 'create_multipart_upload')\n",
+      "name": "camera_upload_dispatch_identity_bounds"
+    },
+    {
+      "attribute": [
+        "deadline_at"
+      ],
+      "base_filter": null,
+      "check": "deadline_at > prepared_at AND\ndeadline_at <= prepared_at + interval '5 minutes' AND\n(marked_at IS NULL OR (marked_at >= prepared_at AND marked_at < deadline_at))\n",
+      "name": "camera_upload_dispatch_window_bounds"
+    },
+    {
+      "attribute": [
+        "unknown_at"
+      ],
+      "base_filter": null,
+      "check": "(unknown_at IS NULL OR marked_at IS NOT NULL) AND\n(response_at IS NULL OR marked_at IS NOT NULL)\n",
+      "name": "camera_upload_dispatch_marker_required"
+    },
+    {
+      "attribute": [
+        "response"
+      ],
+      "base_filter": null,
+      "check": "(response IS NULL AND response_sha256 IS NULL AND response_at IS NULL) OR\n(response IS NOT NULL AND response_sha256 IS NOT NULL AND response_at IS NOT NULL AND\n response_sha256 ~ '^[0-9a-f]{64}$' AND jsonb_typeof(response) = 'object' AND\n octet_length(response::text) <= 8192)\n",
+      "name": "camera_upload_dispatch_response_bounds"
+    },
+    {
+      "attribute": [
+        "conflict_at"
+      ],
+      "base_filter": null,
+      "check": "(conflict_at IS NULL AND first_conflict_sha256 IS NULL) OR\n(conflict_at IS NOT NULL AND first_conflict_sha256 IS NOT NULL AND\n response_at IS NOT NULL AND first_conflict_sha256 ~ '^[0-9a-f]{64}$')\n",
+      "name": "camera_upload_dispatch_conflict_requires_response"
+    }
+  ],
+  "create_table_options": null,
+  "custom_indexes": [],
+  "custom_statements": [],
+  "has_create_action": true,
+  "hash": "13BABA9FE9EA8207A554DD7AAF454C64CF79D44F432115DD57ABBC7FBCD86979",
+  "identities": [
+    {
+      "all_tenants?": false,
+      "base_filter": null,
+      "index_name": "camera_archive_upload_dispatches_init_request_nonce_index",
+      "keys": [
+        {
+          "type": "atom",
+          "value": "init_storage_boot_id"
+        },
+        {
+          "type": "atom",
+          "value": "init_nonce_sha256"
+        }
+      ],
+      "name": "init_request_nonce",
+      "nils_distinct?": true,
+      "where": null
+    },
+    {
+      "all_tenants?": false,
+      "base_filter": null,
+      "index_name": "camera_archive_upload_dispatches_intent_index",
+      "keys": [
+        {
+          "type": "atom",
+          "value": "archive_upload_intent_id"
+        }
+      ],
+      "name": "intent",
+      "nils_distinct?": true,
+      "where": null
+    },
+    {
+      "all_tenants?": false,
+      "base_filter": null,
+      "index_name": "camera_archive_upload_dispatches_media_request_nonce_index",
+      "keys": [
+        {
+          "type": "atom",
+          "value": "media_storage_boot_id"
+        },
+        {
+          "type": "atom",
+          "value": "media_nonce_sha256"
+        }
+      ],
+      "name": "media_request_nonce",
+      "nils_distinct?": true,
+      "where": null
+    }
+  ],
+  "multitenancy": {
+    "attribute": null,
+    "global": null,
+    "strategy": null
+  },
+  "repo": "Elixir.ServiceRadar.Repo",
+  "schema": "platform",
+  "table": "camera_archive_upload_dispatches",
+  "temporal": null
+}

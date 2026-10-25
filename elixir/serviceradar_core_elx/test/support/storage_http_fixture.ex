@@ -16,11 +16,11 @@ defmodule ServiceRadarCoreElx.Test.StorageHTTPFixture do
     port
   end
 
-  def proxy(port) do
+  def proxy(port, options \\ []) do
     {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
     {:ok, {_, proxy_port}} = :inet.sockname(socket)
     {:ok, tasks} = Task.Supervisor.start_link()
-    {:ok, acceptor} = Task.Supervisor.start_child(tasks, fn -> proxy_accept(socket, port, tasks) end)
+    {:ok, acceptor} = Task.Supervisor.start_child(tasks, fn -> proxy_accept(socket, port, tasks, options) end)
 
     ExUnit.Callbacks.on_exit(fn ->
       :gen_tcp.close(socket)
@@ -81,11 +81,16 @@ defmodule ServiceRadarCoreElx.Test.StorageHTTPFixture do
 
   defp body(_, bytes, length) when byte_size(bytes) == length, do: {:ok, bytes}
 
-  defp body(socket, bytes, length) when length <= 1_500_000 do
+  defp body(socket, bytes, length) when length <= 16_777_216 do
     with {:ok, more} <- :ssl.recv(socket, 0, 2_000), do: body(socket, bytes <> more, length)
   end
 
   defp respond(_, :close, _), do: :ok
+
+  defp respond(socket, {:await_close, parent}, _method) do
+    send(parent, {:provider_waiting, self()})
+    send(parent, {:provider_closed, :ssl.recv(socket, 0, 5_000)})
+  end
 
   defp respond(socket, {:hold, parent, response}, method) do
     send(parent, {:held_response, self()})
@@ -108,32 +113,43 @@ defmodule ServiceRadarCoreElx.Test.StorageHTTPFixture do
     :ssl.send(socket, ["HTTP/1.1 #{status} fixture\r\n", header_bytes, "\r\n", if(method == "HEAD", do: "", else: bytes)])
   end
 
-  defp proxy_accept(listener, port, tasks) do
+  defp proxy_accept(listener, port, tasks, options) do
     case :gen_tcp.accept(listener) do
       {:ok, socket} ->
         {:ok, child} =
-          Task.Supervisor.start_child(tasks, fn -> receive do: ({:socket, socket} -> tunnel(socket, port)) end)
+          Task.Supervisor.start_child(tasks, fn -> receive do: ({:socket, socket} -> tunnel(socket, port, options)) end)
 
         :ok = :gen_tcp.controlling_process(socket, child)
         send(child, {:socket, socket})
-        proxy_accept(listener, port, tasks)
+        proxy_accept(listener, port, tasks, options)
 
       _ ->
         :ok
     end
   end
 
-  defp tunnel(client, port) do
+  defp tunnel(client, port, options) do
     with {:ok, request} <- :gen_tcp.recv(client, 0, 2_000),
-         true <- String.starts_with?(request, "CONNECT objects.example.test:443 "),
+         true <- String.starts_with?(request, "CONNECT ") do
+      if parent = options[:deny] do
+        send(parent, :connect_denied)
+        :gen_tcp.send(client, "HTTP/1.0 403 Forbidden\r\nContent-Length: 0\r\n\r\n")
+      else
+        connect_tunnel(client, port, request)
+      end
+    end
+
+    :gen_tcp.close(client)
+  end
+
+  defp connect_tunnel(client, port, request) do
+    with true <- String.starts_with?(request, "CONNECT objects.example.test:443 "),
          {:ok, server} <- :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: true], 2_000) do
       :ok = :gen_tcp.send(client, "HTTP/1.0 200 OK\r\n\r\n")
       :ok = :inet.setopts(client, active: true)
       relay(client, server)
       :gen_tcp.close(server)
     end
-
-    :gen_tcp.close(client)
   end
 
   defp relay(left, right) do

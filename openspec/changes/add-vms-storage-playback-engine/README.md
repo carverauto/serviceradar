@@ -2,6 +2,14 @@
 
 ## Current pickup
 
+The current byte-path checkpoint adds explicit
+[sealed-media upload](media-upload.md) through the isolated storage service,
+building on [provisioned spool identity](spool-lifetime.md). Its caller accepts
+only a frozen block ID, uses media-specific authority and verifies exact remote
+bytes. Success means `media_verified`; recovery-manifest verification and fenced
+index publication still precede archive availability. Published-head guarded
+database execution remains required for both checkpoints.
+
 [Private archive registration #6000](https://github.com/carverauto/serviceradar/pull/6000)
 is merged at `8974fcddd7039648085898b7fb9319d55898a7c8`. Its published head
 `e639b4fd` passed all 19 checks, including the seven guarded Web database targets
@@ -24,12 +32,12 @@ live provider qualification and deployment acceptance remain separate gates.
 
 ## Priority order
 
-1. Verify the provisioned spool lifetime before recorder ownership and at write
-   boundaries. In parallel, implement bounded sealed-media streaming through the
-   isolated storage service with operation-specific authority and exact object
-   verification. Init authority must not authorize media. Follow verified media
-   with a recovery manifest from the frozen descriptor, then fenced idempotent
-   index publication. Multipart reconciliation remains a separate open gate.
+1. Finish no-mistakes publication and actual guarded Core/Web database execution
+   for spool identity and sealed-media upload. Then obtain or consume independent
+   init verification, write and verify the recovery manifest from the frozen
+   descriptor, and publish the index idempotently under current ownership.
+   Only the complete verified archive and published index expose availability.
+   Init authority never authorizes media. Multipart reconciliation remains open.
 2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
    before adding a provider-creation worker. A matching name or successful
    create response cannot prove ownership. Cloud
@@ -63,6 +71,8 @@ live provider qualification and deployment acceptance remain separate gates.
 | Init-object authority | #5996 merged; published head `447f594b` passed 19 checks; Core `551008e0` and Web `a4308a82` passed all 12/seven guarded targets with lifecycle exit statuses zero | Cloud provisioning/qualification and complete archive transport |
 | Private archive registration | #6000 merged at `8974fcdd`; published head `e639b4fd` passed 19 checks; Web `1452ccca` executed all seven guarded targets uncached, including owning shard 0, with all lifecycle statuses zero; [validation](validation.md) retains the approved pre-push exception | Cloud-retained allocation identity and matching product receipt |
 | Cloud media reservation | #188 remains an open draft; all five checks passed, including 3,241 tests with zero failures and 10 skips; local Dialyzer fails with 11 warnings also present on its exact base | Merge, allocation inventory and preservation-release workflow |
+| Provisioned spool identity | [Local marker contract](spool-lifetime.md), real filesystem negative controls and source validation in [validation](validation.md#provisioned-spool-identity) | Published-head guarded Core database execution; Cloud volume/UUID association |
+| Sealed-media upload | [Byte-path contract](media-upload.md); synthetic TLS/CONNECT, streaming and lifecycle checks | Final published-head Core authority cases and both joined Web database cases; complete manifest/index publication |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -73,12 +83,16 @@ runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Start with [tasks.md](tasks.md), [Cloud ownership](cloud-control-plane.md) and
-[init authority](init-authority.md). Registration is merged and its guarded Web
-database execution passed. Complete spool-lifetime verification and the bounded
-media transport pass independently of Cloud provisioning; use the existing
+Start with [tasks.md](tasks.md), [media upload](media-upload.md),
+[spool lifetime](spool-lifetime.md) and [Cloud ownership](cloud-control-plane.md).
+Registration is merged and its guarded Web database execution passed. Finish
+the spool/media publication gates, preserving their recorded limits. The next
+product pass obtains or consumes independent init verification, verifies the
+recovery manifest and publishes the archive index; reuse the existing
 [upload intent](upload-intent.md) and [dispatch](upload-dispatch.md) owners.
-Then implement recovery-manifest verification and index publication. Cloud's
+The media caller currently releases its lease after media verification and has
+no production init caller or scheduler. Keep publication retries fenced and do
+not rearm an attempted object operation. Cloud's
 new-allocation proof remains unresolved; do not add queued work that can only
 report an unsupported provider contract. Registration never authorizes provider
 I/O, and a reservation never proves owned storage.

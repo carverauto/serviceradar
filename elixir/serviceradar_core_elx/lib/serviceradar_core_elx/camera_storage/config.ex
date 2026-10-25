@@ -5,7 +5,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
   Secret references are checked against the complete desired document. No
   request selects a credential file, provider endpoint or installed identity.
   """
-  alias ServiceRadar.Camera.ArchiveInitConfig
+  alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.HTTP.EgressProxy
   alias ServiceRadar.JSONDocument
 
@@ -14,12 +14,28 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
   @runtime_fields ~w(base_url certfile keyfile cacertfile token_file)
   @credential_fields ~w(reference generation access_key_id secret_access_key)
 
+  @doc "Loads only the recorder's installed spool/binding and private service connection."
+  def load_recorder(path) do
+    with {:ok, document} <- read_json(path, 4096),
+         true <- exact?(document, ~w(schema_version spool_root binding_id storage)) and document["schema_version"] === 1,
+         true <- path?(document["spool_root"]),
+         {:ok, id} <- Ecto.UUID.cast(document["binding_id"]),
+         {:ok, client} <- runtime(document["storage"]) do
+      {:ok, %{root: document["spool_root"], binding_id: id, client: client}}
+    else
+      _ -> {:error, :invalid_media_upload_configuration}
+    end
+  rescue
+    _ -> {:error, :invalid_media_upload_configuration}
+  end
+
   def load(path) do
     with {:ok, document} <- read_json(path, 32_768),
          true <- exact?(document, @fields) and document["schema_version"] === 1,
          {:ok, generation} <- decimal(document["generation"]),
          installation = %{deployment_ref: document["deployment_ref"], generation: generation},
-         {:ok, desired} <- ArchiveInitConfig.parse(installation, document["desired"]),
+         {:ok, kind} <- ArchiveAuthorityConfig.kind(document["desired"]),
+         {:ok, desired} <- ArchiveAuthorityConfig.parse(kind, installation, document["desired"]),
          {:ok, listener} <- listener(document["listener"]),
          {:ok, runtime} <- runtime(document["runtime"]),
          false <- Plug.Crypto.secure_compare(listener.token_sha256, :crypto.hash(:sha256, runtime.token)),
@@ -27,10 +43,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
          true <- credential?(credential, desired.report["credential"]) do
       {:ok,
        %{
+         kind: kind,
          installation: installation,
          desired: desired,
          listener: listener,
-         runtime: runtime,
+         runtime: Map.put(runtime, :kind, kind),
          provider: %{
            proxy: EgressProxy.from_env(),
            cacerts: :public_key.cacerts_get(),

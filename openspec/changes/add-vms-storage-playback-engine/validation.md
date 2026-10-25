@@ -761,3 +761,84 @@ All 11 complete diagnostic blocks match after accounting only for the two added
 registry lines. This establishes an existing failure under the tested toolchain;
 it does not make Dialyzer green. No source, ignore or assertion was changed.
 Cloud CI's existing `--skip-dialyzer` remains a limitation of its green result.
+
+## Provisioned spool identity
+
+This checkpoint binds the recorder to a marker written by
+`Storage.initialize/2` on an existing private empty root. The recorder verifies
+that marker and does not create or repair it. [Spool lifetime](spool-lifetime.md)
+owns the contract. Recording stays disabled. There is no new provider request,
+bucket, schema, scheduler, upload authority or reclamation.
+
+The settled production and test sources passed [focused validation](https://carverauto.buildbuddy.io/invocation/9ed5a228-c3d3-4410-b712-b64c0c84206d):
+217 unit tests, nine media tests, three RTSP tests and three browser cases, plus
+Core and CoreElx format/Credo checks. The final [full remote `make test`](https://carverauto.buildbuddy.io/invocation/46ec78df-211e-4acc-8d45-e182e49b34fb)
+passed 460 targets (six executed, 454 cached) with two Swift platform skips.
+Later documentation edits do not replace those results.
+
+Three negative controls failed at their intended keeper, in both attempts:
+[disabled identity verification](https://carverauto.buildbuddy.io/invocation/6c957987-8388-4161-a23f-c53a91dcd9ad),
+[child-directory symlink recovery](https://carverauto.buildbuddy.io/invocation/93973624-59a6-402c-8104-99cd2177deb3),
+and [aliased-file recovery](https://carverauto.buildbuddy.io/invocation/a6863c05-b2c4-4539-a39d-9f971c774dab).
+The last case observed changed foreign-block bytes. The restored guards and
+regular single-link preflight pass the final positive runs above.
+
+An earlier [full sweep](https://carverauto.buildbuddy.io/invocation/33f0eddd-ad10-4b9c-9fc0-f083c0b80a33)
+failed on local disk exhaustion and is not success evidence. The final sweep
+ran after space was restored. Guarded database execution is still required on
+the published head: the current owning target is
+`//elixir/serviceradar_core:integration_tests_serial_4`, with all six recorder
+worker cases (four retained, two new). These source checks do not establish
+provider readiness, physical-volume identity or live deployment acceptance.
+
+## Explicit sealed-media upload
+
+[Media upload](media-upload.md) owns the bounded caller, separate operation
+authority, private byte ingress and exact provider verification contract.
+The evidence here uses independently synthetic endpoints and media. It does
+not establish live provider qualification, recording enablement or archive
+availability.
+
+[Initial final-owner validation](https://carverauto.buildbuddy.io/invocation/44ab689e-e860-4ca7-8c3e-c445f4997e89)
+passed Core/Web quality and the declared test registration/routing targets.
+CoreElx Credo reported two nesting-depth findings in the chunk handler and
+CONNECT fixture. After flattening those functions without changing their
+contracts or assertions, [focused validation](https://carverauto.buildbuddy.io/invocation/0ba029de-9a67-468e-9749-7a7402c75c54)
+passed CoreElx quality and all 33 storage cases, including HTTP/2 rejection.
+
+The settled-source [full remote `make test`](https://carverauto.buildbuddy.io/invocation/8c2e20ec-5bd0-49a6-94f4-1c22168fad96)
+exited zero: 460 test targets passed, 59 executed and 401 cached. Only
+`ios_compile_test` and `swift_regression_test` were skipped. Subsequent handoff
+integration preserves source behavior and every assertion. Published-head
+database execution is a separate gate below.
+
+The [lifecycle negative controls](https://carverauto.buildbuddy.io/invocation/17f7a338-34ab-47d6-9848-87d2c9972468)
+failed when socket registration, ingress termination or HTTP/2 rejection was
+absent. The [unread-body control](https://carverauto.buildbuddy.io/invocation/9e48898b-385b-4017-90e2-4917171c73e0)
+exposed a connection waiting for rejected request bytes. These intended failures
+are not positive proof; restored behavior passes the focused and full runs.
+The existing init assertions are retained. Synthetic transport tests also cover
+CONNECT denial with a directly reachable provider, exact signed streamed bytes,
+range identity/digest verification, deadline cancellation, scratch cleanup and
+refusal of an abandoned staging root.
+
+Four new database cases remain mandatory on the final published head. The two
+archive-upload authority cases route to
+`//elixir/serviceradar_core:integration_tests_serial_6` at the author checkpoint;
+recompute that owner after a rebase. Two joined cases are registered on
+`//elixir/web-ng:networks_live_db_test_0`. They drive the actual one-shot caller,
+private HTTPS coordination and a separate storage process with a synthetic TLS
+provider. The provider checks the committed dispatch marker before PUT. The
+positive case checks exact verification without availability and refuses a
+resend; the corruption case changes bytes without changing length and expects
+no grant or provider request. Each case cleans its owned database rows and
+private scratch root. Qualification flags are fixture input, not proof of a live
+provider's capabilities.
+
+Ordinary compilation and excluded database bodies do not execute these cases.
+Both guarded Core/Web lifecycles must run their selected targets, pass tests,
+connection observation and teardown, and release fixture-generation leases.
+The spool parent's six guarded worker cases remain required too. No local
+product database or alternate forwarding path substitutes for this final-head
+gate. Recovery manifests, index publication, multipart reconciliation and live
+deployment acceptance remain open.

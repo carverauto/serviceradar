@@ -3,10 +3,11 @@ ExUnit.start()
 defmodule ServiceRadarCoreElx.CameraStorageTest do
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Camera.ArchiveInitConfig
+  alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadarCoreElx.CameraStorage.Config
   alias ServiceRadarCoreElx.CameraStorage.HTTP
   alias ServiceRadarCoreElx.CameraStorage.Service
+  alias ServiceRadarCoreElx.CameraStorage.Session
   alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Fixture
 
   @moduletag :tmp_dir
@@ -37,18 +38,34 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
       })
 
     parent = self()
+    kind = context[:kind] || :init
+    bytes = if kind == :media, do: :binary.copy("synthetic media bytes;", 220_000), else: @bytes
 
     {:ok, store} =
       Agent.start_link(fn ->
-        %{parent: parent, mode: context[:mode], provider: [], core: [], marked: false, object: nil}
+        %{
+          parent: parent,
+          mode: context[:mode],
+          kind: kind,
+          bytes: bytes,
+          provider: [],
+          core: [],
+          marked: false,
+          object: nil
+        }
       end)
 
     installation = %{deployment_ref: "aee2d1d4-1162-4029-a3d2-bc4d73636634", generation: 1}
 
     {:ok, desired} =
-      ArchiveInitConfig.parse(
+      ArchiveAuthorityConfig.parse(
+        kind,
         installation,
-        put_in(desired(), ["limits", "max_operation_ms"], context[:operation_ms] || 5_000)
+        put_in(
+          desired(kind),
+          ["limits", "max_operation_ms"],
+          context[:operation_ms] || if(kind == :init, do: 5_000, else: 30_000)
+        )
       )
 
     provider_port =
@@ -59,7 +76,8 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     core_port =
       Fixture.start(certificates.server_config, fn request ->
         response = Agent.get_and_update(store, &core(&1, request, desired))
-        if request.target == "/v1/init-authorities/challenge", do: send(parent, :challenged)
+        if String.ends_with?(request.target, "-authorities/challenge"), do: send(parent, :challenged)
+        if String.ends_with?(request.target, "-uploads/prepare"), do: send(parent, :prepared)
         response
       end)
 
@@ -112,12 +130,16 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     # Synthetic provider trust and CONNECT routing exist only in this fixture.
     config = put_in(config.provider, Map.merge(config.provider, %{proxy: Fixture.proxy(provider_port), cacerts: roots}))
 
-    start_supervised!({Service, config})
+    service = start_supervised!(Supervisor.child_spec({Service, config}, restart: :temporary))
     assert_receive :challenged, 5_000
 
     %{
       client: client,
-      url: "https://localhost:#{port}/v1/init-uploads",
+      service: service,
+      config: config,
+      bytes: bytes,
+      kind: kind,
+      url: "https://localhost:#{port}/v1/#{kind}-uploads",
       port: port,
       store: store,
       config_path: config_path,
@@ -260,6 +282,278 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     assert [{"/v1/init-authorities/challenge", _}] = Agent.get(ctx.store, & &1.core)
   end
 
+  @tag kind: :media
+  test "raw media stages before grant, streams one signed PUT and verifies separate exact ranges", ctx do
+    assert {:ok, %{status: 200, body: body}} = media_upload(ctx)
+    assert %{"status" => "media_verified", "archive_readiness" => "unavailable"} = Jason.decode!(body)
+    state = Agent.get(ctx.store, & &1)
+
+    assert [%{method: "PUT"} = put, %{method: "HEAD"}, %{method: "GET"} = first, %{method: "GET"} = last] =
+             Enum.reverse(state.provider)
+
+    assert put.body == ctx.bytes
+    assert put.headers["x-amz-content-sha256"] == digest(ctx.bytes)
+    assert put.headers["content-length"] == Integer.to_string(byte_size(ctx.bytes))
+    assert put.headers["if-none-match"] == "*"
+    assert first.headers["range"] == "bytes=0-4194303"
+    assert last.headers["range"] == "bytes=4194304-#{byte_size(ctx.bytes) - 1}"
+    assert first.target == last.target
+    assert [verification] = for({"/v1/media-uploads/verify", value} <- state.core, do: value["verification"])
+    assert verification["object_sha256"] == digest(ctx.bytes)
+    assert verification["byte_length"] == byte_size(ctx.bytes)
+    assert verification["version_id"] == "version-1"
+    pairs = put.headers |> Enum.sort() |> Enum.map(fn {key, value} -> [key, value] end)
+
+    assert verification["put_request_sha256"] ==
+             digest(
+               Jason.encode!([
+                 "media-put-wire-v1",
+                 "PUT",
+                 "https://objects.example.test" <> put.target,
+                 pairs,
+                 digest(ctx.bytes)
+               ])
+             )
+
+    assert {:ok, %{status: 503}} = media_upload(ctx)
+    assert Enum.count(Agent.get(ctx.store, & &1.provider), &(&1.method == "PUT")) == 1
+  end
+
+  @tag kind: :media
+  test "wrong staged bytes and duplicate lease fields cannot consume a provider grant", ctx do
+    assert {:ok, %{status: 503}} = media_upload(ctx, bytes: :binary.copy("x", byte_size(ctx.bytes)))
+    duplicate = @lease |> Jason.encode!() |> String.replace("{", ~s({"id":"duplicate",), global: false)
+    assert {:ok, %{status: 400}} = media_upload(ctx, lease: duplicate)
+
+    assert {:ok, %{status: 400}} =
+             media_upload(ctx, extra_headers: [{"x-serviceradar-upload-lease", Jason.encode!(@lease)}])
+
+    assert Agent.get(ctx.store, & &1.provider) == []
+    refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/grant" end)
+  end
+
+  @tag kind: :media
+  test "the ingress slot is reserved before body completion and a killed owner releases its scratch", ctx do
+    _socket = media_socket(ctx, byte_size(ctx.bytes), "x")
+
+    assert_receive :prepared, 5_000
+    assert {:ok, %{status: 503, body: body}} = media_upload(ctx)
+    assert Jason.decode!(body) == %{"error" => "storage_busy"}
+    # Fault injection identifies the real request process; cleanup is asserted
+    # through filesystem and subsequent HTTP behavior, not private state shape.
+    stage = :sys.get_state(Session).stage
+    monitor = Process.monitor(stage.owner)
+    Process.exit(stage.owner, :kill)
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 2_000
+    assert eventually(fn -> not File.exists?(stage.directory) end)
+    refute File.exists?(stage.path)
+    refute File.exists?(stage.directory)
+    assert {:ok, %{status: 200}} = media_upload(ctx)
+  end
+
+  @tag kind: :media, mode: :await_close
+  test "canceling a live provider PUT closes its socket before another admission", ctx do
+    request = Task.async(fn -> media_upload(ctx) end)
+    assert_receive {:provider_waiting, _}, 5_000
+    stage = :sys.get_state(Session).stage
+    Process.exit(stage.owner, :kill)
+    assert_receive {:provider_closed, {:error, :closed}}, 1_000
+    assert eventually(fn -> not File.exists?(stage.directory) end)
+    assert {:error, _} = Task.await(request, 2_000)
+    assert {:ok, %{status: 503}} = media_upload(ctx)
+    state = Agent.get(ctx.store, & &1)
+    assert Enum.count(state.core, fn {path, _} -> path == "/v1/media-uploads/prepare" end) == 2
+    assert Enum.count(state.provider, &(&1.method == "PUT")) == 1
+  end
+
+  @tag kind: :media
+  test "a real scratch unlink failure prevents reuse of the staging budget", ctx do
+    _socket = media_socket(ctx, byte_size(ctx.bytes), "x")
+
+    assert_receive :prepared, 5_000
+    stage = :sys.get_state(Session).stage
+    assert eventually(fn -> File.exists?(stage.path) end)
+    assert :ok = File.rm(stage.path)
+    assert :ok = File.mkdir(stage.path)
+    on_exit(fn -> File.rm_rf!(Path.dirname(stage.directory)) end)
+    # Unlinking a directory fails even when the executor runs as root.
+    assert {:error, reason} = File.rm(stage.path)
+    assert reason in [:eperm, :eisdir]
+    Process.exit(stage.owner, :kill)
+    assert eventually(fn -> not Process.alive?(stage.owner) end)
+    assert {:ok, %{status: 503, body: body}} = media_upload(ctx)
+    assert Jason.decode!(body) == %{"error" => "storage_scratch_reconciliation_required"}
+    assert File.dir?(stage.path)
+    assert Agent.get(ctx.store, & &1.provider) == []
+    assert Enum.count(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/prepare" end) == 1
+  end
+
+  @tag kind: :media, mode: :await_close
+  test "a killed Session stops supervised provider sockets and refuses its abandoned scratch root", ctx do
+    request = Task.async(fn -> media_upload(ctx) end)
+    assert_receive {:provider_waiting, _}, 5_000
+    stage = :sys.get_state(Session).stage
+    scratch_root = Path.dirname(stage.directory)
+    on_exit(fn -> File.rm_rf!(scratch_root) end)
+    monitor = Process.monitor(ctx.service)
+    Process.exit(Process.whereis(Session), :kill)
+    assert_receive {:provider_closed, {:error, :closed}}, 2_000
+    assert_receive {:DOWN, ^monitor, :process, _, _}, 5_000
+    outcome = Task.await(request, 2_000)
+    assert match?({:error, _}, outcome) or match?({:ok, %{status: 503}}, outcome)
+    assert File.dir?(scratch_root)
+
+    assert {:error, _} =
+             start_supervised(
+               Supervisor.child_spec({Service, ctx.config}, id: :abandoned_root_probe, restart: :temporary)
+             )
+
+    assert File.dir?(scratch_root)
+    assert Enum.count(Agent.get(ctx.store, & &1.provider), &(&1.method == "PUT")) == 1
+  end
+
+  @tag kind: :media
+  test "oversize ingress closes without draining an unadmitted body", ctx do
+    socket = media_socket(ctx, 16_777_217)
+
+    assert {:ok, response} = :ssl.recv(socket, 0, 1_000)
+    assert response =~ "413"
+    assert {:error, :closed} = :ssl.recv(socket, 0, 1_000)
+    assert Agent.get(ctx.store, & &1.provider) == []
+    refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/prepare" end)
+  end
+
+  @tag kind: :media, operation_ms: 1_000
+  test "the private listener refuses HTTP/2 negotiation and prior-knowledge framing", ctx do
+    options = [:binary, active: false, verify: :verify_peer, cacerts: ctx.client.cacerts] ++ ctx.client.client_tls
+
+    assert {:ok, negotiated} =
+             :ssl.connect(~c"localhost", ctx.port, [alpn_advertised_protocols: ["h2", "http/1.1"]] ++ options, 2_000)
+
+    on_exit(fn -> :ssl.close(negotiated) end)
+    assert {:ok, "http/1.1"} = :ssl.negotiated_protocol(negotiated)
+    assert {:ok, prior} = :ssl.connect(~c"localhost", ctx.port, options, 2_000)
+    on_exit(fn -> :ssl.close(prior) end)
+    assert :ok = :ssl.send(prior, "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n")
+    assert {:error, :closed} = :ssl.recv(prior, 0, 1_000)
+    assert Agent.get(ctx.store, & &1.provider) == []
+    refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> String.ends_with?(path, "/prepare") end)
+  end
+
+  @tag kind: :media, operation_ms: 1_000
+  test "the ingress deadline stops a stalled file owner before its staging budget is released", ctx do
+    socket = media_socket(ctx, byte_size(ctx.bytes), "x")
+    assert_receive :prepared, 5_000
+    stage = :sys.get_state(Session).stage
+    assert eventually(fn -> File.exists?(stage.path) end)
+    monitor = Process.monitor(stage.owner)
+    :erlang.suspend_process(stage.owner)
+    on_exit(fn -> if Process.alive?(stage.owner), do: :erlang.resume_process(stage.owner) end)
+    assert_receive {:DOWN, ^monitor, :process, _, :killed}, 2_000
+    assert {:error, :closed} = :ssl.recv(socket, 0, 1_000)
+    assert eventually(fn -> not File.exists?(stage.directory) end)
+    assert Agent.get(ctx.store, & &1.provider) == []
+    refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/grant" end)
+  end
+
+  @tag kind: :media, mode: :slow_grant, operation_ms: 1_000
+  test "raw staging time remains inside the original provider deadline", ctx do
+    socket = media_socket(ctx, byte_size(ctx.bytes), binary_part(ctx.bytes, 0, 1))
+    assert_receive :prepared, 5_000
+    Process.sleep(600)
+    assert :ok = :ssl.send(socket, binary_part(ctx.bytes, 1, byte_size(ctx.bytes) - 1))
+    assert {:ok, response} = :ssl.recv(socket, 0, 2_000)
+    assert response =~ "503"
+    assert Agent.get(ctx.store, & &1.provider) == []
+    assert Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> path == "/v1/media-uploads/grant" end)
+  end
+
+  test "a denied CONNECT cannot fall back to a directly reachable provider for a streamed file", ctx do
+    parent = self()
+
+    port =
+      Fixture.start(ctx.config.listener.tls, fn _ ->
+        send(parent, :direct_provider_request)
+        {200, %{}, ""}
+      end)
+
+    path = write_file(ctx.tmp_dir, "streamed-media", "synthetic bounded media")
+    config = %{ctx.client | proxy: Fixture.proxy(port, deny: self())}
+
+    assert {:error, _} =
+             HTTP.request(
+               config,
+               :put,
+               "https://localhost:#{port}/media",
+               [{"content-length", "23"}],
+               {:file, path, 23},
+               2_000,
+               64
+             )
+
+    assert_receive :connect_denied, 1_000
+    refute_receive :direct_provider_request, 200
+  end
+
+  defp media_socket(ctx, length, bytes \\ "") do
+    options = [:binary, active: false, verify: :verify_peer, cacerts: ctx.client.cacerts] ++ ctx.client.client_tls
+    assert {:ok, socket} = :ssl.connect(~c"localhost", ctx.port, options, 2_000)
+    on_exit(fn -> :ssl.close(socket) end)
+
+    assert :ok =
+             :ssl.send(socket, [
+               "POST /v1/media-uploads HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer ",
+               @recorder_token,
+               "\r\nContent-Type: application/octet-stream\r\nContent-Length: ",
+               Integer.to_string(length),
+               "\r\nX-ServiceRadar-Upload-Lease: ",
+               Jason.encode!(@lease),
+               "\r\n\r\n",
+               bytes
+             ])
+
+    socket
+  end
+
+  defp eventually(fun, attempts \\ 100) do
+    cond do
+      fun.() ->
+        true
+
+      attempts == 0 ->
+        false
+
+      true ->
+        Process.sleep(10)
+        eventually(fun, attempts - 1)
+    end
+  end
+
+  for mode <- [:wrong_bytes, :wrong_identity, :wrong_encryption, :whole_object_fallback, :conflict, :lost_put] do
+    @tag kind: :media, mode: mode
+    test "media #{mode} retains one attempt without verification or another PUT", ctx do
+      assert {:ok, %{status: 503}} = media_upload(ctx)
+      assert {:ok, %{status: 503}} = media_upload(ctx)
+      state = Agent.get(ctx.store, & &1)
+      assert Enum.count(state.provider, &(&1.method == "PUT")) == 1
+      refute Enum.any?(state.core, fn {path, _} -> path == "/v1/media-uploads/verify" end)
+    end
+  end
+
+  defp media_upload(ctx, opts \\ []) do
+    bytes = opts[:bytes] || ctx.bytes
+
+    headers =
+      [
+        {"authorization", "Bearer " <> @recorder_token},
+        {"content-type", "application/octet-stream"},
+        {"content-length", Integer.to_string(byte_size(bytes))},
+        {"x-serviceradar-upload-lease", opts[:lease] || Jason.encode!(@lease)}
+      ] ++ (opts[:extra_headers] || [])
+
+    HTTP.request(ctx.client, :post, ctx.url, headers, bytes, 10_000, 4096)
+  end
+
   defp assert_put_wire(put, verification) do
     assert put.body == @bytes
     assert put.headers["if-none-match"] == "*"
@@ -295,7 +589,7 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     input = Jason.decode!(request.body)
     state = %{state | core: [{request.target, input} | state.core]}
 
-    case request.target do
+    case String.replace(request.target, "/media-", "/init-") do
       "/v1/init-authorities/challenge" ->
         body =
           Map.merge(input, %{
@@ -312,7 +606,14 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
         {json(200, body), state}
 
       "/v1/init-uploads/prepare" ->
-        {json(200, %{"schema_version" => 1, "dispatch_id" => @dispatch}), state}
+        prepared = %{"schema_version" => 1, "dispatch_id" => @dispatch}
+
+        prepared =
+          if state.kind == :media,
+            do: Map.merge(prepared, %{"byte_length" => byte_size(state.bytes), "object_sha256" => digest(state.bytes)}),
+            else: prepared
+
+        {json(200, prepared), state}
 
       "/v1/init-uploads/grant" ->
         grant(state, input, desired)
@@ -338,11 +639,11 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
         "status" => "granted",
         "binding_id" => @binding,
         "revision" => "1",
-        "remaining_ms" => 5_000,
+        "remaining_ms" => if(state.kind == :init, do: 5_000, else: 30_000),
         "request_sha256" => String.duplicate("d", 64),
-        "object_key" => @key,
-        "byte_length" => byte_size(@bytes),
-        "object_sha256" => digest(@bytes),
+        "object_key" => if(state.kind == :init, do: @key, else: String.replace(@key, "init.mp4", "media.m4s")),
+        "byte_length" => byte_size(state.bytes),
+        "object_sha256" => digest(state.bytes),
         "descriptor_sha256" => @descriptor,
         "local_storage_id" => desired.local_storage_id
       })
@@ -371,6 +672,7 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
         :conflict -> {412, %{}, ""}
         :lost_put -> :close
         :held_put -> {:hold, state.parent, {200, identity_headers(), ""}}
+        :await_close -> {:await_close, state.parent}
         _ -> {200, identity_headers(), ""}
       end
 
@@ -387,17 +689,27 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     {{200, headers, ""}, state}
   end
 
-  defp provider_response(state, %{method: "GET"}) do
+  defp provider_response(state, %{method: "GET", headers: request_headers}) do
     size = byte_size(state.object)
-    headers = Map.put(identity_headers(), "content-range", "bytes 0-#{size - 1}/#{size}")
+    [_, first, last] = Regex.run(~r/\Abytes=(\d+)-(\d+)\z/, request_headers["range"])
+    first = String.to_integer(first)
+    last = String.to_integer(last)
+    headers = Map.put(identity_headers(), "content-range", "bytes #{first}-#{last}/#{size}")
     status = if state.mode == :whole_object_fallback, do: 200, else: 206
-    {{status, headers, state.object}, state}
+    {{status, headers, binary_part(state.object, first, last - first + 1)}, state}
   end
 
   defp identity_headers,
     do: %{"etag" => ~s("synthetic-etag"), "x-amz-version-id" => "version-1", "x-amz-server-side-encryption" => "AES256"}
 
-  defp desired do
+  defp desired(:media) do
+    :init
+    |> desired()
+    |> Map.put("operation", "media_put_verified_v1")
+    |> Map.put("limits", %{"max_media_bytes" => 16_777_216, "max_operation_ms" => 30_000, "max_in_flight" => 1})
+  end
+
+  defp desired(:init) do
     checks =
       ~w(intended_operations anonymous_access_denied foreign_environment_access_denied recorder_privilege_boundary reader_privilege_boundary private_acl_policy endpoint_tls_redirect_boundary browser_cors put_aes256_attestation multipart_aes256_attestation put_missing_aes256_denied put_noncompliant_aes256_denied multipart_missing_aes256_denied multipart_noncompliant_aes256_denied atomic_put_no_overwrite atomic_completion_no_overwrite integrity_object_identity conditional_ranges multipart_recovery)
 

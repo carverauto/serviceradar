@@ -21,9 +21,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   When removal or that parent sync fails, `create/4` returns
   `{:error, {:create_cleanup_failed, reason, cleanup_reason}}`; a later `create/4`
   then sees the directory and returns `{:error, :eexist}`. A failed append may
-  leave a tail: recover before writing again. Recovery rejects file aliases and verifies
-  every committed fragment, discards only incomplete journal records and media
-  beyond the committed high-water mark, and rejects complete corrupt records.
+  leave a tail: recover before writing again. Recovery takes a verified storage
+  handle, rejects a directory alias and any nonregular or shared-hardlink block
+  file, then verifies every committed fragment. It discards only incomplete
+  journal records and media beyond the committed high-water mark, and rejects
+  complete corrupt records.
   Sealing journals the whole-block digest and permanently prevents further append.
   Fragment entries retain optional `tail_duration_source: :previous_sample`
   provenance as a JSON string when the packager inferred its final sample's duration.
@@ -133,7 +135,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
     case Enum.find(entries, &(&1["sequence"] == sequence)) do
       %{"offset" => offset, "length" => length, "sha256" => sha256}
       when offset + length <= high_water ->
-        with :ok <- Storage.verify(storage), do: read_verified(Path.join(directory, "media.m4s"), offset, length, sha256)
+        with :ok <- Storage.verify(storage) do
+          read_verified(Path.join(directory, "media.m4s"), offset, length, sha256)
+        end
 
       _ ->
         {:error, :not_readable}
@@ -142,7 +146,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
 
   @doc "Read the immutable initialization segment from an internal snapshot."
   def read_init(%{directory: directory, storage: storage, init: %{"length" => length, "sha256" => sha256}}) do
-    with :ok <- Storage.verify(storage), do: read_verified(Path.join(directory, "init.mp4"), 0, length, sha256)
+    with :ok <- Storage.verify(storage) do
+      read_verified(Path.join(directory, "init.mp4"), 0, length, sha256)
+    end
   end
 
   @doc "Reconcile a block after writer exit. Identity must match the caller's expected block."

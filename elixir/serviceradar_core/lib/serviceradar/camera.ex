@@ -25,6 +25,7 @@ defmodule ServiceRadar.Camera do
     resource ServiceRadar.Camera.ArchiveBinding
     resource ServiceRadar.Camera.ArchiveQualificationReceipt
     resource ServiceRadar.Camera.ArchiveInitAuthority
+    resource ServiceRadar.Camera.ArchiveMediaAuthority
     resource ServiceRadar.Camera.ArchiveUploadIntent
     resource ServiceRadar.Camera.ArchiveUploadDispatch
     resource ServiceRadar.Camera.AnalysisWorker
