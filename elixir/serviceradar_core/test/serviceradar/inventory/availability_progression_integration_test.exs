@@ -122,6 +122,15 @@ defmodule ServiceRadar.Inventory.AvailabilityProgressionIntegrationTest do
   end
 
   describe "holds" do
+    test "a second control change in the same minute is stored", %{actor: actor} do
+      empty_install!()
+
+      assert {:ok, _} = ModeControl.set(:hold_legacy, actor: actor)
+      assert {:ok, %{mode_control: :hold_shadow}} = ModeControl.set(:hold_shadow, actor: actor)
+      assert {:ok, %{mode_control: :hold_shadow}} = ModeControl.read(actor: actor)
+      assert [{nil, "available"}] = waiting_jobs(ProgressionWorker)
+    end
+
     test "hold_legacy from authoritative restores is_available from the compatibility table",
          %{actor: actor} do
       device = authoritative_with_recovered_device!(actor)

@@ -98,11 +98,29 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
           | :resolve
           | :restore
 
-  @doc "Enqueues a run now, through the repo; needs no running Oban instance."
+  @doc """
+  Enqueues a run now. A job already `available` or `scheduled` in the unique window
+  counts as success: it has not taken its step and re-reads the control. Uses the
+  running Oban instance when there is one, and the repo otherwise, so a release
+  `eval` needs no Oban.
+  """
   @spec enqueue() :: :ok
   def enqueue do
-    Repo.insert!(new(%{}), prefix: "platform")
+    changeset = new(%{})
+
+    _job =
+      if oban_running?() do
+        Oban.insert!(changeset)
+      else
+        Repo.insert!(changeset, prefix: "platform", on_conflict: :nothing)
+      end
+
     :ok
+  end
+
+  defp oban_running? do
+    is_pid(Process.whereis(Oban.Registry)) and
+      match?({_pid, _config}, Oban.Registry.lookup(Oban))
   end
 
   @impl Oban.Worker
@@ -280,7 +298,7 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   defp report_stall(
          :shadow,
          :auto,
-         %{readiness: %{"ready" => false} = readiness},
+         %{readiness: %{"ready" => false, "unmet" => unmet}},
          entered_at,
          now
        )
@@ -291,7 +309,7 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
         @health_check,
         false,
         %{
-          "unmet" => readiness["unmet"],
+          "unmet" => unmet,
           "shadow_entered_at" => NaiveDateTime.to_iso8601(entered_at)
         },
         refresh_metadata: true
