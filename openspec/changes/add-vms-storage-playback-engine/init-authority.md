@@ -79,7 +79,7 @@ grant can authorize provider work.
 
 ## Private HTTP contract
 
-The existing media-purpose administrator listener owns:
+The existing media-purpose administrator listener's init routes are:
 
 | Method and path | Body |
 | --- | --- |
@@ -87,7 +87,8 @@ The existing media-purpose administrator listener owns:
 | `PUT /v1/media/init-authorities/:binding_id` | Exact application envelope above; body binding must equal path |
 | `POST /v1/media/init-authorities/:binding_id/revoke` | `schema_version`, `binding_id`, decimal-string `revision` |
 
-The separate HTTPS storage-control listener owns `POST` operations below. All
+The separate HTTPS storage-control listener's init `POST` operations are below.
+Its media routes are owned by [media-upload.md](media-upload.md). All
 requests use integer `schema_version: 1`, reject unknown/duplicate keys and are
 bounded to 16 KiB. Authentication supplies the installed principal, never the
 JSON document. A lease contains exactly `id`, `upload_token`, decimal-string

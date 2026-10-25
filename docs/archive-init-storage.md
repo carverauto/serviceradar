@@ -1,13 +1,17 @@
-# Isolated init-object storage
+# Isolated archive storage
 
-The init-storage checkpoint can upload and verify one frozen initialization
-object under a short-lived installed authority. It does not enable recording,
-qualify a provider, publish an archive or authorize deletion of local media.
-Keep `mediaStorage.enabled` and `webNg.archiveStorage.enabled` false until the
+One isolated storage process uploads and verifies either one frozen
+initialization object or one frozen media block, under a short-lived installed
+authority of that same kind. It does not enable recording, qualify a provider,
+publish an archive, or authorize deletion of local media. Keep
+`mediaStorage.enabled` and `webNg.archiveStorage.enabled` false until the
 deployment has its own current evidence and infrastructure-installed identities.
 
-The [protocol contract](../openspec/changes/add-vms-storage-playback-engine/init-authority.md)
-defines the exact desired document, challenge and grant. Existing qualification
+The [init protocol](../openspec/changes/add-vms-storage-playback-engine/init-authority.md)
+and the [media upload protocol](../openspec/changes/add-vms-storage-playback-engine/media-upload.md)
+own those contracts. This page owns the Helm and mounted-file contract for both.
+The installed desired `operation` selects the kind: `init_put_verified_v1` or
+`media_put_verified_v1`. A process accepts only that kind. Existing qualification
 receipts are diagnostics; they cannot substitute for applying fresh authority.
 Cloud provisioning and preservation remain tracked in
 [control issue #182](https://github.com/carverauto/serviceradar-control/issues/182)
@@ -86,12 +90,12 @@ purposes and both must be advanced when replacing an installation.
 
 Install and roll the web control listener first, and confirm its authenticated
 HTTPS endpoint is reachable before starting the storage pod. Use an authenticated
-`GET /v1/init-authorities/challenge` and expect HTTP 404: authentication runs
-before the unsupported method is rejected. Do not POST a challenge as a preflight;
-that would consume the desired revision with a different boot identity and nonce.
-The storage process
-makes one challenge request with a five-second transport cap; it has no automatic
-retry or renewal loop. Starting both workloads simultaneously is not a readiness
+`GET` of `/v1/init-authorities/challenge` or `/v1/media-authorities/challenge`
+and expect HTTP 404: authentication runs before the unsupported method is
+rejected. Do not POST a challenge as a preflight; that would consume the desired
+revision with a different boot identity and nonce. The storage process posts
+one challenge on the path that matches the installed operation, with a
+five-second transport cap. It has no automatic retry or renewal loop. Starting both workloads simultaneously is not a readiness
 handshake. A failed startup challenge leaves storage unavailable until an
 explicit new installation. Pod readiness alone never means storage authority.
 
@@ -103,15 +107,20 @@ existing private administration API. The original challenge expires in at most
 extend it. A restart needs a greater desired revision and a new challenge.
 
 Each init request carries only an existing upload handle and bounded base64
-bytes. A newly committed grant permits one conditional PUT, followed by a HEAD
-and an identity-bound range GET whose bytes must match the frozen SHA-256. One
-deadline bounds provider work. A lost grant response, timeout or HTTP 412 never
-permits a second PUT. Verification and late observations are retained separately
-from availability; retain local bytes on every outcome in this checkpoint.
+bytes. A newly committed init grant permits one conditional PUT, followed by a
+HEAD and an identity-bound range GET whose bytes must match the frozen SHA-256.
+One deadline bounds provider work. A lost grant response, timeout or HTTP 412
+never permits a second PUT. Verification and late observations are retained
+separately from availability; retain local bytes on every outcome in this
+checkpoint. A media-kind process rejects init uploads. Its recorder ingress is
+raw `POST /v1/media-uploads` under the media upload protocol. The chart does
+not install `VMS_MEDIA_UPLOAD_CONFIG`; that recorder file is separate from the
+storage process's `VMS_INIT_STORAGE_CONFIG`.
 
-Revoke denies later grants. Earlier grants may finish within their original
-five-second maximum; revocation cannot cancel a request the provider already
-received. Expiry and stop do not prove drain, credential retirement, safe bucket
+Revoke denies later grants. An earlier init grant may finish within its original
+five-second maximum. A media grant keeps the deadline in the media upload
+protocol. Revocation cannot cancel a request the provider already received.
+Expiry and stop do not prove drain, credential retirement, safe bucket
 teardown or safe local deletion. Recording and archive readiness stay unavailable.
 After expiry, status retains the historical `applied_revision` with
 `remaining_ms: 0`; consumers must not use that revision alone as permission.

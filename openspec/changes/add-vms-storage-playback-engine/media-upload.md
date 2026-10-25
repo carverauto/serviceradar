@@ -53,6 +53,15 @@ order. Only the first committed marker with current media authority grants one
 conditional PUT. A bookkeeping marker, retained receipt, changed lease or lost
 grant response grants no subsequent provider request.
 
+The administrator and storage-control listeners use the same methods, schema
+version, 16 KiB bound, lease fields, and grant, observe, and verify bodies as
+the [init contract](init-authority.md), with `media-authorities` and
+`media-uploads` in place of `init-authorities` and `init-uploads`. Media
+`prepare` also returns `byte_length` and `object_sha256`. A malformed media
+application or revoke body, including a binding that does not match the path,
+is `invalid_media_authority`. Recorder ingress remains the raw
+`POST /v1/media-uploads` below.
+
 ## Bounded byte transport
 
 Recorder ingress is authenticated private HTTPS `POST /v1/media-uploads`, with
