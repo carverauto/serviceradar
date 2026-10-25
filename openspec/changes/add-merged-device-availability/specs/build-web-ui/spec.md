@@ -57,6 +57,6 @@ The Availability Sources settings page SHALL show the deployment's availability 
 #### Scenario: Pinned control is read-only
 - **GIVEN** a control pinned by deployment configuration
 - **WHEN** a user opens the page
-- **THEN** the page SHALL show the pinned value and the configuration that pins it
+- **THEN** the page SHALL show the pinned value as the selected control, including when the stored control differs, and the configuration that pins it
 - **AND** every control choice SHALL be disabled
 

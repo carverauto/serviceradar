@@ -283,7 +283,7 @@ The report SHALL count devices by legacy value, legacy badge value, shadow state
 
 ### Requirement: Automatic Availability Progression
 The system SHALL move the availability mode from `legacy` to `shadow`, and from `shadow` through `cutover` to `authoritative`, without an operator action, under a deployment mode control whose default is `auto`, and SHALL make each step through the same mode switches an operator uses.
-Under `auto`, the system SHALL enter `cutover` only when every readiness condition holds: the capture backfill has nothing left; a full shadow resolution that started after entering `shadow` has finished; at most one resolver pass of invalidation entries (500) is waiting; every active sweep group (enabled, and started by an agent in the last 24 hours) has completed a run, per agent, that started after entering `shadow`; and the divergence report counts no policy violation. The system SHALL record the last readiness evaluation, naming each unmet condition, and while any condition is unmet 24 hours after entering `shadow` SHALL stay in `shadow` and record an unhealthy core health check naming the unmet conditions. The control `hold_legacy` SHALL keep or roll back to `legacy`, restoring `is_available` from the compatibility store when leaving `cutover` or `authoritative`. The control `hold_shadow` SHALL keep or return to `shadow` and SHALL NOT cut over; from `cutover` or `authoritative` it SHALL roll back to `legacy` first and enter `shadow` only after the restore has finished. A control pinned by deployment configuration SHALL take precedence over the stored control, the stored control SHALL NOT be editable while a pin is recorded, and a pinned value that is not a control SHALL hold the mode where it is. Runs on several nodes SHALL NOT switch twice, and a run SHALL NOT switch from a control that changed after it was read. The automatic cutover SHALL NOT emit per-device transitions, and SHALL NOT change any Armis northbound source's semantics.
+Under `auto`, the system SHALL enter `cutover` only when every readiness condition holds: the capture backfill has nothing left; a full shadow resolution that started after entering `shadow` has finished; at most one resolver pass of invalidation entries (500) is waiting; every active sweep group (enabled, and started by an agent in the last 24 hours) has completed a run, per agent, that started after entering `shadow`; and the divergence report counts no policy violation. The system SHALL record the last readiness evaluation, naming each unmet condition, and while any condition is unmet 24 hours after entering `shadow` SHALL stay in `shadow` and record an unhealthy core health check naming the unmet conditions. A later run SHALL record that check healthy when the deployment is no longer in that stall and the check is already unhealthy, and SHALL write no health row for it otherwise. The control `hold_legacy` SHALL keep or roll back to `legacy`, restoring `is_available` from the compatibility store when leaving `cutover` or `authoritative`. The control `hold_shadow` SHALL keep or return to `shadow` and SHALL NOT cut over; from `cutover` or `authoritative` it SHALL roll back to `legacy` first and enter `shadow` only after the restore has finished. When the compatibility snapshot still differs and no restore is waiting, it SHALL enqueue the restore again and SHALL NOT enter `shadow`. A control pinned by deployment configuration SHALL take precedence over the stored control, the stored control SHALL NOT be editable while a pin is recorded, and a pinned value that is not a control SHALL hold the mode where it is. Runs on several nodes SHALL NOT switch twice, and a run SHALL NOT switch from a control that changed after it was read. The automatic cutover SHALL NOT emit per-device transitions, and SHALL NOT change any Armis northbound source's semantics.
 
 #### Scenario: An install whose conditions hold reaches authoritative unattended
 - **GIVEN** an install in `legacy` with the control `auto`
@@ -313,7 +313,8 @@ Under `auto`, the system SHALL enter `cutover` only when every readiness conditi
 - **WHEN** the progression runs
 - **THEN** the mode SHALL stay `shadow`
 - **AND** the core health check for availability readiness SHALL be unhealthy and name the unmet condition
-- **AND** once the conditions hold, the cutover SHALL record the check healthy
+- **AND** a later run SHALL record the check healthy when the stall no longer holds and the check is already unhealthy
+- **AND** a deployment that never raised the check SHALL get no health row for it
 
 #### Scenario: hold_legacy rolls back an authoritative deployment
 - **GIVEN** an `authoritative` deployment where a device's merged value differs from its legacy value
@@ -326,6 +327,7 @@ Under `auto`, the system SHALL enter `cutover` only when every readiness conditi
 - **GIVEN** an `authoritative` deployment
 - **WHEN** the control is set to `hold_shadow`
 - **THEN** the mode SHALL become `legacy`, SHALL NOT enter `shadow` while the restore is outstanding, and SHALL enter `shadow` after it finished
+- **AND** when that restore is gone and the snapshot still differs, a later run SHALL enqueue it again and SHALL NOT enter `shadow`
 - **AND** the mode SHALL stay `shadow` even when every readiness condition holds
 
 #### Scenario: A pin overrides the stored control

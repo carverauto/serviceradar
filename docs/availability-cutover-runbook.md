@@ -43,8 +43,11 @@ All must hold. None is a timer.
 
 If the conditions are still unmet 24 hours after entering `shadow`, core stays in
 `shadow` and records the core health check `availability_cutover_readiness` as
-unhealthy. Its metadata names the unmet conditions. The cutover clears it. Core never
-cuts over while a condition is unmet.
+unhealthy. Its metadata names the unmet conditions. A later run clears that
+warning once the deployment is no longer stalled: the conditions hold, the
+control is not `auto`, or the mode has left that shadow period. An install
+that never stalled records no health row for the check. Core never cuts over
+while a condition is unmet.
 
 The Settings page **Network Services > Availability Sources** shows the mode, the
 control and each condition.
@@ -56,7 +59,7 @@ The mode control lives on the same Settings page:
 | Control | Effect |
 |---|---|
 | `auto` (default) | Progress automatically, and cut over when ready. |
-| `hold_shadow` | Stay in `shadow`, or return to it, and never cut over. From `cutover` or `authoritative`, core rolls back to `legacy` first and re-enters `shadow` once the restore has finished. |
+| `hold_shadow` | Stay in `shadow`, or return to it, and never cut over. From `cutover` or `authoritative`, core rolls back to `legacy` first and re-enters `shadow` once the restore has finished. If that restore job is gone while the snapshot still differs, the next run puts the restore back and stays in `legacy`. |
 | `hold_legacy` | Stay in `legacy`, or roll back to it. From `cutover` or `authoritative`, the rollback restores `is_available` from the compatibility table. |
 
 The rollback is the one an operator ran before: core drains the writers, sets
@@ -130,10 +133,11 @@ $CORE rpc 'ServiceRadar.Inventory.Availability.Operator.switch("shadow")'   # co
 - `{:error, :mode_switch_busy}` means a writer held the lock for the whole retry
   window (about 10 s); run the switch again.
 - `switch("shadow")` returns `{:error, :restore_pending}` while a restore is still
-  waiting or running, because entering `shadow` re-seeds the compatibility table from
-  `is_available`. From `cutover` or `authoritative` it returns
+  waiting or running, or while the compatibility snapshot still differs from
+  `is_available`, because entering `shadow` re-seeds that table from the current
+  values. From `cutover` or `authoritative` it returns
   `{:error, {:unsupported_switch, ...}}`; the `hold_shadow` control it set then rolls
-  back and re-enters `shadow` by itself.
+  back and re-enters `shadow` by itself, putting a missing restore job back first.
 
 ### Verify a cutover
 

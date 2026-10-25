@@ -35,7 +35,7 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   it records the core health check `availability_cutover_readiness` unhealthy, naming
   the unmet conditions. The first run that finds the deployment no longer stalled
   (ready, held, rolled back, cut over, or in a younger shadow period) records it
-  healthy again.
+  healthy again, and only when that check is already unhealthy.
 
   Several core nodes may run this at once. Each switch takes the mode-switch lock and
   re-reads the mode and the control under it: a step decided from a stale mode is a

@@ -848,7 +848,10 @@ change exists to fix. Core therefore drives stages a to c itself.
     `authoritative` that is the existing rollback with its paged restore.
   - `hold_shadow`: `legacy` enters `shadow`; `cutover` and `authoritative`
     roll back to `legacy` first and enter `shadow` on a later run, after
-    the restore finished (`{:error, :restore_pending}` is respected).
+    the restore finished. While a restore is waiting, or the compatibility
+    snapshot still differs from `is_available`, the progression does not
+    enter `shadow` (`{:error, :restore_pending}`). If the snapshot still
+    differs and no restore is waiting, that run enqueues the restore again.
 
   It is edited in the settings UI (Availability Sources), and a GitOps
   install pins it with the Helm value `core.availability.modeControl`,
@@ -859,7 +862,10 @@ change exists to fix. Core therefore drives stages a to c itself.
   three values holds every mode where it is, so a typo never starts a
   cutover. `Operator.switch/1` and `Operator.control/1` stay for support:
   a switch also sets the control that keeps its mode, so the progression
-  does not undo it.
+  does not undo it. `switch("cutover")` and `switch("legacy")` store that
+  control in the switch transaction, only when the switch succeeds.
+  `switch("shadow")` stores `hold_shadow` first, including when the switch
+  from `cutover` or `authoritative` is refused.
 - **Readiness is a set of conditions, not a timer.** All must hold:
   1. `capture_backfill`: the stage-a backfill has nothing left, by its own
      completion predicates.
@@ -886,7 +892,10 @@ change exists to fix. Core therefore drives stages a to c itself.
   `availability_cutover_readiness` unhealthy (the infrastructure health
   tracker, which dedupes unchanged states and publishes the health log),
   naming the unmet conditions. The mode stays `shadow`; core never cuts over
-  blind. The cutover records it healthy again.
+  blind. A later run records that check healthy when the deployment is no
+  longer in that stall (the conditions hold, the control is not `auto`, or
+  the mode has left that shadow period) and the check is already unhealthy.
+  A deployment that never stalled gets no health row.
 - **Concurrency.** Several core nodes can run the worker at once. Every
   switch re-reads the mode and the control under the switch lock. A step
   decided from a stale mode is absorbed: a repeated `legacy` entry now
