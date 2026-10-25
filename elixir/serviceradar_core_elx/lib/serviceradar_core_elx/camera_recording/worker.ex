@@ -5,10 +5,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   Start with a fenced `:owner`, its `:media_ingest_id` and an existing private
   `:spool_root` provisioned explicitly with `Storage.initialize/2`. The deployment
   must configure `:camera_recording_storage_id` as that storage lifetime UUID.
-  Startup only verifies the marker; it never creates or repairs one. The worker claims exclusive recording rights
-  with a fresh token and resolves the existing managed pipeline before attaching.
-  The worker asynchronously acquires its recorder lease, attaches
-  to that pipeline and owns Packaging/Spool. Its clock maps H264 90 kHz media
+  Startup only verifies the marker; it never creates or repairs one. It resolves
+  the existing managed pipeline, then claims exclusive recording rights with a
+  fresh token, acquires its recorder lease and attaches to that pipeline.
+  The worker owns Packaging/Spool. Its clock maps H264 90 kHz media
   ticks to an explicit recorder epoch; capture UTC remains unknown. Restarting
   recording never asserts clock continuity through an unobserved interval.
 

@@ -30,10 +30,10 @@ or live acceptance task below.
   - [ ] Write and verify the recovery manifest from the frozen descriptor after its referenced objects are verified.
   - [ ] Publish the archive index idempotently with current ownership fencing; only then expose availability.
   - [ ] Reconcile multipart and unknown outcomes without retargeting objects or rearming an unresolved operation.
-- [ ] 1.4 Reconcile restart at every local/upload/manifest/index boundary; handle disk loss, stale owners, orphan/multipart state and explicit gaps.
+- [ ] 1.4 Reconcile restart at every local/upload/manifest/index boundary; handle disk loss, stale owners, orphan/multipart state and explicit gaps. The [spool lifetime checkpoint](spool-lifetime.md) fences local block recovery by the provisioned marker; upload, manifest and index reconciliation remain open.
 - [ ] 1.5 Add authorized local/archive range gateway and bounded HLS windows; deny unauthorized ranges and whole-object leakage.
 - [ ] 1.6 Integrate timeline/player and spatial links; preserve viewer cleanup and live-view behavior.
-- [ ] 1.7 Ship disabled by default with storage/capability validation, admission budgets and observability through JetStream/EventWriter.
+- [ ] 1.7 Ship disabled by default with storage/capability validation, admission budgets and observability through JetStream/EventWriter. The [spool lifetime checkpoint](spool-lifetime.md) verifies the provisioned local marker before recorder authority. Capability budgets, observability and hosted enablement remain open, and recording stays disabled.
 
 ## 2. Production lifecycle and Cloud
 

@@ -761,3 +761,32 @@ All 11 complete diagnostic blocks match after accounting only for the two added
 registry lines. This establishes an existing failure under the tested toolchain;
 it does not make Dialyzer green. No source, ignore or assertion was changed.
 Cloud CI's existing `--skip-dialyzer` remains a limitation of its green result.
+
+## Provisioned spool identity
+
+This checkpoint binds the recorder to a marker written by
+`Storage.initialize/2` on an existing private empty root. The recorder verifies
+that marker and does not create or repair it. [Spool lifetime](spool-lifetime.md)
+owns the contract. Recording stays disabled. There is no new provider request,
+bucket, schema, scheduler, upload authority or reclamation.
+
+The settled production and test sources passed [focused validation](https://carverauto.buildbuddy.io/invocation/9ed5a228-c3d3-4410-b712-b64c0c84206d):
+217 unit tests, nine media tests, three RTSP tests and three browser cases, plus
+Core and CoreElx format/Credo checks. The final [full remote `make test`](https://carverauto.buildbuddy.io/invocation/46ec78df-211e-4acc-8d45-e182e49b34fb)
+passed 460 targets (six executed, 454 cached) with two Swift platform skips.
+Later documentation edits do not replace those results.
+
+Three negative controls failed at their intended keeper, in both attempts:
+[disabled identity verification](https://carverauto.buildbuddy.io/invocation/6c957987-8388-4161-a23f-c53a91dcd9ad),
+[child-directory symlink recovery](https://carverauto.buildbuddy.io/invocation/93973624-59a6-402c-8104-99cd2177deb3),
+and [aliased-file recovery](https://carverauto.buildbuddy.io/invocation/a6863c05-b2c4-4539-a39d-9f971c774dab).
+The last case observed changed foreign-block bytes. The restored guards and
+regular single-link preflight pass the final positive runs above.
+
+An earlier [full sweep](https://carverauto.buildbuddy.io/invocation/33f0eddd-ad10-4b9c-9fc0-f083c0b80a33)
+failed on local disk exhaustion and is not success evidence. The final sweep
+ran after space was restored. Guarded database execution is still required on
+the published head: the current owning target is
+`//elixir/serviceradar_core:integration_tests_serial_4`, with all six recorder
+worker cases (four retained, two new). These source checks do not establish
+provider readiness, physical-volume identity or live deployment acceptance.

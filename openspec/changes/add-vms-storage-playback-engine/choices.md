@@ -563,13 +563,13 @@ recorder attachment and admission of every access unit. The claim requires an
 active persisted relay with that same ID. Discovery only locates the pipeline;
 neither a PID nor distributed registration grants exclusive ownership.
 
-The current core deployment has no durable recording-volume identity. Runtime
-configuration therefore requires SERVICERADAR_CAMERA_RECORDING_STORAGE_ID, a
+Runtime configuration requires SERVICERADAR_CAMERA_RECORDING_STORAGE_ID, a
 deployment-provisioned UUID passed through the existing core.extraEnv seam.
 There is no hostname, pod, Erlang-node or unrelated-volume fallback. This UUID
 must follow the actual storage across rescheduling and change when that storage
-is replaced. Provisioning and verifying that mapping is a deployment prerequisite;
-this code does not provision a volume or enable recording.
+is replaced. Local marker creation and verification are specified in
+[spool lifetime](spool-lifetime.md). This code does not provision a Cloud
+volume or enable recording.
 
 The claim retains its epoch and counter, not a historical block catalogue.
 Frozen descriptors and their upload leases now live on the block row; see

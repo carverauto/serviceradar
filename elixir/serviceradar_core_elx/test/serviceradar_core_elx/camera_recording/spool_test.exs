@@ -135,7 +135,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.SpoolTest do
     assert {:error, :block_full} = Spool.append(spool, "ok", timing(4))
     assert Spool.snapshot(spool).high_water == 4
 
-    {:ok, bytes_spool} = Spool.create(storage, %{@identity | block_sequence: 1}, "init", %{@limits | max_block_bytes: 3})
+    {:ok, bytes_spool} =
+      Spool.create(storage, %{@identity | block_sequence: 1}, "init", %{@limits | max_block_bytes: 3})
+
     {:ok, bytes_spool, _} = Spool.append(bytes_spool, "ok", timing(0))
     assert {:error, :block_full} = Spool.append(bytes_spool, "ok", timing(2))
     assert {:ok, sealed} = Spool.seal(bytes_spool)
