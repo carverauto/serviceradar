@@ -27,7 +27,7 @@ or live acceptance task below.
 
 ## 2. Production lifecycle and Cloud
 
-- [ ] 2.1 Complete C1 media provisioning/security issue and runtime readiness handshake before automated hosted enablement.
+- [ ] 2.1 Complete C1 media provisioning/security issue and runtime readiness handshake before automated hosted enablement. [Private archive registration](archive-registration.md) adds the immutable product binding receipt only; Cloud inventory, allocation, qualification, local storage and preservation remain open.
 - [ ] 2.2 Implement byte-bounded cache and freshness-aware timeline/motion aggregation; benchmark compression separately.
 - [ ] 2.3 Implement transactional hold/export/delete claims, verified evidence copies, version-aware deletion and protected metadata retention.
 - [ ] 2.4 Implement bounded MP4 exports, optional audio conversion and measured HEVC/replay capabilities.

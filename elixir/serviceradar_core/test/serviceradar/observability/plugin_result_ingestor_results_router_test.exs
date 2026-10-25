@@ -99,4 +99,117 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
     assert_receive {:service_status_updated, %ServiceStatus{timestamp: ^reported_at}}
     refute_receive {:service_status_updated, _duplicate}, 50
   end
+
+  test "retained delivery quarantines a handler that repeatedly exceeds the worker budget and still ingests subsequent results" do
+    alias ServiceRadar.Admission.Lane
+    alias ServiceRadar.Admission.RetainedPluginLane
+    alias ServiceRadar.Observability.PluginResultQuarantine
+
+    defmodule SlowBudgetHandler do
+      @moduledoc false
+      def supports?(payload, _status),
+        do: Map.get(payload, "summary") == "budget-exceeding-result"
+
+      def ingest(_payload, _status, _opts) do
+        if pid = Application.get_env(:serviceradar_core, :plugin_result_ingestor_test_pid) do
+          send(pid, :slow_budget_handler_attempted)
+        end
+
+        Process.sleep(2_000)
+        :ok
+      end
+    end
+
+    previous_ingestor = Application.get_env(:serviceradar_core, :plugin_result_ingestor)
+    previous_max = Application.get_env(:serviceradar_core, :plugin_result_quarantine_max_timeouts)
+
+    Application.put_env(:serviceradar_core, :plugin_result_ingestor, PluginResultIngestor)
+    Application.put_env(:serviceradar_core, :plugin_result_quarantine_max_timeouts, 2)
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [SlowBudgetHandler])
+    PluginResultQuarantine.clear_all!()
+
+    on_exit(fn ->
+      PluginResultQuarantine.clear_all!()
+      restore_env(:plugin_result_ingestor, previous_ingestor)
+      restore_env(:plugin_result_quarantine_max_timeouts, previous_max)
+    end)
+
+    {slow_payload, slow_status, slow_observed_at} = plugin_result_fixture()
+    slow_payload = Map.put(slow_payload, "summary", "budget-exceeding-result")
+
+    slow_routed =
+      Map.merge(slow_status, %{
+        available: true,
+        agent_timestamp: DateTime.shift(slow_observed_at, second: 15),
+        message: Jason.encode!(slow_payload),
+        delivery_capabilities: ["plugin-result-retained:v1"]
+      })
+
+    {good_payload, good_status, good_observed_at} = plugin_result_fixture()
+
+    good_routed =
+      Map.merge(good_status, %{
+        available: true,
+        agent_timestamp: DateTime.shift(good_observed_at, second: 15),
+        message: Jason.encode!(good_payload),
+        delivery_capabilities: ["plugin-result-retained:v1"]
+      })
+
+    task_sup =
+      start_supervised!(
+        {Task.Supervisor, name: :"db_test_retained_task_#{System.unique_integer([:positive])}"},
+        id: {:db_task_sup, System.unique_integer([:positive])}
+      )
+
+    lease_sup =
+      start_supervised!(
+        {Task.Supervisor, name: :"db_test_retained_lease_#{System.unique_integer([:positive])}"},
+        id: {:db_lease_sup, System.unique_integer([:positive])}
+      )
+
+    lane =
+      start_supervised!(
+        {RetainedPluginLane,
+         name: :"db_test_retained_lane_#{System.unique_integer([:positive])}",
+         task_supervisor: task_sup,
+         lease_supervisor: lease_sup,
+         config: [
+           max_items: 8,
+           max_bytes: 1_024 * 1_024,
+           max_items_per_agent: 4,
+           queue_wait_ms: 1_000,
+           worker_timeout_ms: 500,
+           gateway_call_timeout_ms: 15_000
+         ]},
+        id: {:db_lane, System.unique_integer([:positive])}
+      )
+
+    admit_and_await = fn st ->
+      reply_ref = make_ref()
+      assert :ok = Lane.admit(lane, st, {self(), reply_ref})
+      assert_receive {^reply_ref, result}, 5_000
+      result
+    end
+
+    assert {:error, :execution_timeout} = admit_and_await.(slow_routed)
+    assert_receive :slow_budget_handler_attempted, 2_000
+
+    assert {:error, :execution_timeout} = admit_and_await.(slow_routed)
+    assert_receive :slow_budget_handler_attempted, 2_000
+
+    quarantined = PluginResultQuarantine.get_attempt_for_status(slow_routed)
+    assert quarantined.state == "quarantined"
+    assert quarantined.attempt_count == 2
+    assert quarantined.consecutive_timeout_count == 2
+    assert quarantined.quarantine_reason == "execution_timeout_budget_exceeded"
+    assert quarantined.payload_bytes == byte_size(slow_routed.message)
+
+    # Redelivery does not run handlers again and acknowledges :ok
+    assert :ok = admit_and_await.(slow_routed)
+    refute_receive :slow_budget_handler_attempted, 80
+
+    # Later result is ingested
+    assert :ok = admit_and_await.(good_routed)
+    assert [[_reported_at, true, "edge plugin completed", _]] = history_rows(good_status)
+  end
 end

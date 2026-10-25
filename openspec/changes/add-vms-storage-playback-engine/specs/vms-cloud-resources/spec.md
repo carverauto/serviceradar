@@ -66,3 +66,20 @@ The control plane SHALL distinguish suspend, disable and terminate operations an
 - **THEN** deletion SHALL wait for an explicit permitted disposition
 - **AND** generic provider purge SHALL not delete protected media
 - **AND** final cleanup SHALL verify storage/version absence and key revocation
+
+### Requirement: Private immutable archive registration
+The runtime SHALL expose bounded, deployment-authenticated registration of an immutable recording destination through the existing private media administration interface, returning only unqualified binding metadata.
+
+#### Scenario: Provisioning retry preserves identity
+- **WHEN** Cloud repeats the exact version 1 destination under the same provisioning reference and generation
+- **THEN** registration returns the same product binding ID and destination digest with unavailable readiness
+- **AND** no qualification receipt, upload authority or provider operation is created
+
+#### Scenario: Conflicting destination preserves history
+- **WHEN** Cloud registers different destination content under an already retained provisioning reference and generation
+- **THEN** registration returns a conflict without replacing the retained destination or retargeting existing media
+
+#### Scenario: Registration requires media authentication and bounded exact JSON
+- **WHEN** a request lacks the installed media credential and exact deployment identity, uses an unsupported document, contains duplicate keys or exceeds 4096 bytes
+- **THEN** registration rejects it before creating a binding
+- **AND** account credentials and request-supplied actors cannot authorize registration

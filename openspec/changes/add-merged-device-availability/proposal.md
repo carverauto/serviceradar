@@ -33,9 +33,10 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
 - **The per-agent ledger stays first-class and lossless.**
   `device_agent_availability` keeps every agent's latest result per device,
   including negative results, each with its own timestamp. The merged value
-  is a summary derived from it. It never prunes, ages out or rewrites
-  per-agent rows. The only change to the ledger is one additive hysteresis
-  counter.
+  is a summary derived from it. It never prunes or ages out per-agent rows,
+  and writers do not change a row's stored result or timestamps. The only
+  schema change to the ledger is one additive hysteresis counter (design,
+  "Tier 1a: the per-agent ledger").
 - **An evidence contract for every other source.** Non-probe sources submit
   *evidence* through one core interface,
   `ServiceRadar.Inventory.Availability.record_evidence/2`. These are
