@@ -298,6 +298,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/inventory/exposure_transition_relay_test.exs": 1,
     "test/serviceradar/inventory/device_inventory_rollup_db_test.exs": 1,
     "test/serviceradar/inventory/fleet_identity_dictionary_boundary_db_test.exs": 1,
+    "test/serviceradar/inventory/identity/awx_source_retirement_test.exs": 1,
     "test/serviceradar/inventory/identity/blocked_fingerprint_test.exs": 1,
     "test/serviceradar/inventory/identity/fence_enforcement_test.exs": 1,
     "test/serviceradar/inventory/identity/fence_test.exs": 1,

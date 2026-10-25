@@ -1791,6 +1791,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         )
         OR (
           $3::boolean
+          -- A record whose AWX source retired keeps its AWX metadata as history; that is no
+          -- longer evidence the AWX host, or its Proxmox guest, is this record.
+          AND d.source_retired_at IS NULL
           AND (
             'awx' = ANY(COALESCE(d.discovery_sources, ARRAY[]::text[]))
             OR COALESCE(d.metadata->>'integration_type', '') = 'awx'

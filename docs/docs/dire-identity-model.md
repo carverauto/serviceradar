@@ -338,6 +338,23 @@ for dry-run review, execution gates, and device/source allowlists.
   instance's live records is refused and logged at error level unless the one-pass override is
   set. Telemetry: `[:serviceradar, :inventory, :source_retirement, :run]`, `:retired` and
   `:refused`.
+- AWX source retirement (`Identity.AwxSourceRetirement`, run by `AwxSourceRetirementWorker`
+  after a complete AWX inventory observation commits): an AWX host the controller's latest
+  observation no longer reports loses its AWX source. Only a complete observation counts: a
+  partial one (an unreadable inventory or page, an expired token) makes the pass retire nothing,
+  and so does a controller whose sync never sent a versioned aggregate. A record linked to the
+  controller (it holds an `awx:v2:<controller>:host:<id>` integration id, or its
+  `metadata.awx.controller_id` names the controller) is retired when its host is not reported,
+  or when its host is reported but another record holds the host's v2 id (a record from the
+  pre-v2 `awx:host:<name>` identity). Its AWX integration ids move to `device_identifier_archive`
+  (reason `source_absent`) with a `source_id_retired` decision per id. A record AWX alone reported
+  is marked `source_retired` (see below); a record with another source loses only its AWX
+  source (`awx` leaves `discovery_sources`, and `metadata.awx` and an AWX
+  `metadata.integration_id` are dropped). An id retires only once AWX last reported it at least
+  `source_retirement_min_absence_hours` ago, and the pass honours `source_retirement_enabled`,
+  `source_retirement_max_fraction` and the override, judged against the controller's linked
+  records. A first pass over a controller whose records are mostly stale is therefore refused
+  until the override admits it.
 - Retired-only records (`Identity.SourceRetirement`): a retirement that leaves a live record
   with no source-authoritative id and no agent id, no identity-bearing observation within T,
   and not created by an operator marks it `source_retired` in the same transaction
