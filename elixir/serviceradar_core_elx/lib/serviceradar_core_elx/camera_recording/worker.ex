@@ -14,9 +14,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
 
   No media or filesystem work runs in the global relay manager. Lease receipts
   establish a conservative monotonic deadline using the request's start time.
-  Every storage operation is checked before and after it. A write completing
+  Every filesystem mutation is checked before and after it. A write completing
   after expiry is never published as a receipt. Those local bytes stay on disk
   and grant no upload authority. Local durability is not an archive acknowledgement.
+  A successful `RecordingBlocks.freeze/5` result is the historical receipt. The
+  stopped snapshot keeps that committed descriptor; a later marker mismatch does
+  not discard it and does not make the current spool readable.
 
   This first worker stops at one block's finite capacity. It neither rotates nor
   deletes recordings. A codec/clock/sequence reset stops the recorder and requires
@@ -92,7 +95,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
         drain_reason: nil,
         last_sequence: nil,
         terminal: nil,
-        seal_error: nil
+        seal_error: nil,
+        frozen_receipt: false
       }
 
       {:ok, state, {:continue, :acquire}}
@@ -276,15 +280,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
          {:ok, spool} <- Spool.seal(state.spool),
          :ok <- usable(state),
          {:ok, descriptor} <- RecordingDescriptor.from_snapshot(Spool.snapshot(spool), state.init_format),
-         {:ok, block} <- RecordingBlocks.freeze(state.owner, state.claim, state.block, descriptor, actor: state.actor),
-         :ok <- usable(state) do
-      {:ok, %{state | spool: spool, block: block}}
+         {:ok, block} <- RecordingBlocks.freeze(state.owner, state.claim, state.block, descriptor, actor: state.actor) do
+      {:ok, %{state | spool: spool, block: block, frozen_receipt: true}}
     end
   end
 
   defp stop(state, reason) do
     state = seal_committed_tail(state, reason)
-    committed = if state.inbox && usable(state) == :ok, do: snapshot(state)
+    committed = stopped_snapshot(state)
     if state.inbox, do: Inbox.cancel(state.inbox)
     notify(state, {:stopped, %{reason: reason, snapshot: committed, seal_error: state.seal_error}})
     {:stop, :normal, %{state | terminal: reason}}
@@ -299,6 +302,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   end
 
   defp seal_committed_tail(state, _reason), do: state
+
+  defp stopped_snapshot(%{frozen_receipt: true} = state), do: snapshot(state)
+
+  defp stopped_snapshot(state) do
+    if state.inbox && usable(state) == :ok, do: snapshot(state)
+  end
 
   defp release_consumer(%{claim: nil}), do: :ok
 

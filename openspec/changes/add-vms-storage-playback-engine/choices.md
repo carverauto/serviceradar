@@ -1161,13 +1161,17 @@ When: spool lifetime checkpoint. Verdict: sound, high confidence.
 
 When storage disappears after startup, the next append, seal or recovery
 truncation checks the retained identity before touching bytes and again before
-returning a new receipt. The worker checks before lease acquisition, block
-reservation, attachment and renewal; progress and stopped receipts cannot expose
-changed storage. An already-returned snapshot also refuses subsequent reads of
-a changed root. The plan required verification but did not specify these call
-boundaries. Packaging may buffer many encoded samples without a disk write, so
-it retains in-memory limits without reopening the marker for every sample.
-A detected change after I/O can leave bytes on disk but grants no new receipt;
-it does not undo writes or delete evidence. Future playback can reuse the same
+returning a new spool receipt. The worker checks before lease acquisition, block
+reservation, attachment and renewal. Progress status cannot expose changed
+storage. A successful database freeze is different: it is the historical
+receipt, so the stopped snapshot keeps that committed descriptor when the
+marker changes across the freeze return. A locally sealed spool is not enough.
+Current reads of an already-returned snapshot still refuse a changed root, and
+an upload lease of the frozen row does not make those bytes readable. The plan
+required verification but did not specify these call boundaries. Packaging may
+buffer many encoded samples without a disk write, so it retains in-memory
+limits without reopening the marker for every sample. A detected change after
+filesystem I/O can leave bytes on disk but grants no new spool receipt; it does
+not undo writes or delete evidence. Future playback can reuse the same
 local-handle rule, while portable descriptors and manifest bytes remain free of
 paths, device/inode identifiers and this local filesystem handle.

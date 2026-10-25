@@ -70,20 +70,34 @@ requires a new provisioned UUID; rescheduling the same volume retains its UUID.
 These checks observe filesystem state at operation boundaries. They are not an
 atomic operating-system mount lock, physical-volume attestation, or protection
 against a privileged host that copies/changes a marker during I/O. A detected
-change after I/O can leave bytes requiring reconciliation, but returns no new
-receipt. A copied matching marker after restart cannot prove the original
-physical volume. Cloud must establish that association separately.
+change after filesystem I/O can leave bytes requiring reconciliation, but
+returns no new spool receipt. A copied matching marker after restart cannot
+prove the original physical volume. Cloud must establish that association
+separately.
+
+A successful `RecordingBlocks.freeze/5` result is the historical receipt. The
+worker does not apply a later local usability check that turns that committed
+row into a missing stopped snapshot. The stopped snapshot is retained only when
+that freeze result is known, including when the marker is replaced across the
+freeze return on the end-of-stream seal and the finite-capacity stop. A locally
+sealed spool without a successful freeze is not a receipt. Current init and
+fragment reads still verify the retained handle and refuse the replaced marker.
+An upload lease of the frozen descriptor is not proof those bytes are still
+readable.
 
 ## Owning proof and remaining work
 
 `SpoolTest` owns actual-filesystem initialization/retry, marker schema/privacy,
 root/marker substitution, unchanged error evidence and restart recovery.
 `RecordingWorkerIntegrationTest` owns startup refusal before persisted recorder
-authority and rejection during real synthetic media delivery without freezing a
-block or interrupting a viewer. CI readiness still requires its recomputed
-`integration_tests_serial_4` lane to run all six synthetic cases, with the full
-selected Core and Web database lifecycles, cleanup, and fixture-generation
-lease release. That lane is not deployed-camera validation. Existing media,
+authority, rejection during real synthetic media delivery without freezing a
+block or interrupting a viewer, and marker replacement across a successful
+freeze on the end-of-stream and finite-capacity paths. The frozen row remains
+the historical receipt; current reads refuse the replaced marker. CI readiness
+still requires its recomputed `integration_tests_serial_4` lane to run all
+eight synthetic cases, with the full selected Core and Web database lifecycles,
+cleanup, and fixture-generation lease release. That lane is not deployed-camera
+validation. Existing media,
 RTSP, browser, manifest-byte and lifecycle assertions remain required.
 
 This supplies part of tasks 1.4/1.7, not complete recovery or hosted readiness.

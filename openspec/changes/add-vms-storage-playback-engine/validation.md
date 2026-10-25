@@ -788,11 +788,13 @@ failed on local disk exhaustion and is not success evidence. The final sweep
 ran after space was restored. Recomputing the checked-in serial partition from
 module weights still places `RecordingWorkerIntegrationTest` on
 `//elixir/serviceradar_core:integration_tests_serial_4`. CI readiness on the
-published head requires that lane to execute all six recorder worker cases
-(four retained, two new) and requires the full selected Core and Web database
-lifecycles, including cleanup and fixture-generation lease release. Those cases
-execute generated synthetic media. They do not establish provider readiness,
-physical-volume identity, or deployed-camera validation.
+published head requires that lane to execute all eight recorder worker cases
+and requires the full selected Core and Web database lifecycles, including
+cleanup and fixture-generation lease release. The invocations above predate the
+two cases that replace the marker across a successful freeze; they are not
+evidence for that receipt boundary. Those cases execute generated synthetic
+media. They do not establish provider readiness, physical-volume identity, or
+deployed-camera validation.
 
 The first publication run stopped before push. Its preserved document/format
 commit `8b4d8fea` was replayed as `6fee12020d` with the same tree, on the author

@@ -24,6 +24,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
   @moduletag :integration
   @moduletag :tmp_dir
+  @replaced_marker "00000000-0000-4000-8000-000000000099\n"
 
   setup ctx do
     {:ok, _} = Application.ensure_all_started(:membrane_core)
@@ -441,6 +442,68 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
              )
   end
 
+  test "marker replacement across freeze keeps the end-of-stream receipt and refuses current reads",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    {:ok, viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    {worker, ref} = start_worker(ctx, owner)
+
+    for unit <- Enum.take(ctx.media.units, 45) do
+      send(ctx.pipeline, {:media_chunk, unit})
+      assert :ok = await_progress(worker, unit.sequence)
+    end
+
+    # Rewrite the marker when the freeze update returns, before the worker
+    # treats that committed row as its stopped receipt.
+    handler = capture_freeze_marker_replacement(ctx.root)
+    send(ctx.pipeline, :end_of_stream)
+
+    assert_receive {:camera_recording, ^worker,
+                    {:stopped, %{reason: :completed, snapshot: snapshot, seal_error: nil}}},
+                   5_000
+
+    detach_freeze_hook(handler)
+    assert_historical_receipt(ctx, worker, ref, snapshot)
+    assert [%{id: viewer_id, kind: :viewer}] = consumers(owner, ctx.actor)
+    assert viewer_id == viewer.id
+  end
+
+  test "marker replacement across freeze keeps the finite-capacity receipt and refuses current reads",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    {:ok, _viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    {worker, ref} = start_worker(ctx, owner, spool_limits: %{max_fragments: 1})
+    handler = capture_freeze_marker_replacement(ctx.root)
+
+    stopped =
+      Enum.reduce_while(ctx.media.units, nil, fn unit, _acc ->
+        send(ctx.pipeline, {:media_chunk, unit})
+
+        case await_progress(worker, unit.sequence) do
+          :ok -> {:cont, nil}
+          {:stopped, result} -> {:halt, result}
+        end
+      end)
+
+    detach_freeze_hook(handler)
+    assert %{reason: :block_full, seal_error: nil, snapshot: snapshot} = stopped
+    assert snapshot.sealed?
+    assert length(snapshot.entries) == 1
+    assert_historical_receipt(ctx, worker, ref, snapshot)
+    assert [%{kind: :viewer}] = consumers(owner, ctx.actor)
+    assert_live_delivery(ctx, List.last(ctx.media.units))
+  end
+
   defp owner(ctx, ttl) do
     {:ok, owner} =
       IngestOwnership.acquire(ctx.source.id, ctx.profile.id, Ecto.UUID.generate(), ttl,
@@ -514,6 +577,97 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     sequence = unit.sequence
     assert_receive {:camera_relay_viewer_chunk, %{sequence: ^sequence}}, 1_000
     assert Process.alive?(ctx.pipeline)
+  end
+
+  defp capture_freeze_marker_replacement(root) do
+    handler_id = {__MODULE__, make_ref()}
+    parent = self()
+    {:ok, once} = Agent.start_link(fn -> false end)
+
+    on_exit(fn ->
+      detach_freeze_hook(handler_id)
+      if Process.alive?(once), do: Agent.stop(once)
+    end)
+
+    event = ServiceRadar.Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn _event, _measurements, metadata, _config ->
+          if freeze_update?(metadata) and claim_once(once) do
+            File.write!(Path.join(root, ".storage-id"), @replaced_marker)
+            send(parent, {:marker_replaced_across_freeze, self()})
+          end
+        end,
+        nil
+      )
+
+    handler_id
+  end
+
+  defp detach_freeze_hook(handler_id) do
+    _ = :telemetry.detach(handler_id)
+    :ok
+  end
+
+  defp claim_once(agent) do
+    Agent.get_and_update(agent, fn seen -> {not seen, true} end)
+  end
+
+  defp freeze_update?(%{query: query} = metadata) do
+    sql = query |> query_text() |> String.downcase()
+    source = metadata[:source]
+    blocks? = source == "camera_recording_blocks" or String.contains?(sql, "camera_recording_blocks")
+
+    successful_query?(metadata) and blocks? and String.contains?(sql, "descriptor") and
+      update_statement?(sql)
+  end
+
+  defp update_statement?(sql) do
+    String.match?(sql, ~r/(?:^|\s)update\s/) and not String.match?(sql, ~r/(?:^|\s)for\s+update\b/)
+  end
+
+  defp freeze_update?(_metadata), do: false
+
+  defp successful_query?(%{result: {:ok, _}}), do: true
+  defp successful_query?(%{result: %{num_rows: rows}}) when is_integer(rows), do: true
+  defp successful_query?(_metadata), do: false
+
+  defp query_text(query) when is_binary(query), do: query
+  defp query_text(query) when is_list(query), do: IO.iodata_to_binary(query)
+  defp query_text(%{query: query}), do: query_text(query)
+  defp query_text(_query), do: ""
+
+  defp assert_historical_receipt(ctx, worker, ref, snapshot) do
+    assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
+    assert_receive {:marker_replaced_across_freeze, ^worker}, 1_000
+    assert snapshot.sealed?
+    assert {:error, :storage_identity_mismatch} = Storage.verify(ctx.storage)
+    assert {:error, :storage_identity_mismatch} = Spool.read_init(snapshot)
+
+    assert {:error, :storage_identity_mismatch} =
+             Spool.recover(ctx.storage, snapshot.directory, snapshot.identity)
+
+    [block] =
+      RecordingBlock
+      |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+      |> Ash.read!(actor: ctx.actor)
+
+    assert block.state == :sealed
+    assert block.descriptor["identity"] == snapshot.identity
+    assert block.descriptor["media"]["sha256"] == snapshot.sha256
+
+    assert {:ok, upload} =
+             RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), 30_000,
+               actor: ctx.actor
+             )
+
+    assert upload.storage_id ==
+             Application.fetch_env!(:serviceradar_core_elx, :camera_recording_storage_id)
+
+    assert {:ok, :released} = RecordingBlocks.release_upload(upload, actor: ctx.actor)
   end
 
   defp assert_packet_count(snapshot, directory, expected) do

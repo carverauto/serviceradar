@@ -22,7 +22,7 @@ The current product checkpoint verifies the provisioned local spool lifetime.
 `Storage.initialize/2` on an existing private empty root; the recorder only
 verifies the marker. Source validation passed. Publication remains required.
 CI readiness still requires the recomputed `integration_tests_serial_4` lane
-to run all six synthetic recorder worker cases, plus the full selected Core and
+to run all eight synthetic recorder worker cases, plus the full selected Core and
 Web database lifecycles, including cleanup and fixture-generation lease release.
 That execution is not deployed-camera validation. This does not finish tasks
 1.4 or 1.7 or associate a Cloud volume with the UUID.
@@ -35,7 +35,7 @@ live provider qualification and deployment acceptance remain separate gates.
 ## Priority order
 
 1. Publish the provisioned-spool checkpoint through no-mistakes. CI readiness
-   requires `integration_tests_serial_4` with all six synthetic recorder cases
+   requires `integration_tests_serial_4` with all eight synthetic recorder cases
    and the full selected Core and Web database lifecycles, including cleanup
    and fixture-generation lease release. In parallel, advance bounded sealed-media
    streaming through the isolated storage service with operation-specific
@@ -76,7 +76,7 @@ live provider qualification and deployment acceptance remain separate gates.
 | Init-object authority | #5996 merged; published head `447f594b` passed 19 checks; Core `551008e0` and Web `a4308a82` passed all 12/seven guarded targets with lifecycle exit statuses zero | Cloud provisioning/qualification and complete archive transport |
 | Private archive registration | #6000 merged at `8974fcdd`; published head `e639b4fd` passed 19 checks; Web `1452ccca` executed all seven guarded targets uncached, including owning shard 0, with all lifecycle statuses zero; [validation](validation.md) retains the approved pre-push exception | Cloud-retained allocation identity and matching product receipt |
 | Cloud media reservation | #188 remains an open draft; all five checks passed, including 3,241 tests with zero failures and 10 skips; local Dialyzer fails with 11 warnings also present on its exact base | Merge, allocation inventory and preservation-release workflow |
-| Provisioned spool identity | [Spool lifetime](spool-lifetime.md); measured results in [validation](validation.md) | Published-head `integration_tests_serial_4` with all six synthetic cases, full selected Core and Web database lifecycles, cleanup and fixture lease release; Cloud volume/UUID association |
+| Provisioned spool identity | [Spool lifetime](spool-lifetime.md); measured results in [validation](validation.md) | Published-head `integration_tests_serial_4` with all eight synthetic cases, full selected Core and Web database lifecycles, cleanup and fixture lease release; Cloud volume/UUID association |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -90,7 +90,7 @@ runtime or live acceptance tasks.
 Start with [tasks.md](tasks.md), [Cloud ownership](cloud-control-plane.md),
 [init authority](init-authority.md) and [spool lifetime](spool-lifetime.md).
 Registration is merged and its guarded Web database execution passed. Publish the
-spool checkpoint only after `integration_tests_serial_4` runs all six synthetic
+spool checkpoint only after `integration_tests_serial_4` runs all eight synthetic
 cases and the full selected Core and Web database lifecycles pass, including
 cleanup and fixture-generation lease release. Advance bounded
 media transport independently of Cloud provisioning; use the existing
