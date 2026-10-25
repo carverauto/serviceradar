@@ -95,6 +95,12 @@ reachability. Agent check-in sets the bit true, and nothing ever clears it.
     metadata, the point of no easy return.
   - Phase 1 (stages a and b, no behavior change) ships and is reviewed on
     demo before phase 2 (stages c and d) begins.
+  - Core moves through stages a to c by itself: it enters `shadow` once the
+    running release supports it and cuts over when a set of readiness
+    conditions holds, so no customer runs a command. A deployment mode
+    control (`auto`, `hold_legacy`, `hold_shadow`), editable in Settings
+    and pinnable by a Helm value, holds or rolls back (design.md,
+    Decision 10, "Automatic progression").
 - **BREAKING (after stage c):**
   - Unknown devices keep their last `is_available` value; readers that need
     unknown must read `availability_state`.

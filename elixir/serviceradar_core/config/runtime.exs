@@ -1792,6 +1792,10 @@ if config_env() == :prod do
            # in step with serviceradar_core_elx's runtime.exs and config.exs.
            {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
            {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+           # Moves the availability mode on by itself (legacy -> shadow -> cutover) as the
+           # deployment's mode control says. Kept in step with the two entries above.
+           {"* * * * *", ServiceRadar.Inventory.Availability.ProgressionWorker,
+            queue: :maintenance},
            # Composite checks' only scheduler: one evaluation job per enabled
            # check per minute (full or incremental pass). Kept in step with
            # serviceradar_core_elx's runtime.exs, which the release loads.

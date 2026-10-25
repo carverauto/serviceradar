@@ -3,7 +3,7 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
   The work of the stage-c mode switches (`add-merged-device-availability`, design
   Decision 10), enqueued by `ServiceRadar.Inventory.Availability.Mode`. Three phases:
 
-    * `"reconcile"` (after `Mode.enter_cutover/0`): re-resolves every live device from
+    * `"reconcile"` (after `Mode.enter_cutover/1`): re-resolves every live device from
       its current per-agent ledger rows, evidence and vantage expectations, in uid
       pages of 500 under the device locks, through `Resolution.resolve_locked/2`, the
       path ingestion uses. It never copies the shadow table, so it cannot restore a
@@ -18,7 +18,7 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
       `device.available` recovery event for each device the legacy value held down and
       the merged state holds available, so a stateful alert the legacy flapping opened
       is closed by the alert engine's own recovery path.
-    * `"restore"` (after `Mode.enter_legacy/0` from `cutover` or `authoritative`): sets
+    * `"restore"` (after `Mode.enter_legacy/1` from `cutover` or `authoritative`): sets
       `is_available` from `device_availability_legacy` in uid pages under the device
       locks, which fires the mirror, so `availability_state` returns to the projection of
       the legacy value. The resolver's agent counters and conflict flag are cleared with

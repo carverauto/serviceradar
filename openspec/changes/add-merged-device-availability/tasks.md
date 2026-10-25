@@ -63,7 +63,7 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - per-source Armis canonical push changes;
   - sample uids.
   - `Availability.DivergenceReport` (read-only transaction, statement timeout, one aggregate pass per section), printed by `Availability.Operator.report/1` (`bin/serviceradar_core rpc` or `eval`) and `mix serviceradar.availability.report`. It also reports R5: evidence flips to `down` within half a lease of the stored `up` (marked by `EvidencePlan` in the record's `detail`) and decisions within half a lease of a disagreeing observation.
-  - Entering `shadow` (`Mode.enter_shadow/0`, `mix serviceradar.availability.mode shadow`) enqueues one full paged resolution and seeds `device_availability_legacy` for every device (write-on-change, `SKIP LOCKED`); `legacy` is the rollback and drops the shadow rows.
+  - Entering `shadow` (`Mode.enter_shadow/1`, `mix serviceradar.availability.mode shadow`) enqueues one full paged resolution and seeds `device_availability_legacy` for every device (write-on-change, `SKIP LOCKED`); `legacy` is the rollback and drops the shadow rows.
 - [x] 2.6 Run on demo and the lab deployment, including the Wi-Fi AP split, and review with the user. This review ends phase 1 and is the gate for phase 2.
   - Reviewed 2026-10-24 on the demo report (design.md, "Phase-1 review"). The user confirmed the Wi-Fi AP split: the managing controller wins over a failing sweep.
 
@@ -101,6 +101,18 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - Armis agent-path candidate rows are byte-identical to stage a for the same ledger contents;
   - no per-device event burst at cutover;
   - WAL per hour is at or below the baseline.
+
+### 3a. Automatic progression (decided 2026-10-25; design.md, Decision 10)
+
+- [x] 3a.1 Migration: `availability_settings.mode_control` (default `auto`), `mode_control_pin`, `shadow_entered_at`, `shadow_resolved_at`, `readiness`, `readiness_checked_at`; a deployment already in `shadow` takes `shadow_entered_at` from `updated_at`. Helm `core.migrations.expectedVersion` bumped.
+- [x] 3a.2 `ModeControl`: the three controls, the `SERVICERADAR_AVAILABILITY_MODE_CONTROL` pin (an invalid value holds), and `set/2`, which runs `Setting.set_mode_control` and enqueues a run. The action is refused while a pin is recorded.
+- [x] 3a.3 `Readiness`: the five conditions, each one bounded query; `CaptureBackfillWorker.pending?/0` and `DivergenceReport.policy_violations/1` share their owners' predicates. `ShadowEntryWorker` records `shadow_resolved_at` after a full pass that started after the entry.
+- [x] 3a.4 `ProgressionWorker` (cron every minute, `maintenance`, unique): records the pin and the readiness, takes one step through the existing switches, and records the `availability_cutover_readiness` health check when the conditions are unmet 24 hours after the entry. Switches take `control:` and refuse a changed control; `Mode.enter_legacy/1` in `legacy` changes nothing, so a repeated rollback keeps the restore.
+- [x] 3a.5 `Operator.switch/1` sets the matching control; `Operator.control/1`; `status/0` reports the control, the pin and the readiness. Both refuse while pinned.
+- [x] 3a.6 Helm `core.availability.modeControl` (validated) as the env pin; the settings panel on Availability Sources (mode, control, readiness; read-only when pinned).
+- [x] 3a.7 Runbook rewritten: nothing to do by default, with an operator appendix. CHANGELOG Unreleased entry.
+- [ ] 3a.8 Tests (`availability_progression_integration_test.exs`, DB tier; `progression_worker_test.exs`, unit): legacy and zero-device installs reach `authoritative` unattended; each unmet condition blocks and is named; the 24-hour warning; `hold_legacy` and `hold_shadow` from `authoritative`; the pin; two concurrent runs switch once. Run in BazelCI Core Integration.
+- [ ] 3a.9 First live upgrade from `shadow`: the progression enqueues the full pass the deployment never recorded, then cuts over when ready; verify with the runbook's checks.
 
 ## 4. Stage d: removal (gated on no Armis source left in `legacy`)
 

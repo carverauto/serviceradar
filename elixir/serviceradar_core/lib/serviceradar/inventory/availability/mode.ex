@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Inventory.Availability.Mode do
   @moduledoc """
   The deployment's availability mode (`inventory.availability_mode`, design Decision 10)
-  and the operator switches between `legacy`, `shadow`, `cutover` and `authoritative`.
+  and the switches between `legacy`, `shadow`, `cutover` and `authoritative`.
 
   `cached/0` is the gate inline resolution checks on every write path. It reads the
   mode from this node's cache, refreshed at most every 30 seconds
@@ -11,20 +11,23 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
   ## Switching
 
-  The switch is an operator action:
+  `ServiceRadar.Inventory.Availability.ProgressionWorker` makes every switch by itself,
+  as the deployment's mode control (`ServiceRadar.Inventory.Availability.ModeControl`)
+  says. Support can still switch through `ServiceRadar.Inventory.Availability.Operator`.
+  Each switch takes `control:`, the control the caller decided from: when the stored
+  control differs under the switch lock (someone changed it meanwhile), the switch
+  returns `{:error, :control_changed}` and changes nothing.
 
-      bin/serviceradar_core rpc 'ServiceRadar.Inventory.Availability.Mode.enter_shadow() |> IO.inspect()'
-      mix serviceradar.availability.mode shadow
-
-  `enter_shadow/0` moves `legacy` to `shadow`, starts the expiry window, and enqueues one
-  full, paged resolution of every device plus the seeding of the compatibility table
+  `enter_shadow/1` moves `legacy` to `shadow`, starts the expiry window, records the
+  entry time (`shadow_entered_at`), and enqueues one full, paged resolution of every
+  device plus the seeding of the compatibility table
   (`ServiceRadar.Inventory.Availability.ShadowEntryWorker`); the invalidation log is
   empty in `legacy`, so nothing else would resolve devices that see no new evidence.
   Entering from `legacy` first drops shadow rows left by an earlier shadow period.
   It is idempotent: in `shadow` it only enqueues the full pass again, which writes on
   change.
 
-  `enter_cutover/0` (stage c) moves `shadow` to `cutover`. Under the drained switch it
+  `enter_cutover/1` (stage c) moves `shadow` to `cutover`. Under the drained switch it
   seeds `device_availability_legacy` from every device's `is_available`, so a device no
   legacy writer touches again keeps its legacy value, and enqueues the reconciliation
   (`ServiceRadar.Inventory.Availability.CutoverWorker`). From then on the resolver writes
@@ -33,12 +36,13 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   The reconciliation moves the mode to `authoritative` when it has finished
   (`finish_cutover/0`); only then does the resolver emit transitions.
 
-  `enter_legacy/0` is the rollback from any mode: mode `legacy`, the expiry window
-  cleared, the shadow rows dropped and waiting entry, cutover and transition jobs
-  deleted. Coming from `cutover` or `authoritative` it also enqueues the restore of
-  `is_available` from the compatibility table (`CutoverWorker`, phase `"restore"`),
-  which runs after the switch has committed, so it never holds the switch lock while it
-  waits on device rows.
+  `enter_legacy/1` is the rollback from any other mode: mode `legacy`, the expiry
+  window and the shadow entry cleared, the shadow rows dropped and waiting entry,
+  cutover and transition jobs deleted. In `legacy` it changes nothing, so a repeated
+  rollback cannot delete the restore an earlier one enqueued. Coming from `cutover` or
+  `authoritative` it also enqueues the restore of `is_available` from the compatibility
+  table (`CutoverWorker`, phase `"restore"`), which runs after the switch has committed,
+  so it never holds the switch lock while it waits on device rows.
 
   Other nodes keep their cached `legacy` for up to `cache_ms/0` after the switch and
   skip inline resolution meanwhile, so the full pass is scheduled to start only after
@@ -139,9 +143,9 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   Switches `legacy` to `shadow` (or repeats the entry in `shadow`) and enqueues the full
   resolution and the compatibility-table seed. Returns the mode it found.
   """
-  @spec enter_shadow() :: {:ok, %{from: t(), to: :shadow}} | {:error, term()}
-  def enter_shadow do
-    switch(fn
+  @spec enter_shadow(keyword()) :: {:ok, %{from: t(), to: :shadow}} | {:error, term()}
+  def enter_shadow(opts \\ []) do
+    switch(opts, fn
       # A rollback whose restore has not finished would leave resolver values in
       # is_available, and the shadow entry seed would copy them into the compatibility
       # table, losing the legacy values the restore puts back.
@@ -162,14 +166,19 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
     # Rows left by an earlier shadow period are stale.
     if from == :legacy, do: Repo.query!("TRUNCATE platform.device_availability_shadow")
 
-    # Entering from legacy starts the expiry window now; a repeat keeps it.
+    # Entering from legacy starts the expiry window and the shadow period now, and
+    # forgets an earlier period's full resolution; a repeat keeps all three.
     Repo.query!("""
     UPDATE platform.availability_settings
     SET mode = 'shadow',
         updated_at = (now() AT TIME ZONE 'utc'),
         expiry_watermark = CASE WHEN mode = 'shadow' AND expiry_watermark IS NOT NULL
                                 THEN expiry_watermark
-                                ELSE (now() AT TIME ZONE 'utc') END
+                                ELSE (now() AT TIME ZONE 'utc') END,
+        shadow_entered_at = CASE WHEN mode = 'shadow' AND shadow_entered_at IS NOT NULL
+                                 THEN shadow_entered_at
+                                 ELSE (now() AT TIME ZONE 'utc') END,
+        shadow_resolved_at = CASE WHEN mode = 'shadow' THEN shadow_resolved_at END
     WHERE singleton
     """)
 
@@ -178,29 +187,36 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   end
 
   @doc """
-  The rollback from any mode: mode `legacy`, the expiry window cleared, the shadow rows
-  dropped and waiting entry, cutover and transition jobs deleted. From `cutover` or
-  `authoritative` it also enqueues the restore of `is_available` from the compatibility
-  table, which
-  the mirror turns back into `availability_state`. Evidence, the per-agent ledger and
-  the compatibility table are untouched.
+  The rollback from any other mode: mode `legacy`, the expiry window and the shadow
+  entry cleared, the shadow rows dropped and waiting entry, cutover and transition jobs
+  deleted. From `cutover` or `authoritative` it also enqueues the restore of
+  `is_available` from the compatibility table, which the mirror turns back into
+  `availability_state`. Evidence, the per-agent ledger and the compatibility table are
+  untouched. In `legacy` it changes nothing: a second rollback must not delete the
+  restore the first one enqueued.
   """
-  @spec enter_legacy() :: {:ok, %{from: t(), to: :legacy}} | {:error, term()}
-  def enter_legacy do
-    switch(fn from ->
-      Repo.query!("""
-      UPDATE platform.availability_settings
-      SET mode = 'legacy', updated_at = (now() AT TIME ZONE 'utc'), expiry_watermark = NULL
-      WHERE singleton
-      """)
-
-      Repo.query!("TRUNCATE platform.device_availability_shadow")
-      :ok = ShadowEntryWorker.cancel_waiting()
-      :ok = CutoverWorker.cancel_waiting()
-      :ok = Transitions.cancel_waiting()
-      if from in [:cutover, :authoritative], do: :ok = CutoverWorker.enqueue("restore")
-      {:ok, %{from: from, to: :legacy}}
+  @spec enter_legacy(keyword()) :: {:ok, %{from: t(), to: :legacy}} | {:error, term()}
+  def enter_legacy(opts \\ []) do
+    switch(opts, fn
+      :legacy -> {:ok, %{from: :legacy, to: :legacy}}
+      from -> legacy_from(from)
     end)
+  end
+
+  defp legacy_from(from) do
+    Repo.query!("""
+    UPDATE platform.availability_settings
+    SET mode = 'legacy', updated_at = (now() AT TIME ZONE 'utc'), expiry_watermark = NULL,
+        shadow_entered_at = NULL, shadow_resolved_at = NULL
+    WHERE singleton
+    """)
+
+    Repo.query!("TRUNCATE platform.device_availability_shadow")
+    :ok = ShadowEntryWorker.cancel_waiting()
+    :ok = CutoverWorker.cancel_waiting()
+    :ok = Transitions.cancel_waiting()
+    if from in [:cutover, :authoritative], do: :ok = CutoverWorker.enqueue("restore")
+    {:ok, %{from: from, to: :legacy}}
   end
 
   @seed_legacy """
@@ -217,9 +233,9 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   `cutover`; then the reconciliation is enqueued. Repeating it in `cutover` only
   enqueues the reconciliation again. The expiry window that `shadow` started is kept.
   """
-  @spec enter_cutover() :: {:ok, %{from: t(), to: :cutover}} | {:error, term()}
-  def enter_cutover do
-    switch(fn
+  @spec enter_cutover(keyword()) :: {:ok, %{from: t(), to: :cutover}} | {:error, term()}
+  def enter_cutover(opts \\ []) do
+    switch(opts, fn
       from when from in [:shadow, :cutover] ->
         if from == :shadow do
           Repo.query!(@seed_legacy, [], timeout: :infinity)
@@ -246,7 +262,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   """
   @spec finish_cutover() :: {:ok, %{from: t(), to: :authoritative}} | {:error, term()}
   def finish_cutover do
-    switch(fn
+    switch([], fn
       :cutover ->
         Repo.query!("""
         UPDATE platform.availability_settings
@@ -262,7 +278,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
     end)
   end
 
-  defp switch(apply_switch) do
+  defp switch(opts, apply_switch) do
     result =
       Repo.transaction(
         fn ->
@@ -274,13 +290,15 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
           ON CONFLICT (singleton) DO NOTHING
           """)
 
-          %{rows: [[mode]]} =
+          %{rows: [[mode, control]]} =
             Repo.query!(
-              "SELECT mode FROM platform.availability_settings WHERE singleton FOR UPDATE"
+              "SELECT mode, mode_control FROM platform.availability_settings WHERE singleton FOR UPDATE"
             )
 
-          case apply_switch.(Map.fetch!(@modes, mode)) do
-            {:ok, switched} -> switched
+          with :ok <- expected_control(opts, control),
+               {:ok, switched} <- apply_switch.(Map.fetch!(@modes, mode)) do
+            switched
+          else
             {:error, reason} -> Repo.rollback(reason)
           end
         end,
@@ -290,6 +308,16 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
     reset_cache()
     result
+  end
+
+  defp expected_control(opts, stored) do
+    case Keyword.fetch(opts, :control) do
+      {:ok, control} ->
+        if Atom.to_string(control) == stored, do: :ok, else: {:error, :control_changed}
+
+      :error ->
+        :ok
+    end
   end
 
   defp switch_locked?(tries) do

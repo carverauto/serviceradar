@@ -45,3 +45,18 @@ The device detail page SHALL keep the per-agent availability section with each a
 - **THEN** the page SHALL list both agents' latest results with their check times
 - **AND** SHALL list the controller evidence record
 - **AND** SHALL mark the record that decided the canonical state
+
+### Requirement: Availability Rollout Control In Settings
+The Availability Sources settings page SHALL show the deployment's availability mode, its mode control (`auto`, `hold_legacy` or `hold_shadow`) and each condition of the last readiness evaluation, SHALL let a user with the network settings permission change the control, and SHALL show a control pinned by deployment configuration read-only.
+
+#### Scenario: Editor changes the control
+- **GIVEN** an unpinned control and a user with the network settings permission
+- **WHEN** the user selects `hold_legacy` and confirms
+- **THEN** the control SHALL be stored and applied without waiting for the next scheduled run
+
+#### Scenario: Pinned control is read-only
+- **GIVEN** a control pinned by deployment configuration
+- **WHEN** a user opens the page
+- **THEN** the page SHALL show the pinned value and the configuration that pins it
+- **AND** every control choice SHALL be disabled
+

@@ -32,7 +32,7 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
 
   Every resolving transaction first takes the mode-switch advisory lock shared
   (`Mode.admit/1`), then reads the mode, so the mode check and the shadow
-  write are one unit that `Mode.enter_legacy/0` cannot interleave: the switch takes the
+  write are one unit that `Mode.enter_legacy/1` cannot interleave: the switch takes the
   same key exclusively and only commits its TRUNCATE once no admitted resolver is left.
   The switch only ever *tries* that lock and never queues for it, so a resolver that
   already holds device locks (an inline merge) waits at most for a switch that holds no

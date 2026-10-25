@@ -825,6 +825,83 @@ maintaining. The ledger and the evidence are untouched. A transition job
 already running publishes nothing once the mode is no longer
 `authoritative`.
 
+**Automatic progression (decided 2026-10-25).** This reverses the earlier
+decision that the cutover is an explicit operator step. The product owner
+decided that no customer has to run an `rpc` command to get merged
+availability: a step that only an operator can take is a step most installs
+never take, and the legacy behavior it leaves in place is the defect this
+change exists to fix. Core therefore drives stages a to c itself.
+
+- **The driver.** `ProgressionWorker`, an Oban cron job every minute on the
+  `maintenance` queue (unique per minute), also enqueued when the control
+  changes. Each run takes at most one step through the existing switches
+  (`Mode.enter_shadow/1`, `Mode.enter_cutover/1`, `Mode.enter_legacy/1`).
+  There is no parallel cutover path: the automatic cutover drains the
+  writers under the switch lock, seeds the compatibility table and leaves
+  reconciliation and its one summary event to `CutoverWorker`, exactly as
+  the manual one did.
+- **The mode control** is a deployment setting on the settings row:
+  - `auto` (the default for fresh and upgraded installs): `legacy` enters
+    `shadow`, and `shadow` cuts over when the readiness conditions hold. A
+    `cutover` whose reconciliation job is gone has it enqueued again.
+  - `hold_legacy`: any other mode rolls back to `legacy`. From `cutover` or
+    `authoritative` that is the existing rollback with its paged restore.
+  - `hold_shadow`: `legacy` enters `shadow`; `cutover` and `authoritative`
+    roll back to `legacy` first and enter `shadow` on a later run, after
+    the restore finished (`{:error, :restore_pending}` is respected).
+
+  It is edited in the settings UI (Availability Sources), and a GitOps
+  install pins it with the Helm value `core.availability.modeControl`,
+  passed as `SERVICERADAR_AVAILABILITY_MODE_CONTROL`. A pin wins over the
+  stored value. Core records it on the settings row, because the UI runs in
+  another release; the UI shows a pinned control read-only, and the update
+  action is refused while a pin is recorded. A pin that is not one of the
+  three values holds every mode where it is, so a typo never starts a
+  cutover. `Operator.switch/1` and `Operator.control/1` stay for support:
+  a switch also sets the control that keeps its mode, so the progression
+  does not undo it.
+- **Readiness is a set of conditions, not a timer.** All must hold:
+  1. `capture_backfill`: the stage-a backfill has nothing left, by its own
+     completion predicates.
+  2. `shadow_resolve`: a full shadow resolution that started after entering
+     `shadow` has finished (`shadow_entered_at`, `shadow_resolved_at`).
+  3. `invalidation_backlog`: at most 500 log entries, one resolver pass, so
+     the next pass clears all of them. Exact zero is not required because
+     ingestion keeps appending between the one-minute resolver runs, and
+     the reconciliation re-resolves every device anyway.
+  4. `sweep_groups`: every active sweep group has completed a run, per
+     agent, that started after entering `shadow`. A group is active for an
+     agent when it is enabled and that agent started a run of it in the
+     last 24 hours; a disabled group, or one no connected agent runs, does
+     not block.
+  5. `policy_violations`: the divergence report's policy-violation count is
+     0.
+
+  An install with no devices and no sweep groups meets all five as soon as
+  the full pass over its zero devices has run, so a fresh install takes the
+  same path within minutes and needs no special case.
+- **Stalls.** The run stores each evaluation on the settings row for status.
+  When the control is `auto` and the conditions are still unmet 24 hours
+  after entering `shadow`, the run records the core health check
+  `availability_cutover_readiness` unhealthy (the infrastructure health
+  tracker, which dedupes unchanged states and publishes the health log),
+  naming the unmet conditions. The mode stays `shadow`; core never cuts over
+  blind. The cutover records it healthy again.
+- **Concurrency.** Several core nodes can run the worker at once. Every
+  switch re-reads the mode and the control under the switch lock. A step
+  decided from a stale mode is absorbed: a repeated `legacy` entry now
+  changes nothing (before, it would delete the restore the first rollback
+  enqueued), a repeated cutover entry only re-enqueues a missing
+  reconciliation, and a repeated shadow entry keeps the shadow period. A
+  step decided from a control that has since changed is refused
+  (`{:error, :control_changed}`), so the progression never overrides a hold.
+- **Not built, by decision.** During a rolling upgrade, a node of the
+  previous release (before stage c) could still be running when a new node
+  cuts over, and its legacy writers do not know `cutover`. The cutover needs
+  a full shadow pass first, and in practice also a sweep cycle after the
+  entry; core runs the cron only on the Oban leader, which is a new node
+  once the old leader stops. A cluster-wide release check was not added.
+
 **(d) Removal.** Gated on Decision 13 having no Armis source left in
 `legacy` semantics. Stage d removes code only:
 - the legacy writers W1, W2 and W5-W11;
@@ -1097,6 +1174,11 @@ composite inputs are untouched. Armis is covered by Decision 13.
      `write_canonical_availability`.
    - Other sources fill within one cycle each.
 3. **Stage c:**
+   - add the mode control and the progression's bookkeeping to the settings
+     row (`mode_control` defaulting to `auto`, `mode_control_pin`,
+     `shadow_entered_at`, `shadow_resolved_at`, `readiness`); a deployment
+     already in `shadow` takes `shadow_entered_at` from the row's
+     `updated_at`, the time of its last switch;
    - seed `device_availability_legacy` from `is_available` under the drained
      cutover boundary;
    - add the rollup `unknown` key and count by `availability_state` (the statement triggers keep their shape; see the rollup reader row);

@@ -1,3 +1,29 @@
+# Unreleased
+
+## Upgrade Notes
+
+- Merged device availability now rolls out by itself. Core moves
+  from `legacy` to `shadow` within a minute of the release running,
+  and runs the cutover once its readiness checks pass: the capture
+  backfill is done, every device has been resolved in shadow, the
+  resolution backlog is drained, every active sweep group has run
+  since entering shadow, and no negative-control policy violation is
+  reported. No operator command is needed. A fresh install cuts over
+  within minutes. If the checks still fail 24 hours after entering
+  shadow, core stays in shadow and the core health check
+  `availability_cutover_readiness` names the failing checks.
+- After the cutover, devices with no availability evidence from any
+  source show **Unknown** instead of Offline.
+- To hold or roll back, set the mode control on Settings > Network
+  Services > Availability Sources: `hold_shadow` stays in (or returns
+  to) shadow and never cuts over, and `hold_legacy` stays in (or rolls
+  back to) legacy availability, restoring the previous values. GitOps
+  installs can pin the control with the Helm value
+  `core.availability.modeControl`, which the settings page then shows
+  read-only. Armis northbound sources keep pushing the legacy value
+  until you adopt merged availability for each one. See
+  `docs/availability-cutover-runbook.md`.
+
 # ServiceRadar v1.4.97
 
 v1.4.96 was tagged but never published: its Wasm plugin publish failed

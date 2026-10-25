@@ -1,7 +1,7 @@
 defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
   @moduledoc """
   The work of entering `shadow` (`add-merged-device-availability`, stage b), enqueued by
-  `ServiceRadar.Inventory.Availability.Mode.enter_shadow/0`. Two jobs:
+  `ServiceRadar.Inventory.Availability.Mode.enter_shadow/1`. Two jobs:
 
     * `"resolve"`: one full resolution of every live device, paged by uid, 500 per
       transaction, through `Resolution.resolve_locked/2`. The invalidation log is empty
@@ -11,6 +11,9 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
       then a node may still hold a cached `legacy` and skip inline resolution, and a
       pass that read a device before that node's evidence or merge would leave it
       stale. Starting after every cache has expired, the pass covers those writes.
+      When it finishes it records its start time as `shadow_resolved_at`, if the mode is
+      still `shadow` and it started after `shadow_entered_at`: the automatic cutover
+      waits for one such pass (`ServiceRadar.Inventory.Availability.Readiness`).
     * `"seed_legacy"`: copies every device's current `is_available` into
       `device_availability_legacy`, write-on-change, so the divergence report's Armis
       section has a value for devices no legacy writer has touched since stage a. Each
@@ -33,6 +36,7 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
   require Logger
 
   @phases ["resolve", "seed_legacy"]
+  @waiting_states ["available", "scheduled", "retryable"]
   @seed_page_size 1_000
   @retry_seconds 60
   @cache_margin_ms 5_000
@@ -61,6 +65,14 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
     RETURNING 1
   )
   SELECT (SELECT count(*) FROM page), (SELECT max(uid) FROM page), (SELECT count(*) FROM seeded)
+  """
+
+  @now "SELECT now() AT TIME ZONE 'utc'"
+
+  @resolved """
+  UPDATE platform.availability_settings
+  SET shadow_resolved_at = $1::timestamp
+  WHERE singleton AND mode = 'shadow' AND shadow_entered_at <= $1::timestamp
   """
 
   @seed_pending """
@@ -118,11 +130,18 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
     :ok
   end
 
-  defp waiting(phase) do
+  @doc "Whether a job of `phase` is waiting or executing."
+  @spec outstanding?(String.t()) :: boolean()
+  def outstanding?(phase) when phase in @phases,
+    do: Repo.exists?(phase_jobs(phase, ["executing" | @waiting_states]), prefix: "platform")
+
+  defp waiting(phase), do: phase_jobs(phase, @waiting_states)
+
+  defp phase_jobs(phase, states) do
     worker = inspect(__MODULE__)
 
     Oban.Job
-    |> where([j], j.worker == ^worker and j.state in ["available", "scheduled", "retryable"])
+    |> where([j], j.worker == ^worker and j.state in ^states)
     |> where([j], fragment("?->>'phase' = ?", j.args, ^phase))
   end
 
@@ -132,7 +151,9 @@ defmodule ServiceRadar.Inventory.Availability.ShadowEntryWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"phase" => "resolve"}}) do
     if Mode.current() == :shadow do
+      %{rows: [[started_at]]} = Repo.query!(@now)
       {pages, resolved} = resolve_all("", 0, 0)
+      Repo.query!(@resolved, [started_at])
 
       Logger.info("availability shadow entry: full resolution done",
         pages: pages,
