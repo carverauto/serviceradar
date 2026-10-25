@@ -8,6 +8,7 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.MtrResultPublisher
   alias ServiceRadar.Observability.PluginResultIngestor
+  alias ServiceRadar.Observability.PluginResultQuarantine
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
@@ -19,13 +20,27 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   @doc false
   @spec process_retained_plugin(map()) :: :ok | {:error, term()}
   def process_retained_plugin(status) when is_map(status) do
-    case handle_plugin_results(status) do
-      # PluginResultIngestor returns the handler-domain error after it has
-      # durably committed the corresponding failure marker. Retained delivery
-      # may therefore acknowledge this terminal outcome, while persistence
-      # failures below remain retryable.
-      {:error, {:plugin_result_handlers_failed, _errors}} -> :ok
-      result -> result
+    case PluginResultQuarantine.check_quarantined(status) do
+      {:quarantined, _record} ->
+        :ok
+
+      :ok ->
+        case handle_plugin_results(status) do
+          :ok ->
+            _ = PluginResultQuarantine.record_success(status)
+            :ok
+
+          # PluginResultIngestor returns the handler-domain error after it has
+          # durably committed the corresponding failure marker. Retained delivery
+          # may therefore acknowledge this terminal outcome, while persistence
+          # failures below remain retryable.
+          {:error, {:plugin_result_handlers_failed, errors}} ->
+            _ = PluginResultQuarantine.record_handler_error(status, errors)
+            :ok
+
+          result ->
+            result
+        end
     end
   end
 
