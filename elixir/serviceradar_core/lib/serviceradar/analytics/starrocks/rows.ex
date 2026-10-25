@@ -20,6 +20,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :exposure_transitions_log
           | :exposure_cve_dim
           | :exposure_package_dim
+          | :exposure_retired_ordinals
 
   # priv/starrocks/0019: every column of platform.mtr_traces / platform.mtr_hops
   # under the same name. Scalars are carried as built by
@@ -128,9 +129,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
     executable_ownership: 65_533
   }
 
-  # Every live event-owned column from migration 0032. In particular, a live
-  # after-image must never overwrite the snapshot generation.
-  @exposure_fact_columns ~w(device_ord cve_ord pkg_ord pkgver_ord state source_scope
+  # Live event-owned exposure fact columns (migrations 0032 and 0034).
+  # A live after-image must never overwrite the snapshot generation.
+  @exposure_fact_columns ~w(device_lifecycle_seq device_ord cve_ord pkg_ord pkgver_ord state source_scope
                             severity_rank cvss_score kev exploit_available fix_available
                             first_exposed_at resolved_at updated_at transition_seq transition_xid)
 
@@ -145,7 +146,12 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   defp encode_row(:exposure_facts, row), do: Map.take(row, @exposure_fact_columns)
 
   defp encode_row(dataset, row)
-       when dataset in [:exposure_transitions_log, :exposure_cve_dim, :exposure_package_dim],
+       when dataset in [
+              :exposure_transitions_log,
+              :exposure_cve_dim,
+              :exposure_package_dim,
+              :exposure_retired_ordinals
+            ],
        do: row
 
   defp encode_row(:flow_attribution, row) do

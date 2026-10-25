@@ -71,6 +71,7 @@ defmodule ServiceRadar.TestSupport do
         assert_identity_delete_guard!()
         fun.()
         purge_devices!(uids)
+        ServiceRadar.TestSupport.ExposureTransitionCleanup.delete_for_devices!(uids)
 
         ServiceRadar.Repo.query!(
           "ALTER TABLE platform.device_fleet_ordinals DISABLE TRIGGER trg_protect_fleet_identity_delete"

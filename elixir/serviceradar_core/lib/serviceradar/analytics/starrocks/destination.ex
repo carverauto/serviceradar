@@ -72,6 +72,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :exposure_transitions_log
           | :exposure_cve_dim
           | :exposure_package_dim
+          | :exposure_retired_ordinals
   @type dest :: :cnpg | :starrocks
 
   @tables %{
@@ -90,7 +91,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     exposure_facts: "exposure_facts",
     exposure_transitions_log: "exposure_transitions_log",
     exposure_cve_dim: "exposure_cve_dim",
-    exposure_package_dim: "exposure_package_dim"
+    exposure_package_dim: "exposure_package_dim",
+    exposure_retired_ordinals: "exposure_retired_ordinals"
   }
 
   @spec table_for(dataset()) :: String.t()
@@ -355,7 +357,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
              :exposure_facts,
              :exposure_transitions_log,
              :exposure_cve_dim,
-             :exposure_package_dim
+             :exposure_package_dim,
+             :exposure_retired_ordinals
            ] ->
         {:error, reason}
 
@@ -564,9 +567,21 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
               :exposure_facts,
               :exposure_transitions_log,
               :exposure_cve_dim,
-              :exposure_package_dim
+              :exposure_package_dim,
+              :exposure_retired_ordinals
             ] do
-    sequences = rows |> Enum.map(& &1["transition_seq"]) |> Enum.sort() |> Enum.join(",")
+    sequences =
+      rows
+      |> Enum.map(fn row ->
+        Enum.map_join(
+          ~w(device_ord cve_ord pkg_ord pkgver_ord transition_seq),
+          ":",
+          &to_string(row[&1])
+        )
+      end)
+      |> Enum.sort()
+      |> Enum.join(",")
+
     digest = :sha256 |> :crypto.hash(table <> ":" <> sequences) |> Base.encode16(case: :lower)
     Keyword.put(opts, :label, "exposure-" <> digest)
   end
@@ -581,7 +596,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   end
 
   defp dataset_load_opts(opts, dataset)
-       when dataset in [:exposure_cve_dim, :exposure_package_dim] do
+       when dataset in [:exposure_cve_dim, :exposure_package_dim, :exposure_retired_ordinals] do
     Keyword.put(opts, :merge_condition, "transition_seq")
   end
 
