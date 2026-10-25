@@ -65,6 +65,25 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
       assert invalidations(device.uid) == 0
     end
 
+    test "a sweep result that changes within the same second recounts and a replay does not",
+         %{actor: actor} do
+      device = create_device!(actor, "192.0.2.11")
+      {group, agent_id} = sweep_group!(actor)
+      checked_at = minutes_ago(5)
+
+      sweep!(actor, group, agent_id, "192.0.2.11", true, checked_at)
+      assert ledger(device.uid, agent_id) == {true, 0}
+
+      sweep!(actor, group, agent_id, "192.0.2.11", false, checked_at)
+      assert ledger(device.uid, agent_id) == {false, 1}
+
+      sweep!(actor, group, agent_id, "192.0.2.11", false, checked_at)
+      assert ledger(device.uid, agent_id) == {false, 1}
+
+      sweep!(actor, group, agent_id, "192.0.2.11", true, checked_at)
+      assert ledger(device.uid, agent_id) == {true, 0}
+    end
+
     test "validation-scan writes reach the threshold and a merge reassignment keeps the count",
          %{actor: actor} do
       device = create_device!(actor, "192.0.2.12")

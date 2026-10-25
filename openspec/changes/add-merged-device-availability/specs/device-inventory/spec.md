@@ -128,7 +128,7 @@ The policy-violation signal SHALL be the composite check's existing verdict and 
 
 ### Requirement: Availability Hysteresis Is Preserved
 The system SHALL treat a `down` record as decisive only after the number of consecutive `down` observations from that source reaches its authority class's confirmation threshold, SHALL treat an `up` record as decisive immediately, and SHALL keep a device's previous state while its governing class holds only records awaiting confirmation.
-The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be stored on the per-agent ledger row or evidence record, capped at the threshold. The per-agent counter SHALL be maintained at the ledger write boundary for every ledger writer, SHALL advance only for an observation newer than the stored one, and SHALL NOT change the stored result or its timestamps.
+The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL be stored on the per-agent ledger row or evidence record, capped at the threshold. The per-agent counter SHALL be maintained at the ledger write boundary for every ledger writer, SHALL advance only for an observation newer than the stored one, SHALL be 0 for a stored `up` result and at least 1 for a stored `down` result, and SHALL NOT change the stored result or its timestamps.
 
 #### Scenario: Single failed probe does not flip a device
 - **GIVEN** a device resolved `available` from per-agent results
@@ -156,6 +156,12 @@ The `active_probe` threshold SHALL default to 2. The confirmation counter SHALL 
 - **GIVEN** an agent result with one recorded failure
 - **WHEN** the row is moved to a merge survivor without a new observation
 - **THEN** its failure count and check time SHALL be unchanged
+
+#### Scenario: A changed result without a newer check time is recounted
+- **GIVEN** an agent result `up` with no recorded failure
+- **WHEN** the same agent's `down` result for the same check time is accepted into the ledger
+- **THEN** its failure count SHALL be 1
+- **AND** a replay of that `down` result at the same check time SHALL leave the count at 1
 
 #### Scenario: Recovery is immediate
 - **GIVEN** a device resolved `unavailable` from confirmed probe failures

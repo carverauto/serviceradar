@@ -162,6 +162,10 @@ gets the same counter without any change to its code:
   observation), it is 0 when `NEW.is_available` is true, 1 when the row goes
   from true to false, and `OLD.consecutive_down + 1` when it stays false,
   capped at the `active_probe` confirmation threshold;
+- on an update that changes `is_available` without a later `checked_at`
+  (the upsert accepts an equal `checked_at`, which has one-second
+  resolution), it is recomputed by the same rule, so a stored `down` result
+  never carries a counter of 0 (migration `20261025150000`);
 - on any other update (merge reassignment, a replayed result with the same
   `checked_at`, the backfill), the value the statement wrote is kept, which
   is the old value unless the statement sets it.
