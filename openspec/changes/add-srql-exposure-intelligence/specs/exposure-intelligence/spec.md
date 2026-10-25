@@ -436,6 +436,39 @@ Device ordinals SHALL come from `platform.device_fleet_ordinals`. Every warehous
 - **WHEN** an active transition with sequence 45 for an A fact that StarRocks has never held is delivered afterwards
 - **THEN** the transition is dropped and counted, and no fact row for that key becomes active
 
+### Requirement: Exposure Dictionary Descriptions Are Published As Versioned After-Images
+The system SHALL publish complete CVE and package-version dimension after-images through a transactional outbox on `exposure.dimensions.cve` and `exposure.dimensions.package`. It SHALL serialize publication state on the dimension kind and ordinal, including creation, assign changed content a new `transition_seq`, and retain the exact payload until JetStream acknowledges it. EventWriter SHALL apply complete rows to the StarRocks dimensions with `merge_condition = transition_seq`, accept identical equal-sequence replay, and reject the batch when loading fails or filters a row. Dimension identifiers SHALL be allocated by the producer. Dimension publication state in CNPG SHALL NOT serve as an exposure query fallback.
+
+The package dimension SHALL retain distinct installed versions under distinct `pkgver_ord` keys. It SHALL publish changes to package descriptions independently of exposure membership. The CVE dimension SHALL refresh nullable EPSS daily from the existing current, enabled advisory priority sources without rewriting assessments. An unavailable source read SHALL fail the refresh; an absent or withdrawn score in a successful read SHALL publish an explicit null under a new sequence. Initial identifier registration SHALL NOT clear an enriched score. Dimension replay and reconciliation SHALL be included in the rebuild gate before exposure queries become available.
+
+#### Scenario: Rolled-back description is never published
+- **WHEN** a transaction registers or changes a dimension and then rolls back
+- **THEN** neither its publication state nor an outbox message persists
+
+#### Scenario: Descriptive change does not require an assessment transition
+- **WHEN** an assessment's package display name changes without changing exposure membership or actionable attributes
+- **THEN** the package dimension receives a new complete after-image with a new sequence
+- **AND** no assessment transition is required for that description to reach the warehouse
+
+#### Scenario: New package versions retain older descriptions
+- **WHEN** devices report two installed versions of one package identity
+- **THEN** the dimension retains both versions under distinct package-version ordinals
+
+#### Scenario: EPSS refresh can clear a score
+- **GIVEN** a registered CVE has an EPSS score
+- **WHEN** a successful daily priority read no longer supplies that score
+- **THEN** the dimension publishes an explicit null with a newer sequence
+- **AND** assessment rows are unchanged
+
+#### Scenario: Delayed dimension delivery preserves current metadata
+- **GIVEN** a dimension at sequence 12 has already been loaded
+- **WHEN** sequence 11 arrives, followed by an identical replay of sequence 12
+- **THEN** the stored description remains the sequence-12 after-image
+
+#### Scenario: Failed publication remains retryable
+- **WHEN** JetStream does not acknowledge a dimension message
+- **THEN** the outbox retains its payload and sequence for an identical retry
+
 ### Requirement: Flows And Host Evidence Map To Devices Through An Address Dimension
 The system SHALL maintain a StarRocks address dimension mapping `(partition, ip)` to `device_ord` with validity intervals, address source, a shared flag, an agent-attested flag, and the prefix tags and site of the address. It SHALL be fed from inventory address changes and agent address leases through JetStream. Each interval publication SHALL be the complete interval row with an `interval_seq`, applied only when greater than the stored one. The EventWriter flow tier SHALL hold a bounded in-memory validity history per address, fed from the same stream and retained for the maximum accepted flow delay plus the late window. It SHALL resolve each flow endpoint against the intervals covering the flow's observation time, never against the address's current holder, and stamp per-side device ordinals and resolutions at ingest. An endpoint whose observation interval is covered by more than one device SHALL be `ambiguous`, and one older than the retained history SHALL be `outside_history` and counted; neither SHALL carry an ordinal. Device stamping SHALL participate in the same late window as attribution: while a flow's window is open, an address-validity update for an address one of its sides resolved through SHALL re-resolve that side with the same time-based lookup and publish a decision update when the result changes. After the cutoff the stamp SHALL be final, and an address update that would have changed it SHALL be counted, not applied to flows.
 

@@ -31,7 +31,7 @@ Your copy still has the old ceiling:
   max_file_store: 10G
 ```
 
-With the new stream sizes (about 23.25 GiB for `small`), a 10G ceiling cannot
+With the new stream sizes (about 24.25 GiB for `small`), a 10G ceiling cannot
 place every stream. Replace that one line.
 
 ## Procedure

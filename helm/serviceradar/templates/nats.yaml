@@ -335,13 +335,16 @@ spec:
                       # a PubAck, so a missing entry denies every sample and
                       # the broker logs a permissions violation.
                       "metrics.event_writer.warehouse",
-                      # Exposure transitions (ExposureTransitionRelay), relayed
-                      # from the assessment outbox into the EXPOSURE_TRANSITIONS
-                      # stream, and the relay's outbox health metrics. Both
-                      # publishes wait for a PubAck, so a missing entry leaves
-                      # transitions in the outbox and fires its age alert.
+                      # Exposure transitions and CVE/package dimensions, relayed
+                      # from their outboxes into EXPOSURE_TRANSITIONS and
+                      # EXPOSURE_DIMENSIONS, plus each relay's health metrics.
+                      # Outbox publishes wait for a PubAck, so a missing entry
+                      # leaves that outbox row and fires its age alert.
                       "vulnerability.assessment.transitions.>",
+                      "exposure.dimensions.cve",
+                      "exposure.dimensions.package",
                       "metrics.exposure_transitions",
+                      "metrics.exposure_dimensions",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
@@ -363,6 +366,8 @@ spec:
                       "inventory.k8s.>",
                       "trivy.report.>",
                       "vulnerability.assessment.transitions.>",
+                      "exposure.dimensions.cve",
+                      "exposure.dimensions.package",
                       "falco.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",

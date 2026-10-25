@@ -75,6 +75,9 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES, value: "1073741824"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES, value: "1073741824"}
 
   - it: renders an explicit EXPOSURE_TRANSITIONS size into core
     set:
@@ -87,6 +90,18 @@ tests:
       - contains:
           path: spec.template.spec.containers[0].env
           content: {name: SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES, value: "268435456"}
+
+  - it: renders an explicit EXPOSURE_DIMENSIONS size into core
+    set:
+      core.eventWriter.streams.exposure_dimensions.maxBytes: 256Mi
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES, value: "268435456"}
 
   - it: renders an explicit NOTIFICATIONS size into core
     set:

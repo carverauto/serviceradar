@@ -16,7 +16,7 @@ What exists today:
 | Topology | graph (AGE / Dgraph) | device uid | `in:device_graph`, `in:graph_cypher` |
 | BGP | StarRocks BMP events | peer, prefix | `in:bmp_events` |
 | Small current-state dimensions | CNPG, reachable from StarRocks through the opt-in `cnpg_platform` JDBC catalog, with column-scoped grants to `serviceradar_starrocks_reader` and an allowlist in `CatalogAllowlist` | | used by flow enrichment joins |
-| Current exposure facts, CVE and package dimensions, and transition history | StarRocks migration 0032 (`exposure_facts`, `exposure_cve_dim`, `exposure_package_dim`, `exposure_transitions_log`); see Decision 21 | fact key `(device_ord, cve_ord, pkg_ord)` | none yet |
+| Current exposure facts, CVE and package dimensions, and transition history | StarRocks migration 0032 (`exposure_facts`, `exposure_cve_dim`, `exposure_package_dim`, `exposure_transitions_log`) plus 0033 (`transition_seq` on the two dimensions); see Decisions 21 and 22 | fact key `(device_ord, cve_ord, pkg_ord)` | none yet |
 
 The gaps that block the six operator questions are:
 
@@ -946,6 +946,105 @@ Current facts and dimensions have no partition expiry. This migration does not
 start ingestion or expose a query entity; processors, retirement handling,
 snapshot repair and reconciliation remain separate tasks.
 
+### Decision 22: Versioned CVE and package dimension publication
+
+Approved by the product owner on 2026-10-24. This settles the remaining CVE/package parts
+of tasks 1.3 and 1.4; the address dimension remains in tasks 2.1 and 2.2.
+
+**Why a contract is needed.** Migration 0032 gives both dimensions `updated_at`
+but no sequence column. Two changes in the same timestamp precision, or an older
+message delivered after a newer one, cannot safely use arrival order to select
+the current metadata. Assessment transitions also omit package display names
+and EPSS, and an EPSS-only change does not produce an assessment transition.
+Deriving dimensions solely from the transitions would therefore be incomplete.
+
+**Publication and ordering.** Keep durable producer-side dimension records in
+CNPG, keyed by dimension kind and ordinal, containing their last complete
+after-image and sequence. These are dictionary publication state, not an
+exposure projection or a query fallback. Serialize creation and descriptive
+changes on that full key, including the absent-row case. A changed after-image
+draws a new value from `platform.exposure_transition_seq` and persists that
+value and an outbox row in the same transaction. An unchanged after-image does
+not allocate a new sequence. A rollback leaves neither the changed publication
+state nor its message. Retry and rebuild replay the stored payload and sequence;
+changing content under the same sequence is forbidden.
+
+**Source values.** Register the CVE and package-version dimensions in the
+assessment-producing transaction after their ordinals have been allocated.
+Also capture changes to the assessment's package descriptive fields even when
+they do not change exposure membership. The package row contains `pkgver_ord`,
+`pkg_ord`, `package_identity_key`, `installed_version`, and `package_name`.
+Use the assessment's nonblank package name, then its nonblank binary package
+name, then the identity key as the display fallback. Later serialized
+descriptive changes replace that label; installed versions retain separate
+rows. Deleting the last assessment does not delete its dictionary description.
+
+A CVE row contains `cve_ord`, `cve_id`, and nullable `epss_score`. Initial
+registration supplies a null score until enrichment and never clears an
+already enriched score. A daily producer refresh uses the existing
+`AdvisoryFeeds.CvePriority` policy over current, enabled advisory sources and
+publishes only changed values for registered CVEs. Missing or withdrawn EPSS
+becomes an explicit null under a new sequence. Zero remains a valid score;
+only finite scores in the inclusive range 0 through 1 are published. No new
+feed download or assessment rewrite is introduced. A failed source read must
+fail the refresh, not masquerade as an empty source and clear scores.
+
+**Transport and ingestion.** Publish schema-version-1 complete after-images on
+`exposure.dimensions.cve` and `exposure.dimensions.package`, with
+`transition_seq` and UTC `updated_at`. A producer-owned `EXPOSURE_DIMENSIONS`
+stream captures those two subjects, using file storage, one replica, limits
+retention, discard-old, a seven-day maximum age and a two-minute duplicate
+window. Its separate byte budget follows the existing transitions profile:
+1 GiB small, 2 GiB medium, 8 GiB large and 32 MiB tenant-2g. The relay removes an
+outbox row only after PubAck, uses a message id derived from its stored sequence,
+and reports pending age with a ten-minute health threshold. Stream expiry or
+byte eviction requires the rebuild/reconciliation path; PubAck alone does not
+prove warehouse delivery.
+
+Add `transition_seq BIGINT NOT NULL DEFAULT 0` to both warehouse dimensions in
+a new migration. EventWriter attaches to the producer-owned stream and applies
+complete rows with `merge_condition = transition_seq`. Older updates cannot
+overwrite newer values; identical equal-sequence replay is allowed. The
+processor allocates no identifiers and reads no CNPG data. Failed or filtered
+loads fail the batch. It is enabled only with StarRocks. Helm grants core
+publication and EventWriter consumption for the two subjects.
+
+Existing dictionaries and assessments are seeded through the snapshot work in
+task 1.6. That work must include dimension replay and reconciliation, including
+explicitly cleared scores, before exposure queries are enabled. This slice
+does not claim warehouse restore or full exposure readiness.
+
+**Required evidence.** A rolled-back source change publishes nothing; a failed
+publish retains its exact payload; new and changed descriptions publish once;
+two installed versions coexist; EPSS can change and clear without changing an
+assessment; duplicate and reversed delivery preserve the latest dimension;
+and a missing StarRocks backend never writes a CNPG projection.
+
+### Decision 22 implementation evidence (2026-10-24)
+
+Migration `20261024210000` adds source-transaction dimension publication state,
+registration triggers and the acknowledged outbox. The daily refresh uses the
+existing priority source; shared relay transport preserves immutable retries
+and outbox health reporting. Warehouse migration `0033` adds sequence columns,
+and EventWriter loads complete CVE/package rows with conditional merge.
+
+The remote full unit run passed with 459 tests passing and two skipped
+([BuildBuddy invocation](https://carverauto.buildbuddy.io/invocation/d88b4fed-1888-4dad-8290-88c580edba84)).
+The new consumer tests failed before implementation at the routing boundary,
+then passed with the producer-owned stream configuration, payload validation,
+load headers, retry labels and failed/filtered-load behavior. Strict OpenSpec
+validation also passed. Source-transaction, EPSS refresh, PubAck retry and
+concurrent creation/update cases extend the existing serial database suite;
+the hosted integration run is still required.
+
+An isolated synthetic warehouse probe applied production migrations 0032 and
+0033 and exercised actual Stream Load: reversed delivery and identical replay
+preserved the newest CVE score, a newer explicit null survived older replay,
+and separate package versions retained their newest descriptions. The scratch
+database was removed and its absence rechecked. This proves the warehouse
+boundary; it does not claim deployed end-to-end product delivery. Dimension
+bootstrap and recovery remain task 1.6, and address evidence remains 2.1/2.2.
+
 ## Section 0 evidence (2026-10-21)
 
 ### Task 0.6: synthetic warehouse spike
@@ -1208,7 +1307,8 @@ This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequenc
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and
 package-version dictionaries and the CVE ordinal function) and 1.3 (the transitions subject,
 its stream limits and the core publish permission). Device retirement (`retired_seq`,
-task 1.5), the snapshot (1.6) and the `exposure.dimensions.*` subjects remain open.
+task 1.5), the snapshot (1.6) and the address dimension remain open. CVE and package
+dimension publication is Decision 22.
 
 **Incremental matching.** The hourly full recompute is replaced by a run every 5 minutes
 that evaluates only devices whose inputs changed:
@@ -1277,9 +1377,10 @@ a failed or filtered load fails acknowledgement. History uses at-least-once
 append semantics: regrouping deliveries can append the same transition again,
 so future history readers must identify transitions by `transition_seq`.
 
-This delivers the transition-consumer half of 1.3/1.4. Dimension publishing and
-consumption, retirement, snapshot/reconciliation and the remaining lifecycle
-scenarios are still open. No exposure query entity is enabled by this slice.
+This delivers the transition-consumer half of 1.3/1.4. Retirement,
+snapshot/reconciliation and the remaining lifecycle scenarios are still open.
+CVE and package dimension ingestion is Decision 22. No exposure query entity
+is enabled by this slice.
 
 ## Open Questions
 

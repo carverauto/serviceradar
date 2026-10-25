@@ -36,6 +36,17 @@ defmodule ServiceRadar.TestSupport.ExposureTransitionCleanup do
     package_keys = keys |> Enum.map(&elem(&1, 0)) |> Enum.uniq()
     cve_ids = keys |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
 
+    for table <- ["exposure_dimension_outbox", "exposure_dimension_state"] do
+      Repo.delete_all(
+        from(row in table,
+          where:
+            fragment("?->>'package_identity_key'", row.payload) in ^package_keys or
+              fragment("?->>'cve_id'", row.payload) in ^cve_ids
+        ),
+        prefix: "platform"
+      )
+    end
+
     for {table, column, values} <- [
           {"exposure_package_ordinals", :package_identity_key, package_keys},
           {"exposure_package_version_ordinals", :package_identity_key, package_keys},

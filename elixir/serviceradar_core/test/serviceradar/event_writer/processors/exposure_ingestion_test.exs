@@ -1,4 +1,4 @@
-defmodule ServiceRadar.EventWriter.Processors.ExposureTransitionsTest do
+defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
   use ExUnit.Case, async: false
 
   alias Broadway.Message
@@ -235,6 +235,128 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitionsTest do
 
     send(history_http, :commit)
     assert {:ok, 4} = Task.await(task)
+  end
+
+  test "dimension subjects route complete rows and preserve separate package versions" do
+    cve = dimension("cve", 100, %{"epss_score" => 0.8})
+    older = dimension("cve", 99, %{"epss_score" => 0.2})
+    package = dimension("package", 101)
+
+    other_version =
+      dimension("package", 102, %{"pkgver_ord" => 102, "installed_version" => "2.0"})
+
+    for kind <- ["cve", "package"] do
+      message = %Message{
+        data: Jason.encode!(dimension(kind, 1)),
+        metadata: %{subject: "exposure.dimensions.#{kind}"},
+        acknowledger: {Pipeline, :ref, %{}}
+      }
+
+      assert Pipeline.handle_message(:default, message, %{}).batcher == :exposure_dimensions
+    end
+
+    processor = Pipeline.processor_for_batcher(:exposure_dimensions)
+    messages = Enum.map([cve, older, cve, package, other_version], &encode/1)
+    task = Task.async(fn -> processor.process_batch(messages) end)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_cve_dim/_stream_load", headers,
+                    [row]},
+                   2_000
+
+    assert headers["merge_condition"] == "transition_seq"
+
+    assert row == %{
+             "cve_ord" => 20_240_000_001,
+             "cve_id" => "CVE-2024-0001",
+             "epss_score" => 0.8,
+             "transition_seq" => 100,
+             "updated_at" => "2000-01-02 00:00:00"
+           }
+
+    assert Task.yield(task, 20) == nil
+    send(http, :commit)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_package_dim/_stream_load",
+                    package_headers, rows},
+                   2_000
+
+    assert package_headers["merge_condition"] == "transition_seq"
+    assert Enum.sort(Enum.map(rows, & &1["installed_version"])) == ["1.0", "2.0"]
+    assert Enum.all?(rows, &(&1["pkg_ord"] == 7 and &1["package_name"] == "examplelib"))
+    refute package_headers["label"] == headers["label"]
+    send(http, :commit)
+    assert {:ok, 5} = Task.await(task)
+
+    task = Task.async(fn -> processor.process_batch([encode(cve)]) end)
+    assert_receive {:load, http, _, replay_headers, [_]}, 2_000
+    assert replay_headers["label"] == headers["label"]
+    send(http, :commit)
+    assert {:ok, 1} = Task.await(task)
+  end
+
+  test "dimension null clears are explicit and failed or filtered loads fail the batch" do
+    processor = Pipeline.processor_for_batcher(:exposure_dimensions)
+
+    for kind <- ["cve", "package"], result <- [:commit, :failure, :filtered] do
+      task = Task.async(fn -> processor.process_batch([encode(dimension(kind, 200))]) end)
+      assert_receive {:load, http, _, _, [row]}, 2_000
+      if kind == "cve", do: assert(Map.has_key?(row, "epss_score") and is_nil(row["epss_score"]))
+      send(http, result)
+
+      if result == :commit do
+        assert {:ok, 1} = Task.await(task)
+      else
+        assert {:error, {:warehouse_load, _, _}} = Task.await(task)
+      end
+    end
+  end
+
+  test "dimension validation rejects incomplete rows and the consumer requires StarRocks" do
+    processor = Pipeline.processor_for_batcher(:exposure_dimensions)
+
+    for payload <- [
+          Map.delete(dimension("cve", 1), "epss_score"),
+          dimension("cve", 1, %{"epss_score" => 1.1}),
+          dimension("cve", 1, %{"epss_score" => "0.5"}),
+          dimension("package", 1, %{"pkgver_ord" => 0}),
+          dimension("package", 0),
+          dimension("package", 1, %{"installed_version" => nil})
+        ] do
+      assert {:error, :invalid_exposure_dimension} = processor.process_batch([encode(payload)])
+    end
+
+    stream = Enum.find(Config.load().streams, &(&1.name == "EXPOSURE_DIMENSIONS"))
+    assert stream.ensure_stream == false
+    Application.put_env(:serviceradar_core, StarRocks, enabled: false)
+    refute Enum.any?(Config.load().streams, &(&1.name == "EXPOSURE_DIMENSIONS"))
+    assert {:error, :starrocks_required} = processor.process_batch([encode(dimension("cve", 1))])
+    refute_receive {:load, _, _, _, _}, 20
+  end
+
+  defp dimension(kind, sequence, overrides \\ %{}) do
+    fields =
+      case kind do
+        "cve" ->
+          %{"cve_ord" => 20_240_000_001, "cve_id" => "CVE-2024-0001", "epss_score" => nil}
+
+        "package" ->
+          %{
+            "pkgver_ord" => 101,
+            "pkg_ord" => 7,
+            "package_identity_key" => "synthetic-package-alpha",
+            "installed_version" => "1.0",
+            "package_name" => "examplelib"
+          }
+      end
+
+    fields
+    |> Map.merge(%{
+      "schema_version" => 1,
+      "dimension" => kind,
+      "transition_seq" => sequence,
+      "updated_at" => "2000-01-02T00:00:00.123456"
+    })
+    |> Map.merge(overrides)
   end
 
   defp transition(sequence, overrides \\ %{}) do

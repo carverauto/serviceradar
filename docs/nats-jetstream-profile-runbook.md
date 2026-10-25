@@ -211,12 +211,12 @@ serviceradar-control repository):
 `tenant-2g` is sized for three NATS servers and the replica counts
 `values-tenant.yaml` sets (KV, objects, `events`, plugins and `ARANCINI_CAUSAL`
 at R3, `flows` and the EventWriter streams at R1): the most loaded server needs
-1.41 GiB against a 1.58 GiB limit.
+1.42 GiB against a 1.58 GiB limit.
 
 The chart checks the per-server limit only. If the control plane also enforces
 `js_disk_storage` as a JetStream account limit, NATS counts a stream with more
 than one replica at `max_bytes * replicas` against an un-tiered account limit,
-so the same streams need about 3.4 GiB of account storage, not 2G. An account
+so the same streams need 3.5 GiB of account storage, not 2G. An account
 limit for these plans must be at least that sum, or tiered per replica count.
 
 ## Reclaiming a stream after disabling a collector

@@ -13,6 +13,7 @@ alias ServiceRadar.EventWriter.Config
 alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
+alias ServiceRadar.Inventory.ExposureDimensionRelay
 alias ServiceRadar.Inventory.ExposureTransitionRelay
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
@@ -1217,6 +1218,13 @@ if config_env() == :prod do
       _ -> :file
     end
 
+  config :serviceradar_core, ExposureDimensionRelay,
+    max_bytes:
+      StateBucketSizing.bytes_from_env!(
+        "SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES",
+        ExposureDimensionRelay.default_max_bytes()
+      )
+
   # Exposure transition stream size (EXPOSURE_TRANSITIONS, reconciled when the
   # relay starts). Unset or blank means 1 GiB; an invalid value fails boot
   # naming the variable.
@@ -1740,6 +1748,8 @@ if config_env() == :prod do
            {"*/5 * * * *", RootSpanRatioWorker, queue: :maintenance},
            {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
            {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
+           {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker,
+            queue: :maintenance},
            {"17 3 * * *", DataRetentionWorker, queue: :maintenance},
            # Cold-tier chunk exporter: hourly so the frontier stays ~export_lag
            # behind now; self-guards on cold-tier config (no-op when absent).
@@ -2010,6 +2020,7 @@ if config_env() == :prod do
         Config.scan_results_stream(),
         Config.mtr_results_stream(),
         Config.exposure_transitions_stream(),
+        Config.exposure_dimensions_stream(),
         %{
           name: "BMP_CAUSAL",
           stream_name: "events",

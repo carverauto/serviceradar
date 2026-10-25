@@ -63,7 +63,7 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
         # core relays the traces for EventWriter to store. Assessment transitions
         # describe vulnerabilities on monitored devices and use the same durable path.
         assert stream.subject =~
-                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr|vulnerability\.assessment\.transitions)/,
+                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr|vulnerability\.assessment\.transitions|exposure\.dimensions)/,
                "Stream #{stream.name} has subject #{stream.subject} which may not be for external data"
       end
     end

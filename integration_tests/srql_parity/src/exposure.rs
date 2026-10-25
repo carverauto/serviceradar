@@ -1,5 +1,5 @@
 //! Storage contract checks against the production DDL in the runner's disposable warehouse.
-//! These do not claim to test conditional Stream Load or the future transition consumer.
+//! These do not claim to test conditional Stream Load or the transition consumer.
 
 use anyhow::{Result, ensure};
 use mysql_async::{
@@ -50,13 +50,14 @@ pub(crate) async fn verify(conn: &mut Conn, database: &str, ddl_dir: &Path) -> R
     .await?;
 
     conn.query_drop(format!(
-        "INSERT INTO {database}.exposure_package_dim VALUES \
+        "INSERT INTO {database}.exposure_package_dim \
+         (pkgver_ord, pkg_ord, package_identity_key, package_name, installed_version, updated_at) VALUES \
          (52, 41, 'synthetic:example-package', 'example-package', '1.0', NOW()), \
          (53, 41, 'synthetic:example-package', 'example-package', '2.0', NOW())"
     ))
     .await?;
     conn.query_drop(format!(
-        "INSERT INTO {database}.exposure_cve_dim VALUES \
+        "INSERT INTO {database}.exposure_cve_dim (cve_ord, cve_id, epss_score, updated_at) VALUES \
          (1000000000000, 'EXAMPLE-ADVISORY-1', NULL, NOW())"
     ))
     .await?;

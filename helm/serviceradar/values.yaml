@@ -257,7 +257,7 @@ nats:
     # exceeds 85% of max_file_store (the rest is headroom for streams a later
     # release adds). The failure lists every stream with its size, replicas and
     # whether it lands on every server (replicas >= nats.replicas) or is spread.
-    # The small profile needs 22.75 GiB of its 28.50 GiB limit on three servers,
+    # The small profile needs 23.08 GiB of its 28.50 GiB limit on three servers,
     # with flow-collector, bmp-collector and the trivy sidecar all counted.
     # allowOvercommit: true skips that check (not the persistence.size ceiling).
     allowOvercommit: false
@@ -620,6 +620,8 @@ core:
     # exposure_transitions is the EXPOSURE_TRANSITIONS stream core's exposure
     # transition relay creates (one replica, 7 days), rendered as
     # SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES.
+    # exposure_dimensions is the corresponding CVE/package dictionary stream,
+    # rendered as SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES.
     streams:
       metrics: {}
       k8s_inventory: {}
@@ -629,6 +631,7 @@ core:
       trivy_reports: {}
       notifications: {}
       exposure_transitions: {}
+      exposure_dimensions: {}
       flows: {}
       ARANCINI_CAUSAL: {}
   # Core's threat-intel raw payload object store (OBJ_serviceradar_threat_intel,
