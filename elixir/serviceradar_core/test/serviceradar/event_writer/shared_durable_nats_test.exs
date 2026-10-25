@@ -67,6 +67,7 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
       # and the work is shared.
       alpha = start_producer(config, :synthetic_alpha, :alpha, :ack)
       _bravo = start_producer(config, :synthetic_bravo, :bravo, :ack)
+      await_producers([:synthetic_alpha, :synthetic_bravo])
       published = publish(admin, "first", 200)
 
       received = collect(200, 20_000)
@@ -79,6 +80,7 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
       # as a replica that crashes mid-batch. Every message still reaches a
       # surviving producer, and only once.
       charlie = start_doomed_producer(config, :synthetic_charlie, :charlie)
+      await_producers([:synthetic_alpha, :synthetic_bravo, :synthetic_charlie])
       second = publish(admin, "second", 200)
       assert_receive {:received, :charlie, first_held, 1}, 20_000
       stop_producer(charlie)
@@ -155,8 +157,35 @@ defmodule ServiceRadar.EventWriter.SharedDurableNatsTest do
   defp publish(conn, batch, count) do
     for n <- 1..count do
       payload = "#{batch}-#{n}"
-      {:ok, _} = Gnat.request(conn, @subject, payload, receive_timeout: 5_000)
+
+      {:ok, %{body: body}} =
+        Gnat.request(conn, @subject, payload, receive_timeout: 5_000)
+
+      assert %{"seq" => seq} = Jason.decode!(body)
+      assert is_integer(seq) and seq > 0
       payload
+    end
+  end
+
+  defp await_producers(names) do
+    await_producers(names, System.monotonic_time(:millisecond) + 20_000)
+  end
+
+  defp await_producers(names, deadline) do
+    pending = Enum.reject(names, &Producer.status(&1).ready)
+
+    if pending == [] do
+      :ok
+    else
+      remaining = deadline - System.monotonic_time(:millisecond)
+
+      if remaining <= 0 do
+        statuses = Map.new(pending, &{&1, Producer.status(&1)})
+        flunk("producers not ready before publish: #{inspect(statuses)}")
+      else
+        Process.sleep(min(50, remaining))
+        await_producers(names, deadline)
+      end
     end
   end
 
