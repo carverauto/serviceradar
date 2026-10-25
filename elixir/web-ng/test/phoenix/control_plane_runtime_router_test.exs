@@ -475,6 +475,42 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
     end
   end
 
+  test "malformed authority bodies use the route status and stay HTTP 400" do
+    path_id = "11111111-1111-4111-8111-111111111111"
+    other_id = "22222222-2222-4222-8222-222222222222"
+
+    documents = [
+      %{},
+      %{"binding_id" => other_id},
+      %{"desired" => %{"binding_id" => other_id}},
+      %{"binding_id" => other_id, "desired" => %{"binding_id" => other_id}},
+      %{"binding_id" => 1},
+      %{"desired" => %{}}
+    ]
+
+    for {collection, status} <- [
+          {"init-authorities", "invalid_init_authority"},
+          {"media-authorities", "invalid_media_authority"}
+        ],
+        document <- documents,
+        {method, suffix} <- [{:put, ""}, {:post, "/revoke"}] do
+      conn = authority_request(method, "/v1/media/#{collection}/#{path_id}#{suffix}", document)
+
+      assert conn.status == 400
+      assert json_response(conn) == %{"status" => status}
+      assert get_resp_header(conn, "cache-control") == ["no-store"]
+      assert get_resp_header(conn, "x-content-type-options") == ["nosniff"]
+    end
+  end
+
+  defp authority_request(method, path, document) do
+    method
+    |> conn(path, Jason.encode!(document))
+    |> put_req_header("content-type", "application/json")
+    |> media_headers()
+    |> ControlPlaneRuntimeRouter.call([])
+  end
+
   defp binding_request(body, path \\ "/v1/media/archive-bindings", content_type \\ "application/json") do
     :post
     |> conn(path, body)

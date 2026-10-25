@@ -43,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveAuthorities do
               ArchiveAuthorities.revoke(kind, installation(conn), document, actor: actor())
 
             _ ->
-              {:error, :invalid_init_authority}
+              {:error, invalid_authority(kind)}
           end
 
         respond_result(conn, result)
@@ -55,6 +55,8 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveAuthorities do
 
   defp kind("init-authorities"), do: :init
   defp kind("media-authorities"), do: :media
+  defp invalid_authority(:init), do: :invalid_init_authority
+  defp invalid_authority(:media), do: :invalid_media_authority
 
   defp installation(conn), do: conn.private.control_plane_media_installation
   defp actor, do: SystemActor.system(:camera_archive_control)
