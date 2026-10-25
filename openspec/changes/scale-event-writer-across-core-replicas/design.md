@@ -47,8 +47,9 @@ Safe N-way (idempotent writes keyed by stable ids, or fenced):
   `ON CONFLICT DO NOTHING` on stable ids, StarRocks primary-key tables.
 - flows and flow attribution updates: StarRocks primary-key upserts with a
   `merge_condition` on the attribution version.
-- exposure transitions and dimensions: `merge_condition` on `transition_seq`, bucket
-  session locks in `ExposureDelivery`.
+- exposure transitions and dimensions: cross-replica safety comes from the
+  StarRocks `merge_condition` on `transition_seq`. The bucket session locks in
+  `ExposureDelivery` are not a correctness dependency of this change.
 - k8s nodes: snapshot fence (`WHERE current.snapshot_at < EXCLUDED.snapshot_at`).
 - MTR and ad-hoc scans: check-then-insert plus primary keys; a concurrent duplicate
   fails and retries.

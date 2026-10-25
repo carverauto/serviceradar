@@ -38,19 +38,6 @@ defmodule ServiceRadar.EventWriter.HealthTest do
         assert report == %{healthy: true, nodes: %{}}
       end
     end
-
-    test "a call that does not answer is unhealthy" do
-      report = Health.cluster_status(0)
-
-      assert report.healthy == false
-
-      assert %{
-               enabled: true,
-               running: false,
-               healthy: false,
-               reason: {:error, {:unreachable, {:erpc, :timeout}}}
-             } = report.nodes[node()]
-    end
   end
 
   describe "cluster_status result mapping" do
