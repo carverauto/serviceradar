@@ -27,7 +27,8 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   empty in `legacy`, so nothing else would resolve devices that see no new evidence.
   Entering from `legacy` first drops shadow rows left by an earlier shadow period.
   It is idempotent: in `shadow` it only enqueues the full pass again, which writes on
-  change.
+  change. From `legacy` it returns `{:error, :restore_pending}` while a restore is
+  waiting, or the compatibility snapshot still differs from `is_available`.
 
   `enter_cutover/1` (stage c) moves `shadow` to `cutover`. Under the drained switch it
   seeds `device_availability_legacy` from every device's `is_available`, so a device no
@@ -143,16 +144,18 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
   @doc """
   Switches `legacy` to `shadow` (or repeats the entry in `shadow`) and enqueues the full
-  resolution and the compatibility-table seed. Returns the mode it found.
+  resolution and the compatibility-table seed. Returns the mode it found. From `legacy`,
+  returns `{:error, :restore_pending}` while a restore is waiting or the snapshot still
+  differs from `is_available`.
   """
   @spec enter_shadow(keyword()) :: {:ok, %{from: t(), to: :shadow}} | {:error, term()}
   def enter_shadow(opts \\ []) do
     switch(opts, fn
-      # A rollback whose restore has not finished would leave resolver values in
-      # is_available, and the shadow entry seed would copy them into the compatibility
-      # table, losing the legacy values the restore puts back.
+      # A rollback whose restore has not finished, or whose snapshot still differs
+      # from is_available, would let the shadow entry seed copy the resolver's
+      # values into the compatibility table.
       :legacy = from ->
-        if CutoverWorker.outstanding?("restore"),
+        if CutoverWorker.outstanding?("restore") or CutoverWorker.restore_incomplete?(),
           do: {:error, :restore_pending},
           else: shadow_from(from)
 

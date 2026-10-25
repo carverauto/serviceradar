@@ -12,9 +12,13 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorkerTest do
     # {mode, control, facts, step}
     {:legacy, :auto, %{restore_pending: false}, :enter_shadow},
     {:legacy, :auto, %{restore_pending: true}, :none},
+    {:legacy, :auto, %{restore_pending: true, restore_incomplete: true}, :none},
+    {:legacy, :auto, %{restore_pending: false, restore_incomplete: true}, :restore},
     {:legacy, :hold_shadow, %{restore_pending: false}, :enter_shadow},
     {:legacy, :hold_shadow, %{restore_pending: true}, :none},
+    {:legacy, :hold_shadow, %{restore_pending: false, restore_incomplete: true}, :restore},
     {:legacy, :hold_legacy, %{restore_pending: false}, :none},
+    {:legacy, :hold_legacy, %{restore_incomplete: true}, :none},
     {:shadow, :auto, %{ready: true, resolved: true}, :enter_cutover},
     {:shadow, :auto, %{ready: false, resolved: true, resolve_outstanding: false}, :none},
     {:shadow, :auto, %{ready: false, resolved: false, resolve_outstanding: false}, :resolve},

@@ -25,7 +25,10 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   `Mode.enter_cutover/1`, `Mode.enter_legacy/1`), so the cutover drains the writers,
   seeds the compatibility table and leaves the reconciliation and its single summary
   event to `CutoverWorker`. Entering `shadow` is never attempted while a restore is
-  outstanding (`{:error, :restore_pending}`).
+  outstanding, or while the compatibility snapshot still differs from `is_available`
+  (`{:error, :restore_pending}`). When the snapshot differs and no restore is waiting,
+  the run enqueues the restore again. `hold_legacy` in `legacy` takes no step and does
+  not read the snapshot.
 
   In `shadow` the run also stores the readiness evaluation on the settings row. When the
   control is `auto` and the conditions are still unmet 24 hours after entering `shadow`,
@@ -87,7 +90,13 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   """
 
   @type step ::
-          :none | :enter_shadow | :enter_cutover | :resume_cutover | :enter_legacy | :resolve
+          :none
+          | :enter_shadow
+          | :enter_cutover
+          | :resume_cutover
+          | :enter_legacy
+          | :resolve
+          | :restore
 
   @doc "Enqueues a run now, through the repo; needs no running Oban instance."
   @spec enqueue() :: :ok
@@ -117,7 +126,7 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
     record_pin(recorded_pin, pin)
     {control, guard} = effective(pin, stored)
     mode = Map.fetch!(@modes, mode)
-    facts = facts(mode, entered_at, resolved_at)
+    facts = facts(mode, control, entered_at, resolved_at)
     report_stall(mode, control, facts, entered_at, now)
     apply_step(step(mode, control, facts), guard, facts)
   end
@@ -125,7 +134,9 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   @doc """
   The step the progression takes from `mode` under `control`, given `facts`:
 
-    * `:restore_pending` - a restore from an earlier rollback has not finished;
+    * `:restore_pending` - a restore from an earlier rollback is waiting or running;
+    * `:restore_incomplete` - the compatibility snapshot still differs from
+      `is_available`, and no restore is waiting;
     * `:ready` - every readiness condition holds;
     * `:resolve_outstanding` - a full shadow resolution is waiting or running;
     * `:resolved` - one finished since entering `shadow`;
@@ -135,8 +146,13 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   def step(_mode, :invalid, _facts), do: :none
   def step(:legacy, :hold_legacy, _facts), do: :none
 
-  def step(:legacy, _control, facts),
-    do: if(facts[:restore_pending], do: :none, else: :enter_shadow)
+  def step(:legacy, _control, facts) do
+    cond do
+      facts[:restore_pending] -> :none
+      facts[:restore_incomplete] -> :restore
+      true -> :enter_shadow
+    end
+  end
 
   def step(:shadow, :hold_legacy, _facts), do: :enter_legacy
 
@@ -165,10 +181,19 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   defp effective_control({:ok, control}), do: control
   defp effective_control({:invalid, _raw}), do: :invalid
 
-  defp facts(:legacy, _entered_at, _resolved_at),
-    do: %{restore_pending: CutoverWorker.outstanding?("restore")}
+  # `hold_legacy` stays put, so it does not scan the snapshot every minute.
+  defp facts(:legacy, control, _entered_at, _resolved_at) when control in [:auto, :hold_shadow] do
+    pending = CutoverWorker.outstanding?("restore")
 
-  defp facts(:shadow, entered_at, resolved_at) do
+    %{
+      restore_pending: pending,
+      restore_incomplete: not pending and CutoverWorker.restore_incomplete?()
+    }
+  end
+
+  defp facts(:legacy, _control, _entered_at, _resolved_at), do: %{}
+
+  defp facts(:shadow, _control, entered_at, resolved_at) do
     readiness = Readiness.evaluate(entered_at, resolved_at)
     Repo.query!(@record_readiness, [readiness])
 
@@ -180,10 +205,10 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
     }
   end
 
-  defp facts(:cutover, _entered_at, _resolved_at),
+  defp facts(:cutover, _control, _entered_at, _resolved_at),
     do: %{reconcile_outstanding: CutoverWorker.outstanding?("reconcile")}
 
-  defp facts(:authoritative, _entered_at, _resolved_at), do: %{}
+  defp facts(:authoritative, _control, _entered_at, _resolved_at), do: %{}
 
   defp record_pin(recorded, pin) do
     value = ModeControl.pin_value(pin)
@@ -205,6 +230,11 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   defp apply_step(:resolve, _guard, _facts) do
     :ok = ShadowEntryWorker.enqueue()
     {:ok, :resolve}
+  end
+
+  defp apply_step(:restore, _guard, _facts) do
+    :ok = CutoverWorker.enqueue("restore")
+    {:ok, :restore}
   end
 
   defp apply_step(:enter_cutover, guard, facts) do

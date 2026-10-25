@@ -41,8 +41,9 @@ defmodule ServiceRadar.Inventory.Availability.Readiness do
   SELECT count(*) FROM (SELECT 1 FROM platform.availability_invalidations LIMIT $1) AS capped
   """
 
-  # Execution times are stored to the second, so a run counts when it started in a
-  # later second than the entry.
+  # The column rounds to the nearest second, so a run counts only from two seconds
+  # after the truncated entry. A value rounded up from the entry's own second does
+  # not count.
   @sweeps_waiting """
   WITH active AS (
     SELECT DISTINCT g.id, g.name, COALESCE(e.agent_id, '') AS agent_id
@@ -58,7 +59,7 @@ defmodule ServiceRadar.Inventory.Availability.Readiness do
     SELECT 1 FROM platform.sweep_group_executions AS c
     WHERE c.sweep_group_id = a.id AND COALESCE(c.agent_id, '') = a.agent_id
       AND c.status = 'completed'
-      AND c.started_at >= date_trunc('second', $1::timestamp) + interval '1 second'
+      AND c.started_at >= date_trunc('second', $1::timestamp) + interval '2 seconds'
   )
   ORDER BY a.name, a.id, a.agent_id
   LIMIT $2

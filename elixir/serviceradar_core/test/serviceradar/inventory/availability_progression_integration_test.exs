@@ -135,6 +135,28 @@ defmodule ServiceRadar.Inventory.AvailabilityProgressionIntegrationTest do
       assert Mode.current() == :legacy
     end
 
+    test "a pruned restore is re-enqueued under auto and the snapshot is kept",
+         %{actor: actor} do
+      device = authoritative_with_recovered_device!(actor)
+      assert false == legacy_value(device.uid)
+
+      assert {:ok, _setting} = ModeControl.set(:hold_legacy, actor: actor)
+      assert {:ok, :enter_legacy, %{from: :authoritative, to: :legacy}} = ProgressionWorker.run()
+
+      # Discarded, then pruned: no job row, and the restore never ran.
+      delete_jobs!()
+
+      assert {:ok, _setting} = ModeControl.set(:auto, actor: actor)
+      assert {:ok, :restore} = ProgressionWorker.run()
+      assert Mode.current() == :legacy
+      assert cutover_jobs() == [{"restore", "available"}]
+      assert false == legacy_value(device.uid)
+
+      assert {:ok, :none} = ProgressionWorker.run()
+      assert Mode.current() == :legacy
+      assert false == legacy_value(device.uid)
+    end
+
     test "hold_shadow from authoritative returns to shadow through legacy once the restore is done",
          %{actor: actor} do
       device = authoritative_with_recovered_device!(actor)

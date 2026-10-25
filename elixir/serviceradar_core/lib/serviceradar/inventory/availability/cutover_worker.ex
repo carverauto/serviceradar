@@ -94,6 +94,17 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
   SELECT (SELECT count(*) FROM page), (SELECT max(uid) FROM page), (SELECT count(*) FROM restored)
   """
 
+  # Every device that has a compatibility row, deleted or not. A device with no row is
+  # not a mismatch: the first shadow entry has to seed it. Same rows the restore page writes.
+  @restore_incomplete """
+  SELECT EXISTS (
+    SELECT 1
+    FROM platform.device_availability_legacy AS l
+    JOIN platform.ocsf_devices AS d ON d.uid = l.device_uid
+    WHERE d.is_available IS DISTINCT FROM l.is_available
+  )
+  """
+
   @summary """
   SELECT d.availability_state, count(*)
   FROM platform.ocsf_devices AS d
@@ -131,6 +142,17 @@ defmodule ServiceRadar.Inventory.Availability.CutoverWorker do
   @spec outstanding?(String.t()) :: boolean()
   def outstanding?(phase) when phase in @phases,
     do: Repo.exists?(phase_jobs(phase, @queued_or_running), prefix: "platform")
+
+  @doc """
+  Whether a rollback has not put `is_available` back: some compatibility row still
+  differs from its device. A discarded restore leaves no job, so this is what keeps
+  the next shadow entry from copying the unrestored column over the snapshot.
+  """
+  @spec restore_incomplete?() :: boolean()
+  def restore_incomplete? do
+    %{rows: [[incomplete?]]} = Repo.query!(@restore_incomplete)
+    incomplete?
+  end
 
   defp queued_states("reconcile"), do: @queued_or_running
   defp queued_states(_phase), do: @queued_states
