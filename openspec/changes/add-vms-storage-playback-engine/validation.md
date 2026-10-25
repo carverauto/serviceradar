@@ -714,9 +714,10 @@ receipts, the retained destination, a rejected conflicting destination, a distin
 new generation and absence of qualification/init authority. Cleanup deletes only
 the test's unique synthetic provisioning reference and rechecks zero rows.
 Authentication and malformed-body cases remain owned by the unit router suite.
-The new guarded case is compiled but excluded from ordinary `make test`; its body
-has not executed in this worktree. Published-head guarded Web CI remains mandatory,
-and no current result establishes provider readiness or hosted installation.
+The new guarded case is compiled but excluded from ordinary `make test`. Its body
+had not executed in the authoring worktree. The published-head record below is
+the execution evidence. No result here establishes provider readiness or hosted
+installation.
 
 ### Published-head registration validation
 
