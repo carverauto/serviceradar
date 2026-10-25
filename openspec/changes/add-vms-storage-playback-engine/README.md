@@ -2,43 +2,45 @@
 
 ## Current pickup
 
-[Durable recording stop #5989](https://github.com/carverauto/serviceradar/pull/5989)
-is merged at `b06d0b6b12e42519aa0bda8157692feedbffd12d`. All 20 checks passed,
-including the six new guarded database cases. [Cloud media installation #187](https://github.com/carverauto/serviceradar-control/pull/187)
-is merged at `a55f904cd9f929a58e133ca02c9b6dbe58323b73`; all five checks passed,
-including its actual Timescale database suite. The Cloud installation proves
-media authentication and chart persistence, not storage authority or readiness.
+[Private archive registration #6000](https://github.com/carverauto/serviceradar/pull/6000)
+is merged at `8974fcddd7039648085898b7fb9319d55898a7c8`. Its published head
+`e639b4fd` passed all 19 checks, including the seven guarded Web database targets
+and successful teardown and fixture-generation lease release. The approved
+pre-push Test exception remains in the validation record; final-head database
+execution satisfied its condition. The [registration contract](archive-registration.md) returns an
+immutable binding ID and digest with unqualified, unavailable status.
 
-[Bounded init-object authority #5996](https://github.com/carverauto/serviceradar/pull/5996)
-is merged at `ea7155e99f`. It installs a nonrenewable authority window and one
-init-only dispatch grant. Its published head `447f594b` passed all 19 checks,
-including guarded Core and Web database workflows; subsequent merges retain the
-checkpoint. The source validation notes keep the original prepublication limits.
-
-The current checkpoint adds [private archive registration](archive-registration.md)
-through the existing deployment-bound media administrator listener. It reuses the
-immutable destination parser and Ash registration action, returning a product
-binding ID and digest with unqualified, unavailable status. It does not provision
-provider resources or install upload authority. The new guarded Web database
-case remains a published-head CI gate; unit routing/schema evidence is separate.
+[Cloud media reservation #188](https://github.com/carverauto/serviceradar-control/pull/188)
+is an open draft, not a merged prerequisite. It retains immutable allocation
+intent and a sticky teardown fence before provider allocation; all five CI
+checks passed. Local Dialyzer fails with the same 11 emitted warnings on the exact
+base and PR head; CI skips Dialyzer. Neither registration nor reservation
+provisions storage or installs upload authority.
 
 Production recording stays disabled. Preserve the operator-confirmed live RTSP
 path and all existing ownership, manifest, archive, intent and dispatch
-assertions. No rollout, live provider request, archive availability, recording
-activation or local-media reclamation is introduced here. Provider I/O is outside
-this metadata-registration checkpoint.
+assertions. Product transport development uses isolated synthetic endpoints;
+live provider qualification and deployment acceptance remain separate gates.
 
 ## Priority order
 
-1. Validate and publish the private archive-registration checkpoint through
-   no-mistakes, including its guarded Web database case. Cloud
+1. Verify the provisioned spool lifetime before recorder ownership and at write
+   boundaries. In parallel, implement bounded sealed-media streaming through the
+   isolated storage service with operation-specific authority and exact object
+   verification. Init authority must not authorize media. Follow verified media
+   with a recovery manifest from the frozen descriptor, then fenced idempotent
+   index publication. Multipart reconciliation remains a separate open gate.
+2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
+   before adding a provider-creation worker. A matching name or successful
+   create response cannot prove ownership. Cloud
    [issue #182](https://github.com/carverauto/serviceradar-control/issues/182) and
    [issue #183](https://github.com/carverauto/serviceradar-control/issues/183) own
-   durable inventory, provisioning and preservation before teardown. Full
-   qualification, provisioned spool identity and private workload installation
-   are still required before Cloud can install init authority.
-2. Add streaming media, multipart reconciliation, recovery-manifest verification
-   and index publication.
+   inventory, provisioning and preservation before teardown. Retain exact
+   operation/destination identity, uncertain outcomes and the product binding
+   receipt once the provider proof contract is established. Full qualification,
+   provisioned spool identity and private workload installation are required
+   before Cloud can install upload authority. This does not block synthetic
+   product transport development.
 3. Complete playback, holds/retention, hosted lifecycle and optional workers in
    [tasks.md](tasks.md), following [Cloud ownership](cloud-control-plane.md).
 4. Keep tasks 0.4 and 0.6 open: codec/RTCP/logical-byte experiments do not select
@@ -59,7 +61,8 @@ this metadata-registration checkpoint.
 | Durable recording stop | #5989 merged; 20 checks passed. Core `e00f8d32` and Web `2602f4c1` executed 12 and seven guarded targets; all lifecycle statuses zero. Five core cases covered by included owners; HTTP case explicitly traced | Full fleet drain and positive authority remain separate |
 | Cloud media installation | #187 merged; all five checks passed; Timescale CI 3230 tests, zero failures, 10 skips, all 17 required cases enabled | Provider provisioning, qualification, isolated workload and lifecycle preservation |
 | Init-object authority | #5996 merged; published head `447f594b` passed 19 checks; Core `551008e0` and Web `a4308a82` passed all 12/seven guarded targets with lifecycle exit statuses zero | Cloud provisioning/qualification and complete archive transport |
-| Private archive registration | Focused `9dea8457`: 833 unit tests, zero failures, 223 DB cases excluded; full remote `dad78500`: 460 targets passed, two platform skips; [wire contract](archive-registration.md), [validation](validation.md) | No-mistakes publication and the new guarded Web database case |
+| Private archive registration | #6000 merged at `8974fcdd`; published head `e639b4fd` passed 19 checks; Web `1452ccca` executed all seven guarded targets uncached, including owning shard 0, with all lifecycle statuses zero; [validation](validation.md) retains the approved pre-push exception | Cloud-retained allocation identity and matching product receipt |
+| Cloud media reservation | #188 remains an open draft; all five checks passed, including 3,241 tests with zero failures and 10 skips; local Dialyzer fails with 11 warnings also present on its exact base | Merge, allocation inventory and preservation-release workflow |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -70,15 +73,15 @@ runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Read [design.md](design.md), [tasks.md](tasks.md), [qualification-report.md](qualification-report.md),
-[qualification-receipts.md](qualification-receipts.md), [media-authentication.md](media-authentication.md),
-[recording-control.md](recording-control.md), [init-authority.md](init-authority.md),
-[archive-registration.md](archive-registration.md), [upload-intent.md](upload-intent.md),
-[upload-dispatch.md](upload-dispatch.md) and
-the current diff. Finish no-mistakes validation/publication and actual guarded
-Web database execution for private archive registration. Cloud must retain the
-original provisioning intent and product binding receipt before progressing to
-qualification or installation. Registration itself never authorizes provider I/O.
+Start with [tasks.md](tasks.md), [Cloud ownership](cloud-control-plane.md) and
+[init authority](init-authority.md). Registration is merged and its guarded Web
+database execution passed. Complete spool-lifetime verification and the bounded
+media transport pass independently of Cloud provisioning; use the existing
+[upload intent](upload-intent.md) and [dispatch](upload-dispatch.md) owners.
+Then implement recovery-manifest verification and index publication. Cloud's
+new-allocation proof remains unresolved; do not add queued work that can only
+report an unsupported provider contract. Registration never authorizes provider
+I/O, and a reservation never proves owned storage.
 A stopped configuration has no resume variant; do not add one without
 fencing in-flight work and enforcing current positive authority. A persisted receipt is
 not an applied revision. Media authentication identifies the responding process;
@@ -95,6 +98,8 @@ local media. Recovery uses `Manifest.encode_descriptor/2` with the frozen
 descriptor.
 
 All fixtures/examples remain invented. Use Treehouse and no-mistakes for every
-worktree/PR. Do not merge, deploy, enable recording, provision storage or run a
-new live probe as part of this checkpoint. Keep #4913/#4915 open until their own
+worktree/PR. Exercise real transport against isolated synthetic endpoints. Keep
+live provider calls and deployment acceptance separate; do not merge, deploy,
+enable recording, provision live storage or run a new live probe in these passes.
+Keep #4913/#4915 open until their own
 acceptance passes.

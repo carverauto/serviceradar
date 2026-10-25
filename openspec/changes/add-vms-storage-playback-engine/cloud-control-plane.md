@@ -48,6 +48,36 @@ Retries after provider success or lost responses reconcile ownership before
 adoption. Rollback preserves data and reports incomplete allocations as managed
 cleanup work. A user naming an existing bucket is not authorization to adopt it.
 
+### Allocation ownership gate
+
+The [Akamai create-bucket API](https://techdocs.akamai.com/linode-api/reference/post-object-storage-bucket)
+returns HTTP 200 for an existing same-account bucket as well as a newly created
+one. Its documented request has no conditional-create or operation-token field.
+Consequently a successful response alone does not establish that this allocation
+operation created the bucket. A preceding GET races with other creators;
+random names and creation timestamps do not resolve operation ownership.
+S3 compatibility is not an alternative proof: [AWS CreateBucket](https://docs.aws.amazon.com/AmazonS3/latest/API/API_CreateBucket.html)
+also documents an existing-owner success exception for its legacy region.
+
+Before enabling an allocator, establish provider-supported atomic create-new or
+durable operation-bound identity, or separately specify and authorize explicit
+adoption with the same security checks. Otherwise preserve unresolved inventory
+and deny binding readiness and cleanup. Do not add a worker whose only possible
+outcome is an unsupported capability. This gate does not block product transport
+tests against synthetic endpoints or a separately validated operator-managed
+destination.
+
+The future allocator's synthetic acceptance must make new and pre-existing
+buckets return identical documented success responses and verify that neither
+becomes an owned allocation without additional proof. Include the GET/create
+race, lost response, malformed success and persistence failure; retain the
+original operation identity and do not issue another create while unresolved.
+Pair rejections with a positive fixture for the selected proof contract. These
+tests validate our state handling, not Akamai's actual semantics; live acceptance
+and provider confirmation remain separate prerequisites.
+
+### Security readiness
+
 Security readiness requires observed negative and positive probes:
 
 - Anonymous list/read/write denied; no public ACL, website hosting or wildcard

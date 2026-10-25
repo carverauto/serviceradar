@@ -18,8 +18,18 @@ or live acceptance task below.
 ## 1. Recording and immediate playback
 
 - [ ] 1.1 Add Ash policy/lease/block resources and migrations, independent consumer leases and fenced recorder takeover.
+  - [x] Durable recorder claims, generation fencing, block reservation and frozen archive descriptors exist with guarded database coverage; see [the handoff](README.md).
+  - [ ] Verify provisioned spool lifetime before acquiring recorder ownership and at mutating filesystem boundaries.
+  - [ ] Complete operator recording policy/admission and coordinated restart/takeover without disturbing other consumers.
 - [ ] 1.2 Implement bounded append/journal/seal and complete-fragment high-water publication; separate packer writes from range readers.
+  - [x] Local spool append/fsync journal/seal, complete-fragment snapshots and independent readers are implemented and covered by synthetic filesystem/media tests.
+  - [ ] Integrate lifetime verification and prove recovery ownership and concurrent reader/write behavior through the runtime; the authorized external range gateway belongs to 1.5.
 - [ ] 1.3 Implement immutable upload, checksum/init/manifest verification and idempotent index publication. The [init-only checkpoint](init-authority.md) adds conditional PUT and exact init-byte verification; streaming media, multipart reconciliation, recovery manifests and index publication remain open.
+  - [x] Immutable destination, frozen intent and dispatch identity; isolated conditional init PUT with exact byte verification.
+  - [ ] Stream a bounded sealed media object under operation-specific authority and verify exact digest/length before recording success.
+  - [ ] Write and verify the recovery manifest from the frozen descriptor after its referenced objects are verified.
+  - [ ] Publish the archive index idempotently with current ownership fencing; only then expose availability.
+  - [ ] Reconcile multipart and unknown outcomes without retargeting objects or rearming an unresolved operation.
 - [ ] 1.4 Reconcile restart at every local/upload/manifest/index boundary; handle disk loss, stale owners, orphan/multipart state and explicit gaps.
 - [ ] 1.5 Add authorized local/archive range gateway and bounded HLS windows; deny unauthorized ranges and whole-object leakage.
 - [ ] 1.6 Integrate timeline/player and spatial links; preserve viewer cleanup and live-view behavior.
