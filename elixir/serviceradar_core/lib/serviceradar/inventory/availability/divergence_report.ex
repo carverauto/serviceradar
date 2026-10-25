@@ -185,14 +185,16 @@ defmodule ServiceRadar.Inventory.Availability.DivergenceReport do
   SELECT count(*), (array_agg(device_uid ORDER BY device_uid))[1:$2] FROM near
   """
 
+  # The samples come from their own LIMIT, so a deployment with many violations never
+  # aggregates every uid.
   @policy_violations """
-  SELECT count(*), (array_agg(uid ORDER BY uid))[1:$1]
-  FROM (
+  WITH dev AS (
     SELECT s.device_uid AS uid, s.agents
     FROM platform.device_availability_shadow AS s
     JOIN platform.ocsf_devices AS d ON d.uid = s.device_uid AND d.deleted_at IS NULL
-  ) AS dev
-  WHERE #{@policy_violation}
+  )
+  SELECT (SELECT count(*) FROM dev WHERE #{@policy_violation}),
+         ARRAY(SELECT uid FROM dev WHERE #{@policy_violation} ORDER BY uid LIMIT $1)
   """
 
   @status """

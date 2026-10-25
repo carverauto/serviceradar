@@ -12,6 +12,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilityRolloutComponents do
   import ServiceRadarWebNGWeb.CoreComponents, only: [icon: 1]
   import ServiceRadarWebNGWeb.UIComponents, only: [ui_badge: 1, ui_button: 1]
 
+  alias ServiceRadar.Inventory.Availability.ModeControl
+
   @modes %{
     legacy: {"Legacy", "ghost"},
     shadow: {"Shadow", "info"},
@@ -45,6 +47,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilityRolloutComponents do
     assigns =
       assigns
       |> assign(:pinned, pinned)
+      |> assign(:active_control, active_control(setting))
       |> assign(:controls, @controls)
       |> assign(:mode, setting && Map.get(@modes, setting.mode))
       |> assign(:conditions, conditions(setting))
@@ -88,8 +91,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilityRolloutComponents do
               id={"availability-rollout-control-#{control}"}
               type="button"
               size="sm"
-              variant={if @setting.mode_control == control, do: "primary", else: "ghost"}
-              active={@setting.mode_control == control}
+              variant={if @active_control == control, do: "primary", else: "ghost"}
+              active={@active_control == control}
+              aria-pressed={to_string(@active_control == control)}
               disabled={not is_nil(@pinned) or not @can_edit}
               phx-click="set_mode_control"
               phx-value-mode={control}
@@ -121,6 +125,16 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilityRolloutComponents do
       </div>
     </section>
     """
+  end
+
+  # A pin wins over the stored control, so the pinned value is the one in effect.
+  defp active_control(nil), do: nil
+
+  defp active_control(setting) do
+    case ModeControl.parse(setting.mode_control_pin) do
+      {:ok, control} -> control
+      :error -> setting.mode_control
+    end
   end
 
   defp conditions(%{readiness: %{"conditions" => conditions}}) when is_map(conditions) do

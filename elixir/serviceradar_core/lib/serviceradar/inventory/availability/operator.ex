@@ -18,7 +18,8 @@ defmodule ServiceRadar.Inventory.Availability.Operator do
   `Mode.enter_legacy/1`, the rollback from any mode) and sets the control that keeps it
   there, so the progression does not undo it: `"legacy"` sets `hold_legacy`,
   `"shadow"` sets `hold_shadow`, and `"cutover"` sets `auto`, cutting over without
-  waiting for the readiness conditions. Both refuse while core runs with a pinned
+  waiting for the readiness conditions. A refused `"cutover"` or `"legacy"` leaves the
+  control unchanged. Both refuse while core runs with a pinned
   control. `status/0` prints the mode, the control, the last readiness evaluation, the
   transition-event setting and the cutover jobs not yet finished. `transition_events/1`
   turns the resolver's `device.*` events on or off for the deployment.
@@ -41,32 +42,36 @@ defmodule ServiceRadar.Inventory.Availability.Operator do
     end)
   end
 
-  @switches %{
-    "shadow" => {:hold_shadow, &Mode.enter_shadow/1},
-    "cutover" => {:auto, &Mode.enter_cutover/1},
-    "legacy" => {:hold_legacy, &Mode.enter_legacy/1}
-  }
-
-  @doc ~s(Switches the availability mode to `"shadow"`, `"cutover"` or `"legacy"`, sets the control that keeps it, and prints the outcome.)
+  @doc """
+  Switches the availability mode to `"shadow"`, `"cutover"` or `"legacy"`, sets the
+  control that keeps it, and prints the outcome. `"cutover"` (control `auto`) and
+  `"legacy"` (control `hold_legacy`) set the control in the switch's own transaction,
+  only when the switch succeeds, so a refused switch leaves the control as it was.
+  `"shadow"` sets `hold_shadow` first: from `cutover` or `authoritative` the switch is
+  refused and the progression then rolls back and re-enters `shadow` under that control.
+  """
   @spec switch(String.t()) :: {:ok, map()} | {:error, term()}
   def switch(mode) do
     with_repo(fn ->
       result =
-        with {:ok, {control, enter}} <- fetch_switch(mode),
-             {:ok, _setting} <- set_control(control) do
-          enter.(control: control)
+        case mode do
+          "shadow" ->
+            with {:ok, _setting} <- set_control(:hold_shadow),
+                 do: Mode.enter_shadow(control: :hold_shadow)
+
+          "cutover" ->
+            with :ok <- unpinned(), do: Mode.enter_cutover(set_control: :auto)
+
+          "legacy" ->
+            with :ok <- unpinned(), do: Mode.enter_legacy(set_control: :hold_legacy)
+
+          other ->
+            {:error, {:unsupported_mode, other}}
         end
 
       IO.puts("availability mode switch: #{inspect(result)}")
       result
     end)
-  end
-
-  defp fetch_switch(mode) do
-    case Map.fetch(@switches, mode) do
-      {:ok, switch} -> {:ok, switch}
-      :error -> {:error, {:unsupported_mode, mode}}
-    end
   end
 
   @doc ~s(Sets the mode control to `"auto"`, `"hold_legacy"` or `"hold_shadow"` and prints the outcome.)
@@ -84,10 +89,15 @@ defmodule ServiceRadar.Inventory.Availability.Operator do
     end)
   end
 
-  # The pin is this node's configuration, which the settings row may not show yet.
   defp set_control(control) do
+    with :ok <- unpinned(),
+         do: ModeControl.set(control, actor: SystemActor.system(:availability_operator))
+  end
+
+  # The pin is this node's configuration, which the settings row may not show yet.
+  defp unpinned do
     case ModeControl.pin() do
-      nil -> ModeControl.set(control, actor: SystemActor.system(:availability_operator))
+      nil -> :ok
       pin -> {:error, {:mode_control_pinned, ModeControl.pin_value(pin)}}
     end
   end

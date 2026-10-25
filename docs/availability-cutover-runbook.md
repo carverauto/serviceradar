@@ -123,6 +123,9 @@ $CORE rpc 'ServiceRadar.Inventory.Availability.Operator.switch("legacy")'   # co
 $CORE rpc 'ServiceRadar.Inventory.Availability.Operator.switch("shadow")'   # control hold_shadow
 ```
 
+- `switch("cutover")` and `switch("legacy")` set the control in the same transaction
+  as the switch, so a refused switch (for example `switch("cutover")` from `legacy`)
+  leaves the control as it was.
 - `{:error, :mode_switch_busy}` means a writer held the lock for the whole retry
   window (about 10 s); run the switch again.
 - `switch("shadow")` returns `{:error, :restore_pending}` while a restore is still

@@ -56,5 +56,10 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilityRolloutComponentsTest do
     for control <- ["auto", "hold_shadow", "hold_legacy"] do
       assert present?(document, "#availability-rollout-control-#{control}[disabled]")
     end
+
+    # The pin, not the stored control, is the one in effect.
+    pinned = document(setting(%{mode_control: :auto, mode_control_pin: "hold_legacy"}), true)
+    assert present?(pinned, "#availability-rollout-control-hold_legacy[aria-pressed='true']")
+    refute present?(pinned, "#availability-rollout-control-auto[aria-pressed='true']")
   end
 end

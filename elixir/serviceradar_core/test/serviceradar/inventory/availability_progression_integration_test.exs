@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.AvailabilityProgressionIntegrationTest do
 
   use ServiceRadar.DataCase, async: false
 
+  import ExUnit.CaptureIO, only: [with_io: 1]
   import ExUnit.CaptureLog, only: [with_log: 1]
   import ServiceRadar.TestSupport.AvailabilityFixtures
 
@@ -23,6 +24,7 @@ defmodule ServiceRadar.Inventory.AvailabilityProgressionIntegrationTest do
   alias ServiceRadar.Inventory.Availability.CutoverWorker
   alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Availability.ModeControl
+  alias ServiceRadar.Inventory.Availability.Operator
   alias ServiceRadar.Inventory.Availability.ProgressionWorker
   alias ServiceRadar.Inventory.Availability.Readiness
   alias ServiceRadar.Inventory.Availability.ShadowEntryWorker
@@ -150,6 +152,29 @@ defmodule ServiceRadar.Inventory.AvailabilityProgressionIntegrationTest do
       assert {:ok, :none} = ProgressionWorker.run()
       assert %{"ready" => true} = stored_readiness(actor)
       assert Mode.current() == :shadow
+    end
+  end
+
+  describe "support switches" do
+    test "a refused switch to cutover leaves a hold in place; an accepted one releases it",
+         %{actor: actor} do
+      empty_install!()
+      assert {:ok, _setting} = ModeControl.set(:hold_legacy, actor: actor)
+
+      assert {{:error, {:unsupported_switch, :legacy, :cutover}}, _output} =
+               with_io(fn -> Operator.switch("cutover") end)
+
+      assert {:ok, %{mode_control: :hold_legacy}} = ModeControl.read(actor: actor)
+      assert {:ok, :none} = ProgressionWorker.run()
+      assert Mode.current() == :legacy
+
+      # From shadow the switch succeeds and sets auto in the same transaction.
+      set_settings!("shadow", "hold_legacy")
+
+      assert {{:ok, %{from: :shadow, to: :cutover}}, _output} =
+               with_io(fn -> Operator.switch("cutover") end)
+
+      assert {:ok, %{mode: :cutover, mode_control: :auto}} = ModeControl.read(actor: actor)
     end
   end
 

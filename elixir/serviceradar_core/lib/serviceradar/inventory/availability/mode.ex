@@ -16,7 +16,9 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
   says. Support can still switch through `ServiceRadar.Inventory.Availability.Operator`.
   Each switch takes `control:`, the control the caller decided from: when the stored
   control differs under the switch lock (someone changed it meanwhile), the switch
-  returns `{:error, :control_changed}` and changes nothing.
+  returns `{:error, :control_changed}` and changes nothing. Each also takes
+  `set_control:`, a control it stores in its own transaction when the switch succeeds
+  (a support switch).
 
   `enter_shadow/1` moves `legacy` to `shadow`, starts the expiry window, records the
   entry time (`shadow_entered_at`), and enqueues one full, paged resolution of every
@@ -297,6 +299,7 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
           with :ok <- expected_control(opts, control),
                {:ok, switched} <- apply_switch.(Map.fetch!(@modes, mode)) do
+            set_control(opts)
             switched
           else
             {:error, reason} -> Repo.rollback(reason)
@@ -308,6 +311,21 @@ defmodule ServiceRadar.Inventory.Availability.Mode do
 
     reset_cache()
     result
+  end
+
+  # `set_control:` writes the control in the switch's transaction, after a successful
+  # switch only, so a refused switch leaves it as it was.
+  defp set_control(opts) do
+    case Keyword.fetch(opts, :set_control) do
+      {:ok, control} ->
+        Repo.query!(
+          "UPDATE platform.availability_settings SET mode_control = $1 WHERE singleton",
+          [Atom.to_string(control)]
+        )
+
+      :error ->
+        :ok
+    end
   end
 
   defp expected_control(opts, stored) do

@@ -30,7 +30,9 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   In `shadow` the run also stores the readiness evaluation on the settings row. When the
   control is `auto` and the conditions are still unmet 24 hours after entering `shadow`,
   it records the core health check `availability_cutover_readiness` unhealthy, naming
-  the unmet conditions; the cutover clears it.
+  the unmet conditions. The first run that finds the deployment no longer stalled
+  (ready, held, rolled back, cut over, or in a younger shadow period) records it
+  healthy again.
 
   Several core nodes may run this at once. Each switch takes the mode-switch lock and
   re-reads the mode and the control under it: a step decided from a stale mode is a
@@ -44,6 +46,7 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
     max_attempts: 3,
     unique: [period: 55, states: [:available, :scheduled]]
 
+  alias ServiceRadar.Infrastructure.HealthTracker
   alias ServiceRadar.Inventory.Availability.CutoverWorker
   alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Availability.ModeControl
@@ -116,7 +119,7 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
     mode = Map.fetch!(@modes, mode)
     facts = facts(mode, entered_at, resolved_at)
     report_stall(mode, control, facts, entered_at, now)
-    apply_step(step(mode, control, facts), guard, facts, entered_at, now)
+    apply_step(step(mode, control, facts), guard, facts)
   end
 
   @doc """
@@ -197,34 +200,28 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
 
   defp log_invalid_pin(_pin), do: :ok
 
-  defp apply_step(:none, _guard, _facts, _entered_at, _now), do: {:ok, :none}
+  defp apply_step(:none, _guard, _facts), do: {:ok, :none}
 
-  defp apply_step(:resolve, _guard, _facts, _entered_at, _now) do
+  defp apply_step(:resolve, _guard, _facts) do
     :ok = ShadowEntryWorker.enqueue()
     {:ok, :resolve}
   end
 
-  defp apply_step(:enter_cutover, guard, facts, entered_at, now) do
-    with {:ok, switched} <- switch(:enter_cutover, Mode.enter_cutover(guard)) do
-      if stalled?(entered_at, now) do
-        TripwireHealth.record(@health_check, true, %{"unmet" => []}, refresh_metadata: true)
-      end
+  defp apply_step(:enter_cutover, guard, facts) do
+    Logger.info("availability progression: readiness conditions hold, cutting over",
+      readiness: Jason.encode!(facts.readiness)
+    )
 
-      Logger.info("availability progression: readiness conditions hold, cutting over",
-        readiness: Jason.encode!(facts.readiness)
-      )
-
-      {:ok, :enter_cutover, switched}
-    end
+    switch(:enter_cutover, Mode.enter_cutover(guard))
   end
 
-  defp apply_step(:resume_cutover, guard, _facts, _entered_at, _now),
+  defp apply_step(:resume_cutover, guard, _facts),
     do: switch(:resume_cutover, Mode.enter_cutover(guard))
 
-  defp apply_step(:enter_shadow, guard, _facts, _entered_at, _now),
+  defp apply_step(:enter_shadow, guard, _facts),
     do: switch(:enter_shadow, Mode.enter_shadow(guard))
 
-  defp apply_step(:enter_legacy, guard, _facts, _entered_at, _now),
+  defp apply_step(:enter_legacy, guard, _facts),
     do: switch(:enter_legacy, Mode.enter_legacy(guard))
 
   defp switch(step, {:ok, switched}) do
@@ -247,24 +244,53 @@ defmodule ServiceRadar.Inventory.Availability.ProgressionWorker do
   defp deferred?({:unsupported_switch, _from, _to}), do: true
   defp deferred?(reason), do: reason in [:control_changed, :mode_switch_busy, :restore_pending]
 
-  defp report_stall(:shadow, :auto, %{readiness: readiness}, entered_at, now) do
-    if not readiness["ready"] and stalled?(entered_at, now) do
+  # The warning holds only while an `auto` shadow period at least 24 hours old is unmet.
+  # Any other run (ready, held, rolled back, cut over, or a younger shadow period) clears
+  # a warning an earlier run raised.
+  defp report_stall(
+         :shadow,
+         :auto,
+         %{readiness: %{"ready" => false} = readiness},
+         entered_at,
+         now
+       )
+       when not is_nil(entered_at) do
+    if stalled?(entered_at, now) do
+      # Only what changes with the verdict, so a steady stall records no new row.
       TripwireHealth.record(
         @health_check,
         false,
-        # Only what changes with the verdict, so a steady stall records no new row.
         %{
           "unmet" => readiness["unmet"],
           "shadow_entered_at" => NaiveDateTime.to_iso8601(entered_at)
         },
         refresh_metadata: true
       )
+    else
+      clear_stall()
     end
-
-    :ok
   end
 
-  defp report_stall(_mode, _control, _facts, _entered_at, _now), do: :ok
+  defp report_stall(_mode, _control, _facts, _entered_at, _now), do: clear_stall()
+
+  # A deployment that never stalled has no unhealthy check and gets no health row. Best
+  # effort, like the recording itself: a health read failure never blocks the step.
+  defp clear_stall do
+    case HealthTracker.current_status(:core, @health_check) do
+      {:ok, %{new_state: :unhealthy}} ->
+        TripwireHealth.record(@health_check, true, %{"unmet" => []}, refresh_metadata: true)
+
+      _other ->
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning("availability progression: health check read failed",
+        reason: inspect(error)
+      )
+
+      :ok
+  end
 
   defp stalled?(%NaiveDateTime{} = entered_at, %NaiveDateTime{} = now),
     do: NaiveDateTime.diff(now, entered_at) >= @stall_seconds

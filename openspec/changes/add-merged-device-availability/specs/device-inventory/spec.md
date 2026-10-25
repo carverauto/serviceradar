@@ -340,6 +340,12 @@ Under `auto`, the system SHALL enter `cutover` only when every readiness conditi
 - **WHEN** the progression runs
 - **THEN** the mode SHALL NOT change
 
+#### Scenario: A refused support switch keeps the hold
+- **GIVEN** a deployment in `legacy` under `hold_legacy`
+- **WHEN** a support switch to `cutover` is refused because the mode is not `shadow`
+- **THEN** the stored control SHALL remain `hold_legacy`
+- **AND** the progression SHALL leave the mode `legacy`
+
 #### Scenario: Concurrent runs switch once
 - **GIVEN** two progression runs that both read `authoritative` under `hold_legacy`
 - **WHEN** both switch
