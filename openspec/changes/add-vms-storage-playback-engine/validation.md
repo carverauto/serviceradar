@@ -787,9 +787,11 @@ An earlier [full sweep](https://carverauto.buildbuddy.io/invocation/33f0eddd-ad1
 failed on local disk exhaustion and is not success evidence. The final sweep
 ran after space was restored. Guarded database execution is still required on
 the published head: the current owning target is
-`//elixir/serviceradar_core:integration_tests_serial_4`, with all six recorder
-worker cases (four retained, two new). These source checks do not establish
-provider readiness, physical-volume identity or live deployment acceptance.
+`//elixir/serviceradar_core:integration_tests_serial_4`, with all eight recorder
+worker cases. The invocations above predate the two cases that replace the
+marker across a successful freeze and are not evidence for that committed
+receipt. These source checks do not establish provider readiness,
+physical-volume identity or live deployment acceptance.
 
 ## Explicit sealed-media upload
 
@@ -838,7 +840,8 @@ provider's capabilities.
 Ordinary compilation and excluded database bodies do not execute these cases.
 Both guarded Core/Web lifecycles must run their selected targets, pass tests,
 connection observation and teardown, and release fixture-generation leases.
-The spool parent's six guarded worker cases remain required too. No local
+The spool parent's eight guarded worker cases remain required too. Earlier
+six-case execution does not prove the two marker-replacement cases. No local
 product database or alternate forwarding path substitutes for this final-head
 gate. Recovery manifests, index publication, multipart reconciliation and live
 deployment acceptance remain open.
