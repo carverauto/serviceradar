@@ -395,14 +395,15 @@ They share function components. Rules:
    `migration_default` become `track_latest_approved`. Everything else stays
    as it is. It runs in bounded, skip-locked batches and re-checks
    `migration_default` inside each batch, so an operator pin made before or
-   during the backfill is never overwritten. Expose a one-click "Pin" before
-   enabling automatic rollouts, as add-on Decision 1 does.
+   during the backfill is never overwritten. The one-click Pin (task 2.5) is
+   still unshipped. Automatic rollouts already ship on; until that control
+   exists, see "Step E as built" for how an operator holds owners back.
 3. Ship the new UI behind the Settings catalog with the old route redirecting.
    Remove the old LiveView once the new tabs cover every action.
-4. Enable auto-approval and automatic rollouts. Before enabling, report
-   "N assignments behind latest" so the first fleet movement is anticipated.
-   Both now ship enabled, each with a deployment kill switch; the Installed
-   tab reports the behind-latest count (see "Step E as built").
+4. Auto-approval and automatic rollouts ship enabled. The Installed tab
+   reports how many assignments are behind latest, so the first fleet
+   movement is anticipated. Each has a deployment kill switch (see "Step E
+   as built").
 
 ## Open Questions
 
