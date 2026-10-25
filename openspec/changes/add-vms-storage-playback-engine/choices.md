@@ -1099,6 +1099,23 @@ It validates input with the existing parser first, returning 400 for unsupported
 metadata; other action errors return a bounded 503 without leaking database
 information. The plan did not choose these HTTP statuses. First registration
 and an identical retry both return 200 and the same receipt, avoiding a separate
-created-versus-retried branch in Cloud. The guarded HTTP/database case must still
-execute on the published head to prove the action's conflict reaches this status;
-ordinary unit validation does not establish that persistence behavior.
+created-versus-retried branch in Cloud. Ordinary unit validation does not
+establish that persistence behavior. The published-head guarded execution in
+[validation](validation.md#published-head-registration-validation) is the record
+that this conflict status reached the database.
+
+### Advance product bytes while Cloud allocation proof remains unresolved
+
+When: post-registration maintenance checkpoint. Verdict: sound, medium confidence.
+
+The next product test can send an invented sealed recording to an isolated HTTP
+endpoint without creating a real bucket. Product development therefore proceeds
+through bounded media upload, recovery-manifest verification and index publication
+while Cloud establishes safe allocation ownership independently. The plan did
+not prescribe this implementation order. Starting with one bounded PUT keeps the
+first byte path reviewable; multipart and full hosted acceptance remain required.
+It does not let the init-only grant authorize media, nor make an upload response
+proof of archive availability. Cloud's existing create response cannot distinguish
+a new bucket from an existing one, so adding a queue that always reports that
+limitation would add machinery without advancing provisioning. Its allocator
+waits for a supported proof contract or separately authorized explicit adoption.

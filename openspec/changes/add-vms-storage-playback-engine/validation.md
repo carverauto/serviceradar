@@ -714,6 +714,50 @@ receipts, the retained destination, a rejected conflicting destination, a distin
 new generation and absence of qualification/init authority. Cleanup deletes only
 the test's unique synthetic provisioning reference and rechecks zero rows.
 Authentication and malformed-body cases remain owned by the unit router suite.
-The new guarded case is compiled but excluded from ordinary `make test`; its body
-has not executed in this worktree. Published-head guarded Web CI remains mandatory,
-and no current result establishes provider readiness or hosted installation.
+The new guarded case is compiled but excluded from ordinary `make test`. Its body
+had not executed in the authoring worktree. The published-head record below is
+the execution evidence. No result here establishes provider readiness or hosted
+installation.
+
+### Published-head registration validation
+
+[PR #6000](https://github.com/carverauto/serviceradar/pull/6000) merged at
+`8974fcddd7039648085898b7fb9319d55898a7c8`. Its published head
+`e639b4fdc12d6bc30ea77ed56ae98f75b27874c2` passed all 19 checks.
+The user approved a recorded pre-push Test exception because the guarded case
+required canonical CI after publication. That exception did not waive the
+final-head database gate or any assertion.
+
+[Web database workflow 1452ccca](https://carverauto.buildbuddy.io/invocation/1452ccca-8575-4841-bd99-d636c7fac73d)
+selected the full lifecycle. [Its test invocation](https://carverauto.buildbuddy.io/invocation/5887a9f8-14e5-4cd2-8950-74ad4bb6dcdd)
+executed all seven targets with test-result caching disabled. The owning
+`networks_live_db_test_0` passed in 80.5 seconds; its declared source and included
+shared-fixture tag select the HTTP registration case described above.
+[Database teardown](https://carverauto.buildbuddy.io/invocation/1ef001b9-3e12-421b-9d7a-3d15e0e7f583)
+also passed. The workflow reported zero exit statuses for the suite, connection
+observer, teardown and generation release. This satisfies the final-head
+database condition while retaining the pre-push exception in the record.
+
+The initial review claim that automatic SQL Sandbox ownership always wraps
+requests in rollback transactions was dismissed after checking the pinned
+Ecto and DBConnection implementations. The final re-review returned no findings;
+the actual concurrent HTTP case and its cleanup assertions were preserved.
+No provider qualification, deployment, recording or archive availability is
+claimed by these results.
+
+### Cloud reservation quality baseline
+
+[Cloud PR #188](https://github.com/carverauto/serviceradar-control/pull/188)
+head `9caedaa86031101a904356df052cd11c96262dad` and its exact base
+`a55f904cd9f929a58e133ca02c9b6dbe58323b73` were compared in isolated Treehouse
+checkouts with Elixir 1.19.4/OTP 28.3, identical dependency locks, ignore files
+and initial PLTs. `mix clean` removed inherited application modules before fresh
+compilation and `MIX_ENV=test mix dialyzer --force-check`; normal-format follow-up
+used `MIX_ENV=test mix dialyzer --no-compile`.
+
+Both commands on both revisions exited 2. Both normal summaries report 30 total
+diagnostics, 19 skipped and eight unnecessary skips, leaving 11 emitted warnings.
+All 11 complete diagnostic blocks match after accounting only for the two added
+registry lines. This establishes an existing failure under the tested toolchain;
+it does not make Dialyzer green. No source, ignore or assertion was changed.
+Cloud CI's existing `--skip-dialyzer` remains a limitation of its green result.
