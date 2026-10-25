@@ -621,6 +621,73 @@ The source SHALL retain the latest complete publication on each assessment and t
 - **THEN** a mismatch is counted for that device although its actionable count and membership agree
 - **AND** a per-device snapshot sets the fact's KEV flag to true at sequence 11
 
+### Requirement: Snapshot Delivery Completeness Is Durable And Bounded
+The system SHALL retain exact unfinished exposure delivery inputs in a bounded JetStream recovery stream before issuing their warehouse writes, and SHALL keep only control metadata in CNPG. The recovery stream SHALL reject new publication when full rather than evict unfinished input, SHALL NOT expire unfinished input by age, and SHALL preserve one immutable payload per operation subject. An uncertain publish SHALL be reconciled against the stored payload, including after the ordinary duplicate window. Recovery SHALL replay the retained inputs through the existing sequenced ingestion path and settle the original load labels before admitting later writes under the same ownership lock. Completion SHALL be durable before input cleanup; retries of completed work SHALL resume cleanup. A legacy journal with unavailable inputs SHALL remain blocked until separately authorized operator recovery establishes that old writes cannot race the rebuild.
+
+The snapshot coordinator SHALL admit one scoped generation at a time and SHALL bound envelope size, publication windows, source reads and receiver progress. Each generation SHALL use one recorded source snapshot throughout. It SHALL carry a start manifest, contiguous numbered pages with content digests and an end manifest containing every lane's expected page count, record count and digest, including empty lanes. Dimensions and lifecycle coverage SHALL be receipted before fact pages are emitted. A receiver SHALL record page completion only after confirmed warehouse effects. Missing pages, conflicting content, incomplete prerequisites or unmatched end-manifest receipts SHALL prevent finalization. Snapshot loads SHALL use a generation-specific label namespace distinct from live transition loads. Losing the source transaction before the complete end manifest is recorded SHALL abort that generation; a replacement source transaction SHALL use a new generation. An aborted generation SHALL NOT finalize or establish readiness.
+
+Finalization SHALL persist its scan progress and repair obligations and SHALL verify their warehouse outcome before completion. Daily reconciliation SHALL enumerate the union of source and warehouse device ordinals, use the approved count and attribute-sensitive digest, and report mismatches and deferred work explicitly. Readiness SHALL require verified scoped generation coverage, source preparation, lifecycle restoration and dimensions, with no unresolved scoped recovery journal or repair obligation. A source preparation pass, outbox PubAck or an end marker alone SHALL NOT establish readiness. Rebuilding current state SHALL NOT be represented as reconstruction of unavailable transition history.
+
+#### Scenario: Original transition expiry does not lose an unfinished batch
+- **GIVEN** EventWriter retained a batch's exact recovery envelope before starting its warehouse load
+- **AND** the original transition messages subsequently expire
+- **WHEN** another consumer takes ownership after interruption
+- **THEN** it replays the retained envelope and settles that batch before accepting later writes
+- **AND** CNPG stores its control journal but no recovery fact payload
+
+#### Scenario: Uncertain publication survives the ordinary duplicate window
+- **GIVEN** a recovery envelope was stored but its PubAck was lost
+- **WHEN** publication retries after the normal duplicate window
+- **THEN** the existing operation subject and payload are verified without replacing or duplicating the input
+- **AND** different content for that subject fails visibly
+
+#### Scenario: Completion survives interrupted cleanup
+- **GIVEN** all warehouse effects are confirmed and the completion receipt is durable
+- **WHEN** the owner crashes before deleting the recovery envelope and journal
+- **THEN** the next owner resumes cleanup without treating the completed input as a new operation
+
+#### Scenario: A full recovery stream preserves unfinished work
+- **GIVEN** the recovery stream has reached its configured storage bound
+- **WHEN** a producer attempts another envelope
+- **THEN** it receives backpressure without deleting existing unfinished input or starting an unretained warehouse write
+- **AND** already completed work can be cleaned up to restore progress
+
+#### Scenario: An end marker cannot conceal a missing page
+- **GIVEN** a generation declares two pages in one lane
+- **AND** only the second page and the end marker have arrived
+- **WHEN** the receiver evaluates finalization
+- **THEN** it remains incomplete and does not sweep unseen facts
+- **AND** duplicate deliveries of the second page cannot satisfy the first page's receipt
+
+#### Scenario: Losing the source transaction starts a different generation
+- **GIVEN** some pages of generation G have been applied
+- **WHEN** its source reader loses the database transaction before recording a complete end manifest
+- **THEN** G is aborted and does not finalize
+- **AND** a retry opens a new database snapshot under a new generation instead of resuming G's cursor
+
+#### Scenario: Identical snapshot data still advances the generation marker
+- **GIVEN** a live transition for a fact has already been loaded under its live load label
+- **WHEN** a snapshot supplies the identical sequence and content
+- **THEN** its distinct snapshot load advances the generation marker without changing the fact's logical after-image
+- **AND** later live replay preserves that marker
+
+#### Scenario: A pending repair prevents premature readiness
+- **GIVEN** finalization published a required source repair and received outbox PubAck
+- **AND** the repair's warehouse effect has not been verified
+- **WHEN** exposure readiness is evaluated
+- **THEN** the repair remains pending and the generation does not establish readiness
+
+#### Scenario: Reconciliation includes a warehouse-only device
+- **GIVEN** StarRocks contains an actionable fact for a device absent from the current source enumeration
+- **WHEN** daily reconciliation enumerates source and warehouse ordinals
+- **THEN** it counts that device's mismatch and invokes the existing source-rechecked repair path
+
+#### Scenario: An unrecoverable legacy journal is not silently cleared
+- **GIVEN** a journal predates retained recovery envelopes and its original messages are unavailable
+- **WHEN** a fresh snapshot is requested for that bucket
+- **THEN** the bucket remains blocked and reports the unresolved recovery obligation
+- **AND** neither a new generation nor a manual journal deletion is treated as proof that old warehouse writes have settled
+
 ### Requirement: Exposure Intelligence Requires StarRocks
 Exposure entities, host connection evidence, coverage attestations and discrepancy records SHALL be stored only in StarRocks. Without StarRocks, the exposure SRQL entities SHALL return `{:error, :starrocks_required}`, and the UI SHALL report that state. CNPG assessments and the existing CNPG-backed `in:devices cve:` and `in:endpoint_vulnerability_assessments` queries SHALL remain fully functional without StarRocks.
 

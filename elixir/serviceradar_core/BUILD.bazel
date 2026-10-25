@@ -328,6 +328,7 @@ INTEGRATION_RUNTIME_DATA = glob(
         "test/release_gates/**",
     ],
 ) + [
+    "@nats_server_linux_amd64//:nats_server",
     "//elixir/serviceradar_core_elx:runtime_config",
     # Read at MODULE level (compile time) by
     # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
@@ -733,6 +734,7 @@ ex_unit_tests(
         allow_empty = True,
         exclude = ["test/**/*_test.exs"],
     ) + [
+        "@nats_server_linux_amd64//:nats_server",
         # Read at MODULE level (compile time) by
         # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
         # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it

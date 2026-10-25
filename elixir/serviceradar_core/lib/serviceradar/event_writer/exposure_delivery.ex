@@ -6,7 +6,9 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   A replacement owner replays an unfinished batch before admitting another one.
   This matters when its predecessor died with a Stream Load still in flight:
   replay reconciles the same immutable load labels before retirement can pass.
-  An expired stream position fails closed and requires snapshot recovery.
+  New deliveries retain an immutable JetStream copy until completion. Legacy
+  journals without recoverable inputs remain blocked rather than forgetting an
+  uncertain warehouse load.
 
   The bucket locks are held on a `ServiceRadar.Repo.DirectSession`, never on the
   pooled Repo: a transaction-mode pooler can run the lock and the unlock on
@@ -18,7 +20,8 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   through the Repo, one autocommitted statement at a time, so a batch is
   journaled durably before its load starts. An insert that finds the bucket row
   already there does nothing and the batch is busy, without a load. Finishing
-  deletes only the positions this run journaled or replayed.
+  marks complete, deletes the envelope, and removes the journal only for the
+  positions this run journaled or replayed.
 
   Namespace 74523 was never in a tagged release (it landed after v1.4.97), so a
   mixed-version overlap only affects an installation running an untagged
@@ -27,6 +30,7 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   """
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
+  alias ServiceRadar.EventWriter.ExposureRecovery
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Repo
@@ -117,7 +121,10 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   end
 
   defp deliver(session, bucket, entries, ingest) do
-    case Postgrex.query(session, "SELECT pg_try_advisory_lock($1, $2)", [@lock_namespace, bucket]) do
+    case Postgrex.query(session, "SELECT pg_try_advisory_lock($1, $2)", [
+           @lock_namespace,
+           bucket
+         ]) do
       {:ok, %Postgrex.Result{rows: [[true]]}} ->
         try do
           deliver_owned(bucket, entries, ingest, fn -> owned(session, bucket) end)
@@ -125,7 +132,10 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
           # Frees the bucket while later buckets of this run deliver. If the
           # session was lost, it holds nothing and closing it is enough.
           _ =
-            Postgrex.query(session, "SELECT pg_advisory_unlock($1, $2)", [@lock_namespace, bucket])
+            Postgrex.query(session, "SELECT pg_advisory_unlock($1, $2)", [
+              @lock_namespace,
+              bucket
+            ])
         end
 
       {:ok, %Postgrex.Result{rows: [[false]]}} ->
@@ -139,23 +149,7 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   defp deliver_owned(bucket, entries, ingest, locked) do
     with :ok <- recover(bucket, ingest, locked) do
       entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
-      sequences = Enum.map(entries, &elem(&1, 0))
-
-      case Repo.query!(
-             """
-             INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences)
-             VALUES ($1, $2::bigint[])
-             ON CONFLICT DO NOTHING
-             RETURNING bucket
-             """,
-             [bucket, sequences]
-           ) do
-        %{num_rows: 1} ->
-          finish(bucket, sequences, ingest.(Enum.map(entries, &elem(&1, 1)), locked), locked)
-
-        %{num_rows: 0} ->
-          {:error, :exposure_delivery_busy}
-      end
+      deliver_pages(bucket, entries, ingest, locked)
     end
   end
 
@@ -171,22 +165,198 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
 
   defp recover(bucket, ingest, locked) do
     case Repo.query!(
-           "SELECT stream_sequences FROM platform.exposure_delivery_batches WHERE bucket = $1",
+           """
+           SELECT stream_sequences, phase, operation_id::text, payload_hash, recovery_position
+           FROM platform.exposure_delivery_batches WHERE bucket = $1
+           """,
            [bucket]
          ).rows do
       [] ->
         :ok
 
-      [[sequences]] ->
-        with {:ok, messages} <- fetch_messages(sequences, bucket),
-             {:ok, _} <- finish(bucket, sequences, ingest.(messages, locked), locked) do
-          :ok
-        end
+      [journal] ->
+        recover_journal(bucket, journal, ingest, locked)
     end
   end
 
-  defp finish(bucket, sequences, result, locked) when elem(result, 0) in [:ok, :retry] do
+  defp deliver_pages(bucket, entries, ingest, locked) do
+    with {:ok, pages} <- ExposureRecovery.split(entries) do
+      Enum.reduce_while(pages, {:ok, 0}, fn page, {:ok, loaded} ->
+        case capture(bucket, page, ingest, locked) do
+          {:ok, count} -> {:cont, {:ok, loaded + count}}
+          error -> {:halt, error}
+        end
+      end)
+    end
+  end
+
+  defp capture(bucket, entries, ingest, locked) do
+    id = Ecto.UUID.generate()
+    sequences = sequences(entries)
+
+    with {:ok, body, hash} <- ExposureRecovery.encode(bucket, id, entries),
+         :ok <- locked.() do
+      case Repo.query!(
+             """
+             INSERT INTO platform.exposure_delivery_batches
+               (bucket, stream_sequences, phase, operation_id, payload_hash)
+             VALUES ($1, $2::bigint[], 'capturing', $3::text::uuid, $4)
+             ON CONFLICT DO NOTHING
+             RETURNING bucket
+             """,
+             [bucket, sequences, id, hash]
+           ) do
+        %{num_rows: 1} ->
+          retain_and_apply(bucket, id, hash, body, entries, ingest, locked)
+
+        %{num_rows: 0} ->
+          {:error, :exposure_delivery_busy}
+      end
+    end
+  end
+
+  defp recover_journal(bucket, [sequences, "complete", _id, _hash, position], _ingest, locked),
+    do: cleanup(bucket, sequences, position, locked)
+
+  defp recover_journal(bucket, [_sequences, "snapshot_required", _, _, _], _ingest, _locked),
+    do: {:error, {:exposure_snapshot_required, bucket}}
+
+  defp recover_journal(bucket, [sequences, "legacy", nil, nil, nil], ingest, locked) do
+    # A legacy batch may already have issued a load. Preserve its exact grouping
+    # (and therefore labels), and never treat failed capture as unstarted work.
+    with {:ok, entries} <- fetch_messages(sequences, bucket),
+         id = Ecto.UUID.generate(),
+         {:ok, body, hash} <- ExposureRecovery.encode(bucket, id, entries),
+         :ok <- locked.() do
+      case Repo.query!(
+             """
+             UPDATE platform.exposure_delivery_batches
+             SET operation_id = $2::text::uuid, payload_hash = $3
+             WHERE bucket = $1 AND stream_sequences = $4::bigint[] AND phase = 'legacy'
+             """,
+             [bucket, id, hash, sequences]
+           ) do
+        %{num_rows: 1} ->
+          recovered(retain_and_apply(bucket, id, hash, body, entries, ingest, locked))
+
+        %{num_rows: 0} ->
+          {:error, :exposure_delivery_busy}
+      end
+    end
+  end
+
+  defp recover_journal(bucket, [sequences, phase, id, hash, position], ingest, locked) do
+    case ExposureRecovery.fetch(bucket, id, hash, position) do
+      {:ok, retained_position, entries} ->
+        if sequences(entries) == sequences do
+          recovered(apply_retained(bucket, sequences, retained_position, entries, ingest, locked))
+        else
+          {:error, :exposure_recovery_content_conflict}
+        end
+
+      :missing when phase in ["capturing", "legacy"] ->
+        recover_capture(bucket, sequences, phase, id, hash, ingest, locked)
+
+      :missing ->
+        {:error, {:exposure_recovery_input_lost, bucket}}
+
+      error ->
+        error
+    end
+  end
+
+  defp recover_capture(bucket, sequences, phase, id, hash, ingest, locked) do
+    with {:ok, entries} <- fetch_messages(sequences, bucket),
+         {:ok, body, ^hash} <- ExposureRecovery.encode(bucket, id, entries) do
+      recovered(retain_and_apply(bucket, id, hash, body, entries, ingest, locked))
+    else
+      {:error, {:exposure_recovery_message_unavailable, _}} = error ->
+        if phase == "capturing" do
+          with :ok <- locked.() do
+            case Repo.query!(
+                   """
+                   UPDATE platform.exposure_delivery_batches
+                   SET phase = 'snapshot_required'
+                   WHERE bucket = $1 AND stream_sequences = $2::bigint[]
+                   """,
+                   [bucket, sequences]
+                 ) do
+              %{num_rows: 1} -> {:error, {:exposure_snapshot_required, bucket}}
+              %{num_rows: 0} -> {:error, :exposure_delivery_busy}
+            end
+          end
+        else
+          error
+        end
+
+      {:ok, _, _} ->
+        {:error, :exposure_recovery_content_conflict}
+
+      error ->
+        error
+    end
+  end
+
+  defp retain_and_apply(bucket, id, hash, body, entries, ingest, locked) do
+    with :ok <- locked.(),
+         {:ok, position} <- ExposureRecovery.retain(bucket, id, body, hash) do
+      apply_retained(bucket, sequences(entries), position, entries, ingest, locked)
+    end
+  end
+
+  defp apply_retained(bucket, sequences, position, entries, ingest, locked) do
     with :ok <- locked.() do
+      case Repo.query!(
+             """
+             UPDATE platform.exposure_delivery_batches
+             SET phase = 'applying', recovery_position = $2
+             WHERE bucket = $1 AND stream_sequences = $3::bigint[]
+             """,
+             [bucket, position, sequences]
+           ) do
+        %{num_rows: 1} ->
+          finish(
+            bucket,
+            sequences,
+            position,
+            ingest.(Enum.map(entries, &elem(&1, 1)), locked),
+            locked
+          )
+
+        %{num_rows: 0} ->
+          {:error, :exposure_delivery_busy}
+      end
+    end
+  end
+
+  defp finish(bucket, sequences, position, result, locked)
+       when elem(result, 0) in [:ok, :retry] do
+    with :ok <- locked.() do
+      case Repo.query!(
+             """
+             UPDATE platform.exposure_delivery_batches
+             SET phase = 'complete'
+             WHERE bucket = $1 AND stream_sequences = $2::bigint[]
+             """,
+             [bucket, sequences]
+           ) do
+        %{num_rows: 1} ->
+          with :ok <- cleanup(bucket, sequences, position, locked) do
+            accepted(result)
+          end
+
+        %{num_rows: 0} ->
+          accepted(result)
+      end
+    end
+  end
+
+  defp finish(_bucket, _sequences, _position, error, _locked), do: error
+
+  defp cleanup(bucket, sequences, position, locked) do
+    with :ok <- locked.(),
+         :ok <- ExposureRecovery.delete(position),
+         :ok <- locked.() do
       Repo.query!(
         """
         DELETE FROM platform.exposure_delivery_batches
@@ -195,20 +365,27 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
         [bucket, sequences]
       )
 
-      case result do
-        {:retry, reason} -> {:error, reason}
-        success -> success
-      end
+      :ok
     end
   end
 
-  defp finish(_bucket, _sequences, error, _locked), do: error
+  defp accepted({:retry, reason}), do: {:error, reason}
+  defp accepted(success), do: success
+
+  defp recovered(result) do
+    case result do
+      {:ok, _} -> :ok
+      error -> error
+    end
+  end
+
+  defp sequences(entries), do: Enum.map(entries, &elem(&1, 0))
 
   defp fetch_messages(sequences, bucket) do
     sequences
     |> Enum.reduce_while({:ok, []}, fn seq, {:ok, acc} ->
       case fetch_message(seq, bucket) do
-        {:ok, message} -> {:cont, {:ok, [message | acc]}}
+        {:ok, message} -> {:cont, {:ok, [{seq, message} | acc]}}
         error -> {:halt, error}
       end
     end)
@@ -230,14 +407,21 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   defp fetch_message(seq, bucket) do
     subject = "vulnerability.assessment.transitions.#{bucket}"
 
-    with {:ok, %{body: body}} <-
-           request(seq),
-         {:ok, %{"message" => %{"seq" => ^seq, "subject" => ^subject, "data" => data}}} <-
-           Jason.decode(body),
-         {:ok, payload} <- Base.decode64(data) do
-      {:ok, %{data: payload, metadata: %{subject: subject}}}
-    else
-      _ -> {:error, {:exposure_recovery_message_unavailable, seq}}
+    with {:ok, %{body: body}} <- request(seq),
+         {:ok, response} <- Jason.decode(body) do
+      case response do
+        %{"message" => %{"seq" => ^seq, "subject" => ^subject, "data" => data}} ->
+          case Base.decode64(data) do
+            {:ok, payload} -> {:ok, %{data: payload, metadata: %{subject: subject}}}
+            :error -> {:error, {:exposure_recovery_source_encoding, seq}}
+          end
+
+        %{"error" => %{"code" => 404}} ->
+          {:error, {:exposure_recovery_message_unavailable, seq}}
+
+        other ->
+          {:error, {:exposure_recovery_source_read, other}}
+      end
     end
   end
 end
