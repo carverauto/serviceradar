@@ -11,6 +11,7 @@ ATLAS_SHARD_PREFIX = "//elixir/web-ng:topology_atlas_db_test_"
 PLUGIN_TARGET = "//elixir/web-ng:plugin_config_cli_db_test"
 PROVISION_TARGET = "//rust/integration-db:provision_generation_web_ng"
 SHARED_FIXTURE_SOURCES = {
+    "test/phoenix/control_plane_archive_bindings_db_test.exs",
     "test/phoenix/control_plane_archive_qualifications_db_test.exs",
     "test/phoenix/control_plane_recording_configuration_db_test.exs",
     "test/phoenix/control_plane_init_authorities_db_test.exs",
