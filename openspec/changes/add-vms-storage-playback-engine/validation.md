@@ -607,8 +607,10 @@ unavailable. No live provider, bucket, deployment or camera operation ran.
 Focused validation before integration:
 
 - [Core quality and integration-source compilation](https://carverauto.buildbuddy.io/invocation/1520ac21-e52e-4135-ad6a-eefefb426865)
-  passed. The compile owner reported zero executed tests and 132 exclusions;
-  its eight new database cases remain required in guarded Core CI. The
+  passed. The compile owner reported zero executed tests and 132 exclusions.
+  Its eight new database cases are that pre-fix compile's historical scope:
+  those bodies stayed excluded and did not execute. The two deadline cases
+  added with the review corrections below were outside this invocation. The
   [database-free owner](https://carverauto.buildbuddy.io/invocation/f03fc020-eb6e-4af1-b8b2-3edf4c882457)
   also passed.
 - [Web TLS, quality and routing contracts](https://carverauto.buildbuddy.io/invocation/6f611c6b-7700-4e96-a418-103630b924b2)
