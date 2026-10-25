@@ -1134,10 +1134,10 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     cond do
       macs != [] ->
         lookup_mac_holder(macs, context) ||
-          if(present?(ip), do: lookup_ip_holder(ip, macs, context, true))
+          if(present?(ip), do: lookup_ip_holder(ip, macs, context))
 
       present?(ip) ->
-        lookup_ip_holder(ip, [], context, context.guest_anchored?)
+        lookup_ip_holder(ip, [], context)
 
       true ->
         nil
@@ -1195,7 +1195,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end
   end
 
-  defp lookup_ip_holder(ip, awx_macs, context, corroborated_by_proxmox?) do
+  defp lookup_ip_holder(ip, awx_macs, context) do
     sql = """
     SELECT d.uid,
            d.agent_id,
@@ -1239,7 +1239,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
           ip_holder_corroboration(
             MapSet.new(awx_macs),
             holder_macs,
-            corroborated_by_proxmox?,
+            context.guest_anchored?,
             host_name_agrees?
           )
 
@@ -1258,19 +1258,24 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   # An address match alone is weak: the address may have moved to another host. It is accepted
-  # when Proxmox (or the AWX record's own MACs) link the record to the address, when the holder
-  # agrees on the host name, or when the holder carries no MAC that could contradict it. A MAC
-  # contradiction refuses the match whatever else agrees.
-  defp ip_holder_corroboration(awx_macs, holder_macs, corroborated_by_proxmox?, host_name_agrees?) do
+  # when the host names agree, when the MAC sets overlap, when a Proxmox guest links the record
+  # and the holder is MAC-anchored, or when the holder carries no MAC that could contradict it.
+  # A MAC contradiction refuses the match whatever else agrees.
+  defp ip_holder_corroboration(awx_macs, holder_macs, guest_anchored?, host_name_agrees?) do
     mac_contradicts? =
       MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
         MapSet.disjoint?(awx_macs, holder_macs)
 
+    macs_overlap? =
+      MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
+        not MapSet.disjoint?(awx_macs, holder_macs)
+
     cond do
       mac_contradicts? -> nil
       host_name_agrees? -> "ip_host_name"
-      corroborated_by_proxmox? -> "ip_proxmox"
+      macs_overlap? -> "mac"
       MapSet.size(holder_macs) == 0 -> "ip_unanchored_holder"
+      guest_anchored? -> "ip_proxmox"
       true -> nil
     end
   end

@@ -113,6 +113,56 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
     assert_not_merged(awx_uid, agent_uid)
   end
 
+  test "an AWX MAC on a holder with no MAC is recorded as an unanchored address match",
+       %{actor: actor, suffix: suffix} do
+    ip = test_ip()
+
+    holder_uid =
+      create_device!(actor, %{
+        ip: ip,
+        hostname: "unrelated#{suffix}",
+        discovery_sources: ["sweep"]
+      })
+
+    {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+    ingest_awx_host!(actor, integration_id, "other#{suffix}", ip, [mac(suffix, 1)])
+
+    assert live?(holder_uid)
+    refute live?(awx_uid)
+    assert integration_owner(integration_id) == holder_uid
+
+    assert [["awx_host_network_match", "ip_unanchored_holder"]] =
+             merge_audit(awx_uid, holder_uid)
+  end
+
+  test "an overlapping MAC stored only on the device row is recorded as a MAC match",
+       %{actor: actor, suffix: suffix} do
+    ip = test_ip()
+    colon_mac = mac(suffix, 1)
+
+    holder_uid =
+      create_device!(actor, %{
+        ip: ip,
+        hostname: "unrelated#{suffix}",
+        discovery_sources: ["sweep"]
+      })
+
+    Repo.query!(
+      "UPDATE platform.ocsf_devices SET mac = $1 WHERE uid = $2",
+      [colon_mac, holder_uid]
+    )
+
+    {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+    ingest_awx_host!(actor, integration_id, "other#{suffix}", ip, [colon_mac])
+
+    assert live?(holder_uid)
+    refute live?(awx_uid)
+    assert integration_owner(integration_id) == holder_uid
+    assert [["awx_host_network_match", "mac"]] = merge_audit(awx_uid, holder_uid)
+  end
+
   test "a MAC contradiction refuses the match although address and host name agree",
        %{actor: actor, suffix: suffix} do
     ip = test_ip()
