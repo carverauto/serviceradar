@@ -45,8 +45,6 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.BumblebeeFinding
     resource ServiceRadar.Inventory.Device
     resource ServiceRadar.Inventory.DeviceFleetOrdinal
-    resource ServiceRadar.Inventory.ExposureDimensionState
-    resource ServiceRadar.Inventory.ExposureDimensionOutbox
     resource ServiceRadar.Inventory.FleetDictionaryEpoch
     resource ServiceRadar.Inventory.DeviceAgentAvailability
     resource ServiceRadar.Inventory.Availability.DeviceEvidence

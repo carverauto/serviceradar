@@ -169,9 +169,9 @@ profiles:
   # ARANCINI_CAUSAL at R3 (full on every server), flows and every EventWriter
   # stream at R1 (spread). Every fallback stays at or below its collector size.
   #   full   = 32 + 384 + 256 + 128 + 128 MiB             = 928 MiB
-  #   spread = 256 + 64 + 32 + 64 + 64 + 32 + 32 + 32 + 64 + 64 + 64 MiB = 768 MiB,
+  #   spread = 256 + 64 + 32 + 64 + 64 + 32 + 32 + 32 + 32 + 64 + 64 + 64 MiB = 800 MiB,
   #            largest 256 MiB (flows)
-  #   need   = 928 + ceil(768 / 3) + 256 = 1440 MiB (1.41 GiB)
+  #   need   = 928 MiB + ceil(800 MiB / 3) + 256 MiB = 1521134251 bytes (1.42 GiB)
   tenant-2g:
     maxFileStore: 2G
     persistenceSize: 3Gi
