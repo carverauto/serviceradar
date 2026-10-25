@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter do
 
   alias ServiceRadarWebNGWeb.Auth.PasswordResetDelivery
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveQualifications
+  alias ServiceRadarWebNGWeb.Plugs.ControlPlaneInitAuthorities
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneRecordingConfiguration
   alias ServiceRadarWebNGWeb.Plugs.ControlPlaneRuntimeAuth
 
@@ -17,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter do
 
   plug Plug.RequestId
   plug ControlPlaneRuntimeAuth
+  plug ControlPlaneInitAuthorities
   plug ControlPlaneRecordingConfiguration
   plug ControlPlaneArchiveQualifications
 
