@@ -17,6 +17,15 @@ defmodule ServiceRadar.Plugins.AssignmentOwner do
 
   Only rule-owned assignments of different rules are allowed to coexist; see
   `conflict?/2`.
+
+  The database backs this with the unique index
+  `plugin_assignments_one_enabled_per_edge_plugin_owner_index` (migration
+  `20261025200000_key_enabled_plugin_assignments_per_owner`). Its owner column
+  is the `{:rule, id}` id of `owner/1`, or an empty string for every other
+  owner, so it refuses two enabled rows of one rule, and two enabled manual or
+  non-rule policy rows. A unique index cannot express the remaining pairing, a
+  manual or non-rule policy row next to a rule-owned row, so only
+  `NoDuplicateEnabledAssignment` refuses that one.
   """
 
   @rule_prefix "network-credential-rule:"

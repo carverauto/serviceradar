@@ -108,9 +108,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
       assignments
       |> Enum.reject(&is_nil(&1.partition_id))
       |> Enum.group_by(&{&1.partition_id, &1.agent_uid, &1.plugin_id})
-      |> Enum.map(fn {_key, group} ->
-        Enum.max_by(group, &{&1.enabled, DateTime.to_unix(&1.updated_at, :microsecond), &1.id})
-      end)
+      |> Enum.flat_map(fn {_key, group} -> desired_assignments(group) end)
 
     names =
       packages
@@ -144,6 +142,27 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
       |> Enum.map(fn {_key, group} -> row(nil, nil, winner(group), now) end)
 
     assigned ++ observed_only
+  end
+
+  # One agent's assignments of one plugin: the newest enabled assignment of each
+  # owner (owners of different credential rules coexist, see AssignmentOwner),
+  # or the newest disabled one when none is enabled.
+  defp desired_assignments(group) do
+    [newest | rest] =
+      Enum.sort_by(
+        group,
+        &{&1.enabled, DateTime.to_unix(&1.updated_at, :microsecond), &1.id},
+        :desc
+      )
+
+    rest
+    |> Enum.reduce([newest], fn assignment, kept ->
+      if assignment.enabled and
+           not Enum.any?(kept, &AssignmentOwner.conflict?(&1.policy_id, assignment.policy_id)),
+         do: [assignment | kept],
+         else: kept
+    end)
+    |> Enum.reverse()
   end
 
   @doc """

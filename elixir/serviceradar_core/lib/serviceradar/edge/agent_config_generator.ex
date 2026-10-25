@@ -54,6 +54,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AssignmentOwner
   alias ServiceRadar.Plugins.ConfigSchema
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
   alias ServiceRadar.Plugins.MapUtils
@@ -385,6 +386,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # candidate while the rollout holds the assignment, otherwise the stable
   # package. This is the single point where a rollout override reaches agents;
   # the gateway builds agent config through this generator.
+  #
+  # Every owner's assignment of a plugin is delivered: assignments of different
+  # credential rules coexist and the agent runs one instance per assignment id.
+  # Of two enabled rows that conflict (see AssignmentOwner), only the most
+  # recently updated is delivered.
   defp load_plugin_assignments(agent_id, partition_id) do
     actor = SystemActor.system(:agent_config_generator)
 
@@ -406,7 +412,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> Enum.map(&PluginAssignment.put_effective_package/1)
     |> Enum.map(&ensure_plugin_package_loaded(&1, actor))
     |> Enum.filter(&has_approved_package?/1)
-    |> Enum.uniq_by(&logical_plugin_id/1)
+    |> drop_conflicting_assignments()
     |> Enum.map(&build_plugin_assignment_config(&1, grant_mode))
     |> Enum.reject(&is_nil/1)
     |> attach_run_overrides(actor)
@@ -479,6 +485,23 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp wasm_available?(%PluginPackage{} = package) do
     key = package.wasm_object_key
     is_binary(key) and String.trim(key) != ""
+  end
+
+  # Keeps the first of every set of conflicting assignments, in the given
+  # (most recently updated first) order.
+  defp drop_conflicting_assignments(assignments) do
+    assignments
+    |> Enum.reduce([], fn assignment, kept ->
+      if Enum.any?(kept, &conflicting_assignments?(&1, assignment)),
+        do: kept,
+        else: [assignment | kept]
+    end)
+    |> Enum.reverse()
+  end
+
+  defp conflicting_assignments?(a, b) do
+    logical_plugin_id(a) == logical_plugin_id(b) and
+      AssignmentOwner.conflict?(a.policy_id, b.policy_id)
   end
 
   defp logical_plugin_id(%PluginAssignment{plugin_package: %PluginPackage{plugin_id: plugin_id}}),

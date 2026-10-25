@@ -594,6 +594,61 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     assert audit.grant_id == to_string(grant.id)
   end
 
+  test "each credential rule's assignment of one plugin is delivered with its own credential",
+       %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
+    {:ok, _agent} = create_connected_agent(admin, agent_uid)
+    package = create_approved_plugin_package!(admin, unique_id)
+    secret_a = create_proxmox_secret!(admin, "#{unique_id}-a")
+    secret_b = create_proxmox_secret!(admin, "#{unique_id}-b", @rotated_api_token_payload)
+
+    assignment_for = fn owner, secret ->
+      {:ok, grant} =
+        %{
+          secret_id: secret.id,
+          grant_type: "proxmox_api_token",
+          consumer_kind: :plugin,
+          consumer_id: package.plugin_id,
+          purpose: "inventory_enrichment",
+          agent_id: agent_uid,
+          resolution_location: :agent,
+          ttl_seconds: 3_600
+        }
+        |> CredentialBrokerGrant.issue_attrs()
+        |> CredentialBrokerGrant.issue_grant(actor: system)
+
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: package.id,
+          source: :policy,
+          source_key: "policy-key-#{owner}-#{unique_id}",
+          policy_id: "network-credential-rule:rule-#{owner}-#{unique_id}:inventory",
+          enabled: true,
+          params: %{
+            "credential_broker" => CredentialBrokerGrant.to_payload(grant),
+            "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id))
+          }
+        },
+        actor: system
+      )
+      |> create_without_notifications!()
+    end
+
+    assignment_a = assignment_for.("a", secret_a)
+    assignment_b = assignment_for.("b", secret_b)
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid, @default_partition)
+
+    delivered = Map.new(config.plugins, &{&1.assignment_id, &1.params["api_token"]})
+
+    assert delivered == %{
+             to_string(assignment_a.id) => @api_token_payload,
+             to_string(assignment_b.id) => @rotated_api_token_payload
+           }
+  end
+
   test "controller-list policy grants resolve independently and keep config version stable",
        %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
     {:ok, _agent} = create_connected_agent(admin, agent_uid)
@@ -1304,14 +1359,14 @@ defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
     end
   end
 
-  defp create_proxmox_secret!(actor, unique_id) do
+  defp create_proxmox_secret!(actor, unique_id, payload \\ @api_token_payload) do
     {:ok, secret} =
       NetworkCredentialSecret.create_secret(
         %{
           name: "proxmox-inventory-secret-#{unique_id}",
           provider: "proxmox",
           credential_kind: :api_token,
-          secret_payload: @api_token_payload
+          secret_payload: payload
         },
         actor: actor
       )

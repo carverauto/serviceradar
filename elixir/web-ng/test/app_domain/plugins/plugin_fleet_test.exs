@@ -168,6 +168,23 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
     assert id == newer.id
   end
 
+  test "each credential rule's enabled assignment of one plugin on an agent is its own row" do
+    package = package()
+    rule_a = %{assignment(package) | source: :policy, policy_id: "network-credential-rule:rule-a:inventory"}
+    rule_a_older = %{rule_a | id: Ecto.UUID.generate(), updated_at: ~U[2026-01-01 12:00:00Z]}
+
+    rule_b = %{
+      rule_a
+      | id: Ecto.UUID.generate(),
+        policy_id: "network-credential-rule:rule-b:inventory",
+        updated_at: ~U[2026-01-02 12:00:00Z]
+    }
+
+    rows = PluginFleet.build_rows([rule_a_older, rule_b, rule_a], [package], [], @now)
+
+    assert rows |> Enum.map(& &1["assignment_id"]) |> Enum.sort() == Enum.sort([rule_a.id, rule_b.id])
+  end
+
   test "disabled assignment and ambiguous legacy name evidence never look like current healthy execution" do
     package = package()
     another = %{package | id: Ecto.UUID.generate(), plugin_id: "another-check"}

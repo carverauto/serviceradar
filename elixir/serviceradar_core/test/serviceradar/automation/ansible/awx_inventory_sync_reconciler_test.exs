@@ -69,16 +69,16 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconcilerTest do
     end
 
     @impl true
-    def find_enabled_assignment(partition_id, agent_uid, plugin_package_id, _actor) do
-      record =
+    def list_enabled_assignments(partition_id, agent_uid, plugin_package_id, _actor) do
+      records =
         __MODULE__
         |> Agent.get(&Map.values/1)
-        |> Enum.find(
+        |> Enum.filter(
           &(&1.partition_id == partition_id and &1.agent_uid == agent_uid and
               &1.plugin_package_id == plugin_package_id and &1.enabled)
         )
 
-      {:ok, record}
+      {:ok, records}
     end
 
     defp spec_to_record(spec, existing \\ %{}) do
