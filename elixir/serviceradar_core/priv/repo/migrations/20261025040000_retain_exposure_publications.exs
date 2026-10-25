@@ -377,10 +377,30 @@ defmodule ServiceRadar.Repo.Migrations.RetainExposurePublications do
       SELECT * INTO watermark FROM platform.exposure_fact_watermarks
         WHERE device_uid = p_uid AND package_identity_key = p_package AND cve_id = p_cve;
       IF p_missing_only AND watermark.payload IS NOT NULL THEN RETURN watermark.payload; END IF;
+      SELECT tombstoned INTO retired FROM platform.device_fleet_ordinals
+        WHERE uid = p_uid FOR SHARE;
+      IF watermark.payload IS NOT NULL AND COALESCE(retired, false) THEN RETURN NULL; END IF;
+      IF watermark.payload IS NOT NULL
+         AND p_observed_seq < COALESCE(watermark.transition_seq, 0) THEN
+        RETURN watermark.payload;
+      END IF;
       source.device_uid := p_uid;
       source.package_identity_key := p_package;
       source.cve_id := p_cve;
       source.installed_version := COALESCE(watermark.payload->>'installed_version', '');
+      IF watermark.payload IS NOT NULL THEN
+        source.source_scope := watermark.payload->>'source_scope';
+        source.severity := watermark.payload->>'severity';
+        source.cvss_score := (watermark.payload->>'cvss_score')::double precision;
+        source.kev := (watermark.payload->>'kev')::boolean;
+        source.exploit_available := (watermark.payload->>'exploit_available')::boolean;
+        source.fixed_version := watermark.payload->>'fixed_version';
+        source.exposed_at := (watermark.payload->>'first_exposed_at')::timestamp without time zone;
+        source.status := watermark.payload->>'assessment_status';
+        source.assessment := watermark.payload->>'assessment';
+        source.disposition := watermark.payload->>'disposition';
+        source.transition_reason := watermark.payload->>'assessment_transition_reason';
+      END IF;
       source.last_transition_seq := GREATEST(p_observed_seq, COALESCE(watermark.transition_seq, 0));
       PERFORM platform.exposure_retire_assessment_key(source, 'snapshot_repair');
       SELECT payload INTO watermark.payload FROM platform.exposure_fact_watermarks
