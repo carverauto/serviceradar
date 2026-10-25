@@ -1498,11 +1498,122 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert block.descriptor == ctx.block.descriptor and block.state == :uploading
   end
 
+  test "a fractional millisecond cannot commit the only init grant", ctx do
+    bind(ctx)
+    {principal, context} = install_init(ctx)
+
+    assert {:ok, dispatch} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    granted =
+      Enum.reduce_while([500, 2_000, 8_000, 20_000, 80_000, 250_000], false, fn lead, _ ->
+        assert %{num_rows: 1} = shift_dispatch_deadline(dispatch.id, lead)
+
+        case ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts) do
+          {:ok, grant} ->
+            assert grant["remaining_ms"] in 1..5000
+            assert [marked] = dispatches(ctx)
+            assert DateTime.diff(marked.init_deadline_at, marked.marked_at, :millisecond) >= 1
+            {:halt, true}
+
+          {:error, :upload_dispatch_expired} ->
+            assert [retained] = dispatches(ctx)
+            assert retained.marked_at == nil and retained.init_authority_revision == nil
+            {:cont, false}
+
+          other ->
+            flunk("short init grant returned #{inspect(other)}")
+        end
+      end)
+
+    if granted == false do
+      assert %{num_rows: 1} = restore_dispatch_deadline(dispatch.id)
+
+      assert {:ok, grant} =
+               ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+
+      assert grant["remaining_ms"] in 1..5000
+      assert [marked] = dispatches(ctx)
+      assert marked.marked_at != nil and marked.init_authority_revision == 1
+    end
+  end
+
+  test "a fractional millisecond cannot apply an init authority", ctx do
+    {principal, desired, challenge, _} = init_documents(ctx)
+    assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+    application = %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]}
+
+    applied =
+      Enum.reduce_while([500, 2_000, 8_000, 20_000, 80_000, 250_000], false, fn lead, _ ->
+        assert %{num_rows: 1} = shift_authority_expiry(ctx.binding.id, lead)
+
+        case ArchiveInitAuthorities.apply(@installation, application, ctx.opts) do
+          {:ok, %{"state" => "applied"}} ->
+            assert {:ok, authority} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
+            assert DateTime.diff(authority.expires_at, authority.applied_at, :millisecond) >= 1
+            {:halt, true}
+
+          {:error, :init_authority_expired} ->
+            assert {:ok, %{state: :pending, applied_at: nil}} =
+                     Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
+
+            {:cont, false}
+
+          other ->
+            flunk("short init application returned #{inspect(other)}")
+        end
+      end)
+
+    if applied == false do
+      assert %{num_rows: 1} = restore_authority_expiry(ctx.binding.id)
+
+      assert {:ok, %{"state" => "applied"}} =
+               ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+
+      assert {:ok, authority} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
+      assert DateTime.diff(authority.expires_at, authority.applied_at, :millisecond) >= 1
+    end
+  end
+
   defp restrict_init(:stop, ctx),
     do: RecordingControl.stop(@installation, stop_document(), ctx.opts)
 
   defp restrict_init(:revoke, ctx),
     do: ArchiveInitAuthorities.revoke(@installation, revoke_document(ctx, "2"), ctx.opts)
+
+  defp shift_dispatch_deadline(id, lead_us) do
+    Repo.query!(
+      "UPDATE platform.camera_archive_upload_dispatches " <>
+        "SET deadline_at = clock_timestamp() + ($2 * interval '1 microsecond') WHERE id = $1",
+      [Ecto.UUID.dump!(id), lead_us]
+    )
+  end
+
+  defp restore_dispatch_deadline(id) do
+    Repo.query!(
+      "UPDATE platform.camera_archive_upload_dispatches " <>
+        "SET deadline_at = prepared_at + interval '20 seconds' WHERE id = $1",
+      [Ecto.UUID.dump!(id)]
+    )
+  end
+
+  defp shift_authority_expiry(id, lead_us) do
+    Repo.query!(
+      "UPDATE platform.camera_archive_init_authorities " <>
+        "SET expires_at = clock_timestamp() + ($2 * interval '1 microsecond') " <>
+        "WHERE archive_binding_id = $1 AND state = 'pending'",
+      [Ecto.UUID.dump!(id), lead_us]
+    )
+  end
+
+  defp restore_authority_expiry(id) do
+    Repo.query!(
+      "UPDATE platform.camera_archive_init_authorities " <>
+        "SET expires_at = issued_at + interval '20 seconds' " <>
+        "WHERE archive_binding_id = $1 AND state = 'pending'",
+      [Ecto.UUID.dump!(id)]
+    )
+  end
 
   defp database_ms do
     %{rows: [[now]]} =

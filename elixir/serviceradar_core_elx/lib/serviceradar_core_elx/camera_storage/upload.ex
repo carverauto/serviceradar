@@ -83,29 +83,44 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
 
     case provider_request(provider, :put, url, signed, bytes, deadline, 16_384) do
       {:ok, response} ->
+        verified = verified_object(provider, url, response, grant, wire_sha, deadline)
         observe(config, request, response)
-
-        with 200 <- response.status,
-             {:ok, identity} <- identity(response),
-             {:ok, verification} <- verify(provider, url, identity, grant, wire_sha, deadline),
-             {:ok, receipt} <-
-               CoreClient.request(config.runtime, :verify, Map.put(request, "verification", verification), 1_000),
-             true <- receipt === %{"schema_version" => 1, "status" => "recorded", "dispatch_id" => request["dispatch_id"]} do
-          {:ok,
-           %{
-             "schema_version" => 1,
-             "status" => "init_verified",
-             "dispatch_id" => request["dispatch_id"],
-             "recording_readiness" => "unavailable",
-             "archive_readiness" => "unavailable"
-           }}
-        else
-          _ -> {:error, :init_verification_unavailable}
-        end
+        record(config, request, verified)
 
       {:error, _} ->
         CoreClient.request(config.runtime, :observe, observation(request, "unknown"), 1_000)
         {:error, :init_upload_unknown}
+    end
+  end
+
+  defp verified_object(provider, url, %{status: 200} = response, grant, wire_sha, deadline) do
+    with {:ok, identity} <- identity(response),
+         {:ok, verification} <- verify(provider, url, identity, grant, wire_sha, deadline) do
+      verification
+    else
+      _ -> nil
+    end
+  end
+
+  defp verified_object(_provider, _url, _response, _grant, _wire_sha, _deadline), do: nil
+
+  defp record(_config, _request, nil), do: {:error, :init_verification_unavailable}
+
+  defp record(config, request, verification) do
+    with {:ok, receipt} <-
+           CoreClient.request(config.runtime, :verify, Map.put(request, "verification", verification), 1_000),
+         true <-
+           receipt === %{"schema_version" => 1, "status" => "recorded", "dispatch_id" => request["dispatch_id"]} do
+      {:ok,
+       %{
+         "schema_version" => 1,
+         "status" => "init_verified",
+         "dispatch_id" => request["dispatch_id"],
+         "recording_readiness" => "unavailable",
+         "archive_readiness" => "unavailable"
+       }}
+    else
+      _ -> {:error, :init_verification_unavailable}
     end
   end
 

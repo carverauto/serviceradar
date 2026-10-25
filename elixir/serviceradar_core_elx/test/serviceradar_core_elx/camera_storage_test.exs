@@ -148,6 +148,23 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     assert length(Agent.get(ctx.store, & &1.provider)) == 3
   end
 
+  @tag mode: :slow_observe
+  test "exact verification spends the operation budget before evidence callbacks", ctx do
+    assert {:ok, %{status: 200, body: body}} = upload(ctx)
+    assert %{"status" => "init_verified", "recording_readiness" => "unavailable"} = Jason.decode!(body)
+    state = Agent.get(ctx.store, & &1)
+    assert ["PUT", "HEAD", "GET"] = Enum.map(Enum.reverse(state.provider), & &1.method)
+
+    assert ["/v1/init-uploads/observe", "/v1/init-uploads/verify"] =
+             state.core
+             |> Enum.reverse()
+             |> Enum.map(&elem(&1, 0))
+             |> Enum.filter(&(&1 in ["/v1/init-uploads/observe", "/v1/init-uploads/verify"]))
+
+    assert {:ok, %{status: 503}} = upload(ctx)
+    assert Enum.count(Agent.get(ctx.store, & &1.provider), &(&1.method == "PUT")) == 1
+  end
+
   @tag mode: :held_put
   test "one in-flight request retains its slot until provider work finishes", ctx do
     first = Task.async(fn -> upload(ctx) end)
@@ -214,6 +231,13 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
       if state.mode == :lost_put do
         assert Enum.any?(state.core, fn {path, value} ->
                  path == "/v1/init-uploads/observe" and value["outcome"] == "unknown"
+               end)
+      end
+
+      if state.mode == :conflict do
+        assert Enum.any?(state.core, fn {path, value} ->
+                 path == "/v1/init-uploads/observe" and value["outcome"] == "response" and
+                   value["response"]["status"] == 412
                end)
       end
     end
@@ -294,7 +318,9 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
         grant(state, input, desired)
 
       "/v1/init-uploads/observe" ->
-        {json(200, %{"schema_version" => 1, "status" => "recorded"}), state}
+        response = json(200, %{"schema_version" => 1, "status" => "recorded"})
+        response = if state.mode == :slow_observe, do: {:delay, 900, response}, else: response
+        {response, state}
 
       "/v1/init-uploads/verify" ->
         {json(200, %{"schema_version" => 1, "status" => "recorded", "dispatch_id" => @dispatch}), state}
@@ -326,6 +352,7 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
         :wrong_nonce -> json(200, Map.put(body, "nonce", String.duplicate("0", 64)))
         :late_grant -> {:delay, 100, json(200, Map.put(body, "remaining_ms", 10))}
         :slow_grant -> {:delay, 600, json(200, body)}
+        :slow_observe -> json(200, Map.put(body, "remaining_ms", 700))
         _ -> json(200, body)
       end
 

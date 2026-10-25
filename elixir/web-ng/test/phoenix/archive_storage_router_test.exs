@@ -113,7 +113,16 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouterTest do
 
   test "installation rejects shared-purpose credentials and ambiguous identity before starting a socket",
        %{installation: installation} do
-    for token <- [@account_token, @media_token, "short"] do
+    for token <- [
+          @account_token,
+          @media_token,
+          "short",
+          installation.token <> "\n",
+          installation.token <> "\t",
+          " " <> installation.token,
+          String.duplicate("a", 512) <> "\n",
+          String.duplicate("b", 32) <> "\n"
+        ] do
       File.write!(installation.opts[:token_file], token)
 
       assert_raise ArgumentError, "invalid archive storage listener installation", fn ->
@@ -121,6 +130,12 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouterTest do
       end
     end
 
+    File.write!(
+      installation.opts[:token_file],
+      String.replace(installation.token, "-", " ", global: false)
+    )
+
+    assert %{id: ArchiveStorageListener} = ArchiveStorageListener.child_spec(installation.opts)
     File.write!(installation.opts[:token_file], installation.token)
 
     for {key, value} <- [

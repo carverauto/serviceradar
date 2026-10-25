@@ -18,7 +18,7 @@ original operation deadlines and late evidence remain enforced.
 The integrated remote suite passed 460 targets with two platform skips.
 No-mistakes publication and actual guarded Core/Web database execution remain
 the immediate gates; [validation.md](validation.md) distinguishes executed
-checks from the nine pending database cases.
+checks from the eleven pending database cases.
 
 Production recording stays disabled. Preserve the operator-confirmed live RTSP
 path and all existing ownership, manifest, archive, intent and dispatch
@@ -56,7 +56,7 @@ belongs to the new checkpoint's executable acceptance, not a live rollout.
 | Deployment-scoped media authentication | #5983 merged; final head `66d22624` passed all checks. Core `59ceece3` and Web `f8b9178b` executed all 12/seven guarded targets; lifecycle statuses zero. HTTP shard 0: 819 tests + two properties, zero failures, both receipt cases traced | Full desired/applied authority remains open |
 | Durable recording stop | #5989 merged; 20 checks passed. Core `e00f8d32` and Web `2602f4c1` executed 12 and seven guarded targets; all lifecycle statuses zero. Five core cases covered by included owners; HTTP case explicitly traced | Full fleet drain and positive authority remain separate |
 | Cloud media installation | #187 merged; all five checks passed; Timescale CI 3230 tests, zero failures, 10 skips, all 17 required cases enabled | Provider provisioning, qualification, isolated workload and lifecycle preservation |
-| Init-object authority | Integrated full remote `8c77cc64` passed 460 targets with two platform skips; TLS/runtime/release/Helm owners passed; see [validation](validation.md) | No-mistakes publication and final-head execution of eight Core cases and one Web HTTP/database case |
+| Init-object authority | Corrected full remote `e901eb3e` passed 460 targets with two platform skips; all three review regressions have negative controls; TLS/runtime/release/Helm owners passed; see [validation](validation.md) | No-mistakes publication and final-head execution of ten Core cases and one Web HTTP/database case |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 

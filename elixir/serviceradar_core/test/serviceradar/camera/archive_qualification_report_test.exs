@@ -1,6 +1,7 @@
 defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Camera.ArchiveInitAuthorities
   alias ServiceRadar.Camera.ArchiveInitConfig
   alias ServiceRadar.Camera.ArchiveQualificationReport
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
@@ -232,6 +233,27 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
         ] do
       assert {:error, :invalid_init_configuration} = ArchiveInitConfig.parse(invalid, document)
     end
+  end
+
+  test "a deadline admits a write only when a whole millisecond remains" do
+    now = DateTime.from_unix!(1_700_000_000_000_000, :microsecond)
+
+    for offset <- [-1, 0, 1, 500, 999] do
+      assert :expired =
+               ArchiveInitAuthorities.operation_budget(
+                 DateTime.add(now, offset, :microsecond),
+                 now
+               )
+    end
+
+    assert {:ok, 1} =
+             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 1_000, :microsecond), now)
+
+    assert {:ok, 1} =
+             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 1_500, :microsecond), now)
+
+    assert {:ok, 2} =
+             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 2_000, :microsecond), now)
   end
 
   defp init_configuration do

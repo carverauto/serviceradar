@@ -644,9 +644,27 @@ were skipped. This includes generated schema agreement, migration/chart version
 `20261025020000`, the complete Helm suite, test routing and integrated application
 owners. Strict OpenSpec validation also passed. All existing assertions remain.
 
+Review corrections require a positive whole-millisecond remainder before an
+authority apply or grant write, finish HEAD/range verification before the
+separately bounded evidence callbacks, and reject surrounding whitespace in web
+token files. No existing assertion was removed. The deadline budget owner,
+actual storage HTTPS flow and listener installation checks each fail when their
+faulty behavior is reinstated in
+[5af88402](https://carverauto.buildbuddy.io/invocation/5af88402-9f6b-4f99-ab3b-3c99ea6ab589).
+The failures respectively report a zero-millisecond admission, unavailable
+verification, and a missing rejection of padded credentials. The three source
+owners were restored byte-for-byte before formatting and positive validation.
+
+With those corrections, full remote `make test`
+[e901eb3e](https://carverauto.buildbuddy.io/invocation/e901eb3e-f6b1-4942-b443-e585383c9e01)
+passed 460 targets: 52 executed, 408 used cache and two Swift platform targets
+were skipped. All three regression owners, Elixir quality, packaged startup and
+the multiarch image contract passed. Two additional database cases check that
+short deadlines leave pending authority and dispatch state unconsumed.
+
 Publication through no-mistakes and actual guarded database execution on the
 final published head remain outstanding at this authored checkpoint. Required
-database coverage is eight cases in the existing archive-upload owner plus the
+database coverage is ten cases in the existing archive-upload owner plus the
 new actual private-TLS HTTP roundtrip. Compilation and excluded bodies are not
 execution evidence. Both guarded lifecycles, their actual suites and cleanup
 must pass before this change is ready for review. These synthetic checks do not

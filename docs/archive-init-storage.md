@@ -50,8 +50,8 @@ token. Web projects only the runtime token even when both workloads use the same
 authentication Secret. Web never mounts provider credentials.
 
 Each token file must contain exactly 32 to 512 bytes, without leading or trailing
-whitespace or a newline. Storage rejects a token file with surrounding whitespace
-at startup; do not rely on the web listener's whitespace trimming.
+whitespace or a newline. Both the storage workload and the web listener reject any
+other length, surrounding whitespace, or a newline at startup.
 
 ## Deployment and network contract
 

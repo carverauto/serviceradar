@@ -47,9 +47,8 @@ defmodule ServiceRadarWebNG.ArchiveStorageListener do
          true <- reference?(document["credential_reference"]),
          true <- Enum.all?(~w(cert_file key_file ca_file), &absolute_path?(document[&1])),
          {:ok, pin} <- decode_pin(document["client_cert_sha256"]),
-         {:ok, token_bytes} <- bounded_file(Keyword.get(opts, :token_file), 513),
-         token = String.trim(token_bytes),
-         true <- text?(token, 512) and byte_size(token) >= 32,
+         {:ok, token} <- bounded_file(Keyword.get(opts, :token_file), 512),
+         true <- byte_size(token) in 32..512 and text?(token, 512) and String.trim(token) == token,
          true <- separate_token?(token),
          {:ok, _} <- media_origin(document) do
       %{

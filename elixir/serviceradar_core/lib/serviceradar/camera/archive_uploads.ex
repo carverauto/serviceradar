@@ -201,27 +201,31 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
       init_deadline_at: deadline
     }
 
-    with true <-
-           DateTime.after?(deadline, dispatch.database_now) || {:error, :upload_dispatch_expired},
-         {:ok, _} <- update(dispatch, :grant_init, attrs, opts) do
-      {:ok,
-       %{
-         "schema_version" => 1,
-         "status" => "granted",
-         "dispatch_id" => dispatch.id,
-         "binding_id" => authority.archive_binding_id,
-         "revision" => Integer.to_string(authority.revision),
-         "desired_sha256" => authority.desired_sha256,
-         "storage_boot_id" => context.storage_boot_id,
-         "nonce" => context.nonce,
-         "remaining_ms" => DateTime.diff(deadline, dispatch.database_now, :millisecond),
-         "request_sha256" => dispatch.request_sha256,
-         "object_key" => intent.object_key,
-         "byte_length" => intent.byte_length,
-         "object_sha256" => intent.object_sha256,
-         "descriptor_sha256" => intent.descriptor_sha256,
-         "local_storage_id" => block.storage_id
-       }}
+    case ArchiveInitAuthorities.operation_budget(deadline, dispatch.database_now) do
+      {:ok, remaining_ms} ->
+        with {:ok, _} <- update(dispatch, :grant_init, attrs, opts) do
+          {:ok,
+           %{
+             "schema_version" => 1,
+             "status" => "granted",
+             "dispatch_id" => dispatch.id,
+             "binding_id" => authority.archive_binding_id,
+             "revision" => Integer.to_string(authority.revision),
+             "desired_sha256" => authority.desired_sha256,
+             "storage_boot_id" => context.storage_boot_id,
+             "nonce" => context.nonce,
+             "remaining_ms" => remaining_ms,
+             "request_sha256" => dispatch.request_sha256,
+             "object_key" => intent.object_key,
+             "byte_length" => intent.byte_length,
+             "object_sha256" => intent.object_sha256,
+             "descriptor_sha256" => intent.descriptor_sha256,
+             "local_storage_id" => block.storage_id
+           }}
+        end
+
+      :expired ->
+        {:error, :upload_dispatch_expired}
     end
   end
 

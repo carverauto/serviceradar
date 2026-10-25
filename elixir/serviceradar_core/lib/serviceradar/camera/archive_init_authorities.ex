@@ -134,6 +134,14 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
     end
   end
 
+  @doc "Whole milliseconds remaining before a deadline. Zero or less admits no write."
+  def operation_budget(%DateTime{} = deadline, %DateTime{} = now) do
+    case DateTime.diff(deadline, now, :millisecond) do
+      remaining when remaining >= 1 -> {:ok, remaining}
+      _ -> :expired
+    end
+  end
+
   @doc "Identity fingerprint used by retained grants, including their late evidence."
   def principal_sha256(principal) do
     with :ok <- installation(principal),
@@ -233,17 +241,25 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
   defp install(%{state: :applied} = current, _config, _opts), do: {:ok, current}
 
   defp install(current, config, opts) do
-    expiry_ms =
-      min(DateTime.to_unix(current.expires_at, :millisecond), config.report["expires_at_ms"])
+    expires_at =
+      [DateTime.to_unix(current.expires_at, :millisecond), config.report["expires_at_ms"]]
+      |> Enum.min()
+      |> DateTime.from_unix!(:millisecond)
 
-    current
-    |> Ash.Changeset.for_update(:apply, %{
-      desired_document: config.document,
-      report_sha256: config.report_sha256,
-      applied_at: current.database_now,
-      expires_at: DateTime.from_unix!(expiry_ms, :millisecond)
-    })
-    |> Ash.update(opts)
+    case operation_budget(expires_at, current.database_now) do
+      {:ok, _remaining} ->
+        current
+        |> Ash.Changeset.for_update(:apply, %{
+          desired_document: config.document,
+          report_sha256: config.report_sha256,
+          applied_at: current.database_now,
+          expires_at: expires_at
+        })
+        |> Ash.update(opts)
+
+      :expired ->
+        {:error, :init_authority_expired}
+    end
   end
 
   defp persist(nil, id, action, attrs, opts) do
