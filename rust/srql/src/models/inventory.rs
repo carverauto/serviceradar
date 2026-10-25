@@ -2,7 +2,7 @@
 //! service status.
 
 use crate::jsonb::DbJson;
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, NaiveDate, NaiveDateTime, Utc};
 use diesel::deserialize::QueryableByName;
 use diesel::prelude::*;
 use diesel::sql_types::{Bool, Int4, Jsonb, Nullable, Text, Timestamptz, Uuid as SqlUuid};
@@ -173,6 +173,11 @@ pub struct DeviceRow {
     pub availability_source_agent_id: Option<String>,
     pub discovery_sources: Option<Vec<String>>,
     pub is_available: Option<bool>,
+    pub availability_state: String,
+    pub availability_decided_by: Option<DbJson>,
+    pub availability_changed_at: Option<NaiveDateTime>,
+    pub availability_conflict: bool,
+    pub availability_agents: Option<DbJson>,
     pub is_active: Option<bool>,
     pub tags: Option<DbJson>,
     pub metadata: Option<DbJson>,
@@ -186,6 +191,27 @@ pub struct DeviceRow {
 
 impl DeviceRow {
     pub fn into_json(self) -> serde_json::Value {
+        let decided_by = self.availability_decided_by.map(serde_json::Value::from);
+        let decided = |key: &str| {
+            decided_by
+                .as_ref()
+                .and_then(|value| value.get(key))
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_string)
+        };
+        let availability_source = decided("source_kind");
+        let availability_class = decided("authority_class");
+        let agents = self.availability_agents.map(serde_json::Value::from);
+        let agent_count = |key: &str| {
+            agents
+                .as_ref()
+                .and_then(|value| value.get(key))
+                .and_then(serde_json::Value::as_i64)
+                .unwrap_or(0)
+        };
+        let agents_up = agent_count("up");
+        let agents_total = agent_count("total");
+
         serde_json::json!({
             // OCSF Core Identity
             "uid": self.uid,
@@ -238,6 +264,19 @@ impl DeviceRow {
             "availability_source_agent_id": self.availability_source_agent_id,
             "discovery_sources": self.discovery_sources.unwrap_or_default(),
             "is_available": self.is_available.unwrap_or(false),
+            // Canonical merged availability. `is_available` above is the last decided
+            // boolean; `availability` is the only field that reports `unknown`.
+            "availability": self.availability_state,
+            "availability_source": availability_source,
+            "availability_class": availability_class,
+            "availability_decided_by": decided_by,
+            "availability_changed_at": self
+                .availability_changed_at
+                .map(|at| at.and_utc()),
+            "availability_conflict": self.availability_conflict,
+            "availability_agents": agents,
+            "agents_up": agents_up,
+            "agents_total": agents_total,
             "is_active": self.is_active.unwrap_or(true),
             "tags": self
                 .tags

@@ -42,6 +42,22 @@ pub(super) fn build_grouped_stats_filter_clause(
         "risk_level" => clauses::build_grouped_text_clause("risk_level", filter, &mut binds)?,
         "cve" | "cve_id" => build_match_cve_clause(filter, &mut binds)?,
         "kev" => build_match_kev_clause(filter, &mut binds)?,
+        "availability" | "availability_source" | "availability_class" => {
+            match super::super::filters::merged_availability_bound_filter(filter)? {
+                Some(bound) => {
+                    let clause = bound.placeholder_sql();
+                    binds.push(DeviceSqlBindValue::TextArray(bound.values));
+                    clause
+                }
+                None => return Ok(None),
+            }
+        }
+        "agent_reachability" | "availability_policy" => {
+            match super::super::filters::merged_availability_summary_predicate(filter)? {
+                Some(predicate) => predicate,
+                None => return Ok(None),
+            }
+        }
         "is_available" => build_bool_clause("is_available", filter, &mut binds)?,
         "first_seen" | "first_seen_time" => build_first_seen_clause(filter, &mut binds)?,
         "is_active" => build_active_clause(filter, &mut binds)?,

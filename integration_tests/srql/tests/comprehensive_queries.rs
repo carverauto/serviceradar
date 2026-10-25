@@ -534,13 +534,66 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
-            // Limit 2. Should return top 2 based on default sort (last_seen desc) -> alpha, gamma
-            query: "in:devices limit:2",
+            // Default order is the canonical availability rank, then IP: alpha and delta
+            // (available, by IP), then gamma (unknown, though its last boolean is true).
+            query: "in:devices",
+            expected_count: 3,
+            validator: Some(Box::new(|body| {
+                let ids: Vec<&str> = body["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| row["uid"].as_str().unwrap())
+                    .collect();
+                assert_eq!(ids, vec!["device-alpha", "device-delta", "device-gamma"]);
+            })),
+        },
+        TestCase {
+            // Unknown is reported only through `availability`; the device keeps its last
+            // decided boolean.
+            query: "in:devices availability:unknown",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["uid"], "device-gamma");
+                assert_eq!(row["availability"], "unknown");
+                assert_eq!(row["is_available"], true);
+            })),
+        },
+        TestCase {
+            query: "in:devices availability:available sort:uid:asc",
             expected_count: 2,
             validator: Some(Box::new(|body| {
-                let results = body["results"].as_array().unwrap();
-                assert_eq!(results[0]["uid"], "device-alpha");
-                assert_eq!(results[1]["uid"], "device-gamma");
+                let ids: Vec<&str> = body["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|row| row["uid"].as_str().unwrap())
+                    .collect();
+                assert_eq!(ids, vec!["device-alpha", "device-delta"]);
+            })),
+        },
+        TestCase {
+            // Reachable from one of its two probing agents.
+            query: "in:devices agent_reachability:partial",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["uid"], "device-alpha");
+                assert_eq!(row["agents_up"], 1);
+                assert_eq!(row["agents_total"], 2);
+            })),
+        },
+        TestCase {
+            // Reached by an agent expected to be blocked; decided by its controller.
+            query: "in:devices availability_policy:violation",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let row = &body["results"][0];
+                assert_eq!(row["uid"], "device-delta");
+                assert_eq!(row["availability_source"], "wifi_map");
+                assert_eq!(row["availability_class"], "managing_controller");
+                assert_eq!(row["availability_conflict"], true);
             })),
         },
         TestCase {
@@ -584,7 +637,10 @@ async fn comprehensive_queries_match_fixtures() {
                     })
                     .collect();
                 rows.sort_unstable();
-                assert_eq!(rows, vec![("device-alpha", false), ("device-retired", true)]);
+                assert_eq!(
+                    rows,
+                    vec![("device-alpha", false), ("device-retired", true)]
+                );
             })),
         },
         TestCase {
@@ -599,16 +655,12 @@ async fn comprehensive_queries_match_fixtures() {
             // A count hides the marked record as well: alpha, gamma and delta are active.
             query: "in:devices stats:count() as total",
             expected_count: 1,
-            validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["total"], 3)
-            })),
+            validator: Some(Box::new(|body| assert_eq!(body["results"][0]["total"], 3))),
         },
         TestCase {
             query: "in:devices include_retired:true stats:count() as total",
             expected_count: 1,
-            validator: Some(Box::new(|body| {
-                assert_eq!(body["results"][0]["total"], 4)
-            })),
+            validator: Some(Box::new(|body| assert_eq!(body["results"][0]["total"], 4))),
         },
         TestCase {
             // Per-agent latest availability: agent-1 sees alpha and beta as reachable.

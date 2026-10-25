@@ -83,6 +83,24 @@ async fn grouped_device_stats_execute_against_postgres() {
             "the device with no tags belongs in the Unknown bucket: {body}"
         );
 
+        // Grouped by the canonical state, filtered by a merged-availability predicate:
+        // beta (inactive, unavailable) has no reachable agent, so only the partially
+        // reachable alpha is counted.
+        let (status, body) = read_json(
+            harness
+                .query(request(
+                    "in:devices include_inactive:true agent_reachability:(partial,none) !availability:unavailable stats:count() as total by availability limit:100",
+                ))
+                .await,
+        )
+        .await;
+        assert_eq!(status, http::StatusCode::OK, "grouping by availability: {body}");
+        assert_eq!(
+            group_counts(&body, "availability", "total"),
+            vec![("available".to_string(), 1)],
+            "only alpha is partially reachable and not unavailable: {body}"
+        );
+
         // Filter AND group: this is the combination that was a syntax error.
         let (status, body) = read_json(
             harness

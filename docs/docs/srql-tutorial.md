@@ -144,8 +144,10 @@ Build up a precise query one token at a time:
 in:devices vendor_name:Cisco hostname:%core% is_available:true
 ```
 
-Plain English: "Cisco devices whose hostname contains `core` and that are currently
-available." Boolean fields like `is_available` accept `true` or `false`.
+Plain English: "Cisco devices whose hostname contains `core` and whose last
+decided availability is true." `is_available` is that boolean. A device whose
+canonical state is `unknown` can still be `is_available:true`. Boolean fields
+accept `true` or `false`.
 
 There is no `OR` keyword between separate filters — when you need OR semantics for a
 single field, use the list form from Step 4.

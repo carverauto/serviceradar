@@ -4,6 +4,7 @@ use super::{
     identity::collect_mac_params,
     ip::collect_ip_params,
     jsonb::{is_valid_jsonb_key, parse_bool},
+    merged_availability,
     text::collect_text_params,
 };
 use crate::{
@@ -86,6 +87,17 @@ pub(in crate::query::devices) fn collect_filter_params(
                     ServiceError::InvalidRequest("type_id must be an integer".into())
                 })?;
             params.push(BindParam::Int(type_id));
+            Ok(())
+        }
+        "availability" | "availability_source" | "availability_class" => {
+            if let Some(bound) = merged_availability::bound_filter(filter)? {
+                params.push(BindParam::TextArray(bound.values));
+            }
+            Ok(())
+        }
+        // Complete predicates over validated keywords: neither binds.
+        "agent_reachability" | "availability_policy" => {
+            let _ = merged_availability::summary_predicate(filter)?;
             Ok(())
         }
         "is_available" => {

@@ -192,6 +192,44 @@ VALUES (
     NOW() - INTERVAL '1 day'
 );
 
+-- Canonical merged availability for the records above. Each device keeps its
+-- is_available boolean, so every is_available case is unchanged; the state differs
+-- from the boolean only where a merged decision would. alpha is available while one
+-- of its two probing agents cannot reach it (partial reachability); delta is decided
+-- available by a managing controller and reached by an agent expected to be blocked
+-- (a policy violation); gamma's evidence has all aged out, so it is unknown while it
+-- keeps its last decided boolean, true. The default order is therefore alpha, delta
+-- (both available, by IP), then gamma.
+UPDATE public.ocsf_devices AS d
+SET availability_state = v.state,
+    availability_decided_by = v.decided_by::jsonb,
+    availability_conflict = v.conflict,
+    availability_agents = v.agents::jsonb,
+    availability_changed_at = NOW() AT TIME ZONE 'utc'
+FROM (VALUES
+    ('device-alpha', 'available',
+     '{"rule":"highest_class","source_kind":"agent_probe","authority_class":"active_probe"}',
+     false,
+     '{"up":1,"down":1,"stale":0,"total":2,"blocked_verified":0,"policy_violation":0,"inconclusive_control":0}'),
+    ('device-beta', 'unavailable',
+     '{"rule":"highest_class","source_kind":"agent_probe","authority_class":"active_probe"}',
+     false,
+     '{"up":0,"down":1,"stale":0,"total":1,"blocked_verified":0,"policy_violation":0,"inconclusive_control":0}'),
+    ('device-gamma', 'unknown',
+     '{"rule":"no_evidence","previous":{"state":"available"}}',
+     false,
+     '{"up":0,"down":0,"stale":1,"total":1,"blocked_verified":0,"policy_violation":0,"inconclusive_control":0}'),
+    ('device-delta', 'available',
+     '{"rule":"highest_class","source_kind":"wifi_map","authority_class":"managing_controller"}',
+     true,
+     '{"up":1,"down":0,"stale":0,"total":1,"blocked_verified":0,"policy_violation":1,"inconclusive_control":0}'),
+    ('device-retired', 'available',
+     '{"rule":"highest_class","source_kind":"agent_probe","authority_class":"active_probe"}',
+     false,
+     NULL)
+) AS v(uid, state, decided_by, conflict, agents)
+WHERE d.uid = v.uid;
+
 WITH base AS (
     SELECT NOW() AS now_ts
 )
