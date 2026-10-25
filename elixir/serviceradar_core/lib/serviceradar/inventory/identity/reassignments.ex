@@ -99,6 +99,41 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
     )
   end
 
+  @doc """
+  Repoint virtualization inventory rows and AWX host memberships from the
+  merged-away device to the survivor.
+
+  Called before `tombstone_merged_device/2` so that
+  `trg_quarantine_awx_memberships_on_device_delete` does not quarantine
+  approved AWX memberships that belonged to the merged device.
+  """
+  @spec reassign_virtualization_and_awx_references(String.t(), String.t()) ::
+          :ok | {:error, term()}
+  def reassign_virtualization_and_awx_references(from_id, to_id)
+      when is_binary(from_id) and is_binary(to_id) and from_id != to_id do
+    statements = [
+      {"UPDATE platform.virtualization_guests SET device_uid = $2, updated_at = NOW() WHERE device_uid = $1",
+       [from_id, to_id]},
+      {"UPDATE platform.virtualization_hosts SET device_uid = $2, updated_at = NOW() WHERE device_uid = $1",
+       [from_id, to_id]},
+      {"UPDATE platform.virtualization_network_interfaces SET device_uid = $2, updated_at = NOW() WHERE device_uid = $1",
+       [from_id, to_id]},
+      {"UPDATE platform.virtualization_host_disks SET device_uid = $2, updated_at = NOW() WHERE device_uid = $1",
+       [from_id, to_id]},
+      {"UPDATE platform.ansible_awx_host_memberships SET canonical_device_uid = $2, updated_at = NOW() WHERE canonical_device_uid = $1",
+       [from_id, to_id]}
+    ]
+
+    Enum.reduce_while(statements, :ok, fn {sql, params}, :ok ->
+      case Repo.query(sql, params) do
+        {:ok, _} -> {:cont, :ok}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  def reassign_virtualization_and_awx_references(_from_id, _to_id), do: :ok
+
   def reassign_alerts(from_id, to_id, actor) do
     bulk_reassign(Alert, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
   end

@@ -3804,11 +3804,17 @@ func buildDiscoveredHost(cfg InventorySyncControllerConfig, inv awxInventoryRow,
 	}
 
 	integrationID := awxIntegrationID(cfg.ControllerID, host.ID)
+	macs := awxHostMACs(host.Variables)
+	primaryMAC := ""
+	if len(macs) > 0 {
+		primaryMAC = macs[0]
+	}
 
 	return sdk.DiscoveredDevice{
 		DeviceID:    fmt.Sprintf("awx:%s:host:%d", cfg.ControllerID, host.ID),
 		Hostname:    hostname,
 		IP:          ip,
+		MAC:         primaryMAC,
 		VendorName:  "Ansible",
 		Type:        "host",
 		Role:        "ansible_host",
@@ -3837,18 +3843,32 @@ func awxHostMetadata(
 	hostname string,
 	ansibleHost string,
 ) map[string]any {
+	awxBlock := map[string]any{
+		"controller_id":   cfg.ControllerID,
+		"controller_name": cfg.ControllerName,
+		"inventory_id":    inv.ID,
+		"inventory_name":  inv.Name,
+		"host_id":         host.ID,
+		"host_name":       host.Name,
+		"description":     host.Description,
+		"instance_id":     host.InstanceID,
+		"ansible_host":    ansibleHost,
+	}
+
+	if vmid, node, vmtype := awxProxmoxRef(host.Variables); vmid > 0 || node != "" || vmtype != "" {
+		if vmid > 0 {
+			awxBlock["proxmox_vmid"] = vmid
+		}
+		if node != "" {
+			awxBlock["proxmox_node"] = node
+		}
+		if vmtype != "" {
+			awxBlock["proxmox_vmtype"] = vmtype
+		}
+	}
+
 	metadata := map[string]any{
-		"awx": map[string]any{
-			"controller_id":   cfg.ControllerID,
-			"controller_name": cfg.ControllerName,
-			"inventory_id":    inv.ID,
-			"inventory_name":  inv.Name,
-			"host_id":         host.ID,
-			"host_name":       host.Name,
-			"description":     host.Description,
-			"instance_id":     host.InstanceID,
-			"ansible_host":    ansibleHost,
-		},
+		"awx": awxBlock,
 	}
 
 	if integrationID != "" {

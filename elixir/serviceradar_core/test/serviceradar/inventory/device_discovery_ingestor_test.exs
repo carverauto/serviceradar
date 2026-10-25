@@ -842,6 +842,24 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
 
       assert is_nil(update["ip"])
     end
+
+    test "recovers ansible_host and proxmox link fields from top-level metadata and YAML variables" do
+      update =
+        ingest_awx_host(%{
+          "device_id" => "awx:ctrl-1:host:103",
+          "hostname" => "guest-103",
+          "metadata" => %{
+            "integration_id" => "awx:v2:ctrl-1:host:103",
+            "variables" =>
+              "---\nansible_host: 192.0.2.103\nproxmox_vmid: 103\nproxmox_node: pve-01\nproxmox_vmtype: qemu\n"
+          }
+        })
+
+      assert update["ip"] == "192.0.2.103"
+      assert update["metadata"]["awx"]["proxmox_vmid"] == 103
+      assert update["metadata"]["awx"]["proxmox_node"] == "pve-01"
+      assert update["metadata"]["awx"]["proxmox_vmtype"] == "qemu"
+    end
   end
 
   defp awx_payload_with_device do

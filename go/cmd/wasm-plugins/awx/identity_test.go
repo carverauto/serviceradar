@@ -201,3 +201,31 @@ func TestBuildDiscoveredHostWithoutNICDataEmitsNoMAC(t *testing.T) {
 		t.Fatalf("integration_id = %#v", got)
 	}
 }
+
+func TestBuildDiscoveredHostEmitsProxmoxLinkMetadata(t *testing.T) {
+	cfg := InventorySyncControllerConfig{ControllerID: "farm01", ControllerName: "Farm"}
+	inv := awxInventoryRow{ID: 3, Name: "proxmox-inv"}
+	host := awxHostRow{
+		ID:        12,
+		Name:      "vm104",
+		Enabled:   true,
+		Variables: `{"ansible_host":"192.0.2.104","proxmox_vmid":104,"proxmox_node":"pve01","proxmox_vmtype":"qemu","proxmox_net0":"virtio=BC:24:11:53:84:67,bridge=vmbr0"}`,
+	}
+
+	device := buildDiscoveredHost(cfg, inv, host)
+
+	if device.IP != "192.0.2.104" {
+		t.Fatalf("ip = %q, want 192.0.2.104", device.IP)
+	}
+	if device.MAC != "BC:24:11:53:84:67" {
+		t.Fatalf("mac = %q, want BC:24:11:53:84:67", device.MAC)
+	}
+
+	awxBlock, ok := device.Metadata["awx"].(map[string]any)
+	if !ok {
+		t.Fatalf("awx metadata block missing: %#v", device.Metadata["awx"])
+	}
+	if awxBlock["proxmox_vmid"] != 104 || awxBlock["proxmox_node"] != "pve01" || awxBlock["proxmox_vmtype"] != "qemu" {
+		t.Fatalf("unexpected proxmox metadata in awx block: %#v", awxBlock)
+	}
+}

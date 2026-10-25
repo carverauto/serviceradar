@@ -89,13 +89,8 @@ func awxLegacyIDs(emittedHostname, awxHostName, integrationID string) []string {
 // addresses would risk collapsing distinct hosts. This mirrors the filter the
 // proxmox plugin applies via ConfigKey.
 func awxHostMACs(variables string) []string {
-	trimmed := strings.TrimSpace(variables)
-	if trimmed == "" || !strings.HasPrefix(trimmed, "{") {
-		return nil
-	}
-
-	var decoded map[string]any
-	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
+	decoded := parseAWXVariables(variables)
+	if len(decoded) == 0 {
 		return nil
 	}
 
@@ -122,6 +117,78 @@ func awxHostMACs(variables string) []string {
 	return out
 }
 
+func parseAWXVariables(variables string) map[string]any {
+	trimmed := strings.TrimSpace(variables)
+	if trimmed == "" {
+		return nil
+	}
+
+	if strings.HasPrefix(trimmed, "{") {
+		var decoded map[string]any
+		if err := json.Unmarshal([]byte(trimmed), &decoded); err == nil {
+			return decoded
+		}
+		return nil
+	}
+
+	decoded := make(map[string]any)
+	for _, line := range strings.Split(trimmed, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, rawVal, found := strings.Cut(line, ":")
+		if !found {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		val := strings.TrimSpace(rawVal)
+		if i := strings.Index(val, " #"); i >= 0 {
+			val = strings.TrimSpace(val[:i])
+		}
+		val = strings.Trim(val, "\"'")
+		if key != "" && val != "" {
+			decoded[key] = val
+		}
+	}
+
+	return decoded
+}
+
+func awxProxmoxRef(variables string) (int, string, string) {
+	decoded := parseAWXVariables(variables)
+	if len(decoded) == 0 {
+		return 0, "", ""
+	}
+
+	var vmid int
+	switch raw := decoded["proxmox_vmid"].(type) {
+	case float64:
+		if raw > 0 {
+			vmid = int(raw)
+		}
+	case int:
+		if raw > 0 {
+			vmid = raw
+		}
+	case string:
+		if parsed, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil && parsed > 0 {
+			vmid = parsed
+		}
+	}
+
+	node, _ := decoded["proxmox_node"].(string)
+	node = strings.TrimSpace(node)
+
+	vmtype, _ := decoded["proxmox_vmtype"].(string)
+	if vmtype == "" {
+		vmtype, _ = decoded["proxmox_type"].(string)
+	}
+	vmtype = strings.TrimSpace(vmtype)
+
+	return vmid, node, vmtype
+}
+
 // awxHostHasStrongAnchor reports whether an AWX host carries at least one
 // address or hardware identifier that can converge it with a device discovered
 // by another source (sweep, agent, proxmox). A hostname-only entry -- one whose
@@ -139,7 +206,12 @@ func awxHostHasStrongAnchor(host awxHostRow) bool {
 		}
 	}
 
-	return len(awxHostMACs(host.Variables)) > 0
+	if len(awxHostMACs(host.Variables)) > 0 {
+		return true
+	}
+
+	vmid, node, _ := awxProxmoxRef(host.Variables)
+	return vmid > 0 && node != ""
 }
 
 // macFromNICValue reads a MAC out of one NIC entry, which inventories write

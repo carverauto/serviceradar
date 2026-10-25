@@ -499,6 +499,11 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                from_device_id,
                to_device_id
              ),
+           :ok <-
+             Reassignments.reassign_virtualization_and_awx_references(
+               from_device_id,
+               to_device_id
+             ),
            {:ok, merge} <-
              MergeAudit.record(
                %{
@@ -517,6 +522,12 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
            _ = Availability.resolve_devices([to_device_id]),
            # After the tombstone, which frees the successor's address when it is the merged record.
            :ok <- take_successor_address(succession_details, to_device, actor),
+           :ok <-
+             take_merged_address_when_survivor_unaddressed(
+               succession_details,
+               from_device,
+               to_device
+             ),
            # The survivor's identity composition changed: it now owns the
            # merged-away device's identifiers. Once here, not per reassigned
            # record -- the reassignments above are bulk updates, and a
@@ -696,6 +707,28 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
 
   defp take_successor_address(_succession_details, _survivor, _actor), do: :ok
 
+  defp take_merged_address_when_survivor_unaddressed(
+         nil,
+         %Device{ip: from_ip} = from_device,
+         %Device{ip: survivor_ip} = survivor
+       )
+       when is_binary(from_ip) and from_ip != "" and survivor_ip in [nil, ""] do
+    with {:ok, held?} <-
+           address_held?(survivor.partition, from_ip, [from_device.uid, survivor.uid]) do
+      if held? do
+        :ok
+      else
+        set_address(survivor.uid, from_ip)
+      end
+    end
+  end
+
+  defp take_merged_address_when_survivor_unaddressed(
+         _succession_details,
+         _from_device,
+         _survivor
+       ), do: :ok
+
   defp held_device_address(%Device{uid: uid, ip: ip, partition: partition, deleted_at: nil})
        when is_binary(ip) do
     if AliasPolicy.valid_alias_ip?(ip) do
@@ -823,6 +856,9 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
                -- so a survivor or source with no recorded date takes the other
                -- one rather than poisoning the result.
                first_seen_time = LEAST(survivor.first_seen_time, source.first_seen_time),
+               mac = COALESCE(NULLIF(btrim(survivor.mac), ''), NULLIF(btrim(source.mac), '')),
+               hostname = COALESCE(NULLIF(btrim(survivor.hostname), ''), NULLIF(btrim(source.hostname), '')),
+               name = COALESCE(NULLIF(btrim(survivor.name), ''), NULLIF(btrim(source.name), '')),
                modified_time = timezone('UTC', now())
            FROM platform.ocsf_devices AS source
            WHERE source.uid = $1 AND survivor.uid = $2
@@ -859,6 +895,7 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     |> Map.new()
     |> Map.put_new(:from_device_ip, from_device.ip)
     |> Map.put_new(:from_device_hostname, from_device.hostname)
+    |> Map.put_new(:to_device_ip_before, to_device.ip)
     |> Map.put(:source_identifiers, source_identifiers)
     |> Map.put(:source_archived_identifiers, archived_identifiers)
     |> Map.put(
@@ -1114,6 +1151,26 @@ defmodule ServiceRadar.Inventory.Identity.MergeEngine do
     with {:ok, %Device{} = survivor} <- Device.get_by_uid(to_device_id, false, actor: actor),
          :ok <- revert_address(survivor, succession) do
       revert_source_owned(survivor, succession)
+    end
+  end
+
+  defp revert_succession(%MergeAudit{details: details}, to_device_id, actor)
+       when is_map(details) do
+    from_ip = details["from_device_ip"] || details[:from_device_ip]
+
+    before_blank? =
+      (Map.has_key?(details, "to_device_ip_before") and
+         details["to_device_ip_before"] in [nil, ""]) or
+        (Map.has_key?(details, :to_device_ip_before) and
+           details[:to_device_ip_before] in [nil, ""])
+
+    if before_blank? and is_binary(from_ip) and from_ip != "" do
+      case Device.get_by_uid(to_device_id, false, actor: actor) do
+        {:ok, %Device{ip: ^from_ip} = survivor} -> set_address(survivor.uid, nil)
+        _ -> :ok
+      end
+    else
+      :ok
     end
   end
 
