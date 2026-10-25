@@ -973,12 +973,26 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
   test "merges pre-existing IP-less Proxmox guest, swept IP holder, and AWX host into one device and retires legacy proxmox:vm:* records",
        %{actor: actor} do
     suffix = System.unique_integer([:positive])
-    provider = "proxmox"
     node_name = "pve-merge-#{suffix}"
+    native_cluster_id = "cluster-merge-#{suffix}"
     vmid = 500 + rem(suffix, 400)
-    host_ref = "proxmox:node:#{node_name}"
-    guest_ref = "proxmox:guest:#{node_name}:qemu:#{vmid}"
-    guest_integration_id = "proxmox:v2:cluster-#{suffix}:vm:#{vmid}"
+
+    source_scope = %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+
+    {:ok, guest_identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        source_scope.integration_id,
+        source_scope.controller_id,
+        native_cluster_id,
+        "qemu",
+        vmid
+      )
+
+    guest_ref = guest_identity.provider_ref
     guest_uid = "sr:" <> Ecto.UUID.generate()
     swept_uid = "sr:" <> Ecto.UUID.generate()
     awx_uid = "sr:" <> Ecto.UUID.generate()
@@ -1005,7 +1019,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
           hostname: "vm-#{vmid}",
           discovery_sources: ["proxmox"],
           metadata: %{
-            "integration_id" => guest_integration_id,
+            "integration_id" => guest_ref,
             "hypervisor_provider" => "proxmox",
             "hypervisor_guest_ref" => guest_ref
           }
@@ -1021,7 +1035,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
         %{
           device_id: guest_uid,
           identifier_type: :integration_id,
-          identifier_value: guest_integration_id,
+          identifier_value: guest_ref,
           partition: "default",
           source: "proxmox"
         },
@@ -1116,46 +1130,46 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     )
 
     payload = %{
+      "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
       "details" => %{
-        "schema" => "serviceradar.hypervisor_enrichment.v1",
-        "provider" => provider,
-        "hosts" => [
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
           %{
-            "provider_ref" => host_ref,
-            "name" => node_name,
-            "status" => "online",
-            "metadata" => %{"ip" => "192.0.2.#{rem(octet4, 200) + 1}"}
-          }
-        ],
-        "guests" => [
-          %{
-            "provider_ref" => guest_ref,
-            "host_provider_ref" => host_ref,
-            "device_uid" => guest_uid,
-            "name" => "vm-#{vmid}",
-            "guest_type" => "vm",
-            "vmid" => vmid,
-            "status" => "running",
-            "metadata" => %{"integration_id" => guest_integration_id}
-          }
-        ],
-        "network_interfaces" => [
-          %{
-            "provider_ref" => "proxmox:guest-nic:#{guest_ref}:#{normalized_mac}",
-            "host_provider_ref" => host_ref,
-            "guest_provider_ref" => guest_ref,
-            "device_uid" => guest_uid,
-            "name" => "eth0",
-            "mac_address" => guest_mac,
-            "ip_addresses" => [guest_cidr],
-            "source" => "config+agent",
-            "metadata" => %{"partition" => "default"}
+            "cluster" => [%{"type" => "cluster", "name" => native_cluster_id}],
+            "nodes" => [
+              %{
+                "node" => node_name,
+                "status" => "online",
+                "ip" => "192.0.2.#{rem(octet4, 200) + 1}"
+              }
+            ],
+            "guests" => [
+              %{
+                "node" => node_name,
+                "type" => "qemu",
+                "vmid" => vmid,
+                "name" => "vm-#{vmid}",
+                "status" => "running",
+                "interfaces" => [
+                  %{
+                    "name" => "eth0",
+                    "mac_address" => guest_mac,
+                    "ip_addresses" => [guest_cidr],
+                    "source" => "config+agent"
+                  }
+                ]
+              }
+            ]
           }
         ]
       }
     }
 
-    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload, %{},
+               actor: actor,
+               source_scope: source_scope
+             )
 
     # Guest device now owns the IP, MAC, and AWX integration_id; swept and AWX duplicates are merged
     assert [[^guest_uid, ^guest_ip, ^normalized_mac, nil]] =
