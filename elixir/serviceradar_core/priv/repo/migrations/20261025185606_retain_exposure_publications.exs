@@ -263,7 +263,7 @@ defmodule ServiceRadar.Repo.Migrations.RetainExposurePublications do
       IF fresh_key THEN
         IF NOT actionable AND NOT refresh THEN RETURN NEW; END IF;
         changed := ARRAY['state', 'installed_version', 'severity', 'cvss_score', 'kev',
-          'exploit_available', 'fixed_version'];
+          'exploit_available', 'fixed_version', 'source_scope'];
         reason := 'entered_actionable';
       ELSE
         IF actionable IS DISTINCT FROM was_actionable THEN changed := changed || 'state'::text; END IF;

@@ -47,6 +47,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert is_integer(entered["pkg_ord"]) and is_integer(entered["pkgver_ord"])
     assert is_integer(entered["transition_xid"])
     assert is_binary(entered["first_exposed_at"])
+    assert "source_scope" in entered["changed_fields"]
+    assert entered["source_scope"] == "host"
     assert publication(ctx.device_uid, cve_id) == entered
 
     # Metadata, timestamps and the trigger-owned sequence column are not
@@ -94,6 +96,29 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     update_assessment!(ctx.device_uid, cve_id, updated_at: ~N[2026-02-01 00:00:00])
     assert publication(ctx.device_uid, cve_id) == kev_changed
     assert transitions(ctx.device_uid) == []
+
+    update_assessment!(ctx.device_uid, cve_id, source_scope: "container:synthetic")
+
+    assert [scoped] = transitions(ctx.device_uid)
+    assert scoped["reason"] == "actionable_attributes_changed"
+    assert scoped["changed_fields"] == ["source_scope"]
+    assert scoped["transition_seq"] > kev_changed["transition_seq"]
+    assert scoped["source_scope"] == "container:synthetic"
+    assert scoped["severity"] == "high"
+    assert scoped["cvss_score"] == 7.5
+    assert scoped["kev"] == true
+    assert scoped["installed_version"] == "1.0.0"
+    assert scoped["first_exposed_at"] == kev_changed["first_exposed_at"]
+    assert scoped["pkg_ord"] == kev_changed["pkg_ord"]
+    assert publication(ctx.device_uid, cve_id) == scoped
+
+    update_assessment!(ctx.device_uid, cve_id, source_scope: "container:synthetic")
+    assert [^scoped] = transitions(ctx.device_uid)
+    assert publication(ctx.device_uid, cve_id) == scoped
+
+    update_assessment!(ctx.device_uid, "CVE-2024-0002", source_scope: "container:synthetic")
+    assert [^scoped] = transitions(ctx.device_uid)
+    assert publication(ctx.device_uid, "CVE-2024-0002") == nil
   end
 
   test "deleting a published key resolves it at a new sequence and records its watermark; re-creating it clears the watermark",

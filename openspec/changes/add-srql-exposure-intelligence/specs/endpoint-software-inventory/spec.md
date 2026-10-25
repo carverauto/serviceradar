@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Assessment Transitions Are Published On JetStream
-The matcher SHALL publish an assessment transition on JetStream whenever an assessment enters or leaves the exact actionable state (`status = active`, `assessment = confirmed`, `disposition = affected`), or when an actionable assessment's installed version, KEV flag, exploit flag, CVSS score, severity or fixed version changes. Assessments whose relevant fields and device lifecycle did not change SHALL NOT produce transitions.
+The matcher SHALL publish an assessment transition on JetStream whenever an assessment enters or leaves the exact actionable state (`status = active`, `assessment = confirmed`, `disposition = affected`), or when an actionable assessment's installed version, KEV flag, exploit flag, CVSS score, severity, fixed version, or source scope changes. Assessments whose relevant fields and device lifecycle did not change SHALL NOT produce transitions. A non-actionable assessment's source-scope change SHALL NOT publish a transition.
 
 **Transactionality.** Each transition SHALL be recorded in a transactional outbox in the same CNPG transaction as the assessment change, and SHALL be relayed at least once. The age of the oldest unrelayed outbox row SHALL be exported, and exceeding its bound (default 10 minutes) SHALL raise a health alert. A transaction that physically deletes an assessment row SHALL draw a new `transition_seq`, greater than the key's last one, publish a transition with the explicit `resolved` state at that sequence, and record the key, the `resolved` state and that new sequence in `platform.exposure_fact_watermarks`. A terminal transition SHALL NOT reuse the key's last sequence.
 
@@ -29,6 +29,12 @@ The matcher SHALL publish an assessment transition on JetStream whenever an asse
 - **GIVEN** the matcher re-evaluates a device whose assessments did not change
 - **WHEN** the run completes
 - **THEN** no transitions are published for that device
+
+#### Scenario: Source scope change publishes a new after-image
+- **GIVEN** an acknowledged actionable assessment whose source scope is `host`
+- **WHEN** only its source scope changes
+- **THEN** a new transition carries the new scope, the previous fact attributes, and a greater sequence
+- **AND** repeating that same scope publishes nothing
 
 #### Scenario: Rolled-back transaction emits nothing
 - **GIVEN** an assessment change whose transaction rolls back

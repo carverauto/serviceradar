@@ -925,7 +925,7 @@ delivery order. Re-creation removes the terminal watermark in the same transacti
 the new assessment transition. The repair carries its producing transaction's
 `transition_xid`, like any other transition.
 
-Migration `20261025040000` implements this source repair under Decision 24, including
+Migration `20261025185606` implements this source repair under Decision 24, including
 fact-key serialization. Snapshot invocation, finalization and reconciliation remain
 task 1.6. The repair contract for a stored terminal is the exposure-intelligence
 requirement *Exposure Is Rebuildable And Reconciled Against The Assessment Store*.
@@ -1211,7 +1211,11 @@ on each assessment, and one terminal payload on each deletion watermark. These
 are source publication records, owned by the same transaction and full fact-key
 serialization as sequence allocation and the outbox insert. The retained payload
 and the outbox payload must be identical, including sequence, xid, lifecycle and
-timestamps. An unrelated assessment update must preserve that payload. A rollback
+timestamps. An unrelated assessment update must preserve that payload. Source scope is
+actionable fact content: a change on an actionable assessment publishes a fresh
+complete after-image under a new sequence and the producing transaction id.
+Setting the same scope again, or changing only metadata, preserves the retained
+publication. A candidate's scope change publishes nothing. A rollback
 must preserve neither a new publication record nor its outbox message.
 
 This state serves publication and recovery only. Exposure queries continue to
@@ -1264,7 +1268,7 @@ the retained publications survive delivery reordering and enforce the recorded
 `pg_current_snapshot()` fence. Task 1.6 remains unchecked until those consumer,
 recovery and reconciliation guarantees also pass.
 
-**Source implementation boundary.** Migration `20261025040000` adds the two
+**Source implementation boundary.** Migration `20261025185606` adds the two
 nullable publication fields and replaces the source trigger functions. Fact-key
 locks cover insert, update, key change and deletion. Repair runs in a fresh
 `READ COMMITTED` transaction and uses a non-waiting assessment row lock after the
@@ -1518,9 +1522,10 @@ Refresh budgets:
 ## Implementation record: matcher transitions and incremental matching (#5748, task 0.1)
 
 **Producer.** The bullets below describe the producer as first delivered. Migration
-`20261025040000` (Decision 24) replaces those trigger functions, retains the latest
+`20261025185606` (Decision 24) replaces those trigger functions, retains the latest
 publication on the assessment and the terminal publication on the watermark, and
-provides `exposure_repair_publication`. Triggers on
+provides `exposure_repair_publication`. An actionable source-scope change publishes
+a new complete after-image; an unchanged scope does not. Triggers on
 `platform.endpoint_vulnerability_assessments` own the outbox, so
 every writer (matcher upsert, absence resolution, unconfirmed marking, Ash actions, row
 deletion) is covered in the transaction that changes the row:
