@@ -68,4 +68,25 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
              "172.17.0.1/16"
            )
   end
+
+  test "host_internal_name_sql/1 includes every host-internal interface prefix" do
+    sql = GuestAddress.host_internal_name_sql("vni.name")
+
+    for prefix <- [
+          "docker",
+          "br-",
+          "cni",
+          "flannel",
+          "veth",
+          "virbr",
+          "cali",
+          "vxlan",
+          "cilium",
+          "podman"
+        ] do
+      assert sql =~ "'#{prefix}'"
+    end
+
+    assert sql =~ "starts_with(lower(btrim(COALESCE(vni.name, ''))), prefix)"
+  end
 end

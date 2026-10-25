@@ -136,7 +136,7 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
     iface
     |> field(:source)
     |> to_string()
-    |> String.split(",", trim: true)
+    |> String.split([",", "+"], trim: true)
     |> Enum.any?(&(String.trim(&1) == "config"))
   end
 
@@ -180,6 +180,22 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
   end
 
   def host_internal_name?(_name), do: false
+
+  @doc """
+  SQL boolean expression matching `host_internal_name?/1` on `column_expr`.
+  """
+  @spec host_internal_name_sql(String.t()) :: String.t()
+  def host_internal_name_sql(column_expr) when is_binary(column_expr) do
+    prefixes = Enum.map_join(@host_internal_name_prefixes, ", ", &"'#{&1}'")
+
+    String.trim("""
+    EXISTS (
+      SELECT 1
+      FROM unnest(ARRAY[#{prefixes}]::text[]) AS prefix
+      WHERE starts_with(lower(btrim(COALESCE(#{column_expr}, ''))), prefix)
+    )
+    """)
+  end
 
   defp docker_default_bridge?(address) do
     case parse_ipv4(strip_prefix(address)) do

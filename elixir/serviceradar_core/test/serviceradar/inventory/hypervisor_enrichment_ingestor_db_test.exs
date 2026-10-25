@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.Migrations.ArchiveDisplacedBridgeIdentityAliases
 
   @moduletag :integration
 
@@ -1230,5 +1231,123 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
              ).rows
 
     assert legacy_retired_at
+  end
+
+  test "ArchiveDisplacedBridgeIdentityAliases archives only non-config host-internal replaced_primary_address aliases and is idempotent",
+       %{actor: actor} do
+    if !Code.ensure_loaded?(ArchiveDisplacedBridgeIdentityAliases) do
+      Code.require_file(
+        Path.expand(
+          "../../../priv/repo/migrations/20261025203100_archive_displaced_bridge_identity_aliases.exs",
+          __DIR__
+        )
+      )
+    end
+
+    suffix = System.unique_integer([:positive])
+    octet3 = rem(suffix, 200) + 10
+    octet4 = rem(div(suffix, 200), 200) + 10
+    vmid = rem(suffix, 8000) + 1000
+    guest_uid = "sr:guest-bridge-repair-#{suffix}"
+    primary_ip = "198.51.100.#{octet4}"
+    bridge_ip = "192.0.2.#{octet3}"
+    config_bridge_ip = "203.0.113.#{octet3}"
+    secondary_lan_ip = "198.51.100.#{rem(octet4 + 1, 250) + 1}"
+
+    guest_mac =
+      "AA:BB:CC:DD:#{octet3 |> Integer.to_string(16) |> String.pad_leading(2, "0")}:#{octet4 |> Integer.to_string(16) |> String.pad_leading(2, "0")}"
+
+    {:ok, host} =
+      VirtualizationHost
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          provider: "testhv",
+          provider_ref: "testhv:node:pve-bridge-repair-#{suffix}",
+          name: "pve-bridge-repair-#{suffix}"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: guest_uid,
+          ip: primary_ip,
+          name: "vm-#{vmid}",
+          hostname: "vm-#{vmid}"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    # Insert three replaced_primary_address aliases:
+    # 1. bridge_ip on non-config docker0 -> MUST be archived
+    # 2. config_bridge_ip on config+agent br-lan0 -> MUST remain detected (config-backed)
+    # 3. secondary_lan_ip on eth1 -> MUST remain detected (non-host-internal interface)
+    for ip <- [bridge_ip, config_bridge_ip, secondary_lan_ip] do
+      Repo.query!(
+        """
+        INSERT INTO platform.device_alias_states
+          (id, device_id, partition, alias_type, alias_value, state, first_seen_at, last_seen_at, sighting_count, metadata, inserted_at, updated_at)
+        VALUES ($1, $2, 'default', 'ip', $3, 'detected', $4, $4, 1, '{"source":"replaced_primary_address"}'::jsonb, $4, $4)
+        """,
+        [Ecto.UUID.bingenerate(), guest_uid, ip, now]
+      )
+    end
+
+    for {if_name, source, ip} <- [
+          {"docker0", "agent", bridge_ip},
+          {"br-lan0", "config+agent", config_bridge_ip},
+          {"eth1", "agent", secondary_lan_ip}
+        ] do
+      Repo.query!(
+        """
+        INSERT INTO platform.virtualization_network_interfaces
+          (id, provider, provider_ref, host_id, device_uid, name, source, mac_address, address, cidr, ip_addresses, exists, metadata, observed_at, inserted_at, updated_at)
+        VALUES ($1, 'testhv', $2, $3, $4, $5, $6, $7, $8, $9, $10, true, '{}'::jsonb, $11, $11, $11)
+        """,
+        [
+          Ecto.UUID.bingenerate(),
+          "testhv:guest-nic:#{suffix}:#{if_name}",
+          Ecto.UUID.dump!(host.id),
+          guest_uid,
+          if_name,
+          source,
+          guest_mac,
+          ip,
+          "#{ip}/24",
+          ["#{ip}/24"],
+          now
+        ]
+      )
+    end
+
+    repair_sql = apply(ArchiveDisplacedBridgeIdentityAliases, :repair_sql, ["platform"])
+
+    assert %{num_rows: 1} = Repo.query!(repair_sql)
+
+    assert [
+             [^bridge_ip, "archived"],
+             [^secondary_lan_ip, "detected"],
+             [^config_bridge_ip, "detected"]
+           ] =
+             Repo.query!(
+               """
+               SELECT alias_value, state
+               FROM platform.device_alias_states
+               WHERE device_id = $1
+               ORDER BY state ASC, alias_value ASC
+               """,
+               [guest_uid]
+             ).rows
+
+    # Idempotent second run touches zero rows
+    assert %{num_rows: 0} = Repo.query!(repair_sql)
   end
 end
