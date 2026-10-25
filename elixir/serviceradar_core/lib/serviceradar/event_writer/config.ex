@@ -46,6 +46,9 @@ defmodule ServiceRadar.EventWriter.Config do
   - `EVENT_WRITER_OWNERSHIP_RECONCILE_INTERVAL_MS` - stream ownership reconcile tick (default: 300000)
   - `EVENT_WRITER_OWNERSHIP_GRACE_PERIOD_MS` - how long a stream with no `serviceradar.owner`
     claim stays unclaimed before EventWriter claims it (default: 900000)
+  - `EVENT_WRITER_WORKERS` - how many core replicas run EventWriter workers on the shared
+    durables (default: 1). The Helm chart renders it from the core replica count; it scales
+    each shared durable's `max_ack_pending` and divides the StarRocks Stream Load budget
   - `SERVICERADAR_JS_<STREAM>_MAX_BYTES`, `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and
     `_FALLBACK_REPLICAS` - JetStream stream sizes, see `jetstream_sizes_from_env!/1`
   """
@@ -108,6 +111,9 @@ defmodule ServiceRadar.EventWriter.Config do
 
   @default_ownership_reconcile_interval_ms 300_000
 
+  # See coordinator_stream?/1 for why each stays on the coordinator.
+  @coordinator_streams ~w(ANALYTICS_PREDICTIONS BMP_CAUSAL ARANCINI_CAUSAL SIEM_CAUSAL K8S_INVENTORY TRIVY)
+
   # `max_ack_pending` is still the server-side delivered-but-unacked ceiling for
   # each durable, but pull mode means it is a safety bound rather than a push
   # prefetch target.
@@ -152,6 +158,7 @@ defmodule ServiceRadar.EventWriter.Config do
     :pull_expires_ns,
     :ownership_reconcile_interval_ms,
     :ownership_grace_period_ms,
+    workers: 1,
     retired_consumers: []
   ]
 
@@ -172,6 +179,7 @@ defmodule ServiceRadar.EventWriter.Config do
           pull_expires_ns: non_neg_integer() | nil,
           ownership_reconcile_interval_ms: pos_integer() | nil,
           ownership_grace_period_ms: non_neg_integer() | nil,
+          workers: pos_integer(),
           retired_consumers: [%{stream_name: String.t(), consumer_name: String.t()}]
         }
 
@@ -258,8 +266,70 @@ defmodule ServiceRadar.EventWriter.Config do
       pull_expires_ns: 0,
       ownership_reconcile_interval_ms: load_ownership_reconcile_interval_ms(config),
       ownership_grace_period_ms: load_ownership_grace_period_ms(config),
+      workers: worker_count(),
       retired_consumers: @retired_consumers
     }
+  end
+
+  @doc """
+  How many core replicas run EventWriter workers bound to the shared durables,
+  from `EVENT_WRITER_WORKERS` (default 1). It is the configured replica count,
+  not a live membership count: a replica that is down only leaves part of the
+  budget unused.
+  """
+  @spec worker_count() :: pos_integer()
+  def worker_count do
+    case Integer.parse(System.get_env("EVENT_WRITER_WORKERS", "")) do
+      {count, ""} when count > 0 -> count
+      _ -> 1
+    end
+  end
+
+  @doc """
+  Whether a stream is consumed by the coordinator alone rather than by every
+  worker replica.
+
+  These streams feed processors that rely on one EventWriter processing a
+  batcher's batches one at a time: they read current state and write a merge of
+  it without a lock or a version fence, so two replicas processing the same key
+  at once would lose or duplicate a transition. They stay on the coordinator
+  until those processors serialize per key themselves.
+
+    * `ANALYTICS_PREDICTIONS` - anomaly episodes merge `producer_states` from an
+      unlocked read and have no unique open-episode index.
+    * `BMP_CAUSAL`, `ARANCINI_CAUSAL`, `SIEM_CAUSAL` - causal prediction events
+      decide "new transition" from a read of existing ids, then replace.
+    * `K8S_INVENTORY` - public endpoint snapshots soft-delete rows missing from
+      the snapshot with no fence against an older snapshot committing last.
+    * `TRIVY` - report and finding upserts are last-arrival-wins with unsorted
+      multi-row upserts.
+  """
+  @spec coordinator_stream?(map()) :: boolean()
+  def coordinator_stream?(stream) when is_map(stream),
+    do: Map.get(stream, :name) in @coordinator_streams
+
+  @doc "The config a worker replica consumes: every stream not kept on the coordinator."
+  @spec for_workers(t()) :: t()
+  def for_workers(%__MODULE__{streams: streams} = config),
+    do: %{config | streams: Enum.reject(streams, &coordinator_stream?/1)}
+
+  @doc "The config the coordinator-only pipeline consumes: the streams kept on the coordinator."
+  @spec for_coordinator(t()) :: t()
+  def for_coordinator(%__MODULE__{streams: streams} = config) do
+    %{
+      config
+      | streams: Enum.filter(streams, &coordinator_stream?/1),
+        producer_name: ServiceRadar.EventWriter.CoordinatorProducer
+    }
+  end
+
+  @doc """
+  How many EventWriter pipelines bind a stream's durable: one for a coordinator
+  stream, `workers` for every other stream.
+  """
+  @spec consumers_per_durable(t(), map()) :: pos_integer()
+  def consumers_per_durable(%__MODULE__{} = config, stream) do
+    if coordinator_stream?(stream), do: 1, else: max(config.workers || 1, 1)
   end
 
   @doc """
@@ -492,7 +562,7 @@ defmodule ServiceRadar.EventWriter.Config do
   def default_max_deliver, do: @default_max_deliver
 
   @doc """
-  Default interval of the producer's ownership reconcile tick (5 minutes).
+  Default interval of the consumer reconciler's ownership reconcile tick (5 minutes).
   """
   @spec default_ownership_reconcile_interval_ms() :: pos_integer()
   def default_ownership_reconcile_interval_ms, do: @default_ownership_reconcile_interval_ms

@@ -18,9 +18,9 @@ defmodule ServiceRadar.EventWriter.StreamOwnership do
       window claims the stream first, so EventWriter never shrinks it.
 
   `decide/3` is the pure claim decision. `reconcile/3` is one tick of the
-  ownership reconcile timer in `ServiceRadar.EventWriter.Producer`: it re-reads
-  `STREAM.INFO` for every watched stream, applies the decision, and only ever
-  issues `STREAM.UPDATE` - it never touches a consumer.
+  ownership reconcile timer in `ServiceRadar.EventWriter.ConsumerReconciler`:
+  it re-reads `STREAM.INFO` for every watched stream, applies the decision, and
+  only ever issues `STREAM.UPDATE` - it never touches a consumer.
 
   When EventWriter first saw a stream unclaimed lives in the tracker, which lives
   in process state, so a restart starts the grace period again: that can only

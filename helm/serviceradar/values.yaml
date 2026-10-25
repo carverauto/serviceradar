@@ -3306,13 +3306,16 @@ analytics:
     # less than many small ones. EventWriter flushes a warehouse batch after
     # maxAgeMs (also the freshness floor for warehouse charts), splits it into
     # loads of at most maxRows rows and maxBytes encoded bytes, and runs at
-    # most maxInFlight across all datasets and pipelines on the coordinator
-    # node, including redirects. Admission bounds waiting payload bytes and
-    # returns overload to JetStream retry. Horizontal workers require a shared
-    # deployment-wide budget before they are enabled. A batch fills to half of its
-    # JetStream consumer's max_ack_pending (the producer never holds more
-    # unacked messages than that), so a busy stream flushes on size and a
-    # quiet one on maxAgeMs. Starting points for the #4516 benchmark, not
+    # most maxInFlight across all datasets and pipelines in the deployment,
+    # including redirects. Every core replica runs EventWriter workers, so each
+    # replica admits max(1, maxInFlight / core.replicas) loads at once; raise
+    # maxInFlight with the replica count to keep per-replica concurrency.
+    # Admission bounds waiting payload bytes and returns overload to JetStream
+    # retry. A batch fills to half of one worker's share of its JetStream
+    # consumer's max_ack_pending (a worker never holds more unacked messages
+    # than that), so a busy stream flushes on size and a quiet one on
+    # maxAgeMs. Each replica flushes its own batches, so a quiet stream can
+    # produce up to one load per replica per maxAgeMs. Starting points for the #4516 benchmark, not
     # measured optima. Most streams are quiet: at 2s they flushed every 2-3s
     # with a handful of rows per load, so maxAgeMs is what sets the load rate.
     streamLoad:

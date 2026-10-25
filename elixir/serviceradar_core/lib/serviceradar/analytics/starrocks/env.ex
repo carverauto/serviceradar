@@ -53,8 +53,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Env do
   # shared-data mode, object-store writes plus later compaction, so many small
   # loads cost far more than a few large ones. EventWriter flushes a warehouse
   # batch after `max_age_ms`, splits it into loads of at most `max_rows` rows
-  # and `max_bytes` encoded bytes, and shares a node-wide `max_in_flight` budget
-  # across datasets and pipelines. These match the Helm `analytics.starrocks.streamLoad`
+  # and `max_bytes` encoded bytes. `max_in_flight` is the deployment-wide Stream
+  # Load budget; `LoadAdmission` gives each core replica its share. These match
+  # the Helm `analytics.starrocks.streamLoad`
   # defaults; they are starting points for the #4516 benchmark, not measured
   # optima.
   @default_stream_load [

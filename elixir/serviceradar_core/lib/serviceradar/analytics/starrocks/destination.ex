@@ -23,8 +23,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   One call is one EventWriter batch. Its rows are encoded once and split into
   Stream Loads of at most `stream_load[:max_rows]` rows and
   `stream_load[:max_bytes]` encoded bytes, run at most
-  `stream_load[:max_in_flight]` at a time. StreamLoad also enforces the shared
-  node-wide budget across datasets and pipelines, including single loads.
+  `stream_load[:max_in_flight]` at a time. Each HTTP load also takes a permit
+  from `ServiceRadar.Analytics.StarRocks.LoadAdmission`, which admits only this
+  replica's share of that deployment-wide budget.
   Every load must succeed before the
   call does, so the batch keeps a single ACK decision. A batch within both
   limits is one load, labelled exactly as before; a split load's label is still

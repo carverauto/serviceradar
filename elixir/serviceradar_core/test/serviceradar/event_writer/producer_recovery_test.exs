@@ -3,6 +3,7 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
 
   alias ServiceRadar.Cluster.CoordinatorChildren
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.CoordinatorSupervisor
   alias ServiceRadar.EventWriter.FlowPipeline
   alias ServiceRadar.EventWriter.FlowProducer
   alias ServiceRadar.EventWriter.Health
@@ -11,7 +12,9 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
   @moduletag :db_free
 
   # An external NATS protocol fixture, not a replacement producer. The real
-  # Gnat connection, consumer setup, GenStage demand and retry timers all run.
+  # Gnat connection, consumer bind, GenStage demand and retry timers all run.
+  # Like a JetStream server, it knows a durable only after CONSUMER.DURABLE.CREATE,
+  # and it reports every JetStream API subject to the test.
   defmodule Broker do
     @moduledoc false
     use GenServer
@@ -32,7 +35,9 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
       mode = :atomics.new(1, [])
       :atomics.put(mode, 1, if(Keyword.get(opts, :deny, false), do: 0, else: 1))
       owner = Keyword.fetch!(opts, :owner)
-      acceptor = spawn_link(fn -> accept(listener, mode, owner) end)
+      durables = :ets.new(:broker_durables, [:public, :set])
+      :ets.insert(durables, Keyword.get(opts, :durables, []))
+      acceptor = spawn_link(fn -> accept(listener, {mode, durables}, owner) end)
       {:ok, %{listener: listener, port: port, mode: mode, acceptor: acceptor}}
     end
 
@@ -110,10 +115,12 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
       end
     end
 
-    defp respond(socket, subject, reply, _payload, mode, owner, subscriptions) do
+    defp respond(socket, subject, reply, payload, {mode, durables}, owner, subscriptions) do
+      if String.starts_with?(subject, "$JS.API."), do: send(owner, {:js_api, subject})
+
       cond do
-        String.contains?(subject, ".CONSUMER.DURABLE.CREATE.") and :atomics.get(mode, 1) == 0 ->
-          # A permissions denial followed by a broker disconnect during setup.
+        String.contains?(subject, ".CONSUMER.INFO.") and :atomics.get(mode, 1) == 0 ->
+          # A permissions denial followed by a broker disconnect during bind.
           # The producer must survive both and recover after access is restored.
           send(owner, {:denied, subject})
           :ok = :gen_tcp.send(socket, "-ERR 'Permissions Violation for Publish'\r\n")
@@ -151,8 +158,21 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
               String.contains?(subject, ".STREAM.INFO.") ->
                 %{"error" => %{"code" => 404, "err_code" => 10_059}}
 
+              String.contains?(subject, ".CONSUMER.DURABLE.CREATE.") ->
+                %{"config" => config} = Jason.decode!(payload)
+                :ets.insert(durables, {config["durable_name"], config["filter_subject"]})
+                %{"config" => config}
+
               String.contains?(subject, ".CONSUMER.INFO.") ->
-                %{"error" => %{"code" => 404}}
+                durable = subject |> String.split(".") |> List.last()
+
+                case :ets.lookup(durables, durable) do
+                  [{^durable, filter}] ->
+                    %{"config" => %{"durable_name" => durable, "filter_subject" => filter}}
+
+                  [] ->
+                    %{"error" => %{"code" => 404, "description" => "consumer not found"}}
+                end
 
               true ->
                 %{}
@@ -205,14 +225,14 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     :ok
   end
 
-  test "denied setup subject and transport exit recover without replacing the producer" do
-    broker = start_supervised!({Broker, owner: self(), deny: true})
+  test "denied bind subject and transport exit recover without replacing the producer" do
+    broker = start_supervised!({Broker, owner: self(), deny: true, durables: durables()})
     producer = start_supervised!({Producer, config(Broker.port(broker))})
     monitor = Process.monitor(producer)
     start_supervised!({Sink, {producer, self()}})
 
     assert_receive {:denied, subject}, 2_000
-    assert subject =~ ".CONSUMER.DURABLE.CREATE."
+    assert subject =~ ".CONSUMER.INFO."
     assert_receive {:connection, :connection_failed, %{retry_in_ms: delay}, _}, 3_000
     assert delay >= 5_000
     assert Producer.status().connected == false
@@ -236,23 +256,84 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
     assert_receive {:connection, :connection_failed, %{attempt: 1, retry_in_ms: delay}, _}, 2_000
     assert delay >= 5_000
     assert %{connected: false, ready: false} = Producer.status()
-    start_supervised!({Broker, owner: self(), port: port})
+    start_supervised!({Broker, owner: self(), port: port, durables: durables()})
 
     assert_receive {:connection, :connected, _, _}, 10_000
     assert_receive {:ingested, "invented-event"}, 2_000
     refute_received {:DOWN, ^monitor, :process, ^producer, _}
   end
 
-  test "the coordinator restarts EventWriter and health detects a stopped flow producer" do
+  # The worker tree is what a core replica that does not hold the coordinator
+  # lock runs. It must only read and pull from JetStream: a replica that
+  # created, reshaped or deleted streams and consumers would race the others.
+  # The durables it binds come from the coordinator's reconciler.
+  test "a replica's workers bind the coordinator's durables and never change JetStream" do
     broker = start_supervised!({Broker, owner: self()})
+    put_event_writer_env(Broker.port(broker))
+
+    assert CoordinatorSupervisor in coordinator_child_ids()
+    refute ServiceRadar.EventWriter.Supervisor in coordinator_child_ids()
+
+    start_supervised!(%{
+      id: :event_writer_test_trees,
+      start:
+        {Supervisor, :start_link,
+         [[ServiceRadar.EventWriter.Supervisor], [strategy: :one_for_one]]}
+    })
+
+    # No durable exists yet, so the workers cannot bind and wait.
+    assert_receive {:connection, :connection_failed, _, %{producer: Producer}}, 3_000
+    assert {:error, {:producer_not_ready, _}} = Health.check()
+
+    start_supervised!(CoordinatorSupervisor)
+    assert_receive {:js_api, "$JS.API.CONSUMER.DURABLE.CREATE." <> _}, 3_000
+
+    # The bind is retried on the producers' own backoff, not by the reconciler.
+    assert_receive {:connection, :connected, _, %{producer: Producer}}, 15_000
+    assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 15_000
+    assert eventually(fn -> Health.check() == :ok end, 5_000)
+
+    # Restart only the worker tree, as on a replica whose workers crashed.
+    old = Process.whereis(ServiceRadar.EventWriter.Supervisor)
+    old_conns = producer_conns()
+    assert old_conns != []
+    drain_js_api()
+
+    monitor = Process.monitor(old)
+    :ok = Supervisor.stop(old, :shutdown)
+    assert_receive {:DOWN, ^monitor, :process, ^old, :shutdown}
+    Enum.each(old_conns, &refute(Process.alive?(&1)))
+    assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
+    assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 3_000
+    refute Process.whereis(ServiceRadar.EventWriter.Supervisor) == old
+    assert eventually(fn -> Health.check() == :ok end, 5_000)
+
+    # Everything the restarted workers asked JetStream only read the server.
+    worker_requests = drain_js_api()
+    assert worker_requests != []
+    assert Enum.reject(worker_requests, &read_only_api?/1) == []
+
+    [flow] = Broadway.producer_names(FlowPipeline)
+    :ok = :sys.suspend(flow)
+
+    try do
+      assert {:error, {:producer_not_ready, FlowPipeline}} = Health.check()
+    after
+      :sys.resume(flow)
+    end
+
+    assert Health.healthy?()
+  end
+
+  defp put_event_writer_env(port) do
     previous = Application.get_env(:serviceradar_core, ServiceRadar.EventWriter)
     previous_enabled = System.get_env("EVENT_WRITER_ENABLED")
     System.put_env("EVENT_WRITER_ENABLED", "true")
 
     Application.put_env(:serviceradar_core, ServiceRadar.EventWriter,
       enabled: true,
-      nats: [host: "127.0.0.1", port: Broker.port(broker), tls: false],
-      streams: config(Broker.port(broker)).streams,
+      nats: [host: "127.0.0.1", port: port, tls: false],
+      streams: config(port).streams,
       batch_size: 1,
       batch_timeout: 100
     )
@@ -266,50 +347,55 @@ defmodule ServiceRadar.EventWriter.ProducerRecoveryTest do
         do: System.delete_env("EVENT_WRITER_ENABLED"),
         else: System.put_env("EVENT_WRITER_ENABLED", previous_enabled)
     end)
+  end
 
-    spec =
-      CoordinatorChildren.children()
-      |> Enum.map(&Supervisor.child_spec(&1, []))
-      |> Enum.find(&(&1.id == ServiceRadar.EventWriter.Supervisor))
+  defp coordinator_child_ids do
+    CoordinatorChildren.children()
+    |> Enum.map(&Supervisor.child_spec(&1, []))
+    |> Enum.map(& &1.id)
+  end
 
-    # Supervisor has no child_spec/1, so start it through an explicit spec map.
-    start_supervised!(%{
-      id: :event_writer_coordinator_test_supervisor,
-      start: {Supervisor, :start_link, [[spec], [strategy: :one_for_one]]}
-    })
+  defp producer_conns do
+    (Broadway.producer_names(ServiceRadar.EventWriter.Pipeline) ++
+       Broadway.producer_names(FlowPipeline))
+    |> Enum.map(&:sys.get_state(&1).state.module_state.conn)
+    |> Enum.filter(&is_pid/1)
+  end
 
-    assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
-    assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 3_000
-    assert Health.check() == :ok
+  defp read_only_api?(subject) do
+    String.ends_with?(subject, ".STREAM.NAMES") or
+      String.contains?(subject, [".CONSUMER.INFO.", ".CONSUMER.MSG.NEXT.", ".STREAM.INFO."])
+  end
 
-    old_conns =
-      (Broadway.producer_names(ServiceRadar.EventWriter.Pipeline) ++
-         Broadway.producer_names(FlowPipeline))
-      |> Enum.map(&:sys.get_state(&1).state.module_state.conn)
-      |> Enum.filter(&is_pid/1)
-
-    assert old_conns != []
-
-    old = Process.whereis(ServiceRadar.EventWriter.Supervisor)
-    monitor = Process.monitor(old)
-    :ok = Supervisor.stop(old, :shutdown)
-    assert_receive {:DOWN, ^monitor, :process, ^old, :shutdown}
-    Enum.each(old_conns, &refute(Process.alive?(&1)))
-    assert_receive {:connection, :connected, _, %{producer: Producer}}, 3_000
-    assert_receive {:connection, :connected, _, %{producer: FlowProducer}}, 3_000
-    refute Process.whereis(ServiceRadar.EventWriter.Supervisor) == old
-    assert Health.check() == :ok
-
-    [flow] = Broadway.producer_names(FlowPipeline)
-    :ok = :sys.suspend(flow)
-
-    try do
-      assert {:error, {:producer_not_ready, FlowPipeline}} = Health.check()
+  defp drain_js_api(acc \\ []) do
+    receive do
+      {:js_api, subject} -> drain_js_api([subject | acc])
     after
-      :sys.resume(flow)
+      0 -> Enum.reverse(acc)
     end
+  end
 
-    assert Health.healthy?()
+  defp eventually(fun, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    eventually_until(fun, deadline)
+  end
+
+  defp eventually_until(fun, deadline) do
+    cond do
+      fun.() ->
+        true
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        false
+
+      true ->
+        Process.sleep(50)
+        eventually_until(fun, deadline)
+    end
+  end
+
+  defp durables do
+    [{Config.durable_name("recovery", "TEST_EVENTS"), "events.test.recovery"}]
   end
 
   defp config(port) do

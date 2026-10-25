@@ -13,10 +13,14 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
   @moduletag :db_free
 
   setup context do
+    workers = if context[:workers], do: [workers: context[:workers]], else: []
+
     start_supervised!(
       {LoadSupervisor,
-       max_in_flight: context[:max_in_flight] || 2,
-       wait_timeout_ms: context[:wait_timeout_ms] || 5_000}
+       [
+         max_in_flight: context[:max_in_flight] || 2,
+         wait_timeout_ms: context[:wait_timeout_ms] || 5_000
+       ] ++ workers}
     )
 
     :ok
@@ -289,6 +293,39 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert {:ok, %{loaded: 1}} = Task.await(logs)
     assert {:ok, %{loaded: 1}} = Task.await(metrics)
     assert {:ok, %{loaded: 2, loads: 2}} = Task.await(split)
+  end
+
+  # Every core replica runs EventWriter workers, so max_in_flight is the
+  # deployment's budget: three replicas sharing four loads admit one each. The
+  # waiting queue still holds the whole budget's callers, so the extra callers
+  # wait instead of failing back to JetStream.
+  @tag max_in_flight: 4
+  @tag workers: 3
+  test "worker replicas split max_in_flight and keep the full waiting queue" do
+    parent = self()
+
+    callers =
+      for n <- 1..4 do
+        Task.async(fn ->
+          LoadAdmission.run(1, fn ->
+            send(parent, {:admitted, n, self()})
+
+            receive do
+              :release -> {:ok, n}
+            after
+              5_000 -> flunk("synthetic load was not released")
+            end
+          end)
+        end)
+      end
+
+    for _ <- 1..4 do
+      assert_receive {:admitted, _n, worker}, 1_000
+      refute_receive {:admitted, _, _}, 100
+      send(worker, :release)
+    end
+
+    assert callers |> Task.await_many() |> Enum.sort() == Enum.map(1..4, &{:ok, &1})
   end
 
   @tag wait_timeout_ms: 100

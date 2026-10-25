@@ -1,0 +1,37 @@
+suite: core event writer workers
+templates:
+  - templates/core.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: counts every default core replica as an EventWriter worker
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 3
+        documentSelector:
+          path: kind
+          value: Deployment
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EVENT_WRITER_WORKERS
+            value: "3"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+
+  - it: follows a changed core replica count
+    set:
+      core.replicas: 1
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: EVENT_WRITER_WORKERS
+            value: "1"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment

@@ -325,10 +325,12 @@ sender. The row keeps the existing single-owner columns.
 
 Throughput scales by adding flow-tier nodes. The `Flows` processor must run on every
 flow-tier node against the shared durable pull consumer, so JetStream distributes the work.
-Today the whole EventWriter supervisor is a coordinator-only singleton. This change moves the
-flow pipeline (and the index shards) out from under that restriction, and leaves the rest of
-EventWriter as it is. Index shards and flow consumers scale independently: consumers by flow
-rate, shards by index size.
+EventWriter workers (the shared Pipeline and FlowPipeline) already run on every
+serviceradar-core replica, bound to shared durables. Only the coordinator-only duties
+(ConsumerReconciler, the lag reporter, the flow correlator, and the six single-writer
+streams) run under `EventWriter.CoordinatorSupervisor`. This change places the index shards
+with those flow consumers and leaves those coordinator-only duties where they are. Index
+shards and flow consumers scale independently: consumers by flow rate, shards by index size.
 
 There is no write-back on this path and no periodic global join. The cost per flow is a
 constant: at most a handful of hash lookups, batched.

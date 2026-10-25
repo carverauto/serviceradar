@@ -7,13 +7,20 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   ## Implementation Notes
 
-  This producer creates one durable PULL consumer per configured stream. It asks
-  JetStream for messages only when Broadway has downstream demand and local
-  in-flight capacity. Flow control therefore has two enforcement points:
+  This producer binds one durable PULL consumer per configured stream. Every
+  core replica runs one, and they all bind the same durables, so JetStream gives
+  each message to exactly one replica's pull request (the JetStream form of a
+  NATS queue group). The producer never creates, updates or deletes a stream or
+  consumer: `ServiceRadar.EventWriter.ConsumerReconciler` does that once, on the
+  coordinator, and a durable it has not created yet is retried here with backoff.
+  Each producer pulls into reply inboxes unique to it (see `pull_subject/2`).
+
+  It asks JetStream for messages only when Broadway has downstream demand and
+  local in-flight capacity. Flow control therefore has two enforcement points:
 
     1. **Server-side**: `max_ack_pending` caps delivered-but-unacked messages for
-       each durable. In pull mode this is a safety ceiling, not a push prefetch
-       target.
+       each durable, shared by every replica bound to it. In pull mode this is
+       a safety ceiling, not a push prefetch target.
     2. **Producer-side**: `@max_buffered_messages` caps the in-process buffer of
        messages already fetched and waiting on Broadway demand. Anything beyond
        the cap is NAK'd back to the server instead of being retained in this
@@ -41,10 +48,9 @@ defmodule ServiceRadar.EventWriter.Producer do
   use GenStage
 
   alias Gnat.Jetstream.API.Consumer, as: JetstreamConsumerApi
-  alias Gnat.Jetstream.API.Util
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.ConsumerSetup
   alias ServiceRadar.EventWriter.JetStreamAck
-  alias ServiceRadar.EventWriter.StreamOwnership
   alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.NATS.JetstreamConsumer
 
@@ -54,10 +60,6 @@ defmodule ServiceRadar.EventWriter.Producer do
   @fetch_interval 100
   # Slow idle tick while long-polling so reconnect hygiene still runs.
   @long_poll_idle_interval 5_000
-  # A stream whose consumer cannot be set up (for example NATS cannot place it)
-  # is retried on its own with this backoff while the other consumers run.
-  @consumer_retry_base_ms 5_000
-  @consumer_retry_max_ms 60_000
   # Slack added to pull_expires so a late empty-status can still arrive.
   @long_poll_stale_slack_ms 5_000
   # no_wait pulls should return immediately; 5s covers a lost reply.
@@ -91,10 +93,7 @@ defmodule ServiceRadar.EventWriter.Producer do
     :pull_subjects,
     :failed_streams,
     :degraded_streams,
-    :setup_failures,
-    :stream_health,
-    :ownership,
-    :owned_streams
+    :setup_failures
   ]
 
   # Client API
@@ -142,22 +141,11 @@ defmodule ServiceRadar.EventWriter.Producer do
       pull_subjects: MapSet.new(),
       failed_streams: %{},
       degraded_streams: %{},
-      setup_failures: 0,
-      stream_health:
-        Application.get_env(
-          :serviceradar_core,
-          :event_writer_stream_health,
-          ServiceRadar.EventWriter.StreamHealth
-        ),
-      # First-seen-unclaimed times live here, so a restart starts the grace
-      # period again: that delays a claim and never makes one early.
-      ownership: StreamOwnership.new(grace_period_ms: config.ownership_grace_period_ms),
-      owned_streams: StreamOwnership.watched_streams(config.streams)
+      setup_failures: 0
     }
 
     # Start connection asynchronously
     send(self(), :connect)
-    schedule_ownership_reconcile(state)
 
     {:producer, state}
   end
@@ -293,17 +281,6 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   def handle_info({:retry_consumer, _stale_conn, _name}, state), do: {:noreply, [], state}
 
-  # The ownership reconcile timer (design D6): a periodic tick, separate from
-  # the fetch tick, the reconnect retry and the failed-consumer retries, that
-  # re-reads every multi-owner stream this producer consumes and applies the
-  # claim rule. It only issues STREAM.INFO / STREAM.UPDATE on the existing
-  # connection and never tears down or resubscribes a consumer.
-  def handle_info(:ownership_reconcile, state) do
-    state = reconcile_stream_ownership(state)
-    schedule_ownership_reconcile(state)
-    {:noreply, [], state}
-  end
-
   def handle_info({:fetch, now_ms}, state) when is_integer(now_ms) do
     state = expire_stale_pulls(state, now_ms)
 
@@ -399,7 +376,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   @impl true
   def terminate(_reason, state) do
-    safe_stop_conn(state.conn)
+    ConsumerSetup.close(state.conn)
   end
 
   # Private functions
@@ -481,112 +458,18 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp connect(%Config{} = config) do
-    connection_settings = build_connection_settings(config.nats)
+    with {:ok, conn, ref} <- ConsumerSetup.open(config.nats) do
+      case setup_jetstream_consumers(conn, config) do
+        {:ok, consumer_context} ->
+          {:ok, conn, consumer_context}
 
-    case connection_settings do
-      {:error, reason} ->
-        {:error, reason}
-
-      settings ->
-        case Gnat.start_link(settings) do
-          {:ok, conn} ->
-            Process.unlink(conn)
-            ref = Process.monitor(conn)
-
-            case setup_jetstream_consumers(conn, config) do
-              {:ok, consumer_context} ->
-                {:ok, conn, consumer_context}
-
-              {:error, reason} ->
-                safe_stop_conn(conn)
-                Process.demonitor(ref, [:flush])
-                {:error, reason}
-            end
-
-          {:error, reason} ->
-            {:error, reason}
-        end
-    end
-  end
-
-  defp build_connection_settings(nats_config) do
-    settings = %{
-      host: nats_config.host,
-      port: nats_config.port
-    }
-
-    settings =
-      case apply_auth_settings(settings, nats_config) do
-        {:ok, updated} -> updated
-        {:error, reason} -> {:error, reason}
+        {:error, reason} ->
+          ConsumerSetup.close(conn)
+          Process.demonitor(ref, [:flush])
+          {:error, reason}
       end
-
-    case settings do
-      {:error, reason} ->
-        {:error, reason}
-
-      updated ->
-        add_tls_settings(updated, nats_config.tls)
     end
   end
-
-  defp add_tls_settings(settings, tls) do
-    case tls do
-      true ->
-        Map.put(settings, :tls, true)
-
-      tls_opts when is_list(tls_opts) ->
-        settings
-        |> Map.put(:tls, true)
-        |> Map.put(:ssl_opts, tls_opts)
-
-      _ ->
-        settings
-    end
-  end
-
-  defp apply_auth_settings(settings, nats_config) do
-    jwt = normalize(nats_config.jwt)
-    nkey_seed = normalize(nats_config.nkey_seed)
-    user = normalize(nats_config.user)
-
-    cond do
-      nkey_seed != nil ->
-        settings =
-          settings
-          |> Map.put(:nkey_seed, nkey_seed)
-          |> Map.put(:auth_required, true)
-
-        settings =
-          if jwt == nil do
-            settings
-          else
-            Map.put(settings, :jwt, jwt)
-          end
-
-        {:ok, settings}
-
-      jwt != nil ->
-        {:error, :missing_nkey_seed}
-
-      user != nil ->
-        {:ok, Map.merge(settings, %{user: user, password: nats_config.password})}
-
-      true ->
-        {:ok, settings}
-    end
-  end
-
-  defp normalize(nil), do: nil
-
-  defp normalize(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      trimmed -> trimmed
-    end
-  end
-
-  defp normalize(value), do: value
 
   @doc false
   def setup_jetstream_consumers(conn, config) do
@@ -596,32 +479,64 @@ defmodule ServiceRadar.EventWriter.Producer do
     finalize_consumer_setup(conn, config, results)
   catch
     :exit, reason ->
-      safe_stop_conn(conn)
+      ConsumerSetup.close(conn)
       {:error, {:connection_exit, reason}}
   end
 
   @doc false
-  # Sets up the durable consumer for one configured stream. Used for the initial
-  # setup of every stream and for the per-stream retry of one that failed.
+  # Binds this replica to the durable of one configured stream. Used for the
+  # initial bind of every stream and for the per-stream retry of one that is not
+  # bound yet. Binding only reads the server: `ConsumerReconciler` creates the
+  # durable, so a durable that does not exist yet is retried, never created here.
   def setup_consumer(conn, %Config{} = config, stream) do
-    # Resolve flow-control values with defaults so a Config built directly (e.g.
-    # in tests) without going through Config.load/0 still gets a bounded consumer.
-    max_ack_pending = config.max_ack_pending || Config.default_max_ack_pending()
-    ack_wait_ns = config.ack_wait_ns || Config.default_ack_wait_ns()
-    max_deliver = config.max_deliver || Config.default_max_deliver()
+    durable_name = ConsumerSetup.durable_name(config, stream)
+    # Pull inbox stays unique per config entry (drain names differ from live)
+    # and per subscription (see pull_subject/2).
+    pull_subject = pull_subject(config.consumer_name, stream.name)
 
     default_pull_batch_size =
       config.consumer_pull_batch_size || Config.default_consumer_pull_batch_size()
 
-    setup_one_consumer(
-      conn,
-      config,
-      stream,
-      ack_wait_ns,
-      max_ack_pending,
-      max_deliver,
-      default_pull_batch_size
-    )
+    pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
+
+    with {:ok, bound} <- JetstreamConsumer.bind_durable(conn, bind_opts(stream, durable_name)),
+         :ok <- ConsumerSetup.validate_resolved_stream(stream, bound.stream_name),
+         {:ok, sid} <- Gnat.sub(conn, self(), pull_subject) do
+      Logger.info("EventWriter JetStream consumer bound",
+        stream: bound.stream_name,
+        durable: durable_name,
+        filter_subject: stream.subject,
+        pull_subject: pull_subject,
+        pull_batch_size: pull_batch_size,
+        sid: sid
+      )
+
+      {:ok,
+       %{
+         stream: bound.stream_name,
+         durable: durable_name,
+         sid: sid,
+         subject: stream.subject,
+         pull_subject: pull_subject,
+         pull_batch_size: pull_batch_size
+       }}
+    else
+      {:error, reason} ->
+        {:error, {stream.name, reason}}
+    end
+  catch
+    # An unlinked transport can disappear between an API call and its reply.
+    # Treat that expected exit like other bind failures and retry.
+    :exit, reason -> {:error, {stream.name, {:connection_exit, reason}}}
+  end
+
+  defp bind_opts(stream, durable_name) do
+    [
+      stream_name: Config.jetstream_stream_name(stream),
+      consumer_name: durable_name,
+      filter_subject: stream.subject,
+      allow_stream_fallback: ConsumerSetup.allow_stream_fallback?(stream)
+    ]
   end
 
   defp finalize_consumer_setup(conn, %Config{} = config, results) when is_list(results) do
@@ -654,7 +569,7 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     cond do
       expected_count == 0 ->
-        safe_stop_conn(conn)
+        ConsumerSetup.close(conn)
         {:error, :no_streams_configured}
 
       failures != [] and not required_ok? ->
@@ -662,7 +577,7 @@ defmodule ServiceRadar.EventWriter.Producer do
         # server rather than one stream: close the connection so leaked inbox
         # subscriptions cannot duplicate replies, and reconnect.
         Enum.each(consumers, fn c -> safe_unsub(conn, c.sid) end)
-        safe_stop_conn(conn)
+        ConsumerSetup.close(conn)
 
         {:error,
          {:consumer_setup_failed,
@@ -671,10 +586,7 @@ defmodule ServiceRadar.EventWriter.Producer do
       true ->
         # Some required consumers came up. Keep them running and hand the
         # failed streams back to the producer, which retries each on its own:
-        # one stream NATS refuses to place must not stop unrelated ingestion.
-        # A retired consumer is only deleted once every live consumer is up,
-        # since the one still failing may be its replacement.
-        if failures == [], do: retire_consumers(conn, config.retired_consumers)
+        # one durable that is not ready must not stop unrelated ingestion.
         pull_subjects = MapSet.new(consumers, & &1.pull_subject)
         sid_to_pull = Map.new(consumers, fn c -> {c.sid, c.pull_subject} end)
 
@@ -691,52 +603,8 @@ defmodule ServiceRadar.EventWriter.Producer do
     end
   end
 
-  # Best effort: a retired durable holds no work anyone needs, so failing to
-  # delete it is logged and retried on the next connect, never fatal.
-  defp retire_consumers(conn, retired) do
-    Enum.each(retired, fn %{stream_name: stream_name, consumer_name: consumer_name} ->
-      case JetstreamConsumer.delete_durable(conn, stream_name, consumer_name) do
-        {:ok, :deleted} ->
-          Logger.info(
-            "EventWriter deleted retired JetStream consumer #{stream_name}/#{consumer_name}",
-            stream: stream_name,
-            durable: consumer_name
-          )
-
-        {:ok, :absent} ->
-          :ok
-
-        {:error, reason} ->
-          Logger.warning(
-            "EventWriter could not delete retired JetStream consumer " <>
-              "#{stream_name}/#{consumer_name}: #{inspect(reason)}",
-            stream: stream_name,
-            durable: consumer_name,
-            reason: inspect(reason)
-          )
-      end
-    end)
-  end
-
   defp log_consumer_setup_failure(classification, config, stream, reason) do
-    name = Map.fetch!(stream, :name)
-    stream_name = Config.jetstream_stream_name(stream)
-    durable_key = Map.get(stream, :durable_source_name) || name
-    durable_name = Config.durable_name(config.consumer_name, durable_key)
-    filter_subject = Map.fetch!(stream, :subject)
-
-    diagnostic =
-      "name=#{inspect(name)} durable=#{inspect(durable_name)} " <>
-        "stream=#{inspect(stream_name)} filter_subject=#{inspect(filter_subject)} " <>
-        "reason=#{inspect(reason)}"
-
-    metadata = [
-      consumer: name,
-      durable: durable_name,
-      stream: stream_name,
-      filter_subject: filter_subject,
-      reason: inspect(reason)
-    ]
+    {diagnostic, metadata} = ConsumerSetup.describe_failure(config, stream, reason)
 
     case classification do
       :best_effort ->
@@ -746,80 +614,16 @@ defmodule ServiceRadar.EventWriter.Producer do
         )
 
       :required ->
-        Logger.error(
-          "Failed to initialize EventWriter durable consumer " <> diagnostic,
-          metadata
-        )
+        Logger.error("EventWriter could not bind durable consumer " <> diagnostic, metadata)
     end
   end
 
-  defp setup_one_consumer(
-         conn,
-         config,
-         stream,
-         ack_wait_ns,
-         max_ack_pending,
-         max_deliver,
-         default_pull_batch_size
-       ) do
-    # Drain streams set :durable_source_name to the pre-cutover stream name so
-    # JetStream resumes the existing ACK cursor instead of creating a new durable.
-    durable_key = Map.get(stream, :durable_source_name) || stream.name
-    durable_name = Config.durable_name(config.consumer_name, durable_key)
-    # Pull inbox stays unique per config entry (drain names differ from live)
-    # and per subscription (see pull_subject/2).
-    pull_subject = pull_subject(config.consumer_name, stream.name)
-    pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
-    expected = expected_stream_name(stream)
-
-    with {:ok, ensured} <-
-           JetstreamConsumer.ensure_durable(
-             conn,
-             ensure_durable_opts(stream, durable_name, ack_wait_ns, max_ack_pending, max_deliver)
-           ),
-         :ok <- validate_resolved_stream(stream, ensured.stream_name, expected),
-         {:ok, sid} <- Gnat.sub(conn, self(), pull_subject) do
-      Logger.info("EventWriter JetStream consumer ready",
-        stream: ensured.stream_name,
-        durable: durable_name,
-        filter_subject: stream.subject,
-        pull_subject: pull_subject,
-        pull_batch_size: pull_batch_size,
-        sid: sid
-      )
-
-      {:ok,
-       %{
-         stream: ensured.stream_name,
-         durable: durable_name,
-         sid: sid,
-         subject: stream.subject,
-         pull_subject: pull_subject,
-         pull_batch_size: pull_batch_size
-       }}
-    else
-      {:error, reason} ->
-        {:error, {stream.name, reason}}
-    end
-  catch
-    # An unlinked transport can disappear between an API call and its reply.
-    # Treat that expected exit like other consumer setup failures and retry.
-    :exit, reason -> {:error, {stream.name, {:connection_exit, reason}}}
-  end
-
-  defp validate_resolved_stream(stream, resolved, expected) do
-    if Config.flows_stream_consumer?(stream) and resolved != expected and
-         Map.get(stream, :allow_stream_fallback, false) == false do
-      {:error, {:unexpected_stream, expected: expected, resolved: resolved}}
-    else
-      :ok
-    end
-  end
-
-  # Health is transition-based and survives reconnects: `degraded_streams` maps
-  # a stream to its consecutive failed setup attempts and is only cleared when
-  # the stream sets up, so a reconnect neither repeats a degraded event nor
-  # leaves a recovered stream reported as degraded.
+  # Bind health is transition-based and survives reconnects: `degraded_streams`
+  # maps a stream to its consecutive failed bind attempts and is only cleared
+  # when the stream binds, so a reconnect neither repeats a failure transition
+  # nor leaves a recovered stream reported as failing. Every replica reports
+  # its own bind through telemetry; the deployment-wide stream health event is
+  # the reconciler's (see `ServiceRadar.EventWriter.StreamHealth`).
   @doc false
   def track_failed_streams(state, failed) do
     failed_names = MapSet.new(failed, fn {stream, _reason} -> Map.fetch!(stream, :name) end)
@@ -855,7 +659,13 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp record_stream_failed(state, name, reason) do
     attempt = Map.get(state.degraded_streams, name, 0) + 1
-    state.stream_health.consumer_setup_failed(name, reason, attempt)
+
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :consumer_bind, :failed],
+      %{count: 1, attempt: attempt},
+      %{stream: name, reason: inspect(reason), producer: producer_label(state)}
+    )
+
     {%{state | degraded_streams: Map.put(state.degraded_streams, name, attempt)}, attempt}
   end
 
@@ -865,34 +675,38 @@ defmodule ServiceRadar.EventWriter.Producer do
         state
 
       {attempts, degraded} ->
-        state.stream_health.consumer_setup_recovered(name, attempts)
+        :telemetry.execute(
+          [:serviceradar, :event_writer, :consumer_bind, :recovered],
+          %{count: 1, attempts: attempts},
+          %{stream: name, producer: producer_label(state)}
+        )
+
         %{state | degraded_streams: degraded}
     end
   end
 
+  defp producer_label(%{config: %Config{producer_name: name}}) when not is_nil(name), do: name
+  defp producer_label(_state), do: __MODULE__
+
   defp retry_failed_consumer(state, name, %{stream: stream} = entry) do
     case setup_consumer(state.conn, state.config, stream) do
       {:ok, consumer} ->
-        Logger.info("EventWriter consumer set up after retry",
+        Logger.info("EventWriter consumer bound after retry",
           consumer: name,
           failed_attempts: entry.attempt
         )
 
         state = record_stream_recovered(state, name)
         failed_streams = Map.delete(state.failed_streams, name)
-
-        if failed_streams == %{},
-          do: retire_consumers(state.conn, state.config.retired_consumers)
-
         add_consumer(%{state | failed_streams: failed_streams}, consumer)
 
       {:error, reason} ->
         {state, next} = record_stream_failed(state, name, reason)
 
-        Logger.warning("EventWriter consumer setup still failing; retrying this stream only",
+        Logger.warning("EventWriter consumer bind still failing; retrying this stream only",
           consumer: name,
           attempt: next,
-          retry_in_ms: consumer_retry_delay(next),
+          retry_in_ms: ConsumerSetup.retry_delay(next),
           reason: inspect(reason)
         )
 
@@ -919,43 +733,19 @@ defmodule ServiceRadar.EventWriter.Producer do
     }
   end
 
-  @doc false
-  # One ownership tick. Skipped while disconnected: the tracker keeps its
-  # first-seen times, so the grace period is measured across the outage.
-  def reconcile_stream_ownership(%{owned_streams: owned} = state)
-      when owned == %{} or is_nil(owned), do: state
-
-  def reconcile_stream_ownership(%{connected: true, conn: conn} = state) when not is_nil(conn) do
-    request = fn topic, payload -> Util.request(conn, topic, payload) end
-    %{state | ownership: StreamOwnership.reconcile(state.ownership, request, state.owned_streams)}
-  end
-
-  def reconcile_stream_ownership(state), do: state
-
-  defp schedule_ownership_reconcile(%{owned_streams: owned}) when owned == %{} or is_nil(owned),
-    do: :ok
-
-  defp schedule_ownership_reconcile(%{config: config}) do
-    interval =
-      config.ownership_reconcile_interval_ms || Config.default_ownership_reconcile_interval_ms()
-
-    Process.send_after(self(), :ownership_reconcile, interval)
-  end
-
   defp schedule_consumer_retry(conn, name, attempt) do
-    Process.send_after(self(), {:retry_consumer, conn, name}, consumer_retry_delay(attempt))
+    Process.send_after(
+      self(),
+      {:retry_consumer, conn, name},
+      ConsumerSetup.retry_delay(attempt)
+    )
   end
 
   @doc false
   # Bound transport and setup retries alike. The consecutive failure counter
   # resets only after a successful connection with usable consumers.
-  def reconnect_delay(_reason, setup_failures), do: consumer_retry_delay(max(setup_failures, 1))
-
-  @doc false
-  # Backoff before retry `attempt` of a failed stream: 5 s doubling to 60 s.
-  def consumer_retry_delay(attempt) when is_integer(attempt) and attempt >= 1 do
-    min(@consumer_retry_base_ms * Integer.pow(2, min(attempt - 1, 4)), @consumer_retry_max_ms)
-  end
+  def reconnect_delay(_reason, setup_failures),
+    do: ConsumerSetup.retry_delay(max(setup_failures, 1))
 
   defp safe_unsub(conn, sid) when is_integer(sid) do
     Gnat.unsub(conn, sid)
@@ -966,37 +756,6 @@ defmodule ServiceRadar.EventWriter.Producer do
   end
 
   defp safe_unsub(_conn, _sid), do: :ok
-
-  # Unlink first so :kill/:shutdown does not take down the Producer GenServer.
-  # Also used by direct setup callers whose connection is still linked.
-  defp safe_stop_conn(conn) when is_pid(conn) do
-    if Process.alive?(conn) do
-      Process.unlink(conn)
-      ref = Process.monitor(conn)
-      Process.exit(conn, :shutdown)
-
-      receive do
-        {:DOWN, ^ref, :process, ^conn, _} -> :ok
-      after
-        1_000 ->
-          Process.exit(conn, :kill)
-
-          receive do
-            {:DOWN, ^ref, :process, ^conn, _} -> :ok
-          after
-            200 -> :ok
-          end
-      end
-    end
-
-    :ok
-  end
-
-  defp safe_stop_conn(_), do: :ok
-
-  @doc false
-  # Test helper: same cleanup path used after partial consumer setup failure.
-  def __safe_stop_conn_for_test__(conn), do: safe_stop_conn(conn)
 
   # Drains up to `demand` buffered messages, preserving FIFO order.
   # `pending_count` is kept in sync so the overflow guard never needs an O(n)
@@ -1187,45 +946,6 @@ defmodule ServiceRadar.EventWriter.Producer do
         _ -> topic
       end
     end
-  end
-
-  defp expected_stream_name(stream) do
-    Config.jetstream_stream_name(stream)
-  end
-
-  defp ensure_durable_opts(stream, durable_name, ack_wait_ns, max_ack_pending, max_deliver) do
-    flow? = Config.flows_stream_consumer?(stream)
-
-    [
-      stream_name: expected_stream_name(stream),
-      consumer_name: durable_name,
-      filter_subject: stream.subject,
-      description: "EventWriter consumer for #{stream.name}",
-      ack_policy: :explicit,
-      ack_wait: Map.get(stream, :consumer_ack_wait_ns, ack_wait_ns),
-      deliver_policy: Map.get(stream, :consumer_deliver_policy),
-      deliver_policy_if_absent: Map.get(stream, :consumer_deliver_policy_if_absent),
-      max_ack_pending: Map.get(stream, :consumer_max_ack_pending, max_ack_pending),
-      max_deliver: Map.get(stream, :consumer_max_deliver, max_deliver),
-      inactive_threshold: Map.get(stream, :consumer_inactive_threshold),
-      stream_retention: Map.get(stream, :stream_retention),
-      stream_storage: Map.get(stream, :stream_storage),
-      stream_discard: Map.get(stream, :stream_discard),
-      stream_replicas: Map.get(stream, :stream_replicas),
-      stream_max_bytes: Map.get(stream, :stream_max_bytes),
-      stream_max_age: Map.get(stream, :stream_max_age),
-      stream_duplicate_window: Map.get(stream, :stream_duplicate_window),
-      # Flow path: never fall back onto `events` (strands durables after rehome).
-      allow_stream_fallback: Map.get(stream, :allow_stream_fallback, not flow?),
-      # A stream a collector may own carries the `event-writer` claim: it is
-      # created with that claim, and its shape is reconciled only while the
-      # claim is EventWriter's (design D6). Without a claim, a flow stream only
-      # merges subjects, as before.
-      stream_owner_claim: Map.get(stream, :stream_owner_claim),
-      reconcile_stream_shape: Map.get(stream, :reconcile_stream_shape, not flow?),
-      # Legacy events drain consumers must not create/reshape the shared stream.
-      ensure_stream: Map.get(stream, :ensure_stream, true)
-    ]
   end
 
   defp record_pull_inflight(state, []), do: state
