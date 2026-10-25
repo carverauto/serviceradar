@@ -417,7 +417,7 @@ defmodule ServiceRadar.Inventory.AvailabilityProgressionIntegrationTest do
 
   defp backdate_shadow_entry!(interval) do
     Repo.query!(
-      "UPDATE platform.availability_settings SET shadow_entered_at = shadow_entered_at - $1::interval",
+      "UPDATE platform.availability_settings SET shadow_entered_at = shadow_entered_at - $1::text::interval",
       [interval]
     )
   end
@@ -426,7 +426,7 @@ defmodule ServiceRadar.Inventory.AvailabilityProgressionIntegrationTest do
     Repo.query!(
       """
       INSERT INTO platform.sweep_group_executions (sweep_group_id, agent_id, status, started_at)
-      VALUES ($1, $2, $3, date_trunc('second', now() AT TIME ZONE 'utc') - $4::interval)
+      VALUES ($1, $2, $3, date_trunc('second', now() AT TIME ZONE 'utc') - $4::text::interval)
       """,
       [Ecto.UUID.dump!(group.id), agent_id, status, started_ago]
     )
