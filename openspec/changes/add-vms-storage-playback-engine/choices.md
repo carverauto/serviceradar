@@ -1119,3 +1119,55 @@ proof of archive availability. Cloud's existing create response cannot distingui
 a new bucket from an existing one, so adding a queue that always reports that
 limitation would add machinery without advancing provisioning. Its allocator
 waits for a supported proof contract or separately authorized explicit adoption.
+
+### Detect observed local replacement without claiming physical-volume attestation
+
+When: [spool lifetime checkpoint](spool-lifetime.md). Verdict: sound, medium confidence.
+
+If an operator replaces the spool directory while a recorder is alive, a new
+file can carry the same UUID text. The active handle also retains the root and
+marker device/inode identifiers supplied by the filesystem, so that replacement
+is refused at the next checked operation. After a restart, the worker opens a
+new handle against its configured UUID; those filesystem identifiers are not
+persisted as portable volume IDs. The plan required a provisioned storage UUID
+but did not choose local verification mechanics. This detects observed
+misbinding and replacement, not a privileged host copying a marker or changing
+mounts during an operation. Cloud must still establish the physical volume
+association and assign a new UUID on replacement. An operating-system mount
+lock or volume attestation service would be a separate, substantially larger
+contract. Future recovery must retain this distinction instead of treating a
+matching text file as proof that all historical bytes are present.
+
+### Use one fixed marker and preserve interrupted provisioning
+
+When: spool lifetime checkpoint. Verdict: sound, high confidence.
+
+An installer calls `Storage.initialize/2` on an empty private root. The marker
+is exactly the lowercase UUID followed by a newline in `.storage-id`, rather
+than a new JSON resource. Exclusive creation prevents overwriting a competing
+initializer; file and directory sync establish the same local POSIX durability
+boundary as the spool. An interrupted write leaves evidence for reconciliation.
+A recorder cannot fix that evidence by creating a new identity. An exact
+initializer retry verifies and syncs without rewriting, even when blocks now
+exist. The plan left the file format and retry entry point unspecified. A
+release-callable function serves explicit infrastructure provisioning without
+adding a second startup mode or automatic adoption path. Cloud's future volume
+workflow must invoke it before enabling recording and preserve failures instead
+of silently generating a replacement UUID.
+
+### Verify at authority, byte-mutation and receipt boundaries
+
+When: spool lifetime checkpoint. Verdict: sound, high confidence.
+
+When storage disappears after startup, the next append, seal or recovery
+truncation checks the retained identity before touching bytes and again before
+returning a new receipt. The worker checks before lease acquisition, block
+reservation, attachment and renewal; progress and stopped receipts cannot expose
+changed storage. An already-returned snapshot also refuses subsequent reads of
+a changed root. The plan required verification but did not specify these call
+boundaries. Packaging may buffer many encoded samples without a disk write, so
+it retains in-memory limits without reopening the marker for every sample.
+A detected change after I/O can leave bytes on disk but grants no new receipt;
+it does not undo writes or delete evidence. Future playback can reuse the same
+local-handle rule, while portable descriptors and manifest bytes remain free of
+paths, device/inode identifiers and this local filesystem handle.

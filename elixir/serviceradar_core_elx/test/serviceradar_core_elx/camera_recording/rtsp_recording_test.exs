@@ -3,6 +3,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.RTSPRecordingTest do
 
   alias ServiceRadarCoreElx.CameraRecording.Packaging
   alias ServiceRadarCoreElx.CameraRecording.Spool
+  alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.TestSupport.SyntheticCameraMedia
 
   @moduletag timeout: 20_000
@@ -157,7 +158,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.RTSPRecordingTest do
       clock: clock(clock_epoch)
     }
 
-    assert {:ok, spool} = Spool.create(root, identity, init.payload)
+    assert {:ok, storage} = Storage.initialize(root, "00000000-0000-4000-8000-000000000011")
+    assert {:ok, spool} = Spool.create(storage, identity, init.payload)
 
     spool =
       Enum.reduce(fragments, spool, fn {:fragment, fragment}, spool ->
@@ -166,7 +168,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.RTSPRecordingTest do
       end)
 
     assert {:ok, sealed} = Spool.seal(spool)
-    assert {:ok, recovered} = Spool.recover(sealed.directory, identity)
+    assert {:ok, recovered} = Spool.recover(storage, sealed.directory, identity)
     Spool.snapshot(recovered)
   end
 
