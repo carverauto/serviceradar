@@ -95,6 +95,40 @@ func TestPluginResultProvenanceIsHostStampedAndUnforgeable(t *testing.T) {
 	}
 }
 
+// Assignments of one plugin owned by different credential rules reach the
+// agent together. Each one runs as its own scheduled instance, and its results
+// carry its own assignment id.
+func TestPluginManagerRunsOneScheduledInstancePerAssignmentOfOnePlugin(t *testing.T) {
+	module := writeProvenanceTestModule(t, []byte(`{"status":"OK","summary":"example check passed"}`))
+
+	manager := NewPluginManager(t.Context(), PluginManagerConfig{
+		Logger:        logger.NewTestLogger(),
+		CacheDir:      t.TempDir(),
+		LocalStoreDir: filepath.Dir(module.path),
+	})
+	t.Cleanup(manager.Stop)
+
+	first := provenanceTestAssignment("assignment-owner-a", module.hex, "submit_result")
+	first.ParamsJson = []byte(`{"base_url":"https://controller-a.example.com"}`)
+	second := provenanceTestAssignment("assignment-owner-b", module.hex, "submit_result")
+	second.ParamsJson = []byte(`{"base_url":"https://controller-b.example.com"}`)
+
+	manager.ApplyConfig(&proto.PluginConfig{Assignments: []*proto.PluginAssignmentConfig{first, second}})
+
+	// Each scheduled runner executes once immediately on start.
+	got := map[string]bool{}
+	for range 2 {
+		result := receivePluginResult(t, manager)
+		if result.PluginID != "example-check" {
+			t.Fatalf("result plugin = %q, want example-check", result.PluginID)
+		}
+		got[result.AssignmentID] = true
+	}
+	if !got["assignment-owner-a"] || !got["assignment-owner-b"] {
+		t.Fatalf("results came from assignments %v, want both owners", got)
+	}
+}
+
 // Engine telemetry tells a rollout which module each assignment actually
 // loaded, and why a candidate that never loaded failed.
 func TestPluginEngineTelemetryReportsPerAssignmentModuleLoad(t *testing.T) {

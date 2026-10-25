@@ -115,19 +115,19 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end
 
     @impl true
-    def find_enabled_assignment(partition_id, agent_uid, plugin_package_id, _actor) do
-      record =
+    def list_enabled_assignments(partition_id, agent_uid, plugin_package_id, _actor) do
+      records =
         Agent.get(__MODULE__, fn state ->
           state
           |> Map.values()
-          |> Enum.find(
+          |> Enum.filter(
             &(&1.partition_id == partition_id and &1.agent_uid == agent_uid and
                 &1.plugin_package_id == plugin_package_id and
                 &1.enabled)
           )
         end)
 
-      {:ok, record}
+      {:ok, records}
     end
 
     def rows, do: Agent.get(__MODULE__, &Map.values/1)
@@ -161,8 +161,10 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     # (agent, package) already exists under an OLDER policy_id, so the current
     # policy's list_policy_assignments/3 returns nothing and create_assignment
     # collides with NoDuplicateEnabledAssignment. The reconciler must adopt
-    # (update) the existing row, not duplicate it.
-    def start_link(existing) do
+    # (update) the existing row, not duplicate it. `existing` is the list of
+    # enabled rows for that agent and plugin, in the order the store returns
+    # them.
+    def start_link(existing) when is_list(existing) do
       Agent.start_link(fn -> %{existing: existing, adopted: nil, created: 0} end,
         name: __MODULE__
       )
@@ -202,7 +204,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end
 
     @impl true
-    def find_enabled_assignment(_partition_id, _agent_uid, _plugin_package_id, _actor) do
+    def list_enabled_assignments(_partition_id, _agent_uid, _plugin_package_id, _actor) do
       {:ok, Agent.get(__MODULE__, & &1.existing)}
     end
 
@@ -298,7 +300,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
       params: %{}
     }
 
-    {:ok, _pid} = DriftedStore.start_link(existing)
+    {:ok, _pid} = DriftedStore.start_link([existing])
     on_exit(fn -> DriftedStore.stop() end)
 
     policy = %{
@@ -346,7 +348,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
       params: %{}
     }
 
-    {:ok, _pid} = DriftedStore.start_link(other_rule)
+    {:ok, _pid} = DriftedStore.start_link([other_rule])
     on_exit(fn -> DriftedStore.stop() end)
 
     policy = %{
@@ -368,6 +370,54 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
              )
 
     assert DriftedStore.adopted() == nil
+  end
+
+  test "adopts its own drifted row when another credential rule's row coexists" do
+    package_id = Ecto.UUID.generate()
+    rule_a = "network-credential-rule:00000000-0000-4000-8000-00000000000a"
+    rule_b = "network-credential-rule:00000000-0000-4000-8000-00000000000b"
+
+    row = fn source_key, policy_id ->
+      %{
+        id: Ecto.UUID.generate(),
+        agent_uid: "agent-a",
+        partition_id: "partition-a",
+        plugin_package_id: package_id,
+        source: :policy,
+        source_key: source_key,
+        policy_id: policy_id,
+        enabled: true,
+        params: %{}
+      }
+    end
+
+    other_rule = row.("other-rule-source-key", rule_b)
+    own_drifted = row.("own-drifted-source-key", rule_a <> ":inventory")
+
+    {:ok, _pid} = DriftedStore.start_link([other_rule, own_drifted])
+    on_exit(fn -> DriftedStore.stop() end)
+
+    policy = %{
+      policy_id: rule_a <> ":inventory_enrichment",
+      policy_version: 1,
+      plugin_package_id: package_id,
+      params_template: %{},
+      interval_seconds: 30,
+      timeout_seconds: 8,
+      enabled: true
+    }
+
+    assert {:ok, %{upserted: 1}} =
+             PolicyAssignmentReconciler.reconcile(policy, [],
+               resolver: ResolverV1,
+               store: DriftedStore,
+               partition_resolver: fn "agent-a" -> {:ok, "partition-a"} end,
+               generated_at: "2026-02-21T23:30:00Z"
+             )
+
+    adopted = DriftedStore.adopted()
+    assert adopted.id == own_drifted.id
+    assert adopted.policy_id == rule_a <> ":inventory_enrichment"
   end
 
   test "same agent UID rebind creates a new partition-bound row and disables the old row" do
