@@ -9,6 +9,7 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReport do
   and storage boundaries must enforce those separate contracts.
   """
 
+  alias ServiceRadar.Camera.ArchiveCanonicalJSON
   alias ServiceRadar.Camera.ArchiveDestination
 
   @fields ~w(schema_version binding_id destination provider_resource_id endpoint_type credential policy_revision operation_mode issued_at_ms expires_at_ms result_ref checks)
@@ -36,7 +37,7 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReport do
          true <- token?(input["result_ref"]),
          true <- interval?(input["issued_at_ms"], input["expires_at_ms"]),
          true <- checks?(input["checks"]) do
-      bytes = input |> ordered_object() |> Jason.encode!()
+      bytes = ArchiveCanonicalJSON.encode(input)
       digest = :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
 
       {:ok,
@@ -87,13 +88,4 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReport do
     do: Regex.match?(~r/\A[!-~]+\z/, value)
 
   defp reference?(_), do: false
-
-  defp ordered_object(value) when is_map(value) do
-    value
-    |> Enum.sort_by(&elem(&1, 0))
-    |> Enum.map(fn {key, item} -> {key, ordered_object(item)} end)
-    |> Jason.OrderedObject.new()
-  end
-
-  defp ordered_object(value), do: value
 end

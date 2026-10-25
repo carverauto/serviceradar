@@ -12,6 +12,8 @@ defmodule ServiceRadar.Camera.ArchiveBinding do
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer]
 
+  import Ash.Expr
+
   alias Ash.Error.Changes.InvalidArgument
   alias ServiceRadar.Camera.ArchiveDestination
 
@@ -108,6 +110,10 @@ defmodule ServiceRadar.Camera.ArchiveBinding do
       constraints: [one_of: [:unqualified]]
 
     create_timestamp :inserted_at
+  end
+
+  calculations do
+    calculate :database_now, :utc_datetime_usec, expr(fragment("clock_timestamp()"))
   end
 
   identities do

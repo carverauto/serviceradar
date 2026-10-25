@@ -25,7 +25,8 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
 
     Application.put_env(:serviceradar_core, StarRocks,
       enabled: true,
-      fe_http: "http://127.0.0.1:#{port}"
+      fe_http: "http://127.0.0.1:#{port}",
+      mysql: fn _sql -> {:ok, %{columns: [], rows: []}} end
     )
 
     :ok
@@ -42,8 +43,8 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
     }
 
     routed = Pipeline.handle_message(:default, message, %{})
-    processor = Pipeline.processor_for_batcher(routed.batcher)
-    task = Task.async(fn -> processor.process_batch([routed, encode(older)]) end)
+    assert Pipeline.processor_for_batcher(routed.batcher) == ExposureTransitions
+    task = Task.async(fn -> ingest([routed, encode(older)]) end)
 
     assert_receive {:load, facts_http, "/api/serviceradar/exposure_facts/_stream_load", headers,
                     [fact]},
@@ -57,6 +58,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
 
     assert fact == %{
              "device_ord" => 4_294_967_295,
+             "device_lifecycle_seq" => 0,
              "cve_ord" => 20_240_000_001,
              "pkg_ord" => 7,
              "pkgver_ord" => 103,
@@ -97,7 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
           {transition(13, %{"state" => "resolved", "resolved_at" => "2000-01-02T00:00:00"}),
            false}
         ] do
-      replay = Task.async(fn -> processor.process_batch([encode(payload)]) end)
+      replay = Task.async(fn -> ingest([encode(payload)]) end)
 
       assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load",
                       replay_headers, [row]},
@@ -118,7 +120,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
 
   test "failed or filtered fact and history loads fail the batch" do
     for stage <- [:facts, :history], result <- [:failure, :filtered] do
-      task = Task.async(fn -> ExposureTransitions.process_batch([encode(transition(25))]) end)
+      task = Task.async(fn -> ingest([encode(transition(25))]) end)
       assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [_]}, 2_000
 
       http =
@@ -170,7 +172,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
     on_exit(fn -> :telemetry.detach(handler) end)
 
     assert {:ok, 0} =
-             ExposureTransitions.process_batch([encode(transition(1, %{"device_ord" => nil}))])
+             ingest([encode(transition(1, %{"device_ord" => nil}))])
 
     assert_received {:dropped, %{count: 1}, %{reason: :missing_device_ordinal}}
 
@@ -187,8 +189,8 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
               transition(1, %{"schema_version" => 2}),
               transition(1, %{"transition_seq" => 0})
             ] do
-      assert {:error, :invalid_exposure_transition} =
-               ExposureTransitions.process_batch([encode(payload)])
+      assert {:retry, :invalid_exposure_transition} =
+               ingest([encode(payload)])
     end
 
     refute_receive {:load, _, _, _, _}, 20
@@ -202,7 +204,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
 
     task =
       Task.async(fn ->
-        ExposureTransitions.process_batch([
+        ingest([
           encode(informational),
           encode(high),
           encode(negligible),
@@ -235,6 +237,186 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
 
     send(history_http, :commit)
     assert {:ok, 4} = Task.await(task)
+  end
+
+  test "retirement rejects unseen old facts and restoration defers facts until its marker" do
+    state = %{
+      "device_ord" => 4_294_967_295,
+      "state" => 2,
+      "transition_seq" => 50,
+      "retired_seq" => 50
+    }
+
+    warehouse_reads([state])
+    assert {:ok, 0} = ingest([encode(transition(45))])
+
+    assert {:retry, :exposure_lifecycle_pending} =
+             ingest([encode(transition(61, %{"device_lifecycle_seq" => 60}))])
+
+    refute_receive {:load, _, _, _, _}, 20
+
+    warehouse_reads([%{state | "state" => 1, "transition_seq" => 60}])
+    assert {:ok, 0} = ingest([encode(transition(45))])
+    task = Task.async(fn -> ingest([encode(transition(61, %{"device_lifecycle_seq" => 60}))]) end)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [fact]},
+                   2_000
+
+    assert fact["device_lifecycle_seq"] == 60
+    assert fact["transition_seq"] == 61
+    send(http, :commit)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_transitions_log/_stream_load", _,
+                    [_]},
+                   2_000
+
+    send(http, :commit)
+    assert {:ok, 1} = Task.await(task)
+  end
+
+  test "loss of delivery ownership prevents subsequent size-split loads" do
+    config = Application.get_env(:serviceradar_core, StarRocks)
+
+    Application.put_env(
+      :serviceradar_core,
+      StarRocks,
+      Keyword.put(config, :stream_load, max_rows: 1)
+    )
+
+    task =
+      Task.async(fn ->
+        locked = fn ->
+          if Process.get(:ownership_lost), do: raise("delivery ownership lost"), else: :ok
+        end
+
+        :telemetry.attach(
+          "exposure-chunk-ownership",
+          [:serviceradar, :starrocks, :stream_load, :request, :stop],
+          fn _, _, _, _ -> Process.put(:ownership_lost, true) end,
+          nil
+        )
+
+        try do
+          assert_raise RuntimeError, "delivery ownership lost", fn ->
+            ExposureTransitions.ingest_batch(
+              [
+                encode(transition(12)),
+                encode(transition(13, %{"pkg_ord" => 8}))
+              ],
+              locked
+            )
+          end
+
+          :ok
+        after
+          :telemetry.detach("exposure-chunk-ownership")
+        end
+      end)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [_]}, 2_000
+    send(http, :commit)
+    refute_receive {:load, _, _, _, _}, 100
+    assert :ok = Task.await(task)
+  end
+
+  test "an older retirement marker cannot undo a restored lifecycle" do
+    warehouse_reads([
+      %{"device_ord" => 4_294_967_295, "state" => 1, "transition_seq" => 60, "retired_seq" => 50}
+    ])
+
+    assert {:ok, 0} = ingest([encode(retirement())])
+    refute_receive {:load, _, _, _, _}, 20
+  end
+
+  test "retirement loads its marker and retires existing facts before completing" do
+    old = %{
+      "device_ord" => 4_294_967_295,
+      "cve_ord" => 20_240_000_001,
+      "pkg_ord" => 7,
+      "pkgver_ord" => 101,
+      "state" => 1,
+      "transition_seq" => 45,
+      "transition_xid" => 545,
+      "device_lifecycle_seq" => 0,
+      "updated_at" => "2000-01-02 00:00:00"
+    }
+
+    {:ok, replies} = Agent.start_link(fn -> [[], [old], []] end)
+    on_exit(fn -> if Process.alive?(replies), do: Agent.stop(replies) end)
+
+    set_mysql(fn _sql ->
+      Agent.get_and_update(replies, fn [rows | rest] -> {query_result(rows), rest} end)
+    end)
+
+    task = Task.async(fn -> ingest([encode(retirement())]) end)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_retired_ordinals/_stream_load",
+                    headers, [marker]},
+                   2_000
+
+    assert headers["merge_condition"] == "transition_seq"
+    assert marker["state"] == 2
+    send(http, :commit)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_transitions_log/_stream_load", _,
+                    [terminal]},
+                   2_000
+
+    assert terminal["state"] == 2
+    assert terminal["transition_seq"] == 50
+    assert terminal["transition_xid"] == 550
+    assert terminal["payload"]["event_type"] == "device_retired"
+    assert terminal["payload"]["after_image"]["resolved_at"] == "2000-01-02 00:00:00"
+    refute Task.yield(task, 20)
+    send(http, :commit)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", headers,
+                    [fact]},
+                   2_000
+
+    assert fact["state"] == 2
+    assert fact["transition_seq"] == 50
+    assert fact["transition_xid"] == 550
+    refute "snapshot_generation" in String.split(headers["columns"], ",")
+    refute Task.yield(task, 20)
+    send(http, :commit)
+    assert {:ok, 0} = Task.await(task)
+  end
+
+  defp retirement do
+    %{
+      "schema_version" => 1,
+      "event_type" => "device_retired",
+      "state" => "retired",
+      "device_ord" => 4_294_967_295,
+      "transition_seq" => 50,
+      "device_lifecycle_seq" => 50,
+      "transition_xid" => 550,
+      "retired_seq" => 50,
+      "retired_xid" => 550,
+      "retired_at" => "2000-01-02T00:00:00",
+      "changed_at" => "2000-01-02T00:00:00"
+    }
+  end
+
+  defp warehouse_reads(states) do
+    set_mysql(fn sql ->
+      if String.contains?(sql, "exposure_retired_ordinals"),
+        do: query_result(states),
+        else: query_result([])
+    end)
+  end
+
+  defp query_result([]), do: {:ok, %{columns: [], rows: []}}
+
+  defp query_result([first | _] = rows) do
+    columns = Map.keys(first)
+    {:ok, %{columns: columns, rows: Enum.map(rows, fn row -> Enum.map(columns, &row[&1]) end)}}
+  end
+
+  defp set_mysql(query) do
+    config = Application.get_env(:serviceradar_core, StarRocks)
+    Application.put_env(:serviceradar_core, StarRocks, Keyword.put(config, :mysql, query))
   end
 
   test "dimension subjects route complete rows and preserve separate package versions" do
@@ -363,6 +545,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
     Map.merge(
       %{
         "schema_version" => 1,
+        "device_lifecycle_seq" => 0,
         "device_ord" => 4_294_967_295,
         "cve_ord" => 20_240_000_001,
         "pkg_ord" => 7,
@@ -388,6 +571,8 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
       overrides
     )
   end
+
+  defp ingest(messages), do: ExposureTransitions.ingest_batch(messages, fn -> :ok end)
 
   defp encode(payload), do: %{data: Jason.encode!(payload)}
 

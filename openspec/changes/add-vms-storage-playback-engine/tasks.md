@@ -13,13 +13,13 @@ or live acceptance task below.
 - [ ] 0.5 Validate provider endpoint range/checksum/multipart/atomic-no-overwrite/policy/lock capabilities, per-object encryption evidence and private access probes.
 - [ ] 0.6 Measure block/index/WAL/cache/object request costs; choose format bounds and service objectives instead of assuming PRD KPIs. The [synthetic grouping experiment](block-byte-costs.md) measures local logical media/metadata bytes only; database, cache, provider and deployment measurements remain open.
 - [x] 0.7 Evaluate stream-doctor's supported A/V-drift scenario in a Bazel/RBE test target with synthetic media; prove a deliberately delayed stream fails. See `stream-doctor.md`; this validates the diagnostic, not ServiceRadar audio or RTSP behavior.
-- [ ] 0.8 Specify versioned runtime/cloud and GPU job/result contracts, capability negotiation and invalid/unauthorized input behavior. The [qualification report](qualification-report.md) and [private receipts](qualification-receipts.md) supply bounded observations, content identity and revisioned submission/withdrawal. [Media authentication](media-authentication.md) binds ingress to the installed deployment. [Recording control](recording-control.md) adds an origin-bound stop-only restriction; positive desired/applied configuration, storage authority, freshness/revocation and GPU contracts remain open.
+- [ ] 0.8 Specify versioned runtime/cloud and GPU job/result contracts, capability negotiation and invalid/unauthorized input behavior. The [qualification report](qualification-report.md) and [private receipts](qualification-receipts.md) supply bounded observations, content identity and revisioned submission/withdrawal. [Media authentication](media-authentication.md) binds ingress to the installed deployment. [Recording control](recording-control.md) adds an origin-bound stop-only restriction. [Init authority](init-authority.md) adds one nonrenewable installation and init-operation grant; continuous recording authority, Cloud orchestration and GPU contracts remain open.
 
 ## 1. Recording and immediate playback
 
 - [ ] 1.1 Add Ash policy/lease/block resources and migrations, independent consumer leases and fenced recorder takeover.
 - [ ] 1.2 Implement bounded append/journal/seal and complete-fragment high-water publication; separate packer writes from range readers.
-- [ ] 1.3 Implement immutable upload, checksum/init/manifest verification and idempotent index publication.
+- [ ] 1.3 Implement immutable upload, checksum/init/manifest verification and idempotent index publication. The [init-only checkpoint](init-authority.md) adds conditional PUT and exact init-byte verification; streaming media, multipart reconciliation, recovery manifests and index publication remain open.
 - [ ] 1.4 Reconcile restart at every local/upload/manifest/index boundary; handle disk loss, stale owners, orphan/multipart state and explicit gaps.
 - [ ] 1.5 Add authorized local/archive range gateway and bounded HLS windows; deny unauthorized ranges and whole-object leakage.
 - [ ] 1.6 Integrate timeline/player and spatial links; preserve viewer cleanup and live-view behavior.

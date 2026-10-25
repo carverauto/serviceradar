@@ -1748,6 +1748,7 @@ if config_env() == :prod do
            {"*/5 * * * *", RootSpanRatioWorker, queue: :maintenance},
            {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
            {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
+           {"* * * * *", ServiceRadar.Inventory.ExposureDeviceRefreshWorker, queue: :maintenance},
            {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker,
             queue: :maintenance},
            {"17 3 * * *", DataRetentionWorker, queue: :maintenance},

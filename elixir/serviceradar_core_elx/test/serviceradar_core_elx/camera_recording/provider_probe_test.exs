@@ -4,7 +4,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadarCoreElx.CameraRecording.ProviderProbe
-  alias ServiceRadarCoreElx.CameraRecording.ProviderProbeHTTP
+  alias ServiceRadarCoreElx.CameraStorage.HTTP
 
   @moduletag :tmp_dir
   @run String.duplicate("a", 32)
@@ -212,7 +212,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
       timeout = if mode == :stall, do: 100, else: 2_000
 
       assert {:error, ^expected} =
-               ProviderProbeHTTP.request(ctx.config, :put, ctx.config.endpoint <> "/transport", [], "x", timeout, 64)
+               HTTP.request(ctx.config, :put, ctx.config.endpoint <> "/transport", [], "x", timeout, 64)
     end
   end
 

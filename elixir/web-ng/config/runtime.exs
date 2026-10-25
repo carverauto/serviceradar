@@ -124,6 +124,12 @@ control_plane_runtime_token =
 # start, so the opentelemetry SDK picks up these values at boot.
 otel_endpoint = System.get_env("OTEL_EXPORTER_OTLP_ENDPOINT")
 
+config :serviceradar_web_ng, :archive_storage_listener,
+  enabled: System.get_env("SERVICERADAR_ARCHIVE_STORAGE_ENABLED", "false") == "true",
+  port: parse_int_env.("SERVICERADAR_ARCHIVE_STORAGE_PORT", 4002),
+  config_file: System.get_env("SERVICERADAR_ARCHIVE_STORAGE_CONFIG_FILE"),
+  token_file: System.get_env("SERVICERADAR_ARCHIVE_STORAGE_TOKEN_FILE")
+
 config :serviceradar_web_ng, :control_plane_runtime,
   token: control_plane_runtime_token,
   port: parse_int_env.("SERVICERADAR_CONTROL_PLANE_RUNTIME_PORT", 4001),

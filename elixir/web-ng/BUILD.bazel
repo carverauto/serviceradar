@@ -489,6 +489,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
     [
         "test/phoenix/control_plane_archive_qualifications_db_test.exs",
         "test/phoenix/control_plane_recording_configuration_db_test.exs",
+        "test/phoenix/control_plane_init_authorities_db_test.exs",
         "test/app_domain/accounts_test.exs",
         "test/app_domain/authorization/permissions_test.exs",
         "test/app_domain/bootstrap/admin_user_test.exs",

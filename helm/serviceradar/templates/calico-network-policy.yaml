@@ -57,6 +57,9 @@
 {{- $hasKubeAPICIDRsV4 := gt (len $kubeAPICIDRsV4) 0 -}}
 {{- $hasKubeAPICIDRsV6 := gt (len $kubeAPICIDRsV6) 0 -}}
 {{- $selector := default "app.kubernetes.io/part-of == 'serviceradar'" $calico.selector -}}
+{{- if (default (dict) .Values.mediaStorage).enabled -}}
+{{- $selector = printf "(%s) && app != 'serviceradar-media-storage'" $selector -}}
+{{- end -}}
 ---
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy

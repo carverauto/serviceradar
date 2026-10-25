@@ -9,12 +9,15 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitions do
   null severity and any other binary severity store a null `severity_rank`,
   and the history payload keeps the original value. Non-binary severity and
   other malformed after-images fail the batch.
-  Retirement and snapshot messages are not part of this wire version.
+  Lifecycle markers fence complete fact after-images across replicas. Snapshot
+  generation remains a separate recovery protocol.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.EventWriter.ExposureDelivery
+  alias ServiceRadar.EventWriter.ExposureLifecycle
 
   @max_bigint 9_223_372_036_854_775_807
   @required ~w(device_ord cve_ord pkg_ord pkgver_ord transition_seq transition_xid
@@ -28,17 +31,29 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitions do
   @impl true
   def process_batch(messages) do
     if Destination.enabled?() do
-      with {:ok, transitions} <- decode(messages),
-           {:ok, _} <- Destination.persist_warehouse(:exposure_facts, latest_facts(transitions)),
+      ExposureDelivery.run(messages, &ingest_batch/2)
+    else
+      {:error, :starrocks_required}
+    end
+  end
+
+  @doc "Applies one journaled batch under its delivery owner's lock checks."
+  def ingest_batch(messages, locked) do
+    if Destination.enabled?() do
+      with {:ok, events} <- decode(messages),
+           {:ok, transitions} <- ExposureLifecycle.prepare(events, locked),
            {:ok, _} <-
-             Destination.persist_warehouse(
+             ExposureDelivery.persist(:exposure_facts, latest_facts(transitions), locked),
+           {:ok, _} <-
+             ExposureDelivery.persist(
                :exposure_transitions_log,
-               Enum.map(transitions, & &1.history)
+               Enum.map(transitions, & &1.history),
+               locked
              ) do
         {:ok, length(transitions)}
       end
     else
-      {:error, :starrocks_required}
+      {:retry, :starrocks_required}
     end
   end
 
@@ -56,22 +71,33 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitions do
           {:cont, {:ok, rows}}
 
         :error ->
-          {:halt, {:error, :invalid_exposure_transition}}
+          {:halt, {:retry, :invalid_exposure_transition}}
       end
     end)
   end
 
   defp decode_message(%{data: data}) when is_binary(data) do
     case Jason.decode(data) do
-      {:ok, %{"schema_version" => 1, "device_ord" => nil}} -> :missing_device_ordinal
-      {:ok, %{"schema_version" => 1} = payload} -> after_image(payload)
-      _ -> :error
+      {:ok, %{"schema_version" => 1, "device_ord" => nil}} ->
+        :missing_device_ordinal
+
+      {:ok, %{"schema_version" => 1, "event_type" => event} = payload}
+      when event in ["device_retired", "device_restored"] ->
+        lifecycle(payload)
+
+      {:ok, %{"schema_version" => 1} = payload} ->
+        after_image(payload)
+
+      _ ->
+        :error
     end
   end
 
   defp decode_message(_), do: :error
 
   defp after_image(payload) do
+    payload = Map.put_new(payload, "device_lifecycle_seq", 0)
+
     with true <- Enum.all?(@required, &Map.has_key?(payload, &1)),
          true <- valid_ordinals?(payload),
          true <- valid_attributes?(payload),
@@ -83,7 +109,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitions do
       fact =
         payload
         |> Map.take(
-          ~w(device_ord cve_ord pkg_ord pkgver_ord transition_seq transition_xid source_scope cvss_score kev exploit_available fix_available)
+          ~w(device_ord device_lifecycle_seq cve_ord pkg_ord pkgver_ord transition_seq transition_xid source_scope cvss_score kev exploit_available fix_available)
         )
         |> Map.merge(%{
           "state" => state,
@@ -100,14 +126,47 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitions do
         )
         |> Map.merge(%{"changed_at" => updated, "payload" => payload})
 
-      {:ok, %{fact: fact, history: history}}
+      {:ok, %{kind: :fact, device_ord: payload["device_ord"], fact: fact, history: history}}
+    else
+      _ -> :error
+    end
+  end
+
+  defp lifecycle(payload) do
+    retired? = payload["event_type"] == "device_retired"
+    seq = payload["transition_seq"]
+    retired_seq = payload["retired_seq"]
+
+    with true <- ordinal?(payload["device_ord"], 4_294_967_295),
+         true <- ordinal?(seq, @max_bigint),
+         true <- payload["device_lifecycle_seq"] == seq,
+         true <- ordinal?(payload["transition_xid"], @max_bigint),
+         true <- ordinal?(retired_seq, @max_bigint),
+         true <- ordinal?(payload["retired_xid"], @max_bigint),
+         true <- if(retired?, do: retired_seq == seq, else: retired_seq < seq),
+         true <- payload["state"] == if(retired?, do: "retired", else: "live"),
+         {:ok, updated} <- datetime(payload["changed_at"]),
+         {:ok, retired_at} <- datetime(payload["retired_at"]) do
+      row =
+        payload
+        |> Map.take(~w(device_ord transition_seq transition_xid retired_seq retired_xid))
+        |> Map.merge(%{
+          "state" => if(retired?, do: 2, else: 1),
+          "updated_at" => updated,
+          "retired_at" => retired_at
+        })
+
+      {:ok, %{kind: :lifecycle, device_ord: payload["device_ord"], row: row}}
     else
       _ -> :error
     end
   end
 
   defp valid_ordinals?(payload) do
-    ordinal?(payload["device_ord"], 4_294_967_295) and
+    is_integer(payload["device_lifecycle_seq"]) and payload["device_lifecycle_seq"] >= 0 and
+      is_integer(payload["transition_seq"]) and
+      payload["device_lifecycle_seq"] < payload["transition_seq"] and
+      ordinal?(payload["device_ord"], 4_294_967_295) and
       Enum.all?(
         ~w(cve_ord pkg_ord pkgver_ord transition_seq transition_xid),
         &ordinal?(payload[&1], @max_bigint)

@@ -11,8 +11,11 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
   import Ecto.Query
 
+  alias ServiceRadar.EventWriter.ExposureDelivery
+  alias ServiceRadar.Inventory.ExposureDeviceRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRelay
+  alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.ExposureTransitionCleanup
@@ -116,6 +119,393 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
              end)
 
     assert transitions(ctx.device_uid) == []
+  end
+
+  test "raw deletion, repeated retirement and restoration preserve identity and publish fresh current facts",
+       ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+    package = insert_endpoint_package!(ctx.unique)
+    insert_assessment!(ctx, package, "CVE-2024-0010")
+    assert [active] = transitions(ctx.device_uid)
+    assert active["device_lifecycle_seq"] == 0
+
+    Repo.query!("UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = $1", [
+      ctx.device_uid
+    ])
+
+    assert [^active, retired] = transitions(ctx.device_uid)
+    assert retired["event_type"] == "device_retired"
+    assert retired["transition_seq"] > active["transition_seq"]
+
+    Repo.query!("UPDATE platform.device_fleet_ordinals SET tombstoned = true WHERE uid = $1", [
+      ctx.device_uid
+    ])
+
+    update_assessment!(ctx.device_uid, "CVE-2024-0010", kev: true)
+    assert [^active, ^retired] = transitions(ctx.device_uid)
+
+    Repo.query!("UPDATE platform.ocsf_devices SET deleted_at = NULL WHERE uid = $1", [
+      ctx.device_uid
+    ])
+
+    assert [^active, ^retired, restored] = transitions(ctx.device_uid)
+    assert restored["event_type"] == "device_restored"
+    assert restored["device_ord"] == active["device_ord"]
+    assert restored["retired_seq"] == retired["transition_seq"]
+    assert restored["transition_seq"] > retired["transition_seq"]
+
+    assert :ok = ExposureDeviceRefreshWorker.perform(%Oban.Job{})
+    assert [^active, ^retired, ^restored, refreshed] = transitions(ctx.device_uid)
+    assert refreshed["device_lifecycle_seq"] == restored["transition_seq"]
+    assert refreshed["transition_seq"] > restored["transition_seq"]
+    assert refreshed["state"] == "active"
+    assert refreshed["kev"] == true
+    assert :ok = ExposureDeviceRefreshWorker.perform(%Oban.Job{})
+    assert [^active, ^retired, ^restored, ^refreshed] = transitions(ctx.device_uid)
+
+    parent = self()
+
+    publish = fn _subject, body, _opts ->
+      event = Jason.decode!(body)
+
+      if event["device_uid"] == ctx.device_uid,
+        do: send(parent, {:relayed, event["transition_seq"]})
+
+      if event["transition_seq"] == restored["transition_seq"], do: {:error, :timeout}, else: :ok
+    end
+
+    assert {:ok, %{failed: 1}} =
+             ExposureTransitionRelay.relay_once(
+               batch_size: 10_000,
+               publish: publish,
+               ensure_stream: fn _ -> :ok end
+             )
+
+    fresh_seq = refreshed["transition_seq"]
+    refute_received {:relayed, ^fresh_seq}
+
+    acknowledged = fn _subject, body, _opts ->
+      event = Jason.decode!(body)
+
+      if event["device_uid"] == ctx.device_uid,
+        do: send(parent, {:relayed, event["transition_seq"]})
+
+      :ok
+    end
+
+    assert {:ok, %{failed: 0}} =
+             ExposureTransitionRelay.relay_once(batch_size: 10_000, publish: acknowledged)
+
+    refute_received {:relayed, ^fresh_seq}
+
+    assert {:ok, %{failed: 0}} =
+             ExposureTransitionRelay.relay_once(batch_size: 10_000, publish: acknowledged)
+
+    assert_received {:relayed, ^fresh_seq}
+  end
+
+  test "a rolled-back direct ordinal retirement leaves no marker or retirement watermark", ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+
+    assert {:error, :rollback} =
+             Repo.transaction(fn ->
+               Repo.query!(
+                 "UPDATE platform.device_fleet_ordinals SET tombstoned = true WHERE uid = $1",
+                 [ctx.device_uid]
+               )
+
+               assert [%{"event_type" => "device_retired"}] = transitions(ctx.device_uid)
+               Repo.rollback(:rollback)
+             end)
+
+    assert transitions(ctx.device_uid) == []
+
+    assert %{rows: [[false, 0, nil]]} =
+             Repo.query!(
+               "SELECT tombstoned, lifecycle_seq, retired_seq FROM platform.device_fleet_ordinals WHERE uid = $1",
+               [ctx.device_uid]
+             )
+  end
+
+  @tag sandbox: :unboxed
+  test "retirement waits for an earlier fact publication in another transaction", ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+    package = insert_endpoint_package!(ctx.unique)
+    insert_assessment!(ctx, package, "CVE-2024-0011")
+
+    on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1",
+        [ctx.device_uid]
+      )
+
+      TestSupport.delete_device_fixtures!([ctx.device_uid])
+      ExposureTransitionCleanup.delete_for_devices!([ctx.device_uid])
+
+      Repo.query!("DELETE FROM platform.endpoint_packages WHERE id = $1", [
+        Ecto.UUID.dump!(package)
+      ])
+    end)
+
+    parent = self()
+
+    publisher =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          update_assessment!(ctx.device_uid, "CVE-2024-0011", kev: true)
+          send(parent, :fact_published)
+
+          receive do
+            :commit -> :ok
+          after
+            10_000 -> Repo.rollback(:timeout)
+          end
+        end)
+      end)
+
+    assert_receive :fact_published, 5_000
+
+    retire =
+      Task.async(fn ->
+        Repo.query!(
+          "UPDATE platform.device_fleet_ordinals SET tombstoned = true WHERE uid = $1",
+          [ctx.device_uid]
+        )
+      end)
+
+    refute Task.yield(retire, 200)
+    send(publisher.pid, :commit)
+    assert {:ok, :ok} = Task.await(publisher, 10_000)
+    assert %{num_rows: 1} = Task.await(retire, 10_000)
+    assert [_entered, changed, retired] = transitions(ctx.device_uid)
+    assert retired["transition_seq"] > changed["transition_seq"]
+  end
+
+  @tag sandbox: :unboxed
+  test "replica deliveries serialize and an uncertain load is replayed before a later lifecycle",
+       ctx do
+    start_recovery_broker!()
+    first = delivery_message(ctx, ctx.unique * 10)
+    second = delivery_message(ctx, ctx.unique * 10 + 1)
+    bucket = :erlang.phash2(ctx.device_uid, 16)
+
+    on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.exposure_delivery_batches WHERE bucket = $1 AND stream_sequences <@ $2::bigint[]",
+        [bucket, [ctx.unique * 10, ctx.unique * 10 + 1]]
+      )
+    end)
+
+    parent = self()
+
+    owner =
+      Task.async(fn ->
+        ExposureDelivery.run([first], fn [_message], locked ->
+          :ok = locked.()
+          send(parent, :warehouse_load_started)
+
+          receive do
+            :uncertain -> {:error, :load_uncertain}
+          after
+            10_000 -> {:error, :timeout}
+          end
+        end)
+      end)
+
+    assert_receive :warehouse_load_started, 5_000
+
+    assert {:error, :exposure_delivery_busy} =
+             ExposureDelivery.run([second], fn _, _ ->
+               flunk("retirement overtook an in-flight load")
+             end)
+
+    send(owner.pid, :uncertain)
+    assert {:error, :load_uncertain} = Task.await(owner)
+
+    missing =
+      Task.async(fn ->
+        ExposureDelivery.run([second], fn _, _ ->
+          flunk("missing recovery input was ignored")
+        end)
+      end)
+
+    assert_receive {:recovery_request, broker, "$JS.API.STREAM.MSG.GET.EXPOSURE_TRANSITIONS",
+                    request},
+                   2_000
+
+    assert request == %{"seq" => ctx.unique * 10}
+    send(broker, {:respond, %{error: %{code: 404}}})
+    assert {:error, {:exposure_recovery_message_unavailable, _}} = Task.await(missing)
+
+    ingest = fn [message], locked ->
+      :ok = locked.()
+      send(parent, {:delivered, message.data})
+      {:ok, 1}
+    end
+
+    recovered = Task.async(fn -> ExposureDelivery.run([second], ingest) end)
+
+    assert_receive {:recovery_request, broker, "$JS.API.STREAM.MSG.GET.EXPOSURE_TRANSITIONS",
+                    request},
+                   2_000
+
+    assert request == %{"seq" => ctx.unique * 10}
+
+    send(
+      broker,
+      {:respond,
+       %{
+         message: %{
+           seq: ctx.unique * 10,
+           subject: first.metadata.subject,
+           data: Base.encode64(first.data)
+         }
+       }}
+    )
+
+    assert {:ok, 1} = Task.await(recovered)
+    assert_receive {:delivered, first_data}
+    assert_receive {:delivered, second_data}
+    assert first_data == first.data
+    assert second_data == second.data
+
+    assert %{rows: []} =
+             Repo.query!(
+               "SELECT bucket FROM platform.exposure_delivery_batches WHERE bucket = $1",
+               [bucket]
+             )
+  end
+
+  test "a future lifecycle retry releases delivery ownership for the missing marker", ctx do
+    message = delivery_message(ctx, ctx.unique * 10)
+
+    assert {:error, :exposure_lifecycle_pending} =
+             ExposureDelivery.run([message], fn _, _ -> {:retry, :exposure_lifecycle_pending} end)
+
+    assert {:ok, 1} =
+             ExposureDelivery.run([message], fn _, _ -> {:ok, 1} end)
+  end
+
+  test "a blocked bucket does not starve independent delivery buckets", ctx do
+    first = delivery_message(ctx, ctx.unique * 10)
+
+    second =
+      Enum.find_value(1..32, fn suffix ->
+        message =
+          delivery_message(
+            %{ctx | device_uid: "#{ctx.device_uid}-#{suffix}"},
+            ctx.unique * 10 + 1
+          )
+
+        if message.metadata.subject != first.metadata.subject, do: message
+      end)
+
+    parent = self()
+
+    assert {:error, :exposure_lifecycle_pending} =
+             ExposureDelivery.run([first, second], fn [message], _ ->
+               if message.data == first.data do
+                 {:retry, :exposure_lifecycle_pending}
+               else
+                 send(parent, {:accepted, message.data})
+                 {:ok, 1}
+               end
+             end)
+
+    assert_receive {:accepted, data}
+    assert data == second.data
+  end
+
+  # A protocol fixture for the external stream API. Production Gnat handles the
+  # request, subscription and response decoding; recovery has no test-only hook.
+  defp start_recovery_broker! do
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+
+    {:ok, {_, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    owner = self()
+
+    start_supervised!(
+      {Task,
+       fn ->
+         {:ok, socket} = :gen_tcp.accept(listener)
+
+         :ok =
+           :gen_tcp.send(
+             socket,
+             ~s(INFO {"server_id":"synthetic-exposure-broker","headers":false}\r\n)
+           )
+
+         recovery_commands(socket, owner, %{})
+       end}
+    )
+
+    start_supervised!(%{
+      id: :exposure_recovery_gnat,
+      start:
+        {Gnat, :start_link,
+         [
+           %{host: "127.0.0.1", port: port},
+           [name: ServiceRadar.NATS.Connection.connection_name()]
+         ]}
+    })
+  end
+
+  defp recovery_commands(socket, owner, subscriptions) do
+    case :gen_tcp.recv(socket, 0) do
+      {:ok, line} ->
+        case String.split(String.trim(line)) do
+          ["SUB", subject, sid] ->
+            recovery_commands(socket, owner, Map.put(subscriptions, subject, sid))
+
+          ["PUB", subject, reply, bytes] ->
+            :ok = :inet.setopts(socket, packet: :raw)
+            {:ok, payload} = :gen_tcp.recv(socket, String.to_integer(bytes) + 2)
+            :ok = :inet.setopts(socket, packet: :line)
+            request = payload |> String.trim() |> Jason.decode!()
+            send(owner, {:recovery_request, self(), subject, request})
+
+            receive do
+              {:respond, response} ->
+                body = Jason.encode!(response)
+
+                sid =
+                  Enum.find_value(subscriptions, fn {filter, sid} ->
+                    if filter == reply or
+                         String.starts_with?(reply, String.trim_trailing(filter, "*")),
+                       do: sid
+                  end)
+
+                :ok =
+                  :gen_tcp.send(socket, "MSG #{reply} #{sid} #{byte_size(body)}\r\n#{body}\r\n")
+            after
+              5_000 -> raise "recovery response was not supplied"
+            end
+
+            recovery_commands(socket, owner, subscriptions)
+
+          ["PING"] ->
+            :ok = :gen_tcp.send(socket, "PONG\r\n")
+            recovery_commands(socket, owner, subscriptions)
+
+          _ ->
+            recovery_commands(socket, owner, subscriptions)
+        end
+
+      {:error, :closed} ->
+        :ok
+    end
+  end
+
+  defp delivery_message(ctx, seq) do
+    %{
+      data: Jason.encode!(%{device_uid: ctx.device_uid, transition_seq: seq}),
+      metadata: %{
+        subject: ExposureTransitionRelay.subject(ctx.device_uid),
+        jetstream_ack: %{stream: "EXPOSURE_TRANSITIONS", stream_sequence: seq}
+      }
+    }
   end
 
   test "CVE ordinals are deterministic for canonical identifiers and dictionary-backed above 10^12 otherwise" do

@@ -6,8 +6,9 @@ defmodule ServiceRadar.Camera.RecordingControl do
   system actor. No accepted document enables or resumes recording. Stop success
   proves the durable gates deny new work, never that all replicas have drained.
 
-  Lock order is control singleton, then ingest owner, then recorder claim or
-  recording block, then dispatch. Only acquire, renew, reserve and dispatch mark
+  Lock order is control singleton, then init authority when granting, then
+  ingest owner when recording, then recorder claim or block, then dispatch.
+  Only acquire, renew, reserve and dispatch mark
   take this outer fence. Freeze, release and late observations remain usable.
   No media, provider I/O or worker enumeration occurs under the control lock.
   New-work callers acquire this fence before entering any preservation callback.
@@ -216,7 +217,7 @@ defmodule ServiceRadar.Camera.RecordingControl do
   # this outer boundary before the ingest/block owner can unwrap its refusal.
   defp transaction_result({:error, %{__struct__: type, field: field, value: reason}})
        when type in [InvalidArgument, Ash.Error.Changes.InvalidArgument] and
-              field in [:recording_control, :ingest_ownership, :recording_block],
+              field in [:recording_control, :ingest_ownership, :recording_block, :init_authority],
        do: {:error, reason}
 
   defp transaction_result(error), do: error

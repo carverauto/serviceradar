@@ -13,6 +13,7 @@ PROVISION_TARGET = "//rust/integration-db:provision_generation_web_ng"
 SHARED_FIXTURE_SOURCES = {
     "test/phoenix/control_plane_archive_qualifications_db_test.exs",
     "test/phoenix/control_plane_recording_configuration_db_test.exs",
+    "test/phoenix/control_plane_init_authorities_db_test.exs",
     "test/app_domain/accounts_test.exs",
     "test/app_domain/admin_api/local_test.exs",
     "test/app_domain/authorization/permissions_test.exs",
