@@ -721,8 +721,8 @@ snapshots.
     fact ends resolved.
 - **Per-device reconciliation.** A daily job compares, per device between CNPG and
   StarRocks, the actionable count and an order-independent digest over each fact's
-  `(cve_ord, pkg_ord, transition_seq)` and a content hash of its actionable attributes
-  (state, `pkgver_ord`, severity, CVSS, KEV, exploit and fix flags), so a lost update that
+  `(cve_ord, pkg_ord, transition_seq)` and a content hash of the actionable attributes
+  named by *Exposure Is Rebuildable And Reconciled Against The Assessment Store*, so a lost update that
   changes only an attribute is detected as well as a changed membership.
   Mismatched devices get a per-device snapshot, fenced the same way and scoped to the
   device. Mismatch counts are exported, so the check can fail visibly.
@@ -1194,17 +1194,16 @@ snapshot reconstruction and readiness; this is not evidence of a live rollout.
 prerequisite for task 1.6. It does not approve or complete the snapshot transport,
 warehouse finalization, delivery-journal recovery or daily reconciliation.
 
-**Gap in the delivered source contract.** An assessment currently retains
+**Gap this decision closes.** Before migration `20261025185606`, an assessment retained
 `last_transition_seq`, `last_device_lifecycle_seq` and `exposed_at`, but not the
 publishing transaction's `transition_xid`, publication time, or exact after-image.
-`exposure_record_transition` constructs those values only in the outbox, and
-`ExposureOutboxRelay` deletes the row after PubAck. Deletion watermarks retain
-sequence, xid and time but not the complete terminal after-image. Later assessment
-updates can also change fields without publishing a transition. Consequently,
-snapshot code cannot reconstruct an identical old publication from the current
-assessment, its current PostgreSQL row version, or the surviving watermark.
-Decisions 14 and 19 require the original transaction fence and forbid changing
-content under an existing sequence.
+`exposure_record_transition` constructed those values only in the outbox, and
+`ExposureOutboxRelay` deleted the row after PubAck. Deletion watermarks retained
+sequence, xid and time but not the complete terminal after-image. Unrelated assessment
+updates could change fields without publishing a transition. Snapshot code could not
+reconstruct an identical old publication from the current assessment, its PostgreSQL
+row version, or the surviving watermark. Decisions 14 and 19 require the original
+transaction fence and forbid changing content under an existing sequence.
 
 **Producer state.** Retain one last published schema-version-1 payload
 on each assessment, and one terminal payload on each deletion watermark. These
@@ -1521,18 +1520,16 @@ Refresh budgets:
 
 ## Implementation record: matcher transitions and incremental matching (#5748, task 0.1)
 
-**Producer.** The bullets below describe the producer as first delivered. Migration
-`20261025185606` (Decision 24) replaces those trigger functions, retains the latest
-publication on the assessment and the terminal publication on the watermark, and
-provides `exposure_repair_publication`. An actionable source-scope change publishes
-a new complete after-image; an unchanged scope does not. Triggers on
+**Producer.** Migration `20261025185606` (Decision 24) replaces the original trigger
+functions, retains the latest publication on the assessment and the terminal publication
+on the watermark, and provides `exposure_repair_publication`. Triggers on
 `platform.endpoint_vulnerability_assessments` own the outbox, so
 every writer (matcher upsert, absence resolution, unconfirmed marking, Ash actions, row
 deletion) is covered in the transaction that changes the row:
 
 - a `BEFORE INSERT OR UPDATE` row trigger decides whether the write is a transition (the
   actionable predicate is entered or left, or an actionable row's installed version, KEV,
-  exploit, CVSS, severity or fixed version changed) and, if so, draws `transition_seq` from
+  exploit, CVSS, severity, fixed version or source scope changed) and, if so, draws `transition_seq` from
   `platform.exposure_transition_seq` while the row is locked and stores it in the
   trigger-owned column `last_transition_seq` (with `exposed_at`, the start of the current
   actionable episode);
