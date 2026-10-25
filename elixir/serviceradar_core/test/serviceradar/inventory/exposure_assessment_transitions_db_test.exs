@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.DirectSession
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.ExposureTransitionCleanup
 
@@ -767,6 +768,41 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert {:ok, 1} =
              ExposureDelivery.run([message], fn _, _ -> {:ok, 1} end)
+  end
+
+  test "one session owns the bucket for the whole delivery, and stranded legacy locks do not block it",
+       ctx do
+    message = delivery_message(ctx, ctx.unique * 10)
+    bucket = :erlang.phash2(ctx.device_uid, 16)
+
+    # A pooled server connection that kept the pre-fix bucket lock after its
+    # unlock ran on a different backend.
+    stranded = start_supervised!({Postgrex, DirectSession.connection_opts()})
+    Postgrex.query!(stranded, "SELECT pg_advisory_lock(74523, $1)", [bucket])
+
+    holders = fn ->
+      Repo.query!(
+        """
+        SELECT pid FROM pg_locks
+        WHERE locktype = 'advisory' AND granted
+          AND classid = 74524 AND objid = $1 AND objsubid = 2
+        """,
+        [bucket]
+      ).rows
+    end
+
+    parent = self()
+
+    assert {:ok, 1} =
+             ExposureDelivery.run([message], fn [_message], locked ->
+               # Ownership checks run on the session that holds the lock.
+               :ok = locked.()
+               send(parent, {:holders, holders.()})
+               {:ok, 1}
+             end)
+
+    assert_received {:holders, [[_session]]}
+    assert holders.() == []
   end
 
   test "a blocked bucket does not starve independent delivery buckets", ctx do

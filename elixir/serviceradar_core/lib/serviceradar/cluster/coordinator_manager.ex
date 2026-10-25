@@ -16,6 +16,7 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
 
   alias ServiceRadar.Cluster.CoordinatorChildren
   alias ServiceRadar.Cluster.CoordinatorRuntimeSupervisor
+  alias ServiceRadar.Repo.DirectSession
 
   require Logger
 
@@ -272,66 +273,19 @@ defmodule ServiceRadar.Cluster.CoordinatorManager do
   end
 
   defp repo_connection_opts do
-    ServiceRadar.Repo.config()
-    |> Keyword.take([
-      :hostname,
-      :port,
-      :username,
-      :password,
-      :database,
-      :socket_dir,
-      :socket,
-      :parameters,
-      :ssl,
-      :ssl_opts,
-      :connect_timeout,
-      :timeout,
-      :ipv6,
-      :url
-    ])
-    |> coordinator_connection_opts(System.get_env("SERVICERADAR_COORDINATOR_DB_HOST"))
+    coordinator_connection_opts(DirectSession.repo_opts(), DirectSession.direct_host())
   end
 
   @doc false
   def coordinator_connection_opts(opts, host) when is_list(opts) do
     opts
-    |> apply_coordinator_host(host)
+    |> DirectSession.put_host(host)
     |> Keyword.put(:pool_size, 1)
     |> Keyword.put(:timeout, normalize_heartbeat_timeout(Keyword.get(opts, :timeout)))
-  end
-
-  defp apply_coordinator_host(opts, nil), do: opts
-  defp apply_coordinator_host(opts, ""), do: opts
-
-  defp apply_coordinator_host(opts, host) when is_binary(host) do
-    host = String.trim(host)
-
-    cond do
-      host == "" ->
-        opts
-
-      url = Keyword.get(opts, :url) ->
-        Keyword.put(opts, :url, replace_url_host(url, host))
-
-      true ->
-        Keyword.put(opts, :hostname, host)
-    end
   end
 
   defp normalize_heartbeat_timeout(timeout)
        when is_integer(timeout) and timeout > @heartbeat_timeout_ms, do: timeout
 
   defp normalize_heartbeat_timeout(_timeout), do: @heartbeat_timeout_ms
-
-  defp replace_url_host(url, host) when is_binary(url) do
-    case URI.parse(url) do
-      %URI{host: current_host} = parsed when is_binary(current_host) ->
-        URI.to_string(%{parsed | host: host})
-
-      _ ->
-        url
-    end
-  end
-
-  defp replace_url_host(url, _host), do: url
 end

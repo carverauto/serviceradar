@@ -7,27 +7,48 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   This matters when its predecessor died with a Stream Load still in flight:
   replay reconciles the same immutable load labels before retirement can pass.
   An expired stream position fails closed and requires snapshot recovery.
+
+  The bucket locks are held on a `ServiceRadar.Repo.DirectSession`, never on the
+  pooled Repo: a transaction-mode pooler can run the lock and the unlock on
+  different server backends and strand the lock on a shared one. Each run opens
+  its own session, so a dead owner's locks end with its connection, and every
+  ownership check asks whether that session still holds the bucket lock. The
+  journal is written through the Repo, one autocommitted statement at a time, so
+  a batch is journaled durably before its load starts.
   """
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.DirectSession
 
-  @lock_namespace 74_523
+  # 74_523 was taken through the pooled Repo, where unlocks could miss and leave
+  # it held by pooled server connections, so ownership moved to a fresh namespace.
+  @lock_namespace 74_524
+  # pg_try_advisory_lock(int4, int4) is recorded as classid, objid, objsubid 2.
+  @lock_held_sql """
+  SELECT EXISTS (
+    SELECT 1 FROM pg_locks
+    WHERE locktype = 'advisory' AND granted AND pid = pg_backend_pid()
+      AND classid::bigint = $1 AND objid::bigint = $2 AND objsubid = 2
+  )
+  """
   @stream "EXPOSURE_TRANSITIONS"
 
   def run(messages, ingest) do
     with {:ok, buckets} <- positions(messages) do
-      {loaded, failure} =
-        Enum.reduce(buckets, {0, nil}, fn {bucket, entries}, {count, failure} ->
-          case deliver(bucket, entries, ingest) do
-            {:ok, loaded} -> {count + loaded, failure}
-            error -> {count, failure || error}
-          end
-        end)
+      DirectSession.run(fn session ->
+        {loaded, failure} =
+          Enum.reduce(buckets, {0, nil}, fn {bucket, entries}, {count, failure} ->
+            case deliver(session, bucket, entries, ingest) do
+              {:ok, loaded} -> {count + loaded, failure}
+              error -> {count, failure || error}
+            end
+          end)
 
-      failure || {:ok, loaded}
+        failure || {:ok, loaded}
+      end)
     end
   end
 
@@ -74,40 +95,35 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     end)
   end
 
-  defp deliver(bucket, entries, ingest) do
-    Repo.checkout(
-      fn ->
-        case Repo.query!("SELECT pg_try_advisory_lock($1, $2), pg_backend_pid()", [
-               @lock_namespace,
-               bucket
-             ]).rows do
-          [[true, backend]] ->
-            try do
-              locked = fn ->
-                [[^backend]] = Repo.query!("SELECT pg_backend_pid()").rows
-                :ok
-              end
+  defp deliver(session, bucket, entries, ingest) do
+    case Postgrex.query!(session, "SELECT pg_try_advisory_lock($1, $2)", [@lock_namespace, bucket]).rows do
+      [[true]] ->
+        try do
+          locked = fn ->
+            [[true]] = Postgrex.query!(session, @lock_held_sql, [@lock_namespace, bucket]).rows
+            :ok
+          end
 
-              with :ok <- recover(bucket, ingest, locked) do
-                entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
+          with :ok <- recover(bucket, ingest, locked) do
+            entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
 
-                Repo.query!(
-                  "INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences) VALUES ($1, $2)",
-                  [bucket, Enum.map(entries, &elem(&1, 0))]
-                )
+            Repo.query!(
+              "INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences) VALUES ($1, $2)",
+              [bucket, Enum.map(entries, &elem(&1, 0))]
+            )
 
-                finish(bucket, ingest.(Enum.map(entries, &elem(&1, 1)), locked), locked)
-              end
-            after
-              Repo.query!("SELECT pg_advisory_unlock($1, $2)", [@lock_namespace, bucket])
-            end
-
-          [[false, _]] ->
-            {:error, :exposure_delivery_busy}
+            finish(bucket, ingest.(Enum.map(entries, &elem(&1, 1)), locked), locked)
+          end
+        after
+          # Frees the bucket while later buckets of this run deliver. If the
+          # session was lost, it holds nothing and closing it is enough.
+          _ =
+            Postgrex.query(session, "SELECT pg_advisory_unlock($1, $2)", [@lock_namespace, bucket])
         end
-      end,
-      timeout: 120_000
-    )
+
+      [[false]] ->
+        {:error, :exposure_delivery_busy}
+    end
   end
 
   defp recover(bucket, ingest, locked) do
