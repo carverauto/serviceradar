@@ -805,7 +805,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                "serviceradar-event-writer-arancini-causal"
     end
 
-    # The producer deletes every retired durable on startup, so a retired name
+    # The consumer reconciler deletes every retired durable, so a retired name
     # that matches a durable EventWriter still builds would delete a live
     # consumer, and its pending messages with it, on every restart.
     test "no retired consumer is a durable the shared or flow pipeline builds" do

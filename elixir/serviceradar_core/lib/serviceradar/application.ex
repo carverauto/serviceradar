@@ -192,6 +192,11 @@ defmodule ServiceRadar.Application do
         # Cluster infrastructure (only if clustering is enabled)
         cluster_children(),
 
+        # EventWriter workers on every core replica, bound to the shared
+        # JetStream durables. Started before the coordinator tree, whose
+        # pipeline uses the node-local caches this tree owns.
+        event_writer_workers_child(),
+
         # Coordinator-only duties for core-elx candidates
         coordinator_children()
       ]
@@ -563,6 +568,17 @@ defmodule ServiceRadar.Application do
 
     if enabled and ServiceRadar.SPIFFE.certs_available?() do
       ServiceRadar.SPIFFE.CertMonitor
+    end
+  end
+
+  # The same nodes that can hold the coordinator run EventWriter workers, so a
+  # deployment never consumes from a replica that cannot also own the durables.
+  defp event_writer_workers_child do
+    coordinator_candidate = Application.get_env(:serviceradar_core, :cluster_coordinator, false)
+
+    if repo_enabled?() and coordinator_candidate and
+         ServiceRadar.EventWriter.Supervisor.enabled?() do
+      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :permanent)
     end
   end
 

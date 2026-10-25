@@ -9,6 +9,7 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.ConsumerSetup
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Producer
 
@@ -610,13 +611,13 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
         end)
 
       # Parent is linked to child. Stopping child with :kill without unlink kills parent.
-      # __safe_stop_conn_for_test__ must unlink first.
+      # ConsumerSetup.close/1 must unlink first.
       send(child, {:stop_me, parent})
       assert_receive :child_alive_before, 500
 
       # Should not kill this test process.
       assert Process.alive?(child)
-      assert :ok = Producer.__safe_stop_conn_for_test__(child)
+      assert :ok = ConsumerSetup.close(child)
 
       # Allow the DOWN to settle.
       Process.sleep(50)

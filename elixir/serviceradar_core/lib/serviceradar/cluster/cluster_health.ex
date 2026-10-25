@@ -27,6 +27,7 @@ defmodule ServiceRadar.ClusterHealth do
   require Logger
 
   @health_check_interval to_timeout(second: 30)
+  @event_writer_rpc_timeout to_timeout(second: 2)
 
   defstruct [
     :last_check,
@@ -216,15 +217,19 @@ defmodule ServiceRadar.ClusterHealth do
 
     try do
       status = EventWriterHealth.status()
+      # Every core replica runs EventWriter workers, so the deployment is only
+      # healthy when each replica's workers are.
+      cluster = EventWriterHealth.cluster_status(@event_writer_rpc_timeout)
 
       %{
         enabled: status.enabled,
         running: status.running,
-        healthy: status.healthy,
+        healthy: status.healthy and cluster.healthy,
         reason: inspect(status.reason),
         pipelines: status.pipelines,
         pipeline: Map.get(status, :pipeline),
-        producer: Map.get(status, :producer)
+        producer: Map.get(status, :producer),
+        nodes: node_summaries(cluster.nodes)
       }
     rescue
       _ ->
@@ -235,9 +240,21 @@ defmodule ServiceRadar.ClusterHealth do
           reason: "health_check_failed",
           pipelines: %{},
           pipeline: nil,
-          producer: nil
+          producer: nil,
+          nodes: %{}
         }
     end
+  end
+
+  defp node_summaries(nodes) do
+    Map.new(nodes, fn {node, status} ->
+      {node,
+       %{
+         running: status.running,
+         healthy: status.healthy,
+         reason: inspect(status.reason)
+       }}
+    end)
   end
 
   defp schedule_health_check do
@@ -266,7 +283,8 @@ defmodule ServiceRadar.ClusterHealth do
       running: event_writer.running,
       healthy: event_writer.healthy,
       reason: event_writer.reason,
-      pipelines: event_writer.pipelines
+      pipelines: event_writer.pipelines,
+      nodes: Map.get(event_writer, :nodes, %{})
     }
 
     # Add pipeline details if available
