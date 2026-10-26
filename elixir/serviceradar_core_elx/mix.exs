@@ -90,7 +90,7 @@ defmodule ServiceRadarCoreElx.MixProject do
       {:membrane_mpeg_ts_plugin, "~> 2.4", override: true},
       {:mpeg_ts, "~> 3.3", override: true},
       {:boombox, path: "../../third_party/hex_vendored/boombox"},
-      {:bandit, "~> 1.13"},
+      {:bandit, "~> 1.14"},
       {:plug, "~> 1.18"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},
       {:bundlex, github: "membraneframework/bundlex", tag: "v1.5.4", override: true},
