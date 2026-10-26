@@ -500,6 +500,8 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     drift = known_drift(assigned_version, observed_version)
     observed_assignment_id = if reported_at, do: reported_assignment_id(details)
 
+    # Another enabled assignment of this plugin, agent, and partition shares
+    # this service state, so its id is not drift.
     assignment_drift =
       if observed_assignment_id in sibling_assignment_ids,
         do: false,

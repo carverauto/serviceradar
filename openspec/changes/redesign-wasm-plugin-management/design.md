@@ -319,10 +319,11 @@ collaborators, so the generalization is an engine/adapter split (a
   than refusing (step C), a target policy's destroy retracts its members before
   the row goes, and only the coordinator sees every way a source disappears.
 
-A related, pre-existing inconsistency is tracked separately in #5835. Per-owner
-coexistence in `AssignmentOwner` conflicts with the
-`one_enabled_per_edge_plugin` unique index and with `uniq_by` in config
-delivery.
+Per-owner coexistence (#5835) is enforced by
+`plugin_assignments_one_enabled_per_edge_plugin_owner_index` and by config
+delivery, which keeps every assignment that does not conflict with one already
+kept. See `openspec/specs/wasm-plugin-system/spec.md` (Per-Rule Plugin
+Assignment Ownership).
 
 ### Decision 5: Bulk upgrade goes through rollouts too
 

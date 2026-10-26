@@ -227,7 +227,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       allow_nil? false
       public? true
 
-      description "Denormalized plugin identifier used to enforce one enabled assignment per agent/plugin."
+      description "Denormalized plugin identifier. Enabled uniqueness is per owner; see AssignmentOwner."
     end
 
     attribute :plugin_package_id, :uuid do
