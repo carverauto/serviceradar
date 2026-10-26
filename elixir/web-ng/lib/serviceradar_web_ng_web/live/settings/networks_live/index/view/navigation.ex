@@ -38,14 +38,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Navigation do
           {@running_count}
         </span>
       </button>
-      <button
-        phx-click="switch_tab"
-        phx-value-tab="cleanup"
-        class={"px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors " <>
-               if(@active_tab == :cleanup, do: "border-sr-brand text-sr-brand", else: "border-transparent text-sr-muted hover:text-sr-ink")}
-      >
-        Inventory Cleanup
-      </button>
     </div>
     """
   end

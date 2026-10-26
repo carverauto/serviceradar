@@ -6,6 +6,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   - Sweep Groups: User-configured scan jobs with schedules and targeting
   - Scanner Profiles: Admin-managed scan configuration templates
   - Active Scans: Real-time view of running sweeps
+
+  Inventory Cleanup was a tab here until it became its own page; a request for
+  the old `?tab=cleanup` deep link is sent to `/settings/networks/inventory-cleanup`.
   """
   use ServiceRadarWebNGWeb, :live_view
 
@@ -22,17 +25,20 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View
 
   @refresh_interval to_timeout(second: 15)
-  @supported_tabs ~w(groups profiles active_scans cleanup)
+  @supported_tabs ~w(groups profiles active_scans)
 
   @doc "In-page tab query parameter values handled by this LiveView."
   @spec supported_tabs() :: [String.t()]
   def supported_tabs, do: @supported_tabs
 
   @impl true
+  # Log lines, docs and bookmarks still point at the retired tab.
+  def mount(%{"tab" => "cleanup"}, _session, socket) do
+    {:ok, push_navigate(socket, to: ~p"/settings/networks/inventory-cleanup")}
+  end
+
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
-    cleanup_settings = load_or_create_cleanup_settings(scope)
-    cleanup_form = build_cleanup_form(scope, cleanup_settings)
     can_manage_networks = can_manage_networks?(scope)
 
     if can_manage_networks do
@@ -94,8 +100,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:mapper_mikrotik, empty_mikrotik_fields())
         |> assign(:mapper_command_statuses, %{})
         |> assign(:sweep_command_statuses, %{})
-        |> assign(:cleanup_settings, cleanup_settings)
-        |> assign(:cleanup_form, cleanup_form)
         |> assign(:can_enable_banner_grab, can_enable_banner_grab?(scope))
         |> assign(:banner_preview_device_count, nil)
 

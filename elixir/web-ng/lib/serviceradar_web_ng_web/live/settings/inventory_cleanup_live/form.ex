@@ -1,4 +1,4 @@
-defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup do
+defmodule ServiceRadarWebNGWeb.Settings.InventoryCleanupLive.Form do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
     <div class="rounded-xl border border-sr-line bg-sr-surface p-6 space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h3 class="text-lg font-semibold text-sr-ink">Inventory Cleanup</h3>
+          <h1 class="text-xl font-semibold text-sr-ink">Inventory Cleanup</h1>
           <p class="text-sm text-sr-muted">
             Expire ephemeral devices, then purge soft-deleted devices after a retention window.
             An expired device is restored when a sweep finds it answering or a sync reports it

@@ -142,6 +142,8 @@ export default {
 
   _filter() {
     const query = (this.filterInput.value || "").trim().toLowerCase()
+    // Same matching as the Ctrl+K palette: every word must appear, in any order.
+    const tokens = query.split(/\s+/).filter(Boolean)
     let total = 0
 
     this._filtering = true
@@ -150,7 +152,7 @@ export default {
       g.querySelectorAll("[data-view-search]").forEach((item) => {
         const haystack = item.getAttribute("data-view-search") || ""
         const isSubentry = item.hasAttribute("data-view-subentry")
-        const match = query === "" ? !isSubentry : haystack.includes(query)
+        const match = tokens.length === 0 ? !isSubentry : tokens.every((t) => haystack.includes(t))
         item.classList.toggle("hidden", !match)
         if (match) visible += 1
       })

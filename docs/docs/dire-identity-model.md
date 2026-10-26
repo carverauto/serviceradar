@@ -331,7 +331,8 @@ for dry-run review, execution gates, and device/source allowlists.
 - TTL garbage collection for unseen identifiers (default 90 days;
   `DeviceIdentifierGcWorker`). Source-authoritative identifiers are never collected by age.
 - Source id retirement (`Identity.SourceRetirement`, run by `SourceRetirementWorker` after an
-  exact Armis collection activates; on by default, Settings -> Networks -> Inventory Cleanup):
+  exact Armis collection activates; on by default, Settings -> Network Services -> Inventory
+  Cleanup, `/settings/networks/inventory-cleanup`):
   an Armis device id absent from N consecutive exact collections under one collection query
   (default 3) and unreported for T (default 24 hours) moves from `device_identifiers` to
   `device_identifier_archive` (reason `source_absent`), together with the `integration_id`
@@ -401,7 +402,7 @@ for dry-run review, execution gates, and device/source allowlists.
   updates carrying the id until the next sync run. Telemetry: `[:serviceradar, :inventory,
   :source_reactivation, :reactivated]`, `:reissued` and `:withheld`.
 - Ephemeral device expiry (`EphemeralDeviceExpiry`, run by `DeviceCleanupWorker`; off by
-  default, Settings -> Networks -> Inventory Cleanup): a live device holding no strong
+  default, Settings -> Network Services -> Inventory Cleanup): a live device holding no strong
   identifier -- no agent, source-authoritative id, hardware serial or globally-unique MAC --
   and unseen past the window (default 30 days) is soft-deleted as `stale_ephemeral`. A source
   id held only in a device's metadata, as a string or a number, holds it in the delete

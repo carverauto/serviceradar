@@ -23,6 +23,7 @@ function makeGroup({id, active = false, open = false, views = []}) {
   const leafItems = views.map((haystack) => ({
     _hidden: false,
     getAttribute: (k) => (k === "data-view-search" ? haystack : null),
+    hasAttribute: () => false,
     classList: {
       toggle(_cls, force) {
         this._force = force
@@ -47,6 +48,7 @@ function makeGroup({id, active = false, open = false, views = []}) {
       },
     },
     querySelectorAll: () => leafItems,
+    _leafItems: leafItems,
     // Test helper: emulate the browser dispatching a `toggle` event after the
     // operator clicks the <summary>.
     _fireToggle() {
@@ -169,5 +171,41 @@ describe("SettingsNavTree hook", () => {
 
     expect(other.open).toBe(false)
     expect(active.open).toBe(true)
+  })
+
+  it("filters views by every typed word, in any order, like the command palette", () => {
+    const group = makeGroup({
+      id: "net_discovery",
+      active: true,
+      open: true,
+      views: [
+        "inventory cleanup /settings/networks/inventory-cleanup source retirement override",
+        "device hostnames /settings/networks/hostname-rdns rdns ptr",
+      ],
+    })
+    const hook = makeTree([group], {filterValue: "override retirement"})
+    hook.mounted()
+
+    hook._filter()
+
+    const [cleanup, hostnames] = group._leafItems
+    // classList.toggle("hidden", force): force === false means the row is shown.
+    expect(cleanup.classList._force).toBe(false)
+    expect(hostnames.classList._force).toBe(true)
+  })
+
+  it("hides a view when one typed word is missing from it", () => {
+    const group = makeGroup({
+      id: "net_discovery",
+      active: true,
+      open: true,
+      views: ["inventory cleanup /settings/networks/inventory-cleanup override"],
+    })
+    const hook = makeTree([group], {filterValue: "cleanup bogus"})
+    hook.mounted()
+
+    hook._filter()
+
+    expect(group._leafItems[0].classList._force).toBe(true)
   })
 })

@@ -3,9 +3,9 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events do
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.ActiveScans
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.AgentPicker
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Builder
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Forms
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Mapper
-  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.ProfileCleanup
 
   def handle_event(event, params, socket)
       when event in [
@@ -52,17 +52,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Events do
   end
 
   def handle_event(event, params, socket)
-      when event in [
-             "delete_profile",
-             "save_group",
-             "save_profile",
-             "validate_cleanup_settings",
-             "save_cleanup_settings",
-             "run_cleanup_now",
-             "validate_group",
-             "validate_profile"
-           ] do
-    ProfileCleanup.handle_event(event, params, socket)
+      when event in ["delete_profile", "save_group", "save_profile", "validate_group", "validate_profile"] do
+    Forms.handle_event(event, params, socket)
   end
 
   def handle_event(event, params, socket)

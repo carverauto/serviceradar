@@ -22,6 +22,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
 
+  @supported_tabs ~w(crm_ipam mapbox)
+
+  @doc "In-page tab query parameter values handled by this LiveView."
+  @spec supported_tabs() :: [String.t()]
+  def supported_tabs, do: @supported_tabs
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope

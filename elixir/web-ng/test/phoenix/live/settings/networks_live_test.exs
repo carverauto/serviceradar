@@ -1292,14 +1292,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     String.contains?(query, ~s(FROM "platform"."ocsf_agents"))
   end
 
-  test "clicking run_cleanup_now shows a success flash", %{conn: conn} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/networks")
+  test "Inventory Cleanup page renders its form and queues a run", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/inventory-cleanup")
 
-    lv
-    |> element("button[phx-value-tab='cleanup']")
-    |> render_click()
-
-    assert_patch(lv, ~p"/settings/networks?#{%{tab: "cleanup"}}")
+    assert has_element?(lv, "#device-cleanup-form")
+    assert has_element?(lv, ~s(input[name="cleanup[source_retirement_guard_override]"]))
 
     lv
     |> element(~s(button[phx-click="run_cleanup_now"]))
@@ -1308,11 +1305,15 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
     assert render(lv) =~ "Cleanup job queued"
   end
 
-  test "deep-linking ?tab=cleanup opens the Inventory Cleanup tab directly", %{conn: conn} do
-    {:ok, lv, html} = live(conn, ~p"/settings/networks?#{%{tab: "cleanup"}}")
+  test "the retired ?tab=cleanup deep link lands on the Inventory Cleanup page", %{conn: conn} do
+    assert {:error, {:live_redirect, %{to: "/settings/networks/inventory-cleanup"}}} =
+             live(conn, ~p"/settings/networks?#{%{tab: "cleanup"}}")
 
-    assert html =~ "Inventory Cleanup"
-    assert has_element?(lv, ~s(button[phx-click="run_cleanup_now"]))
-    assert has_element?(lv, ~s(a[href="/settings/networks?tab=cleanup"][data-view-tab-id="cleanup"]))
+    {:ok, lv, _html} =
+      conn
+      |> live(~p"/settings/networks?#{%{tab: "cleanup"}}")
+      |> follow_redirect(conn)
+
+    assert has_element?(lv, "#device-cleanup-form")
   end
 end
