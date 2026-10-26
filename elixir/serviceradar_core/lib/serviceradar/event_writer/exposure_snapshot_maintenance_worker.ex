@@ -30,6 +30,7 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker do
         case State.active() do
           {:ok, %{"status" => "published"} = generation} -> Publisher.publish_end(generation)
           {:ok, %{"status" => "finalizing", "id" => id}} -> Finalizer.step(id)
+          :none -> request_missing_input_snapshot()
           _ -> :ok
         end
 
@@ -48,6 +49,19 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker do
       if Enum.all?(results, &(&1 == :ok)), do: :ok, else: {:snooze, 5}
     else
       :ok
+    end
+  end
+
+  defp request_missing_input_snapshot do
+    missing =
+      Repo.query!(
+        "SELECT 1 FROM platform.exposure_delivery_batches WHERE phase = 'snapshot_required' LIMIT 1"
+      ).rows
+
+    if missing == [] do
+      :ok
+    else
+      with {:ok, _} <- %{} |> Publisher.new() |> Oban.insert(), do: :ok
     end
   end
 end

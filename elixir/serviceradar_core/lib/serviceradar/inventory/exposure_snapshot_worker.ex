@@ -287,6 +287,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
       LEFT JOIN platform.device_fleet_ordinals o ON o.uid = a.device_uid
       WHERE NOT COALESCE(o.tombstoned, false) AND ($1::bigint IS NULL OR o.ordinal = $1)
         AND (o.ordinal IS NULL OR a.last_exposure_publication IS NULL OR
+          (a.last_exposure_publication->>'device_ord')::bigint IS DISTINCT FROM o.ordinal OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'cve'
             AND d.ordinal = (a.last_exposure_publication->>'cve_ord')::bigint) OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'package'
@@ -296,6 +297,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
       LEFT JOIN platform.device_fleet_ordinals o ON o.uid = w.device_uid
       WHERE NOT COALESCE(o.tombstoned, false) AND ($1::bigint IS NULL OR o.ordinal = $1)
         AND (o.ordinal IS NULL OR w.payload IS NULL OR
+          (w.payload->>'device_ord')::bigint IS DISTINCT FROM o.ordinal OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'cve'
             AND d.ordinal = (w.payload->>'cve_ord')::bigint) OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'package'

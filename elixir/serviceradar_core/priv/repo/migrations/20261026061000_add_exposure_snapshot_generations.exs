@@ -28,10 +28,17 @@ defmodule ServiceRadar.Repo.Migrations.AddExposureSnapshotGenerations do
     execute("""
     CREATE FUNCTION platform.exposure_prepare_snapshot_publication(p_uid text, p_package text, p_cve text)
     RETURNS jsonb LANGUAGE plpgsql AS $$
-    DECLARE body jsonb; package_name text;
+    DECLARE body jsonb; package_name text; source_ordinal bigint;
     BEGIN
       body := platform.exposure_repair_publication(p_uid, p_package, p_cve, 0, true);
       IF body IS NULL THEN RETURN NULL; END IF;
+      SELECT ordinal INTO source_ordinal FROM platform.device_fleet_ordinals WHERE uid = p_uid;
+      IF source_ordinal IS NULL THEN RETURN NULL; END IF;
+      IF (body->>'device_ord')::bigint IS DISTINCT FROM source_ordinal THEN
+        body := platform.exposure_repair_publication(
+          p_uid, p_package, p_cve, (body->>'transition_seq')::bigint, false);
+        IF body IS NULL THEN RETURN NULL; END IF;
+      END IF;
       IF NOT EXISTS (SELECT 1 FROM platform.device_fleet_ordinals
         WHERE uid = p_uid AND ordinal = (body->>'device_ord')::bigint) THEN
         RAISE EXCEPTION 'Exposure publication ordinal dictionary is missing';
