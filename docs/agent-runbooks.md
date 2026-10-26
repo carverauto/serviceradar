@@ -787,6 +787,43 @@ The same rules apply to the second workflow release (`buildbuddy-workflows-2`)
 and farm01's workflow replicas: they mount their own instances of the same
 shared-cache layout from `//k8s/buildbuddy/values-workflows.yaml`.
 
+## Workstation Bazel disk usage
+
+A workstation running `--config=remote` keeps three separate Bazel trees, and
+only one of them is size-bounded:
+
+| Tree | Path | Bound |
+| --- | --- | --- |
+| Disk cache | `~/.cache/serviceradar-bazel/disk` | 50G (`--experimental_disk_cache_gc_max_size`) |
+| Repo contents cache | `~/.cache/serviceradar-bazel/repo-contents` | Age GC only: `--repo_contents_cache_gc_max_age=7d`. Bazel 9.2 has no size cap for this cache or for the repository cache (`repo/`). |
+| Output bases | Output user root (`~/Library/Caches/bazel/_bazel_$USER` on macOS, or a custom `--output_user_root`) | None. One base per workspace path; `git worktree remove` leaves the matching base behind. |
+
+After `git worktree remove`, the worktree's output base (multi-gigabyte) is
+orphaned. Reclaim stale bases with the `bazel-reclaim` tool:
+
+```
+# Report only (dry-run is the default; nothing is deleted)
+bazel run //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root
+
+# Delete the bases the report marked stale
+bazel run //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root --apply
+```
+
+Find the output user root with `bazel info output_path` (its parent
+directory); a custom root from `~/.bazelrc` must be passed explicitly. A base
+counts as stale only when its workspace path no longer exists, or the
+worktree is gone from `git worktree list` in the backing repo. Bases with a
+live workspace or a running Bazel server are never deleted, so `--apply` is
+safe while other sessions share the root. Deleting a base only costs a warm
+restart for that workspace.
+
+The caches under `~/.cache/serviceradar-bazel` rebuild on next use; remove
+the whole directory when the age GC is not enough:
+
+```
+rm -rf ~/.cache/serviceradar-bazel
+```
+
 ## Ecto migration versions
 
 New files in `elixir/serviceradar_core/priv/repo/migrations/` take their version
