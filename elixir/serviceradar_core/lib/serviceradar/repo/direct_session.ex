@@ -49,15 +49,20 @@ defmodule ServiceRadar.Repo.DirectSession do
   @doc """
   Runs `fun` with a new direct session and closes it afterwards, which ends the
   backend and releases every session lock it still holds. The session is linked
-  to the caller, so it also closes if the caller dies.
+  to the caller, so it also closes if the caller dies. When the session cannot
+  start, returns `{:error, {:direct_session_unavailable, reason}}`.
   """
   def run(fun) when is_function(fun, 1) do
-    {:ok, session} = Postgrex.start_link(connection_opts())
+    case Postgrex.start_link(connection_opts()) do
+      {:ok, session} ->
+        try do
+          fun.(session)
+        after
+          stop(session)
+        end
 
-    try do
-      fun.(session)
-    after
-      stop(session)
+      {:error, reason} ->
+        {:error, {:direct_session_unavailable, reason}}
     end
   end
 

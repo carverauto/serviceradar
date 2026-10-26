@@ -935,7 +935,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       """
       SELECT pid FROM pg_locks
       WHERE locktype = 'advisory' AND granted
-        AND classid = 74524 AND objid = $1 AND objsubid = 2
+        AND classid = 74525 AND objid = $1 AND objsubid = 2
       """,
       [bucket]
     ).rows

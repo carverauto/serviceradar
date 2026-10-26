@@ -25,9 +25,10 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.DirectSession
 
-  # 74_523 was taken through the pooled Repo, where unlocks could miss and leave
-  # it held by pooled server connections, so ownership moved to a fresh namespace.
-  @lock_namespace 74_524
+  # 74_523 was taken through the pooled Repo, where unlocks could miss and
+  # leave it stranded on a server connection. 74_524 is the exposure sequence
+  # lock, so delivery uses its own class. Objid stays the bucket, 0..15.
+  @lock_namespace 74_525
   # pg_try_advisory_lock(int4, int4) is recorded as classid, objid, objsubid 2.
   @lock_held_sql """
   SELECT EXISTS (
@@ -40,17 +41,23 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
 
   def run(messages, ingest) do
     with {:ok, buckets} <- positions(messages) do
-      DirectSession.run(fn session ->
-        {loaded, failure} =
-          Enum.reduce(buckets, {0, nil}, fn {bucket, entries}, {count, failure} ->
-            case deliver(session, bucket, entries, ingest) do
-              {:ok, loaded} -> {count + loaded, failure}
-              error -> {count, failure || error}
-            end
-          end)
+      case DirectSession.run(fn session ->
+             {loaded, failure} =
+               Enum.reduce(buckets, {0, nil}, fn {bucket, entries}, {count, failure} ->
+                 case deliver(session, bucket, entries, ingest) do
+                   {:ok, loaded} -> {count + loaded, failure}
+                   error -> {count, failure || error}
+                 end
+               end)
 
-        failure || {:ok, loaded}
-      end)
+             failure || {:ok, loaded}
+           end) do
+        {:error, {:direct_session_unavailable, reason}} ->
+          {:error, {:exposure_delivery_session_unavailable, reason}}
+
+        result ->
+          result
+      end
     end
   end
 
