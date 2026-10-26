@@ -9,6 +9,11 @@ import (
 	"testing"
 )
 
+var (
+	errGitNotOnPath    = errors.New("executable file not found in $PATH")
+	errDubiousGitOwner = errors.New("fatal: detected dubious ownership in repository")
+)
+
 // makeBase creates a synthetic output base for workspace under root.
 func makeBase(t *testing.T, root, name, workspace string) Base {
 	t.Helper()
@@ -159,7 +164,7 @@ func TestClassify(t *testing.T) {
 			name: "missing gitdir is stale when git cannot be asked",
 			base: makeBase(t, root, "pruned", missingGitdir),
 			probe: probe{
-				worktreePaths: func(string) ([]string, error) { return nil, errors.New("executable file not found in $PATH") },
+				worktreePaths: func(string) ([]string, error) { return nil, errGitNotOnPath },
 				pidAlive:      func(int) bool { return false },
 			},
 			want: VerdictStale,
@@ -180,7 +185,7 @@ func TestClassify(t *testing.T) {
 			base: makeBase(t, root, "uncertain", unregistered),
 			probe: probe{
 				worktreePaths: func(string) ([]string, error) {
-					return nil, errors.New("fatal: detected dubious ownership in repository")
+					return nil, errDubiousGitOwner
 				},
 				pidAlive: func(int) bool { return false },
 			},

@@ -8,6 +8,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"os"
@@ -15,6 +16,8 @@ import (
 	"sort"
 	"strings"
 )
+
+var errNoOutputUserRoot = errors.New("no output user root found; pass --output-user-root (parent of bazel info output_base)")
 
 type stringList []string
 
@@ -50,7 +53,7 @@ func run(roots []string, apply bool, sizes bool, p probe) error {
 	}
 
 	if len(roots) == 0 {
-		return fmt.Errorf("no output user root found; pass --output-user-root (parent of bazel info output_base)")
+		return errNoOutputUserRoot
 	}
 
 	bases, err := discoverBases(roots)
@@ -91,6 +94,8 @@ func run(roots []string, apply bool, sizes bool, p probe) error {
 			}
 		case VerdictSkipLiveServer:
 			skipCount++
+		case VerdictKeep:
+			keepCount++
 		default:
 			keepCount++
 		}

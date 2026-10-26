@@ -11,6 +11,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -43,6 +44,8 @@ func (v Verdict) String() string {
 		return "stale"
 	case VerdictSkipLiveServer:
 		return "skip-live-server"
+	case VerdictKeep:
+		return "keep"
 	default:
 		return "keep"
 	}
@@ -60,7 +63,7 @@ func defaultProbe() probe {
 		worktreePaths: gitWorktreePaths,
 		pidAlive: func(pid int) bool {
 			err := syscall.Kill(pid, 0)
-			return err == nil || err == syscall.EPERM
+			return err == nil || errors.Is(err, syscall.EPERM)
 		},
 	}
 }
@@ -238,7 +241,7 @@ func serverPID(basePath string) (int, bool) {
 }
 
 func gitWorktreePaths(workspace string) ([]string, error) {
-	out, err := exec.Command("git", "-C", workspace, "worktree", "list", "--porcelain").Output()
+	out, err := exec.CommandContext(context.Background(), "git", "-C", workspace, "worktree", "list", "--porcelain").Output()
 	if err != nil {
 		return nil, err
 	}
