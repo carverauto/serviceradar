@@ -6,11 +6,16 @@
 - [x] 1.2 Bump Helm `core.migrations.expectedVersion`.
 - [x] 1.3 DB test: two rules coexist; the same rule under another suffix and
       two shared-key rows are refused by the index.
+- [x] 1.4 Serialize enabling writes per (partition, agent, plugin) with
+      `pg_advisory_xact_lock` and repeat the duplicate check under it; DB test
+      with two concurrent writers.
 
 ## 2. Reconciler
 
-- [x] 2.1 Adopt the same-owner row among all enabled assignments of the plugin;
-      report the create error when there is none.
+- [x] 2.1 Adopt an enabled row of this credential rule, or a manual or other
+      non-rule row when no same-rule row exists. Do not adopt a credential-rule
+      row for a different rule or for a non-rule policy. Report the create
+      error when nothing is adoptable.
 - [x] 2.2 Prefer the rule's own row over a manual or other-policy row that also
       collides.
 - [x] 2.3 Unit test: own drifted row adopted while another rule's row and a

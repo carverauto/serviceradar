@@ -3,6 +3,10 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAssignment do
   Prevents an agent from receiving two enabled assignments for the same plugin
   from the same owner. Assignments owned by different credential rules may
   coexist; see `ServiceRadar.Plugins.AssignmentOwner`.
+
+  `ServiceRadar.Plugins.Changes.SerializeEnabledAssignment` runs this check
+  again inside the write transaction, under a lock that serializes concurrent
+  writers of the same plugin and agent.
   """
 
   use Ash.Resource.Validation
