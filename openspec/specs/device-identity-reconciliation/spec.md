@@ -713,7 +713,6 @@ The operator workflow for reviewing and acting on these records is #4604.
 
 ### Requirement: Hostname Agreement Is Not Identity
 The system SHALL NOT merge two existing devices because their hostnames agree, and SHALL NOT adopt an address holder on hostname agreement when either side holds a source-authoritative identifier.
-An AWX inventory host is outside this requirement. The Ansible inventory sync owns that match.
 Hostname agreement at an address may still let a record that is not yet a device adopt the
 address holder, when neither side holds a source-authoritative identifier, their hardware
 serials and partitions are compatible, and no third device claims either identity. When the
@@ -722,7 +721,7 @@ recorded as a `policy_block` identity decision with reason `hostname_agreement_n
 which opens a de-duplication task.
 
 #### Scenario: Two existing devices with the same hostname stay separate
-- **GIVEN** two live devices whose hostnames agree, and an update that is not an AWX inventory host matched by exact address and first-label host-name agreement
+- **GIVEN** two live devices whose hostnames agree
 - **WHEN** an update for one of them reports the address the other holds
 - **THEN** the devices SHALL NOT be merged
 - **AND** a `policy_block` identity decision SHALL name both devices

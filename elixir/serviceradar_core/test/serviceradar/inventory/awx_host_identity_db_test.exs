@@ -2,8 +2,9 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
   @moduledoc """
   An AWX inventory host merges into the live device that holds its `ansible_host` address only
   when the evidence identifies that device as the host: the exact address plus host-name
-  agreement on the first DNS label. The address alone does not identify a MAC-anchored device,
-  the host name alone never identifies one, and a MAC contradiction refuses the match.
+  agreement on the first DNS label, or a MAC the device holds. The address alone does not
+  identify a MAC-anchored device, the host name alone never identifies one, and a MAC
+  contradiction refuses the match.
   """
   use ServiceRadar.DataCase, async: true
 
@@ -163,24 +164,57 @@ defmodule ServiceRadar.Inventory.AwxHostIdentityDbTest do
     assert [["awx_host_network_match", "mac"]] = merge_audit(awx_uid, holder_uid)
   end
 
-  test "a MAC contradiction refuses the match although address and host name agree",
+  test "an AWX host whose MAC an agent-managed device holds merges into that device",
        %{actor: actor, suffix: suffix} do
-    ip = test_ip()
-
-    swept_uid =
+    agent_uid =
       create_device!(actor, %{
-        ip: ip,
-        mac: mac(suffix, 1),
-        hostname: "host#{suffix}",
-        discovery_sources: ["sweep", "mapper"]
+        ip: test_ip(),
+        hostname: "agentbox#{suffix}.example.com",
+        agent_id: "agent-#{suffix}",
+        discovery_sources: ["agent", "sysmon"],
+        is_managed: true
       })
 
-    register_mac!(actor, swept_uid, mac(suffix, 1))
+    register_mac!(actor, agent_uid, mac(suffix, 1))
     {awx_uid, integration_id} = create_awx_record!(actor, suffix)
 
-    ingest_awx_host!(actor, integration_id, "host#{suffix}", ip, [mac(suffix, 2)])
+    ingest_awx_host!(actor, integration_id, "host#{suffix}", nil, [mac(suffix, 1)])
 
-    assert_not_merged(awx_uid, swept_uid)
+    assert live?(agent_uid)
+    refute live?(awx_uid)
+    assert integration_owner(integration_id) == agent_uid
+    assert agent_id(agent_uid) == "agent-#{suffix}"
+    assert [["awx_host_network_match", "mac"]] = merge_audit(awx_uid, agent_uid)
+  end
+
+  for agent_managed? <- [false, true] do
+    holder = if agent_managed?, do: "an agent-managed", else: "a swept"
+
+    test "a MAC contradiction refuses #{holder} holder although address and host name agree",
+         %{actor: actor, suffix: suffix} do
+      ip = test_ip()
+
+      holder_attrs =
+        if unquote(agent_managed?) do
+          %{
+            hostname: "host#{suffix}.example.com",
+            agent_id: "agent-#{suffix}",
+            discovery_sources: ["agent", "sysmon"],
+            is_managed: true
+          }
+        else
+          %{hostname: "host#{suffix}", discovery_sources: ["sweep", "mapper"]}
+        end
+
+      holder_uid = create_device!(actor, Map.merge(holder_attrs, %{ip: ip, mac: mac(suffix, 1)}))
+
+      register_mac!(actor, holder_uid, mac(suffix, 1))
+      {awx_uid, integration_id} = create_awx_record!(actor, suffix)
+
+      ingest_awx_host!(actor, integration_id, "host#{suffix}", ip, [mac(suffix, 2)])
+
+      assert_not_merged(awx_uid, holder_uid)
+    end
   end
 
   defp create_device!(actor, attrs) do
