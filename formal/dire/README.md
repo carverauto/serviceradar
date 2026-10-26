@@ -72,11 +72,25 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   It also models the end of a record whose source ids all retired, and the sweep:
   - `Retire` archives source or agent ids a live record holds (the variable `arch`) and bumps
     the record, since the archive transaction moves its `identity_revision`. The constant
-    `MacIds` says which identifiers are MACs, and a MAC never retires. When the ids retired are
-    every id the record holds but its MACs, the same step marks the record (`marked`,
-    `source_retired_at`); this is the design's `MarkRetired`. A record that gains a source or
-    agent id loses the mark. A MAC neither withholds the mark nor clears it, and stays with the
-    record while it is marked and as a tombstone (`MarkedHoldsOnlyMacs`).
+    `MacIds` says which identifiers are MACs, and `Retire` never retires a MAC. When the ids
+    retired are every id the record holds but its MACs, the same step marks the record
+    (`marked`, `source_retired_at`); this is the design's `MarkRetired`. A record that gains a
+    source or agent id loses the mark. A MAC neither withholds the mark nor clears it, and stays
+    with the record while it is marked and as a tombstone (`MarkedHoldsOnlyMacs`). `Retire` is
+    the collection-scoped (Armis) pass, and every retirement of a record another source also
+    reports, so for a multi-source record or an Armis-marked one a MAC still never retires.
+  - `RetireSole` is the one exception: the retirement of a record whose only evidence source is
+    the one that stopped reporting it (`AwxSourceRetirement` on an AWX-only record). Every
+    identifier such a record holds came from that source, so the step that marks it archives
+    all of them, its MACs included, with reason `source_absent`, and a live record of the device
+    that really has a MAC can register it. `OnlySoleRetirementArchivesMacs` checks that no other
+    step archives a MAC, and a reported MAC is never reactivated, only registered like any
+    unowned MAC. The code's other conditions (one discovery source, retired-only once the ids
+    are archived) only ever withhold the step, so here any live unmarked record holding an
+    identifier may take it. Hypervisor enrichment does not adopt a marked record by address, MAC,
+    AWX hint or name, but it still resolves a guest by an identifier row a marked record holds:
+    for an Armis-marked record that keeps its MACs, that lookup was left unfiltered, because the
+    guest's own record could never register a MAC the marked record keeps.
   - `GraceDelete` soft-deletes a marked record with reason `source_retired` and releases its
     address.
   - A write reporting one of a record's retired ids, or one of a record merged into it, moves the
@@ -106,7 +120,7 @@ configuration sets it.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, leaves an address a census reports with a record the census does not identify, expires, grace-deletes (a record still holding a MAC among them), reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, leaves an address a census reports with a record the census does not identify, expires, grace-deletes (a record still holding a MAC among them), lets another record claim a MAC a sole-source retirement released, reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
 | `resolution_unsafe_<alternative>` | none; one `Unsafe` alternative | `violation:NoFalseMerge` | The rejected alternative still merges two physical devices. If TLC finds no violation, or a different one, the target fails. |
 
 The lifecycle goal is split so that each check stays inside its budget. `lifecycle_goal` (three
@@ -116,7 +130,10 @@ configurations of their own check retirement, the grace delete and reactivation:
 `lifecycle_goal_retirement_mac` (two devices, a source identifier and a MAC) and
 `lifecycle_goal_retirement_chain` (a three-device merge chain, one identifier).
 `lifecycle_vacuity_grace_delete_mac` expects `NeverGraceDeletesMacHolder` to fail, so the MAC
-configuration grace-deletes a record that still holds its MAC. `lifecycle_current` turns both
+configuration grace-deletes a record that still holds its MAC (one `Retire` marked).
+`lifecycle_goal_retirement_mac` also checks `OnlySoleRetirementArchivesMacs`, and
+`lifecycle_vacuity_sole_release_mac` expects `NeverClaimsReleasedMac` to fail: another live
+record registers a MAC `RetireSole` released. `lifecycle_current` turns both
 expiry and retirement on, so today's switches are checked against every action.
 
 `lifecycle_goal_no_expiry` sets `ExpiryEnabled = FALSE`. Every property the models check is a
