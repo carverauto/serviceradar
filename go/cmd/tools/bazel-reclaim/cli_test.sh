@@ -367,5 +367,193 @@ tool --output-user-root "$dead_root" --apply >"$WORKDIR/dead-server.out"
 assert_gone "$dead_base" "apply dead server pid"
 pass "--apply deletes a missing-workspace base when server.pid.txt names a dead pid"
 
+# --- a comma inside one --output-user-root value is part of the path ---
+comma_root="$WORKDIR/cache,root"
+mkdir -p "$comma_root"
+comma_base="$(write_base "$comma_root" "hashcomma" "$WORKDIR/comma-workspace-gone")"
+comma_out="$WORKDIR/comma.out"
+tool --output-user-root "$comma_root" >"$comma_out"
+grep -F "stale" "$comma_out" >/dev/null || fail "comma root did not report stale: $(cat "$comma_out")"
+grep -F "$comma_base" "$comma_out" >/dev/null || fail "comma root did not list $comma_base: $(cat "$comma_out")"
+assert_exists "$comma_base" "comma-root dry-run"
+pass "--output-user-root keeps a comma inside one path and reports that missing workspace stale"
+
+# --- inherited git repo env must not hide a registered worktree ---
+# A successful list of some other repository, or a missing GIT_DIR, used to
+# make --apply delete a live linked worktree. An empty gitdir stays stale.
+git_env_root="$WORKDIR/git-env-root"
+mkdir -p "$git_env_root"
+git_env_other="$WORKDIR/git-env-other"
+git init -b main "$git_env_other" >/dev/null
+git -C "$git_env_other" -c user.email='reclaim@example.com' -c user.name='reclaim' commit --allow-empty -m init >/dev/null
+git_env_repo="$WORKDIR/git-env-repo"
+git_env_wt="$WORKDIR/git-env-wt"
+git init -b main "$git_env_repo" >/dev/null
+git -C "$git_env_repo" -c user.email='reclaim@example.com' -c user.name='reclaim' commit --allow-empty -m init >/dev/null
+git -C "$git_env_repo" worktree add "$git_env_wt" >/dev/null
+git_env_live="$(write_base "$git_env_root" "hashgitlive" "$git_env_wt")"
+git_env_empty_ws="$WORKDIR/git-env-empty-ws"
+git_env_empty_gitdir="$WORKDIR/git-env-empty-gitdir"
+mkdir -p "$git_env_empty_ws" "$git_env_empty_gitdir"
+printf 'gitdir: %s\n' "$git_env_empty_gitdir" >"$git_env_empty_ws/.git"
+git_env_empty="$(write_base "$git_env_root" "hashgitempty" "$git_env_empty_ws")"
+git_env_missing="$WORKDIR/git-env-missing"
+run_git_env() {
+  env -u XDG_CACHE_HOME \
+    HOME="$SANDBOX_HOME" USER="reclaimtest" \
+    GIT_CONFIG_GLOBAL="$GIT_CONFIG_GLOBAL" \
+    GIT_DIR="${1:?}" \
+    GIT_WORK_TREE="${2:?}" \
+    GIT_COMMON_DIR="${3:?}" \
+    GIT_OBJECT_DIRECTORY="${4:?}" \
+    "$BIN" --output-user-root "$git_env_root" --apply
+}
+run_git_env "$git_env_other/.git" "$git_env_other" "$git_env_other/.git" "$git_env_other/.git/objects" \
+  >"$WORKDIR/git-env-other.out"
+assert_exists "$git_env_live" "apply with GIT_DIR pointed at another repository"
+assert_exists "$git_env_wt" "worktree directory with GIT_DIR pointed at another repository"
+grep -F 'workspace exists' "$WORKDIR/git-env-other.out" >/dev/null \
+  || fail "GIT_DIR other-repo reason: $(cat "$WORKDIR/git-env-other.out")"
+assert_gone "$git_env_empty" "apply empty gitdir while GIT_DIR points at another repository"
+pass "--apply keeps a registered worktree when GIT_DIR names another repository, and still deletes an empty gitdir"
+
+git_env_empty_ws="$WORKDIR/git-env-empty-ws-2"
+git_env_empty_gitdir="$WORKDIR/git-env-empty-gitdir-2"
+mkdir -p "$git_env_empty_ws" "$git_env_empty_gitdir"
+printf 'gitdir: %s\n' "$git_env_empty_gitdir" >"$git_env_empty_ws/.git"
+git_env_empty="$(write_base "$git_env_root" "hashgitempty2" "$git_env_empty_ws")"
+run_git_env "$git_env_missing" "$git_env_missing-wt" "$git_env_missing-common" "$git_env_missing-objects" \
+  >"$WORKDIR/git-env-missing.out"
+assert_exists "$git_env_live" "apply with GIT_DIR pointed at a missing path"
+grep -F 'workspace exists' "$WORKDIR/git-env-missing.out" >/dev/null \
+  || fail "GIT_DIR missing-path reason: $(cat "$WORKDIR/git-env-missing.out")"
+assert_gone "$git_env_empty" "apply empty gitdir while GIT_DIR points at a missing path"
+pass "--apply keeps a registered worktree when GIT_DIR names a missing path, and still deletes an empty gitdir"
+
+# Permission denials are only observable for a uid that is not root. Drop to
+# nobody when the test itself is root; otherwise the current uid is the oracle.
+tool_user_available() {
+  if [[ "$(id -u)" -ne 0 ]]; then
+    return 0
+  fi
+  id nobody >/dev/null 2>&1 && command -v setpriv >/dev/null 2>&1
+}
+
+as_tool_user() {
+  if [[ "$(id -u)" -ne 0 ]]; then
+    "$@"
+    return $?
+  fi
+  local gid="nogroup"
+  id -g nobody >/dev/null 2>&1 && gid="$(id -gn nobody)"
+  setpriv --reuid=nobody --regid="$gid" --init-groups --inh-caps=-all "$@"
+}
+
+apply_as_tool_user() {
+  local root="$1"
+  local out="$2"
+  as_tool_user env -u XDG_CACHE_HOME \
+    HOME="$SANDBOX_HOME" USER="reclaimtest" GIT_CONFIG_GLOBAL="$GIT_CONFIG_GLOBAL" \
+    "$BIN" --output-user-root "$root" --apply >"$out"
+}
+
+# --- unreadable gitdir, or registration files git cannot use, keeps the base ---
+if ! tool_user_available; then
+  echo "UNTESTED: unreadable-gitdir (root and no setpriv/nobody; mode 000 is still readable by root)"
+else
+  perm_repo="$WORKDIR/perm-repo"
+  perm_wt="$WORKDIR/perm-wt"
+  git init -b main "$perm_repo" >/dev/null
+  git -C "$perm_repo" -c user.email='reclaim@example.com' -c user.name='reclaim' commit --allow-empty -m init >/dev/null
+  git -C "$perm_repo" worktree add "$perm_wt" >/dev/null
+  perm_gitdir="$(sed -n 's/^gitdir: //p' "$perm_wt/.git")"
+  if [[ "$perm_gitdir" != /* ]]; then
+    perm_gitdir="$perm_wt/$perm_gitdir"
+  fi
+  perm_root="$WORKDIR/perm-root"
+  mkdir -p "$perm_root"
+  perm_base="$(write_base "$perm_root" "hashperm" "$perm_wt")"
+
+  # Nobody must be able to traverse the fixture and execute the binary.
+  chmod -R a+rX "$WORKDIR"
+  chmod 755 "$perm_gitdir"
+
+  restore_perm() {
+    chmod 755 "$perm_gitdir" "$(dirname "$perm_gitdir")" 2>/dev/null || true
+    chmod 644 "$perm_gitdir/HEAD" 2>/dev/null || true
+    chmod 755 "$perm_repo/.git/objects" "$perm_repo/.git/refs" 2>/dev/null || true
+  }
+
+  expect_keep_when_denied() {
+    local label="$1"
+    local out="$WORKDIR/perm-${label}.out"
+    set +e
+    apply_as_tool_user "$perm_root" "$out"
+    local status=$?
+    set -e
+    restore_perm
+    if [[ "$status" -ne 0 ]]; then
+      fail "$label: bazel-reclaim exited $status: $(cat "$out" 2>/dev/null || true)"
+    fi
+    assert_exists "$perm_base" "apply $label"
+    assert_exists "$perm_wt" "workspace $label"
+    if grep -F 'deleted' "$out" >/dev/null; then
+      fail "$label deleted the base: $(cat "$out")"
+    fi
+    grep -F 'keep' "$out" >/dev/null || fail "$label verdict: $(cat "$out")"
+    pass "--apply keeps the output base ($label)"
+  }
+
+  # mode 000 gitdir: the directory exists but cannot be listed.
+  chmod 000 "$perm_gitdir"
+  if as_tool_user ls "$perm_gitdir" >/dev/null 2>&1; then
+    restore_perm
+    echo "UNTESTED: mode-000-gitdir (tool uid can still list the gitdir)"
+  else
+    expect_keep_when_denied "mode-000-gitdir"
+  fi
+
+  # mode 000 parent of the gitdir: stat of the gitdir fails closed.
+  perm_parent="$(dirname "$perm_gitdir")"
+  chmod 755 "$perm_gitdir"
+  chmod 000 "$perm_parent"
+  if as_tool_user ls "$perm_gitdir" >/dev/null 2>&1; then
+    restore_perm
+    echo "UNTESTED: mode-000-gitdir-parent (tool uid can still stat the gitdir)"
+  else
+    expect_keep_when_denied "mode-000-gitdir-parent"
+  fi
+
+  # Registration files still present. Git's "not a git repository" is not
+  # enough to delete while HEAD, or the backing objects/refs, cannot be read.
+  deny_registration() {
+    local label="$1"
+    local target="$2"
+    chmod 000 "$target"
+    local err="$WORKDIR/perm-${label}.git.err"
+    set +e
+    as_tool_user env GIT_CONFIG_GLOBAL="$GIT_CONFIG_GLOBAL" \
+      git -C "$perm_wt" worktree list --porcelain >"$WORKDIR/perm-${label}.git.out" 2>"$err"
+    local code=$?
+    set -e
+    if [[ "$code" -eq 0 ]]; then
+      restore_perm
+      echo "UNTESTED: $label (git still listed the worktree after mode 000 on $target)"
+      return 0
+    fi
+    if ! grep -F -i 'not a git repository' "$err" >/dev/null; then
+      restore_perm
+      echo "UNTESTED: $label (git did not report not a git repository: $(cat "$err"))"
+      return 0
+    fi
+    expect_keep_when_denied "$label"
+  }
+
+  deny_registration "mode-000-head" "$perm_gitdir/HEAD"
+  deny_registration "mode-000-objects" "$perm_repo/.git/objects"
+  deny_registration "mode-000-refs" "$perm_repo/.git/refs"
+  restore_perm
+fi
+
 echo "BIN=$BIN"
 echo "ALL_DRIVEN_SCENARIOS_COMPLETE"

@@ -823,7 +823,8 @@ when HEAD, objects, or refs cannot be read. An unreadable workspace or
 gitdir, and any other stat or git failure, keeps the base. A live workspace
 or a running Bazel server is never deleted, and `--apply` classifies again
 immediately before the delete, so it stays safe while other sessions share
-the root. Deleting a base only costs a warm restart for that workspace.
+the root. Deleting a stale base removes that output base. A later checkout
+at the same path builds a new one.
 
 The caches under `~/.cache/serviceradar-bazel` rebuild on next use; remove
 the whole directory when the age GC is not enough:
