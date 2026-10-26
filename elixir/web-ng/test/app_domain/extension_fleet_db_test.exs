@@ -200,6 +200,128 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
              SRQL.query("in:addon_status addon_id:#{addon_id} state:unhealthy", %{scope: scope})
   end
 
+  test "in:addon_fleet surfaces stale scalibr scanner_producer_version (< 0.1.6) as action_required with 0.1.9 upgrade fix",
+       %{scope: scope} do
+    now = DateTime.utc_now()
+    unique = System.unique_integer([:positive])
+    gateway = gateway_fixture(%{id: "scalibr-gw-#{unique}", component_id: "scalibr-comp-#{unique}"})
+
+    old_pkg =
+      AddonPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: "scalibr-endpoint-inventory",
+          name: "ScaLibr Endpoint Inventory",
+          version: "0.1.8-#{unique}",
+          supervision: :systemd_timer,
+          config_schema: %{"type" => "object"},
+          verification_status: "verified"
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+      |> Ash.Changeset.for_update(:approve, %{}, actor: system_actor())
+      |> Ash.update!()
+
+    fixed_pkg =
+      AddonPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: "scalibr-endpoint-inventory",
+          name: "ScaLibr Endpoint Inventory",
+          version: "0.1.9-#{unique}",
+          supervision: :systemd_timer,
+          config_schema: %{"type" => "object"},
+          verification_status: "verified"
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+      |> Ash.Changeset.for_update(:approve, %{}, actor: system_actor())
+      |> Ash.update!()
+
+    stale_agent = agent_fixture(gateway, %{uid: "scalibr-stale-agent-#{unique}"})
+    fixed_agent = agent_fixture(gateway, %{uid: "scalibr-fixed-agent-#{unique}"})
+
+    for uid <- [stale_agent.uid, fixed_agent.uid] do
+      SQL.query!(
+        Repo,
+        "UPDATE platform.ocsf_agents SET status = 'connected', is_healthy = true, last_seen_time = $2 WHERE uid = $1",
+        [uid, now]
+      )
+    end
+
+    for {agent, pkg, producer_version} <- [
+          {stale_agent, old_pkg, "0.1.5"},
+          {fixed_agent, fixed_pkg, "0.1.6"}
+        ] do
+      AddonAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{agent_uid: agent.uid, addon_package_id: pkg.id, update_policy: :manual_pin},
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+      AddonStatus
+      |> Ash.Changeset.for_create(
+        :report,
+        %{
+          agent_uid: agent.uid,
+          addon_id: "scalibr-endpoint-inventory",
+          state: "waiting",
+          version: pkg.version,
+          active: false,
+          last_health_at: now,
+          reported_at: now
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+
+      ServiceRadar.Inventory.EndpointInventoryScan
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_id: agent.uid,
+          scan_id: "scan-#{agent.uid}",
+          collector_name: "serviceradar-endpoint-inventory",
+          collector_version: pkg.version,
+          state: "scanned",
+          coverage_state: "complete",
+          current: true,
+          last_scan_at: now,
+          last_successful_scan_at: now,
+          ingested_at: now,
+          metadata: %{"scanner_producer_version" => producer_version}
+        },
+        actor: system_actor()
+      )
+      |> Ash.create!()
+    end
+
+    assert {:ok, %{"results" => srql_rows}} =
+             SRQL.query(
+               "in:addon_fleet addon_id:scalibr-endpoint-inventory sort:agent_uid:asc",
+               %{scope: scope}
+             )
+
+    by_agent = Map.new(srql_rows, &{&1["agent_uid"], &1})
+
+    stale_srql = Map.fetch!(by_agent, stale_agent.uid)
+    assert stale_srql["category"] == "action_required"
+    assert stale_srql["reason_code"] == "stale_scanner_producer_version"
+    assert stale_srql["degradation_reason"] =~ "scanner_producer_version 0.1.5 (< 0.1.6)"
+    assert stale_srql["degradation_reason"] =~ "upgrade the scalibr add-on to 0.1.9 or later"
+
+    fixed_srql = Map.fetch!(by_agent, fixed_agent.uid)
+    assert fixed_srql["category"] == "healthy"
+    assert fixed_srql["reason_code"] == "desired_runtime_healthy"
+    assert fixed_srql["degradation_reason"] == nil
+  end
+
   test "WASM queries join exact partitions, redact assignments, and page the scoped read", %{scope: scope} do
     plugin_id = "example-wasm-" <> Ecto.UUID.generate()
     package_id = Ecto.UUID.generate()

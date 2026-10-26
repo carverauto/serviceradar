@@ -167,6 +167,64 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert html =~ "0.3.0"
   end
 
+  test "surfaces stale scalibr scanner_producer_version (< 0.1.6) with 0.1.9 upgrade fix in the fleet UI",
+       %{conn: conn, actor: actor} do
+    unique = System.unique_integer([:positive])
+    addon_id = "scalibr-endpoint-inventory"
+
+    gateway =
+      gateway_fixture(%{
+        id: "fleet-scalibr-gw-#{unique}",
+        component_id: "fleet-scalibr-#{unique}"
+      })
+
+    agent =
+      connected_agent!(
+        gateway,
+        "fleet-scalibr-agent-#{unique}",
+        "ScaLibr Stale Producer Agent #{unique}"
+      )
+
+    pkg_version = "0.1.8-#{unique}"
+    pkg = create_addon_package!(actor, addon_id, pkg_version)
+    create_assignment!(actor, agent.uid, pkg.id, enabled: true)
+    report_status!(agent.uid, addon_id, state: "running", active: true, version: pkg_version)
+
+    now = DateTime.utc_now()
+
+    ServiceRadar.Inventory.EndpointInventoryScan
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        agent_id: agent.uid,
+        scan_id: "scan-stale-producer-#{unique}",
+        collector_name: "serviceradar-endpoint-inventory",
+        collector_version: pkg_version,
+        state: "scanned",
+        coverage_state: "complete",
+        current: true,
+        last_scan_at: now,
+        last_successful_scan_at: now,
+        ingested_at: now,
+        metadata: %{"scanner_producer_version" => "0.1.5"}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+
+    {:ok, lv, html} = live(conn, fleet_path(agent_uid: agent.uid))
+    fleet_html = fleet_table_html(html)
+
+    assert fleet_html =~ "Stale scanner producer"
+    assert fleet_html =~ "scanner_producer_version 0.1.5 (&lt; 0.1.6)"
+    assert fleet_html =~ "broken package-set hash"
+    assert fleet_html =~ "Upgrade the scalibr add-on to 0.1.9 or later"
+
+    html = render_click(lv, "toggle_details", %{"row" => "#{agent.uid}|#{addon_id}"})
+    assert html =~ "Scanner producer version"
+    assert html =~ "0.1.5"
+  end
+
   test "catalog-only packages appear in the inventory section, never as fleet rows",
        %{conn: conn, actor: actor} do
     unique = System.unique_integer([:positive])
