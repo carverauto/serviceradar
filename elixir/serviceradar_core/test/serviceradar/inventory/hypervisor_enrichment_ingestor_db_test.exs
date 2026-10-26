@@ -1567,6 +1567,44 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
       assert [[^candidate_uid]] = host_device_uids(host_ref)
     end
 
+    test "a multihomed node binds the fingerprinted device at its explicit API address", %{
+      actor: actor
+    } do
+      suffix = System.unique_integer([:positive])
+      node = "pve-multihomed-#{suffix}"
+      cluster = "cluster-multihomed-#{suffix}"
+      ip = "192.0.2.#{rem(suffix, 200) + 20}"
+      management_ip = "198.51.100.#{rem(suffix, 200) + 20}"
+      candidate_uid = create_node_candidate!(actor, node, ip, suffix)
+      scope = node_source_scope()
+
+      network = [
+        %{
+          "iface" => "vmbr0",
+          "type" => "bridge",
+          "address" => management_ip,
+          "cidr" => "#{management_ip}/24",
+          "gateway" => "198.51.100.1"
+        }
+      ]
+
+      assert :ok = ingest_node!(actor, scope, cluster, node, ip, network)
+
+      host_ref = node_host_ref(scope, cluster, node)
+      assert [[^candidate_uid, ^management_ip]] = live_devices_holding(host_ref)
+      assert [[^candidate_uid]] = host_device_uids(host_ref)
+
+      assert [[^candidate_uid]] =
+               Repo.query!(
+                 """
+                 SELECT uid FROM platform.ocsf_devices
+                 WHERE deleted_at IS NULL
+                   AND (uid = $1 OR hostname = $2)
+                 """,
+                 [candidate_uid, node]
+               ).rows
+    end
+
     test "an address-less record already holding the node's identity merges into that device",
          %{actor: actor} do
       suffix = System.unique_integer([:positive])
@@ -1696,7 +1734,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     |> Ash.create!(actor: actor)
   end
 
-  defp ingest_node!(actor, scope, cluster, node, ip) do
+  defp ingest_node!(actor, scope, cluster, node, ip, network \\ []) do
     payload = %{
       "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
       "details" => %{
@@ -1704,7 +1742,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
         "targets" => [
           %{
             "cluster" => [%{"type" => "cluster", "name" => cluster}],
-            "nodes" => [%{"node" => node, "status" => "online", "ip" => ip}],
+            "nodes" => [
+              %{"node" => node, "status" => "online", "ip" => ip, "network" => network}
+            ],
             "guests" => []
           }
         ]

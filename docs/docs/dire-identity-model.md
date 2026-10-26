@@ -250,8 +250,9 @@ its own NIC MACs, then by the device fingerprinted at its address. The Proxmox
 API reports no node NIC MACs, so the last step is how a Proxmox node finds the
 record discovery already holds for it. That record must meet four conditions:
 
-- it holds the address the node's authenticated API reports, in the result's
-  partition;
+- its primary IP is either the explicit node IP (falling back to the cluster
+  node IP) or the selected management NIC IP reported by the authenticated API,
+  in the result's partition;
 - the mapper fingerprinted a PVE web UI there (`proxmox_candidate_evidence`
   `pve_web_fingerprint`, which only the mapper writes);
 - its fingerprinted title and its MACs do not contradict the node;
@@ -262,7 +263,8 @@ It never binds a node to a device that holds another node's integration id, so a
 node of a second cluster at an address the first cluster's node already holds
 does not bind there. The sync's hostname-agreement rule (above) is a separate
 path. When two nodes of one result report the same address, neither node
-resolves through it.
+resolves through it. Exactly one device must qualify across the remaining
+addresses; two qualifying devices leave the node unresolved by this step.
 
 A node found this way that already has a record holding nothing but its own
 integration ids merges that record into the fingerprinted device. The record has

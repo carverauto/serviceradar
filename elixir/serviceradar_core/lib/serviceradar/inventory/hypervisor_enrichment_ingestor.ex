@@ -1686,36 +1686,37 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     nodes =
       records.hosts
       |> Enum.filter(&proxmox_record?/1)
-      |> Enum.flat_map(fn record ->
+      |> Enum.map(fn record ->
         ref = Map.get(record, :provider_ref)
 
-        case normalize_ip_identifier(node_address(record, host_ip_by_ref)) do
-          nil ->
-            []
-
-          ip ->
-            [
-              %{
-                ref: ref,
-                ip: ip,
-                partition: metadata_partition(record),
-                name: normalize_lookup_key(Map.get(record, :name)),
-                macs: MapSet.new(Map.get(host_macs, ref, [])),
-                own_ids: MapSet.new(integration_lookup_values(record, %{}))
-              }
-            ]
-        end
+        %{
+          ref: ref,
+          ips: node_addresses(record, host_ip_by_ref),
+          partition: metadata_partition(record),
+          name: normalize_lookup_key(Map.get(record, :name)),
+          macs: MapSet.new(Map.get(host_macs, ref, [])),
+          own_ids: MapSet.new(integration_lookup_values(record, %{}))
+        }
       end)
 
-    claims = Enum.frequencies_by(nodes, &{&1.partition, &1.ip})
-    nodes = Enum.filter(nodes, &(Map.fetch!(claims, {&1.partition, &1.ip}) == 1))
+    claims =
+      nodes
+      |> Enum.flat_map(fn node -> Enum.map(node.ips, &{node.partition, &1}) end)
+      |> Enum.frequencies()
+
+    nodes =
+      nodes
+      |> Enum.map(fn node ->
+        %{node | ips: Enum.filter(node.ips, &(Map.fetch!(claims, {node.partition, &1}) == 1))}
+      end)
+      |> Enum.reject(&(&1.ips == []))
 
     case nodes do
       [] ->
         {:ok, %{}}
 
       _ ->
-        with {:ok, candidates} <- query_node_candidate_devices(Enum.map(nodes, & &1.ip)) do
+        with {:ok, candidates} <- query_node_candidate_devices(Enum.flat_map(nodes, & &1.ips)) do
           {:ok,
            Enum.reduce(nodes, %{}, fn node, acc ->
              case Enum.filter(candidates, &node_candidate?(&1, node)) do
@@ -1727,12 +1728,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
   end
 
-  defp node_address(record, host_ip_by_ref) do
-    first_non_empty(Map.get(host_ip_by_ref, Map.get(record, :provider_ref)), metadata_ip(record))
+  defp node_addresses(record, host_ip_by_ref) do
+    [metadata_ip(record), Map.get(host_ip_by_ref, Map.get(record, :provider_ref))]
+    |> Enum.map(&normalize_ip_identifier/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
   end
 
   defp node_candidate?(candidate, node) do
-    candidate.partition == node.partition and candidate.ip == node.ip and
+    candidate.partition == node.partition and candidate.ip in node.ips and
       (is_nil(candidate.title) or is_nil(node.name) or candidate.title == node.name) and
       (MapSet.size(node.macs) == 0 or MapSet.size(candidate.macs) == 0 or
          not MapSet.disjoint?(node.macs, candidate.macs)) and
