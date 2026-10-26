@@ -36,6 +36,51 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
     :ok
   end
 
+  test "reconciliation fingerprints are order independent and distinguish actionable content and nulls" do
+    alias ServiceRadar.Inventory.ExposureReconciliationDigest, as: Digest
+
+    {:ok, [%{fact: first}]} = ExposureTransitions.decode([encode(transition(12))])
+    second = Map.merge(first, %{"pkg_ord" => 88, "kev" => true})
+    forward = Digest.empty() |> Digest.add(first) |> Digest.add(second)
+    reverse = Digest.empty() |> Digest.add(second) |> Digest.add(first)
+    assert forward == reverse
+    assert %{count: 2} = forward
+    assert %{"version" => 1, "count" => 2, "sum" => sum} = Digest.export(forward)
+    assert String.length(sum) <= 64
+
+    one = Digest.add(Digest.empty(), first)
+
+    for {field, value} <- [
+          {"cve_ord", 20_240_000_002},
+          {"pkg_ord", 8},
+          {"transition_seq", 13},
+          {"pkgver_ord", 900},
+          {"state", 0},
+          {"severity_rank", 1},
+          {"cvss_score", 0.0},
+          {"kev", true},
+          {"exploit_available", true},
+          {"fix_available", false},
+          {"source_scope", "container"}
+        ] do
+      refute Digest.add(Digest.empty(), Map.put(first, field, value)) == one, field
+    end
+
+    for {field, left, right} <- [
+          {"source_scope", nil, ""},
+          {"cvss_score", nil, 0.0},
+          {"severity_rank", nil, 0},
+          {"kev", nil, false}
+        ] do
+      refute Digest.add(Digest.empty(), Map.put(first, field, left)) ==
+               Digest.add(Digest.empty(), Map.put(first, field, right))
+    end
+
+    assert Digest.add(Digest.empty(), Map.put(first, "kev", 0)) == one
+    assert Digest.add(Digest.empty(), Map.put(first, "snapshot_generation", 123)) == one
+    assert Digest.add(Digest.empty(), Map.put(first, "state", 2)) == Digest.empty()
+  end
+
   test "a routed after-image loads current state and complete history before acknowledging" do
     newest = transition(12, %{"kev" => true, "cvss_score" => 9.4, "pkgver_ord" => 103})
     older = transition(11, %{"kev" => true, "cvss_score" => 6.2})

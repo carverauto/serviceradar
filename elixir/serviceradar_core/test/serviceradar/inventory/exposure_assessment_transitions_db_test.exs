@@ -22,6 +22,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   alias ServiceRadar.Inventory.ExposureDimensionRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRelay
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
+  alias ServiceRadar.Inventory.ExposureReadiness
+  alias ServiceRadar.Inventory.ExposureReconciliationWorker
   alias ServiceRadar.Inventory.ExposureSnapshotFinalizer
   alias ServiceRadar.Inventory.ExposureSnapshotRepairs
   alias ServiceRadar.Inventory.ExposureSnapshotState
@@ -43,6 +45,294 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   setup do
     unique = System.unique_integer([:positive])
     {:ok, unique: unique, device_uid: "sr:exposure-transition-#{unique}"}
+  end
+
+  @tag sandbox: :unboxed
+  @tag :tmp_dir
+  test "reconciliation detects deleted warehouse facts and requires a verified scoped snapshot before readiness",
+       ctx do
+    {scope, payload, dimensions} = reconciliation_source!(ctx, "EXAMPLE-RECONCILE-DELETE")
+    args = %{"device_ord" => scope}
+    reconciliation_queries!([], dimensions)
+    assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+
+    assert [["mismatch", %{"source" => %{"count" => 1}, "warehouse" => %{"count" => 0}}]] =
+             Repo.query!(
+               "SELECT status, control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+               [
+                 scope
+               ]
+             ).rows
+
+    assert {:ok, %{ready: false, reasons: reasons}} = ExposureReadiness.status(scope)
+    assert :snapshot_missing in reasons
+
+    assert Repo.exists?(
+             from(j in Oban.Job,
+               where:
+                 j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
+                   fragment("?->>'device_ord'", j.args) == ^to_string(scope)
+             )
+           )
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
+      {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
+      snapshot_query!(fn _ -> warehouse_rows([]) end)
+      publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+      {pages, loads} = consume_snapshot_until_end(conn, [])
+      assert :ok = Task.await(publisher, 5_000)
+      id = hd(pages)["generation"]
+      assert :ok = ExposureSnapshotFinalizer.step(id)
+
+      restored =
+        for {"/api/serviceradar/exposure_facts/_stream_load", rows} <- loads, row <- rows, do: row
+
+      assert [%{"transition_seq" => seq}] = restored
+      assert seq == payload["transition_seq"]
+      reconciliation_queries!(restored, dimensions)
+      assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+      assert {:ok, %{ready: true, generation: ^id}} = ExposureReadiness.status(scope)
+
+      # Ordinary young outbox rows remain present; readiness is not an empty-outbox test.
+      assert Repo.query!(
+               "SELECT 1 FROM platform.exposure_transition_outbox WHERE device_uid = $1 LIMIT 1",
+               [
+                 ctx.device_uid
+               ]
+             ).rows == [[1]]
+
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+      operation = Ecto.UUID.generate()
+
+      Repo.query!(
+        """
+        INSERT INTO platform.exposure_delivery_batches (bucket, stream_sequences, operation_id, phase, payload_hash)
+        VALUES ($1, ARRAY[700001]::bigint[], $2::text::uuid, 'capturing', repeat('a', 64))
+        """,
+        [bucket, operation]
+      )
+
+      on_exit(fn ->
+        Repo.query!(
+          "DELETE FROM platform.exposure_delivery_batches WHERE operation_id::text = $1",
+          [operation]
+        )
+      end)
+
+      assert {:ok, %{ready: false, reasons: reasons}} = ExposureReadiness.status(scope)
+      assert :delivery_recovery in reasons
+
+      Repo.query!(
+        "DELETE FROM platform.exposure_delivery_batches WHERE operation_id::text = $1",
+        [operation]
+      )
+
+      assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
+
+      Repo.query!(
+        "UPDATE platform.exposure_transition_outbox SET inserted_at = now() - interval '11 minutes' WHERE device_uid = $1",
+        [ctx.device_uid]
+      )
+
+      assert {:ok, %{ready: false, reasons: reasons}} = ExposureReadiness.status(scope)
+      assert :outbox_stale in reasons
+    end)
+  end
+
+  @tag sandbox: :unboxed
+  test "current source attributes drift independently of replay and repairs wait for warehouse evidence",
+       ctx do
+    {scope, original, dimensions} = reconciliation_source!(ctx, "EXAMPLE-RECONCILE-CONTENT")
+    {:ok, [%{fact: stored}]} = ExposureTransitions.decode([%{data: Jason.encode!(original)}])
+    # An out-of-band source change bypasses the publication trigger. Replaying
+    # the retained after-image would conceal it, so compare the current columns.
+    Repo.transaction(fn ->
+      Repo.query!("SET LOCAL session_replication_role = replica")
+
+      update_assessment!(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT",
+        kev: true,
+        severity: "critical"
+      )
+    end)
+
+    assert publication(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT") == original
+    reconciliation_queries!([stored], dimensions)
+    args = %{"device_ord" => scope}
+    assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+    repaired = publication(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT")
+    assert repaired["kev"] == true
+    assert repaired["severity"] == "critical"
+    assert repaired["transition_seq"] > original["transition_seq"]
+
+    [[%{"repairs" => [obligation]}]] =
+      Repo.query!(
+        "SELECT control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+        [scope]
+      ).rows
+
+    assert obligation["required"] == repaired["transition_seq"]
+
+    # Source publication and PubAck do not discharge a retained obligation.
+    Repo.query!("DELETE FROM platform.exposure_transition_outbox WHERE device_uid = $1", [
+      ctx.device_uid
+    ])
+
+    snapshot_query!(fn _ -> warehouse_rows([stored]) end)
+    assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+    assert publication(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT") == repaired
+    assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
+
+    {:ok, [%{fact: confirmed}]} = ExposureTransitions.decode([%{data: Jason.encode!(repaired)}])
+    reconciliation_queries!([confirmed], dimensions, [confirmed])
+    assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+
+    assert [["matched", %{"repairs" => []}]] =
+             Repo.query!(
+               "SELECT status, control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+               [
+                 scope
+               ]
+             ).rows
+
+    assert {:ok, %{ready: false, reasons: reasons}} = ExposureReadiness.status(scope)
+    assert :snapshot_missing in reasons
+  end
+
+  @tag sandbox: :unboxed
+  test "comparison preserves a live resolution committed after its source view", ctx do
+    {scope, original, dimensions} = reconciliation_source!(ctx, "EXAMPLE-RECONCILE-LIVE")
+    parent = self()
+
+    reconciliation_queries!([], dimensions, [], fn ->
+      update_assessment!(ctx.device_uid, "EXAMPLE-RECONCILE-LIVE", status: "resolved")
+      send(parent, {:resolved, publication(ctx.device_uid, "EXAMPLE-RECONCILE-LIVE")})
+    end)
+
+    assert {:snooze, 30} =
+             ExposureReconciliationWorker.perform(%Oban.Job{args: %{"device_ord" => scope}})
+
+    assert_receive {:resolved, live}
+    assert live["transition_seq"] > original["transition_seq"]
+    assert live["state"] == "resolved"
+    assert publication(ctx.device_uid, "EXAMPLE-RECONCILE-LIVE") == live
+
+    assert [["mismatch"]] =
+             Repo.query!(
+               "SELECT status FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+               [scope]
+             ).rows
+  end
+
+  test "fleet enumeration includes warehouse-only ordinals and resumes after a bounded page",
+       _ctx do
+    snapshot_http!()
+    warehouse_only = 4_200_000_123
+    snapshot_query!(fn _ -> warehouse_rows([%{"device_ord" => warehouse_only}]) end)
+
+    {:ok, job} =
+      %{"cursor" => warehouse_only - 1} |> ExposureReconciliationWorker.new() |> Oban.insert()
+
+    assert {:snooze, 1} = ExposureReconciliationWorker.perform(job)
+    assert %{"cursor" => ^warehouse_only} = Repo.get!(Oban.Job, job.id).args
+
+    assert Repo.exists?(
+             from(j in Oban.Job,
+               where:
+                 j.worker == "ServiceRadar.Inventory.ExposureReconciliationWorker" and
+                   fragment("?->>'device_ord'", j.args) == ^to_string(warehouse_only)
+             )
+           )
+
+    assert [["deferred"]] =
+             Repo.query!(
+               "SELECT status FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+               [
+                 warehouse_only
+               ]
+             ).rows
+
+    snapshot_query!(fn _ -> warehouse_rows([]) end)
+    assert :ok = ExposureReconciliationWorker.perform(job)
+  end
+
+  defp reconciliation_source!(ctx, cve) do
+    snapshot_http!()
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+    package = insert_endpoint_package!(ctx.unique)
+    insert_assessment!(ctx, package, cve)
+    payload = publication(ctx.device_uid, cve)
+    scope = payload["device_ord"]
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+        scope
+      ])
+
+      Repo.query!(
+        "DELETE FROM platform.exposure_snapshot_generations WHERE (control->>'scope')::bigint = $1",
+        [scope]
+      )
+
+      Repo.query!(
+        "DELETE FROM oban_jobs WHERE worker IN ('ServiceRadar.Inventory.ExposureSnapshotWorker', 'ServiceRadar.Inventory.ExposureReconciliationWorker') AND args->>'device_ord' = $1",
+        [to_string(scope)]
+      )
+
+      cleanup_source(ctx, package)
+    end)
+
+    dimensions =
+      Enum.map(
+        Repo.query!(
+          """
+          SELECT payload FROM platform.exposure_dimension_state
+          WHERE (kind = 'cve' AND ordinal = $1) OR (kind = 'package' AND ordinal = $2)
+          """,
+          [payload["cve_ord"], payload["pkgver_ord"]]
+        ).rows,
+        &hd/1
+      )
+
+    {scope, payload, dimensions}
+  end
+
+  # Transport fixture only: queued fact pages and independent dimension after-images.
+  # SQL cursor semantics are also exercised against scratch StarRocks before publication.
+  defp reconciliation_queries!(facts, dimensions, repair_rows \\ [], before_scan \\ fn -> :ok end) do
+    {:ok, decoded} =
+      ServiceRadar.EventWriter.Processors.ExposureDimensions.decode(
+        Enum.map(dimensions, &%{data: Jason.encode!(&1)})
+      )
+
+    {:ok, queue} =
+      Agent.start_link(fn ->
+        if(repair_rows == [], do: [facts, []], else: [repair_rows, facts, []])
+      end)
+
+    on_exit(fn -> if Process.alive?(queue), do: Agent.stop(queue) end)
+
+    snapshot_query!(fn sql ->
+      cond do
+        String.contains?(sql, "exposure_cve_dim") ->
+          warehouse_rows(for {:cve, _, row} <- decoded, do: row)
+
+        String.contains?(sql, "exposure_package_dim") ->
+          warehouse_rows(for {:package, _, row} <- decoded, do: row)
+
+        String.contains?(sql, "exposure_retired_ordinals") ->
+          warehouse_rows([])
+
+        true ->
+          rows =
+            Agent.get_and_update(queue, fn
+              [head | tail] -> {head, tail}
+              [] -> {[], []}
+            end)
+
+          before_scan.()
+          warehouse_rows(rows)
+      end
+    end)
   end
 
   @tag :tmp_dir

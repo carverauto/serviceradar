@@ -765,6 +765,45 @@ defmodule ServiceRadar.Telemetry do
     import Telemetry.Metrics
 
     [
+      sum("serviceradar.exposure.reconciliation.inspected",
+        event_name: [:serviceradar, :exposure, :reconciliation],
+        measurement: :inspected,
+        description: "Exposure devices inspected by reconciliation"
+      ),
+      sum("serviceradar.exposure.reconciliation.mismatch",
+        event_name: [:serviceradar, :exposure, :reconciliation],
+        measurement: :mismatch,
+        description: "Exposure device comparisons reporting drift"
+      ),
+      sum("serviceradar.exposure.reconciliation.deferred",
+        event_name: [:serviceradar, :exposure, :reconciliation],
+        measurement: :deferred,
+        description: "Exposure device comparisons deferred"
+      ),
+      last_value("serviceradar.exposure.readiness.generation_age",
+        event_name: [:serviceradar, :exposure, :readiness],
+        measurement: :generation_age,
+        tags: [:scope],
+        description: "Age in seconds of the last completed exposure generation"
+      ),
+      last_value("serviceradar.exposure.readiness.repair_pending",
+        event_name: [:serviceradar, :exposure, :readiness],
+        measurement: :repair_pending,
+        tags: [:scope],
+        description: "Exposure repairs awaiting warehouse confirmation"
+      ),
+      last_value("serviceradar.exposure.readiness.delivery_recovery",
+        event_name: [:serviceradar, :exposure, :readiness],
+        measurement: :delivery_recovery,
+        tags: [:scope],
+        description: "Unresolved exposure delivery journals"
+      ),
+      last_value("serviceradar.exposure.readiness.ready",
+        event_name: [:serviceradar, :exposure, :readiness],
+        measurement: :ready,
+        tags: [:scope],
+        description: "Verified exposure readiness"
+      ),
       sum("serviceradar.exposure.transition.dropped.count",
         event_name: [:serviceradar, :exposure, :transition, :dropped],
         measurement: :count,

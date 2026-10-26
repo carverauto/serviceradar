@@ -275,7 +275,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
     end
   end
 
-  defp prerequisites(reader, scope) do
+  @doc "Checks preparation in the caller's source view, for publication or reconciliation."
+  def prerequisites(reader, scope) do
     sql = """
     SELECT EXISTS (
       SELECT 1 FROM platform.device_fleet_ordinals o
@@ -312,7 +313,8 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
     end
   end
 
-  defp source_page(reader, "dimensions", scope, cursor) do
+  @doc "Bounded source pages shared by publication and reconciliation in one source view."
+  def source_page(reader, "dimensions", scope, cursor) do
     [kind, ordinal] = cursor || ["", 0]
 
     query(
@@ -335,7 +337,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
     )
   end
 
-  defp source_page(reader, "lifecycle", scope, cursor) do
+  def source_page(reader, "lifecycle", scope, cursor) do
     query(
       reader,
       """
@@ -353,7 +355,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
     )
   end
 
-  defp source_page(reader, "assessments", scope, cursor) do
+  def source_page(reader, "assessments", scope, cursor) do
     query(
       reader,
       """
@@ -367,7 +369,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
     )
   end
 
-  defp source_page(reader, "watermarks", scope, cursor) do
+  def source_page(reader, "watermarks", scope, cursor) do
     [uid, package, cve] = cursor || ["", "", ""]
 
     query(
