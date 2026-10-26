@@ -57,11 +57,13 @@ converge that role, so there is nothing to grant by hand:
 | `platform.device_alias_states` | `SELECT (device_id, alias_type, state, alias_value)` |
 | `platform.netflow_exporter_cache` | `SELECT (device_uid, sampler_address, exporter_name)` |
 | `platform.netflow_interface_cache` | `SELECT (sampler_address, if_index, if_name, if_speed_bps)` |
-| `platform.ip_geo_enrichment_cache` | `SELECT (ip, country_iso2, expires_at, location)` |
+| `platform.ip_geo_enrichment_cache` | `SELECT (ip, country_iso2, expires_at, location, latitude, longitude)` |
 | `platform.ip_threat_intel_cache` | `SELECT (ip, matched, expires_at, sources, max_severity)` |
 | `platform.threat_intel_indicators` | `SELECT (indicator, expires_at)` |
+| `platform.ip_threat_intel_sources_catalog` | `SELECT (ip, matched, expires_at, source)` |
+| `platform.threat_intel_indicator_members_catalog` | `SELECT (ip, matched, expires_at, indicator, indicator_family, first_ip_hex, last_ip_hex, indicator_expires_at)` |
 
-Five of those are views, not tables. A PostgreSQL `text[]` and a `jsonb` both
+Seven of those are views, not tables. A PostgreSQL `text[]` and a `jsonb` both
 reach StarRocks 3.5.21 as `UNKNOWN_TYPE`, and a query that names such a column
 is refused at analysis, so CNPG flattens what the device lookups need:
 `device_interface_addresses_catalog` is one row per interface address, and
