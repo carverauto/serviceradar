@@ -11,7 +11,7 @@ require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/cilium/ebpf v0.22.0
-	github.com/google/osv-scalibr v0.5.2
+	github.com/google/osv-scalibr v0.5.3
 	github.com/google/uuid v1.6.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/gosnmp/gosnmp v1.45.0
@@ -56,6 +56,8 @@ require (
 )
 
 require (
+	deps.dev/util/maven v0.0.0-20260528042559-b92437de09fd // indirect
+	deps.dev/util/semver v0.0.0-20260529052642-cf1e78d92744 // indirect
 	github.com/Velocidex/json v0.0.0-20220224052537-92f3c0326e5a // indirect
 	github.com/Velocidex/ordereddict v0.0.0-20250821063524-02dc06e46238 // indirect
 	github.com/Velocidex/yaml/v2 v2.2.8 // indirect
