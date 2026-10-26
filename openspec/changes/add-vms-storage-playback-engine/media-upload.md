@@ -42,6 +42,12 @@ The coordinator and configuration validation share the existing init machinery,
 while init rows, digest domains, wire contracts and limits remain unchanged.
 Old init readers cannot see media authority. Init grants never authorize media.
 
+The media desired document uses the init document's required fields, with
+`operation` `media_put_verified_v1` and `limits` containing `max_media_bytes`
+(1 through 16777216), `max_operation_ms` (1 through 30000) and `max_in_flight`
+of 1. Its canonical digest domain is `media-authority-v1`. Init keeps
+`max_init_bytes`, a 5000 ms cap and `init-authority-v1`.
+
 The installed desired document binds origin, binding, local storage lifetime,
 complete qualification report, credential generation and storage boot identity.
 All nineteen qualification observations must pass. The original nonrenewable

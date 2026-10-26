@@ -83,7 +83,8 @@ bounded status names rather than database errors or request content.
 
 All nineteen observations being `passed` still leaves `ArchiveBinding`
 unqualified. No dispatch, credential lookup, provider request, recording
-activation or local-media reclamation follows receipt. Full desired/applied
-configuration bound to the installed origin, freshness and revocation evaluation,
-selected protection-mode evidence and an isolated credential installer remain
-the next dependency before provider operations.
+activation or local-media reclamation follows receipt. Bounded init and media
+installation are owned by [init authority](init-authority.md) and
+[media upload](media-upload.md); a receipt still does not install either.
+Hosted configuration, protection-mode evidence and credential installation
+remain separate from this receipt.
