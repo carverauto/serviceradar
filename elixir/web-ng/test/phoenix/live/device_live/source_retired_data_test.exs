@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SourceRetiredDataTest do
       for {held, settings, text} <- [
             {{:ok, true}, settings(true, 7), "Not while a de-duplication review names it"},
             {{:ok, false}, settings(false, 7), "Not while source retirement is disabled"},
-            {{:ok, false}, {:error, :forbidden}, "Depends on the device cleanup settings"}
+            {{:ok, false}, {:error, :forbidden}, "Depends on the Inventory Cleanup settings"}
           ] do
         html = summary(SourceRetiredData.schedule(@marked_at, held, settings))
 

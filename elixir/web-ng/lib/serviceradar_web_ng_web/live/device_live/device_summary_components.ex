@@ -257,7 +257,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
   # When a marked record will be deleted, if no time can be given.
   defp source_retired_schedule(:held), do: "Not while a de-duplication review names it"
   defp source_retired_schedule(:paused), do: "Not while source retirement is disabled"
-  defp source_retired_schedule(_unknown), do: "Depends on the device cleanup settings"
+  defp source_retired_schedule(_unknown), do: "Depends on the Inventory Cleanup settings"
 
   defp format_value(nil), do: "—"
   defp format_value(""), do: "—"

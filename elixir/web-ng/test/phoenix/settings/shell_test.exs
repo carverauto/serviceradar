@@ -463,10 +463,16 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
       for query <- [
             "inventory cleanup",
             "device cleanup",
+            "retirement",
+            "retired",
+            "override",
             "retirement override",
             "guard",
             "awx",
+            "armis",
             "grace",
+            "ephemeral",
+            "expiry",
             "ephemeral expiry",
             "purge"
           ] do

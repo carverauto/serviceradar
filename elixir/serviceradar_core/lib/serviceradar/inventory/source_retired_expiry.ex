@@ -34,6 +34,7 @@ defmodule ServiceRadar.Inventory.SourceRetiredExpiry do
   import Ecto.Query
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
   alias ServiceRadar.Repo
@@ -184,8 +185,9 @@ defmodule ServiceRadar.Inventory.SourceRetiredExpiry do
 
     Logger.error(
       "SourceRetiredExpiry: pass refused (#{reason}): would delete up to #{candidates} of " <>
-        "#{live} live records in one pass (max fraction #{max_fraction}); set " <>
-        "source_retirement_guard_override in the device cleanup settings to admit it"
+        "#{live} live records in one pass (max fraction #{max_fraction}); " <>
+        DeviceCleanupSettings.guard_override_hint(:source_retirement_guard_override) <>
+        " to admit it"
     )
 
     {:error,

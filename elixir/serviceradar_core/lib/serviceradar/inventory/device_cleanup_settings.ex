@@ -255,4 +255,29 @@ defmodule ServiceRadar.Inventory.DeviceCleanupSettings do
 
     timestamps()
   end
+
+  @doc """
+  The Inventory Cleanup settings page's label for a mass-guard override checkbox.
+
+  The page renders this label, and `guard_override_hint/1` quotes it, so the hint a refused
+  pass logs always names a checkbox the operator can find.
+  """
+  @spec guard_override_label(:ephemeral_expiry_guard_override | :source_retirement_guard_override) ::
+          String.t()
+  def guard_override_label(:ephemeral_expiry_guard_override),
+    do: "Allow the next passes to exceed that share"
+
+  def guard_override_label(:source_retirement_guard_override),
+    do: "Allow the next retirement or grace pass to exceed that share"
+
+  @doc """
+  Where an operator turns a mass-guard override on, for the log line of a refused pass: the
+  checkbox label, the setting's API key and the settings page with its route.
+  """
+  @spec guard_override_hint(:ephemeral_expiry_guard_override | :source_retirement_guard_override) ::
+          String.t()
+  def guard_override_hint(field) do
+    "enable '#{guard_override_label(field)}' (#{field}) under " <>
+      "Settings > Network Services > Discovery > Inventory Cleanup (/settings/networks/inventory-cleanup)"
+  end
 end

@@ -2,6 +2,8 @@ defmodule ServiceRadarWebNGWeb.Settings.InventoryCleanupLive.Form do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
+
   attr :form, :any, default: nil
   attr :settings, :any, default: nil
 
@@ -34,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.InventoryCleanupLive.Form do
         <.icon name="hero-exclamation-triangle" class="size-5" />
         <div>
           <div class="font-semibold">Cleanup settings unavailable</div>
-          <div class="text-sm">Unable to load device cleanup settings.</div>
+          <div class="text-sm">Unable to load inventory cleanup settings.</div>
         </div>
       </div>
 
@@ -94,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.InventoryCleanupLive.Form do
           <.input
             field={@form[:ephemeral_expiry_guard_override]}
             type="checkbox"
-            label="Allow the next passes to exceed that share"
+            label={DeviceCleanupSettings.guard_override_label(:ephemeral_expiry_guard_override)}
           />
           <.input
             field={@form[:source_retirement_enabled]}
@@ -125,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.Settings.InventoryCleanupLive.Form do
           <.input
             field={@form[:source_retirement_guard_override]}
             type="checkbox"
-            label="Allow the next retirement or grace pass to exceed that share"
+            label={DeviceCleanupSettings.guard_override_label(:source_retirement_guard_override)}
           />
           <.input
             field={@form[:source_retired_grace_days]}

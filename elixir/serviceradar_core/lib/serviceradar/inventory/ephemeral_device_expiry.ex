@@ -41,6 +41,7 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
   import Ecto.Query
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
@@ -232,9 +233,10 @@ defmodule ServiceRadar.Inventory.EphemeralDeviceExpiry do
           "EphemeralDeviceExpiry: pass refused (#{reason}): it would expire " <>
             "#{counts.eligible} of #{live} live devices (max fraction #{max_fraction}; " <>
             "#{counts.candidates} unseen past the window, #{counts.kept_by_evidence} kept " <>
-            "by evidence, #{counts.kept_by_exclusion} by the exclusion query). " <>
-            "ephemeral_expiry_guard_override in the device cleanup settings forces it, and " <>
-            "stays set, lifting this guard for every later pass, until it is cleared"
+            "by evidence, #{counts.kept_by_exclusion} by the exclusion query). To force it, " <>
+            DeviceCleanupSettings.guard_override_hint(:ephemeral_expiry_guard_override) <>
+            "; the override stays set, lifting this guard for every later pass, until it is " <>
+            "cleared"
         )
 
         {:error,

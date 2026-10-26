@@ -331,8 +331,8 @@ for dry-run review, execution gates, and device/source allowlists.
 - TTL garbage collection for unseen identifiers (default 90 days;
   `DeviceIdentifierGcWorker`). Source-authoritative identifiers are never collected by age.
 - Source id retirement (`Identity.SourceRetirement`, run by `SourceRetirementWorker` after an
-  exact Armis collection activates; on by default, Settings -> Network Services -> Inventory
-  Cleanup, `/settings/networks/inventory-cleanup`):
+  exact Armis collection activates; on by default, Settings -> Network Services -> Discovery ->
+  Inventory Cleanup, `/settings/networks/inventory-cleanup`):
   an Armis device id absent from N consecutive exact collections under one collection query
   (default 3) and unreported for T (default 24 hours) moves from `device_identifiers` to
   `device_identifier_archive` (reason `source_absent`), together with the `integration_id`
@@ -343,8 +343,10 @@ for dry-run review, execution gates, and device/source allowlists.
   carrying another Armis id of that source, and it never merges automatically with a record
   that holds or held one. Archived ids move with a merge and back with an unmerge. A pass that
   would retire ids from more than `source_retirement_max_fraction` (default 0.5) of the source
-  instance's live records is refused and logged at error level unless the one-pass override is
-  set. Telemetry: `[:serviceradar, :inventory, :source_retirement, :run]`, `:retired` and
+  instance's live records is refused and logged at error level unless the one-pass override
+  (`source_retirement_guard_override`, the "Allow the next retirement or grace pass to exceed
+  that share" checkbox on that page) is set; the refusal log line names the checkbox, the key and
+  the page. Telemetry: `[:serviceradar, :inventory, :source_retirement, :run]`, `:retired` and
   `:refused`.
 - AWX source retirement (`Identity.AwxSourceRetirement`, run by `AwxSourceRetirementWorker`
   after a complete AWX inventory observation commits): an AWX host the controller's latest
@@ -402,14 +404,15 @@ for dry-run review, execution gates, and device/source allowlists.
   updates carrying the id until the next sync run. Telemetry: `[:serviceradar, :inventory,
   :source_reactivation, :reactivated]`, `:reissued` and `:withheld`.
 - Ephemeral device expiry (`EphemeralDeviceExpiry`, run by `DeviceCleanupWorker`; off by
-  default, Settings -> Network Services -> Inventory Cleanup): a live device holding no strong
-  identifier -- no agent, source-authoritative id, hardware serial or globally-unique MAC --
+  default, Settings -> Network Services -> Discovery -> Inventory Cleanup): a live device holding
+  no strong identifier -- no agent, source-authoritative id, hardware serial or globally-unique MAC --
   and unseen past the window (default 30 days) is soft-deleted as `stale_ephemeral`. A source
   id held only in a device's metadata, as a string or a number, holds it in the delete
   statement as well as in the candidate read. Operator-created devices and devices matching
   the exclusion SRQL query never expire. A pass that would expire more than
   `ephemeral_expiry_max_fraction` of live devices is refused unless
-  `ephemeral_expiry_guard_override` is set; the guard judges the devices the pass would
+  `ephemeral_expiry_guard_override` (the "Allow the next passes to exceed that share" checkbox)
+  is set; the guard judges the devices the pass would
   actually expire, and the override stays set, lifting the guard for every later pass, until
   it is cleared. The pass counts `candidates`, `kept_by_evidence`, `kept_by_exclusion`,
   `eligible`, `expired` and `skipped_at_delete` (eligible devices the delete did not expire)

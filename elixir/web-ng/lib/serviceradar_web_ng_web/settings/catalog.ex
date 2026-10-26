@@ -87,6 +87,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   each one.
   """
   @type tab :: %{
+          optional(:description) => String.t(),
           id: atom(),
           tab: String.t(),
           title: String.t(),
