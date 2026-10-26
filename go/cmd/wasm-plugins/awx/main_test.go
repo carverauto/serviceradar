@@ -194,6 +194,58 @@ func TestRunPingMeUnauthorizedReportsAuthFailed(t *testing.T) {
 	}
 }
 
+func TestRunPingExtractsTokenExpiryFromMeResponse(t *testing.T) {
+	pingBody := []byte(`{"version":"24.6.1","active_node":"awx-1"}`)
+	meBody := []byte(`{"count":1,"results":[{"id":1,"username":"sr","summary_fields":{"token":{"expires":"2026-11-01T12:00:00Z"}}}]}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/ping/": {Status: http.StatusOK, Body: pingBody},
+		"/api/v2/me/":   {Status: http.StatusOK, Body: meBody},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := Config{BaseURL: "https://awx.example.com", APIToken: "tok", Verb: "awx.ping"}
+	res := dispatch(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("expected OK, got %s (%s)", res.Status, res.Summary)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("Details should be JSON: %v", err)
+	}
+	assertExactMapKeys(t, payload, "verb", "ok", "version", "active_node", "token_expires_at")
+	if payload["token_expires_at"] != "2026-11-01T12:00:00Z" {
+		t.Errorf("payload.token_expires_at = %v, want 2026-11-01T12:00:00Z", payload["token_expires_at"])
+	}
+}
+
+func TestRunPingExtractsConfiguredTokenLifetimeSeconds(t *testing.T) {
+	pingBody := []byte(`{"version":"24.6.1","active_node":"awx-1"}`)
+	meBody := []byte(`{"count":1,"results":[{"id":1,"username":"sr"}],"access_token_expire_seconds":2592000}`)
+	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
+		"/api/v2/ping/": {Status: http.StatusOK, Body: pingBody},
+		"/api/v2/me/":   {Status: http.StatusOK, Body: meBody},
+	}}
+	swapHTTP(t, fake)
+
+	cfg := Config{BaseURL: "https://awx.example.com", APIToken: "tok", Verb: "awx.ping"}
+	res := dispatch(cfg)
+
+	if res.Status != sdk.StatusOK {
+		t.Fatalf("expected OK, got %s (%s)", res.Status, res.Summary)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(res.Details), &payload); err != nil {
+		t.Fatalf("Details should be JSON: %v", err)
+	}
+	assertExactMapKeys(t, payload, "verb", "ok", "version", "active_node", "access_token_expire_seconds")
+	if payload["access_token_expire_seconds"] != float64(2592000) {
+		t.Errorf("payload.access_token_expire_seconds = %v, want 2592000", payload["access_token_expire_seconds"])
+	}
+}
+
 func TestRunPingUnauthorizedReportsOnlyStatus(t *testing.T) {
 	fake := &fakeHTTPClient{responses: map[string]*sdk.HTTPResponse{
 		"/api/v2/ping/": {Status: http.StatusUnauthorized, Body: []byte(`{"detail":"Authentication credentials were not provided."}`)},

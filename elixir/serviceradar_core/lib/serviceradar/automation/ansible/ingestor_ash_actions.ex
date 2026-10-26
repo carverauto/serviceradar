@@ -16,6 +16,7 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
   alias ServiceRadar.Automation.Ansible.PlaybookRunTarget
   alias ServiceRadar.Automation.Ansible.PlaybookTask
   alias ServiceRadar.Automation.Ansible.PlaybookTaskResult
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Infrastructure.EventBatcher
 
@@ -140,6 +141,25 @@ defmodule ServiceRadar.Automation.Ansible.IngestorAshActions do
   @impl true
   def record_controller_health(controller, args) do
     Controller.record_health(controller, args, actor())
+  end
+
+  @impl true
+  def get_credential_secret_by_id(secret_id) do
+    case NetworkCredentialSecret.get_by_id(secret_id, actor()) do
+      {:ok, secret} -> {:ok, secret}
+      {:error, _} = err -> err
+      nil -> {:error, :credential_not_found}
+    end
+  end
+
+  @impl true
+  def schedule_credential_rotation(secret, %DateTime{} = due_at) do
+    NetworkCredentialSecret.schedule_rotation(secret, %{next_rotation_due_at: due_at}, actor())
+  end
+
+  @impl true
+  def mark_credential_rotation_due(secret, %DateTime{} = due_at) do
+    NetworkCredentialSecret.mark_rotation_due(secret, %{next_rotation_due_at: due_at}, actor())
   end
 
   @impl true

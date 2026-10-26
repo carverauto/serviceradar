@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   require Logger
 
   @awx_credential_provider "awx"
+  @awx_default_token_lifetime_seconds 90 * 86_400
 
   @controller_permission "ansible.controllers.manage"
   @repository_permission "ansible.repositories.manage"
@@ -382,6 +383,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
 
     socket
     |> assign(:active_tab, :controllers)
+    |> assign(:awx_credential_secrets, list_awx_secrets())
     |> stream(:controllers, controllers, reset: true)
     |> assign(:controller_count, length(controllers))
   end
@@ -586,9 +588,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
             <td><code class="text-xs">{ctrl.base_url}</code></td>
             <td><code class="text-xs">{ctrl.agent_id}</code></td>
             <td>
-              <.ui_badge size="sm" variant={health_badge_variant(ctrl.status)}>
-                {ctrl.status}
-              </.ui_badge>
+              <div class="flex flex-wrap items-center gap-1">
+                <.ui_badge size="sm" variant={health_badge_variant(ctrl.status)}>
+                  {ctrl.status}
+                </.ui_badge>
+                <.ui_badge
+                  :if={controller_rotation_due?(ctrl, @awx_secrets)}
+                  size="sm"
+                  variant="warning"
+                >
+                  Rotation due
+                </.ui_badge>
+              </div>
               <div :if={ctrl.last_health_at} class="text-xs text-sr-muted mt-1">
                 <.user_time
                   id={"settings-ansible-controller-#{ctrl.id}-last-health-at"}
@@ -1325,6 +1336,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
   defp optional_credential_token_param("callback_credential_secret_id"), do: "callback_awx_api_token"
 
   defp create_awx_token_secret(params, token, purpose) do
+    rotated_at = DateTime.utc_now()
+
     case NetworkCredentialSecret.create_secret(
            %{
              name: awx_token_secret_name(params["name"], purpose),
@@ -1333,7 +1346,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
              provider: @awx_credential_provider,
              credential_kind: :api_token,
              secret_payload: token,
-             last_rotated_at: DateTime.utc_now(),
+             last_rotated_at: rotated_at,
+             next_rotation_due_at: DateTime.shift(rotated_at, second: @awx_default_token_lifetime_seconds),
              metadata: %{
                "source" => "ansible_controller_form",
                "credential_purpose" => purpose,
@@ -1426,6 +1440,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AnsibleLive do
       callback: controller.callback_credential_secret_id
     }
   end
+
+  defp controller_rotation_due?(%Controller{} = controller, awx_secrets) when is_list(awx_secrets) do
+    bound_ids =
+      controller
+      |> controller_credentials()
+      |> Map.values()
+      |> Enum.reject(&is_nil/1)
+      |> MapSet.new(&to_string/1)
+
+    Enum.any?(awx_secrets, fn secret ->
+      MapSet.member?(bound_ids, to_string(secret.id)) and
+        Map.get(secret, :rotation_state) == :rotation_due
+    end)
+  end
+
+  defp controller_rotation_due?(_controller, _awx_secrets), do: false
 
   defp controller_form_secret_id(form, field) do
     form

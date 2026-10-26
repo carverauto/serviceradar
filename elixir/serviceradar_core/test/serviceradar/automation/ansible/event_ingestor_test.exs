@@ -89,6 +89,28 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
     end
 
     @impl true
+    def get_credential_secret_by_id(secret_id) do
+      put_call({:get_credential_secret_by_id, secret_id})
+      Map.get(state().secrets_by_id, secret_id, {:error, :credential_secret_not_found})
+    end
+
+    @impl true
+    def schedule_credential_rotation(secret, due_at) do
+      put_call({:schedule_credential_rotation, secret.id, due_at})
+      updated = %{secret | next_rotation_due_at: due_at}
+      put_secret(updated)
+      {:ok, updated}
+    end
+
+    @impl true
+    def mark_credential_rotation_due(secret, due_at) do
+      put_call({:mark_credential_rotation_due, secret.id, due_at})
+      updated = %{secret | rotation_state: :rotation_due, next_rotation_due_at: due_at}
+      put_secret(updated)
+      {:ok, updated}
+    end
+
+    @impl true
     def upsert_awx_playbook(controller_id, args) do
       put_call({:upsert_awx_playbook, controller_id, args})
       {:ok, %{id: "pb-" <> to_string(args.awx_job_template_id)}}
@@ -113,6 +135,12 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
       Process.put(:fake_actions_state, %{st | calls: st.calls ++ [call]})
     end
 
+    defp put_secret(secret) do
+      st = state()
+      secrets = Map.put(st.secrets_by_id, secret.id, {:ok, secret})
+      Process.put(:fake_actions_state, %{st | secrets_by_id: secrets})
+    end
+
     defp default_state,
       do: %{
         calls: [],
@@ -120,7 +148,8 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         targets_by_host: %{},
         contexts: %{},
         runs_by_id: %{},
-        controllers_by_id: %{}
+        controllers_by_id: %{},
+        secrets_by_id: %{}
       }
   end
 
@@ -516,6 +545,127 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
                )
 
       assert summary =~ "401"
+    end
+
+    test "ok=true records controller-exposed token_expires_at and fires rotation reminder when expiry is near" do
+      near_expiry =
+        DateTime.utc_now() |> DateTime.shift(day: 5) |> DateTime.truncate(:microsecond)
+
+      controller = %{
+        id: "ctrl-1",
+        name: "Production AWX",
+        sync_credential_secret_id: "sec-sync-1",
+        execution_credential_secret_id: nil,
+        credential_secret_id: "sec-sync-1"
+      }
+
+      secret = %{
+        id: "sec-sync-1",
+        provider: "awx",
+        source_type: :internal_encrypted,
+        rotation_state: :active,
+        last_rotated_at: DateTime.shift(DateTime.utc_now(), day: -85),
+        next_rotation_due_at: nil
+      }
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}},
+        controllers_by_id: %{"ctrl-1" => {:ok, controller}},
+        secrets_by_id: %{"sec-sync-1" => {:ok, secret}}
+      )
+
+      result = %{
+        command_type: "awx.ping",
+        command_id: "cmd-1",
+        result_payload: %{
+          "verb" => "awx.ping",
+          "ok" => true,
+          "version" => "23.5.1",
+          "active_node" => "awx-1",
+          "token_expires_at" => DateTime.to_iso8601(near_expiry)
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      calls = FakeActions.state().calls
+
+      assert {:mark_credential_rotation_due, "sec-sync-1", ^near_expiry} =
+               Enum.find(calls, &match?({:mark_credential_rotation_due, "sec-sync-1", _}, &1))
+    end
+
+    test "ok=true falls back to controller access-token lifetime (default 90 days) when no expiry is exposed" do
+      rotated_at =
+        DateTime.utc_now()
+        |> DateTime.shift(day: -80)
+        |> DateTime.truncate(:microsecond)
+
+      expected_due = DateTime.shift(rotated_at, day: 90)
+
+      controller = %{
+        id: "ctrl-1",
+        name: "Production AWX",
+        sync_credential_secret_id: "sec-sync-1",
+        execution_credential_secret_id: "sec-exec-1",
+        credential_secret_id: "sec-sync-1"
+      }
+
+      sync_secret = %{
+        id: "sec-sync-1",
+        provider: "awx",
+        source_type: :internal_encrypted,
+        rotation_state: :active,
+        last_rotated_at: rotated_at,
+        next_rotation_due_at: nil
+      }
+
+      far_rotated_at =
+        DateTime.utc_now()
+        |> DateTime.shift(day: -10)
+        |> DateTime.truncate(:microsecond)
+
+      far_due = DateTime.shift(far_rotated_at, day: 90)
+
+      exec_secret = %{
+        id: "sec-exec-1",
+        provider: "awx",
+        source_type: :internal_encrypted,
+        rotation_state: :active,
+        last_rotated_at: far_rotated_at,
+        next_rotation_due_at: nil
+      }
+
+      FakeActions.configure(
+        contexts: %{"cmd-1" => {:ok, %{"controller_id" => "ctrl-1"}}},
+        controllers_by_id: %{"ctrl-1" => {:ok, controller}},
+        secrets_by_id: %{
+          "sec-sync-1" => {:ok, sync_secret},
+          "sec-exec-1" => {:ok, exec_secret}
+        }
+      )
+
+      result = %{
+        command_type: "awx.ping",
+        command_id: "cmd-1",
+        result_payload: %{
+          "verb" => "awx.ping",
+          "ok" => true,
+          "version" => "23.5.1",
+          "active_node" => "awx-1"
+        }
+      }
+
+      assert :ok = EventIngestor.handle_command_result(result, opts())
+
+      calls = FakeActions.state().calls
+
+      assert {:mark_credential_rotation_due, "sec-sync-1", ^expected_due} =
+               Enum.find(calls, &match?({:mark_credential_rotation_due, "sec-sync-1", _}, &1))
+
+      assert {:schedule_credential_rotation, "sec-exec-1", ^far_due} =
+               Enum.find(calls, &match?({:schedule_credential_rotation, "sec-exec-1", _}, &1))
+
+      refute Enum.any?(calls, &match?({:mark_credential_rotation_due, "sec-exec-1", _}, &1))
     end
 
     test "no-op when context is missing controller_id" do
@@ -1159,6 +1309,9 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestorTest do
         def get_run_by_id(_), do: raise("nope")
         def get_controller_by_id(_), do: raise("nope")
         def record_controller_health(_, _), do: raise("nope")
+        def get_credential_secret_by_id(_), do: raise("nope")
+        def schedule_credential_rotation(_, _), do: raise("nope")
+        def mark_credential_rotation_due(_, _), do: raise("nope")
         def upsert_awx_playbook(_, _), do: raise("nope")
         def emit_ocsf_event(_), do: raise("nope")
       end
