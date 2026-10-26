@@ -997,6 +997,14 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandlerTest do
              Jason.decode!(response)
 
     refute response =~ supplied_ticket
+
+    # The browser sends its first resize right behind attach, so it arrives
+    # after the rejection; it is dropped instead of crashing the socket.
+    assert {:ok, ^state} =
+             RemoteAccessStreamHandler.handle_in(
+               {Jason.encode!(%{type: "resize", cols: 120, rows: 34}), [opcode: :text]},
+               state
+             )
   end
 
   test "data and resize frames forward to broker and refresh idle timer" do

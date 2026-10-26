@@ -95,50 +95,19 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   @impl true
   def handle_in({data, [opcode: :text]}, %{attached?: false} = state) do
-    with {:ok, %{"type" => "attach"} = message} <- decode_json(data),
-         {:ok, ticket} <- required_string(message, "ticket"),
-         :ok <- ensure_session_id(message, state.session_id),
-         {:ok, %RemoteAccessSession{} = session, state} <- attach_with_current_authority(ticket, state),
-         {:ok, broker} <- start_broker(session, message, state) do
-      state =
-        state
-        |> cancel_timeout_timers()
-        |> Map.merge(%{attached?: true, session: session, broker: broker})
-        |> schedule_timeout_timers(session)
-        |> schedule_reauth_timer()
+    case decode_json(data) do
+      {:ok, %{"type" => "attach"} = message} ->
+        attach(message, state)
 
-      {:push, {:text, encode(%{type: "ready", session_id: session.id})}, state}
-    else
-      {:error, :remote_access_broker_unavailable} ->
-        _ = state.sessions_module.fail_session(state.session_id, :remote_access_broker_unavailable, scope: state.scope)
-
-        {:stop, :normal, 1011,
-         [{:text, encode(%{type: "error", message: "Remote access broker is not available on the edge agent yet."})}],
-         state}
-
-      {:error, reason} when reason in [:session_credential_required, :ssh_username_required] ->
-        _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)
-
-        {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "A per-session SSH credential is required."})}],
-         state}
-
-      {:error, reason} when reason in [:credential_policy_denied, :invalid_request, :invalid_size] ->
-        _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)
-
-        {:stop, :normal, 1008,
-         [{:text, encode(%{type: "error", message: "The supplied SSH credential was rejected by policy."})}], state}
-
-      {:error, :permission_revoked, denied_state} ->
-        stop_for_permission_revoked(denied_state)
+      # The browser sends attach and its first resize back to back, and may
+      # send input frames before the ready reply arrives. A frame that is not
+      # an attach has no session to act on until one is attached, and after a
+      # failed attach the stream is already closing, so it is dropped.
+      {:ok, _frame} ->
+        {:ok, state}
 
       {:error, reason} ->
-        Logger.warning("Remote access websocket attach rejected",
-          session_id: state.session_id,
-          reason: inspect(reason)
-        )
-
-        {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Invalid or expired remote access ticket."})}],
-         state}
+        reject_attach(reason, state)
     end
   end
 
@@ -359,6 +328,57 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
     do: "remote_access_stream_#{action}"
 
   defp desktop_cleanup_reason(_state, reason), do: "remote_access_stream_#{format_close_reason(reason)}"
+
+  defp attach(message, state) do
+    with {:ok, ticket} <- required_string(message, "ticket"),
+         :ok <- ensure_session_id(message, state.session_id),
+         {:ok, %RemoteAccessSession{} = session, state} <- attach_with_current_authority(ticket, state),
+         {:ok, broker} <- start_broker(session, message, state) do
+      state =
+        state
+        |> cancel_timeout_timers()
+        |> Map.merge(%{attached?: true, session: session, broker: broker})
+        |> schedule_timeout_timers(session)
+        |> schedule_reauth_timer()
+
+      {:push, {:text, encode(%{type: "ready", session_id: session.id})}, state}
+    else
+      {:error, :remote_access_broker_unavailable} ->
+        _ = state.sessions_module.fail_session(state.session_id, :remote_access_broker_unavailable, scope: state.scope)
+
+        {:stop, :normal, 1011,
+         [{:text, encode(%{type: "error", message: "Remote access broker is not available on the edge agent yet."})}],
+         state}
+
+      {:error, reason} when reason in [:session_credential_required, :ssh_username_required] ->
+        _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)
+
+        {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "A per-session SSH credential is required."})}],
+         state}
+
+      {:error, reason} when reason in [:credential_policy_denied, :invalid_request, :invalid_size] ->
+        _ = state.sessions_module.fail_session(state.session_id, reason, scope: state.scope)
+
+        {:stop, :normal, 1008,
+         [{:text, encode(%{type: "error", message: "The supplied SSH credential was rejected by policy."})}], state}
+
+      {:error, :permission_revoked, denied_state} ->
+        stop_for_permission_revoked(denied_state)
+
+      {:error, reason} ->
+        reject_attach(reason, state)
+    end
+  end
+
+  defp reject_attach(reason, state) do
+    Logger.warning("Remote access websocket attach rejected",
+      session_id: state.session_id,
+      reason: inspect(reason)
+    )
+
+    {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Invalid or expired remote access ticket."})}],
+     state}
+  end
 
   defp start_broker(session, message, state) do
     with {:ok, cols} <- optional_terminal_int(Map.get(message, "cols"), @min_terminal_cols, @max_terminal_cols),

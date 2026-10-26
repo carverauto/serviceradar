@@ -5,6 +5,7 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
   alias ServiceRadar.Credentials.CredentialUsePolicy
   alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.ProxmoxConsoleBroker
   alias ServiceRadar.Edge.ProxmoxConsoleSession
   alias ServiceRadar.Edge.ProxmoxConsoleSessions
   alias ServiceRadar.Inventory.IntegrationIdentity
@@ -62,6 +63,35 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
 
     def resolve(partition_id, agent_id),
       do: {:ok, %{agent_id: agent_id, partition_id: partition_id}}
+  end
+
+  defmodule BrokerCommandBus do
+    @moduledoc false
+
+    def resolve_control_session_evidence(partition_id, agent_id, _preferred_gateway_node) do
+      send(owner(), {:control_evidence_requested, partition_id, agent_id})
+
+      {:ok, %{control_session_pid: owner(), agent_id: agent_id, gateway_node: "gateway@example"}}
+    end
+
+    def send_console_frame(agent_id, frame, _opts) do
+      send(owner(), {:console_frame, agent_id, frame.frame_type})
+      :ok
+    end
+
+    defp owner, do: Process.whereis(:proxmox_console_sessions_broker_owner)
+  end
+
+  defmodule BrokerCompatibility do
+    @moduledoc false
+
+    def verify(_session, _policy_binding, _control_evidence, _opts), do: :ok
+  end
+
+  defmodule BrokerPubSub do
+    @moduledoc false
+
+    def subscribe(_session_id), do: :ok
   end
 
   @system_actor SystemActor.system(:proxmox_console_sessions_test)
@@ -159,6 +189,59 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleSessionsTest do
                previewer: Previewer,
                actor: @console_actor
              )
+  end
+
+  test "an attached session routes the broker by its assignment partition" do
+    uid = unique_uid("broker-route")
+    secret = create_secret!("broker-route")
+    rule = create_rule!(secret, scope_value: "agent-broker-route")
+
+    insert_device!(uid,
+      agent_id: "agent-broker-route",
+      gateway_id: "gateway-broker-route",
+      source_rule: rule
+    )
+
+    Process.put(:proxmox_console_test_device_uid, uid)
+
+    assert {:ok, %{session: session, ticket: ticket}} =
+             ProxmoxConsoleSessions.request_open(
+               uid,
+               %{},
+               previewer: Previewer,
+               assignment_resolver: AssignmentResolver,
+               actor: @console_actor
+             )
+
+    assert {:ok, attached} =
+             ProxmoxConsoleSessions.attach_with_ticket(ticket,
+               session_id: session.id,
+               assignment_resolver: AssignmentResolver,
+               previewer: Previewer,
+               actor: @console_actor
+             )
+
+    {:ok, %{partition_id: partition_id}} =
+      AssignmentResolver.resolve(rule, "agent-broker-route", [])
+
+    Process.register(self(), :proxmox_console_sessions_broker_owner)
+    Process.flag(:trap_exit, true)
+
+    # Production session metadata, not a hand-built fixture, must carry the
+    # partition the broker needs to find the agent's control session.
+    assert {:ok, broker} =
+             ProxmoxConsoleBroker.start_link(attached, self(),
+               command_bus: BrokerCommandBus,
+               compatibility: BrokerCompatibility,
+               pubsub: BrokerPubSub
+             )
+
+    assert_receive {:control_evidence_requested, ^partition_id, "agent-broker-route"}
+    assert_receive {:console_frame, "agent-broker-route", "open"}
+
+    ref = Process.monitor(broker)
+    ProxmoxConsoleBroker.close(broker, :test_complete)
+    assert_receive {:DOWN, ^ref, :process, ^broker, :normal}
   end
 
   test "attach revalidates the current actor policy before broker startup" do

@@ -147,6 +147,26 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
     refute_receive {:send_console_frame, _, _, _}
   end
 
+  test "fails closed without looking up a route when the session has no assignment partition" do
+    {_partition, session} =
+      pop_in(session_fixture(), [:metadata, "credential_rule", "assignment_partition_id"])
+
+    previous_trap_exit = Process.flag(:trap_exit, true)
+
+    assert {:error, :console_assignment_partition_binding_missing} =
+             ProxmoxConsoleBroker.start_link(session, self(),
+               command_bus: CommandBusStub,
+               pubsub: PubSubStub,
+               agent_loader: &valid_agent_loader/1,
+               required_gateway_node: "gateway@one"
+             )
+
+    Process.flag(:trap_exit, previous_trap_exit)
+
+    refute_receive {:resolve_control_session_evidence, _, _, _}
+    refute_receive {:send_console_frame, _, _, _}
+  end
+
   test "mixed-version permutations fail closed before subscribe or open dispatch" do
     session = session_fixture()
     fingerprint = String.duplicate("a", 64)
@@ -245,10 +265,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
       credential_rule_id: "rule-1",
       metadata: %{
         "plugin_assignment_id" => "assignment-1",
-        "assignment_partition_id" => "farm01",
         "plugin_assignment_version" => 7,
         "plugin_assignment_policy_fingerprint" => fingerprint,
         "credential_rule" => %{
+          "assignment_partition_id" => "farm01",
           "assignment_version" => 7,
           "assignment_policy_fingerprint" => fingerprint
         },
