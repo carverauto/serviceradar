@@ -14,8 +14,12 @@ therefore could not work. Tracked in #5835.
   rule id for a rule-owned assignment, one shared key for manual and other
   policy assignments.
 - The policy reconciler adopts the drifted assignment of its own rule even when
-  other rules' assignments of the plugin are enabled on the agent, and still
-  reports the create error when no assignment of its own exists.
+  other rules' assignments of the plugin are enabled on the agent, and prefers
+  that row over a manual or other non-rule row. A credential-rule assignment is
+  adopted only by that same rule, so a non-rule policy does not rewrite it.
+  When nothing is adoptable, the create error is reported.
+- Enabling writes of one plugin on one agent take a transaction-scoped advisory
+  lock, and the duplicate check runs again under that lock.
 - Config delivery delivers every enabled assignment of a plugin that does not
   conflict with a more recently updated one, each with credentials resolved
   from its own parameters. The agent already keys runners by assignment id.
@@ -30,8 +34,9 @@ action dispatch, assignment-scoped producer schedules). These are tracked in #60
 
 - Affected specs: `wasm-plugin-system` (Per-Rule Plugin Assignment Ownership).
 - Affected code: `ServiceRadar.Plugins.AssignmentOwner`,
-  `PolicyAssignmentReconciler`, `Edge.AgentConfigGenerator`, web-ng
-  `PluginFleet`, migration `20261025200000_key_enabled_plugin_assignments_per_owner`.
+  `PolicyAssignmentReconciler`, `SerializeEnabledAssignment`,
+  `Edge.AgentConfigGenerator`, web-ng `PluginFleet`, migration
+  `20261025200000_key_enabled_plugin_assignments_per_owner`.
 - Database: an index swap on `platform.plugin_assignments`; Helm
   `core.migrations.expectedVersion` moves to `20261025200000`.
 - Agents: no protocol change. An agent of any version already runs one instance

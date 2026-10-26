@@ -2,7 +2,8 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
   @moduledoc """
   Safe WASM assignment and current runtime evidence.
 
-  `rows/1` is keyed by partition and agent (the `in:plugin_fleet` SRQL entity).
+  `rows/1` returns one row per owner of a plugin on a partition and agent
+  (the `in:plugin_fleet` SRQL entity).
   Success/failure timestamps describe the latest result, not a history scan.
   Neither assignment parameters nor raw result messages/payloads are returned.
 
