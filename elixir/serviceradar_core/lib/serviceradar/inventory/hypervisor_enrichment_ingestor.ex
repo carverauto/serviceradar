@@ -1416,10 +1416,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       {:ok, %{rows: rows}} ->
         {:ok,
          %{
-           by_uid: Map.new(rows, fn [uid, _name, _hostname] -> {uid, uid} end),
+           by_uid: Map.new(rows, fn [uid, _name, _hostname, _retired] -> {uid, uid} end),
            by_name:
              rows
-             |> Enum.flat_map(fn [uid, name, hostname] ->
+             |> Enum.reject(fn [_uid, _name, _hostname, retired] -> retired end)
+             |> Enum.flat_map(fn [uid, name, hostname, _retired] ->
                [
                  {normalize_lookup_key(name), uid},
                  {normalize_lookup_key(hostname), uid}
@@ -1437,14 +1438,16 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp device_lookup_sql do
     """
-    SELECT uid, name, hostname
+    SELECT uid, name, hostname, source_retired_at IS NOT NULL AS retired
     FROM platform.ocsf_devices
+    -- The uid arm still returns a marked record this batch already points at.
+    -- Name indexing skips that row: a source_retired record is awaiting deletion,
+    -- so sharing its name or hostname must not adopt it.
     WHERE deleted_at IS NULL
       AND (
         uid = ANY($1::text[])
-        -- A record marked source_retired is awaiting deletion: sharing a name never adopts it.
-        OR (source_retired_at IS NULL
-          AND (LOWER(name) = ANY($2::text[]) OR LOWER(hostname) = ANY($2::text[])))
+        OR LOWER(name) = ANY($2::text[])
+        OR LOWER(hostname) = ANY($2::text[])
       )
     """
   end
