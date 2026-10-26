@@ -218,7 +218,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLiveTest do
     assert fleet_html =~ "Stale scanner producer"
     assert fleet_html =~ "scanner_producer_version 0.1.5 (&lt; 0.1.6)"
     assert fleet_html =~ "broken package-set hash"
-    assert fleet_html =~ "Upgrade the scalibr add-on to 0.1.9 or later"
+    assert fleet_html =~ "upgrade the scalibr add-on to 0.1.9 or later"
 
     html = render_click(lv, "toggle_details", %{"row" => "#{agent.uid}|#{addon_id}"})
     assert html =~ "Scanner producer version"

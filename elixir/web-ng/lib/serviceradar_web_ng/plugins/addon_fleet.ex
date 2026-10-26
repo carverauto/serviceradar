@@ -663,6 +663,21 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   def stale_scanner_producer_version?(_version), do: false
 
+  @doc """
+  Actionable operator remediation sentence for a stale ScaLibr producer
+  version (`< #{@min_fixed_scalibr_producer_version}`).
+  """
+  @spec stale_scanner_producer_remediation(term()) :: String.t()
+  def stale_scanner_producer_remediation(version \\ nil) do
+    subject =
+      case present(version) do
+        nil -> "scanner_producer_version < #{@min_fixed_scalibr_producer_version}"
+        trimmed -> "scanner_producer_version #{trimmed} (< #{@min_fixed_scalibr_producer_version})"
+      end
+
+    "#{subject} has the broken package-set hash; upgrade the scalibr add-on to #{@min_fixed_scalibr_addon_version} or later"
+  end
+
   defp merge_degradation_reason(nil, stale), do: stale
   defp merge_degradation_reason(status_reason, nil), do: status_reason
 
@@ -676,7 +691,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   defp stale_scanner_producer_diagnostic(@scalibr_addon_id, version) when is_binary(version) do
     if stale_scanner_producer_version?(version) do
-      "scanner_producer_version #{version} (< #{@min_fixed_scalibr_producer_version}) has the broken package-set hash; upgrade the scalibr add-on to #{@min_fixed_scalibr_addon_version} or later"
+      stale_scanner_producer_remediation(version)
     end
   end
 
@@ -895,8 +910,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     metadata = Map.get(scan, :metadata) || %{}
 
     present(Map.get(metadata, "scanner_producer_version")) ||
-      present(Map.get(metadata, :scanner_producer_version)) ||
-      present(Map.get(scan, :collector_version))
+      present(Map.get(metadata, :scanner_producer_version))
   end
 
   defp agents_by_uid(scope, limit) do

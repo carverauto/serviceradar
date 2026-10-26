@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
   turns the Ash records into names, progress, and a "what happened" sentence.
   """
 
+  alias ServiceRadarWebNG.Plugins.AddonFleet
+
   # Operator still has a decision (Resume / Cancel). Terminal Failed/Rolled back
   # attempts belong under "Show finished", not the open-jobs list.
   @attention_states [:paused, :rolling_back]
@@ -55,8 +57,6 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
     "runtime_reported_unhealthy" => "runtime reported unhealthy",
     "desired_package_not_approved" => "desired package is not approved",
     "desired_state_not_converged" => "desired state did not converge",
-    "stale_scanner_producer_version" =>
-      "scanner_producer_version < 0.1.6 has the broken package-set hash; upgrade the scalibr add-on to 0.1.9 or later",
     "candidate_health_timeout" => "candidate never reported healthy in time",
     "candidate_reported_unhealthy" => "candidate reported unhealthy",
     "rollback_recovery_unverified" => "rollback recovery is unverified",
@@ -153,6 +153,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
 
     case String.trim(key) do
       "" -> nil
+      "stale_scanner_producer_version" -> AddonFleet.stale_scanner_producer_remediation()
       trimmed -> Map.get(@reason_labels, trimmed, humanize(trimmed))
     end
   end
@@ -240,7 +241,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
           action(
             "Needs attention",
             reason_label(reason) || "This add-on needs an operator decision.",
-            if(active_or_paused_rollout?(row), do: :review_rollout)
+            if(field(row, :rollout_id), do: :review_rollout)
           )
 
         {:updating, _} ->
@@ -529,9 +530,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
   end
 
   defp stale_producer_detail(row) do
-    producer = present_string(field(row, :scanner_producer_version)) || "below 0.1.6"
-
-    "Endpoint inventory scans report scanner_producer_version #{producer} (< 0.1.6), which still has the broken package-set hash. Upgrade the scalibr add-on to 0.1.9 or later."
+    AddonFleet.stale_scanner_producer_remediation(field(row, :scanner_producer_version))
   end
 
   defp with_stale_producer_detail(%{detail: detail} = health, row) when is_binary(detail) do
@@ -539,21 +538,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
   end
 
   defp maybe_append_stale_producer_detail(detail, row) do
-    if stale_producer?(row) and not String.contains?(detail, "scanner_producer_version") do
+    if AddonFleet.stale_scanner_producer?(row) and
+         not String.contains?(detail, "scanner_producer_version") do
       String.trim(detail <> " " <> stale_producer_detail(row))
     else
       detail
     end
-  end
-
-  defp stale_producer?(row) do
-    producer = present_string(field(row, :scanner_producer_version))
-
-    is_binary(producer) and
-      case Version.parse(String.trim_leading(producer, "v")) do
-        {:ok, parsed} -> Version.compare(parsed, Version.parse!("0.1.6")) == :lt
-        :error -> false
-      end
   end
 
   defp stale_producer_action(row) do
