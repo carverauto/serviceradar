@@ -1,3 +1,289 @@
+# ServiceRadar v1.4.98
+
+This release cuts device availability over to the merged resolver
+on its own, lets Wasm plugins roll forward to newly approved
+releases, starts the exposure intelligence pipeline in StarRocks,
+runs EventWriter on every core replica, and ships updated native
+add-ons and Wasm plugins for the agent fleet.
+
+## Upgrade Notes
+
+- Device availability now progresses without an operator step. Core
+  moves from `legacy` to `shadow`, then cuts over to the merged
+  resolver once readiness holds: the capture backfill has finished,
+  a full shadow resolve and a run of every active sweep group have
+  completed since entering shadow, the invalidation backlog is at
+  most 500, and the divergence report shows no policy violations.
+  After cutover the device badge, sort and Available count read one
+  merged value. An install that is not ready after 24 hours stays in
+  shadow and raises an `availability_cutover_readiness` health
+  warning. To hold a mode, use the Availability Sources settings
+  page or pin Helm `core.availability.modeControl` to `hold_legacy`
+  or `hold_shadow` (PR #5984, PR #5997).
+- Wasm plugin assignments and target policies carry an update
+  policy. A migration marks existing rows `pinned`, then a backfill
+  job moves manual assignments and target policies of signed
+  first-party packages to `track_latest_approved`. A first-party
+  release that requests nothing beyond the grant already approved
+  for that plugin is approved automatically
+  (`webNg.firstPartyPluginImport.autoApproveWithinGrant`), and
+  tracking owners roll forward to it in a staged rollout
+  (`core.wasmPluginAutomaticRollouts`). Both default to `true`; set
+  either to `false` to keep approval or rollout manual (PR #5843,
+  PR #5845, PR #5877, PR #6005).
+- The latest approved plugin package is chosen by semver, with a
+  release ranked above its prereleases, so `1.2.0` now wins over
+  `1.2.0-rc.1` (PR #5843).
+- Several enabled assignments of one plugin may run on one agent
+  when they have different owners, for example two credential rules
+  for two controllers. A migration replaces the per-agent unique
+  index with a per-owner index, and enabled-assignment writes are
+  serialized per agent and plugin (PR #6011, PR #6027).
+- EventWriter runs on every core replica. Replicas share JetStream
+  durable consumers, so each message is handled once, and StarRocks
+  Stream Load admission is split across them. Helm sets
+  `EVENT_WRITER_WORKERS` from `core.replicas`. Stream management,
+  consumer retirement and the flow correlator stay on the
+  coordinator (PR #6008).
+- Alert evaluation runs on core only. web-ng's `alerts` queue
+  defaults to 0 (`webNg.obanQueues.alerts`), and a zero limit now
+  really disables the queue. `core.alertEvaluation.mode` defaults to
+  auto: fresh installs start `active`, and upgrades from earlier
+  charts stay `prepared` until the mode is set (PR #5833, PR #5844,
+  PR #5972).
+- CNPG telemetry retention set in Helm for OTel metrics, metric
+  points, OCSF events, raw host metrics and capacity forecasts now
+  reaches the nightly retention worker, which previously restored the
+  built-in defaults. The optional
+  `core.observabilityRetention.defaultDays` caps every telemetry
+  dataset. New settings cover the migration-only hypertables and
+  continuous aggregates, with defaults equal to today's windows
+  (PR #5913, PR #5963).
+- Exposure intelligence requires StarRocks. The new JetStream
+  streams `EXPOSURE_TRANSITIONS` and `EXPOSURE_DIMENSIONS` are
+  included in the Helm, Compose and packaged NATS budgets. StarRocks
+  migrations 0032 to 0034 add exposure facts, dimensions and device
+  lifecycle history, and 0031 adds an `executable_ownership` column to
+  flow attribution observations (PR #5964, PR #5976, PR #5991,
+  PR #5995, PR #5919).
+- Ansible AWX devices whose host is absent from a complete inventory
+  sync are retired through source retirement, under the existing
+  retirement settings (24 hours of absence by default). Legacy
+  name-keyed AWX duplicates are retired the same way. A failed or
+  partial sync retires nothing (PR #6010, PR #6022).
+- Migrations repair existing data once: legacy `proxmox:vm:*`
+  device records are retired, and container-bridge or CNI addresses
+  kept as aliases after losing the primary IP are archived
+  (PR #5998, PR #6024).
+- Three unused advisory indexes are dropped concurrently (PR #5977),
+  and three orphaned JetStream durables left by retired components
+  are deleted when EventWriter starts (PR #5993).
+- Agents that report the `sweep-config-shared-targets:v1` capability
+  receive a compact shared-targets sweep config. Older agents keep
+  the legacy format (PR #5967, PR #5986, PR #5988).
+- This release adds 32 core migrations, ending at `20261026070000`,
+  which is the Helm `core.migrations.expectedVersion`.
+
+## Whats New
+
+**Native add-ons and Wasm plugins**
+
+- netprobe 0.2.70 resolves each process executable to the dpkg, apk
+  or rpm package that owns it, inside containers too and with an
+  open rpm write-ahead log. Core stores that ownership on flow
+  attribution observations (PR #5914, PR #5919).
+- bumblebee-scan 0.1.8 reports its own build as the scanner version
+  and keeps the upstream engine version as metadata (PR #5944).
+- anomaly 0.3.15, otel-collector 0.1.16, powerdns 0.1.12,
+  rdp-adapter 0.1.14, workload-identity 0.1.11 and the sample Rust
+  add-on 0.1.2 carry patched Rust dependencies for RustSec
+  advisories (PR #5864, PR #5885, PR #5982, PR #5990, PR #5994).
+- AWX 0.1.22 and AWX inventory sync 0.1.17 report why a controller
+  request failed, report `auth_failed` when the controller rejects
+  the API token, record token expiry so rotation reminders fire
+  before it lapses, and send `ansible_host` and Proxmox host
+  variables as identity evidence (PR #5836, PR #5875, PR #6023,
+  PR #5998).
+- Proxmox 0.1.12 skips container-bridge and overlay addresses when
+  choosing a guest's primary IP (PR #5883).
+- dusk-checker 1.0.1 caps its check at 8 s and reports a failure
+  after connecting as WARNING with the failed stage (PR #5938).
+
+**Device availability**
+
+- The merged resolver becomes the single writer of device
+  availability after cutover, publishes availability transitions
+  and recovery events, and can roll back to legacy (PR #5984,
+  PR #5975).
+- SRQL queries and sorts devices by the merged state, and web-ng
+  reads it for the device badge, sort and counts (PR #5981,
+  PR #5978).
+- Armis northbound pushes follow each source's availability
+  semantics, so the cutover does not change what is sent
+  (PR #5980).
+- `consecutive_down` is recounted when availability flips twice in
+  the same second, and dashboard counts keep `false` availability
+  and leave out retired devices (PR #6001, PR #5946).
+
+**Wasm plugin management**
+
+- The plugins page is split into Installed, Updates, Catalog and
+  package views, with one paginated row per plugin (PR #5874).
+- Wasm plugin rollouts run on the add-on rollout coordinator, agents
+  stamp each plugin result with the package that produced it, and a
+  rollout whose every target was canceled is canceled instead of
+  promoted (PR #5841, PR #5859, PR #5868, PR #5847, PR #5873).
+- Assignments are retracted when their owning rule or policy is
+  disabled, deleted or narrowed, and kept when a target query
+  briefly resolves no rows (PR #5849, PR #5842).
+- Plugin sync skips GitHub calls for releases already synced, and
+  action-only plugins are no longer reported stale in the plugin
+  fleet (PR #5866, PR #5899).
+
+**Exposure intelligence**
+
+- Vulnerability matching runs incrementally and publishes
+  assessment transitions through a transactional outbox (PR #5911).
+- EventWriter loads exposure transitions, CVE and package dimensions
+  into StarRocks, with a daily EPSS refresh (PR #5976, PR #5991).
+- Device retirement and restoration are ordered with assessment
+  publication, publications are retained for replay, and unfinished
+  deliveries survive source message expiry (PR #5995, PR #6002,
+  PR #6021, PR #6012).
+- Narrow device catalog views are exposed to StarRocks (PR #5920).
+
+**Identity and inventory**
+
+- Host-internal guest addresses, such as container bridges and CNI
+  overlays, no longer become a device's primary IP or link unrelated
+  guests, in core, the agent and the Proxmox plugin (PR #5838,
+  PR #5883, PR #5947).
+- Proxmox guests and AWX hosts merge on IP and MAC evidence, and an
+  AWX host merges into the device holding its exact address when the
+  host names agree (PR #5998, PR #6009).
+- A source that is the only evidence for a device archives all of
+  its identifiers when it retires the device (PR #6022).
+- External systems can report a device's switch port and VLAN
+  through `PUT` and `DELETE /api/devices/:uid/source-facts/:fact_key`,
+  gated by `devices.source_facts.write`, and sync source facts are
+  stored under their integration instance (PR #5878, PR #5953).
+- Plugin-result identity lookups no longer scan the device table
+  (PR #6028).
+- The seeded Bumblebee catalog source advances to the current
+  upstream pin (PR #5939).
+- Config instance delivery is tracked and invalidates dependent
+  agent configs (PR #5948).
+
+**Ingestion and StarRocks**
+
+- Stream Load treats a stopping node as admission unavailable,
+  retries compute-node transport failures, and reloads an unresolved
+  label instead of only polling it (PR #5830, PR #5831, PR #5876).
+- Retained plugin results skip rollup rebuilds on commit and do not
+  rerun handlers for a redelivery that already committed. A result
+  that times out three times is quarantined (PR #5923, PR #5999,
+  PR #6030).
+- Gateways deliver buffered statuses outside the buffer process, and
+  status reservations no longer wait on admission lanes (PR #5891,
+  PR #5901).
+- The cluster coordinator tolerates slow lock heartbeats, and the
+  gateway's runtime metrics publish waits 5 s (PR #5896, PR #5837).
+- Continuous aggregate refresh windows stay inside raw source
+  retention (PR #5863).
+
+**Flows and threat intel**
+
+- Bucketed SRQL flow charts spread each flow's volume across its
+  interval instead of booking it at the end time (PR #5974,
+  PR #5992).
+- Threat Intel dashboard metrics open paginated investigation views,
+  and Attributed Flows rows show current IOC matches with an IOC
+  filter (PR #5927, PR #5985, PR #5907).
+- OTX retrohunt can run daily or weekly from Threat Intel settings
+  (PR #5909).
+- The NetFlow traffic chart stays readable when one bucket is an
+  outlier (PR #5915).
+- Syslog lines whose message starts with a timestamp no longer use it
+  as the host name, and GeoIP downloads no longer clobber each other
+  (PR #5898, PR #5900).
+
+**Web UI**
+
+- `/services` loads asynchronously; plugin state reconcile moved to
+  a core job (PR #5906).
+- Filtered Atlas topology stays visible while panning and on
+  partially matching aggregates (PR #5869, PR #5880).
+- Agents have an editable display name and description (PR #5931).
+- The add-on fleet flags ScaLibr scans from producers older than
+  0.1.6 (PR #6026).
+- Dashboard charts keep traffic counters within the series cap, and
+  RDP WebRTC viewers receive server ICE candidates (PR #5936,
+  PR #5867).
+
+**Cameras**
+
+- Groundwork for recording and archive storage: ingest ownership, a
+  local recording spool, archive bindings, upload intents and
+  verified uploads, qualification receipts and a stop-only recording
+  control. Recording stays disabled, and the Helm `mediaStorage` and
+  `archiveStorage` components are off by default (PR #5950,
+  PR #5952, PR #5954, PR #5955, PR #5960, PR #5966, PR #5973,
+  PR #5979, PR #5983, PR #5989, PR #5996, PR #6000, PR #6004,
+  PR #6007).
+- A normal viewer disconnect no longer logs relay errors (PR #5860).
+
+**Core and agents**
+
+- Proxmox console config drops unresolvable targets per item and
+  names a missing target device (PR #5908, PR #5872).
+- Sweeps with nothing to scan log once, agents log fewer repeated
+  SNMP and missing sweep config messages, and transient push
+  failures log at warning (PR #5941, PR #5897, PR #5890).
+- SNMP compilation waits for the database, anomaly alert liveness
+  retries a transient failure once, and web-ng uses the same
+  `net_ticktime` as core (PR #5856, PR #5894, PR #5922).
+- An advisory feed reprojection no longer reports an inert skip
+  guard (PR #5865).
+
+## Dependencies
+
+- Rust: rustls-webpki 0.103.16, tokio 1.54.1, crypto-bigint,
+  ctutils, rquickjs 0.14, deep_causality 0.19.0, deep_causality_core
+  0.14.0 and redis 1.8.0. CI now audits every Cargo.lock (PR #5864,
+  PR #5885, PR #5982, PR #5990, PR #5994, PR #5597, PR #5596,
+  PR #6017).
+- Go: nats.go 1.54.0, nats-server 2.15.1, golang.org/x/net 0.61.0,
+  klauspost/compress 1.20.3, gortsplib 5.6.7, mediacommon 2.9.6,
+  pion/rtcp 1.2.20, osv-scalibr 0.5.3 and rules_go 0.65.0 (PR #4884,
+  PR #6018, PR #5589, PR #5585, PR #6014, PR #5590, PR #6015,
+  PR #6013, PR #6016).
+- Elixir: plug_crypto 2.2.1 rejects malformed LiveView tokens
+  (PR #5961).
+- JavaScript: patched web-ng asset, docs and demo kit locks,
+  Playwright 1.64.1, vitest 4.1.12 and Node 22.23.4 for Bazel. The
+  vite 8.3.4 asset bump was reverted (PR #5887, PR #5889, PR #5895,
+  PR #5892, PR #5882, PR #5853, PR #5854, PR #5855, PR #5851,
+  PR #5857).
+- `@carverauto/serviceradar-cli` 0.2.2 and
+  `@carverauto/create-dashboard` 0.1.2 ship patched dependencies
+  (PR #5881, PR #5884, PR #5852, PR #5888, PR #5928).
+
+## Docs and CI
+
+- BazelCI runs unit, core integration and web-ng database actions
+  in parallel, lint uses shallow checkouts, and ExUnit loads test
+  files in parallel (PR #5862, PR #5879, PR #5886, PR #5858).
+- The native add-on version gate fails closed, and automatic gate
+  commits cannot change migrations or Helm values (PR #5916,
+  PR #5935).
+- Go lint suppressions were removed by restructuring the code
+  (PR #5902, PR #5905, PR #5912, PR #5917, PR #5926).
+- The README describes the StarRocks warehouse and Atlas, and the
+  docs map cards are links (PR #5832, PR #5846).
+- Integration test flakes were fixed at their causes, and an
+  orphaned, unbuilt SRQL NIF copy was removed (PR #5861, PR #5870,
+  PR #5903, PR #5904, PR #5893).
+
 # Unreleased
 
 ## Upgrade Notes
