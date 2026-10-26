@@ -16,6 +16,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   Everything here goes through the existing `ServiceRadar.Plugins.Addon*` Ash
   resources (scoped reads, same authorizers as the rest of web-ng) plus the
   `ServiceRadar.Inventory.EndpointInventoryScan` resource for collector add-ons.
+  A current scan also adds a `scalibr-endpoint-inventory` row for an agent with
+  no assignment and no status when `stale_scanner_producer?/1` is true.
   No new writes and no bypass of the resource layer.
   """
 
@@ -675,7 +677,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         trimmed -> "scanner_producer_version #{trimmed} (< #{@min_fixed_scalibr_producer_version})"
       end
 
-    "#{subject} has the broken package-set hash; upgrade the scalibr add-on to #{@min_fixed_scalibr_addon_version} or later"
+    "#{subject} has the broken package-set hash; " <>
+      "upgrade the scalibr add-on to #{@min_fixed_scalibr_addon_version} or later"
   end
 
   defp merge_degradation_reason(nil, stale), do: stale

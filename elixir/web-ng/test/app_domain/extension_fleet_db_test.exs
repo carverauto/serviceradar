@@ -200,7 +200,7 @@ defmodule ServiceRadarWebNG.ExtensionFleetDbTest do
              SRQL.query("in:addon_status addon_id:#{addon_id} state:unhealthy", %{scope: scope})
   end
 
-  test "in:addon_fleet surfaces stale scalibr scanner_producer_version (< 0.1.6) as action_required with 0.1.9 upgrade fix",
+  test "in:addon_fleet flags scanner_producer_version < 0.1.6 with a 0.1.9 upgrade",
        %{scope: scope} do
     now = DateTime.utc_now()
     unique = System.unique_integer([:positive])
