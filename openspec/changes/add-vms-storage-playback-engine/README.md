@@ -16,6 +16,13 @@ index under current ownership. Media verification alone is not archive
 availability. Keep the existing one-shot media command; completion is a separate
 bounded command and never rearms an attempted object operation.
 
+The implementation is present in this branch. Its combined remote suite passed
+462 targets, with two Swift platform skips. Focused storage validation executed
+42 cases, including the reproduced queued-ingress deadline regression. The
+published-head guarded Core/Web database workflows remain required; neither
+compilation nor these unit/protocol results close the manifest/index tasks.
+See [publication validation](validation.md#archive-publication-prepublication-validation).
+
 [Registration #6000](https://github.com/carverauto/serviceradar/pull/6000) and
 [spool identity #6004](https://github.com/carverauto/serviceradar/pull/6004) are
 merged prerequisites. Registration returns an immutable unqualified binding;
@@ -84,10 +91,11 @@ runtime or live acceptance tasks.
 Start with [tasks.md](tasks.md), [archive publication](archive-publication.md), [media upload](media-upload.md),
 [spool lifetime](spool-lifetime.md) and [Cloud ownership](cloud-control-plane.md).
 The media, spool and registration prerequisites are merged and their final
-published-head database gates passed. Implement independent init consumption,
-verified recovery-manifest publication and a minimal fenced block index by
-extending the existing [intent](upload-intent.md) and [dispatch](upload-dispatch.md)
-owners. Preserve the existing manifest wire format and golden bytes.
+published-head database gates passed. The archive-publication implementation
+extends the existing [intent](upload-intent.md) and [dispatch](upload-dispatch.md)
+owners and preserves the manifest wire format and golden bytes. Finish its
+no-mistakes review and exact published-head guarded database validation before
+closing the corresponding tasks or beginning the next runtime checkpoint.
 
 Keep one isolated credential-holding workload with fixed installed purposes,
 independent purpose authority and one global admission slot before request

@@ -921,3 +921,54 @@ It is synthetic transport and persistence evidence, not deployed-camera or live
 provider qualification. Recovery manifests, archive-index publication, playback,
 multipart reconciliation, full restart acceptance and hosted enablement remain
 open. Recording remains disabled and no local files were reclaimed.
+
+## Archive publication prepublication validation
+
+Combined source head `eac6fbea8753cd93a1fdfc55e8b7667dace5d6a2` passed
+[`make test` on RBE](https://carverauto.buildbuddy.io/invocation/518cd02a-7fd9-4ed5-af6f-4e9ccf0956d7):
+462 targets passed, with 64 executed and 398 cached; only the two Swift platform
+targets were skipped. This includes the storage owner, recording/RTSP tests,
+Web unit route matrices, quality, test registration, Helm migration version
+and multiarchitecture image checks. It excludes guarded database execution.
+
+The [focused Core pass](https://carverauto.buildbuddy.io/invocation/ac5741f3-90b9-4480-8387-3be00d62e745)
+executed five targets successfully: the owning Core/CoreElx unit targets,
+both quality targets and the heavy-gate registration contract. Core reported
+1046 tests, zero failures and one skipped, with 569 excluded; registration
+executed 65 cases. CoreElx passed, but its detailed stdout exceeded Bazel's
+display cap, so no per-case count is claimed for that target. The migration
+and four source snapshots were produced by the declared remote Ash generator.
+
+The [focused storage pass](https://carverauto.buildbuddy.io/invocation/4eeed566-7b54-42d2-83df-d3a66c0a1161)
+executed all 42 cases with zero failures and passed quality. Every original
+33-case assertion remains. Two explicit negative checks preceded that result:
+
+- [Removing the shared storage-identity comparison](https://carverauto.buildbuddy.io/invocation/5d94eb02-3ff9-44f6-b80b-29ce1b3ff766)
+  made exactly the intended configuration rejection case fail. The original
+  source was restored byte-for-byte before the final run.
+- [Queued ingress exceeded its configured budget](https://carverauto.buildbuddy.io/invocation/f60ba7e5-a317-457c-bd11-b4f706495bfa)
+  reproduced a real failure: Core preparation/grant could begin after the
+  one-second installed limit. Starting that limit at ingress entry fixed the
+  defect; the final 42-case run passed without relaxing its assertion or limit.
+
+Independent review of the completion command, private routes, proof joins,
+locking and immutable schema found no remaining production defect. The joined
+Web owner retains both original media cases and adds real publication plus
+post-stop recovery without configuration or spool. Its expected manifest bytes
+are independent literal canonical JSON, and its provider checks committed
+grants through another database connection. These cases are not recorded as
+executed yet.
+
+The declared Core serial-6 and Web shard-0 executables also built successfully
+with `bazel build -c opt --config=remote --//build:enable_integration_tests`.
+The initial command omitted that flag and correctly refused both incompatible
+targets before building them. The corrected build exited zero; it did not
+execute a database test, create a fixture or establish a lifecycle result.
+
+At this source head, the Core archive integration module remains one module
+and routes to `integration_tests_serial_6`; the joined Web cases route to
+`networks_live_db_test_0`. Recompute routing after any rebase. Published-head
+Core and Web execution, connection observation, teardown and fixture-generation
+lease release remain mandatory. Until those gates pass, keep the manifest/index
+tasks open. No live provider, camera deployment, hosted readiness, playback,
+multipart reconciliation or local reclamation is established by these checks.

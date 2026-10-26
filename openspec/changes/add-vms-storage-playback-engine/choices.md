@@ -1418,3 +1418,28 @@ version-one bytes or leaving a second compatibility implementation. The plan
 required trusted manifest inputs but did not choose this API split. Verdict:
 sound because callers cannot accidentally treat a manifest as an ordinary
 descriptor-only object. Confidence: high.
+
+### Preserve existing object identity while naming manifest requests separately
+
+When: explicit archive-publication checkpoint.
+
+A previously verified init or media dispatch must still match the bytes and
+identity rules that created it. Manifest requests therefore get their own
+canonical request domain, while existing init/media identity bytes stay intact.
+The plan required immutable original proof consumption but did not prescribe
+this extension point. Verdict: sound because introducing a new object role
+cannot silently reinterpret a retained operation. Confidence: high.
+
+### Refuse unsupported retained version references without rewriting evidence
+
+When: explicit archive-publication checkpoint.
+
+If retained verification contains the literal text `null` as its provider
+version identifier, the older evidence parser accepts it but the existing
+canonical manifest contract rejects it. This checkpoint preserves that contract:
+manifest construction fails and the block remains unavailable. It does not edit
+the old evidence or silently turn that string into an absent version. The plan
+left reconciliation of such older receipts unspecified. Verdict: sound because
+failure remains explicit and canonical bytes stay unchanged; future provider
+qualification/reconciliation must address the original evidence deliberately.
+Confidence: high.
