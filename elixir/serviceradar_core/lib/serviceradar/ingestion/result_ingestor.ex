@@ -20,29 +20,33 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
   @doc false
   @spec process_retained_plugin(map()) :: :ok | {:error, term()}
   def process_retained_plugin(status) when is_map(status) do
-    case PluginResultQuarantine.check_quarantined(status) do
-      {:quarantined, _record} ->
+    attempt = PluginResultQuarantine.identity(status)
+
+    case PluginResultQuarantine.lookup(attempt) do
+      # Repeatedly over budget: acknowledge so the agent drops it.
+      :quarantined ->
         :ok
 
-      :ok ->
+      prior ->
         case handle_plugin_results(status) do
           :ok ->
-            _ = PluginResultQuarantine.record_success(status)
-            :ok
+            clear_attempts(attempt, prior)
 
           # PluginResultIngestor returns the handler-domain error after it has
           # durably committed the corresponding failure marker. Retained delivery
           # may therefore acknowledge this terminal outcome, while persistence
           # failures below remain retryable.
-          {:error, {:plugin_result_handlers_failed, errors}} ->
-            _ = PluginResultQuarantine.record_handler_error(status, errors)
-            :ok
+          {:error, {:plugin_result_handlers_failed, _errors}} ->
+            clear_attempts(attempt, prior)
 
           result ->
             result
         end
     end
   end
+
+  defp clear_attempts(attempt, :attempted), do: PluginResultQuarantine.clear(attempt)
+  defp clear_attempts(_attempt, :none), do: :ok
 
   def process_and_publish(status, opts \\ []) do
     # No per-message log here — hot path. Breadcrumbs come from the OTel span.
