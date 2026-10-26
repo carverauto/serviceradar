@@ -814,8 +814,10 @@ a custom root from `~/.bazelrc` must be passed explicitly. With no flag, the
 tool scans `$XDG_CACHE_HOME/bazel/_bazel_$USER` when `XDG_CACHE_HOME` is set,
 and the macOS and Linux defaults above when those directories exist. A base
 is stale only when the workspace path is gone, the linked worktree's gitdir
-is gone, a readable gitdir is not a repository, or a successful `git worktree
-list --porcelain` of the backing repo omits that worktree. An unreadable
+is gone, a readable gitdir has neither HEAD nor commondir, or a successful
+`git worktree list --porcelain` of the backing repo omits that worktree.
+Git's "not a git repository" is not enough while HEAD or commondir is still
+present, including when HEAD, objects, or refs cannot be read. An unreadable
 workspace or gitdir, and any other stat or git failure, keeps the base. A
 live workspace or a running Bazel server is never deleted, and `--apply`
 classifies again immediately before the delete, so it stays safe while other

@@ -573,6 +573,79 @@ func TestDefaultRootsIncludesXDGCacheHome(t *testing.T) {
 	}
 }
 
+func TestApplyKeepsRegistrationWhenGitSaysNotARepo(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+
+	cases := []struct {
+		name   string
+		target func(t *testing.T, repo, worktree string) string
+	}{
+		{
+			name: "gitdir HEAD",
+			target: func(t *testing.T, _, worktree string) string {
+				return filepath.Join(worktreeGitdir(t, worktree), "HEAD")
+			},
+		},
+		{
+			name: "common objects",
+			target: func(_ *testing.T, repo, _ string) string {
+				return filepath.Join(repo, ".git", "objects")
+			},
+		},
+		{
+			name: "common refs",
+			target: func(_ *testing.T, repo, _ string) string {
+				return filepath.Join(repo, ".git", "refs")
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			repo, worktree := realLinkedWorktree(t)
+			path := tc.target(t, repo, worktree)
+			denyPath(t, path)
+
+			if !gitReportsNotARepository(worktree) {
+				t.Skip("git did not report not a git repository for " + path)
+			}
+
+			root := t.TempDir()
+			base := makeBase(t, root, "base", worktree)
+			assertApplyKeeps(t, root, base)
+		})
+	}
+}
+
+func denyPath(t *testing.T, path string) {
+	t.Helper()
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	perm := info.Mode().Perm()
+	t.Cleanup(func() { _ = os.Chmod(path, perm) })
+
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func gitReportsNotARepository(workspace string) bool {
+	cmd := exec.Command("git", "-C", workspace, "worktree", "list", "--porcelain")
+	cmd.Env = withoutEnv(os.Environ(), "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY")
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return false
+	}
+
+	return strings.Contains(strings.ToLower(string(out)), "not a git repository")
+}
+
 func TestClassifyRealGitMissingRepositoryIsStale(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")

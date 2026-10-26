@@ -4,7 +4,7 @@
 // gets its own multi-gigabyte base under the output user root. Removing the
 // worktree does not remove the base. A base is stale only when its workspace
 // is gone: the path does not exist, the linked worktree's gitdir does not
-// exist, a readable gitdir is not a repository, or a successful
+// exist, a readable gitdir has neither HEAD nor commondir, or a successful
 // `git worktree list --porcelain` omits it. That list is taken with
 // GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, and GIT_OBJECT_DIRECTORY cleared,
 // so an inherited environment cannot point git at another repository.
@@ -147,7 +147,7 @@ func classify(b Base, p probe) (Verdict, string) {
 
 	registered, listErr := p.worktreePaths(b.Workspace)
 	if listErr != nil {
-		if worktreeRegistrationGone(listErr) {
+		if worktreeRegistrationGone(listErr) && !gitdirRegistrationPresent(gitPath) {
 			return VerdictStale, "worktree registration no longer exists: " + errText(listErr)
 		}
 
@@ -161,13 +161,10 @@ func classify(b Base, p probe) (Verdict, string) {
 	return VerdictKeep, "workspace exists"
 }
 
-// gitdirMissing reports whether a linked worktree's gitdir target is absent.
-// ok is false when the .git file or the target cannot be read, which is not
-// proof that the registration was removed.
-func gitdirMissing(gitFile string) (missing bool, ok bool) {
+func gitdirTarget(gitFile string) (string, bool) {
 	raw, err := os.ReadFile(gitFile)
 	if err != nil {
-		return false, false
+		return "", false
 	}
 
 	var target string
@@ -184,11 +181,23 @@ func gitdirMissing(gitFile string) (missing bool, ok bool) {
 	}
 
 	if target == "" {
-		return false, false
+		return "", false
 	}
 
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(gitFile), target)
+	}
+
+	return target, true
+}
+
+// gitdirMissing reports whether a linked worktree's gitdir target is absent.
+// ok is false when the .git file or the target cannot be read, which is not
+// proof that the registration was removed.
+func gitdirMissing(gitFile string) (missing bool, ok bool) {
+	target, ok := gitdirTarget(gitFile)
+	if !ok {
+		return false, false
 	}
 
 	info, err := os.Stat(target)
@@ -211,10 +220,23 @@ func gitdirMissing(gitFile string) (missing bool, ok bool) {
 	return false, true
 }
 
-// worktreeRegistrationGone is true only when git itself reports that a
-// readable gitdir is not a repository. Other failures (git missing,
-// safe.directory, a non-zero exit while the gitdir still exists) are not
-// proof the worktree is gone.
+func gitdirRegistrationPresent(gitFile string) bool {
+	target, ok := gitdirTarget(gitFile)
+	if !ok {
+		return false
+	}
+
+	for _, name := range []string{"HEAD", "commondir"} {
+		if _, err := os.Stat(filepath.Join(target, name)); err == nil {
+			return true
+		}
+	}
+
+	return false
+}
+
+// worktreeRegistrationGone is true only when git reports that the path is
+// not a repository. Other failures are not proof the worktree is gone.
 func worktreeRegistrationGone(err error) bool {
 	if err == nil {
 		return false
