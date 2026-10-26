@@ -243,6 +243,34 @@ the MACs identify.
   leased to another live device, the restore clears it and the device moves
   to the polled address; the other device keeps its address.
 
+### Hypervisor nodes
+
+Hypervisor enrichment resolves a node, in order, by its integration id, then by
+its own NIC MACs, then by the device fingerprinted at its address. The Proxmox
+API reports no node NIC MACs, so the last step is how a Proxmox node finds the
+record discovery already holds for it. That record must meet four conditions:
+
+- it holds the address the node's authenticated API reports, in the result's
+  partition;
+- the mapper fingerprinted a PVE web UI there (`proxmox_candidate_evidence`
+  `pve_web_fingerprint`, which only the mapper writes);
+- its fingerprinted title and its MACs do not contradict the node;
+- it holds no hypervisor integration id but this node's.
+
+This step never uses the node name, because two clusters can share node names.
+It never binds a node to a device that holds another node's integration id, so a
+node of a second cluster at an address the first cluster's node already holds
+does not bind there. The sync's hostname-agreement rule (above) is a separate
+path. When two nodes of one result report the same address, neither node
+resolves through it.
+
+A node found this way that already has a record holding nothing but its own
+integration ids merges that record into the fingerprinted device. The record has
+no agent, and the merge is audited in `merge_audit` with reason
+`hypervisor_node_candidate_match`. Such a record is left from before the node's
+address resolved; its address was dropped because a declarative source never
+displaces a live holder. A record holding anything else is left alone.
+
 ### IP aliases
 
 An IP alias records that a device was seen at an address. Syncs, the mapper

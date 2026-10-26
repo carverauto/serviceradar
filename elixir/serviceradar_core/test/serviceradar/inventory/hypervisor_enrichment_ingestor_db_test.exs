@@ -1551,6 +1551,188 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
     assert count_statements(ingest) - without_awx < 20
   end
 
+  describe "a Proxmox node and the device fingerprinted at its address" do
+    test "the node's identity lands on that device, not on a second record", %{actor: actor} do
+      suffix = System.unique_integer([:positive])
+      node = "pve-fp-#{suffix}"
+      ip = "192.0.2.#{rem(suffix, 200) + 20}"
+      candidate_uid = create_node_candidate!(actor, node, ip, suffix)
+      scope = node_source_scope()
+
+      assert :ok = ingest_node!(actor, scope, "cluster-fp-#{suffix}", node, ip)
+
+      host_ref = node_host_ref(scope, "cluster-fp-#{suffix}", node)
+
+      assert [[^candidate_uid, ^ip]] = live_devices_holding(host_ref)
+      assert [[^candidate_uid]] = host_device_uids(host_ref)
+    end
+
+    test "an address-less record already holding the node's identity merges into that device",
+         %{actor: actor} do
+      suffix = System.unique_integer([:positive])
+      node = "pve-shell-#{suffix}"
+      cluster = "cluster-shell-#{suffix}"
+      ip = "192.0.2.#{rem(suffix, 200) + 20}"
+      candidate_uid = create_node_candidate!(actor, node, ip, suffix)
+      scope = node_source_scope()
+      host_ref = node_host_ref(scope, cluster, node)
+      shell_uid = "sr:" <> Ecto.UUID.generate()
+
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: shell_uid,
+        type: "Hypervisor",
+        type_id: 99,
+        hostname: node,
+        discovery_sources: ["hypervisor_enrichment"],
+        metadata: %{"integration_id" => host_ref, "hypervisor_provider" => "proxmox"}
+      })
+      |> Ash.create!(actor: actor)
+
+      register_identifier!(actor, shell_uid, :integration_id, host_ref)
+
+      assert :ok = ingest_node!(actor, scope, cluster, node, ip)
+
+      assert [[^candidate_uid, ^ip]] = live_devices_holding(host_ref)
+      assert [[^candidate_uid]] = host_device_uids(host_ref)
+
+      assert [["hypervisor_node_candidate_match"]] =
+               Repo.query!(
+                 """
+                 SELECT reason FROM platform.merge_audit
+                 WHERE from_device_id = $1 AND to_device_id = $2
+                 """,
+                 [shell_uid, candidate_uid]
+               ).rows
+    end
+
+    test "a node of another cluster, named alike, never binds a device the first cluster's node holds",
+         %{actor: actor} do
+      suffix = System.unique_integer([:positive])
+      node = "pve-shared-#{suffix}"
+      ip = "198.51.100.#{rem(suffix, 200) + 20}"
+      candidate_uid = create_node_candidate!(actor, node, ip, suffix)
+      first = node_source_scope()
+      second = node_source_scope()
+
+      assert :ok = ingest_node!(actor, first, "cluster-a-#{suffix}", node, ip)
+      # The second cluster reports its node, named alike, at the same address.
+      assert :ok = ingest_node!(actor, second, "cluster-b-#{suffix}", node, ip)
+
+      first_ref = node_host_ref(first, "cluster-a-#{suffix}", node)
+      second_ref = node_host_ref(second, "cluster-b-#{suffix}", node)
+
+      assert [[^candidate_uid, ^ip]] = live_devices_holding(first_ref)
+      assert [[other_uid, nil]] = live_devices_holding(second_ref)
+      refute other_uid == candidate_uid
+
+      assert [] ==
+               Repo.query!(
+                 """
+                 SELECT 1 FROM platform.merge_audit
+                 WHERE $1 IN (from_device_id, to_device_id)
+                 """,
+                 [candidate_uid]
+               ).rows
+    end
+  end
+
+  defp node_source_scope do
+    %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+  end
+
+  defp node_host_ref(scope, cluster, node) do
+    {:ok, identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        scope.integration_id,
+        scope.controller_id,
+        cluster,
+        "node",
+        node
+      )
+
+    identity.provider_ref
+  end
+
+  # A record of the node the mapper found: a PVE web UI titled after the node answered at its
+  # address. Its hostname is the address's DNS name, which never agrees with the node name.
+  defp create_node_candidate!(actor, node, ip, suffix) do
+    uid = "sr:" <> Ecto.UUID.generate()
+    octet = suffix |> rem(256) |> Integer.to_string(16) |> String.pad_leading(2, "0")
+
+    Device
+    |> Ash.Changeset.for_create(:create, %{
+      uid: uid,
+      ip: ip,
+      type: "Hypervisor",
+      type_id: 99,
+      hostname: "#{node}.example.com",
+      discovery_sources: ["mapper", "sweep"],
+      metadata: %{
+        "proxmox_candidate" => "true",
+        "proxmox_candidate_evidence" => "pve_web_fingerprint",
+        "proxmox_candidate_title" => node
+      }
+    })
+    |> Ash.create!(actor: actor)
+
+    register_identifier!(actor, uid, :mac, "00005E0053" <> String.upcase(octet))
+    uid
+  end
+
+  defp register_identifier!(actor, uid, type, value) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:register, %{
+      device_id: uid,
+      identifier_type: type,
+      identifier_value: value,
+      partition: "default",
+      source: "test"
+    })
+    |> Ash.create!(actor: actor)
+  end
+
+  defp ingest_node!(actor, scope, cluster, node, ip) do
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => cluster}],
+            "nodes" => [%{"node" => node, "status" => "online", "ip" => ip}],
+            "guests" => []
+          }
+        ]
+      }
+    }
+
+    ProxmoxEnrichmentIngestor.ingest(payload, %{}, actor: actor, source_scope: scope)
+  end
+
+  defp live_devices_holding(integration_id) do
+    Repo.query!(
+      """
+      SELECT d.uid, d.ip
+      FROM platform.device_identifiers di
+      JOIN platform.ocsf_devices d ON d.uid = di.device_id AND d.deleted_at IS NULL
+      WHERE di.identifier_type = 'integration_id' AND di.identifier_value = $1
+      """,
+      [integration_id]
+    ).rows
+  end
+
+  defp host_device_uids(host_ref) do
+    Repo.query!(
+      "SELECT device_uid FROM platform.virtualization_hosts WHERE provider_ref = $1",
+      [host_ref]
+    ).rows
+  end
+
   @doc false
   def count_statement(_event, _measurements, _metadata, {test_pid, counter}) do
     if self() == test_pid or test_pid in Process.get(:"$callers", []) do
