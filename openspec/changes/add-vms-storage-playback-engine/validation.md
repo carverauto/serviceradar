@@ -803,3 +803,14 @@ documents. This staging rebase keeps that attestation and does not claim a new
 test run. No runtime behavior or test assertion changed during this recovery.
 Fresh no-mistakes validation and the published-head database gate above remain
 required.
+
+The synthetic storage HTTP fixture now leaves its task supervisors to ExUnit.
+`//elixir/serviceradar_core_elx:camera_storage_test` executed on RBE in
+[2fb8c5b0](https://carverauto.buildbuddy.io/invocation/2fb8c5b0-bda6-42b2-afad-72388ac67f1d):
+ExUnit reported 16 tests and 0 failures, including provider identity,
+wrong-identity verification, and the provider-body deadline. Bazel counted one
+executed test target. That run is the fixture owner on a disposable remote
+filesystem. It is not the eight guarded `RecordingWorkerIntegrationTest` cases,
+and it is not a deployed camera. Those database cases still require the
+published-head Core lane, full selected Core and Web lifecycles, teardown, and
+fixture-generation lease release.

@@ -1175,3 +1175,21 @@ filesystem I/O can leave bytes on disk but grants no new spool receipt; it does
 not undo writes or delete evidence. Future playback can reuse the same
 local-handle rule, while portable descriptors and manifest bytes remain free of
 paths, device/inode identifiers and this local filesystem handle.
+
+### Let ExUnit own synthetic storage fixture supervisors
+
+When: spool lifetime checkpoint, after the media-lane on_exit failure. Verdict: sound, high confidence.
+
+The synthetic HTTPS and CONNECT fixtures accept sockets on task supervisors.
+Linking those supervisors to the test process and stopping them again from
+`on_exit` raced ExUnit 1.19.4: the test process could already be gone, and
+`GenServer.stop` then exited `noproc` after the assertions had passed. The
+provider-identity and ingress-deadline cases failed this way on the media
+lane. The plan did not specify fixture process ownership. Each listener now
+starts its supervisor with `start_supervised!/2`, a unique id, and
+`restart: :temporary`, and the exit callback only closes that listener.
+ExUnit stops the tree, including accepted socket and tunnel tasks, before the
+callback and reports a shutdown timeout if a child does not stop. The public
+storage errors, request checks, and production recorder path stay unchanged.
+Guarded recorder database cases and deployed-camera proof stay on their own
+lanes.
