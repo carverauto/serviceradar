@@ -36,8 +36,9 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
       marked record also releases every other identifier it holds (an address or MAC AWX gave
       it) to the archive, with a decision each, so that no lookup still finds a record awaiting
       deletion and the device that really has them can register them;
-    * otherwise removes only its AWX source: `awx` leaves `discovery_sources`, and
-      `metadata.awx` and an AWX `metadata.integration_id` are dropped.
+    * otherwise removes only its AWX source: `awx` leaves `discovery_sources`,
+      `metadata.awx` is dropped, and an AWX `metadata.integration_id` drops with
+      `metadata.legacy_integration_ids`.
 
   A current record keeps its AWX source and loses only the v2 ids of hosts no longer reported.
 

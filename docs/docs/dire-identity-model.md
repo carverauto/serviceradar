@@ -348,12 +348,15 @@ for dry-run review, execution gates, and device/source allowlists.
   or when its host is reported but another record holds the host's v2 id (a record from the
   pre-v2 `awx:host:<name>` identity). Its AWX integration ids move to `device_identifier_archive`
   (reason `source_absent`) with a `source_id_retired` decision per id. A record AWX alone reported
-  is marked `source_retired` (see below) and also archives every other identifier it holds (an
-  address or MAC AWX gave it); a record with another source loses only its AWX
-  source (`awx` leaves `discovery_sources`, and `metadata.awx` and an AWX
-  `metadata.integration_id` are dropped). An id retires only once AWX last reported it at least
-  `source_retirement_min_absence_hours` ago (a record with no AWX id row is timed by its
-  host's membership, which another source cannot refresh), and the pass honours `source_retirement_enabled`,
+  is marked `source_retired` when it is retired-only (see below), and that mark also archives
+  every other identifier it holds (an address or MAC AWX gave it). An absent or superseded
+  record that is not marked loses only its AWX source (`awx` leaves `discovery_sources`,
+  `metadata.awx` is dropped, and an AWX `metadata.integration_id` drops with
+  `metadata.legacy_integration_ids`). An id retires only once AWX last reported it at least
+  `source_retirement_min_absence_hours` ago: the later of the identifier's `last_seen` and, for
+  an absent host, the membership `last_seen_at`. A record with no AWX id row uses that
+  membership time when it has one (another source cannot refresh it), and its `last_seen_time`
+  only when it does not. The pass honours `source_retirement_enabled`,
   `source_retirement_max_fraction` and the override, judged against the controller's linked
   records. A first pass over a controller whose records are mostly stale is therefore refused
   until the override admits it. Hypervisor enrichment never adopts a `source_retired` record as a

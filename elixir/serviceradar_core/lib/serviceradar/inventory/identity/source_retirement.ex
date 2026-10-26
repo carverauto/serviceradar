@@ -31,10 +31,12 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   `ServiceRadar.Inventory.SourceRetiredExpiry` soft-deletes it after
   `source_retired_grace_days` unless an identifier registered on it first clears the mark. Each
   `source_id_retired` decision records whether its retirement marked the record. Marking
-  happens only here, when an id of the record's own retires: a record an operator restores is
-  not marked again until another of its ids retires. The one exception is the remediation's
-  class 5 (design D11, `mark_unmarked_retired/2`): a retired-only record whose ids retired under
-  a release that did not mark, which is marked once unless it was revived since.
+  happens here when an id of the record's own retires: a record an operator restores is
+  not marked again by this pass until another of its ids retires. Inside this module, the one
+  exception is the remediation's class 5 (design D11, `mark_unmarked_retired/2`): a retired-only
+  record whose ids retired under a release that did not mark, which is marked once unless it
+  was revived since. `ServiceRadar.Inventory.Identity.AwxSourceRetirement` may mark an AWX-only
+  record again while that record stays absent and retired-only.
 
   Absence is counted when an exact collection activates (`record_collection/1`, inside the
   activation transaction). Each identifier of the instance's scope that a live record holds
