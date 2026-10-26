@@ -8,18 +8,28 @@ add-ons and Wasm plugins for the agent fleet.
 
 ## Upgrade Notes
 
-- Device availability now progresses without an operator step. Core
-  moves from `legacy` to `shadow`, then cuts over to the merged
-  resolver once readiness holds: the capture backfill has finished,
-  a full shadow resolve and a run of every active sweep group have
-  completed since entering shadow, the invalidation backlog is at
-  most 500, and the divergence report shows no policy violations.
-  After cutover the device badge, sort and Available count read one
-  merged value. An install that is not ready after 24 hours stays in
-  shadow and raises an `availability_cutover_readiness` health
-  warning. To hold a mode, use the Availability Sources settings
-  page or pin Helm `core.availability.modeControl` to `hold_legacy`
-  or `hold_shadow` (PR #5984, PR #5997).
+- Device availability now progresses without an operator command.
+  Core moves from `legacy` to `shadow` shortly after the release
+  runs, then cuts over to the merged resolver once readiness holds:
+  the capture backfill has finished, a full shadow resolve and a run
+  of every active sweep group have completed since entering shadow,
+  the invalidation backlog is at most 500, and the divergence report
+  shows no policy violations. After cutover the device badge, sort
+  and Available count read one merged value. An install that is not
+  ready after 24 hours stays in shadow and raises an
+  `availability_cutover_readiness` health warning (PR #5984,
+  PR #5997).
+- After cutover, devices with no availability evidence from any
+  source show Unknown instead of Offline. `hold_shadow` stays in or
+  returns to shadow and never cuts over, and `hold_legacy` stays in
+  or rolls back to legacy and restores the previous values. The
+  control is on Settings > Network Services > Availability Sources.
+  GitOps installs can pin it with Helm
+  `core.availability.modeControl`, which the page then shows
+  read-only (PR #5984, PR #5997).
+- Armis northbound sources keep pushing the legacy value until
+  merged availability is adopted for each source. See
+  `docs/availability-cutover-runbook.md` (PR #5980).
 - Wasm plugin assignments and target policies carry an update
   policy. A migration marks existing rows `pinned`, then a backfill
   job moves manual assignments and target policies of signed
@@ -47,10 +57,13 @@ add-ons and Wasm plugins for the agent fleet.
   coordinator (PR #6008).
 - Alert evaluation runs on core only. web-ng's `alerts` queue
   defaults to 0 (`webNg.obanQueues.alerts`), and a zero limit now
-  really disables the queue. `core.alertEvaluation.mode` defaults to
-  auto: fresh installs start `active`, and upgrades from earlier
-  charts stay `prepared` until the mode is set (PR #5833, PR #5844,
-  PR #5972).
+  really disables the queue. `core.alertEvaluation.mode` is now empty
+  by default. An empty mode resolves to `active` on a fresh Helm
+  install or when the chart's install-marker ConfigMap is present,
+  and to `prepared` otherwise, including upgrades from earlier charts
+  and renderers such as Argo CD that report an upgrade and cannot
+  look up the marker. Set the mode explicitly to change it (PR #5833,
+  PR #5844, PR #5972).
 - CNPG telemetry retention set in Helm for OTel metrics, metric
   points, OCSF events, raw host metrics and capacity forecasts now
   reaches the nightly retention worker, which previously restored the
@@ -283,32 +296,6 @@ add-ons and Wasm plugins for the agent fleet.
 - Integration test flakes were fixed at their causes, and an
   orphaned, unbuilt SRQL NIF copy was removed (PR #5861, PR #5870,
   PR #5903, PR #5904, PR #5893).
-
-# Unreleased
-
-## Upgrade Notes
-
-- Merged device availability now rolls out by itself. Core moves
-  from `legacy` to `shadow` within a minute of the release running,
-  and runs the cutover once its readiness checks pass: the capture
-  backfill is done, every device has been resolved in shadow, the
-  resolution backlog is drained, every active sweep group has run
-  since entering shadow, and no negative-control policy violation is
-  reported. No operator command is needed. A fresh install cuts over
-  within minutes. If the checks still fail 24 hours after entering
-  shadow, core stays in shadow and the core health check
-  `availability_cutover_readiness` names the failing checks.
-- After the cutover, devices with no availability evidence from any
-  source show **Unknown** instead of Offline.
-- To hold or roll back, set the mode control on Settings > Network
-  Services > Availability Sources: `hold_shadow` stays in (or returns
-  to) shadow and never cuts over, and `hold_legacy` stays in (or rolls
-  back to) legacy availability, restoring the previous values. GitOps
-  installs can pin the control with the Helm value
-  `core.availability.modeControl`, which the settings page then shows
-  read-only. Armis northbound sources keep pushing the legacy value
-  until you adopt merged availability for each one. See
-  `docs/availability-cutover-runbook.md`.
 
 # ServiceRadar v1.4.97
 
