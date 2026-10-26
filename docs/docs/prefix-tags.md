@@ -239,8 +239,9 @@ Flow proximity does **not** store geometry on the flow hypertable. Instead:
 
 1. Migration adds a generated `location geography(Point, 4326)` column on
    `platform.ip_geo_enrichment_cache` (from lat/lng) plus a partial GiST index.
-2. SRQL `near:lat,lng,radius` runs `ST_DWithin` against that cache and filters
-   flows by IP membership (src and/or dst).
+2. `near:lat,lng,radius` is defined as PostGIS `ST_DWithin` on that cache's
+   `location` geography. SRQL currently refuses it on flows because the
+   StarRocks 4.1 JDBC catalog cannot read geography.
 
 Writers of the geo cache continue to set `latitude`/`longitude` only; Postgres
 maintains `location`.
