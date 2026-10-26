@@ -108,14 +108,17 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
       assignments
       |> Enum.reject(&is_nil(&1.partition_id))
       |> Enum.group_by(&{&1.partition_id, &1.agent_uid, &1.plugin_id})
-      |> Enum.map(fn {_key, group} ->
-        Enum.max_by(group, &{&1.enabled, DateTime.to_unix(&1.updated_at, :microsecond), &1.id})
-      end)
+      |> Enum.flat_map(fn {_key, group} -> desired_assignments(group) end)
 
     names =
       packages
       |> Enum.group_by(& &1.name)
       |> Map.new(fn {name, group} -> {name, MapSet.new(group, & &1.plugin_id)} end)
+
+    enabled_ids =
+      assignments
+      |> Enum.filter(& &1.enabled)
+      |> Enum.group_by(&{&1.partition_id, &1.agent_uid, &1.plugin_id}, & &1.id)
 
     assigned =
       Enum.map(assignments, fn assignment ->
@@ -129,7 +132,15 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
           |> Enum.filter(&matches_package?(&1, package, names))
           |> winner()
 
-        row(assignment, package, state, now)
+        # Owners of one plugin on an agent share a service state until each
+        # assignment has its own result identity (#6006), so a result another
+        # owner's assignment reported is not drift for this one.
+        siblings =
+          enabled_ids
+          |> Map.get({assignment.partition_id, assignment.agent_uid, assignment.plugin_id}, [])
+          |> List.delete(assignment.id)
+
+        row(assignment, package, state, now, siblings)
       end)
 
     keys = MapSet.new(assignments, &{&1.partition_id, &1.agent_uid, &1.plugin_id})
@@ -141,9 +152,30 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
         is_binary(id) and not MapSet.member?(keys, {state.partition, state.agent_id, id})
       end)
       |> Enum.group_by(&{&1.partition, &1.agent_id, PluginStateContract.state_plugin_id(&1)})
-      |> Enum.map(fn {_key, group} -> row(nil, nil, winner(group), now) end)
+      |> Enum.map(fn {_key, group} -> row(nil, nil, winner(group), now, []) end)
 
     assigned ++ observed_only
+  end
+
+  # One agent's assignments of one plugin: the newest enabled assignment of each
+  # owner (owners of different credential rules coexist, see AssignmentOwner),
+  # or the newest disabled one when none is enabled.
+  defp desired_assignments(group) do
+    [newest | rest] =
+      Enum.sort_by(
+        group,
+        &{&1.enabled, DateTime.to_unix(&1.updated_at, :microsecond), &1.id},
+        :desc
+      )
+
+    rest
+    |> Enum.reduce([newest], fn assignment, kept ->
+      if assignment.enabled and
+           not Enum.any?(kept, &AssignmentOwner.conflict?(&1.policy_id, assignment.policy_id)),
+         do: [assignment | kept],
+         else: kept
+    end)
+    |> Enum.reverse()
   end
 
   @doc """
@@ -453,7 +485,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
   defp winner([]), do: nil
   defp winner(states), do: Enum.max_by(states, &PluginStateContract.state_rank/1)
 
-  defp row(assignment, package, state, now) do
+  defp row(assignment, package, state, now, sibling_assignment_ids) do
     placeholder? = not is_nil(state) and PluginStateContract.placeholder_state?(state)
     reported_at = if state && not placeholder?, do: observed_at(state)
     age = if reported_at, do: max(DateTime.diff(now, reported_at, :second), 0)
@@ -467,7 +499,13 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     {category, reason} = classify(assignment, package, state, reported_at, stale?)
     drift = known_drift(assigned_version, observed_version)
     observed_assignment_id = if reported_at, do: reported_assignment_id(details)
-    assignment_drift = known_drift(if(assignment, do: assignment.id), observed_assignment_id)
+
+    # Another enabled assignment of this plugin, agent, and partition shares
+    # this service state, so its id is not drift.
+    assignment_drift =
+      if observed_assignment_id in sibling_assignment_ids,
+        do: false,
+        else: known_drift(if(assignment, do: assignment.id), observed_assignment_id)
 
     {category, reason} =
       cond do

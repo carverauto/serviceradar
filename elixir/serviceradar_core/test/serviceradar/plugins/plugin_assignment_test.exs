@@ -8,6 +8,7 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.PolicyAssignmentReconciler
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Repo
 
   require Ash.Query
 
@@ -176,6 +177,52 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
              |> Ash.create()
 
     assert Exception.message(error) =~ "plugin is already enabled for this agent"
+  end
+
+  # The unique index is the backstop for NoDuplicateEnabledAssignment, so these
+  # inserts bypass the validation.
+  test "the enabled-assignment index admits one row per credential rule", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    {:ok, package} = create_approved_package(actor, "per-owner-index-#{unique_id}")
+    agent_uid = "agent-per-owner-index-#{unique_id}"
+    rule = &"network-credential-rule:rule-#{&1}-#{unique_id}"
+
+    insert = fn source_key, policy_id ->
+      Repo.query(
+        """
+        INSERT INTO platform.plugin_assignments
+          (agent_uid, plugin_package_id, plugin_id, partition_id, enabled, source,
+           source_key, policy_id)
+        VALUES ($1, $2, $3, 'partition-a', true, $4, $5, $6)
+        """,
+        [
+          agent_uid,
+          Ecto.UUID.dump!(package.id),
+          package.plugin_id,
+          if(policy_id, do: "policy", else: "manual"),
+          source_key,
+          policy_id
+        ],
+        mode: :savepoint
+      )
+    end
+
+    owner_conflict? = fn
+      {:error, %Postgrex.Error{postgres: %{code: :unique_violation, constraint: constraint}}} ->
+        constraint == "plugin_assignments_one_enabled_per_edge_plugin_owner_index"
+
+      _other ->
+        false
+    end
+
+    assert {:ok, _} = insert.("rule-a", rule.("a") <> ":inventory")
+    assert {:ok, _} = insert.("rule-b", rule.("b") <> ":inventory")
+    assert owner_conflict?.(insert.("rule-a-drifted", rule.("a") <> ":inventory_enrichment"))
+
+    assert {:ok, _} = insert.(nil, nil)
+    assert owner_conflict?.(insert.("other-policy", "policy-#{unique_id}"))
   end
 
   test "disabled duplicate assignments are allowed but not active", %{

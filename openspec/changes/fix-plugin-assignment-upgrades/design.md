@@ -1,14 +1,14 @@
 ## Context
-Plugin package versions are separate rows, while agent assignments point at one concrete `plugin_package_id`. Recent single-enabled-assignment enforcement correctly prevents an agent from running two enabled versions of the same logical plugin, but the operator workflow still assumes remove-and-recreate. That workflow is fragile and currently crashes when the delete path returns bare `:ok`.
+Plugin package versions are separate rows, while agent assignments point at one concrete `plugin_package_id`. Per-owner enforcement prevents one owner from holding two enabled assignments of the same logical plugin. Different credential rules may each enable that plugin. The operator workflow still assumes remove-and-recreate. That workflow is fragile and currently crashes when the delete path returns bare `:ok`.
 
 ## Goals / Non-Goals
 - Goals:
   - Make delete assignment behavior crash-free.
   - Provide a first-class assignment upgrade path from one approved package version to another.
-  - Keep the one-enabled-assignment-per-agent/plugin invariant intact.
+  - Keep one enabled assignment per agent, plugin, and owner.
   - Preserve existing assignment configuration when it remains valid for the target version.
 - Non-Goals:
-  - Do not allow multiple enabled versions of one plugin on the same agent.
+  - Do not allow one owner to hold two enabled assignments of one plugin on the same agent.
   - Do not bypass policy-owned assignment rules from the manual package UI.
   - Do not introduce a new plugin package data model unless implementation proves it necessary.
 
@@ -20,7 +20,7 @@ Plugin package versions are separate rows, while agent assignments point at one 
 - Decision: Treat "latest" as the newest approved package version using existing package ordering first, then tighten to semver ordering if current helpers are ambiguous.
   - Why: The UI already lists versions; this change should align with existing package semantics unless tests expose incorrect ordering.
 - Decision: Allow multiple approved package versions for the same logical plugin.
-  - Why: The safety invariant is one enabled assignment per agent/plugin, not one approved package globally. Operators need older approved versions available for explicit rollback or selected-version upgrades.
+  - Why: The safety invariant is one enabled assignment per agent, plugin, and owner, not one approved package globally. Operators need older approved versions available for explicit rollback or selected-version upgrades.
 
 ## Risks / Trade-offs
 - Risk: Target package config schema can require new fields.
