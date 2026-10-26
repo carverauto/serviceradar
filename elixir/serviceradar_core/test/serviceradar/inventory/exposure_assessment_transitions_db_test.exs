@@ -1031,14 +1031,12 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     deadline = deadline || System.monotonic_time(:millisecond) + 5_000
 
     waiting? =
-      Repo.query!(
-        """
-        SELECT 1 FROM pg_locks
-        WHERE relation = 'platform.exposure_delivery_batches'::regclass
-          AND NOT granted
-          AND mode = 'RowExclusiveLock'
-        """
-      ).rows != []
+      Repo.query!("""
+      SELECT 1 FROM pg_locks
+      WHERE relation = 'platform.exposure_delivery_batches'::regclass
+        AND NOT granted
+        AND mode = 'RowExclusiveLock'
+      """).rows != []
 
     cond do
       waiting? ->
