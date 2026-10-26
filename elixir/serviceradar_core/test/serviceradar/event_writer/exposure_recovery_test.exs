@@ -39,6 +39,37 @@ defmodule ServiceRadar.EventWriter.ExposureRecoveryTest do
     end)
   end
 
+  test "a refused deletion leaves the exact retained bytes in place", ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
+      id = Ecto.UUID.generate()
+      entries = [entry(1, "keep")]
+      {:ok, body, hash} = ExposureRecovery.encode(3, id, entries)
+      assert {:ok, position} = ExposureRecovery.retain(3, id, body, hash)
+
+      %{"config" => config} =
+        ExposureBroker.request(conn, "$JS.API.STREAM.INFO.EXPOSURE_RECOVERY", %{})
+
+      updated =
+        ExposureBroker.request(
+          conn,
+          "$JS.API.STREAM.UPDATE.EXPOSURE_RECOVERY",
+          Map.put(config, "deny_delete", true)
+        )
+
+      assert updated["config"]["deny_delete"] == true
+
+      assert {:error, {:exposure_recovery_cleanup, _}} = ExposureRecovery.delete(position)
+
+      assert %{"message" => %{"seq" => ^position, "data" => data}} =
+               ExposureBroker.request(conn, "$JS.API.STREAM.MSG.GET.EXPOSURE_RECOVERY", %{
+                 seq: position
+               })
+
+      assert Base.decode64!(data) == body
+      assert {:ok, ^position, ^entries} = ExposureRecovery.fetch(3, id, hash)
+    end)
+  end
+
   test "a full stream preserves an unfinished batch and cleanup restores progress", ctx do
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
       entries = [entry(1, String.duplicate("x", 510_000))]

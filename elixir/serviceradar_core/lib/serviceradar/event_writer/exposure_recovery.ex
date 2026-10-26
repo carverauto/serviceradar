@@ -105,11 +105,24 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
   end
 
   def delete(position) when is_integer(position) and position > 0 do
-    case request("$JS.API.STREAM.MSG.DELETE.#{@stream}", Jason.encode!(%{seq: position})) do
+    outcome = request("$JS.API.STREAM.MSG.DELETE.#{@stream}", Jason.encode!(%{seq: position}))
+
+    case outcome do
       {:ok, %{"success" => true}} -> :ok
-      {:ok, %{"error" => %{"code" => 404}}} -> :ok
-      {:ok, %{"error" => %{"err_code" => 10_057}}} -> :ok
-      other -> {:error, {:exposure_recovery_cleanup, other}}
+      _ -> confirm_absent(position, outcome)
+    end
+  end
+
+  defp confirm_absent(position, delete_result) do
+    case request("$JS.API.STREAM.MSG.GET.#{@stream}", Jason.encode!(%{seq: position})) do
+      {:ok, %{"error" => %{"err_code" => 10_037}}} ->
+        :ok
+
+      {:ok, %{"message" => %{"seq" => ^position}}} ->
+        {:error, {:exposure_recovery_cleanup, delete_result}}
+
+      other ->
+        {:error, {:exposure_recovery_cleanup, other}}
     end
   end
 
