@@ -71,6 +71,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/serviceradar/integrations/sync_config_generator_test.exs",
     "test/serviceradar/inventory/agent_link_repair_worker_test.exs",
     "test/serviceradar/inventory/availability_source_profile_materializer_test.exs",
+    "test/serviceradar/inventory/awx_host_identity_db_test.exs",
     "test/serviceradar/inventory/bumblebee_ingestor_test.exs",
     "test/serviceradar/inventory/device_facts_test.exs",
     "test/serviceradar/inventory/device_metadata_merge_test.exs",

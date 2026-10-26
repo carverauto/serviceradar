@@ -167,8 +167,11 @@ neither side holds a source-authoritative identifier (`armis_device_id`,
 `netbox_device_id`), with no disagreeing
 hardware serial and no third device claiming either side's identity. It never
 merges two existing devices and never adopts across a source-authoritative
-identifier. When the hostnames agree but adoption is refused, the two stay
-separate devices, the address is decided as above, and the pair is recorded as
+identifier. For an AWX inventory host, host-name agreement only corroborates
+an exact `ansible_host` address match with the device holding that address; it
+is never identity on its own (see [Ansible](./ansible.md)). When the hostnames agree
+but adoption is refused, the two stay separate devices, the address is
+decided as above, and the pair is recorded as
 a `policy_block` identity decision (reason `hostname_agreement_not_identity`),
 which opens a de-duplication task for an operator to merge, mark distinct or
 dismiss.

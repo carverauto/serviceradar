@@ -8,6 +8,12 @@ defmodule ServiceRadar.Inventory.DeviceClaimPolicy do
   that UID is only safe to reuse when the existing device is compatible with the
   asset being ingested. Otherwise the ingestor must create or resolve a separate
   canonical device and link the child asset to that device.
+
+  An inventory record of a host itself (`:host_inventory_record`), such as an
+  automation inventory host whose own network identity matched the device, is
+  not a child asset. The matched device is that host, so it may be reused even
+  when it is agent-managed. The caller owns the corroboration that identifies
+  the host; this policy only decides which devices a claim type may reuse.
   """
 
   alias ServiceRadar.Inventory.Device
@@ -45,6 +51,8 @@ defmodule ServiceRadar.Inventory.DeviceClaimPolicy do
   defp reusable_device?(%Device{} = device, :managed_child_asset) do
     not agent_managed_device?(device)
   end
+
+  defp reusable_device?(%Device{}, :host_inventory_record), do: true
 
   defp reusable_device?(%Device{}, _claim_type), do: true
 
