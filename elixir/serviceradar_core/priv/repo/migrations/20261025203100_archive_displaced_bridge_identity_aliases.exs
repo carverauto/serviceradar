@@ -117,11 +117,14 @@ defmodule ServiceRadar.Repo.Migrations.ArchiveDisplacedBridgeIdentityAliases do
         WHERE vg.id = #{vni_alias}.guest_id
           AND vg.device_uid = #{device_id_expr}
       )
-      OR EXISTS (
-        SELECT 1
-        FROM #{schema}.virtualization_hosts AS vh
-        WHERE vh.id = #{vni_alias}.host_id
-          AND vh.device_uid = #{device_id_expr}
+      OR (
+        #{vni_alias}.guest_id IS NULL
+        AND EXISTS (
+          SELECT 1
+          FROM #{schema}.virtualization_hosts AS vh
+          WHERE vh.id = #{vni_alias}.host_id
+            AND vh.device_uid = #{device_id_expr}
+        )
       )
     )
     """
@@ -131,7 +134,7 @@ defmodule ServiceRadar.Repo.Migrations.ArchiveDisplacedBridgeIdentityAliases do
     """
     EXISTS (
       SELECT 1
-      FROM regexp_split_to_table(COALESCE(#{vni_alias}.source, ''), '[,+]') AS src_tok
+      FROM regexp_split_to_table(COALESCE(#{vni_alias}.source, ''), ',') AS src_tok
       WHERE btrim(src_tok) = 'config'
     )
     """
