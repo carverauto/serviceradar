@@ -1357,7 +1357,6 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
         "vantage",
         "isolated",
         "liveness",
-        "witness",
         "readiness",
         "preview",
         "verdict rules",
@@ -1366,7 +1365,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
         "device facts",
         "sweep coverage",
         "availability",
-        "srql"
+        "srql",
+        "witness"
       ],
       badge: nil,
       hidden_from_nav: false
