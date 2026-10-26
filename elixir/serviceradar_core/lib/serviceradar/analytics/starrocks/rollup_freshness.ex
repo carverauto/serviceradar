@@ -36,12 +36,12 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   Both probes are bounded to a recent window so StarRocks prunes to the newest
   day partitions instead of scanning a year of them. The source window reaches
-  back twice the staleness threshold plus one bucket; a source table with no
-  rows inside it has nothing a view could be lagging, so it reads as fresh,
-  like an empty table. The view window starts a further threshold before the
-  floored source cutoff, which is the oldest bucket a caught-up view can hold,
-  so bounding it never turns a fresh verdict stale; it is matched on the view's
-  `day` partition column, because a predicate on `bucket` prunes nothing.
+  back twice the sum of the staleness threshold and one bucket width; a source
+  table with no rows inside it has nothing a view could be lagging, so it reads
+  as fresh, like an empty table. The view window starts a further threshold
+  before the floored source cutoff, the oldest bucket a caught-up view can
+  hold, so bounding it never turns a fresh verdict stale. The bound is on the
+  view's `day` partition column, because a predicate on `bucket` prunes nothing.
 
   `RollupFreshnessCache` holds each mark for `rollup_cache_ttl_seconds` so the
   queries of one dashboard render share a pair of probes. Callers inject the
@@ -214,9 +214,9 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
     end
   end
 
-  # The source window is twice the threshold plus one bucket: a row older than
-  # that which a successfully refreshed view has not absorbed is not lag the
-  # threshold is meant to catch. A view is fresh when its newest bucket is
+  # The source window is twice the sum of the threshold and one bucket width:
+  # a row older than that which a successfully refreshed view has not absorbed
+  # is not lag the threshold is meant to catch. A view is fresh when its newest bucket is
   # within `stale_after` of the floored source mark, so the oldest bucket a
   # fresh view can hold for a row inside the window is the floored cutoff
   # minus `stale_after`. Reading the view from that bucket's day returns the
