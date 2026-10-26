@@ -370,13 +370,10 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
   end
 
-  # Converge instead of duplicating. The plugin is already enabled for this
-  # agent under a drifted assignment — an older policy_id/source_key whose row
-  # `list_policy_assignments/3` no longer matches for the current policy. Adopt
-  # that single row (update it to the desired policy spec) so there is exactly
-  # one enabled assignment per (agent, plugin, owner), owned by the current
-  # rule. This is the golden path: no orphaned enabled rows are left behind, and
-  # the next reconcile is a clean matching no-op.
+  # Create failed because this plugin is already enabled on the agent, often
+  # under a drifted policy id the current policy no longer matches.
+  # `adopt_same_owner/6` updates one adoptable row. With none, the create
+  # error is reported.
   defp adopt_existing_assignment(spec, stats, actor, store, create_reason) do
     case store.list_enabled_assignments(
            spec.partition_id,
