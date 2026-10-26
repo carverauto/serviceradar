@@ -115,6 +115,33 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
     end
   end
 
+  describe "config_payload_summary/1" do
+    test "computes config_json_bytes, mapper_jobs, and plugins without decoding config_json" do
+      raw_payload = "<<non-json-payload-that-would-fail-decode>>"
+
+      summary =
+        AgentGatewayServer.config_payload_summary(%{
+          config_json: raw_payload,
+          mapper_jobs_count: 3,
+          plugins: [%{assignment_id: "p-1"}, %{assignment_id: "p-2"}]
+        })
+
+      assert summary == %{
+               config_json_bytes: byte_size(raw_payload),
+               mapper_jobs: 3,
+               plugins: 2
+             }
+    end
+
+    test "defaults missing summary fields to zero" do
+      assert AgentGatewayServer.config_payload_summary(%{}) == %{
+               config_json_bytes: 0,
+               mapper_jobs: 0,
+               plugins: 0
+             }
+    end
+  end
+
   describe "authenticated host identity forwarding" do
     setup do
       if !Node.alive?() do

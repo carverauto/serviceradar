@@ -7,6 +7,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
   use ServiceRadar.DataCase, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.Edge.AgentConfigGenerator
@@ -20,6 +22,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+
+  require Logger
 
   @moduletag :integration
   @default_partition "default"
@@ -363,6 +367,39 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       result = AgentConfigGenerator.get_config_if_changed(agent_uid, @default_partition, "")
 
       assert {:ok, _config} = result
+    end
+
+    test "skips encoding config_json and sweep size logging on not_modified polls", %{
+      agent_uid: agent_uid
+    } do
+      previous_level = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous_level) end)
+
+      changed_log =
+        capture_log([level: :info], fn ->
+          assert {:ok, config} =
+                   AgentConfigGenerator.get_config_if_changed(agent_uid, @default_partition, "")
+
+          send(self(), {:delivered_version, config.config_version})
+        end)
+
+      assert_received {:delivered_version, version}
+      assert changed_log =~ "AgentConfigGenerator: encoded sweep config for agent_id=#{agent_uid}"
+      assert changed_log =~ "sweep_format=legacy"
+      assert changed_log =~ "sweep_bytes="
+
+      not_modified_log =
+        capture_log([level: :info], fn ->
+          assert :not_modified =
+                   AgentConfigGenerator.get_config_if_changed(
+                     agent_uid,
+                     @default_partition,
+                     version
+                   )
+        end)
+
+      refute not_modified_log =~ "encoded sweep config"
     end
   end
 

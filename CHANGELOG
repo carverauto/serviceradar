@@ -23,6 +23,23 @@
   read-only. Armis northbound sources keep pushing the legacy value
   until you adopt merged availability for each one. See
   `docs/availability-cutover-runbook.md`.
+- Shared sweep targets (`shared-targets/v1`) roll out in three steps so
+  mixed-version fleets never lose sweep coverage:
+  1. Ship chunked config pushes and the core legacy-format trimming and
+     shared SRQL query compilation changes first; each agent's legacy
+     sweep `config_hash` changes once and receives the trimmed legacy
+     payload over chunked delivery.
+  2. Roll out the Go agent release that parses both the legacy format
+     and `shared-targets/v1` and advertises
+     `sweep-config-shared-targets:v1` (while keeping its running sweep
+     config if it ever sees an unknown format).
+  3. Roll out core capability-gated format selection (`#5434`); agents
+     advertising `sweep-config-shared-targets:v1` receive
+     `shared-targets/v1` (`device_table`, `target_sets`, and per-group
+     `device_target_set`), while un-upgraded agents stay on the legacy
+     format. Core logs `sweep_format`, `sweep_groups`, `sweep_bytes`,
+     and `config_json_bytes` whenever an agent config is encoded for
+     delivery.
 
 # ServiceRadar v1.4.97
 

@@ -106,6 +106,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         }
 
   @type agent_config :: %{
+          optional(:mapper_jobs_count) => non_neg_integer(),
+          optional(:config_json) => String.t(),
+          optional(atom()) => term(),
           config_version: String.t(),
           config_timestamp: integer(),
           heartbeat_interval_sec: integer(),
@@ -174,6 +177,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       {config, audits, delivered_instance_ids} =
         generate_collecting_audits(agent_id, partition_id)
 
+      config = materialize_config_json(config)
       commit_deferred_audits(audits)
       commit_deferred_instance_deliveries(delivered_instance_ids)
       {:ok, config}
@@ -227,10 +231,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     if config.config_version == current_version do
       # Nothing delivered this poll — drop the audits collected while resolving
-      # credentials for the version hash (fj #4428).
+      # credentials for the version hash (fj #4428), and skip encoding config_json.
       Logger.debug("Config not modified for agent #{agent_id}, version: #{current_version}")
       :not_modified
     else
+      config = materialize_config_json(config)
       commit_deferred_audits(deferred_audits)
       commit_deferred_instance_deliveries(delivered_instance_ids)
       # An empty current_version is a first fetch / not-yet-committed agent (e.g. a config
@@ -323,6 +328,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       {config, audits, delivered_instance_ids} =
         generate_collecting_audits(agent_id, partition_id)
 
+      config = materialize_config_json(config)
       commit_deferred_audits(audits)
       commit_deferred_instance_deliveries(delivered_instance_ids)
       to_proto_response(config)
@@ -2845,15 +2851,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         addon_assignments
       )
 
-    config_json =
-      full_payload
-      |> Map.put("plugins", %{
+    config_json_payload =
+      Map.put(full_payload, "plugins", %{
         # host_params is transport material for the typed plugin_config proto,
         # never part of the generic JSON config surface.
         "assignments" => Enum.map(plugin_assignments, &public_plugin_assignment/1),
         "engine_limits" => plugin_engine_limits
       })
-      |> Jason.encode!()
 
     %{
       config_version: config_version,
@@ -2863,7 +2867,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       checks: check_configs,
       plugins: plugin_assignments,
       plugin_engine_limits: plugin_engine_limits,
-      config_json: config_json,
+      mapper_jobs_count: mapper_scheduled_job_count(mapper_config),
+      config_json_payload: config_json_payload,
       sysmon_config: build_sysmon_proto_config(sysmon_config),
       snmp_config: build_snmp_proto_config(snmp_config),
       visibility_config: build_visibility_proto_config(visibility_config),
@@ -2872,6 +2877,46 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       addons: addon_assignments
     }
   end
+
+  @doc false
+  @spec materialize_config_json(map()) :: map()
+  def materialize_config_json(%{config_json_payload: payload} = config) when is_map(payload) do
+    sweep_config = Map.get(payload, "sweep", %{})
+    sweep_json = Jason.encode!(sweep_config)
+    sweep_format = sweep_config_format_label(sweep_config)
+    sweep_groups = sweep_group_count(sweep_config)
+
+    config_json =
+      payload
+      |> Map.put("sweep", Jason.Fragment.new(sweep_json))
+      |> Jason.encode!()
+
+    Logger.info(
+      "AgentConfigGenerator: encoded sweep config for agent_id=#{Map.get(config, :agent_id)} " <>
+        "version=#{Map.get(config, :config_version)} sweep_format=#{sweep_format} " <>
+        "sweep_groups=#{sweep_groups} sweep_bytes=#{byte_size(sweep_json)} " <>
+        "config_json_bytes=#{byte_size(config_json)}"
+    )
+
+    config
+    |> Map.delete(:config_json_payload)
+    |> Map.put(:config_json, config_json)
+  end
+
+  def materialize_config_json(config) when is_map(config), do: config
+
+  defp sweep_config_format_label(%{"format" => format}) when is_binary(format) and format != "",
+    do: format
+
+  defp sweep_config_format_label(_sweep_config), do: "legacy"
+
+  defp sweep_group_count(%{"groups" => groups}) when is_list(groups), do: length(groups)
+  defp sweep_group_count(_sweep_config), do: 0
+
+  defp mapper_scheduled_job_count(%{"scheduled_jobs" => jobs}) when is_list(jobs),
+    do: length(jobs)
+
+  defp mapper_scheduled_job_count(_mapper), do: 0
 
   defp public_plugin_assignment(assignment) when is_map(assignment) do
     assignment

@@ -368,16 +368,24 @@ persisted, only the legacy shape may be written.
 
 1. Core: per-compile and cross-agent query sharing (Decision 2), sorted group
    emission (Decision 6), and metadata trimming (Decision 1). Legacy format
-   only. Ship after chunked config pushes.
-2. Agent release: dual-format parser and the capability (Decisions 4, 5).
-3. Core: overlap-view arm (Decision 7), then enable format selection. Agents
-   move to the new format as they upgrade.
+   only. Ship after chunked config pushes (`fix/agent-config-push-chunks`).
+2. Agent release: dual-format parser and the `sweep-config-shared-targets:v1`
+   capability advertisement (Decisions 4, 5).
+3. Core: with declared targets persisted per group in
+   `platform.sweep_group_declared_targets` (Decision 7), enable capability-gated
+   format selection in `AgentConfigGenerator`. Agents move to
+   `shared-targets/v1` as they upgrade and report
+   `sweep-config-shared-targets:v1`. Core logs `sweep_format`, `sweep_groups`,
+   `sweep_bytes`, and `config_json_bytes` per agent when `config_json` is
+   encoded for delivery (after the `:not_modified` version comparison).
 4. Rollback: removing format selection returns every agent to the legacy
    format, which upgraded agents accept.
 
 ## Open Questions
 
-- Should core log the per-agent sweep section size and format at generation,
-  so the reduction can be verified without decoding `config_json`?
-- Should the operator UI show which format an agent receives, or is a
-  diagnostics field enough?
+- Resolved: core logs `sweep_format`, `sweep_groups`, `sweep_bytes`, and
+  `config_json_bytes` per agent when encoding `config_json` for delivery, and
+  the gateway logs `config_json_bytes`, `mapper_jobs`, and `plugins` from the
+  config struct without decoding `config_json`.
+- Should the operator UI show which format an agent receives, or is the
+  generation log and capability list enough?

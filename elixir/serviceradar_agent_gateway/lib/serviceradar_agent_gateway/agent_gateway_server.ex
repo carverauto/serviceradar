@@ -1630,35 +1630,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end)
   end
 
-  defp config_payload_summary(config) do
+  @doc false
+  def config_payload_summary(config) when is_map(config) do
     config_json = Map.get(config, :config_json) || ""
-    decoded = decode_config_json(config_json)
-    mapper = Map.get(decoded, "mapper")
-    plugins = Map.get(decoded, "plugins")
 
     %{
       config_json_bytes: byte_size(config_json),
-      mapper_jobs: mapper_scheduled_job_count(mapper),
-      plugins: plugin_assignment_count(plugins)
+      mapper_jobs: config_mapper_job_count(config),
+      plugins: config_plugin_assignment_count(config)
     }
   end
 
-  defp decode_config_json(config_json) when is_binary(config_json) and config_json != "" do
-    case Jason.decode(config_json) do
-      {:ok, %{} = decoded} -> decoded
-      _ -> %{}
-    end
-  end
+  defp config_mapper_job_count(%{mapper_jobs_count: count}) when is_integer(count) and count >= 0, do: count
 
-  defp decode_config_json(_config_json), do: %{}
+  defp config_mapper_job_count(%{mapper: %{"scheduled_jobs" => jobs}}) when is_list(jobs), do: length(jobs)
 
-  defp mapper_scheduled_job_count(%{"scheduled_jobs" => jobs}) when is_list(jobs), do: length(jobs)
+  defp config_mapper_job_count(_config), do: 0
 
-  defp mapper_scheduled_job_count(_mapper), do: 0
+  defp config_plugin_assignment_count(%{plugins: plugins}) when is_list(plugins), do: length(plugins)
 
-  defp plugin_assignment_count(%{"assignments" => assignments}) when is_list(assignments), do: length(assignments)
-
-  defp plugin_assignment_count(_plugins), do: 0
+  defp config_plugin_assignment_count(_config), do: 0
 
   defp initial_stream_status_state do
     %{
