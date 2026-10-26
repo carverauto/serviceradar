@@ -97,14 +97,9 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
   defp complete(generation) do
     with {:ok, :ok} <-
            State.change(generation["id"], fn current ->
-             pending =
-               Repo.query!(
-                 "SELECT 1 FROM platform.exposure_delivery_batches WHERE $1::int IS NULL OR bucket = $1 LIMIT 1",
-                 [scope_bucket(current["scope"])]
-               ).rows
-
              if current["status"] == "finalizing" and current["cursor"] == generation["cursor"] and
-                  current["repairs"] == [] and current["pending"] == %{} and pending == [] do
+                  current["repairs"] == [] and current["pending"] == %{} and
+                  not unresolved_legacy?(current["scope"]) do
                {:ok, Map.put(current, "status", "complete"), :ok}
              else
                {:error, :exposure_snapshot_finalization_pending}
@@ -113,21 +108,40 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
          do: :ok
   end
 
-  defp scope_bucket(nil), do: nil
+  defp unresolved_legacy?(scope) do
+    case device_bucket(scope) do
+      :deployment ->
+        legacy?("SELECT 1 FROM platform.exposure_delivery_batches WHERE phase = 'legacy' LIMIT 1", [])
 
-  defp scope_bucket(ordinal) do
+      {:bucket, bucket} ->
+        legacy?(
+          "SELECT 1 FROM platform.exposure_delivery_batches WHERE phase = 'legacy' AND bucket = $1 LIMIT 1",
+          [bucket]
+        )
+
+      :absent ->
+        false
+    end
+  end
+
+  defp legacy?(sql, params), do: Repo.query!(sql, params).rows != []
+
+  defp device_bucket(nil), do: :deployment
+
+  defp device_bucket(ordinal) do
     case Repo.query!("SELECT uid FROM platform.device_fleet_ordinals WHERE ordinal = $1", [
            ordinal
          ]).rows do
       [[uid]] ->
-        uid
-        |> ExposureTransitionRelay.subject()
-        |> String.split(".")
-        |> List.last()
-        |> String.to_integer()
+        {:bucket,
+         uid
+         |> ExposureTransitionRelay.subject()
+         |> String.split(".")
+         |> List.last()
+         |> String.to_integer()}
 
       [] ->
-        nil
+        :absent
     end
   end
 end

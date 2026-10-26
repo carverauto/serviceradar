@@ -161,8 +161,7 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
                  lane,
                  locked
                ),
-             :ok <- recover_live(lane, locked),
-             :ok <- ExposureSnapshotIngestion.settle(lane, locked) do
+             :ok <- settle_retained(lane, locked, fn -> recover_live(lane, locked) end) do
           fun.(locked)
         end
       end)
@@ -173,6 +172,10 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     do: recover(lane, &ExposureTransitions.ingest_batch/2, locked)
 
   defp recover_live(_lane, _locked), do: :ok
+
+  defp settle_retained(lane, locked, recover) do
+    with :ok <- ExposureSnapshotIngestion.settle(lane, locked), do: recover.()
+  end
 
   defp positions(messages) do
     Enum.reduce_while(messages, {:ok, %{}}, fn message, {:ok, buckets} ->
@@ -233,8 +236,7 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   end
 
   defp deliver_owned(bucket, entries, ingest, locked) do
-    with :ok <- recover(bucket, ingest, locked),
-         :ok <- ExposureSnapshotIngestion.settle(bucket, locked) do
+    with :ok <- settle_retained(bucket, locked, fn -> recover(bucket, ingest, locked) end) do
       entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
       deliver_pages(bucket, entries, ingest, locked)
     end
