@@ -2,70 +2,51 @@
 
 ## Current pickup
 
-The current byte-path checkpoint adds explicit
-[sealed-media upload](media-upload.md) through the isolated storage service,
-building on [provisioned spool identity](spool-lifetime.md). Its caller accepts
-only a frozen block ID, uses media-specific authority and verifies exact remote
-bytes. Success means `media_verified`; recovery-manifest verification and fenced
-index publication still precede archive availability. [Spool identity #6004](https://github.com/carverauto/serviceradar/pull/6004)
-is merged at `0ba042babb5b9e6edba70c28554da799e6dc78cd` from head `30566cec`.
-That merge does not pass this checkpoint's final published-head database gates.
+[Sealed-media upload #6007](https://github.com/carverauto/serviceradar/pull/6007)
+is merged at `575dfc1f6b2d1efa2934487d934b1f3d9460b10d`. Its published head
+`4c965ee8` passed all 19 checks. Core executed all 12 guarded targets and Web
+all seven, uncached, with successful connection observation, teardown and
+fixture-generation lease release. This includes all eight spool worker cases,
+two media authority cases and both joined media-upload cases. Detailed evidence
+and the accepted review decision are in [validation](validation.md#published-head-media-validation).
 
-[Private archive registration #6000](https://github.com/carverauto/serviceradar/pull/6000)
-is merged at `8974fcddd7039648085898b7fb9319d55898a7c8`. Its published head
-`e639b4fd` passed all 19 checks, including the seven guarded Web database targets
-and successful teardown and fixture-generation lease release. The approved
-pre-push Test exception remains in the validation record; final-head database
-execution satisfied its condition. The [registration contract](archive-registration.md) returns an
-immutable binding ID and digest with unqualified, unavailable status.
+The next product checkpoint consumes independent verified init and media
+receipts, derives and verifies the recovery manifest, and publishes the archive
+index under current ownership. Media verification alone is not archive
+availability. Keep the existing one-shot media command; completion is a separate
+bounded command and never rearms an attempted object operation.
+
+[Registration #6000](https://github.com/carverauto/serviceradar/pull/6000) and
+[spool identity #6004](https://github.com/carverauto/serviceradar/pull/6004) are
+merged prerequisites. Registration returns an immutable unqualified binding;
+the spool marker identifies a local storage lifetime. Neither provisions storage
+or installs upload authority. The final media run also supplies the previously
+missing handoff record for the eight guarded worker cases.
 
 [Cloud media reservation #188](https://github.com/carverauto/serviceradar-control/pull/188)
-is an open draft, not a merged prerequisite. It retains immutable allocation
-intent and a sticky teardown fence before provider allocation; all five CI
-checks passed. Local Dialyzer fails with the same 11 emitted warnings on the exact
-base and PR head; CI skips Dialyzer. Neither registration nor reservation
-provisions storage or installs upload authority.
-
-[Spool lifetime](spool-lifetime.md) owns the merged marker contract:
-infrastructure calls `Storage.initialize/2` on an existing private empty root;
-the recorder only verifies the marker. Source validation passed. #6004's merged
-handoff still does not record a published-head `integration_tests_serial_4`
-pass of all eight synthetic recorder worker cases. Recomputing the serial
-partition after staging `dde209645` keeps those eight cases on that lane, the
-two Core media authority cases on `integration_tests_serial_6`, and both joined
-Web cases on `networks_live_db_test_0`. Those lanes, cleanup, and
-fixture-generation lease release remain required for media's final published
-head. That execution is not deployed-camera validation. This does not finish
-tasks 1.4 or 1.7 or associate a Cloud volume with the UUID.
+retains allocation intent and a teardown fence; its last recorded state is an
+open draft with five passing checks. Its provider ownership contract remains a
+separate dependency. Synthetic product transport development can proceed without
+claiming Cloud provisioning or live provider qualification.
 
 Production recording stays disabled. Preserve the operator-confirmed live RTSP
-path and all existing ownership, manifest, archive, intent and dispatch
-assertions. Product transport development uses isolated synthetic endpoints;
-live provider qualification and deployment acceptance remain separate gates.
+path and every ownership, manifest, archive, intent and dispatch assertion.
+All new endpoints, media and failure injections use invented synthetic data.
 
 ## Priority order
 
-1. Spool identity #6004 is merged. Finish no-mistakes publication and actual
-   guarded Core/Web database execution for sealed-media upload. Recomputed
-   routing keeps all eight synthetic worker cases on `integration_tests_serial_4`,
-   both Core media authority cases on `integration_tests_serial_6`, and both
-   joined Web cases on `networks_live_db_test_0`, including cleanup and
-   fixture-generation lease release. Then obtain or consume independent init
-   verification, write and verify the recovery manifest from the frozen
-   descriptor, and publish the index idempotently under current ownership.
-   Only the complete verified archive and published index expose availability.
-   Init authority never authorizes media. Multipart reconciliation remains open.
+1. Complete recovery-manifest verification and idempotent archive-index
+   publication after independently verified init and media. Keep their
+   authorities and original dispatch deadlines separate. Consume exact retained
+   proofs without resending; an attempted but unverified operation requires
+   reconciliation. Only all three verified objects plus a published index expose
+   per-block archive availability. Playback and service readiness remain open.
 2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
-   before adding a provider-creation worker. A matching name or successful
-   create response cannot prove ownership. Cloud
-   [issue #182](https://github.com/carverauto/serviceradar-control/issues/182) and
-   [issue #183](https://github.com/carverauto/serviceradar-control/issues/183) own
-   inventory, provisioning and preservation before teardown. Retain exact
-   operation/destination identity, uncertain outcomes and the product binding
-   receipt once the provider proof contract is established. Full qualification,
-   provisioned spool identity and private workload installation are required
-   before Cloud can install upload authority. This does not block synthetic
-   product transport development.
+   before provider creation. A matching name or successful create response does
+   not prove ownership. [Issue #182](https://github.com/carverauto/serviceradar-control/issues/182)
+   and [issue #183](https://github.com/carverauto/serviceradar-control/issues/183)
+   own inventory, provisioning and preservation. Full qualification, provisioned
+   spool identity and private workload installation precede hosted authority.
 3. Complete playback, holds/retention, hosted lifecycle and optional workers in
    [tasks.md](tasks.md), following [Cloud ownership](cloud-control-plane.md).
 4. Keep tasks 0.4 and 0.6 open: codec/RTCP/logical-byte experiments do not select
@@ -77,9 +58,9 @@ live provider qualification and deployment acceptance remain separate gates.
 | Contract | Evidence | Remaining gate |
 | --- | --- | --- |
 | Runtime relay ownership | #5950/#5952/#5954 merged; #5954 head `89d50a7f`, guarded `7cbd7c77` passed all 12 targets | Deployment acceptance |
-| Frozen archive and destination | #5955 merged at `88c5a324`; head `72a81f96`, guarded `0df082fa` passed all 12 targets | Provider authority and verified bytes |
-| Immutable upload intent | #5960 merged at `29b30748`; guarded `853e4601` passed all 12 targets including five intent cases | Wire operations |
-| Durable dispatch observations | #5966 merged; final head `831e8893`, guarded Core `d85a7307` and Web `6aafb922` passed 12 and seven targets uncached, with all lifecycle statuses zero | Current qualification and isolated storage boundary |
+| Frozen archive and destination | #5955 merged at `88c5a324`; head `72a81f96`, guarded `0df082fa` passed all 12 targets | Bounded init/media transport is recorded below; manifest and index remain open |
+| Immutable upload intent | #5960 merged at `29b30748`; guarded `853e4601` passed all 12 targets including five intent cases | Bounded init/media transport is recorded below; manifest and multipart remain open |
+| Durable dispatch observations | #5966 merged; final head `831e8893`, guarded Core `d85a7307` and Web `6aafb922` passed 12 and seven targets uncached, with all lifecycle statuses zero | Bounded authority and isolated init/media transport are recorded below; hosted qualification remains open |
 | Qualification report | #5973 merged; 18 final checks passed. Six protocol cases; full remote `fc10c612` passes 459 targets after formatting, with two Swift platform skips; see [validation](validation.md) | Live evidence verification. Narrow installation is the init and media rows |
 | Private qualification receipts | #5979 merged; 19 final checks passed. Core `42cf4965` and Web `8a15b4d4` executed all 12/seven guarded targets uncached; all lifecycle statuses zero, all five new DB cases included | Hosted configuration beyond the init and media rows |
 | Deployment-scoped media authentication | #5983 merged; final head `66d22624` passed all checks. Core `59ceece3` and Web `f8b9178b` executed all 12/seven guarded targets; lifecycle statuses zero. HTTP shard 0: 819 tests + two properties, zero failures, both receipt cases traced | Hosted authority beyond the init and media rows |
@@ -88,8 +69,8 @@ live provider qualification and deployment acceptance remain separate gates.
 | Init-object authority | #5996 merged; published head `447f594b` passed 19 checks; Core `551008e0` and Web `a4308a82` passed all 12/seven guarded targets with lifecycle exit statuses zero | Cloud provisioning/qualification and complete archive transport |
 | Private archive registration | #6000 merged at `8974fcdd`; published head `e639b4fd` passed 19 checks; Web `1452ccca` executed all seven guarded targets uncached, including owning shard 0, with all lifecycle statuses zero; [validation](validation.md) retains the approved pre-push exception | Cloud-retained allocation identity and matching product receipt |
 | Cloud media reservation | #188 remains an open draft; all five checks passed, including 3,241 tests with zero failures and 10 skips; local Dialyzer fails with 11 warnings also present on its exact base | Merge, allocation inventory and preservation-release workflow |
-| Provisioned spool identity | #6004 merged at `0ba042ba` from head `30566cec`; [local marker contract](spool-lifetime.md) and [validation](validation.md#provisioned-spool-identity) | The merged record does not show a published-head pass of all eight `integration_tests_serial_4` cases. Cloud volume/UUID association remains open |
-| Sealed-media upload | [Byte-path contract](media-upload.md); synthetic TLS/CONNECT, streaming and lifecycle checks | Final published-head Core authority cases on recomputed `integration_tests_serial_6` and both joined Web cases on `networks_live_db_test_0`; manifest then index publication |
+| Provisioned spool identity | #6004 merged at `0ba042ba` from head `30566cec`; [local marker contract](spool-lifetime.md) and [validation](validation.md#provisioned-spool-identity) | All eight worker cases passed in final media Core `773fd2dc`; Cloud volume/UUID association and full restart acceptance remain open |
+| Sealed-media upload | #6007 merged at `575dfc1f`; head `4c965ee8` passed 19 checks. Core `773fd2dc` and Web `7fd98129` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. [Byte-path contract](media-upload.md) | Manifest verification then fenced index publication; hosted qualification and deployment acceptance |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -102,37 +83,24 @@ runtime or live acceptance tasks.
 
 Start with [tasks.md](tasks.md), [media upload](media-upload.md),
 [spool lifetime](spool-lifetime.md) and [Cloud ownership](cloud-control-plane.md).
-Registration #6000 and spool identity #6004 are merged. #6004 does not pass
-media's final published-head database gates. Finish that media gate, preserving
-its recorded limits: all eight worker cases stay on `integration_tests_serial_4`,
-both Core media cases stay on `integration_tests_serial_6`, and both joined Web
-cases stay on `networks_live_db_test_0`. The next product pass obtains or
-consumes independent init verification, verifies the recovery manifest and
-publishes the archive index; reuse the existing
-[upload intent](upload-intent.md) and [dispatch](upload-dispatch.md) owners.
-The media caller currently releases its lease after media verification and has
-no production init caller or scheduler. Keep publication retries fenced and do
-not rearm an attempted object operation. Cloud's
-new-allocation proof remains unresolved; do not add queued work that can only
-report an unsupported provider contract. Registration never authorizes provider
-I/O, and a reservation never proves owned storage.
-A stopped configuration has no resume variant; do not add one without
-fencing in-flight work and enforcing current positive authority. A persisted receipt is
-not an applied revision. Media authentication identifies the responding process;
-it does not prove fleet-wide credential retirement or provider access. Do not promote old
-receipts into authority or treat withdrawal as provider cancellation/revocation.
+The media, spool and registration prerequisites are merged and their final
+published-head database gates passed. Implement independent init consumption,
+verified recovery-manifest publication and a minimal fenced block index by
+extending the existing [intent](upload-intent.md) and [dispatch](upload-dispatch.md)
+owners. Preserve the existing manifest wire format and golden bytes.
 
-Preserve the dispatch's original deadline, single marker, late observations and
-permanent conflict evidence. Lease replacement must never rearm an unresolved
-operation. Timeout/revocation does not prove remote cancellation. Credentials
-stay behind an isolated workload boundary; future provider I/O stays outside
-CNPG transactions. A destination change cannot retarget a retained block, and
-neither an intent nor a response proves remote bytes or permission to reclaim
-local media. Recovery uses `Manifest.encode_descriptor/2` with the frozen
-descriptor.
+Keep one isolated credential-holding workload with fixed installed purposes,
+independent purpose authority and one global admission slot before request
+bodies. The recorder supplies a block ID, never a provider endpoint or key.
+Retained observations are evidence, not renewed authority. Lease replacement,
+timeout or a new installation cannot rearm a prepared/attempted operation.
+Late conflicting evidence must exclude a block from canonical availability.
+Provider I/O stays outside CNPG transactions; verified proof can finish DB-only
+index publication after recording stops without local spool or a provider call.
 
-All fixtures/examples remain invented. Use Treehouse and no-mistakes for every
-worktree/PR. Exercise real transport against isolated synthetic endpoints. Keep
-live provider calls and deployment acceptance separate; do not merge, deploy,
-enable recording, provision live storage or run a new live probe in these passes.
-Keep #4913/#4915 open until their own acceptance passes.
+Do not add resume, scheduler, multipart reconciliation, playback, reclamation or
+hosted provisioning to this bounded checkpoint. Cloud allocation ownership stays
+unresolved. All fixtures/examples remain invented. Use Treehouse and no-mistakes;
+remote Bazel and final published-head guarded Core/Web workflows own validation.
+Do not merge, deploy, enable recording, provision live storage or run a live
+probe in these passes. Keep #4913/#4915 open until their own acceptance passes.

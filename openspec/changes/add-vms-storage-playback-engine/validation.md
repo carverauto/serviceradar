@@ -764,6 +764,10 @@ Cloud CI's existing `--skip-dialyzer` remains a limitation of its green result.
 
 ## Provisioned spool identity
 
+The following paragraphs retain prepublication evidence and pending gates as
+recorded then. [Final media validation](#published-head-media-validation) below
+records the completed guarded worker and media execution.
+
 This checkpoint binds the recorder to a marker written by
 `Storage.initialize/2` on an existing private empty root. The recorder verifies
 that marker and does not create or repair it. [Spool lifetime](spool-lifetime.md)
@@ -870,3 +874,50 @@ six-case execution does not prove the two marker-replacement cases. No local
 product database or alternate forwarding path substitutes for this final-head
 gate. Recovery manifests, index publication, multipart reconciliation and live
 deployment acceptance remain open.
+
+
+### Published-head media validation
+
+[PR #6007](https://github.com/carverauto/serviceradar/pull/6007) merged at
+`575dfc1f6b2d1efa2934487d934b1f3d9460b10d` on 2026-10-26. Its exact published
+head `4c965ee8454fa84d821812317d3d93e1830cb56c` passed all 19 checks through
+no-mistakes. GitHub reported it clean and mergeable before the user merged it.
+
+The conflict repair merged staging and retained the expanded HTTP fixture,
+media generation targets, incoming NATS wiring and all existing assertions.
+The worker marker-change test now drives the existing lease-renewal event;
+it no longer floods the bounded queue before reaching the storage guard.
+ExUnit supervises the synthetic HTTP fixture's tasks and owns their teardown.
+These repairs changed stimulus and fixture lifecycle, not the required result.
+
+[Uncached storage validation](https://carverauto.buildbuddy.io/invocation/5b402833-e1ef-4996-b548-5f5443949aed)
+on parent `c0bf4c77` executed all 33 cases with zero failures. Bazel passed;
+the surrounding shell wrapper subsequently rejected assignment to zsh's
+reserved `status` variable. A separate [remote execution](https://carverauto.buildbuddy.io/invocation/7df321f0-f91b-4f0f-a05d-59bfcb59863a)
+also passed. The final commit changes only three OpenSpec documents, with
+runtime and test blobs unchanged.
+
+| Final-head owner | Actual result |
+| --- | --- |
+| [Main CI](https://carverauto.buildbuddy.io/invocation/a4a43a25-3054-463c-8eda-f201bc90d7aa) | 444 targets passed: 47 executed and 397 cached. Only the two Swift platform targets were skipped. The storage target was cached in this invocation. |
+| [Core database CI](https://carverauto.buildbuddy.io/invocation/773fd2dc-54e2-4122-a9c3-a91f8a15fd5f) | All 12 targets executed uncached and passed. `integration_tests_serial_4` owns all eight worker cases; `integration_tests_serial_6` owns both media authority cases. |
+| [Web database CI](https://carverauto.buildbuddy.io/invocation/7fd98129-557e-46c7-920d-4c069cce36e4) | All seven targets executed uncached and passed. `networks_live_db_test_0` owns both joined media-upload cases. |
+
+[Core teardown](https://carverauto.buildbuddy.io/invocation/9c0277a3-b969-40e8-b5c3-b928d3da3dae)
+and [Web teardown](https://carverauto.buildbuddy.io/invocation/970779c4-5085-4d2b-8f37-4dc253b5d442)
+executed and passed. Both final lifecycle reports have zero suite, connection
+observer, teardown and fixture-generation lease-release statuses. Exact-head
+source routing establishes inclusion; successful individual database case names
+were not printed. Earlier checkout-conflict failures ran no tests or database
+lifecycle and are not failure evidence for this final head.
+
+The owner approved accepting two earlier review findings after source inspection
+and independent review disproved their freeze and response-timeout claims. That
+decision accepted only the Review gate; no assertions or final CI obligations
+were removed. The repaired head then passed a fresh Review with no findings.
+
+This closes the bounded sealed-media and local spool-worker database gates.
+It is synthetic transport and persistence evidence, not deployed-camera or live
+provider qualification. Recovery manifests, archive-index publication, playback,
+multipart reconciliation, full restart acceptance and hosted enablement remain
+open. Recording remains disabled and no local files were reclaimed.
