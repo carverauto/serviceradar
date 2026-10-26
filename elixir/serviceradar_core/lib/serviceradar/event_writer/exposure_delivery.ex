@@ -16,7 +16,14 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   it does not, the batch fails with `:exposure_delivery_ownership_lost` and its
   journal entry stays for the next owner to replay. The journal is written
   through the Repo, one autocommitted statement at a time, so a batch is
-  journaled durably before its load starts.
+  journaled durably before its load starts. An insert that finds the bucket row
+  already there does nothing and the batch is busy, without a load. Finishing
+  deletes only the positions this run journaled or replayed.
+
+  Namespace 74523 was never in a tagged release (it landed after v1.4.97), so a
+  mixed-version overlap only affects an installation running an untagged
+  staging build during this upgrade. Draining to one EventWriter for that
+  upgrade is optional.
   """
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
@@ -132,13 +139,23 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   defp deliver_owned(bucket, entries, ingest, locked) do
     with :ok <- recover(bucket, ingest, locked) do
       entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
+      sequences = Enum.map(entries, &elem(&1, 0))
 
-      Repo.query!(
-        "INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences) VALUES ($1, $2)",
-        [bucket, Enum.map(entries, &elem(&1, 0))]
-      )
+      case Repo.query!(
+             """
+             INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences)
+             VALUES ($1, $2::bigint[])
+             ON CONFLICT DO NOTHING
+             RETURNING bucket
+             """,
+             [bucket, sequences]
+           ) do
+        %{num_rows: 1} ->
+          finish(bucket, sequences, ingest.(Enum.map(entries, &elem(&1, 1)), locked), locked)
 
-      finish(bucket, ingest.(Enum.map(entries, &elem(&1, 1)), locked), locked)
+        %{num_rows: 0} ->
+          {:error, :exposure_delivery_busy}
+      end
     end
   end
 
@@ -162,15 +179,21 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
 
       [[sequences]] ->
         with {:ok, messages} <- fetch_messages(sequences, bucket),
-             {:ok, _} <- finish(bucket, ingest.(messages, locked), locked) do
+             {:ok, _} <- finish(bucket, sequences, ingest.(messages, locked), locked) do
           :ok
         end
     end
   end
 
-  defp finish(bucket, result, locked) when elem(result, 0) in [:ok, :retry] do
+  defp finish(bucket, sequences, result, locked) when elem(result, 0) in [:ok, :retry] do
     with :ok <- locked.() do
-      Repo.query!("DELETE FROM platform.exposure_delivery_batches WHERE bucket = $1", [bucket])
+      Repo.query!(
+        """
+        DELETE FROM platform.exposure_delivery_batches
+        WHERE bucket = $1 AND stream_sequences = $2::bigint[]
+        """,
+        [bucket, sequences]
+      )
 
       case result do
         {:retry, reason} -> {:error, reason}
@@ -179,7 +202,7 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     end
   end
 
-  defp finish(_bucket, error, _locked), do: error
+  defp finish(_bucket, _sequences, error, _locked), do: error
 
   defp fetch_messages(sequences, bucket) do
     sequences

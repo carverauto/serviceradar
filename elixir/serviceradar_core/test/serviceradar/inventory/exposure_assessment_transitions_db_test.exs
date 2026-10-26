@@ -818,6 +818,103 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert sequence == ctx.unique * 10
   end
 
+  test "finishing a delivery leaves another owner's journal row for the same bucket", ctx do
+    message = delivery_message(ctx, ctx.unique * 10)
+    bucket = :erlang.phash2(ctx.device_uid, 16)
+    own = [ctx.unique * 10]
+    foreign = [ctx.unique * 10 + 1]
+
+    assert {:ok, 1} =
+             ExposureDelivery.run([message], fn [_message], locked ->
+               :ok = locked.()
+
+               assert %{num_rows: 1} =
+                        Repo.query!(
+                          """
+                          UPDATE platform.exposure_delivery_batches
+                          SET stream_sequences = $2::bigint[]
+                          WHERE bucket = $1 AND stream_sequences = $3::bigint[]
+                          """,
+                          [bucket, foreign, own]
+                        )
+
+               {:ok, 1}
+             end)
+
+    assert %{rows: [[^foreign]]} =
+             Repo.query!(
+               "SELECT stream_sequences FROM platform.exposure_delivery_batches WHERE bucket = $1",
+               [bucket]
+             )
+  end
+
+  # Exclusive (not access exclusive) lets the empty journal read through and
+  # holds the insert until another owner commits the bucket row.
+  @tag sandbox: :unboxed
+  test "a journal row committed while this insert waits is busy and is not loaded", ctx do
+    message = delivery_message(ctx, ctx.unique * 10)
+    bucket = :erlang.phash2(ctx.device_uid, 16)
+    foreign = [ctx.unique * 10 + 1]
+    parent = self()
+
+    holder = start_supervised!({Postgrex, DirectSession.connection_opts()})
+
+    on_exit(fn ->
+      try do
+        Postgrex.query(holder, "ROLLBACK", [])
+      catch
+        :exit, _ -> :ok
+      end
+
+      Repo.query!(
+        """
+        DELETE FROM platform.exposure_delivery_batches
+        WHERE bucket = $1 AND stream_sequences = $2::bigint[]
+        """,
+        [bucket, foreign]
+      )
+    end)
+
+    Postgrex.query!(holder, "BEGIN", [])
+    Postgrex.query!(holder, "SET LOCAL lock_timeout = '5s'", [])
+
+    Postgrex.query!(
+      holder,
+      "LOCK TABLE platform.exposure_delivery_batches IN EXCLUSIVE MODE",
+      []
+    )
+
+    delivery =
+      Task.async(fn ->
+        ExposureDelivery.run([message], fn _, _ ->
+          send(parent, :loaded)
+          {:ok, 1}
+        end)
+      end)
+
+    assert await_journal_insert_waiter!()
+
+    Postgrex.query!(
+      holder,
+      """
+      INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences)
+      VALUES ($1, $2::bigint[])
+      """,
+      [bucket, foreign]
+    )
+
+    Postgrex.query!(holder, "COMMIT", [])
+
+    assert {:error, :exposure_delivery_busy} = Task.await(delivery, 10_000)
+    refute_received :loaded
+
+    assert %{rows: [[^foreign]]} =
+             Repo.query!(
+               "SELECT stream_sequences FROM platform.exposure_delivery_batches WHERE bucket = $1",
+               [bucket]
+             )
+  end
+
   test "a blocked bucket does not starve independent delivery buckets", ctx do
     first = delivery_message(ctx, ctx.unique * 10)
 
@@ -927,6 +1024,32 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       {:error, :closed} ->
         :ok
+    end
+  end
+
+  defp await_journal_insert_waiter!(deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 5_000
+
+    waiting? =
+      Repo.query!(
+        """
+        SELECT 1 FROM pg_locks
+        WHERE relation = 'platform.exposure_delivery_batches'::regclass
+          AND NOT granted
+          AND mode = 'RowExclusiveLock'
+        """
+      ).rows != []
+
+    cond do
+      waiting? ->
+        :ok
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("delivery insert did not wait on the journal table")
+
+      true ->
+        Process.sleep(20)
+        await_journal_insert_waiter!(deadline)
     end
   end
 
