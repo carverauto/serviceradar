@@ -4,6 +4,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
   alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadarCoreElx.CameraRecording.Manifest
   alias ServiceRadarCoreElx.CameraRecording.Spool
+  alias ServiceRadarCoreElx.CameraRecording.Storage
 
   @identity %{
     source_id: "00000000-0000-4000-8000-000000000037",
@@ -25,7 +26,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
     on_exit(fn -> File.rm_rf!(root) end)
 
     # Invented storage bytes; the media and browser suites own decodability.
-    {:ok, spool} = Spool.create(root, @identity, "invented-init")
+    {:ok, storage} = Storage.initialize(root, Ecto.UUID.generate())
+    {:ok, spool} = Spool.create(storage, @identity, "invented-init")
     {:ok, spool, _} = Spool.append(spool, "abc", %{start_ns: 0, duration_ns: 2_000_000_000})
 
     {:ok, spool, _} =
@@ -37,7 +39,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
 
     open = Spool.snapshot(spool)
     {:ok, spool} = Spool.seal(spool)
-    {:ok, recovered} = Spool.recover(Spool.snapshot(spool).directory, @identity)
+    {:ok, recovered} = Spool.recover(storage, Spool.snapshot(spool).directory, @identity)
     snapshot = Spool.snapshot(recovered)
 
     format = %{

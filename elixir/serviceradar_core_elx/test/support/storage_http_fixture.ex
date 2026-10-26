@@ -2,16 +2,14 @@ defmodule ServiceRadarCoreElx.Test.StorageHTTPFixture do
   @moduledoc false
 
   def start(tls, handler) do
-    {:ok, tasks} = Task.Supervisor.start_link()
+    tasks =
+      ExUnit.Callbacks.start_supervised!(Task.Supervisor, id: make_ref(), restart: :temporary)
+
     {:ok, socket} = :ssl.listen(0, tls ++ [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
     {:ok, {_, port}} = :ssl.sockname(socket)
-    {:ok, acceptor} = Task.Supervisor.start_child(tasks, fn -> accept(socket, tasks, handler) end)
+    {:ok, _} = Task.Supervisor.start_child(tasks, fn -> accept(socket, tasks, handler) end)
 
-    ExUnit.Callbacks.on_exit(fn ->
-      :ssl.close(socket)
-      Process.exit(acceptor, :kill)
-      if Process.alive?(tasks), do: Supervisor.stop(tasks)
-    end)
+    ExUnit.Callbacks.on_exit(fn -> :ssl.close(socket) end)
 
     port
   end
@@ -19,14 +17,13 @@ defmodule ServiceRadarCoreElx.Test.StorageHTTPFixture do
   def proxy(port) do
     {:ok, socket} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
     {:ok, {_, proxy_port}} = :inet.sockname(socket)
-    {:ok, tasks} = Task.Supervisor.start_link()
-    {:ok, acceptor} = Task.Supervisor.start_child(tasks, fn -> proxy_accept(socket, port, tasks) end)
 
-    ExUnit.Callbacks.on_exit(fn ->
-      :gen_tcp.close(socket)
-      Process.exit(acceptor, :kill)
-      if Process.alive?(tasks), do: Supervisor.stop(tasks)
-    end)
+    tasks =
+      ExUnit.Callbacks.start_supervised!(Task.Supervisor, id: make_ref(), restart: :temporary)
+
+    {:ok, _} = Task.Supervisor.start_child(tasks, fn -> proxy_accept(socket, port, tasks) end)
+
+    ExUnit.Callbacks.on_exit(fn -> :gen_tcp.close(socket) end)
 
     %{scheme: :http, host: "127.0.0.1", port: proxy_port}
   end

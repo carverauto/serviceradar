@@ -17,6 +17,16 @@ checks passed. Local Dialyzer fails with the same 11 emitted warnings on the exa
 base and PR head; CI skips Dialyzer. Neither registration nor reservation
 provisions storage or installs upload authority.
 
+The current product checkpoint verifies the provisioned local spool lifetime.
+[Spool lifetime](spool-lifetime.md) owns the contract: infrastructure calls
+`Storage.initialize/2` on an existing private empty root; the recorder only
+verifies the marker. Source validation passed. Publication remains required.
+CI readiness still requires the recomputed `integration_tests_serial_4` lane
+to run all eight synthetic recorder worker cases, plus the full selected Core and
+Web database lifecycles, including cleanup and fixture-generation lease release.
+That execution is not deployed-camera validation. This does not finish tasks
+1.4 or 1.7 or associate a Cloud volume with the UUID.
+
 Production recording stays disabled. Preserve the operator-confirmed live RTSP
 path and all existing ownership, manifest, archive, intent and dispatch
 assertions. Product transport development uses isolated synthetic endpoints;
@@ -24,9 +34,12 @@ live provider qualification and deployment acceptance remain separate gates.
 
 ## Priority order
 
-1. Verify the provisioned spool lifetime before recorder ownership and at write
-   boundaries. In parallel, implement bounded sealed-media streaming through the
-   isolated storage service with operation-specific authority and exact object
+1. Publish the provisioned-spool checkpoint through no-mistakes. CI readiness
+   requires `integration_tests_serial_4` with all eight synthetic recorder cases
+   and the full selected Core and Web database lifecycles, including cleanup
+   and fixture-generation lease release. In parallel, advance bounded sealed-media
+   streaming through the isolated storage service with operation-specific
+   authority and exact object
    verification. Init authority must not authorize media. Follow verified media
    with a recovery manifest from the frozen descriptor, then fenced idempotent
    index publication. Multipart reconciliation remains a separate open gate.
@@ -63,6 +76,7 @@ live provider qualification and deployment acceptance remain separate gates.
 | Init-object authority | #5996 merged; published head `447f594b` passed 19 checks; Core `551008e0` and Web `a4308a82` passed all 12/seven guarded targets with lifecycle exit statuses zero | Cloud provisioning/qualification and complete archive transport |
 | Private archive registration | #6000 merged at `8974fcdd`; published head `e639b4fd` passed 19 checks; Web `1452ccca` executed all seven guarded targets uncached, including owning shard 0, with all lifecycle statuses zero; [validation](validation.md) retains the approved pre-push exception | Cloud-retained allocation identity and matching product receipt |
 | Cloud media reservation | #188 remains an open draft; all five checks passed, including 3,241 tests with zero failures and 10 skips; local Dialyzer fails with 11 warnings also present on its exact base | Merge, allocation inventory and preservation-release workflow |
+| Provisioned spool identity | [Spool lifetime](spool-lifetime.md); measured results in [validation](validation.md) | Published-head `integration_tests_serial_4` with all eight synthetic cases, full selected Core and Web database lifecycles, cleanup and fixture lease release; Cloud volume/UUID association |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -73,10 +87,13 @@ runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Start with [tasks.md](tasks.md), [Cloud ownership](cloud-control-plane.md) and
-[init authority](init-authority.md). Registration is merged and its guarded Web
-database execution passed. Complete spool-lifetime verification and the bounded
-media transport pass independently of Cloud provisioning; use the existing
+Start with [tasks.md](tasks.md), [Cloud ownership](cloud-control-plane.md),
+[init authority](init-authority.md) and [spool lifetime](spool-lifetime.md).
+Registration is merged and its guarded Web database execution passed. Publish the
+spool checkpoint only after `integration_tests_serial_4` runs all eight synthetic
+cases and the full selected Core and Web database lifecycles pass, including
+cleanup and fixture-generation lease release. Advance bounded
+media transport independently of Cloud provisioning; use the existing
 [upload intent](upload-intent.md) and [dispatch](upload-dispatch.md) owners.
 Then implement recovery-manifest verification and index publication. Cloud's
 new-allocation proof remains unresolved; do not add queued work that can only
@@ -101,5 +118,4 @@ All fixtures/examples remain invented. Use Treehouse and no-mistakes for every
 worktree/PR. Exercise real transport against isolated synthetic endpoints. Keep
 live provider calls and deployment acceptance separate; do not merge, deploy,
 enable recording, provision live storage or run a new live probe in these passes.
-Keep #4913/#4915 open until their own
-acceptance passes.
+Keep #4913/#4915 open until their own acceptance passes.

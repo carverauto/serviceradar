@@ -21,13 +21,17 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   When removal or that parent sync fails, `create/4` returns
   `{:error, {:create_cleanup_failed, reason, cleanup_reason}}`; a later `create/4`
   then sees the directory and returns `{:error, :eexist}`. A failed append may
-  leave a tail: recover before writing again. Recovery verifies
-  every committed fragment, discards only incomplete journal records and media
-  beyond the committed high-water mark, and rejects complete corrupt records.
+  leave a tail: recover before writing again. Recovery takes a verified storage
+  handle, rejects a directory alias and any nonregular or shared-hardlink block
+  file, then verifies every committed fragment. It discards only incomplete
+  journal records and media beyond the committed high-water mark, and rejects
+  complete corrupt records.
   Sealing journals the whole-block digest and permanently prevents further append.
   Fragment entries retain optional `tail_duration_source: :previous_sample`
   provenance as a JSON string when the packager inferred its final sample's duration.
   """
+
+  alias ServiceRadarCoreElx.CameraRecording.Storage
 
   @identity_keys ~w(source_id profile recorder_epoch block_sequence)a
   @record_bytes 4096
@@ -48,6 +52,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
 
   defstruct [
     :directory,
+    :storage,
     :identity,
     :init,
     :limits,
@@ -59,17 +64,15 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
     sealed?: false
   ]
 
-  @doc "Create a new block under an existing private, durable spool root."
-  def create(root, identity, init, limits \\ %{}) do
-    with {:ok, limits} <- limits(limits),
+  @doc "Create a new block under a verified provisioned spool root."
+  def create(%Storage{} = storage, identity, init, limits \\ %{}) do
+    with :ok <- Storage.verify(storage),
+         {:ok, limits} <- limits(limits),
          {:ok, identity} <- identity(identity),
          :ok <- check_binary(init, limits.max_init_bytes),
-         {:ok, %File.Stat{type: :directory, mode: mode}} <- File.stat(root),
-         true <- Bitwise.band(mode, 0o077) == 0 || {:error, :root_not_private} do
-      create_block(root, identity, init, limits)
-    else
-      {:ok, _} -> {:error, :invalid_root}
-      {:error, _} = error -> error
+         {:ok, spool} <- create_block(storage, identity, init, limits),
+         :ok <- Storage.verify(storage) do
+      {:ok, spool}
     end
   end
 
@@ -77,8 +80,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   def append(%__MODULE__{sealed?: true}, _payload, _timing), do: {:error, :sealed}
 
   def append(%__MODULE__{} = spool, payload, timing) do
-    with {:ok, entry} <- fragment_entry(spool, payload, timing),
-         :ok <- append_record(spool, payload, entry) do
+    with :ok <- Storage.verify(spool.storage),
+         {:ok, entry} <- fragment_entry(spool, payload, timing),
+         :ok <- append_record(spool, payload, entry),
+         :ok <- Storage.verify(spool.storage) do
       updated = %{
         spool
         | entries: [entry | spool.entries],
@@ -92,7 +97,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   end
 
   @doc "Seal a nonempty block; the snapshot contains its immutable media SHA-256."
-  def seal(%__MODULE__{sealed?: true} = spool), do: {:ok, spool}
+  def seal(%__MODULE__{sealed?: true} = spool) do
+    with :ok <- Storage.verify(spool.storage), do: {:ok, spool}
+  end
+
   def seal(%__MODULE__{high_water: 0}), do: {:error, :empty_block}
 
   def seal(%__MODULE__{} = spool) do
@@ -100,7 +108,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
     record = %{"type" => "seal", "sha256" => sha256}
     journal_size = spool.journal_size + byte_size(encode_record(record))
 
-    with :ok <- append_record(spool, <<>>, record) do
+    with :ok <- Storage.verify(spool.storage),
+         :ok <- append_record(spool, <<>>, record),
+         :ok <- Storage.verify(spool.storage) do
       {:ok, %{spool | sealed?: true, sha256: sha256, journal_size: journal_size}}
     end
   end
@@ -109,6 +119,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   def snapshot(%__MODULE__{} = spool) do
     %{
       directory: spool.directory,
+      storage: spool.storage,
       identity: spool.identity,
       init: spool.init,
       entries: Enum.reverse(spool.entries),
@@ -119,12 +130,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   end
 
   @doc "Read a committed fragment by sequence, verifying its digest without the writer."
-  def read_fragment(%{entries: entries, high_water: high_water, directory: directory}, sequence)
+  def read_fragment(%{entries: entries, high_water: high_water, directory: directory, storage: storage}, sequence)
       when is_integer(sequence) and sequence >= 0 do
     case Enum.find(entries, &(&1["sequence"] == sequence)) do
       %{"offset" => offset, "length" => length, "sha256" => sha256}
       when offset + length <= high_water ->
-        read_verified(Path.join(directory, "media.m4s"), offset, length, sha256)
+        with :ok <- Storage.verify(storage) do
+          read_verified(Path.join(directory, "media.m4s"), offset, length, sha256)
+        end
 
       _ ->
         {:error, :not_readable}
@@ -132,13 +145,21 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
   end
 
   @doc "Read the immutable initialization segment from an internal snapshot."
-  def read_init(%{directory: directory, init: %{"length" => length, "sha256" => sha256}}) do
-    read_verified(Path.join(directory, "init.mp4"), 0, length, sha256)
+  def read_init(%{directory: directory, storage: storage, init: %{"length" => length, "sha256" => sha256}}) do
+    with :ok <- Storage.verify(storage) do
+      read_verified(Path.join(directory, "init.mp4"), 0, length, sha256)
+    end
   end
 
   @doc "Reconcile a block after writer exit. Identity must match the caller's expected block."
-  def recover(directory, expected_identity, limits \\ %{}) do
-    with {:ok, limits} <- limits(limits),
+  def recover(%Storage{} = storage, directory, expected_identity, limits \\ %{}) do
+    directory = Path.expand(directory)
+
+    with :ok <- Storage.verify(storage),
+         true <- Path.dirname(directory) == storage.root || {:error, :storage_directory_mismatch},
+         {:ok, %File.Stat{type: :directory}} <- File.lstat(directory),
+         :ok <- recovery_files(directory),
+         {:ok, limits} <- limits(limits),
          {:ok, expected_identity} <- identity(expected_identity),
          {:ok, journal} <-
            read_bounded(Path.join(directory, "journal"), (limits.max_fragments + 2) * (@record_bytes + 36)),
@@ -148,19 +169,34 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
          {:ok, spool} <-
            replay(rest, %__MODULE__{
              directory: directory,
+             storage: storage,
              identity: expected_identity,
              init: init,
              limits: limits,
              journal_size: header_size,
              hash: :crypto.hash_init(:sha256)
            }),
+         :ok <- Storage.verify(storage),
          :ok <- truncate_tail(Path.join(directory, "media.m4s"), spool.high_water),
-         :ok <- truncate_tail(Path.join(directory, "journal"), spool.journal_size) do
+         :ok <- Storage.verify(storage),
+         :ok <- truncate_tail(Path.join(directory, "journal"), spool.journal_size),
+         :ok <- Storage.verify(storage) do
       {:ok, spool}
     else
       :incomplete -> {:error, :incomplete_header}
+      {:ok, %File.Stat{}} -> {:error, :invalid_block_directory}
       {:error, _} = error -> error
     end
+  end
+
+  defp recovery_files(directory) do
+    Enum.reduce_while(~w(init.mp4 media.m4s journal), :ok, fn name, :ok ->
+      case File.lstat(Path.join(directory, name)) do
+        {:ok, %File.Stat{type: :regular, links: 1}} -> {:cont, :ok}
+        {:ok, _} -> {:halt, {:error, :invalid_block_file}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
   end
 
   defp fragment_entry(_spool, payload, _timing) when not is_binary(payload) or byte_size(payload) == 0,
@@ -428,7 +464,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
     end)
   end
 
-  defp create_block(root, identity, init, limits) do
+  defp create_block(storage, identity, init, limits) do
+    root = storage.root
     block_id = digest(Jason.encode!(Enum.map(@identity_keys, &identity[Atom.to_string(&1)])))
     directory = Path.join(root, block_id)
     init_meta = %{"length" => byte_size(init), "sha256" => digest(init)}
@@ -436,17 +473,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
     journal = encode_record(header)
 
     case File.mkdir(directory) do
-      :ok -> finish_created_block(directory, root, init, journal, identity, init_meta, limits)
+      :ok -> finish_created_block(directory, storage, init, journal, identity, init_meta, limits)
       {:error, _} = error -> error
     end
   end
 
-  defp finish_created_block(directory, root, init, journal, identity, init_meta, limits) do
-    case write_created_block(directory, root, init, journal) do
+  defp finish_created_block(directory, storage, init, journal, identity, init_meta, limits) do
+    case write_created_block(directory, storage.root, init, journal) do
       :ok ->
         {:ok,
          %__MODULE__{
            directory: directory,
+           storage: storage,
            identity: identity,
            init: init_meta,
            limits: limits,
@@ -455,7 +493,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Spool do
          }}
 
       {:error, _} = error ->
-        abandon_incomplete_create(root, directory, error)
+        with :ok <- Storage.verify(storage), do: abandon_incomplete_create(storage.root, directory, error)
     end
   end
 

@@ -3,6 +3,7 @@ defmodule CameraBrowserFixture do
 
   alias ServiceRadarCoreElx.CameraRecording.Packaging
   alias ServiceRadarCoreElx.CameraRecording.Spool
+  alias ServiceRadarCoreElx.CameraRecording.Storage
 
   @clock %{
     clock_epoch: "synthetic-browser-clock",
@@ -18,6 +19,7 @@ defmodule CameraBrowserFixture do
     root = Path.join(System.tmp_dir!(), "camera-browser-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
     File.chmod!(root, 0o700)
+    {:ok, storage} = Storage.initialize(root, Ecto.UUID.generate())
 
     try do
       units = encode_colors(Path.expand(ffmpeg), root)
@@ -33,7 +35,7 @@ defmodule CameraBrowserFixture do
         {:ok, tail} = Packaging.finish(pipeline)
         [{:init, init} | media] = events ++ tail
         fragments = Enum.map(media, fn {:fragment, fragment} -> fragment end)
-        recovered = recover(root, init, fragments)
+        recovered = recover(storage, init, fragments)
         {:ok, init_bytes} = Spool.read_init(recovered)
 
         reads =
@@ -120,7 +122,7 @@ defmodule CameraBrowserFixture do
     Enum.with_index(units, fn payload, index -> %{payload: @aud <> payload, pts: index * 6_000, dts: index * 6_000} end)
   end
 
-  defp recover(root, init, fragments) do
+  defp recover(storage, init, fragments) do
     identity = %{
       source_id: "synthetic-browser-camera",
       profile: "recording",
@@ -129,7 +131,7 @@ defmodule CameraBrowserFixture do
       clock: @clock
     }
 
-    {:ok, spool} = Spool.create(root, identity, init.payload)
+    {:ok, spool} = Spool.create(storage, identity, init.payload)
 
     spool =
       Enum.reduce(fragments, spool, fn fragment, spool ->
@@ -138,7 +140,7 @@ defmodule CameraBrowserFixture do
       end)
 
     {:ok, sealed} = Spool.seal(spool)
-    {:ok, recovered} = Spool.recover(sealed.directory, identity)
+    {:ok, recovered} = Spool.recover(storage, sealed.directory, identity)
     %{sealed?: true} = Spool.snapshot(recovered)
   end
 end
