@@ -370,6 +370,29 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
              )
 
     assert DriftedStore.adopted() == nil
+
+    # A non-rule policy collides with the rule, but must not rewrite it.
+    DriftedStore.stop()
+
+    rule_row = %{
+      other_rule
+      | policy_id: "network-credential-rule:00000000-0000-4000-8000-00000000000a",
+        partition_id: "partition-a"
+    }
+
+    {:ok, _pid} = DriftedStore.start_link([rule_row])
+
+    non_rule = %{policy | policy_id: "policy-NEW"}
+
+    assert {:error, _reason} =
+             PolicyAssignmentReconciler.reconcile(non_rule, [],
+               resolver: ResolverV1,
+               store: DriftedStore,
+               partition_resolver: fn "agent-a" -> {:ok, "partition-a"} end,
+               generated_at: "2026-02-21T23:30:00Z"
+             )
+
+    assert DriftedStore.adopted() == nil
   end
 
   test "adopts its own drifted row when another rule's row and a manual row are enabled" do
