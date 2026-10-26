@@ -118,12 +118,11 @@ revisioned submissions and withdrawals. [Media authentication](media-authenticat
 identifies the installed deployment for that listener. A receipt still does not
 install storage authority.
 
-The full desired-content digest, desired/applied revisions, authenticated
-deployment/report origin, fresh correlated exchange, replay prevention,
-revocation/drift, selected protection-mode evidence and installed credential
-authority remain unimplemented. These nineteen observations alone are not a
-complete readiness assessment. Evidence/derivative storage and Object Lock must
-not be inferred from this recording report.
+Installed desired/applied authority and bounded transport are owned by
+[init authority](init-authority.md) and [media upload](media-upload.md). This
+report still does not install that authority. These nineteen observations alone
+are not a complete readiness assessment. Evidence/derivative storage and Object
+Lock must not be inferred from this recording report.
 
 Existing direct-provider diagnostic results cannot be mechanically promoted to
 these broader claims. In particular, the current probe deliberately reports
@@ -135,5 +134,5 @@ Before any provider adapter sends an operation, it must match the retained bindi
 and frozen intent, enforce current authenticated authority and isolated credential
 custody, then use the existing single dispatch marker outside CNPG transactions.
 Late outcomes remain admissible after timeout/revocation; neither event proves
-remote cancellation. Init-object conditional PUT plus exact byte verification is
-the first bounded transport checkpoint after those prerequisites.
+remote cancellation. The handoff records which transport and publication steps
+are still open.

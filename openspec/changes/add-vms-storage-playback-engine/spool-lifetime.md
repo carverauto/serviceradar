@@ -101,11 +101,11 @@ deployed-camera validation. Existing media, RTSP, browser, manifest-byte and
 lifecycle assertions remain required.
 
 This supplies part of tasks 1.4/1.7, not complete recovery or hosted readiness.
-Production recording remains disabled. There is no new database resource,
-provider request, scheduler, upload authority, provisioning workflow or local
-reclamation. After this guard, the next product pass should advance bounded
-media transport and manifest/index publication under explicit authority rather
-than add another prerequisite record type.
+Production recording remains disabled. This marker contract adds no database
+resource, provider request, scheduler, upload authority, provisioning workflow
+or local reclamation. Bounded media transport is the separate
+[media upload](media-upload.md) checkpoint. Work still open after these two
+checkpoints is tracked in the [handoff](README.md).
 
 ## Source validation
 
