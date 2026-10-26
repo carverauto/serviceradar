@@ -5,6 +5,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.ExposureSnapshotWarehouse
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.ExposureTransitions
 
@@ -21,7 +22,10 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
     {:ok, {_, port}} = :inet.sockname(listener)
     on_exit(fn -> :gen_tcp.close(listener) end)
     parent = self()
-    start_supervised!({Task, fn -> serve(listener, parent) end})
+
+    start_supervised!(
+      {Task, fn -> ServiceRadar.TestSupport.ExposureHTTPLoad.serve(listener, parent) end}
+    )
 
     Application.put_env(:serviceradar_core, StarRocks,
       enabled: true,
@@ -116,6 +120,57 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
       send(http, :commit)
       assert {:ok, 1} = Task.await(replay)
     end
+  end
+
+  test "snapshot loads mark generations with separate immutable labels and never append history" do
+    {:ok, [event]} = ExposureTransitions.decode([encode(transition(12))])
+
+    for {generation, configured_rows} <- [{1, 500}, {2, 500}, {2, 1}] do
+      config = Application.get_env(:serviceradar_core, StarRocks, [])
+
+      Application.put_env(
+        :serviceradar_core,
+        StarRocks,
+        Keyword.put(config, :stream_load, max_rows: configured_rows)
+      )
+
+      plan = %{
+        "phase" => "facts",
+        "rows" =>
+          Enum.map(
+            [event.fact, Map.put(event.fact, "cve_ord", 20_240_000_002)],
+            &Map.put(&1, "snapshot_generation", generation)
+          ),
+        "load_limits" => %{"max_rows" => 500, "max_bytes" => 524_288}
+      }
+
+      run =
+        Task.async(fn ->
+          ExposureSnapshotWarehouse.apply_plan(plan, [generation, "device-3", 1], fn -> :ok end)
+        end)
+
+      assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", headers,
+                      [row, second_row]},
+                     2_000
+
+      assert row["snapshot_generation"] == generation
+      assert second_row["snapshot_generation"] == generation
+      assert headers["partial_update"] == "true"
+      assert headers["merge_condition"] == "transition_seq"
+      assert "snapshot_generation" in String.split(headers["columns"], ",")
+      assert String.starts_with?(headers["label"], "exposure-snapshot-")
+      send(self(), {:snapshot_label, headers["label"]})
+      refute Task.yield(run, 20)
+      send(http, :commit)
+      assert :ok = Task.await(run)
+    end
+
+    assert_receive {:snapshot_label, first}
+    assert_receive {:snapshot_label, second}
+    assert_receive {:snapshot_label, retry}
+    refute first == second
+    assert retry == second
+    refute_received {:load, _, _, _, _}
   end
 
   test "failed or filtered fact and history loads fail the batch" do
@@ -439,7 +494,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
 
     processor = Pipeline.processor_for_batcher(:exposure_dimensions)
     messages = Enum.map([cve, older, cve, package, other_version], &encode/1)
-    task = Task.async(fn -> processor.process_batch(messages) end)
+    task = Task.async(fn -> processor.ingest_batch(messages, fn -> :ok end) end)
 
     assert_receive {:load, http, "/api/serviceradar/exposure_cve_dim/_stream_load", headers,
                     [row]},
@@ -469,7 +524,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
     send(http, :commit)
     assert {:ok, 5} = Task.await(task)
 
-    task = Task.async(fn -> processor.process_batch([encode(cve)]) end)
+    task = Task.async(fn -> processor.ingest_batch([encode(cve)], fn -> :ok end) end)
     assert_receive {:load, http, _, replay_headers, [_]}, 2_000
     assert replay_headers["label"] == headers["label"]
     send(http, :commit)
@@ -480,7 +535,11 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
     processor = Pipeline.processor_for_batcher(:exposure_dimensions)
 
     for kind <- ["cve", "package"], result <- [:commit, :failure, :filtered] do
-      task = Task.async(fn -> processor.process_batch([encode(dimension(kind, 200))]) end)
+      task =
+        Task.async(fn ->
+          processor.ingest_batch([encode(dimension(kind, 200))], fn -> :ok end)
+        end)
+
       assert_receive {:load, http, _, _, [row]}, 2_000
       if kind == "cve", do: assert(Map.has_key?(row, "epss_score") and is_nil(row["epss_score"]))
       send(http, result)
@@ -575,63 +634,4 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
   defp ingest(messages), do: ExposureTransitions.ingest_batch(messages, fn -> :ok end)
 
   defp encode(payload), do: %{data: Jason.encode!(payload)}
-
-  # Exercise the real HTTP loader and acknowledgement boundary, without
-  # replacing the processor or implementing a fake warehouse's merge rules.
-  defp serve(listener, parent) do
-    case :gen_tcp.accept(listener) do
-      {:ok, socket} ->
-        {:ok, request} = :gen_tcp.recv(socket, 0, 5_000)
-        ["PUT", path, _] = String.split(request)
-        headers = headers(socket, %{})
-        :ok = :gen_tcp.send(socket, "HTTP/1.1 100 Continue\r\n\r\n")
-        :ok = :inet.setopts(socket, packet: :raw)
-        {:ok, body} = :gen_tcp.recv(socket, String.to_integer(headers["content-length"]), 5_000)
-        rows = Jason.decode!(body)
-        send(parent, {:load, self(), path, headers, rows})
-
-        response =
-          receive do
-            :commit ->
-              %{
-                "Status" => "Success",
-                "NumberLoadedRows" => length(rows),
-                "NumberFilteredRows" => 0
-              }
-
-            :filtered ->
-              %{"Status" => "Success", "NumberLoadedRows" => 0, "NumberFilteredRows" => 1}
-
-            :failure ->
-              %{"Status" => "Fail", "Message" => "synthetic load failure"}
-          after
-            5_000 -> raise "load was never answered"
-          end
-
-        body = Jason.encode!(response)
-
-        :ok =
-          :gen_tcp.send(socket, [
-            "HTTP/1.1 200 OK\r\nContent-Length: ",
-            Integer.to_string(byte_size(body)),
-            "\r\nConnection: close\r\n\r\n",
-            body
-          ])
-
-        :gen_tcp.close(socket)
-        serve(listener, parent)
-
-      {:error, :closed} ->
-        :ok
-    end
-  end
-
-  defp headers(socket, acc) do
-    {:ok, line} = :gen_tcp.recv(socket, 0, 5_000)
-
-    case String.split(String.trim(line), ":", parts: 2) do
-      [""] -> acc
-      [key, value] -> headers(socket, Map.put(acc, String.downcase(key), String.trim(value)))
-    end
-  end
 end

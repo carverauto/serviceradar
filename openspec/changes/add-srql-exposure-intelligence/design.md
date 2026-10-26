@@ -1498,6 +1498,68 @@ after cleanup. Database tests own interrupted delivery and cleanup behavior.
 Before an eventual rollout, quiesce old-version exposure consumers: their old
 journal cleanup cannot account for retained envelopes. No rollout is included.
 
+**Second implementation slice.** Migration `20261026061000` adds snapshot
+generation control and bounded source-repair helpers. The source worker holds
+one direct read-only transaction, publishes at most one pending page per lane,
+and waits for dimension and lifecycle receipts before facts. Loss of its reader
+aborts the generation; maintenance schedules a fresh generation instead of
+reusing its cursor.
+
+EventWriter retains an immutable warehouse plan before applying a page. The plan
+also retains load-size limits, so a replacement consumer settles the same
+physical chunks even if runtime batching changes. Device and dictionary writers
+share lane ownership. Equal-sequence drift produces a fresh source publication;
+the stored repair obligation includes the required sequence and content digest.
+An outbox acknowledgement cannot discharge it. Only confirmed warehouse content
+or a valid newer source publication permits the page receipt.
+
+The finalizer scans in bounded keyset pages, persists its cursor together with
+repair obligations, and validates retirement coverage against both retained
+source and warehouse fences. This slice adds no scheduled fleet reconciliation,
+readiness signal, or rollout. Task 1.6 remains open; fleet-scale throughput and
+the complete readiness contract require separate evidence.
+
+**Completion during live traffic.** On 2026-10-26 the product owner confirmed
+that a verified generation may reach `complete` while ordinary live delivery
+continues. The end marker records the operation ids of in-scope `applying`
+journals when the generation enters `finalizing`. That list is the retained-load
+fence, at most one operation per bucket. Completion waits while any fenced
+operation is still `applying`, while a retained snapshot effect is unsettled,
+or while a legacy journal remains in scope. An unverified repair keeps the
+generation finalizing until the warehouse confirms it. A `capturing`,
+`applying`, or `complete` journal that appears after the fence is ordinary
+traffic and stays out of it. A deployment generation's fence
+and legacy check cover every bucket. A device generation covers that device's
+bucket. A missing ordinal leaves both checks empty.
+
+A `snapshot_required` row that is still present after the fence is clear is a
+confirmed missing input discovered after the end manifest. The finalizing
+generation aborts with `exposure_snapshot_required`, including when assigned
+repairs are still unverified. It keeps those repair records, its cursor, and
+the `history_gaps` it already recorded, and leaves the journal row in place.
+Finalization then queues one fresh full snapshot. The successor's start accounts
+for those rows once, on that successor. A repeated start, after the rows are gone, adds
+nothing. `history_gaps` belongs to the generation that records it. The
+successor's count is the gaps it discovered on its own start, and the aborted
+generation keeps the count it had. Legacy uncertainty keeps the generation
+finalizing, because a fresh snapshot cannot retire a pre-protocol journal.
+This `complete` status is not slice 3 readiness. Outbox PubAck still cannot
+discharge a page.
+
+A disposable scratch StarRocks schema confirmed the in-flight storage example
+on 2026-10-26: a snapshot write of active sequence 40 followed by live sequence
+41 ends resolved at 41 and keeps the snapshot marker; live sequence 41 followed
+by the older snapshot write also ends resolved at 41; a later live sequence 42
+wins and keeps the marker. Filtered rows stayed zero. The schema was dropped
+afterward. That probe is storage evidence. The fresh-repair negative control on
+tree 3085874ff12e45a7089e42e332f712cf774d55f3, owner bd602729, produced the two
+intended fresh-sequence failures. Hosted parent 40a891ce on tree 0dcabec23
+(commit d61fdc49) passed: unit invocation 799acf3c ran 445 targets with 2
+preexisting skips, and the required build, benchmark, and Go race steps passed.
+The hosted CNPG/NATS/HTTP owner on that tree passed 460 cases. Task 1.6 stays
+open for reconciliation, readiness, and the separate fleet-scale throughput
+gate.
+
 ## Section 0 evidence (2026-10-21)
 
 ### Task 0.6: synthetic warehouse spike

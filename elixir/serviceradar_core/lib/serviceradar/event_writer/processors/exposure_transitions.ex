@@ -57,7 +57,8 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureTransitions do
     end
   end
 
-  defp decode(messages) do
+  @doc "Validate producer after-images for live delivery and retained snapshot replay."
+  def decode(messages) do
     Enum.reduce_while(messages, {:ok, []}, fn message, {:ok, rows} ->
       case decode_message(message) do
         {:ok, row} ->

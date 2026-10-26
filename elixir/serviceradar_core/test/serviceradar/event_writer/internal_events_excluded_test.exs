@@ -12,7 +12,12 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
 
   use ExUnit.Case, async: true
 
+  alias Broadway.Message
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.Pipeline
+  alias ServiceRadar.EventWriter.Processors.ExposureDimensions
+  alias ServiceRadar.EventWriter.Processors.ExposureSnapshots
+  alias ServiceRadar.EventWriter.Processors.ExposureTransitions
 
   describe "EventWriter stream configuration" do
     test "default streams include only external ingestion subjects" do
@@ -52,7 +57,7 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
     test "stream subjects only match external data patterns" do
       streams = Config.default_streams()
 
-      for stream <- streams do
+      for stream <- streams, stream.name != "EXPOSURE_RECOVERY" do
         # All subjects should be for external data: events, logs, otel, netflow, etc.
         # NOT for internal health/state changes.
         #
@@ -61,11 +66,30 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
         # agent, not this deployment reporting on itself, so it belongs on JetStream like
         # every other ingestion subject. `mtr` is the same case: agents trace remote targets and
         # core relays the traces for EventWriter to store. Assessment transitions
-        # describe vulnerabilities on monitored devices and use the same durable path.
+        # describe vulnerabilities on monitored devices. The recovery stream's
+        # routing is asserted by the pipeline test below.
         assert stream.subject =~
                  ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr|vulnerability\.assessment\.transitions|exposure\.dimensions)/,
                "Stream #{stream.name} has subject #{stream.subject} which may not be for external data"
       end
+    end
+
+    test "snapshot and delivery-recovery subjects use the recovery stream and ExposureSnapshots" do
+      stream = Enum.find(Config.default_streams(), &(&1.name == "EXPOSURE_RECOVERY"))
+      assert stream.processor == ExposureSnapshots
+
+      snapshot = "exposure.snapshots.7.facts"
+      recovery = "exposure.delivery.recovery.3.6b8c1b3e-1b2a-4c5d-9e0f-123456789abc"
+
+      for subject <- [snapshot, recovery] do
+        assert nats_filter_admits?(stream.subject, subject),
+               "#{stream.subject} does not admit #{subject}"
+
+        assert routed_processor(subject) == ExposureSnapshots
+      end
+
+      assert routed_processor("exposure.dimensions.cve") == ExposureDimensions
+      assert routed_processor("vulnerability.assessment.transitions.0") == ExposureTransitions
     end
   end
 
@@ -116,4 +140,26 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
              "HealthPubSub should not reference NATS"
     end
   end
+
+  defp routed_processor(subject) do
+    message = %Message{
+      data: "",
+      metadata: %{subject: subject},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    %Message{batcher: batcher} = Pipeline.handle_message(:default, message, %{})
+    Pipeline.processor_for_batcher(batcher)
+  end
+
+  # JetStream filter contract: `*` is one token and `>` is one or more trailing tokens.
+  defp nats_filter_admits?(filter, subject) do
+    nats_tokens?(String.split(filter, "."), String.split(subject, "."))
+  end
+
+  defp nats_tokens?([">"], [_token | _rest]), do: true
+  defp nats_tokens?([], []), do: true
+  defp nats_tokens?(["*" | filter], [_token | subject]), do: nats_tokens?(filter, subject)
+  defp nats_tokens?([token | filter], [token | subject]), do: nats_tokens?(filter, subject)
+  defp nats_tokens?(_filter, _subject), do: false
 end

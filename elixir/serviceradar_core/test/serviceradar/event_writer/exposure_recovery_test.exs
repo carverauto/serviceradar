@@ -2,10 +2,51 @@ defmodule ServiceRadar.EventWriter.ExposureRecoveryTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.EventWriter.ExposureRecovery
+  alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Snapshot
   alias ServiceRadar.TestSupport.ExposureBroker
 
   @moduletag :db_free
   @moduletag :tmp_dir
+
+  test "snapshot envelopes bind their contents and order, and retain one immutable page", ctx do
+    generation = %{"id" => 1, "scope" => nil, "snapshot" => "10:20:12"}
+    records = Enum.map(1..500, &%{"ordinal" => &1, "value" => String.duplicate("x", 1_100)})
+
+    assert {:ok, pages} =
+             Snapshot.split(generation, "cve", Snapshot.empty_receipt(), "dimensions", records)
+
+    assert length(pages) == 2
+    assert Enum.flat_map(pages, fn {page, _, _} -> page["records"] end) == records
+    [{first, body, hash}, {last, _, last_hash}] = pages
+    assert byte_size(body) <= 512 * 1024
+
+    assert {:error, :exposure_snapshot_receipt_conflict} =
+             Snapshot.advance(Snapshot.empty_receipt(), last, last_hash)
+
+    assert {:ok, receipt} = Snapshot.advance(Snapshot.empty_receipt(), first, hash)
+    assert {:ok, ^receipt} = Snapshot.advance(receipt, first, hash)
+    assert {:ok, %{"count" => 500, "page" => 2}} = Snapshot.advance(receipt, last, last_hash)
+    corrupted = body |> Jason.decode!() |> Map.put("count", 1) |> Snapshot.canonical()
+    assert {:error, :invalid_exposure_snapshot_envelope} = Snapshot.decode(corrupted)
+
+    assert {:error, :exposure_snapshot_record_too_large} =
+             Snapshot.split(generation, "cve", Snapshot.empty_receipt(), "dimensions", [
+               %{"value" => String.duplicate("x", 524_288)}
+             ])
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      subject = Snapshot.subject(1, "cve", 1)
+      assert {:ok, position} = ExposureRecovery.retain_envelope(subject, body, hash)
+      assert {:ok, ^position, ^body} = ExposureRecovery.fetch_envelope(subject, hash)
+      assert {:ok, ^position} = ExposureRecovery.retain_envelope(subject, body, hash)
+      {:ok, changed, changed_hash} = Snapshot.encode(Map.put(first, "scope", 8))
+
+      assert {:error, :exposure_recovery_content_conflict} =
+               ExposureRecovery.retain_envelope(subject, changed, changed_hash)
+
+      assert :ok = ExposureRecovery.delete(position)
+    end)
+  end
 
   test "retained bytes survive repeat publication and reject conflicting operation content",
        ctx do

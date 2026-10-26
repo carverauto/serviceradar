@@ -34,6 +34,9 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
   alias ServiceRadar.EventWriter.ExposureRecovery
+  alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope
+  alias ServiceRadar.EventWriter.ExposureSnapshotIngestion
+  alias ServiceRadar.EventWriter.Processors.ExposureTransitions
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Repo
@@ -95,6 +98,85 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     )
   end
 
+  @doc "Delete delayed recovery publications only after their journal ownership has ended."
+  def cleanup_unowned_copy(subject, body, position) do
+    with {:ok, [1, id, bucket, _entries]} <- Jason.decode(body),
+         {:ok, ^id} <- Ecto.UUID.cast(id),
+         true <- bucket in 0..15 and subject == "exposure.delivery.recovery.#{bucket}.#{id}" do
+      DirectSession.run(fn session ->
+        lock(session, bucket, fn _owned ->
+          case Repo.query!(
+                 """
+                 SELECT payload_hash FROM platform.exposure_delivery_batches
+                 WHERE bucket = $1 AND operation_id = $2::text::uuid
+                 """,
+                 [bucket, id]
+               ).rows do
+            [[hash]] ->
+              if ExposureSnapshotEnvelope.digest(body) == hash,
+                do: :ok,
+                else: {:error, :exposure_recovery_content_conflict}
+
+            [] ->
+              ExposureRecovery.delete(position)
+          end
+        end)
+      end)
+    else
+      _ -> {:error, :invalid_exposure_recovery_message}
+    end
+  end
+
+  @doc "Snapshot labels name both the generation and the actual physical chunk bytes."
+  def persist_snapshot(dataset, rows, locked, identity, limits) do
+    Destination.persist_warehouse(dataset, rows,
+      stream_load: limits,
+      persist: fn table, chunk, opts ->
+        digest =
+          ExposureSnapshotEnvelope.digest(
+            ExposureSnapshotEnvelope.canonical([table, identity, chunk])
+          )
+
+        with :ok <- locked.(),
+             result =
+               StreamLoad.persist(
+                 table,
+                 chunk,
+                 Keyword.put(opts, :label, "exposure-snapshot-" <> digest)
+               ),
+             :ok <- locked.() do
+          result
+        end
+      end
+    )
+  end
+
+  @doc "Shared live/snapshot ownership, including the two dictionary lanes."
+  def with_lane(lane, fun, opts \\ []) when lane in 0..17 do
+    DirectSession.run(fn session ->
+      lock(session, lane, fn locked ->
+        with :ok <-
+               ExposureSnapshotIngestion.release_unstarted(
+                 Keyword.get(opts, :snapshot),
+                 lane,
+                 locked
+               ),
+             :ok <- settle_retained(lane, locked, fn -> recover_live(lane, locked) end) do
+          fun.(locked)
+        end
+      end)
+    end)
+  end
+
+  defp recover_live(lane, locked) when lane in 0..15,
+    do: recover(lane, &ExposureTransitions.ingest_batch/2, locked)
+
+  defp recover_live(_lane, _locked), do: :ok
+
+  defp settle_retained(lane, locked, recover) do
+    with :ok <- ExposureSnapshotIngestion.settle(lane, locked), do: recover.()
+  end
+
   defp positions(messages) do
     Enum.reduce_while(messages, {:ok, %{}}, fn message, {:ok, buckets} ->
       ack = Map.get(message.metadata, :jetstream_ack)
@@ -124,13 +206,17 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   end
 
   defp deliver(session, bucket, entries, ingest) do
+    lock(session, bucket, fn locked -> deliver_owned(bucket, entries, ingest, locked) end)
+  end
+
+  defp lock(session, bucket, fun) do
     case Postgrex.query(session, "SELECT pg_try_advisory_lock($1, $2)", [
            @lock_namespace,
            bucket
          ]) do
       {:ok, %Postgrex.Result{rows: [[true]]}} ->
         try do
-          deliver_owned(bucket, entries, ingest, fn -> owned(session, bucket) end)
+          fun.(fn -> owned(session, bucket) end)
         after
           # Frees the bucket while later buckets of this run deliver. If the
           # session was lost, it holds nothing and closing it is enough.
@@ -150,7 +236,7 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   end
 
   defp deliver_owned(bucket, entries, ingest, locked) do
-    with :ok <- recover(bucket, ingest, locked) do
+    with :ok <- settle_retained(bucket, locked, fn -> recover(bucket, ingest, locked) end) do
       entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
       deliver_pages(bucket, entries, ingest, locked)
     end

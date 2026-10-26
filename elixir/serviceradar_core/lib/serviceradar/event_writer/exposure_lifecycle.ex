@@ -8,14 +8,20 @@ defmodule ServiceRadar.EventWriter.ExposureLifecycle do
   @page_size 500
   @pages_per_batch 20
 
-  def prepare(events, locked) do
+  def prepare(events, locked, opts \\ []) do
     ordinals = events |> Enum.map(& &1.device_ord) |> Enum.uniq() |> Enum.sort()
 
     with {:ok, current} <- read_states(ordinals),
-         {:ok, current} <- apply_markers(events, current, locked),
-         :ok <- retire_facts(current, locked) do
+         {:ok, current} <- apply_markers(events, current, locked, opts),
+         :ok <- retire_facts(current, locked, opts) do
       admit(events, current)
     end
+  end
+
+  @doc "Compare snapshot facts with lifecycle coverage without starting a write."
+  def admit_current(events) do
+    ordinals = events |> Enum.map(& &1.device_ord) |> Enum.uniq() |> Enum.sort()
+    with {:ok, current} <- read_states(ordinals), do: admit(events, current)
   end
 
   defp read_states([]), do: {:ok, %{}}
@@ -29,7 +35,7 @@ defmodule ServiceRadar.EventWriter.ExposureLifecycle do
     end
   end
 
-  defp apply_markers(events, current, locked) do
+  defp apply_markers(events, current, locked, opts) do
     events
     |> Enum.filter(&(&1.kind == :lifecycle))
     |> Enum.group_by(& &1.device_ord)
@@ -38,7 +44,7 @@ defmodule ServiceRadar.EventWriter.ExposureLifecycle do
       previous = Map.get(states, ordinal, %{"transition_seq" => 0})
 
       if marker.row["transition_seq"] > previous["transition_seq"] do
-        case ExposureDelivery.persist(:exposure_retired_ordinals, [marker.row], locked) do
+        case persist(:exposure_retired_ordinals, [marker.row], locked, opts) do
           {:ok, _} -> {:cont, {:ok, Map.put(states, ordinal, marker.row)}}
           error -> {:halt, error}
         end
@@ -48,19 +54,19 @@ defmodule ServiceRadar.EventWriter.ExposureLifecycle do
     end)
   end
 
-  defp retire_facts(states, locked) do
+  defp retire_facts(states, locked, opts) do
     Enum.reduce_while(states, :ok, fn {_ordinal, state}, :ok ->
-      case retire_page(state, locked, @pages_per_batch) do
+      case retire_page(state, locked, @pages_per_batch, opts) do
         :ok -> {:cont, :ok}
         error -> {:halt, error}
       end
     end)
   end
 
-  defp retire_page(%{"retired_seq" => 0}, _locked, _pages), do: :ok
-  defp retire_page(_state, _locked, 0), do: {:error, :exposure_retirement_incomplete}
+  defp retire_page(%{"retired_seq" => 0}, _locked, _pages, _opts), do: :ok
+  defp retire_page(_state, _locked, 0, _opts), do: {:error, :exposure_retirement_incomplete}
 
-  defp retire_page(state, locked, pages) do
+  defp retire_page(state, locked, pages, opts) do
     columns = Enum.join(Rows.exposure_fact_columns(), ",")
 
     sql = """
@@ -87,16 +93,37 @@ defmodule ServiceRadar.EventWriter.ExposureLifecycle do
 
         # History must settle first: after the fact load commits, a recovered
         # sweep no longer selects these keys and cannot reconstruct a lost append.
-        with {:ok, _} <-
-               ExposureDelivery.persist(
-                 :exposure_transitions_log,
-                 retirement_history(retired),
-                 locked
-               ),
-             {:ok, _} <- ExposureDelivery.persist(:exposure_facts, retired, locked) do
-          retire_page(state, locked, pages - 1)
+        with :ok <- append_history(retired, locked, opts),
+             {:ok, _} <- persist(:exposure_facts, retired, locked, opts) do
+          retire_page(state, locked, pages - 1, opts)
         end
       end
+    end
+  end
+
+  defp append_history(retired, locked, opts) do
+    if Keyword.get(opts, :history, true) do
+      with {:ok, _} <-
+             persist(:exposure_transitions_log, retirement_history(retired), locked, opts),
+           do: :ok
+    else
+      :ok
+    end
+  end
+
+  defp persist(dataset, rows, locked, opts) do
+    case Keyword.fetch(opts, :snapshot) do
+      {:ok, identity} ->
+        ExposureDelivery.persist_snapshot(
+          dataset,
+          rows,
+          locked,
+          identity,
+          Keyword.fetch!(opts, :snapshot_limits)
+        )
+
+      :error ->
+        ExposureDelivery.persist(dataset, rows, locked)
     end
   end
 

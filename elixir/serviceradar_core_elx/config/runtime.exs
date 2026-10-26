@@ -1295,6 +1295,7 @@ if config_env() == :prod do
       # credential-broker delete. Kept in step with serviceradar_core's
       # runtime.exs and config.exs.
       {"* * * * *", ServiceRadar.Inventory.ExposureDeviceRefreshWorker, queue: :maintenance},
+      {"* * * * *", ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker, queue: :maintenance},
       {"17 * * * *", ServiceRadar.Inventory.ExposurePublicationPrepareWorker, queue: :maintenance},
       {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker, queue: :maintenance},
       {"23 3 * * *", SecurityEventsRetentionWorker, queue: :maintenance},
@@ -1739,6 +1740,7 @@ if config_env() == :prod do
         Config.mtr_results_stream(),
         Config.exposure_transitions_stream(),
         Config.exposure_dimensions_stream(),
+        Config.exposure_snapshots_stream(),
         %{
           name: "BMP_CAUSAL",
           stream_name: "events",

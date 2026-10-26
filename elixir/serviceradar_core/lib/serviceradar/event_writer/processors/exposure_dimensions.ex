@@ -7,6 +7,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureDimensions do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.EventWriter.ExposureDelivery
 
   @max_bigint 9_223_372_036_854_775_807
   @cve_fields ~w(cve_ord cve_id epss_score transition_seq updated_at)
@@ -18,18 +19,32 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureDimensions do
   @impl true
   def process_batch(messages) do
     if Destination.enabled?() do
-      with {:ok, rows} <- decode(messages),
-           {:ok, _} <- Destination.persist_warehouse(:exposure_cve_dim, latest(rows, :cve)),
-           {:ok, _} <-
-             Destination.persist_warehouse(:exposure_package_dim, latest(rows, :package)) do
-        {:ok, length(rows)}
+      with {:ok, _} <- decode(messages) do
+        ExposureDelivery.with_lane(16, fn cve_locked ->
+          ExposureDelivery.with_lane(17, fn package_locked ->
+            ingest_batch(messages, fn ->
+              with :ok <- cve_locked.(), do: package_locked.()
+            end)
+          end)
+        end)
       end
     else
       {:error, :starrocks_required}
     end
   end
 
-  defp decode(messages) do
+  @doc "Apply complete dimension publications while both dictionary lanes are owned."
+  def ingest_batch(messages, locked) do
+    with {:ok, rows} <- decode(messages),
+         {:ok, _} <- ExposureDelivery.persist(:exposure_cve_dim, latest(rows, :cve), locked),
+         {:ok, _} <-
+           ExposureDelivery.persist(:exposure_package_dim, latest(rows, :package), locked) do
+      {:ok, length(rows)}
+    end
+  end
+
+  @doc "Validate the shared live and snapshot dimension publication contract."
+  def decode(messages) do
     Enum.reduce_while(messages, {:ok, []}, fn message, {:ok, rows} ->
       case decode_message(message) do
         {:ok, row} -> {:cont, {:ok, [row | rows]}}

@@ -873,6 +873,19 @@ defmodule ServiceRadar.EventWriter.Config do
     }
   end
 
+  @doc "Snapshots and delayed delivery-copy cleanup share the bounded recovery stream."
+  def exposure_snapshots_stream do
+    %{
+      name: "EXPOSURE_RECOVERY",
+      subject: "exposure.>",
+      processor: ServiceRadar.EventWriter.Processors.ExposureSnapshots,
+      ensure_stream: false,
+      consumer_max_deliver: -1,
+      batch_size: 1,
+      batch_timeout: 100
+    }
+  end
+
   @doc """
   Returns the default stream configurations.
 
@@ -986,6 +999,7 @@ defmodule ServiceRadar.EventWriter.Config do
       mtr_results_stream(),
       exposure_transitions_stream(),
       exposure_dimensions_stream(),
+      exposure_snapshots_stream(),
       %{
         name: "BMP_CAUSAL",
         stream_name: "events",
@@ -1482,7 +1496,7 @@ defmodule ServiceRadar.EventWriter.Config do
     |> load_streams()
     |> Enum.reject(&flow_stream?/1)
     |> Enum.reject(
-      &(Map.get(&1, :name) in ["EXPOSURE_TRANSITIONS", "EXPOSURE_DIMENSIONS"] and
+      &(Map.get(&1, :name) in ["EXPOSURE_TRANSITIONS", "EXPOSURE_DIMENSIONS", "EXPOSURE_RECOVERY"] and
           not ServiceRadar.Analytics.StarRocks.Destination.enabled?())
     )
   end
