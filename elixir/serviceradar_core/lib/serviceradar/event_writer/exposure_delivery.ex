@@ -20,8 +20,11 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   through the Repo, one autocommitted statement at a time, so a batch is
   journaled durably before its load starts. An insert that finds the bucket row
   already there does nothing and the batch is busy, without a load. Finishing
-  marks complete, deletes the envelope, and removes the journal only for the
-  positions this run journaled or replayed.
+  marks complete, deletes the envelope, and removes the journal only while that
+  row is still the operation this run created or adopted. The same source
+  positions under another operation stay in place, including its phase and
+  recovery position. Legacy adoption is the only update that claims a journal
+  with no operation id, and only while that id is still null.
 
   Namespace 74523 was never in a tagged release (it landed after v1.4.97), so a
   mixed-version overlap only affects an installation running an untagged
@@ -215,8 +218,8 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     end
   end
 
-  defp recover_journal(bucket, [sequences, "complete", _id, _hash, position], _ingest, locked),
-    do: cleanup(bucket, sequences, position, locked)
+  defp recover_journal(bucket, [sequences, "complete", id, _hash, position], _ingest, locked),
+    do: cleanup(bucket, id, sequences, position, locked)
 
   defp recover_journal(bucket, [_sequences, "snapshot_required", _, _, _], _ingest, _locked),
     do: {:error, {:exposure_snapshot_required, bucket}}
@@ -232,7 +235,8 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
              """
              UPDATE platform.exposure_delivery_batches
              SET operation_id = $2::text::uuid, payload_hash = $3
-             WHERE bucket = $1 AND stream_sequences = $4::bigint[] AND phase = 'legacy'
+             WHERE bucket = $1 AND stream_sequences = $4::bigint[]
+               AND phase = 'legacy' AND operation_id IS NULL
              """,
              [bucket, id, hash, sequences]
            ) do
@@ -249,7 +253,9 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     case ExposureRecovery.fetch(bucket, id, hash, position) do
       {:ok, retained_position, entries} ->
         if sequences(entries) == sequences do
-          recovered(apply_retained(bucket, sequences, retained_position, entries, ingest, locked))
+          recovered(
+            apply_retained(bucket, id, sequences, retained_position, entries, ingest, locked)
+          )
         else
           {:error, :exposure_recovery_content_conflict}
         end
@@ -278,8 +284,9 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
                    UPDATE platform.exposure_delivery_batches
                    SET phase = 'snapshot_required'
                    WHERE bucket = $1 AND stream_sequences = $2::bigint[]
+                     AND operation_id = $3::text::uuid AND phase = 'capturing'
                    """,
-                   [bucket, sequences]
+                   [bucket, sequences, id]
                  ) do
               %{num_rows: 1} -> {:error, {:exposure_snapshot_required, bucket}}
               %{num_rows: 0} -> {:error, :exposure_delivery_busy}
@@ -300,23 +307,25 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   defp retain_and_apply(bucket, id, hash, body, entries, ingest, locked) do
     with :ok <- locked.(),
          {:ok, position} <- ExposureRecovery.retain(bucket, id, body, hash) do
-      apply_retained(bucket, sequences(entries), position, entries, ingest, locked)
+      apply_retained(bucket, id, sequences(entries), position, entries, ingest, locked)
     end
   end
 
-  defp apply_retained(bucket, sequences, position, entries, ingest, locked) do
+  defp apply_retained(bucket, id, sequences, position, entries, ingest, locked) do
     with :ok <- locked.() do
       case Repo.query!(
              """
              UPDATE platform.exposure_delivery_batches
              SET phase = 'applying', recovery_position = $2
              WHERE bucket = $1 AND stream_sequences = $3::bigint[]
+               AND operation_id = $4::text::uuid
              """,
-             [bucket, position, sequences]
+             [bucket, position, sequences, id]
            ) do
         %{num_rows: 1} ->
           finish(
             bucket,
+            id,
             sequences,
             position,
             ingest.(Enum.map(entries, &elem(&1, 1)), locked),
@@ -329,7 +338,7 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     end
   end
 
-  defp finish(bucket, sequences, position, result, locked)
+  defp finish(bucket, id, sequences, position, result, locked)
        when elem(result, 0) in [:ok, :retry] do
     with :ok <- locked.() do
       case Repo.query!(
@@ -337,11 +346,12 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
              UPDATE platform.exposure_delivery_batches
              SET phase = 'complete'
              WHERE bucket = $1 AND stream_sequences = $2::bigint[]
+               AND operation_id = $3::text::uuid
              """,
-             [bucket, sequences]
+             [bucket, sequences, id]
            ) do
         %{num_rows: 1} ->
-          with :ok <- cleanup(bucket, sequences, position, locked) do
+          with :ok <- cleanup(bucket, id, sequences, position, locked) do
             accepted(result)
           end
 
@@ -351,9 +361,9 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     end
   end
 
-  defp finish(_bucket, _sequences, _position, error, _locked), do: error
+  defp finish(_bucket, _id, _sequences, _position, error, _locked), do: error
 
-  defp cleanup(bucket, sequences, position, locked) do
+  defp cleanup(bucket, id, sequences, position, locked) do
     with :ok <- locked.(),
          :ok <- ExposureRecovery.delete(position),
          :ok <- locked.() do
@@ -361,8 +371,9 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
         """
         DELETE FROM platform.exposure_delivery_batches
         WHERE bucket = $1 AND stream_sequences = $2::bigint[]
+          AND operation_id = $3::text::uuid
         """,
-        [bucket, sequences]
+        [bucket, sequences, id]
       )
 
       :ok

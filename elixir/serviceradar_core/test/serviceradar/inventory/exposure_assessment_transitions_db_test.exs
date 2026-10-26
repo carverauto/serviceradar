@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   import Ecto.Query
 
   alias ServiceRadar.EventWriter.ExposureDelivery
+  alias ServiceRadar.EventWriter.ExposureRecovery
   alias ServiceRadar.Inventory.ExposureDeviceRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRelay
@@ -970,6 +971,52 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert %{rows: [[^foreign]]} =
                Repo.query!(
                  "SELECT stream_sequences FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               )
+    end)
+  end
+
+  @tag :tmp_dir
+  test "finishing a delivery preserves a replacement operation with identical source positions",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+      own = [ctx.unique * 10]
+      foreign = Ecto.UUID.generate()
+
+      assert {:ok, 1} =
+               ExposureDelivery.run([message], fn [_message], locked ->
+                 :ok = locked.()
+
+                 {:ok, body, hash} =
+                   ExposureRecovery.encode(bucket, foreign, [{ctx.unique * 10, message}])
+
+                 {:ok, position} = ExposureRecovery.retain(bucket, foreign, body, hash)
+
+                 assert %{num_rows: 1} =
+                          Repo.query!(
+                            """
+                            UPDATE platform.exposure_delivery_batches
+                            SET operation_id = $2::text::uuid, payload_hash = $3,
+                                recovery_position = $4
+                            WHERE bucket = $1 AND stream_sequences = $5::bigint[]
+                            """,
+                            [bucket, foreign, hash, position, own]
+                          )
+
+                 send(self(), {:replacement_position, position})
+                 {:ok, 1}
+               end)
+
+      assert_received {:replacement_position, position}
+
+      assert %{rows: [[^foreign, "applying", ^position]]} =
+               Repo.query!(
+                 """
+                 SELECT operation_id::text, phase, recovery_position
+                 FROM platform.exposure_delivery_batches WHERE bucket = $1
+                 """,
                  [bucket]
                )
     end)

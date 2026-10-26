@@ -1146,17 +1146,19 @@ EventWriter serializes each of the existing sixteen transition subject buckets
 using a CNPG session advisory lock, held on a direct connection that bypasses
 the transaction-mode pooler: through the pooler, the lock and its unlock can run
 on different server backends and strand the lock on a shared one. Its durable
-control journal contains only
-JetStream stream positions, never exposure payloads. A replacement owner fetches
-and replays an unfinished batch before admitting another, settling its immutable
-warehouse load labels. The journal insert does nothing when that bucket row
-already exists, and the delivery is busy without a load; finishing deletes only
-the positions this run journaled or replayed. Namespace 74523 was never in a
-tagged release (it landed after v1.4.97), so a mixed-version overlap only
-affects an installation running an untagged staging build during this upgrade,
-and draining to one EventWriter for that upgrade is optional. Every physical
-load, including a size-split chunk, checks that the owning session still holds
-the bucket lock. Retirement uses bounded pages and retains unfinished work.
+control journal records source positions and the delivery operation, never
+exposure payloads. A replacement owner fetches and replays an unfinished batch
+before admitting another, settling its immutable warehouse load labels. The
+journal insert does nothing when that bucket row already exists, and the
+delivery is busy without a load; finishing removes the journal only for the
+operation this run created or adopted. Decision 25 binds that removal to the
+operation, so matching source positions are not enough. Namespace 74523 was
+never in a tagged release (it landed after v1.4.97), so a mixed-version
+overlap only affects an installation running an untagged staging build during
+this upgrade, and draining to one EventWriter for that upgrade is optional.
+Every physical load, including a size-split chunk, checks that the owning
+session still holds the bucket lock. Retirement uses bounded pages and retains
+unfinished work.
 Retirement appends each known fact's terminal after-image to transition history
 before loading its terminal current state. A retry after a committed fact load
 will no longer select that key, so appending first prevents a crash from losing
@@ -1362,11 +1364,16 @@ transition messages have expired. No change to Stream Load retry internals is
 needed for this contract.
 
 After all loads settle, record `complete` before deleting the recovery envelope;
-only then remove the journal and admit the next batch. A crash between completion
-and cleanup resumes cleanup without reapplying data. A crash while capturing
-cannot have started a warehouse load: if neither the retained copy nor the
-original messages can be obtained, abandon that unstarted operation and request
-a fresh snapshot. Its missing input is reported, not counted as delivered.
+only then remove the journal and admit the next batch. Phase changes and journal
+removal match the operation this run created or adopted. Another operation keeps
+its phase, journal and recovery position when the source positions are the same.
+The only claim on a journal that has no operation yet is the initial legacy
+adoption, and it applies only while that operation id is still null. A crash
+between completion and cleanup resumes cleanup without reapplying data. A crash
+while capturing cannot have started a warehouse load: if neither the retained
+copy nor the original messages can be obtained, abandon that unstarted
+operation and request a fresh snapshot. Its missing input is reported, not
+counted as delivered.
 
 An old journal created before this protocol must first finish through its old
 replay path, or be upgraded by retaining its still-available exact inputs before

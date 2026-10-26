@@ -622,7 +622,7 @@ The source SHALL retain the latest complete publication on each assessment and t
 - **AND** a per-device snapshot sets the fact's KEV flag to true at sequence 11
 
 ### Requirement: Snapshot Delivery Completeness Is Durable And Bounded
-The system SHALL retain exact unfinished exposure delivery inputs in a bounded JetStream recovery stream before issuing their warehouse writes, and SHALL keep only control metadata in CNPG. The recovery stream SHALL reject new publication when full rather than evict unfinished input, SHALL NOT expire unfinished input by age, and SHALL preserve one immutable payload per operation subject. An uncertain publish SHALL be reconciled against the stored payload, including after the ordinary duplicate window. Recovery SHALL replay the retained inputs through the existing sequenced ingestion path and settle the original load labels before admitting later writes under the same ownership lock. Completion SHALL be durable before input cleanup; retries of completed work SHALL resume cleanup. A legacy journal with unavailable inputs SHALL remain blocked until separately authorized operator recovery establishes that old writes cannot race the rebuild.
+The system SHALL retain exact unfinished exposure delivery inputs in a bounded JetStream recovery stream before issuing their warehouse writes, and SHALL keep only control metadata in CNPG. The recovery stream SHALL reject new publication when full rather than evict unfinished input, SHALL NOT expire unfinished input by age, and SHALL preserve one immutable payload per operation subject. An uncertain publish SHALL be reconciled against the stored payload, including after the ordinary duplicate window. Recovery SHALL replay the retained inputs through the existing sequenced ingestion path and settle the original load labels before admitting later writes under the same ownership lock. Completion SHALL be durable before input cleanup; retries of completed work SHALL resume cleanup. A delivery SHALL change or remove a journal only for the operation it created or adopted. Identical source positions SHALL NOT let it alter another operation's phase, journal or recovery position. Initial legacy adoption SHALL be the only claim on a journal whose operation id is still null. A legacy journal with unavailable inputs SHALL remain blocked until separately authorized operator recovery establishes that old writes cannot race the rebuild.
 
 The snapshot coordinator SHALL admit one scoped generation at a time and SHALL bound envelope size, publication windows, source reads and receiver progress. Each generation SHALL use one recorded source snapshot throughout. It SHALL carry a start manifest, contiguous numbered pages with content digests and an end manifest containing every lane's expected page count, record count and digest, including empty lanes. Dimensions and lifecycle coverage SHALL be receipted before fact pages are emitted. A receiver SHALL record page completion only after confirmed warehouse effects. Missing pages, conflicting content, incomplete prerequisites or unmatched end-manifest receipts SHALL prevent finalization. Snapshot loads SHALL use a generation-specific label namespace distinct from live transition loads. Losing the source transaction before the complete end manifest is recorded SHALL abort that generation; a replacement source transaction SHALL use a new generation. An aborted generation SHALL NOT finalize or establish readiness.
 
@@ -645,6 +645,12 @@ Finalization SHALL persist its scan progress and repair obligations and SHALL ve
 - **GIVEN** all warehouse effects are confirmed and the completion receipt is durable
 - **WHEN** the owner crashes before deleting the recovery envelope and journal
 - **THEN** the next owner resumes cleanup without treating the completed input as a new operation
+
+#### Scenario: A replacement operation with the same source positions is preserved
+- **GIVEN** a delivery retained its batch and a replacement operation now owns those same source positions
+- **WHEN** the earlier delivery finishes
+- **THEN** the replacement stays in `applying` with its own recovery position
+- **AND** the earlier delivery does not remove that journal
 
 #### Scenario: A full recovery stream preserves unfinished work
 - **GIVEN** the recovery stream has reached its configured storage bound
