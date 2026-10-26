@@ -2,6 +2,15 @@
 
 ## Current pickup
 
+The current byte-path checkpoint adds explicit
+[sealed-media upload](media-upload.md) through the isolated storage service,
+building on [provisioned spool identity](spool-lifetime.md). Its caller accepts
+only a frozen block ID, uses media-specific authority and verifies exact remote
+bytes. Success means `media_verified`; recovery-manifest verification and fenced
+index publication still precede archive availability. [Spool identity #6004](https://github.com/carverauto/serviceradar/pull/6004)
+is merged at `0ba042babb5b9e6edba70c28554da799e6dc78cd` from head `30566cec`.
+That merge does not pass this checkpoint's final published-head database gates.
+
 [Private archive registration #6000](https://github.com/carverauto/serviceradar/pull/6000)
 is merged at `8974fcddd7039648085898b7fb9319d55898a7c8`. Its published head
 `e639b4fd` passed all 19 checks, including the seven guarded Web database targets
@@ -17,15 +26,17 @@ checks passed. Local Dialyzer fails with the same 11 emitted warnings on the exa
 base and PR head; CI skips Dialyzer. Neither registration nor reservation
 provisions storage or installs upload authority.
 
-The current product checkpoint verifies the provisioned local spool lifetime.
-[Spool lifetime](spool-lifetime.md) owns the contract: infrastructure calls
-`Storage.initialize/2` on an existing private empty root; the recorder only
-verifies the marker. Source validation passed. Publication remains required.
-CI readiness still requires the recomputed `integration_tests_serial_4` lane
-to run all eight synthetic recorder worker cases, plus the full selected Core and
-Web database lifecycles, including cleanup and fixture-generation lease release.
-That execution is not deployed-camera validation. This does not finish tasks
-1.4 or 1.7 or associate a Cloud volume with the UUID.
+[Spool lifetime](spool-lifetime.md) owns the merged marker contract:
+infrastructure calls `Storage.initialize/2` on an existing private empty root;
+the recorder only verifies the marker. Source validation passed. #6004's merged
+handoff still does not record a published-head `integration_tests_serial_4`
+pass of all eight synthetic recorder worker cases. Recomputing the serial
+partition after staging `dde209645` keeps those eight cases on that lane, the
+two Core media authority cases on `integration_tests_serial_6`, and both joined
+Web cases on `networks_live_db_test_0`. Those lanes, cleanup, and
+fixture-generation lease release remain required for media's final published
+head. That execution is not deployed-camera validation. This does not finish
+tasks 1.4 or 1.7 or associate a Cloud volume with the UUID.
 
 Production recording stays disabled. Preserve the operator-confirmed live RTSP
 path and all existing ownership, manifest, archive, intent and dispatch
@@ -34,15 +45,16 @@ live provider qualification and deployment acceptance remain separate gates.
 
 ## Priority order
 
-1. Publish the provisioned-spool checkpoint through no-mistakes. CI readiness
-   requires `integration_tests_serial_4` with all eight synthetic recorder cases
-   and the full selected Core and Web database lifecycles, including cleanup
-   and fixture-generation lease release. In parallel, advance bounded sealed-media
-   streaming through the isolated storage service with operation-specific
-   authority and exact object
-   verification. Init authority must not authorize media. Follow verified media
-   with a recovery manifest from the frozen descriptor, then fenced idempotent
-   index publication. Multipart reconciliation remains a separate open gate.
+1. Spool identity #6004 is merged. Finish no-mistakes publication and actual
+   guarded Core/Web database execution for sealed-media upload. Recomputed
+   routing keeps all eight synthetic worker cases on `integration_tests_serial_4`,
+   both Core media authority cases on `integration_tests_serial_6`, and both
+   joined Web cases on `networks_live_db_test_0`, including cleanup and
+   fixture-generation lease release. Then obtain or consume independent init
+   verification, write and verify the recovery manifest from the frozen
+   descriptor, and publish the index idempotently under current ownership.
+   Only the complete verified archive and published index expose availability.
+   Init authority never authorizes media. Multipart reconciliation remains open.
 2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
    before adding a provider-creation worker. A matching name or successful
    create response cannot prove ownership. Cloud
@@ -68,15 +80,16 @@ live provider qualification and deployment acceptance remain separate gates.
 | Frozen archive and destination | #5955 merged at `88c5a324`; head `72a81f96`, guarded `0df082fa` passed all 12 targets | Provider authority and verified bytes |
 | Immutable upload intent | #5960 merged at `29b30748`; guarded `853e4601` passed all 12 targets including five intent cases | Wire operations |
 | Durable dispatch observations | #5966 merged; final head `831e8893`, guarded Core `d85a7307` and Web `6aafb922` passed 12 and seven targets uncached, with all lifecycle statuses zero | Current qualification and isolated storage boundary |
-| Qualification report | #5973 merged; 18 final checks passed. Six protocol cases; full remote `fc10c612` passes 459 targets after formatting, with two Swift platform skips; see [validation](validation.md) | Authenticated desired/applied contract, evidence verification and current authority enforcement |
-| Private qualification receipts | #5979 merged; 19 final checks passed. Core `42cf4965` and Web `8a15b4d4` executed all 12/seven guarded targets uncached; all lifecycle statuses zero, all five new DB cases included | Full desired/applied installation remains open |
-| Deployment-scoped media authentication | #5983 merged; final head `66d22624` passed all checks. Core `59ceece3` and Web `f8b9178b` executed all 12/seven guarded targets; lifecycle statuses zero. HTTP shard 0: 819 tests + two properties, zero failures, both receipt cases traced | Full desired/applied authority remains open |
+| Qualification report | #5973 merged; 18 final checks passed. Six protocol cases; full remote `fc10c612` passes 459 targets after formatting, with two Swift platform skips; see [validation](validation.md) | Live evidence verification. Narrow installation is the init and media rows |
+| Private qualification receipts | #5979 merged; 19 final checks passed. Core `42cf4965` and Web `8a15b4d4` executed all 12/seven guarded targets uncached; all lifecycle statuses zero, all five new DB cases included | Hosted configuration beyond the init and media rows |
+| Deployment-scoped media authentication | #5983 merged; final head `66d22624` passed all checks. Core `59ceece3` and Web `f8b9178b` executed all 12/seven guarded targets; lifecycle statuses zero. HTTP shard 0: 819 tests + two properties, zero failures, both receipt cases traced | Hosted authority beyond the init and media rows |
 | Durable recording stop | #5989 merged; 20 checks passed. Core `e00f8d32` and Web `2602f4c1` executed 12 and seven guarded targets; all lifecycle statuses zero. Five core cases covered by included owners; HTTP case explicitly traced | Full fleet drain and positive authority remain separate |
 | Cloud media installation | #187 merged; all five checks passed; Timescale CI 3230 tests, zero failures, 10 skips, all 17 required cases enabled | Provider provisioning, qualification, isolated workload and lifecycle preservation |
 | Init-object authority | #5996 merged; published head `447f594b` passed 19 checks; Core `551008e0` and Web `a4308a82` passed all 12/seven guarded targets with lifecycle exit statuses zero | Cloud provisioning/qualification and complete archive transport |
 | Private archive registration | #6000 merged at `8974fcdd`; published head `e639b4fd` passed 19 checks; Web `1452ccca` executed all seven guarded targets uncached, including owning shard 0, with all lifecycle statuses zero; [validation](validation.md) retains the approved pre-push exception | Cloud-retained allocation identity and matching product receipt |
 | Cloud media reservation | #188 remains an open draft; all five checks passed, including 3,241 tests with zero failures and 10 skips; local Dialyzer fails with 11 warnings also present on its exact base | Merge, allocation inventory and preservation-release workflow |
-| Provisioned spool identity | [Spool lifetime](spool-lifetime.md); measured results in [validation](validation.md) | Published-head `integration_tests_serial_4` with all eight synthetic cases, full selected Core and Web database lifecycles, cleanup and fixture lease release; Cloud volume/UUID association |
+| Provisioned spool identity | #6004 merged at `0ba042ba` from head `30566cec`; [local marker contract](spool-lifetime.md) and [validation](validation.md#provisioned-spool-identity) | The merged record does not show a published-head pass of all eight `integration_tests_serial_4` cases. Cloud volume/UUID association remains open |
+| Sealed-media upload | [Byte-path contract](media-upload.md); synthetic TLS/CONNECT, streaming and lifecycle checks | Final published-head Core authority cases on recomputed `integration_tests_serial_6` and both joined Web cases on `networks_live_db_test_0`; manifest then index publication |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -87,15 +100,19 @@ runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Start with [tasks.md](tasks.md), [Cloud ownership](cloud-control-plane.md),
-[init authority](init-authority.md) and [spool lifetime](spool-lifetime.md).
-Registration is merged and its guarded Web database execution passed. Publish the
-spool checkpoint only after `integration_tests_serial_4` runs all eight synthetic
-cases and the full selected Core and Web database lifecycles pass, including
-cleanup and fixture-generation lease release. Advance bounded
-media transport independently of Cloud provisioning; use the existing
+Start with [tasks.md](tasks.md), [media upload](media-upload.md),
+[spool lifetime](spool-lifetime.md) and [Cloud ownership](cloud-control-plane.md).
+Registration #6000 and spool identity #6004 are merged. #6004 does not pass
+media's final published-head database gates. Finish that media gate, preserving
+its recorded limits: all eight worker cases stay on `integration_tests_serial_4`,
+both Core media cases stay on `integration_tests_serial_6`, and both joined Web
+cases stay on `networks_live_db_test_0`. The next product pass obtains or
+consumes independent init verification, verifies the recovery manifest and
+publishes the archive index; reuse the existing
 [upload intent](upload-intent.md) and [dispatch](upload-dispatch.md) owners.
-Then implement recovery-manifest verification and index publication. Cloud's
+The media caller currently releases its lease after media verification and has
+no production init caller or scheduler. Keep publication retries fenced and do
+not rearm an attempted object operation. Cloud's
 new-allocation proof remains unresolved; do not add queued work that can only
 report an unsupported provider contract. Registration never authorizes provider
 I/O, and a reservation never proves owned storage.

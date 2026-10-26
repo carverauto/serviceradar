@@ -94,19 +94,21 @@ root/marker substitution, unchanged error evidence and restart recovery.
 authority, rejection during real synthetic media delivery without freezing a
 block or interrupting a viewer, and marker replacement across a successful
 freeze on the end-of-stream and finite-capacity paths. The frozen row remains
-the historical receipt; current reads refuse the replaced marker. CI readiness
-still requires its recomputed `integration_tests_serial_4` lane to run all
-eight synthetic cases, with the full selected Core and Web database lifecycles,
-cleanup, and fixture-generation lease release. That lane is not deployed-camera
-validation. Existing media, RTSP, browser, manifest-byte and lifecycle
-assertions remain required.
+the historical receipt; current reads refuse the replaced marker. #6004 is
+merged at `0ba042ba` from head `30566cec`. Recomputing the serial partition
+after staging `dde209645` still places all eight synthetic cases on
+`integration_tests_serial_4`. That merge does not record those published-head
+database lifecycles as passed, and it does not pass media's final published-head
+gates. Cleanup and fixture-generation lease release remain part of that recorded
+gate. The lane is not deployed-camera validation. Existing media, RTSP, browser,
+manifest-byte and lifecycle assertions remain required.
 
 This supplies part of tasks 1.4/1.7, not complete recovery or hosted readiness.
-Production recording remains disabled. There is no new database resource,
-provider request, scheduler, upload authority, provisioning workflow or local
-reclamation. After this guard, the next product pass should advance bounded
-media transport and manifest/index publication under explicit authority rather
-than add another prerequisite record type.
+Production recording remains disabled. This marker contract adds no database
+resource, provider request, scheduler, upload authority, provisioning workflow
+or local reclamation. Bounded media transport is the separate
+[media upload](media-upload.md) checkpoint. Work still open after these two
+checkpoints is tracked in the [handoff](README.md).
 
 ## Source validation
 

@@ -17,9 +17,9 @@ scenarios or establish hosted readiness.
 | Durable ownership | Relay reservations, adoption, heartbeat, idle close and expiry cleanup use the persisted owner fence. Five remote targets pass in [d6e1ddea](https://carverauto.buildbuddy.io/invocation/d6e1ddea-ac90-485d-87c5-85b5dccc0979), including 191 core-elx tests, 1,014 core tests, quality checks and executable integration selection. Restoring the old close behavior fails the retained-consumer regression | Merged runtime suite [23177e08](https://carverauto.buildbuddy.io/invocation/23177e08-ea4b-45c8-b90e-8f9a24b11d1a) passed 12/12. Head `158aa45657` then failed the two added keepers in suite `d607f3a0`. Positive proof of repair `a8590062` is merged #5954 head `89d50a7f0d` (merge `9c3388359ad9a5ef079c2aa1b1ae7a0e7100f692`): workflow [a74b1f9f](https://carverauto.buildbuddy.io/invocation/a74b1f9f-ee0d-450f-88a0-7d26eeed15ed), child [7cbd7c77](https://carverauto.buildbuddy.io/invocation/7cbd7c77-8615-4ab1-a68d-1774d52d966a), 12 of 12 passed; suite, observer, teardown, and release 0; serial_6 256/0; serial_0 401/0 and 1 skip. GitHub rollup success, 18 checks. That run does not execute archive database cases |
 | Recorder exclusion | Retained claims carry a separate recorder epoch, authenticated ingress ID, provisioned storage UUID and durable sequence counter. The first claim pass passes nine focused RBE checks in [c9dcd2fe](https://carverauto.buildbuddy.io/invocation/c9dcd2fe-fde4-43d6-a328-b8b344ec4be7). The relay-expiry correction passes core quality, core-elx units and integration selection in [bd3031f3](https://carverauto.buildbuddy.io/invocation/bd3031f3-d0a2-49f1-a9e6-c60156d8a4f9) | The exact-parent guarded result below passes these registered cases; deployment recovery remains separate |
 | Provider access | Authenticated bounded ranges pass real TLS/CONNECT, response-status, object-identity, byte/header/deadline tests in [eedb3bc5](https://carverauto.buildbuddy.io/invocation/eedb3bc5-2d1a-41ed-8c64-ab3cd22d74a0). Deliberately accepting HTTP 200 failed the control | Actual endpoint capability/security probes, gateway authorization and measured request cost |
-| Historical block authority | Nine focused targets pass in [27053d5a](https://carverauto.buildbuddy.io/invocation/27053d5a-0d1c-45ae-9fda-2e9a412a4b16), including 206 core-elx cases, eight media cases, quality, integration selection/topology and Helm migration checks. Weakening the shared descriptor bounds fails two manifest cases in [1c617b24](https://carverauto.buildbuddy.io/invocation/1c617b24-b950-4ef8-9bbf-58881832e059); restored source passes. The database file is `elixir/serviceradar_core/test/integration/camera_recording_blocks_integration_test.exs` on `//elixir/serviceradar_core:integration_tests` | Published `bf480fdcb1` executed this file in [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690). `integration_tests_serial_2` failed only at line 204. The later exact-parent guarded result below re-executes and passes the corrected expectation. Immutable upload and publication remain unimplemented. [Authority boundary](block-authority.md) |
-| Immutable archive destination | Six focused targets pass in [f6c00dae](https://carverauto.buildbuddy.io/invocation/f6c00dae-99ab-4c6c-907d-a30a0d00ab4e), including the owning unit shard (1,022 executed, one skipped, 555 excluded), quality, registration, selection and Helm migration checks. Allowing an unexpected input field fails the contract case in [4c35622e](https://carverauto.buildbuddy.io/invocation/4c35622e-1396-4beb-bded-45596214e4ae); the parser is restored byte-for-byte and generator replay is identical. Canonical identity without a database is `test/serviceradar/camera/archive_destination_test.exs` on `//elixir/serviceradar_core:unit_tests` | On `bf480fdcb1`, the referenced delete was rejected as `:restrict_violation`, pg_code `23001`, constraint `camera_recording_blocks_archive_binding_id_fkey`. The test expected `:foreign_key_violation`, so that test did not reach its later release and replacement assertions. The later exact-parent guarded result below passes the corrected expectation and subsequent assertions. Qualification and actual storage operations remain absent. [Binding contract](archive-binding.md) |
-| Persisted-descriptor manifest | Four focused targets pass in [51ca7192](https://carverauto.buildbuddy.io/invocation/51ca7192-b501-4c2b-b3fe-85425239f51a): 207 unit cases, eight cached media cases, three freshly executed Chromium cases and quality. Fixed independently calculated hashes pin v1 bytes and object keys. Bypassing descriptor validation fails in [09d56db4](https://carverauto.buildbuddy.io/invocation/09d56db4-88d1-44bd-82f8-3f97f7cd66ea); accepting an unsupported profile fails in [b0368339](https://carverauto.buildbuddy.io/invocation/b0368339-fdfe-4fc6-8ec5-2b8ef3ecf7f7). Production mutations are restored byte-for-byte and all prior assertions remain | Remote receipts, byte verification and publication remain separate work |
+| Historical block authority | Nine focused targets pass in [27053d5a](https://carverauto.buildbuddy.io/invocation/27053d5a-0d1c-45ae-9fda-2e9a412a4b16), including 206 core-elx cases, eight media cases, quality, integration selection/topology and Helm migration checks. Weakening the shared descriptor bounds fails two manifest cases in [1c617b24](https://carverauto.buildbuddy.io/invocation/1c617b24-b950-4ef8-9bbf-58881832e059); restored source passes. The database file is `elixir/serviceradar_core/test/integration/camera_recording_blocks_integration_test.exs` on `//elixir/serviceradar_core:integration_tests` | Published `bf480fdcb1` executed this file in [7901e502](https://carverauto.buildbuddy.io/invocation/7901e502-43b8-4fbf-9a2e-3d3cbc29a690). `integration_tests_serial_2` failed only at line 204. The later exact-parent guarded result below re-executes and passes the corrected expectation. Index publication remains open. The explicit media byte path is [media upload](media-upload.md). [Authority boundary](block-authority.md) |
+| Immutable archive destination | Six focused targets pass in [f6c00dae](https://carverauto.buildbuddy.io/invocation/f6c00dae-99ab-4c6c-907d-a30a0d00ab4e), including the owning unit shard (1,022 executed, one skipped, 555 excluded), quality, registration, selection and Helm migration checks. Allowing an unexpected input field fails the contract case in [4c35622e](https://carverauto.buildbuddy.io/invocation/4c35622e-1396-4beb-bded-45596214e4ae); the parser is restored byte-for-byte and generator replay is identical. Canonical identity without a database is `test/serviceradar/camera/archive_destination_test.exs` on `//elixir/serviceradar_core:unit_tests` | On `bf480fdcb1`, the referenced delete was rejected as `:restrict_violation`, pg_code `23001`, constraint `camera_recording_blocks_archive_binding_id_fkey`. The test expected `:foreign_key_violation`, so that test did not reach its later release and replacement assertions. The later exact-parent guarded result below passes the corrected expectation and subsequent assertions. Live provider qualification remains absent. Synthetic media operations are recorded under explicit sealed-media upload. [Binding contract](archive-binding.md) |
+| Persisted-descriptor manifest | Four focused targets pass in [51ca7192](https://carverauto.buildbuddy.io/invocation/51ca7192-b501-4c2b-b3fe-85425239f51a): 207 unit cases, eight cached media cases, three freshly executed Chromium cases and quality. Fixed independently calculated hashes pin v1 bytes and object keys. Bypassing descriptor validation fails in [09d56db4](https://carverauto.buildbuddy.io/invocation/09d56db4-88d1-44bd-82f8-3f97f7cd66ea); accepting an unsupported profile fails in [b0368339](https://carverauto.buildbuddy.io/invocation/b0368339-fdfe-4fc6-8ec5-2b8ef3ecf7f7). Production mutations are restored byte-for-byte and all prior assertions remain | Recovery-manifest verification and index publication remain open. [Media upload](media-upload.md) records exact media-object byte verification. |
 | Provider diagnostic | Sixteen synthetic TLS protocol cases, release startup and quality pass in [373125cd](https://carverauto.buildbuddy.io/invocation/373125cd-3ffc-4b55-9618-359fb128eb2c). Separate negative controls reject missing conditional headers, missing explicit encryption headers and HTTP 200 completion errors. The earlier second live exercise verified private access, roles, conditional reads, checksums, multipart completion/hash/cross-part range and abort; all temporary resources from both exercises were removed and absence rechecked | The live result remains failed because default SSE-S3 was not confirmed. Explicit SSE-S3 and atomic no-overwrite now have synthetic diagnostic coverage but remain untested against the provider. Policy/Object Lock are untested; broad provider keys are not recorder credentials. [Operator runbook](../../../build/media/provider-probe.md) |
 | A/V diagnostic | Stream Doctor measured 3 ms control drift and 503 ms with a 500 ms injected delay; removing the delay made the fault assertion fail. Integrated target passes in [90139de1](https://carverauto.buildbuddy.io/invocation/90139de1-7abd-4d0d-8489-6fb40a65f9ea), using the verified cached result | Product audio support and RTSP fault coverage; [scope, bounds and fresh-run evidence](stream-doctor.md) |
 | Foundation validation | [PR #5950](https://github.com/carverauto/serviceradar/pull/5950) merged with all 20 checks passing. The final fix passes 199 core-elx and six media tests in [edd24097](https://carverauto.buildbuddy.io/invocation/edd24097-fb2c-4898-ad3e-daae1bf87952). Core Integration executes all 12 targets in [681ba460](https://carverauto.buildbuddy.io/invocation/681ba460-25c3-4cdb-af7a-94a14e169724), with successful fixture teardown and lease release | This PR does not contain the runtime claim/Worker or historical block cases |
@@ -786,11 +786,13 @@ regular single-link preflight pass the final positive runs above.
 An earlier [full sweep](https://carverauto.buildbuddy.io/invocation/33f0eddd-ad10-4b9c-9fc0-f083c0b80a33)
 failed on local disk exhaustion and is not success evidence. The final sweep
 ran after space was restored. Recomputing the checked-in serial partition from
-module weights still places `RecordingWorkerIntegrationTest` on
-`//elixir/serviceradar_core:integration_tests_serial_4`. CI readiness on the
-published head requires that lane to execute all eight recorder worker cases
-and requires the full selected Core and Web database lifecycles, including
-cleanup and fixture-generation lease release. The invocations above predate the
+module weights against staging `dde209645` still places `RecordingWorkerIntegrationTest` on
+`//elixir/serviceradar_core:integration_tests_serial_4`. [Spool identity #6004](https://github.com/carverauto/serviceradar/pull/6004)
+is merged at `0ba042babb5b9e6edba70c28554da799e6dc78cd` from head `30566cec`.
+That merge does not record a published-head pass of all eight recorder worker
+cases, and it does not pass media's final published-head database gates. The
+recorded spool gate still requires that lane, the full selected Core and Web
+database lifecycles, cleanup, and fixture-generation lease release. The invocations above predate the
 two cases that replace the marker across a successful freeze; they are not
 evidence for that receipt boundary. Those cases execute generated synthetic
 media. They do not establish provider readiness, physical-volume identity, or
@@ -814,3 +816,57 @@ filesystem. It is not the eight guarded `RecordingWorkerIntegrationTest` cases,
 and it is not a deployed camera. Those database cases still require the
 published-head Core lane, full selected Core and Web lifecycles, teardown, and
 fixture-generation lease release.
+
+## Explicit sealed-media upload
+
+[Media upload](media-upload.md) owns the bounded caller, separate operation
+authority, private byte ingress and exact provider verification contract.
+The evidence here uses independently synthetic endpoints and media. It does
+not establish live provider qualification, recording enablement or archive
+availability.
+
+[Initial final-owner validation](https://carverauto.buildbuddy.io/invocation/44ab689e-e860-4ca7-8c3e-c445f4997e89)
+passed Core/Web quality and the declared test registration/routing targets.
+CoreElx Credo reported two nesting-depth findings in the chunk handler and
+CONNECT fixture. After flattening those functions without changing their
+contracts or assertions, [focused validation](https://carverauto.buildbuddy.io/invocation/0ba029de-9a67-468e-9749-7a7402c75c54)
+passed CoreElx quality and all 33 storage cases, including HTTP/2 rejection.
+
+The settled-source [full remote `make test`](https://carverauto.buildbuddy.io/invocation/8c2e20ec-5bd0-49a6-94f4-1c22168fad96)
+exited zero: 460 test targets passed, 59 executed and 401 cached. Only
+`ios_compile_test` and `swift_regression_test` were skipped. Subsequent handoff
+integration preserves source behavior and every assertion. Published-head
+database execution is a separate gate below.
+
+The [lifecycle negative controls](https://carverauto.buildbuddy.io/invocation/17f7a338-34ab-47d6-9848-87d2c9972468)
+failed when socket registration, ingress termination or HTTP/2 rejection was
+absent. The [unread-body control](https://carverauto.buildbuddy.io/invocation/9e48898b-385b-4017-90e2-4917171c73e0)
+exposed a connection waiting for rejected request bytes. These intended failures
+are not positive proof; restored behavior passes the focused and full runs.
+The existing init assertions are retained. Synthetic transport tests also cover
+CONNECT denial with a directly reachable provider, exact signed streamed bytes,
+range identity/digest verification, deadline cancellation, scratch cleanup and
+refusal of an abandoned staging root.
+
+Four new database cases remain mandatory on the final published head. Recomputing
+serial weights after staging `dde209645` still places the two archive-upload
+authority cases on `//elixir/serviceradar_core:integration_tests_serial_6` and
+all eight recorder worker cases on `integration_tests_serial_4`. Both joined
+cases stay registered on `//elixir/web-ng:networks_live_db_test_0`. They drive
+the actual one-shot caller,
+private HTTPS coordination and a separate storage process with a synthetic TLS
+provider. The provider checks the committed dispatch marker before PUT. The
+positive case checks exact verification without availability and refuses a
+resend; the corruption case changes bytes without changing length and expects
+no grant or provider request. Each case cleans its owned database rows and
+private scratch root. Qualification flags are fixture input, not proof of a live
+provider's capabilities.
+
+Ordinary compilation and excluded database bodies do not execute these cases.
+Both guarded Core/Web lifecycles must run their selected targets, pass tests,
+connection observation and teardown, and release fixture-generation leases.
+The spool parent's eight guarded worker cases remain required too. Earlier
+six-case execution does not prove the two marker-replacement cases. No local
+product database or alternate forwarding path substitutes for this final-head
+gate. Recovery manifests, index publication, multipart reconciliation and live
+deployment acceptance remain open.

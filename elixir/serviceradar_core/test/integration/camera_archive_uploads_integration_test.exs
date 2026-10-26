@@ -1,10 +1,11 @@
 defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Camera.ArchiveAuthorities
+  alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveBinding
-  alias ServiceRadar.Camera.ArchiveInitAuthorities
   alias ServiceRadar.Camera.ArchiveInitAuthority
-  alias ServiceRadar.Camera.ArchiveInitConfig
+  alias ServiceRadar.Camera.ArchiveMediaAuthority
   alias ServiceRadar.Camera.ArchiveQualificationReceipt
   alias ServiceRadar.Camera.ArchiveQualifications
   alias ServiceRadar.Camera.ArchiveUploadDispatch
@@ -60,6 +61,17 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     binding_id = Ecto.UUID.dump!(binding.id)
 
     on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.camera_archive_media_authorities WHERE archive_binding_id = $1",
+        [binding_id]
+      )
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_archive_media_authorities WHERE archive_binding_id = $1",
+                 [binding_id]
+               )
+
       Repo.query!(
         "DELETE FROM platform.camera_archive_init_authorities WHERE archive_binding_id = $1",
         [binding_id]
@@ -1013,36 +1025,38 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   test "init authority retains its original window and consumes revisions before application",
        ctx do
     {principal, desired, challenge, context} = init_documents(ctx)
-    assert {:ok, pending} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+    assert {:ok, pending} = ArchiveAuthorities.challenge(:init, principal, challenge, ctx.opts)
     assert pending["state"] == "pending" and pending["applied_revision"] == nil
     assert pending["remaining_ms"] in 1..30_000
-    assert {:ok, retry} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+    assert {:ok, retry} = ArchiveAuthorities.challenge(:init, principal, challenge, ctx.opts)
     assert Map.delete(retry, "remaining_ms") == Map.delete(pending, "remaining_ms")
     assert retry["remaining_ms"] <= pending["remaining_ms"]
     application = %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]}
-    assert {:ok, applied} = ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+    assert {:ok, applied} = ArchiveAuthorities.apply(:init, @installation, application, ctx.opts)
     assert applied["applied_revision"] == "1"
     assert applied["recording_readiness"] == "unavailable"
     assert applied["archive_readiness"] == "unavailable"
-    assert {:ok, repeated} = ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+    assert {:ok, repeated} = ArchiveAuthorities.apply(:init, @installation, application, ctx.opts)
     assert repeated["expires_at_ms"] == applied["expires_at_ms"]
 
     assert {:ok, stored} =
-             fn -> ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts) end
+             fn -> ArchiveAuthorities.status(:init, @installation, ctx.binding.id, ctx.opts) end
              |> Task.async()
              |> Task.await()
 
     assert Map.delete(stored, "remaining_ms") == Map.delete(applied, "remaining_ms")
 
     assert {:error, :init_authority_revision_conflict} =
-             ArchiveInitAuthorities.challenge(
+             ArchiveAuthorities.challenge(
+               :init,
                principal,
                Map.put(challenge, "storage_boot_id", Ecto.UUID.generate()),
                ctx.opts
              )
 
     assert {:error, :init_authority_origin_mismatch} =
-             ArchiveInitAuthorities.status(
+             ArchiveAuthorities.status(
+               :init,
                %{@installation | deployment_ref: Ecto.UUID.generate()},
                ctx.binding.id,
                ctx.opts
@@ -1050,7 +1064,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
     next_principal = %{principal | generation: 2}
     next_desired = Map.put(desired, "revision", "2")
-    assert {:ok, parsed} = ArchiveInitConfig.parse(next_principal, next_desired)
+    assert {:ok, parsed} = ArchiveAuthorityConfig.parse(:init, next_principal, next_desired)
 
     next_challenge =
       Map.merge(challenge, %{
@@ -1061,24 +1075,24 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       })
 
     assert {:ok, %{"state" => "pending", "applied_revision" => nil}} =
-             ArchiveInitAuthorities.challenge(next_principal, next_challenge, ctx.opts)
+             ArchiveAuthorities.challenge(:init, next_principal, next_challenge, ctx.opts)
 
     assert {:error, :init_authority_generation_stale} =
-             ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts)
+             ArchiveAuthorities.status(:init, @installation, ctx.binding.id, ctx.opts)
 
     assert {:error, :init_authority_generation_stale} =
-             ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+             ArchiveAuthorities.apply(:init, @installation, application, ctx.opts)
 
     assert {:ok, revoked} =
-             ArchiveInitAuthorities.revoke(next_principal, revoke_document(ctx, "3"), ctx.opts)
+             ArchiveAuthorities.revoke(:init, next_principal, revoke_document(ctx, "3"), ctx.opts)
 
     assert revoked["state"] == "revoked" and revoked["applied_revision"] == nil
 
     assert {:ok, ^revoked} =
-             ArchiveInitAuthorities.revoke(next_principal, revoke_document(ctx, "3"), ctx.opts)
+             ArchiveAuthorities.revoke(:init, next_principal, revoke_document(ctx, "3"), ctx.opts)
 
     assert {:error, :init_authority_revision_stale} =
-             ArchiveInitAuthorities.challenge(next_principal, next_challenge, ctx.opts)
+             ArchiveAuthorities.challenge(:init, next_principal, next_challenge, ctx.opts)
 
     assert {:ok, retained} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
     assert retained.desired_document == nil and retained.nonce == nil and retained.revision == 3
@@ -1097,10 +1111,10 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
     for opts <- [[], [actor: %{role: :viewer, id: "invented-viewer"}], [actor: %{role: :system}]] do
       assert {:error, :invalid_init_principal} =
-               ArchiveInitAuthorities.challenge(principal, challenge, opts)
+               ArchiveAuthorities.challenge(:init, principal, challenge, opts)
 
       assert {:error, :invalid_init_principal} =
-               ArchiveInitAuthorities.apply(@installation, application, opts)
+               ArchiveAuthorities.apply(:init, @installation, application, opts)
     end
 
     for invalid <- [
@@ -1110,18 +1124,20 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
           Map.put(challenge, "nonce", "invalid")
         ] do
       assert {:error, :invalid_init_challenge} =
-               ArchiveInitAuthorities.challenge(principal, invalid, ctx.opts)
+               ArchiveAuthorities.challenge(:init, principal, invalid, ctx.opts)
     end
 
     assert {:error, :invalid_init_application} =
-             ArchiveInitAuthorities.apply(
+             ArchiveAuthorities.apply(
+               :init,
                @installation,
                Map.put(application, "ready", true),
                ctx.opts
              )
 
     assert {:error, :invalid_init_revocation} =
-             ArchiveInitAuthorities.revoke(
+             ArchiveAuthorities.revoke(
+               :init,
                @installation,
                Map.put(revoke_document(ctx, "1"), "revision", 1),
                ctx.opts
@@ -1130,20 +1146,22 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert {:ok, :checked} =
              Repo.transaction(fn ->
                assert {:error, :ambient_transaction} =
-                        ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+                        ArchiveAuthorities.challenge(:init, principal, challenge, ctx.opts)
 
                assert {:error, :ambient_transaction} =
-                        ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+                        ArchiveAuthorities.apply(:init, @installation, application, ctx.opts)
 
                assert {:error, :ambient_transaction} =
-                        ArchiveInitAuthorities.revoke(
+                        ArchiveAuthorities.revoke(
+                          :init,
                           @installation,
                           revoke_document(ctx, "1"),
                           ctx.opts
                         )
 
                assert {:error, :ambient_transaction} =
-                        ArchiveUploads.authorize_init(
+                        ArchiveUploads.authorize(
+                          :init,
                           ctx.lease,
                           Ecto.UUID.generate(),
                           principal,
@@ -1152,7 +1170,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
                         )
 
                assert {:error, :ambient_transaction} =
-                        ArchiveUploads.observe_init_verification(
+                        ArchiveUploads.observe_verification(
+                          :init,
                           ctx.lease,
                           Ecto.UUID.generate(),
                           principal,
@@ -1165,7 +1184,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              end)
 
     assert {:ok, %{"state" => "not_configured"}} =
-             ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts)
+             ArchiveAuthorities.status(:init, @installation, ctx.binding.id, ctx.opts)
   end
 
   test "init application cannot promote failed, stale or retargeted qualification reports", ctx do
@@ -1187,31 +1206,35 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     for {{changed, reason}, revision} <- Enum.with_index(variations, 1) do
       desired = Map.put(changed, "revision", Integer.to_string(revision))
       {challenge, _} = challenge_for(principal, desired)
-      assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+      assert {:ok, _} = ArchiveAuthorities.challenge(:init, principal, challenge, ctx.opts)
 
       assert {:error, ^reason} =
-               ArchiveInitAuthorities.apply(
+               ArchiveAuthorities.apply(
+                 :init,
                  @installation,
                  %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]},
                  ctx.opts
                )
 
       assert {:ok, %{"state" => "pending", "applied_revision" => nil}} =
-               ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts)
+               ArchiveAuthorities.status(:init, @installation, ctx.binding.id, ctx.opts)
     end
 
     newer_origin = %{@installation | generation: 2}
     crossed_desired = Map.put(desired, "revision", "4")
     {crossed_challenge, _} = challenge_for(principal, crossed_desired)
-    assert {:ok, newer_identity} = ArchiveInitConfig.parse(newer_origin, crossed_desired)
+
+    assert {:ok, newer_identity} =
+             ArchiveAuthorityConfig.parse(:init, newer_origin, crossed_desired)
 
     crossed_challenge =
       Map.put(crossed_challenge, "desired_sha256", newer_identity.desired_sha256)
 
-    assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, crossed_challenge, ctx.opts)
+    assert {:ok, _} = ArchiveAuthorities.challenge(:init, principal, crossed_challenge, ctx.opts)
 
     assert {:error, :init_authority_context_mismatch} =
-             ArchiveInitAuthorities.apply(
+             ArchiveAuthorities.apply(
+               :init,
                newer_origin,
                %{
                  "schema_version" => 1,
@@ -1222,7 +1245,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              )
 
     assert {:ok, %{"state" => "pending", "applied_revision" => nil}} =
-             ArchiveInitAuthorities.status(@installation, ctx.binding.id, ctx.opts)
+             ArchiveAuthorities.status(:init, @installation, ctx.binding.id, ctx.opts)
 
     assert {:ok, %{capability_state: :unqualified}} =
              Ash.get(ArchiveBinding, ctx.binding.id, ctx.opts)
@@ -1238,7 +1261,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
     results =
       race(fn _ ->
-        ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+        ArchiveUploads.authorize(:init, ctx.lease, dispatch.id, principal, context, ctx.opts)
       end)
 
     assert [{:ok, grant}] = Enum.filter(results, &match?({:ok, _}, &1))
@@ -1261,7 +1284,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
 
     assert {:ok, _} =
-             ArchiveInitAuthorities.revoke(@installation, revoke_document(ctx, "2"), ctx.opts)
+             ArchiveAuthorities.revoke(:init, @installation, revoke_document(ctx, "2"), ctx.opts)
 
     assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
 
@@ -1279,7 +1302,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     }
 
     assert {:error, :archive_upload_dispatch_conflict} =
-             ArchiveUploads.observe_init_verification(
+             ArchiveUploads.observe_verification(
+               :init,
                replacement,
                dispatch.id,
                principal,
@@ -1289,7 +1313,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              )
 
     assert {:error, :init_verification_origin_mismatch} =
-             ArchiveUploads.observe_init_verification(
+             ArchiveUploads.observe_verification(
+               :init,
                ctx.lease,
                dispatch.id,
                %{principal | credential_generation: 2},
@@ -1306,7 +1331,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
           Map.put(verification, "extra", true)
         ] do
       assert {:error, :invalid_init_verification} =
-               ArchiveUploads.observe_init_verification(
+               ArchiveUploads.observe_verification(
+                 :init,
                  ctx.lease,
                  dispatch.id,
                  principal,
@@ -1317,7 +1343,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     end
 
     assert {:ok, first} =
-             ArchiveUploads.observe_init_verification(
+             ArchiveUploads.observe_verification(
+               :init,
                ctx.lease,
                dispatch.id,
                principal,
@@ -1327,7 +1354,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              )
 
     assert {:ok, retry} =
-             ArchiveUploads.observe_init_verification(
+             ArchiveUploads.observe_verification(
+               :init,
                ctx.lease,
                dispatch.id,
                principal,
@@ -1339,7 +1367,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert first.init_verified_at == retry.init_verified_at
 
     assert {:error, :init_verification_conflict} =
-             ArchiveUploads.observe_init_verification(
+             ArchiveUploads.observe_verification(
+               :init,
                ctx.lease,
                dispatch.id,
                principal,
@@ -1375,7 +1404,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
 
     assert {:error, :init_authority_context_mismatch} =
-             ArchiveUploads.authorize_init(
+             ArchiveUploads.authorize(
+               :init,
                ctx.lease,
                dispatch.id,
                principal,
@@ -1384,7 +1414,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              )
 
     assert {:error, :archive_upload_dispatch_conflict} =
-             ArchiveUploads.authorize_init(
+             ArchiveUploads.authorize(
+               :init,
                %{ctx.lease | upload_token: "invented-wrong"},
                dispatch.id,
                principal,
@@ -1395,7 +1426,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert {:ok, media} = dispatch(ctx)
 
     assert {:error, :init_authority_context_mismatch} =
-             ArchiveUploads.authorize_init(ctx.lease, media.id, principal, context, ctx.opts)
+             ArchiveUploads.authorize(:init, ctx.lease, media.id, principal, context, ctx.opts)
 
     assert Enum.all?(dispatches(ctx), &is_nil(&1.marked_at))
 
@@ -1403,7 +1434,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       install_init(ctx, "2", &Map.put(&1, "local_storage_id", Ecto.UUID.generate()))
 
     assert {:error, :init_authority_context_mismatch} =
-             ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+             ArchiveUploads.authorize(:init, ctx.lease, dispatch.id, principal, context, ctx.opts)
 
     {principal, context} = install_init(ctx, "3")
 
@@ -1411,7 +1442,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              ArchiveUploads.mark_dispatch(ctx.lease, dispatch.id, ctx.opts)
 
     assert {:error, :init_dispatch_already_marked} =
-             ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+             ArchiveUploads.authorize(:init, ctx.lease, dispatch.id, principal, context, ctx.opts)
 
     assert {:ok, retained} = Ash.get(ArchiveUploadDispatch, dispatch.id, ctx.opts)
     assert retained.marked_at == original.marked_at and retained.init_authority_revision == nil
@@ -1431,7 +1462,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
       admission =
         database_client(:init_grant, fn ->
-          ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+          ArchiveUploads.authorize(:init, ctx.lease, dispatch.id, principal, context, ctx.opts)
         end)
 
       assert_receive {:init_grant, admission_pid}, 5_000
@@ -1455,7 +1486,14 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       expected = unquote(denial)
 
       assert {:error, ^expected} =
-               ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+               ArchiveUploads.authorize(
+                 :init,
+                 ctx.lease,
+                 dispatch.id,
+                 principal,
+                 context,
+                 ctx.opts
+               )
 
       assert [marked] = dispatches(ctx)
       assert marked.marked_at != nil and marked.init_authority_revision == 1
@@ -1479,7 +1517,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
     admission =
       database_client(:expiring_grant, fn ->
-        ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+        ArchiveUploads.authorize(:init, ctx.lease, dispatch.id, principal, context, ctx.opts)
       end)
 
     assert_receive {:expiring_grant, admission_pid}, 5_000
@@ -1492,7 +1530,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert retained.marked_at == nil and retained.init_authority_revision == nil
 
     assert {:error, :init_authority_expired} =
-             ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+             ArchiveUploads.authorize(:init, ctx.lease, dispatch.id, principal, context, ctx.opts)
 
     assert {:ok, block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
     assert block.descriptor == ctx.block.descriptor and block.state == :uploading
@@ -1509,7 +1547,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       Enum.reduce_while([500, 2_000, 8_000, 20_000, 80_000, 250_000], false, fn lead, _ ->
         assert %{num_rows: 1} = shift_dispatch_deadline(dispatch.id, lead)
 
-        case ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts) do
+        case ArchiveUploads.authorize(:init, ctx.lease, dispatch.id, principal, context, ctx.opts) do
           {:ok, grant} ->
             assert grant["remaining_ms"] in 1..5000
             assert [marked] = dispatches(ctx)
@@ -1530,7 +1568,14 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       assert %{num_rows: 1} = restore_dispatch_deadline(dispatch.id)
 
       assert {:ok, grant} =
-               ArchiveUploads.authorize_init(ctx.lease, dispatch.id, principal, context, ctx.opts)
+               ArchiveUploads.authorize(
+                 :init,
+                 ctx.lease,
+                 dispatch.id,
+                 principal,
+                 context,
+                 ctx.opts
+               )
 
       assert grant["remaining_ms"] in 1..5000
       assert [marked] = dispatches(ctx)
@@ -1540,14 +1585,14 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
   test "a fractional millisecond cannot apply an init authority", ctx do
     {principal, desired, challenge, _} = init_documents(ctx)
-    assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+    assert {:ok, _} = ArchiveAuthorities.challenge(:init, principal, challenge, ctx.opts)
     application = %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]}
 
     applied =
       Enum.reduce_while([500, 2_000, 8_000, 20_000, 80_000, 250_000], false, fn lead, _ ->
         assert %{num_rows: 1} = shift_authority_expiry(ctx.binding.id, lead)
 
-        case ArchiveInitAuthorities.apply(@installation, application, ctx.opts) do
+        case ArchiveAuthorities.apply(:init, @installation, application, ctx.opts) do
           {:ok, %{"state" => "applied"}} ->
             assert {:ok, authority} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
             assert DateTime.diff(authority.expires_at, authority.applied_at, :millisecond) >= 1
@@ -1568,18 +1613,208 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       assert %{num_rows: 1} = restore_authority_expiry(ctx.binding.id)
 
       assert {:ok, %{"state" => "applied"}} =
-               ArchiveInitAuthorities.apply(@installation, application, ctx.opts)
+               ArchiveAuthorities.apply(:init, @installation, application, ctx.opts)
 
       assert {:ok, authority} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
       assert DateTime.diff(authority.expires_at, authority.applied_at, :millisecond) >= 1
     end
   end
 
+  test "media purpose is separately persisted and init authority cannot mark its dispatch", ctx do
+    bind(ctx)
+    {principal, init_context} = install_init(ctx)
+    assert {:ok, dispatch} = dispatch(ctx)
+
+    assert {:error, :init_authority_context_mismatch} =
+             ArchiveUploads.authorize(
+               :init,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               init_context,
+               ctx.opts
+             )
+
+    assert {:error, :media_authority_not_found} =
+             ArchiveUploads.authorize(
+               :media,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               init_context,
+               ctx.opts
+             )
+
+    assert {:ok, nil} =
+             Ash.get(
+               ArchiveMediaAuthority,
+               ctx.binding.id,
+               Keyword.put(ctx.opts, :not_found_error?, false)
+             )
+
+    {^principal, context} = install_media(ctx)
+    assert {:ok, init} = Ash.get(ArchiveInitAuthority, ctx.binding.id, ctx.opts)
+    assert init.desired_sha256 == init_context.desired_sha256
+    assert {:ok, media} = Ash.get(ArchiveMediaAuthority, ctx.binding.id, ctx.opts)
+    assert media.desired_sha256 == context.desired_sha256
+    refute media.desired_sha256 == init.desired_sha256
+
+    results =
+      race(fn ->
+        ArchiveUploads.authorize(:media, ctx.lease, dispatch.id, principal, context, ctx.opts)
+      end)
+
+    assert Enum.count(results, &match?({:ok, %{"status" => "granted"}}, &1)) == 1
+    assert Enum.count(results, &match?({:error, :media_dispatch_already_marked}, &1)) == 7
+    assert [retained] = dispatches(ctx)
+    assert retained.media_authority_revision == 1
+    assert retained.init_authority_revision == nil
+    assert retained.media_verification == nil
+
+    assert DateTime.diff(retained.media_deadline_at, retained.marked_at, :millisecond) in 1..30_000
+  end
+
+  test "media verification retains original grant evidence after revoke and replacement, with permanent conflicts",
+       ctx do
+    bind(ctx)
+    {principal, context} = install_media(ctx)
+    assert {:ok, dispatch} = dispatch(ctx)
+
+    assert {:ok, grant} =
+             ArchiveUploads.authorize(
+               :media,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               ctx.opts
+             )
+
+    assert {:ok, _} =
+             ArchiveAuthorities.revoke(:media, @installation, revoke_document(ctx, "2"), ctx.opts)
+
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+
+    assert {:ok, replacement} =
+             RecordingBlocks.acquire_upload(ctx.block.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    verification = %{
+      "schema_version" => 1,
+      "put_request_sha256" => digest("synthetic signed media request"),
+      "etag" => ~s("synthetic-media-etag"),
+      "version_id" => "synthetic-media-version",
+      "byte_length" => grant["byte_length"],
+      "object_sha256" => grant["object_sha256"],
+      "encryption" => "AES256"
+    }
+
+    assert {:error, :media_verification_origin_mismatch} =
+             ArchiveUploads.observe_verification(
+               :media,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               %{context | nonce: digest("different")},
+               verification,
+               ctx.opts
+             )
+
+    assert {:ok, recorded} =
+             ArchiveUploads.observe_verification(
+               :media,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               verification,
+               ctx.opts
+             )
+
+    assert recorded.media_verification == verification
+    assert recorded.media_verified_at != nil and recorded.init_verified_at == nil
+
+    assert {:ok, exact} =
+             ArchiveUploads.observe_verification(
+               :media,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               verification,
+               ctx.opts
+             )
+
+    assert exact.media_verified_at == recorded.media_verified_at
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.authorize(
+               :media,
+               replacement,
+               dispatch.id,
+               principal,
+               context,
+               ctx.opts
+             )
+
+    assert {:error, :media_verification_conflict} =
+             ArchiveUploads.observe_verification(
+               :media,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               %{verification | "etag" => ~s("different")},
+               ctx.opts
+             )
+
+    assert {:error, :media_verification_conflict} =
+             ArchiveUploads.observe_verification(
+               :media,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               verification,
+               ctx.opts
+             )
+
+    assert [conflicted] = dispatches(ctx)
+    assert conflicted.media_verification == verification
+    assert conflicted.media_verification_conflict_at
+    assert {:ok, block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert block.descriptor == ctx.block.descriptor and block.state == :uploading
+  end
+
+  defp install_media(ctx) do
+    {principal, desired, challenge, context} =
+      init_documents(ctx, "1", fn desired ->
+        desired
+        |> Map.put("operation", "media_put_verified_v1")
+        |> Map.put("limits", %{
+          "max_media_bytes" => 16_777_216,
+          "max_operation_ms" => 30_000,
+          "max_in_flight" => 1
+        })
+      end)
+
+    assert {:ok, _} = ArchiveAuthorities.challenge(:media, principal, challenge, ctx.opts)
+
+    assert {:ok, %{"state" => "applied"}} =
+             ArchiveAuthorities.apply(
+               :media,
+               @installation,
+               %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]},
+               ctx.opts
+             )
+
+    {principal, context}
+  end
+
   defp restrict_init(:stop, ctx),
     do: RecordingControl.stop(@installation, stop_document(), ctx.opts)
 
   defp restrict_init(:revoke, ctx),
-    do: ArchiveInitAuthorities.revoke(@installation, revoke_document(ctx, "2"), ctx.opts)
+    do: ArchiveAuthorities.revoke(:init, @installation, revoke_document(ctx, "2"), ctx.opts)
 
   defp shift_dispatch_deadline(id, lead_us) do
     Repo.query!(
@@ -1673,7 +1908,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   end
 
   defp challenge_for(principal, desired) do
-    assert {:ok, parsed} = ArchiveInitConfig.parse(principal, desired)
+    assert {:ok, kind} = ArchiveAuthorityConfig.kind(desired)
+    assert {:ok, parsed} = ArchiveAuthorityConfig.parse(kind, principal, desired)
     boot = Ecto.UUID.generate()
     nonce = digest(Ecto.UUID.generate())
 
@@ -1694,10 +1930,11 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
   defp install_init(ctx, revision \\ "1", transform \\ &Function.identity/1) do
     {principal, desired, challenge, context} = init_documents(ctx, revision, transform)
-    assert {:ok, _} = ArchiveInitAuthorities.challenge(principal, challenge, ctx.opts)
+    assert {:ok, _} = ArchiveAuthorities.challenge(:init, principal, challenge, ctx.opts)
 
     assert {:ok, %{"state" => "applied"}} =
-             ArchiveInitAuthorities.apply(
+             ArchiveAuthorities.apply(
+               :init,
                @installation,
                %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]},
                ctx.opts

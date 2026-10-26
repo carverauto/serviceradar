@@ -1,6 +1,6 @@
 defmodule ServiceRadarCoreElx.CameraStorage.Upload do
   @moduledoc """
-  One granted init PUT followed by exact identity-bound verification.
+  One granted operation-specific PUT followed by exact identity-bound verification.
 
   The sole send permission is the fresh grant response. No retained marker,
   timeout, conflicting object or replacement lease can rearm this operation.
@@ -31,10 +31,10 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
       grant_started = now()
 
       with {:ok, grant} <- CoreClient.request(config.runtime, :grant, request, remaining(deadline)),
-           :ok <- grant(grant, config.desired, request, byte_size(bytes), object_sha),
+           :ok <- grant(:init, grant, config.desired, request, byte_size(bytes), object_sha),
            deadline = min(deadline, grant_started + grant["remaining_ms"]),
            true <- remaining(deadline) > 0 do
-        execute(config, request, grant, bytes, object_sha, deadline)
+        execute(:init, config, request, grant, bytes, object_sha, deadline)
       else
         _ -> {:error, :storage_grant_refused}
       end
@@ -43,7 +43,29 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
     end
   end
 
-  defp grant(grant, desired, request, byte_length, object_sha) do
+  def run_media(config, boot, lease, prepared, path, deadline) do
+    request = %{
+      "schema_version" => 1,
+      "lease" => lease,
+      "dispatch_id" => prepared["dispatch_id"],
+      "storage_boot_id" => boot,
+      "desired_sha256" => config.desired.desired_sha256,
+      "nonce" => Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
+    }
+
+    started = now()
+
+    with {:ok, grant} <- CoreClient.request(config.runtime, :grant, request, remaining(deadline)),
+         :ok <- grant(:media, grant, config.desired, request, prepared["byte_length"], prepared["object_sha256"]),
+         deadline = min(deadline, started + grant["remaining_ms"]),
+         true <- remaining(deadline) > 0 do
+      execute(:media, config, request, grant, {:file, path, prepared["byte_length"]}, prepared["object_sha256"], deadline)
+    else
+      _ -> {:error, :storage_grant_refused}
+    end
+  end
+
+  defp grant(kind, grant, desired, request, byte_length, object_sha) do
     expected =
       request
       |> Map.take(~w(schema_version dispatch_id storage_boot_id desired_sha256 nonce))
@@ -59,14 +81,14 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
 
     valid =
       Map.drop(grant, ~w(remaining_ms request_sha256 object_key)) === expected and
-        is_integer(grant["remaining_ms"]) and grant["remaining_ms"] in 1..5000 and
+        is_integer(grant["remaining_ms"]) and grant["remaining_ms"] in 1..desired.limits["max_operation_ms"] and
         sha?(grant["request_sha256"]) and is_binary(grant["object_key"]) and
-        Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/init\.mp4\z/, grant["object_key"])
+        object_key?(kind, grant["object_key"])
 
     if valid, do: :ok, else: {:error, :invalid_storage_grant}
   end
 
-  defp execute(config, request, grant, bytes, object_sha, deadline) do
+  defp execute(kind, config, request, grant, bytes, object_sha, deadline) do
     provider = config.provider
     destination = provider.destination
     url = destination["endpoint"] <> "/" <> destination["bucket"] <> "/" <> grant["object_key"]
@@ -77,19 +99,19 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
       {"x-amz-checksum-sha256", object_sha |> Base.decode16!(case: :lower) |> Base.encode64()}
     ]
 
-    signed = sign(provider, :put, url, headers, bytes)
+    signed = sign(provider, :put, url, headers, bytes, object_sha)
     pairs = signed |> Enum.sort() |> Enum.map(fn {key, value} -> [key, value] end)
-    wire_sha = sha256(Jason.encode!(["init-put-wire-v1", "PUT", url, pairs, object_sha]))
+    wire_sha = sha256(Jason.encode!(["#{kind}-put-wire-v1", "PUT", url, pairs, object_sha]))
 
     case provider_request(provider, :put, url, signed, bytes, deadline, 16_384) do
       {:ok, response} ->
         verified = verified_object(provider, url, response, grant, wire_sha, deadline)
         observe(config, request, response)
-        record(config, request, verified)
+        record(kind, config, request, verified)
 
       {:error, _} ->
         CoreClient.request(config.runtime, :observe, observation(request, "unknown"), 1_000)
-        {:error, :init_upload_unknown}
+        failure(kind, :unknown)
     end
   end
 
@@ -104,9 +126,9 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
 
   defp verified_object(_provider, _url, _response, _grant, _wire_sha, _deadline), do: nil
 
-  defp record(_config, _request, nil), do: {:error, :init_verification_unavailable}
+  defp record(kind, _config, _request, nil), do: failure(kind, :verification)
 
-  defp record(config, request, verification) do
+  defp record(kind, config, request, verification) do
     with {:ok, receipt} <-
            CoreClient.request(config.runtime, :verify, Map.put(request, "verification", verification), 1_000),
          true <-
@@ -114,13 +136,13 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
       {:ok,
        %{
          "schema_version" => 1,
-         "status" => "init_verified",
+         "status" => "#{kind}_verified",
          "dispatch_id" => request["dispatch_id"],
          "recording_readiness" => "unavailable",
          "archive_readiness" => "unavailable"
        }}
     else
-      _ -> {:error, :init_verification_unavailable}
+      _ -> failure(kind, :verification)
     end
   end
 
@@ -133,12 +155,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
          {:ok, ^identity} <- identity(head),
          true <- header(head, "content-length") == Integer.to_string(grant["byte_length"]),
          "AES256" <- header(head, "x-amz-server-side-encryption"),
-         range_headers = [{"range", "bytes=0-#{grant["byte_length"] - 1}"} | headers],
-         signed = sign(provider, :get, url, range_headers, nil),
-         range = {0, grant["byte_length"] - 1, grant["byte_length"], identity.etag, identity.version},
-         {:ok, response} <-
-           provider_request(provider, :get, url, signed, nil, deadline, grant["byte_length"], range),
-         true <- sha256(response.body) == grant["object_sha256"] and remaining(deadline) > 0 do
+         {:ok, sha} <- readback(provider, url, identity, grant["byte_length"], 0, :crypto.hash_init(:sha256), deadline),
+         true <- sha == grant["object_sha256"] and remaining(deadline) > 0 do
       {:ok,
        %{
          "schema_version" => 1,
@@ -154,6 +172,23 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
     end
   end
 
+  defp readback(_provider, _url, _identity, size, size, hash, _deadline),
+    do: {:ok, hash |> :crypto.hash_final() |> Base.encode16(case: :lower)}
+
+  defp readback(provider, url, identity, size, first, hash, deadline) do
+    last = min(size - 1, first + 4_194_304 - 1)
+    headers = [{"range", "bytes=#{first}-#{last}"}, {"if-match", identity.etag}]
+    signed = sign(provider, :get, url, headers, nil)
+    range = {first, last, size, identity.etag, identity.version}
+
+    with {:ok, response} <- provider_request(provider, :get, url, signed, nil, deadline, last - first + 1, range),
+         true <- byte_size(response.body) == last - first + 1 do
+      readback(provider, url, identity, size, last + 1, :crypto.hash_update(hash, response.body), deadline)
+    else
+      _ -> {:error, :object_range_not_verified}
+    end
+  end
+
   defp provider_request(provider, method, url, headers, body, deadline, limit, range \\ nil) do
     case remaining(deadline) do
       remaining when remaining > 0 -> HTTP.request(provider, method, url, headers, body, remaining, limit, range)
@@ -161,7 +196,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
     end
   end
 
-  defp sign(provider, method, url, headers, body) do
+  defp sign(provider, method, url, headers, body, digest \\ nil) do
     uri = URI.parse(url)
     # Supply transport defaults before hashing; Mint otherwise adds User-Agent after signing.
     headers = [
@@ -170,24 +205,35 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
       {"accept-encoding", "identity"} | headers
     ]
 
-    headers = if is_binary(body), do: [{"content-length", Integer.to_string(byte_size(body))} | headers], else: headers
+    length =
+      case body do
+        {:file, _, size} -> size
+        bytes when is_binary(bytes) -> byte_size(bytes)
+        nil -> nil
+      end
 
-    [
+    headers = if length, do: [{"content-length", Integer.to_string(length)} | headers], else: headers
+
+    Req.Utils.aws_sigv4_headers(
+      access_key_id: provider.credential["access_key_id"],
+      secret_access_key: provider.credential["secret_access_key"],
+      region: provider.destination["region"],
+      service: "s3",
+      datetime: DateTime.utc_now(),
       method: method,
       url: url,
       headers: headers,
-      body: body,
-      aws_sigv4: [
-        access_key_id: provider.credential["access_key_id"],
-        secret_access_key: provider.credential["secret_access_key"],
-        region: provider.destination["region"],
-        service: :s3
-      ]
-    ]
-    |> Req.new()
-    |> Req.Steps.put_aws_sigv4()
-    |> Req.get_headers_list()
+      body: "",
+      body_digest: digest || sha256(body || "")
+    )
   end
+
+  defp object_key?(:init, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/init\.mp4\z/, key)
+  defp object_key?(:media, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/media\.m4s\z/, key)
+  defp failure(:init, :unknown), do: {:error, :init_upload_unknown}
+  defp failure(:media, :unknown), do: {:error, :media_upload_unknown}
+  defp failure(:init, :verification), do: {:error, :init_verification_unavailable}
+  defp failure(:media, :verification), do: {:error, :media_verification_unavailable}
 
   defp identity(response) do
     etag = header(response, "etag")
