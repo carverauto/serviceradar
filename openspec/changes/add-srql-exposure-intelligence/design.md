@@ -1519,6 +1519,26 @@ source and warehouse fences. This slice adds no scheduled fleet reconciliation,
 readiness signal, or rollout. Task 1.6 remains open; fleet-scale throughput and
 the complete readiness contract require separate evidence.
 
+**Completion during live traffic.** On 2026-10-26 the product owner confirmed
+the reading already implied by Decision 14: a verified generation may reach
+`complete` while ordinary live delivery continues. `capturing`, `applying` and
+`complete` journals are that traffic. They do not have to drain first, and an
+empty lane is not unfinished work. Completion still waits while a repair
+obligation is unverified, a retained snapshot effect is unsettled, or a legacy
+journal remains. A deployment generation sees every bucket's legacy journal. A
+device generation sees only that device's bucket. A missing ordinal does not
+widen the wait to every bucket. `snapshot_required` stays recorded for the next
+full snapshot; start already counts those unstarted gaps, and completion does
+not delete them. This `complete` status is not slice 3 readiness, which still
+requires no unresolved scoped delivery journal. Outbox PubAck still cannot
+discharge a page. A disposable scratch StarRocks schema confirmed the in-flight
+example on 2026-10-26: a snapshot write of active sequence 40 followed by live
+sequence 41 ends resolved at 41 and keeps the snapshot marker; live sequence 41
+followed by the older snapshot write also ends resolved at 41; a later live
+sequence 42 wins and keeps the marker. Filtered rows stayed zero. The schema
+was dropped afterward. The hosted run of this final tree is still required
+before task 1.6 can close.
+
 ## Section 0 evidence (2026-10-21)
 
 ### Task 0.6: synthetic warehouse spike
