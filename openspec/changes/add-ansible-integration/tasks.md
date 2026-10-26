@@ -49,7 +49,7 @@
 
 - [ ] 4.1 Add `ansible_managed :boolean, default: false` and `ansible_inventory_ref :map` (controller_id, inventory_id, host_id, host_name) to `Device` Ash resource — both attributes are *derived* from DIRE's reconciliation of plugin-emitted records, not directly settable through user actions
 - [ ] 4.2 Extend `discovery_source` enum / handling to recognize `"awx"` as a known source
-- [ ] 4.3 Update DIRE merge logic to consume AWX-source DeviceDiscovery records emitted by the `awx` plugin's `inventory_sync` entrypoint: match keys in priority order — `variables.ansible_host` IP exact, `variables.ansible_host` hostname exact, AWX host `name` against device hostname
+- [ ] 4.3 Update DIRE merge logic to consume AWX-source DeviceDiscovery records emitted by the `awx` plugin's `inventory_sync` entrypoint. Match keys are the device-inventory requirement in this change; a host name on its own is not a match key.
 - [ ] 4.4 On DIRE merge with a matching device: set `ansible_managed = true`, populate `ansible_inventory_ref` from the AWX host. On absence of any AWX source for a device: set `ansible_managed = false` and clear `ansible_inventory_ref`
 - [ ] 4.5 Surface unmatched AWX hosts on `/settings/ansible` as a "needs review" list (sourced from DIRE's existing unmatched-record surface) with operator-confirmable manual link or "create new device" action that defers to DIRE
 - [ ] 4.6 Configure plugin assignment for the `awx` plugin's `inventory_sync` entrypoint: per-agent assignment that lists the controllers reachable from that agent (controller IDs + grant references); `PluginAssignmentMaterializer` re-materializes the assignment whenever controllers are added/removed
