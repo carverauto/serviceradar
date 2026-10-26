@@ -16,9 +16,11 @@ index under current ownership. Media verification alone is not archive
 availability. Keep the existing one-shot media command; completion is a separate
 bounded command and never rearms an attempted object operation.
 
-The implementation is present in this branch. Its combined remote suite passed
-462 targets, with two Swift platform skips. Focused storage validation executed
-42 cases, including the reproduced queued-ingress deadline regression. The
+The implementation is present in this branch. Its reviewed source passed the
+combined remote suite: 462 targets, with two Swift platform skips. Focused
+storage validation executed 45 cases, including abandoned-staging refusal and
+the reproduced queued-ingress deadline regression. Review also fenced new
+init/manifest preparation after recording stops. All prior assertions remain. The
 published-head guarded Core/Web database workflows remain required; neither
 compilation nor these unit/protocol results close the manifest/index tasks.
 See [publication validation](validation.md#archive-publication-prepublication-validation).

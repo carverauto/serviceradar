@@ -924,6 +924,49 @@ open. Recording remains disabled and no local files were reclaimed.
 
 ## Archive publication prepublication validation
 
+### Reviewed source
+
+Reviewed source `0e5cbe6fe8da0eb9b6fa5b99080f96c1a51486d3` passed
+[`make test` on RBE](https://carverauto.buildbuddy.io/invocation/4160e1df-6198-40ed-8702-d3fce80975c2)
+with exit zero: 462 targets passed, five executed and 457 cached. Only
+`//build/arrow_swift:ios_compile_test` and
+`//build/arrow_swift:swift_regression_test` were skipped. This suite excludes
+guarded database execution.
+
+Review closed two gaps without removing assertions:
+
+- Every installed purpose rejects an existing or ambiguous staging root before
+  startup challenges, including init-only restarts after abandoned raw staging.
+- New init/manifest preparation takes the short recording-control admission
+  fence before configuration, spool or provider work. Stopped recordings cannot
+  prepare a new dispatch; original observations and verified DB-only publication
+  after stop remain valid.
+
+The [storage owner](https://carverauto.buildbuddy.io/invocation/2ca3fe9c-514d-45dd-9f55-3a8b22f5308e)
+executed 45 cases with zero failures. Its runtime and test source are unchanged
+at the reviewed head. A later formatting-only commit wrapped the new Core stop
+assertions without altering them. The
+[focused retry](https://carverauto.buildbuddy.io/invocation/e9168e97-d59d-4e4f-899e-806d9fe66cf3)
+passed Core quality and provider-probe release startup by execution, plus two
+cached native-addon checks.
+
+The earlier [full attempt](https://carverauto.buildbuddy.io/invocation/aa57543d-9fce-4408-93e5-c74a9513338c)
+failed with a Core formatting difference and exhausted workstation disk space;
+it was not a complete pass. The successful full run above supersedes that
+attempt. Results here were checked against normal command output and retrieved
+BuildBuddy output. Unresolvable invocation IDs from an earlier automated report
+are not evidence. The first proxy run ended in a report-worker failure before
+publication; its reviewed commits were preserved and recovered for resubmission.
+
+Declared Bazel dependency queries at the reviewed head assign the Core archive
+file to `integration_tests_serial_6` and the joined Web file to
+`networks_live_db_test_0`. Neither guarded owner has executed for this checkpoint
+yet. Recompute those owners after rebase and require actual published-head
+Core/Web execution, connection observation, teardown and fixture-generation
+lease release before closing manifest/index tasks.
+
+### Original author validation
+
 Combined source head `eac6fbea8753cd93a1fdfc55e8b7667dace5d6a2` passed
 [`make test` on RBE](https://carverauto.buildbuddy.io/invocation/518cd02a-7fd9-4ed5-af6f-4e9ccf0956d7):
 462 targets passed, with 64 executed and 398 cached; only the two Swift platform
