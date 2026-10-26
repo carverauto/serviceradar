@@ -99,7 +99,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
            State.change(generation["id"], fn current ->
              if current["status"] == "finalizing" and current["cursor"] == generation["cursor"] and
                   current["repairs"] == [] and current["pending"] == %{} and
-                  not unresolved_legacy?(current["scope"]) do
+                  not unresolved_recovery?(current["scope"]) do
                {:ok, Map.put(current, "status", "complete"), :ok}
              else
                {:error, :exposure_snapshot_finalization_pending}
@@ -108,23 +108,28 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
          do: :ok
   end
 
-  defp unresolved_legacy?(scope) do
+  defp unresolved_recovery?(scope) do
     case device_bucket(scope) do
-      :deployment ->
-        legacy?("SELECT 1 FROM platform.exposure_delivery_batches WHERE phase = 'legacy' LIMIT 1", [])
-
-      {:bucket, bucket} ->
-        legacy?(
-          "SELECT 1 FROM platform.exposure_delivery_batches WHERE phase = 'legacy' AND bucket = $1 LIMIT 1",
-          [bucket]
-        )
-
       :absent ->
         false
+
+      scope ->
+        {bucket_sql, params} =
+          case scope do
+            :deployment -> {"", []}
+            {:bucket, bucket} -> {" AND bucket = $1", [bucket]}
+          end
+
+        Repo.query!(
+          """
+          SELECT 1 FROM platform.exposure_delivery_batches
+          WHERE phase IN ('legacy', 'snapshot_required', 'applying')
+          #{bucket_sql} LIMIT 1
+          """,
+          params
+        ).rows != []
     end
   end
-
-  defp legacy?(sql, params), do: Repo.query!(sql, params).rows != []
 
   defp device_bucket(nil), do: :deployment
 
