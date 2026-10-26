@@ -571,7 +571,20 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
 
     observe!(instance, by_dots, ids[by_dots].identifier_value, "0000.5e00.532a")
 
-    # Observations of another MAC, which the lookup must not read.
+    # Observations of another MAC, which the lookup must not read, each for an id a live
+    # record holds, so a plan that starts from the identifiers reaches them too.
+    Repo.query!(
+      """
+      INSERT INTO platform.device_identifiers
+        (device_id, identifier_type, identifier_value, partition, confidence, source,
+         first_seen, last_seen)
+      SELECT $1, 'armis_device_id', 'other-' || n, $2, 'strong', 'armis',
+             timezone('utc', now()), timezone('utc', now())
+      FROM generate_series(1, 200) AS n
+      """,
+      [by_mac, partition]
+    )
+
     Repo.query!(
       """
       INSERT INTO platform.device_source_observations
