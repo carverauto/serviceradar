@@ -1143,11 +1143,20 @@ the maintenance worker republishes at most 500 rows per page and ten pages per
 run, preserving work across retries.
 
 EventWriter serializes each of the existing sixteen transition subject buckets
-using a CNPG session advisory lock. Its durable control journal contains only
+using a CNPG session advisory lock, held on a direct connection that bypasses
+the transaction-mode pooler: through the pooler, the lock and its unlock can run
+on different server backends and strand the lock on a shared one. Its durable
+control journal contains only
 JetStream stream positions, never exposure payloads. A replacement owner fetches
 and replays an unfinished batch before admitting another, settling its immutable
-warehouse load labels. Every physical load, including a size-split chunk, checks
-connection ownership. Retirement uses bounded pages and retains unfinished work.
+warehouse load labels. The journal insert does nothing when that bucket row
+already exists, and the delivery is busy without a load; finishing deletes only
+the positions this run journaled or replayed. Namespace 74523 was never in a
+tagged release (it landed after v1.4.97), so a mixed-version overlap only
+affects an installation running an untagged staging build during this upgrade,
+and draining to one EventWriter for that upgrade is optional. Every physical
+load, including a size-split chunk, checks that the owning session still holds
+the bucket lock. Retirement uses bounded pages and retains unfinished work.
 Retirement appends each known fact's terminal after-image to transition history
 before loading its terminal current state. A retry after a committed fact load
 will no longer select that key, so appending first prevents a crash from losing
