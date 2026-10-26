@@ -1172,20 +1172,27 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   end
 
   defp lookup_mac_holder(macs, context) do
+    # Each arm is served by an index: the MAC tokens of `ocsf_devices.mac` (migration
+    # 20260709210000; the token expression must match the index), then the exact comparison;
+    # and the MAC identifier rows. The macs are normalized (`IdentityReconciler.normalize_mac/1`),
+    # so a device MAC equal to one, separators replaced, also carries it as a token.
     sql = """
     SELECT d.uid, d.agent_id, COALESCE(d.discovery_sources, ARRAY[]::text[]), COALESCE(d.metadata, '{}'::jsonb)
     FROM platform.ocsf_devices d
     WHERE d.deleted_at IS NULL
-      AND COALESCE(d.partition, 'default') = $2
-      AND (
-        upper(replace(replace(btrim(COALESCE(d.mac, '')), '-', ':'), '.', ':')) = ANY($1::text[])
-        OR EXISTS (
-          SELECT 1
-          FROM platform.device_identifiers di
-          WHERE di.device_id = d.uid
-            AND di.identifier_type = 'mac'
-            AND di.identifier_value = ANY($1::text[])
-        )
+      AND d.partition = $2
+      AND d.uid IN (
+        SELECT m.uid
+        FROM platform.ocsf_devices m
+        WHERE m.mac IS NOT NULL
+          AND regexp_split_to_array(upper(translate(m.mac, ':-.', '')), '[,;[:space:]]+')
+              && CAST($1 AS text[])
+          AND upper(replace(replace(btrim(m.mac), '-', ':'), '.', ':')) = ANY($1::text[])
+        UNION
+        SELECT di.device_id
+        FROM platform.device_identifiers di
+        WHERE di.identifier_type = 'mac'
+          AND di.identifier_value = ANY($1::text[])
       )
     LIMIT 1
     """
@@ -1208,6 +1215,8 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end
   end
 
+  # The address is compared as stored, which the live-address index (`partition`, `ip`) serves:
+  # every writer of `ocsf_devices.ip` trims it (the sync normalizer and the Ash attribute).
   defp lookup_ip_holder(ip, awx_macs, context) do
     sql = """
     SELECT d.uid,
@@ -1226,8 +1235,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
            ) AS device_macs
     FROM platform.ocsf_devices d
     WHERE d.deleted_at IS NULL
-      AND COALESCE(d.partition, 'default') = $2
-      AND btrim(COALESCE(d.ip, '')) = $1
+      AND d.partition = $2
+      AND d.ip = $1
+      AND d.ip <> ''
     LIMIT 1
     """
 

@@ -1476,4 +1476,106 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
                [host_uid]
              ).rows
   end
+
+  # Each guest is matched against every AWX record of its partition. The evidence is compared in
+  # memory and only a matching candidate is checked against the database, so the statements a
+  # result runs do not grow with the AWX records its guests do not match.
+  test "a result's statements do not grow with the AWX records its guests do not match", %{
+    actor: actor
+  } do
+    suffix = System.unique_integer([:positive])
+
+    source_scope = %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+
+    guests =
+      for n <- 1..2 do
+        %{
+          "node" => "pve-awx-scale-#{suffix}",
+          "type" => "qemu",
+          "vmid" => 100 + n,
+          "name" => "vm-awx-scale-#{suffix}-#{n}",
+          "status" => "running",
+          "interfaces" => [
+            %{
+              "name" => "eth0",
+              "mac_address" => "02:00:5E:#{rem(suffix, 90) + 10}:00:0#{n}",
+              "ip_addresses" => ["203.0.113.#{rem(suffix, 100) + n}/24"],
+              "source" => "config"
+            }
+          ]
+        }
+      end
+
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => "awx-scale-#{suffix}"}],
+            "nodes" => [%{"node" => "pve-awx-scale-#{suffix}", "status" => "online"}],
+            "guests" => guests
+          }
+        ]
+      }
+    }
+
+    ingest = fn ->
+      assert :ok =
+               ProxmoxEnrichmentIngestor.ingest(payload, %{},
+                 actor: actor,
+                 source_scope: source_scope
+               )
+    end
+
+    ingest.()
+    without_awx = count_statements(ingest)
+
+    for n <- 1..20 do
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: "sr:" <> Ecto.UUID.generate(),
+        type: "Server",
+        type_id: 1,
+        hostname: "awx-unrelated-#{suffix}-#{n}",
+        discovery_sources: ["awx"],
+        metadata: %{"integration_type" => "awx", "awx" => %{"host_name" => "unrelated-#{n}"}}
+      })
+      |> Ash.create!(actor: actor)
+    end
+
+    assert count_statements(ingest) - without_awx < 20
+  end
+
+  @doc false
+  def count_statement(_event, _measurements, _metadata, {test_pid, counter}) do
+    if self() == test_pid or test_pid in Process.get(:"$callers", []) do
+      :counters.add(counter, 1, 1)
+    end
+  end
+
+  defp count_statements(fun) do
+    counter = :counters.new(1, [])
+    id = {__MODULE__, make_ref()}
+
+    :ok =
+      :telemetry.attach(
+        id,
+        [:service_radar, :repo, :query],
+        &__MODULE__.count_statement/4,
+        {self(), counter}
+      )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(id)
+    end
+
+    :counters.get(counter, 1)
+  end
 end
