@@ -38,7 +38,7 @@ func main() {
 
 	apply := flag.Bool("apply", false, "delete stale output bases (default: dry-run report only)")
 	sizes := flag.Bool("sizes", true, "measure output-base sizes (walks each base)")
-	flag.Var(&roots, "output-user-root", "Bazel output user root to scan (repeatable, comma-separated); default: platform locations that exist")
+	flag.Var(&roots, "output-user-root", "Bazel output user root to scan (repeatable, comma-separated); default: $XDG_CACHE_HOME/bazel and the platform cache directories that exist")
 	flag.Parse()
 
 	if err := run(roots, *apply, *sizes, defaultProbe()); err != nil {
@@ -111,19 +111,23 @@ func run(roots []string, apply bool, sizes bool, p probe) error {
 	return nil
 }
 
-// defaultRoots returns the platform output user roots that exist. A custom
-// --output_user_root (for example in ~/.bazelrc) is passed explicitly.
+// defaultRoots returns the output user roots that exist. When XDG_CACHE_HOME
+// is set, that Bazel cache is included along with the platform defaults. A
+// custom --output_user_root (for example in ~/.bazelrc) is passed explicitly.
 func defaultRoots() []string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil
-	}
-
 	user := os.Getenv("USER")
 
-	candidates := []string{
-		filepath.Join(home, "Library", "Caches", "bazel", "_bazel_"+user),
-		filepath.Join(home, ".cache", "bazel", "_bazel_"+user),
+	var candidates []string
+
+	if xdg := strings.TrimSpace(os.Getenv("XDG_CACHE_HOME")); xdg != "" {
+		candidates = append(candidates, filepath.Join(xdg, "bazel", "_bazel_"+user))
+	}
+
+	if home, err := os.UserHomeDir(); err == nil {
+		candidates = append(candidates,
+			filepath.Join(home, "Library", "Caches", "bazel", "_bazel_"+user),
+			filepath.Join(home, ".cache", "bazel", "_bazel_"+user),
+		)
 	}
 
 	var roots []string

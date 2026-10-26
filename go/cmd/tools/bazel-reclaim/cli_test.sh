@@ -64,7 +64,7 @@ fail() {
 # tool runs the product with a private HOME and USER so a missing flag cannot
 # scan the executor's real output user root.
 tool() {
-  HOME="$SANDBOX_HOME" USER="reclaimtest" "$BIN" "$@"
+  env -u XDG_CACHE_HOME HOME="$SANDBOX_HOME" USER="reclaimtest" "$BIN" "$@"
 }
 
 write_base() {
@@ -106,6 +106,18 @@ grep -F "$default_base" "$default_out" >/dev/null || fail "default root did not 
 assert_exists "$default_base" "default-root dry-run"
 grep -F 'dry run: nothing deleted' "$default_out" >/dev/null || fail "dry-run notice missing: $(cat "$default_out")"
 pass "dry-run against the isolated default output user root reports stale and deletes nothing"
+
+# --- XDG_CACHE_HOME is an output user root when that variable is set ---
+xdg_home="$WORKDIR/xdg-cache"
+xdg_root="$xdg_home/bazel/_bazel_reclaimtest"
+xdg_ws="$WORKDIR/xdg-gone"
+xdg_base="$(write_base "$xdg_root" "hashxdg" "$xdg_ws")"
+xdg_out="$WORKDIR/xdg.out"
+HOME="$SANDBOX_HOME" USER="reclaimtest" XDG_CACHE_HOME="$xdg_home" "$BIN" >"$xdg_out"
+grep -F "stale" "$xdg_out" >/dev/null || fail "XDG root did not report the stale base: $(cat "$xdg_out")"
+grep -F "$xdg_base" "$xdg_out" >/dev/null || fail "XDG root did not list $xdg_base: $(cat "$xdg_out")"
+assert_exists "$xdg_base" "xdg dry-run"
+pass "dry-run with XDG_CACHE_HOME set reports the base under that cache"
 
 # --- explicit root: keep a live checkout, report a missing workspace, delete nothing ---
 pair_root="$WORKDIR/pair-root"

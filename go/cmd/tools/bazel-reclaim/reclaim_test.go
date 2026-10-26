@@ -452,6 +452,127 @@ func gitFixtureEnv() []string {
 	return env
 }
 
+func TestApplyKeepsUnreadableGitdir(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+
+	t.Run("mode 000 gitdir", func(t *testing.T) {
+		_, worktree := realLinkedWorktree(t)
+		gitdir := worktreeGitdir(t, worktree)
+		t.Cleanup(func() { _ = os.Chmod(gitdir, 0o755) })
+
+		if err := os.Chmod(gitdir, 0); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := os.ReadDir(gitdir); err == nil {
+			t.Skip("process can still read a mode 000 gitdir")
+		}
+
+		root := t.TempDir()
+		base := makeBase(t, root, "base", worktree)
+		assertApplyKeeps(t, root, base)
+	})
+
+	t.Run("mode 000 gitdir parent", func(t *testing.T) {
+		_, worktree := realLinkedWorktree(t)
+		gitdir := worktreeGitdir(t, worktree)
+		parent := filepath.Dir(gitdir)
+		t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
+
+		if err := os.Chmod(parent, 0); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, err := os.Stat(gitdir); err == nil {
+			t.Skip("gitdir remained stat-able after removing parent search permission")
+		}
+
+		root := t.TempDir()
+		base := makeBase(t, root, "base", worktree)
+		assertApplyKeeps(t, root, base)
+	})
+}
+
+func worktreeGitdir(t *testing.T, workspace string) string {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join(workspace, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rest, ok := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir:")
+	if !ok {
+		t.Fatalf("%s .git file has no gitdir line", workspace)
+	}
+
+	target := strings.TrimSpace(rest)
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(workspace, target)
+	}
+
+	return target
+}
+
+func assertApplyKeeps(t *testing.T, root string, base Base) {
+	t.Helper()
+
+	got, reason := classify(base, defaultProbe())
+	if got != VerdictKeep {
+		t.Fatalf("classify = %s (%s), want keep", got, reason)
+	}
+
+	if err := run([]string{root}, true, false, defaultProbe()); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(base.Path); err != nil {
+		t.Fatalf("apply removed a base whose gitdir could not be read: %v", err)
+	}
+}
+
+func TestDefaultRootsIncludesXDGCacheHome(t *testing.T) {
+	home := t.TempDir()
+	xdg := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USER", "reclaimtest")
+	t.Setenv("XDG_CACHE_HOME", xdg)
+
+	xdgRoot := filepath.Join(xdg, "bazel", "_bazel_reclaimtest")
+	homeRoot := filepath.Join(home, ".cache", "bazel", "_bazel_reclaimtest")
+	if err := os.MkdirAll(xdgRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(homeRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	roots := defaultRoots()
+	if !containsPath(roots, xdgRoot) || !containsPath(roots, homeRoot) {
+		t.Fatalf("defaultRoots = %v, want %s and %s", roots, xdgRoot, homeRoot)
+	}
+
+	ws := filepath.Join(t.TempDir(), "gone")
+	base := makeBase(t, xdgRoot, "hashxdg", ws)
+	bases, err := discoverBases(roots)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(bases) != 1 || bases[0].Path != base.Path {
+		t.Fatalf("discoverBases = %+v, want %s", bases, base.Path)
+	}
+
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(t.TempDir(), "missing"))
+	for _, root := range defaultRoots() {
+		if strings.Contains(root, "missing") {
+			t.Fatalf("defaultRoots included a missing XDG cache: %s", root)
+		}
+	}
+}
+
 func TestClassifyRealGitMissingRepositoryIsStale(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")

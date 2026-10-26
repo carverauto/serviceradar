@@ -796,7 +796,7 @@ only one of them is size-bounded:
 | --- | --- | --- |
 | Disk cache | `~/.cache/serviceradar-bazel/disk` | 50G (`--experimental_disk_cache_gc_max_size`) |
 | Repo contents cache | `~/.cache/serviceradar-bazel/repo-contents` | Age GC only: `--repo_contents_cache_gc_max_age=7d`. Bazel 9.2 has no size cap for this cache or for the repository cache (`repo/`). |
-| Output bases | Output user root (`~/Library/Caches/bazel/_bazel_$USER` on macOS, `~/.cache/bazel/_bazel_$USER` on Linux, or a custom `--output_user_root`) | None. One base per workspace path; `git worktree remove` leaves the matching base behind. |
+| Output bases | Output user root (`$XDG_CACHE_HOME/bazel/_bazel_$USER` when `XDG_CACHE_HOME` is set, `~/Library/Caches/bazel/_bazel_$USER` on macOS, `~/.cache/bazel/_bazel_$USER` on Linux, or a custom `--output_user_root`) | None. One base per workspace path; `git worktree remove` leaves the matching base behind. |
 
 After `git worktree remove`, the worktree's output base (multi-gigabyte) is
 orphaned. Reclaim stale bases with the `bazel-reclaim` tool:
@@ -810,14 +810,17 @@ bazel run //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-use
 ```
 
 Find the output user root as the parent directory of `bazel info output_base`;
-a custom root from `~/.bazelrc` must be passed explicitly. A base is stale
-only when the workspace path is gone, the linked worktree's gitdir is gone
-(including when git reports that the path is not a repository), or a
-successful `git worktree list --porcelain` of the backing repo omits that
-worktree. Any other stat or git failure keeps the base. A live workspace or
-a running Bazel server is never deleted, and `--apply` classifies again
-immediately before the delete, so it stays safe while other sessions share
-the root. Deleting a base only costs a warm restart for that workspace.
+a custom root from `~/.bazelrc` must be passed explicitly. With no flag, the
+tool scans `$XDG_CACHE_HOME/bazel/_bazel_$USER` when `XDG_CACHE_HOME` is set,
+and the macOS and Linux defaults above when those directories exist. A base
+is stale only when the workspace path is gone, the linked worktree's gitdir
+is gone, a readable gitdir is not a repository, or a successful `git worktree
+list --porcelain` of the backing repo omits that worktree. An unreadable
+workspace or gitdir, and any other stat or git failure, keeps the base. A
+live workspace or a running Bazel server is never deleted, and `--apply`
+classifies again immediately before the delete, so it stays safe while other
+sessions share the root. Deleting a base only costs a warm restart for that
+workspace.
 
 The caches under `~/.cache/serviceradar-bazel` rebuild on next use; remove
 the whole directory when the age GC is not enough:

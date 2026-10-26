@@ -4,7 +4,7 @@
 // gets its own multi-gigabyte base under the output user root. Removing the
 // worktree does not remove the base. A base is stale only when its workspace
 // is gone: the path does not exist, the linked worktree's gitdir does not
-// exist, git reports that path is not a repository, or a successful
+// exist, a readable gitdir is not a repository, or a successful
 // `git worktree list --porcelain` omits it. That list is taken with
 // GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, and GIT_OBJECT_DIRECTORY cleared,
 // so an inherited environment cannot point git at another repository.
@@ -136,7 +136,12 @@ func classify(b Base, p probe) (Verdict, string) {
 		return VerdictKeep, "workspace exists"
 	}
 
-	if missing, ok := gitdirMissing(gitPath); ok && missing {
+	missing, ok := gitdirMissing(gitPath)
+	if !ok {
+		return VerdictKeep, "worktree gitdir unreadable"
+	}
+
+	if missing {
 		return VerdictStale, "worktree gitdir no longer exists"
 	}
 
@@ -186,22 +191,30 @@ func gitdirMissing(gitFile string) (missing bool, ok bool) {
 		target = filepath.Join(filepath.Dir(gitFile), target)
 	}
 
-	_, err = os.Stat(target)
-	if err == nil {
-		return false, true
+	info, err := os.Stat(target)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return true, true
+		}
+
+		return false, false
 	}
 
-	if os.IsNotExist(err) {
-		return true, true
+	if !info.IsDir() {
+		return false, false
 	}
 
-	return false, false
+	if _, err = os.ReadDir(target); err != nil {
+		return false, false
+	}
+
+	return false, true
 }
 
-// worktreeRegistrationGone is true only when git itself reports that the
-// worktree path is not a repository, which is how a removed gitdir shows up.
-// Other failures (git missing, safe.directory, a non-zero exit while the
-// gitdir still exists) are not proof the worktree is gone.
+// worktreeRegistrationGone is true only when git itself reports that a
+// readable gitdir is not a repository. Other failures (git missing,
+// safe.directory, a non-zero exit while the gitdir still exists) are not
+// proof the worktree is gone.
 func worktreeRegistrationGone(err error) bool {
 	if err == nil {
 		return false
