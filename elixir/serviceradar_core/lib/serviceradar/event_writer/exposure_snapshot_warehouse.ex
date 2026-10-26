@@ -243,7 +243,7 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
     Map.new(
       Repo.query!(
         """
-        SELECT xid, pg_visible_in_snapshot(xid::xid8, $2::pg_snapshot)
+        SELECT xid, pg_visible_in_snapshot(xid::xid8, $2::text::pg_snapshot)
         FROM unnest($1::text[]) AS xid
         """,
         [xids, snapshot]
