@@ -284,7 +284,8 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
       Enum.all?(envelope["records"], fn record ->
         uid = record["device_uid"]
 
-        is_binary(uid) and
+        is_binary(uid) and is_integer(record["device_ord"]) and
+          record["device_ord"] in 1..4_294_967_295 and
           "device-" <> List.last(String.split(ExposureTransitionRelay.subject(uid), ".")) ==
             envelope["lane"] and
           (generation["scope"] == nil or record["device_ord"] == generation["scope"])

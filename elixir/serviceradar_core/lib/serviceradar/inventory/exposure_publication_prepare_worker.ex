@@ -96,6 +96,8 @@ defmodule ServiceRadar.Inventory.ExposurePublicationPrepareWorker do
         """
         SELECT id::text, device_uid, package_identity_key, cve_id,
           last_exposure_publication IS NULL OR
+          NOT EXISTS (SELECT 1 FROM platform.device_fleet_ordinals o WHERE o.uid = a.device_uid
+            AND o.ordinal = (a.last_exposure_publication->>'device_ord')::bigint) OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'cve'
             AND d.ordinal = (a.last_exposure_publication->>'cve_ord')::bigint) OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'package'
@@ -117,6 +119,8 @@ defmodule ServiceRadar.Inventory.ExposurePublicationPrepareWorker do
       Repo.query!(
         """
         SELECT device_uid, package_identity_key, cve_id, payload IS NULL OR
+          NOT EXISTS (SELECT 1 FROM platform.device_fleet_ordinals o WHERE o.uid = w.device_uid
+            AND o.ordinal = (w.payload->>'device_ord')::bigint) OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'cve'
             AND d.ordinal = (w.payload->>'cve_ord')::bigint) OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'package'

@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   alias ServiceRadar.EventWriter.ExposureDelivery
   alias ServiceRadar.EventWriter.ExposureRecovery
   alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Snapshot
+  alias ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker
   alias ServiceRadar.EventWriter.ExposureSnapshotWarehouse, as: SnapshotWarehouse
   alias ServiceRadar.EventWriter.Processors.ExposureSnapshots
   alias ServiceRadar.EventWriter.Processors.ExposureTransitions
@@ -981,6 +982,35 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert watermarks(ctx.device_uid) == []
   end
 
+  test "preparation replaces a retained missing device ordinal with a new sequenced publication",
+       ctx do
+    package = insert_endpoint_package!(ctx.unique)
+    cve = "EXAMPLE-LATE-ORDINAL"
+    insert_assessment!(ctx, package, cve)
+    original = publication(ctx.device_uid, cve)
+    assert original["device_ord"] == nil
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+
+    [[ordinal]] =
+      Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [
+        ctx.device_uid
+      ]).rows
+
+    {:ok, job} =
+      %{"device_uid" => ctx.device_uid, "stage" => "assessments"}
+      |> ExposurePublicationPrepareWorker.new()
+      |> Oban.insert()
+
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    repaired = publication(ctx.device_uid, cve)
+    assert repaired["device_ord"] == ordinal
+    assert repaired["transition_seq"] > original["transition_seq"]
+    assert repaired["state"] == original["state"]
+    assert repaired in transitions(ctx.device_uid)
+    assert {:snooze, 1} = ExposurePublicationPrepareWorker.perform(job)
+    assert publication(ctx.device_uid, cve) == repaired
+  end
+
   test "preparation commits one bounded page and resumes without republishing it", ctx do
     Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
     package = insert_endpoint_package!(ctx.unique)
@@ -1368,6 +1398,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   @tag :tmp_dir
   test "capture issues no warehouse write and only confirmed missing input requests a snapshot",
        ctx do
+    snapshot_http!()
+
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
       message = delivery_message(ctx, ctx.unique * 10)
       bucket = :erlang.phash2(ctx.device_uid, 16)
@@ -1392,6 +1424,19 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                  "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
                  [bucket]
                ).rows
+
+      assert :ok = ExposureSnapshotMaintenanceWorker.perform(%Oban.Job{})
+
+      [job] =
+        Repo.all(
+          from(j in Oban.Job,
+            where: j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker"
+          )
+        )
+
+      assert job.args == %{}
+      assert :ok = ExposureSnapshotMaintenanceWorker.perform(%Oban.Job{})
+      assert Repo.aggregate(from(j in Oban.Job, where: j.worker == ^job.worker), :count) == 1
     end)
   end
 
