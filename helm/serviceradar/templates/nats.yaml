@@ -343,6 +343,10 @@ spec:
                       "vulnerability.assessment.transitions.>",
                       "exposure.dimensions.cve",
                       "exposure.dimensions.package",
+                      # Unfinished delivery copies on EXPOSURE_RECOVERY. Core
+                      # publishes them. The deny below withholds purge and
+                      # stream deletion; individual message deletion stays on
+                      # the JetStream API allow.
                       "exposure.delivery.recovery.>",
                       "metrics.exposure_transitions",
                       "metrics.exposure_dimensions",

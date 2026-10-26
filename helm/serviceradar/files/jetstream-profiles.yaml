@@ -173,6 +173,7 @@ profiles:
   # stream at R1 (spread). Every fallback stays at or below its collector size.
   #   full   = 32 + 384 + 256 + 128 + 128 MiB             = 928 MiB
   #   spread = 256 + 64 + 32 + 64 + 64 + 32 + 32 + 32 + 32 + 64 + 64 + 64 + 64 MiB = 864 MiB,
+  #            (the last 64 MiB is the fixed EXPOSURE_RECOVERY reservation)
   #            largest 256 MiB (flows)
   #   need   = 928 MiB + ceil(864 MiB / 3) + 256 MiB = 1543503872 bytes (1.44 GiB)
   tenant-2g:
