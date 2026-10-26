@@ -397,7 +397,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       )
 
     {worker, ref} = start_worker(ctx, owner)
-    {first, remaining} = Enum.split(ctx.media.units, 45)
+    first = Enum.take(ctx.media.units, 45)
 
     for unit <- first do
       send(ctx.pipeline, {:media_chunk, unit})
@@ -411,7 +411,10 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     File.write!(Path.join(ctx.root, ".storage-id"), "00000000-0000-4000-8000-000000000012\n")
     assert {:error, :storage_identity_mismatch} = Worker.status(worker)
-    for unit <- remaining, do: send(ctx.pipeline, {:media_chunk, unit})
+    # A burst of the remaining units can fill the finite inbox and stop as
+    # queue_full before persistence reaches the storage guard. Renewal is the
+    # scheduled production event that checks storage first.
+    send(worker, :renew_lease)
 
     assert_receive {:camera_recording, ^worker,
                     {:stopped, %{reason: :storage_identity_mismatch, snapshot: nil}}},
