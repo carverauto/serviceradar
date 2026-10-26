@@ -15,6 +15,7 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirementTest do
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.Identity.AwxSourceRetirement
   alias ServiceRadar.Inventory.Identity.AwxSourceRetirementWorker
   alias ServiceRadar.Repo
@@ -119,6 +120,113 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirementTest do
     assert holds_v2?(current, controller, 10)
   end
 
+  test "a record another source keeps fresh loses its AWX source on its membership's clock",
+       %{controller: controller} do
+    assert :ok = ingest(controller, 10, [10, 11])
+    shared = record_of(controller, 11)
+
+    # Linked by metadata alone, with no AWX id row, and seen by a sweep at the pass's own time.
+    Repo.query!(
+      "DELETE FROM platform.device_identifiers WHERE device_id = $1 AND identifier_type = 'integration_id'",
+      [shared]
+    )
+
+    Repo.query!(
+      """
+      UPDATE platform.ocsf_devices
+      SET discovery_sources = discovery_sources || ARRAY['sweep'], last_seen_time = $2
+      WHERE uid = $1
+      """,
+      [shared, DateTime.utc_now() |> DateTime.shift(hour: 25) |> DateTime.to_naive()]
+    )
+
+    assert :ok = ingest(controller, 20, [10])
+    assert {:ok, %{devices: 1, marked: 0, stripped: 1}} = run(controller, hours: 25)
+
+    assert live_unmarked?(shared)
+
+    %{rows: [[sources, metadata]]} =
+      Repo.query!(
+        "SELECT discovery_sources, metadata FROM platform.ocsf_devices WHERE uid = $1",
+        [shared]
+      )
+
+    assert sources == ["sweep"]
+    refute Map.has_key?(metadata, "awx")
+  end
+
+  test "Proxmox enrichment does not adopt a source_retired record by address, MAC or name",
+       %{controller: controller} do
+    assert :ok = ingest(controller, 10, [10, 11])
+    retired = record_of(controller, 11)
+    assert :ok = ingest(controller, 20, [10])
+    assert {:ok, %{marked: 1}} = run(controller, hours: 25)
+    assert source_retired?(retired)
+
+    suffix = System.unique_integer([:positive])
+    host_ref = "testhv:node:pve-retired-#{suffix}"
+    # One guest carries the record's address and MAC; the other only shares its hostname.
+    guest_ref = "testhv:guest:pve-retired-#{suffix}:qemu:311"
+    named_ref = "testhv:guest:pve-retired-#{suffix}:qemu:312"
+
+    payload = %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => "testhv",
+        "hosts" => [
+          %{
+            "provider_ref" => host_ref,
+            "name" => "pve-retired-#{suffix}",
+            "status" => "online",
+            "metadata" => %{"ip" => "203.0.113.200"}
+          }
+        ],
+        "guests" => [
+          %{
+            "provider_ref" => guest_ref,
+            "host_provider_ref" => host_ref,
+            "name" => "vm311-#{suffix}.example.com",
+            "guest_type" => "vm",
+            "vmid" => 311,
+            "status" => "running"
+          },
+          %{
+            "provider_ref" => named_ref,
+            "host_provider_ref" => host_ref,
+            "name" => "host11.example.com",
+            "guest_type" => "vm",
+            "vmid" => 312,
+            "status" => "running"
+          }
+        ],
+        "network_interfaces" => [
+          %{
+            "provider_ref" => "#{guest_ref}:net0",
+            "host_provider_ref" => host_ref,
+            "guest_provider_ref" => guest_ref,
+            "name" => "net0",
+            "mac_address" => mac(11),
+            "ip_addresses" => ["203.0.113.11/24"],
+            "source" => "qemu_agent",
+            "metadata" => %{"partition" => "default"}
+          }
+        ]
+      }
+    }
+
+    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: @actor)
+
+    %{rows: guest_devices} =
+      Repo.query!(
+        "SELECT device_uid FROM platform.virtualization_guests WHERE provider = 'testhv' AND provider_ref = ANY ($1)",
+        [[guest_ref, named_ref]]
+      )
+
+    assert length(guest_devices) == 2
+    refute [retired] in guest_devices
+    assert source_retired?(retired)
+  end
+
   test "a complete observation that reports no host is refused by the mass guard",
        %{controller: controller} do
     assert :ok = ingest(controller, 10, [10, 11])
@@ -173,6 +281,7 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirementTest do
     %{
       "hostname" => "host#{host_id}.example.com",
       "ip" => ip,
+      "mac" => mac(host_id),
       "is_available" => true,
       "metadata" => %{
         "integration_id" => v2(controller, host_id),
@@ -251,6 +360,10 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirementTest do
     |> Repo.all()
     |> Enum.count(&(&1.args["controller_id"] == controller.id))
   end
+
+  # A locally administered address, invented per host.
+  defp mac(host_id),
+    do: "02:00:00:00:00:#{host_id |> Integer.to_string(16) |> String.pad_leading(2, "0")}"
 
   defp v2(controller, host_id), do: "awx:v2:#{controller.id}:host:#{host_id}"
 

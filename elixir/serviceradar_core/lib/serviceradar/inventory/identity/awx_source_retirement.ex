@@ -32,7 +32,10 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
       `source_id_retired` identity decision per id;
     * marks the record `source_retired` when AWX was its only source (`discovery_sources` holds
       nothing but `awx`) and it is retired-only (`SourceRetirement`, design D5), so that
-      `ServiceRadar.Inventory.SourceRetiredExpiry` soft-deletes it after the grace period;
+      `ServiceRadar.Inventory.SourceRetiredExpiry` soft-deletes it after the grace period. A
+      marked record also releases every other identifier it holds (an address or MAC AWX gave
+      it) to the archive, with a decision each, so that no lookup still finds a record awaiting
+      deletion and the device that really has them can register them;
     * otherwise removes only its AWX source: `awx` leaves `discovery_sources`, and
       `metadata.awx` and an AWX `metadata.integration_id` are dropped.
 
@@ -40,10 +43,19 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
 
   An id retires only once AWX last reported it at least `source_retirement_min_absence_hours`
   ago: the later of the identifier's `last_seen` and, for an absent host, the membership's
-  `last_seen_at`. A record holding no AWX id row is judged by its `last_seen_time`, so a record
-  another source keeps fresh never loses an AWX source it has no id for. The pass honours
+  `last_seen_at`. A record holding no AWX id row is judged by its absent host's membership
+  `last_seen_at`, which another source cannot refresh, and only without a membership time (no
+  versioned observation ever reported the host, or a superseded record, whose host is reported
+  for the record that replaced it) by its `last_seen_time`. The pass honours
   `source_retirement_enabled`, and the mass guard (`source_retirement_max_fraction`) and its
   override, as the collection-scoped pass (`SourceRetirement.run/2`) does.
+
+  Residual risk, accepted pending a product decision: a host AWX reports again while its record
+  is still marked, and whose report lands on that record (by address or MAC), does not clear the
+  mark, because an `integration_id` is not a mark-clearing identifier type
+  (`trg_device_identifiers_clear_source_retired`). The record stays hidden until the grace pass
+  deletes it, and the host returns as a new record on a later sync. A re-created AWX host gets a
+  new host id, so this needs the same host to come back within the grace period.
 
   Each record retires in its own transaction, under the controller's observation lock (the lock
   `AwxInventoryObservationFence` takes), then the record's lock and the identifier owner lock,
@@ -115,6 +127,16 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
   FROM platform.device_identifiers AS di
   WHERE di.device_id = CAST($1 AS text) AND di.identifier_type = 'integration_id'
     AND (di.identifier_value LIKE CAST($2 AS text) OR di.identifier_value LIKE CAST($3 AS text))
+  ORDER BY di.id
+  FOR UPDATE
+  """
+
+  # Every identifier row a marked record still holds, locked, with its type.
+  @remaining_ids_sql """
+  SELECT di.id, di.device_id, di.identifier_value, COALESCE(di.partition, 'default'),
+         di.last_seen, di.identifier_type::text
+  FROM platform.device_identifiers AS di
+  WHERE di.device_id = CAST($1 AS text)
   ORDER BY di.id
   FOR UPDATE
   """
@@ -211,8 +233,17 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
       outcome = if reported?.(device.host_id), do: :superseded, else: :absent
       host_ids = Enum.uniq(Enum.reject([device.host_id | held_hosts], &is_nil/1))
 
-      if reported_by?(record_reported_at(device, device_ids, host_ids, outcome, hosts), cutoff),
-        do: %{device_id: device.uid, outcome: outcome, host_ids: host_ids, ids: device_ids}
+      {reported_at, clock} = record_reported_at(device, device_ids, host_ids, outcome, hosts)
+
+      if reported_by?(reported_at, cutoff) do
+        %{
+          device_id: device.uid,
+          outcome: outcome,
+          host_ids: host_ids,
+          ids: device_ids,
+          clock: clock
+        }
+      end
     end
   end
 
@@ -221,18 +252,25 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
   defp id_reported_at(id, hosts),
     do: latest([id.last_seen, get_in(hosts, [id.host_id, :last_seen_at])])
 
-  # When AWX last reported the record. A superseded record's host is reported for the record
-  # that replaced it, so its membership says nothing about this one.
-  defp record_reported_at(device, [], _host_ids, _outcome, _hosts),
-    do: to_datetime(device.last_seen_time)
-
-  defp record_reported_at(_device, device_ids, host_ids, outcome, hosts) do
-    membership_times =
+  # When AWX last reported the record, and the clock that says so. A superseded record's host
+  # is reported for the record that replaced it, so its membership says nothing about this one.
+  # A record with no AWX id row falls back to its own last_seen_time only without a membership
+  # time: another source refreshes last_seen_time, so it would hold the AWX source forever.
+  defp record_reported_at(device, device_ids, host_ids, outcome, hosts) do
+    membership_at =
       if outcome == :absent,
-        do: Enum.map(host_ids, &get_in(hosts, [&1, :last_seen_at])),
-        else: []
+        do: latest(Enum.map(host_ids, &get_in(hosts, [&1, :last_seen_at])))
 
-    latest(Enum.map(device_ids, & &1.last_seen) ++ membership_times)
+    cond do
+      device_ids != [] ->
+        {latest([membership_at | Enum.map(device_ids, & &1.last_seen)]), :identifiers}
+
+      membership_at ->
+        {membership_at, :membership}
+
+      true ->
+        {to_datetime(device.last_seen_time), :last_seen_time}
+    end
   end
 
   defp latest(times) do
@@ -432,8 +470,9 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
   # The record's AWX ids as they stand under the locks. A stale-id plan retires those of its ids
   # still unreported since the cutoff. An absent or superseded plan retires the record's AWX ids
   # only if they are still exactly the ones it read, none reported since; a record with no AWX
-  # id row retires on its metadata link alone (`[:metadata_only]`) while it is still unreported
-  # since the cutoff.
+  # id row retires on its metadata link alone (`[:metadata_only]`): on its membership time, which
+  # holds while the observation is unchanged, or else while its last_seen_time is still before
+  # the cutoff.
   defp recheck(plan, device, ctx) do
     held =
       @device_ids_sql
@@ -448,9 +487,10 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
         Enum.filter(held, &(MapSet.member?(planned, &1.id) and unreported?.(&1)))
 
       _record when held == [] and plan.ids == [] ->
-        if reported_by?(to_datetime(device.last_seen_time), ctx.cutoff),
-          do: [:metadata_only],
-          else: []
+        if plan.clock == :membership or
+             reported_by?(to_datetime(device.last_seen_time), ctx.cutoff),
+           do: [:metadata_only],
+           else: []
 
       _record ->
         if MapSet.new(held, & &1.id) == planned and Enum.all?(held, unreported?),
@@ -466,7 +506,8 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
 
     if archived == length(ids) do
       with {:ok, _device} <- Device.bump_identity_revision(device, actor: ctx.actor),
-           effect = record_effect(plan, device, ctx, now),
+           {:ok, effect, released} <- record_effect(plan, device, ctx, now),
+           ids = ids ++ released,
            :ok <- DecisionLog.record_many_strict(decisions(plan, ids, effect, ctx)) do
         {:ok, %{ids: ids, effect: effect}}
       end
@@ -476,16 +517,40 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
   end
 
   # A stale-id plan leaves the record's AWX source in place. A record AWX alone reported is
-  # marked when it is retired-only; any other loses only its AWX source.
-  defp record_effect(%{outcome: :stale_ids}, _device, _ctx, _now), do: :ids_only
+  # marked when it is retired-only, and releases every identifier it still holds: AWX gave it
+  # each of them (an address, a MAC), and a record awaiting deletion that kept them would still
+  # be found by them, and would keep them from the record of the device that really has them.
+  # Any other record loses only its AWX source. Returns the effect and the rows released.
+  defp record_effect(%{outcome: :stale_ids}, _device, _ctx, _now), do: {:ok, :ids_only, []}
 
   defp record_effect(plan, device, ctx, now) do
     if awx_only?(device) and mark(plan.device_id, ctx.cutoff, now) do
-      :marked
+      release_identifiers(plan.device_id, now)
     else
       strip(plan.device_id, now)
-      :stripped
+      {:ok, :stripped, []}
     end
+  end
+
+  defp release_identifiers(device_id, now) do
+    rows =
+      Enum.map(Repo.query!(@remaining_ids_sql, [device_id]).rows, fn
+        [id, device_id, value, partition, last_seen, type] ->
+          %{
+            id: id,
+            device_id: device_id,
+            value: value,
+            partition: partition,
+            last_seen: last_seen,
+            type: type
+          }
+      end)
+
+    archived = SourceRetirement.archive_identifiers(device_id, Enum.map(rows, & &1.id), now)
+
+    if archived == length(rows),
+      do: {:ok, :marked, rows},
+      else: {:error, {:archive_incomplete, archived, length(rows)}}
   end
 
   defp awx_only?(device), do: Enum.all?(device.discovery_sources || [], &(&1 == @source))
@@ -525,7 +590,7 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
         plan,
         id.value,
         %{
-          "identifier_type" => "integration_id",
+          "identifier_type" => Map.get(id, :type, "integration_id"),
           "identifier_value" => id.value,
           "identifier_partition" => id.partition,
           "archived_identifier_id" => id.id,

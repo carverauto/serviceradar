@@ -1442,8 +1442,9 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     WHERE deleted_at IS NULL
       AND (
         uid = ANY($1::text[])
-        OR LOWER(name) = ANY($2::text[])
-        OR LOWER(hostname) = ANY($2::text[])
+        -- A record marked source_retired is awaiting deletion: sharing a name never adopts it.
+        OR (source_retired_at IS NULL
+          AND (LOWER(name) = ANY($2::text[]) OR LOWER(hostname) = ANY($2::text[])))
       )
     """
   end
@@ -1776,7 +1777,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
              ARRAY[]::text[]
            ) AS integration_identifiers
     FROM platform.ocsf_devices d
+    -- A record marked source_retired is awaiting deletion, whichever source retired it: no
+    -- address, MAC or AWX hint it still carries makes it a guest's device. Adopting it would
+    -- not clear the mark, and the grace pass would then delete the guest's record.
     WHERE d.deleted_at IS NULL
+      AND d.source_retired_at IS NULL
       AND (
         btrim(COALESCE(d.ip, '')) = ANY($1::text[])
         OR upper(replace(replace(btrim(COALESCE(d.mac, '')), '-', ':'), '.', ':')) = ANY($2::text[])
@@ -1791,9 +1796,6 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         )
         OR (
           $3::boolean
-          -- A record whose AWX source retired keeps its AWX metadata as history; that is no
-          -- longer evidence the AWX host, or its Proxmox guest, is this record.
-          AND d.source_retired_at IS NULL
           AND (
             'awx' = ANY(COALESCE(d.discovery_sources, ARRAY[]::text[]))
             OR COALESCE(d.metadata->>'integration_type', '') = 'awx'
