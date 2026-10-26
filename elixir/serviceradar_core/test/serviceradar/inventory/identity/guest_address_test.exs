@@ -68,4 +68,15 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
              "172.17.0.1/16"
            )
   end
+
+  test "a plus-joined source is not the hypervisor configuration source" do
+    # Producers join interface sources with a comma. `config+agent` is one
+    # token, so a bridge listed that way stays host-internal and cannot win.
+    interfaces = [
+      %{name: "br-lan0", source: "config+agent", ip_addresses: ["203.0.113.10/24"]},
+      %{name: "eth0", source: "guest_agent", ip_addresses: ["192.0.2.10/24"]}
+    ]
+
+    assert GuestAddress.primary(interfaces) == "192.0.2.10"
+  end
 end
