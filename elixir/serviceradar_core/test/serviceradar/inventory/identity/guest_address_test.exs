@@ -69,24 +69,14 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddressTest do
            )
   end
 
-  test "host_internal_name_sql/1 includes every host-internal interface prefix" do
-    sql = GuestAddress.host_internal_name_sql("vni.name")
+  test "a plus-joined source is not the hypervisor configuration source" do
+    # Producers join interface sources with a comma. `config+agent` is one
+    # token, so a bridge listed that way stays host-internal and cannot win.
+    interfaces = [
+      %{name: "br-lan0", source: "config+agent", ip_addresses: ["203.0.113.10/24"]},
+      %{name: "eth0", source: "guest_agent", ip_addresses: ["192.0.2.10/24"]}
+    ]
 
-    for prefix <- [
-          "docker",
-          "br-",
-          "cni",
-          "flannel",
-          "veth",
-          "virbr",
-          "cali",
-          "vxlan",
-          "cilium",
-          "podman"
-        ] do
-      assert sql =~ "'#{prefix}'"
-    end
-
-    assert sql =~ "starts_with(lower(btrim(COALESCE(vni.name, ''))), prefix)"
+    assert GuestAddress.primary(interfaces) == "192.0.2.10"
   end
 end

@@ -136,7 +136,7 @@ defmodule ServiceRadar.Inventory.Identity.GuestAddress do
     iface
     |> field(:source)
     |> to_string()
-    |> String.split([",", "+"], trim: true)
+    |> String.split(",", trim: true)
     |> Enum.any?(&(String.trim(&1) == "config"))
   end
 
