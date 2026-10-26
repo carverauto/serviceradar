@@ -11,7 +11,10 @@
 
 - [x] 2.1 Adopt the same-owner row among all enabled assignments of the plugin;
       report the create error when there is none.
-- [x] 2.2 Unit test: own drifted row adopted while another rule's row coexists.
+- [x] 2.2 Prefer the rule's own row over a manual or other-policy row that also
+      collides.
+- [x] 2.3 Unit test: own drifted row adopted while another rule's row and a
+      manual row are enabled.
 
 ## 3. Delivery
 
@@ -23,6 +26,8 @@
 ## 4. UI
 
 - [x] 4.1 Plugin fleet rows per owner, with a unit test.
+- [x] 4.2 A result stamped with a sibling owner's assignment id is not drift
+      while owners share one service state (#6006).
 
 ## 5. Follow-ups (#6006, not in this change)
 

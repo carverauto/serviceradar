@@ -372,7 +372,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     assert DriftedStore.adopted() == nil
   end
 
-  test "adopts its own drifted row when another credential rule's row coexists" do
+  test "adopts its own drifted row when another rule's row and a manual row are enabled" do
     package_id = Ecto.UUID.generate()
     rule_a = "network-credential-rule:00000000-0000-4000-8000-00000000000a"
     rule_b = "network-credential-rule:00000000-0000-4000-8000-00000000000b"
@@ -392,9 +392,11 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconcilerTest do
     end
 
     other_rule = row.("other-rule-source-key", rule_b)
+    manual = %{row.(nil, nil) | source: :manual}
     own_drifted = row.("own-drifted-source-key", rule_a <> ":inventory")
 
-    {:ok, _pid} = DriftedStore.start_link([other_rule, own_drifted])
+    # A manual row also collides with the rule, but the rule's own row wins.
+    {:ok, _pid} = DriftedStore.start_link([other_rule, manual, own_drifted])
     on_exit(fn -> DriftedStore.stop() end)
 
     policy = %{

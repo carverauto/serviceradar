@@ -394,12 +394,18 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
   # Other credential rules' assignments for the same plugin may legitimately
   # coexist on this agent (see AssignmentOwner). Adopting one would rewrite that
-  # rule's assignment into this one, so only the row that collided with this
-  # owner is adopted. With no such row the create error is reported.
+  # rule's assignment into this one, so only a row that collided with this
+  # owner is adopted: this rule's own row first, otherwise a manual or other
+  # policy row. With neither, the create error is reported.
   defp adopt_same_owner(enabled, spec, stats, actor, store, create_reason) do
     policy_id = spec_policy_id(spec)
+    owner = AssignmentOwner.owner(policy_id)
 
-    case Enum.find(enabled, &AssignmentOwner.same_owner?(policy_id, Map.get(&1, :policy_id))) do
+    adoptable =
+      Enum.filter(enabled, &AssignmentOwner.same_owner?(policy_id, Map.get(&1, :policy_id)))
+
+    case Enum.find(adoptable, &(AssignmentOwner.owner(Map.get(&1, :policy_id)) == owner)) ||
+           List.first(adoptable) do
       nil ->
         {:halt, {:error, create_reason}}
 

@@ -168,7 +168,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
     assert id == newer.id
   end
 
-  test "each credential rule's enabled assignment of one plugin on an agent is its own row" do
+  test "each credential rule's enabled assignment of one plugin on an agent is its own healthy row" do
     package = package()
     rule_a = %{assignment(package) | source: :policy, policy_id: "network-credential-rule:rule-a:inventory"}
     rule_a_older = %{rule_a | id: Ecto.UUID.generate(), updated_at: ~U[2026-01-01 12:00:00Z]}
@@ -180,9 +180,32 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
         updated_at: ~U[2026-01-02 12:00:00Z]
     }
 
-    rows = PluginFleet.build_rows([rule_a_older, rule_b, rule_a], [package], [], @now)
+    assignments = [rule_a_older, rule_b, rule_a]
+
+    # Both owners report into one service state, last stamped by rule B's assignment.
+    shared =
+      state(
+        details:
+          Jason.encode!(%{
+            "plugin_id" => package.plugin_id,
+            "status" => "OK",
+            "labels" => %{"assignment_id" => rule_b.id}
+          })
+      )
+
+    rows = PluginFleet.build_rows(assignments, [package], [shared], @now)
 
     assert rows |> Enum.map(& &1["assignment_id"]) |> Enum.sort() == Enum.sort([rule_a.id, rule_b.id])
+    assert Enum.map(rows, &{&1["category"], &1["assignment_drift"]}) == [{"healthy", false}, {"healthy", false}]
+
+    assert [%{health: %{status: "healthy"}}] =
+             PluginFleet.build_summaries(
+               [%{plugin_id: package.plugin_id, name: package.name}],
+               [package],
+               assignments,
+               [],
+               rows
+             )
   end
 
   test "disabled assignment and ambiguous legacy name evidence never look like current healthy execution" do
