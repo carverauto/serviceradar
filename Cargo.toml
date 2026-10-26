@@ -225,10 +225,8 @@ lto = true
 debug-assertions = false
 panic = "abort"
 
-# tonic 0.14.6 with only its zstd requirement raised from 0.13 to 0.14.3, the first zstd
-# release fixed for RUSTSEC-2026-0391 and 0395-0406/0410. No tonic release takes zstd
-# 0.14 yet. rules_rs resolves this path patch to the same source, so Bazel builds what
-# Cargo builds. Delete it once tonic ships with zstd 0.14; see the README beside it.
+# Security patch rationale and removal instructions:
+# third_party/rust_patches/tonic-0.14.6/README.serviceradar.md
 [patch.crates-io]
 tonic = { path = "third_party/rust_patches/tonic-0.14.6" }
 

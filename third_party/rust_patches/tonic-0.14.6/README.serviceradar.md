@@ -11,6 +11,8 @@ This directory is the published `tonic-0.14.6.crate` from crates.io (checksum
 
 The root `Cargo.toml` selects it with `[patch.crates-io]`. rules_rs reads the same `[patch]`
 entry and builds this source as `@crates//:tonic`, so Cargo and Bazel compile the same tonic.
+As a path dependency, it has no registry checksum in `Cargo.lock` and no archive in
+`third_party/crate_mirror`.
 
 ## Why
 
@@ -33,4 +35,5 @@ in 0.14, so no tonic source change is needed.
 Delete this directory and the `[patch.crates-io]` entry once tonic publishes a release that
 depends on zstd 0.14 or later. Upstream is <https://github.com/grpc/grpc-rust> (formerly
 `hyperium/tonic`). Then bump `tonic` in the root `Cargo.toml` if needed, run
-`cargo update -p tonic`, and refresh the mirror with `bazel run //third_party/crate_mirror:sync`.
+`cargo update -p tonic`, and refresh the mirror using the platform-specific instructions
+in [sync.py](../../crate_mirror/sync.py).
