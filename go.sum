@@ -26,8 +26,8 @@ github.com/atotto/clipboard v0.1.4 h1:EH0zSVneZPSuFR11BlR9YppQTVDbh5+16AmcJi4g1z
 github.com/atotto/clipboard v0.1.4/go.mod h1:ZY9tmq7sm5xIbd9bOK4onWV4S6X0u6GY7Vn0Yu86PYI=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1 h1:HwpRHbFMcZLEVr42D4p7XBqjyuxQH5SMiErDT4WkJ2k=
 github.com/aymanbagabas/go-osc52/v2 v2.0.1/go.mod h1:uYgXzlJ7ZpABp8OJ+exZzJJhRNQ2ASbcXHWsFqH8hp8=
-github.com/bazelbuild/rules_go v0.64.1 h1:XGYR0GmQ6RDRvDaP9H+IXZsKidX2gJmKu9rZx5fGNq0=
-github.com/bazelbuild/rules_go v0.64.1/go.mod h1:fGJXke4qp7Xq27y1oZ7Qib3rhk5Ar3T1/A9jxOtkcH8=
+github.com/bazelbuild/rules_go v0.65.0 h1:oHAvkNIMaOhguFSCHi0bCoUhz2390srk4U0rTn9mqBc=
+github.com/bazelbuild/rules_go v0.65.0/go.mod h1:xfi7fis5FXCWYcI1W3egOzRBoz+Yi5AeFV7MbCtdmj8=
 github.com/bluenviron/gortsplib/v5 v5.6.7 h1:0o0Ays+oereZwmeOP66t154lmrvXJsON/4iCxDnjgmw=
 github.com/bluenviron/gortsplib/v5 v5.6.7/go.mod h1:5aF0ncI3gp3OjaOfJEL4qBOFiheEgrLWp2nc13rHt2c=
 github.com/bluenviron/mediacommon/v2 v2.9.6 h1:4DRWZyFZ4Xbkgu85c0UIiny0ohAFDr+ZgtdDK+iq/e8=
