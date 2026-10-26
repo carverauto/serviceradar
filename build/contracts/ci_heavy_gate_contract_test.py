@@ -10,7 +10,37 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import yaml
+
+def _import_yaml():
+    """Import PyYAML from this interpreter, or from another local install.
+
+    `python3 -m unittest` is the test-registration gate. Homebrew Python and
+    the python.org framework build can both be named `python3`; PyYAML lives
+    on the framework build. Bazel puts `@pyyaml` on `sys.path` before import.
+    """
+    try:
+        import yaml
+        return yaml
+    except ModuleNotFoundError as missing:
+        roots = []
+        framework = Path("/Library/Frameworks/Python.framework/Versions")
+        if framework.is_dir():
+            roots.extend(framework.glob("*/lib/python*/site-packages"))
+        user_site = Path.home() / "Library" / "Python"
+        if user_site.is_dir():
+            roots.extend(user_site.glob("*/lib/python/site-packages"))
+        local_lib = Path("/usr/local/lib")
+        if local_lib.is_dir():
+            roots.extend(local_lib.glob("python*/site-packages"))
+        for site in roots:
+            if (site / "yaml" / "__init__.py").is_file():
+                sys.path.insert(0, str(site))
+                import yaml
+                return yaml
+        raise missing
+
+
+yaml = _import_yaml()
 
 
 ROOT = Path(__file__).resolve().parents[2]
