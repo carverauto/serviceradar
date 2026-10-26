@@ -87,10 +87,12 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
     step archives a MAC, and a reported MAC is never reactivated, only registered like any
     unowned MAC. The code's other conditions (one discovery source, retired-only once the ids
     are archived) only ever withhold the step, so here any live unmarked record holding an
-    identifier may take it. Hypervisor enrichment's guest lookup excludes a marked record on
-    every arm: address, MAC, an identifier row it still holds, an AWX hint, and name. The same
-    device lookup still returns a marked record the batch already points at by uid. An
-    Armis-marked record keeps its MACs, so another record cannot register one.
+    identifier may take it. Hypervisor enrichment's guest-candidate query excludes a marked
+    record on every arm (address, MAC, an identifier row it still holds, an AWX hint), and the
+    name lookup skips it; the device lookup still returns a marked record the batch already
+    points at by uid. The separate identifier-row lookup (`identifier_lookup_sql`) was
+    deliberately left unfiltered: an Armis-marked record keeps its MACs, so filtering it there
+    would give the guest a new record that could never register a MAC the marked record keeps.
   - `GraceDelete` soft-deletes a marked record with reason `source_retired` and releases its
     address.
   - A write reporting one of a record's retired ids, or one of a record merged into it, moves the
