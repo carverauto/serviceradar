@@ -926,6 +926,23 @@ open. Recording remains disabled and no local files were reclaimed.
 
 ### Reviewed source
 
+After rebase, source `3ecbffe666c7ac51e30db969e1dd912a0c801e25` passed
+[`make test` on RBE](https://carverauto.buildbuddy.io/invocation/9151e194-f804-4e22-abfb-58979e75dedc)
+with exit zero: 462 targets passed, 56 executed and 406 cached, with the same
+two Swift platform skips listed below. The storage owner executed successfully.
+All 45 feature paths remained byte-identical through rebase; the proxy restored
+unrelated lockfile metadata to the new base and completed a clean re-review.
+Normal stdout and independently retrieved BuildBuddy output agree on this
+result. The checkout remained clean at that full SHA.
+
+Dependency queries after rebase still assign the guarded Core archive cases to
+`integration_tests_serial_6` and the joined Web cases to
+`networks_live_db_test_0`. Those guarded database cases have not executed for
+this checkpoint. A subsequent daemon failure stopped publication; supported
+custody recovery retained every reviewed commit. Fresh proxy validation and
+actual published-head Core/Web execution with all lifecycle statuses successful
+remain required before closing the manifest/index tasks.
+
 Reviewed source `0e5cbe6fe8da0eb9b6fa5b99080f96c1a51486d3` passed
 [`make test` on RBE](https://carverauto.buildbuddy.io/invocation/4160e1df-6198-40ed-8702-d3fce80975c2)
 with exit zero: 462 targets passed, five executed and 457 cached. Only
