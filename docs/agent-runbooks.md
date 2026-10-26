@@ -811,18 +811,19 @@ bazel run //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-use
 
 Find the output user root as the parent directory of `bazel info output_base`;
 a custom root from `~/.bazelrc` must be passed explicitly. With no flag, the
-tool scans `$XDG_CACHE_HOME/bazel/_bazel_$USER` when `XDG_CACHE_HOME` is set,
-and the macOS and Linux defaults above when those directories exist. A base
-is stale only when the workspace path is gone, the linked worktree's gitdir
-is gone, a readable gitdir has neither HEAD nor commondir, or a successful
-`git worktree list --porcelain` of the backing repo omits that worktree.
-Git's "not a git repository" is not enough while HEAD or commondir is still
-present, including when HEAD, objects, or refs cannot be read. An unreadable
-workspace or gitdir, and any other stat or git failure, keeps the base. A
-live workspace or a running Bazel server is never deleted, and `--apply`
-classifies again immediately before the delete, so it stays safe while other
-sessions share the root. Deleting a base only costs a warm restart for that
-workspace.
+tool scans a candidate only when that directory exists:
+`$XDG_CACHE_HOME/bazel/_bazel_$USER` when `XDG_CACHE_HOME` is set,
+`~/Library/Caches/bazel/_bazel_$USER`, and `~/.cache/bazel/_bazel_$USER`. A
+base is stale only when the workspace path is gone, the linked worktree's
+gitdir is gone, git reports "not a git repository" and that readable gitdir
+has neither HEAD nor commondir, or a successful `git worktree list
+--porcelain` of the backing repo omits that worktree. Git's "not a git
+repository" is not enough while HEAD or commondir is still present, including
+when HEAD, objects, or refs cannot be read. An unreadable workspace or
+gitdir, and any other stat or git failure, keeps the base. A live workspace
+or a running Bazel server is never deleted, and `--apply` classifies again
+immediately before the delete, so it stays safe while other sessions share
+the root. Deleting a base only costs a warm restart for that workspace.
 
 The caches under `~/.cache/serviceradar-bazel` rebuild on next use; remove
 the whole directory when the age GC is not enough:

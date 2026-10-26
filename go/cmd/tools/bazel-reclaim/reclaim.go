@@ -4,8 +4,9 @@
 // gets its own multi-gigabyte base under the output user root. Removing the
 // worktree does not remove the base. A base is stale only when its workspace
 // is gone: the path does not exist, the linked worktree's gitdir does not
-// exist, a readable gitdir has neither HEAD nor commondir, or a successful
-// `git worktree list --porcelain` omits it. That list is taken with
+// exist, git reports "not a git repository" and the readable gitdir has
+// neither HEAD nor commondir, or a successful `git worktree list --porcelain`
+// omits it. That list is taken with
 // GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, and GIT_OBJECT_DIRECTORY cleared,
 // so an inherited environment cannot point git at another repository.
 // A stat or git failure that does not prove the workspace is gone keeps the
