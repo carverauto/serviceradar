@@ -585,7 +585,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:falco, &falco_subject?/1},
       {:trivy, &trivy_subject?/1},
       {:exposure_dimensions, &String.starts_with?(&1, "exposure.dimensions.")},
-      {:exposure_snapshots, &String.starts_with?(&1, "exposure.snapshots.")},
+      {:exposure_snapshots,
+       fn subject ->
+         String.starts_with?(subject, "exposure.snapshots.") or
+           String.starts_with?(subject, "exposure.delivery.recovery.")
+       end},
       {:exposure_transitions, &String.starts_with?(&1, "vulnerability.assessment.transitions.")},
       {:k8s_nodes, &k8s_nodes_subject?/1},
       {:k8s_inventory, &k8s_inventory_subject?/1},

@@ -121,6 +121,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
                       :ok <- publish_source(reader, generation, "watermarks", nil),
                       :ok <- await(generation, &(&1["pending"] == %{})),
                       {:ok, latest} <- State.get(generation["id"]),
+                      :ok <- alive(reader, generation),
                       {:ok, completed} <-
                         State.end_manifest(generation["id"], owner, latest["receipts"]) do
                    completed

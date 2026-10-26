@@ -147,6 +147,50 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       "source" => [ctx.device_uid, original["package_identity_key"], cve]
     }
 
+    [[view]] = Repo.query!("SELECT pg_current_snapshot()::text").rows
+    generation = %{"id" => 1, "scope" => original["device_ord"], "snapshot" => view}
+
+    envelope =
+      Snapshot.page(
+        generation,
+        "device-#{:erlang.phash2(ctx.device_uid, 16)}",
+        Snapshot.empty_receipt(),
+        "facts",
+        [
+          original
+        ]
+      )
+
+    query_facts = fn row ->
+      snapshot_query!(fn sql ->
+        if String.contains?(sql, "exposure_retired_ordinals"),
+          do: warehouse_rows([]),
+          else: warehouse_rows([row])
+      end)
+    end
+
+    query_facts.(fact)
+
+    assert {:ok, %{"rows" => [marked], "repairs" => []}} =
+             SnapshotWarehouse.plan(generation, envelope)
+
+    assert marked["snapshot_generation"] == 1
+    query_facts.(Map.put(fact, "transition_seq", original["transition_seq"] + 1))
+
+    assert {:ok, %{"rows" => [], "repairs" => [], "post_snapshot" => 1}} =
+             SnapshotWarehouse.plan(generation, envelope)
+
+    fact
+    |> Map.put("transition_seq", original["transition_seq"] + 1)
+    |> Map.put("transition_xid", 3)
+    |> query_facts.()
+
+    assert {:ok, %{"rows" => [], "repairs" => [_]}} = SnapshotWarehouse.plan(generation, envelope)
+    query_facts.(Map.put(fact, "kev", !fact["kev"]))
+
+    assert {:ok, %{"rows" => [], "repairs" => [^request]}} =
+             SnapshotWarehouse.plan(generation, envelope)
+
     assert {:ok, {:ok, [repair]}} =
              Repo.transaction(fn -> ExposureSnapshotRepairs.publish([request]) end)
 
@@ -357,6 +401,55 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     after
       10_000 -> flunk("snapshot processor did not settle")
     end
+  end
+
+  @tag :tmp_dir
+  test "recovery consumption retains an owned live copy and removes a late copy after its operation ends",
+       ctx do
+    snapshot_http!()
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+
+      assert {:error, :synthetic_unknown} =
+               ExposureDelivery.run([message], fn _, _ -> {:error, :synthetic_unknown} end)
+
+      [[id, hash, position]] =
+        Repo.query!(
+          "SELECT operation_id::text, payload_hash, recovery_position FROM platform.exposure_delivery_batches WHERE bucket = $1",
+          [bucket]
+        ).rows
+
+      subject = "exposure.delivery.recovery.#{bucket}.#{id}"
+      assert {:ok, ^position, body} = ExposureRecovery.fetch_envelope(subject, hash, position)
+
+      copy = fn seq ->
+        [
+          %{
+            data: body,
+            metadata: %{
+              subject: subject,
+              jetstream_ack: %{stream: "EXPOSURE_RECOVERY", stream_sequence: seq}
+            }
+          }
+        ]
+      end
+
+      assert {:ok, 1} = ExposureSnapshots.process_batch(copy.(position))
+      assert {:ok, ^position, ^body} = ExposureRecovery.fetch_envelope(subject, hash, position)
+      assert {:ok, 1} = ExposureDelivery.run([message], fn _, _ -> {:ok, 1} end)
+
+      assert [] =
+               Repo.query!("SELECT 1 FROM platform.exposure_delivery_batches WHERE bucket = $1", [
+                 bucket
+               ]).rows
+
+      assert {:ok, late_position} = ExposureRecovery.retain_envelope(subject, body, hash)
+      assert {:ok, 1} = ExposureSnapshots.process_batch(copy.(late_position))
+      assert :missing = ExposureRecovery.fetch_envelope(subject, hash, late_position)
+      refute_received {:load, _, _, _, _}
+    end)
   end
 
   @tag :tmp_dir

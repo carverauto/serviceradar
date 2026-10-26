@@ -98,6 +98,35 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     )
   end
 
+  @doc "Delete delayed recovery publications only after their journal ownership has ended."
+  def cleanup_unowned_copy(subject, body, position) do
+    with {:ok, [1, id, bucket, _entries]} <- Jason.decode(body),
+         {:ok, ^id} <- Ecto.UUID.cast(id),
+         true <- bucket in 0..15 and subject == "exposure.delivery.recovery.#{bucket}.#{id}" do
+      DirectSession.run(fn session ->
+        lock(session, bucket, fn _owned ->
+          case Repo.query!(
+                 """
+                 SELECT payload_hash FROM platform.exposure_delivery_batches
+                 WHERE bucket = $1 AND operation_id = $2::text::uuid
+                 """,
+                 [bucket, id]
+               ).rows do
+            [[hash]] ->
+              if ExposureSnapshotEnvelope.digest(body) == hash,
+                do: :ok,
+                else: {:error, :exposure_recovery_content_conflict}
+
+            [] ->
+              ExposureRecovery.delete(position)
+          end
+        end)
+      end)
+    else
+      _ -> {:error, :invalid_exposure_recovery_message}
+    end
+  end
+
   @doc "Snapshot labels name both the generation and the actual physical chunk bytes."
   def persist_snapshot(dataset, rows, locked, identity, limits) do
     Destination.persist_warehouse(dataset, rows,

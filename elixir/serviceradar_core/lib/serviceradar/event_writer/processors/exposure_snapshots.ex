@@ -34,18 +34,23 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureSnapshots do
          }
        })
        when is_integer(position) and position > 0 do
-    if String.contains?(subject, ".plan.") do
-      plan_notice(subject, body, position)
-    else
-      with {:ok, envelope, hash} <- Envelope.decode(body),
-           {:ok, generation} <- State.get(envelope["generation"]),
-           true <- State.identity?(generation, envelope),
-           true <- subject == subject(envelope) do
-        receive_envelope(generation, envelope, hash, position)
-      else
-        false -> {:error, :exposure_snapshot_identity_conflict}
-        error -> error
-      end
+    cond do
+      String.starts_with?(subject, "exposure.delivery.recovery.") ->
+        ExposureDelivery.cleanup_unowned_copy(subject, body, position)
+
+      String.contains?(subject, ".plan.") ->
+        plan_notice(subject, body, position)
+
+      true ->
+        with {:ok, envelope, hash} <- Envelope.decode(body),
+             {:ok, generation} <- State.get(envelope["generation"]),
+             true <- State.identity?(generation, envelope),
+             true <- subject == subject(envelope) do
+          receive_envelope(generation, envelope, hash, position)
+        else
+          false -> {:error, :exposure_snapshot_identity_conflict}
+          error -> error
+        end
     end
   end
 
