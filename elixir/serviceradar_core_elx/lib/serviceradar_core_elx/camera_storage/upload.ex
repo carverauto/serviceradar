@@ -9,16 +9,13 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
   alias ServiceRadarCoreElx.CameraStorage.CoreClient
   alias ServiceRadarCoreElx.CameraStorage.HTTP
 
-  def run(config, boot, installation_deadline, lease, bytes, ingress_deadline) do
-    started = now()
-    limit = config.desired.limits["max_operation_ms"]
-    deadline = Enum.min([installation_deadline, ingress_deadline, started + limit])
+  def run_init(config, boot, lease, bytes, deadline) do
     envelope = %{"schema_version" => 1, "lease" => lease}
 
     with true <- is_binary(bytes) and byte_size(bytes) in 1..config.desired.limits["max_init_bytes"],
          object_sha = sha256(bytes),
          {:ok, %{"schema_version" => 1, "dispatch_id" => dispatch_id} = prepared} when map_size(prepared) == 2 <-
-           CoreClient.request(config.runtime, :prepare, envelope, remaining(deadline)),
+           CoreClient.request(config.runtime, :init, :prepare, envelope, remaining(deadline)),
          true <- uuid?(dispatch_id) do
       request =
         Map.merge(envelope, %{
@@ -30,7 +27,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
 
       grant_started = now()
 
-      with {:ok, grant} <- CoreClient.request(config.runtime, :grant, request, remaining(deadline)),
+      with {:ok, grant} <- CoreClient.request(config.runtime, :init, :grant, request, remaining(deadline)),
            :ok <- grant(:init, grant, config.desired, request, byte_size(bytes), object_sha),
            deadline = min(deadline, grant_started + grant["remaining_ms"]),
            true <- remaining(deadline) > 0 do
@@ -43,7 +40,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
     end
   end
 
-  def run_media(config, boot, lease, prepared, path, deadline) do
+  def run_staged(kind, config, boot, lease, prepared, path, deadline) when kind in [:media, :manifest] do
     request = %{
       "schema_version" => 1,
       "lease" => lease,
@@ -55,11 +52,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
 
     started = now()
 
-    with {:ok, grant} <- CoreClient.request(config.runtime, :grant, request, remaining(deadline)),
-         :ok <- grant(:media, grant, config.desired, request, prepared["byte_length"], prepared["object_sha256"]),
+    with {:ok, grant} <- CoreClient.request(config.runtime, kind, :grant, request, remaining(deadline)),
+         :ok <- grant(kind, grant, config.desired, request, prepared["byte_length"], prepared["object_sha256"]),
          deadline = min(deadline, started + grant["remaining_ms"]),
          true <- remaining(deadline) > 0 do
-      execute(:media, config, request, grant, {:file, path, prepared["byte_length"]}, prepared["object_sha256"], deadline)
+      execute(kind, config, request, grant, {:file, path, prepared["byte_length"]}, prepared["object_sha256"], deadline)
     else
       _ -> {:error, :storage_grant_refused}
     end
@@ -106,11 +103,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
     case provider_request(provider, :put, url, signed, bytes, deadline, 16_384) do
       {:ok, response} ->
         verified = verified_object(provider, url, response, grant, wire_sha, deadline)
-        observe(config, request, response)
+        observe(kind, config, request, response)
         record(kind, config, request, verified)
 
       {:error, _} ->
-        CoreClient.request(config.runtime, :observe, observation(request, "unknown"), 1_000)
+        CoreClient.request(config.runtime, kind, :observe, observation(request, "unknown"), 1_000)
         failure(kind, :unknown)
     end
   end
@@ -130,7 +127,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
 
   defp record(kind, config, request, verification) do
     with {:ok, receipt} <-
-           CoreClient.request(config.runtime, :verify, Map.put(request, "verification", verification), 1_000),
+           CoreClient.request(config.runtime, kind, :verify, Map.put(request, "verification", verification), 1_000),
          true <-
            receipt === %{"schema_version" => 1, "status" => "recorded", "dispatch_id" => request["dispatch_id"]} do
       {:ok,
@@ -230,10 +227,13 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
 
   defp object_key?(:init, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/init\.mp4\z/, key)
   defp object_key?(:media, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/media\.m4s\z/, key)
+  defp object_key?(:manifest, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/manifest\.json\z/, key)
   defp failure(:init, :unknown), do: {:error, :init_upload_unknown}
   defp failure(:media, :unknown), do: {:error, :media_upload_unknown}
+  defp failure(:manifest, :unknown), do: {:error, :manifest_upload_unknown}
   defp failure(:init, :verification), do: {:error, :init_verification_unavailable}
   defp failure(:media, :verification), do: {:error, :media_verification_unavailable}
+  defp failure(:manifest, :verification), do: {:error, :manifest_verification_unavailable}
 
   defp identity(response) do
     etag = header(response, "etag")
@@ -259,7 +259,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
   defp version_url(url, nil), do: url
   defp version_url(url, version), do: url <> "?versionId=" <> URI.encode_www_form(version)
 
-  defp observe(config, request, response) do
+  defp observe(kind, config, request, response) do
     metadata =
       Enum.reduce(
         [{"etag", "etag", 256}, {"version_id", "x-amz-version-id", 1024}, {"request_id", "x-amz-request-id", 256}],
@@ -273,7 +273,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
       )
 
     document = request |> observation("response") |> Map.put("response", metadata)
-    CoreClient.request(config.runtime, :observe, document, 1_000)
+    CoreClient.request(config.runtime, kind, :observe, document, 1_000)
   end
 
   defp observation(request, outcome),

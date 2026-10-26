@@ -37,10 +37,12 @@ defmodule ServiceRadarCoreElx.CameraStorage.Service do
 
   @impl true
   def init(config) do
+    limits = Map.new(config.purposes, fn {kind, desired} -> {kind, desired.limits["max_operation_ms"]} end)
+
     children = [
       {Task.Supervisor, name: ServiceRadarCoreElx.CameraStorage.Tasks},
       {Session, config},
-      {Router, Map.put(config.listener, :operation_ms, config.desired.limits["max_operation_ms"])}
+      {Router, Map.put(config.listener, :operation_limits, limits)}
     ]
 
     Supervisor.init(children, strategy: :one_for_all)

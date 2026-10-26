@@ -2,6 +2,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   @moduledoc false
   use GenServer
 
+  alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadarCoreElx.CameraStorage.CoreClient
   alias ServiceRadarCoreElx.CameraStorage.Tasks
   alias ServiceRadarCoreElx.CameraStorage.Upload
@@ -9,12 +10,14 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   @challenge_fields ~w(schema_version binding_id revision desired_sha256 state storage_boot_id nonce issued_at_ms expires_at_ms remaining_ms applied_revision recording_readiness archive_readiness reason)
 
   def start_link(config), do: GenServer.start_link(__MODULE__, config, name: __MODULE__)
-  def upload(lease, bytes, deadline), do: call({:upload, lease, bytes, deadline}, 12_000)
+  def reserve(:init, deadline), do: call({:reserve, :init, nil, nil, deadline}, 20_000)
 
-  def reserve_media(lease, length, deadline), do: call({:reserve_media, lease, length, deadline}, 32_000)
+  def reserve(kind, lease, length, deadline) when kind in [:media, :manifest],
+    do: call({:reserve, kind, lease, length, deadline}, 32_000)
 
-  def finish_media(token, sha), do: call({:finish_media, token, sha}, 33_000)
-  def release_media(token), do: call({:release_media, token}, 5_000)
+  def upload_init(token, lease, bytes), do: call({:upload_init, token, lease, bytes}, 12_000)
+  def finish(token, sha), do: call({:finish, token, sha}, 33_000)
+  def release(token), do: call({:release, token}, 5_000)
 
   defp call(message, timeout) do
     GenServer.call(__MODULE__, message, timeout)
@@ -26,13 +29,12 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   def init(config) do
     Process.flag(:trap_exit, true)
 
-    case staging_root(Map.get(config, :kind, :init)) do
+    case staging_root(config.purposes) do
       {:ok, scratch_root} ->
         state = %{
           config: config,
           boot: Ecto.UUID.generate(),
-          nonce: Base.encode16(:crypto.strong_rand_bytes(32), case: :lower),
-          deadline: nil,
+          windows: %{},
           task: nil,
           stage: nil,
           socket: nil,
@@ -48,21 +50,30 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
 
   @impl true
   def handle_continue(:challenge, state) do
-    desired = state.config.desired
+    windows =
+      Map.new(state.config.purposes, fn {kind, desired} ->
+        {kind, challenge(kind, desired, state.config.runtime, state.boot)}
+      end)
+
+    {:noreply, %{state | windows: windows}}
+  end
+
+  defp challenge(kind, desired, runtime, boot) do
+    nonce = Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
 
     request = %{
       "schema_version" => 1,
       "revision" => Integer.to_string(desired.revision),
       "binding_id" => desired.binding_id,
       "desired_sha256" => desired.desired_sha256,
-      "storage_boot_id" => state.boot,
-      "nonce" => state.nonce
+      "storage_boot_id" => boot,
+      "nonce" => nonce
     }
 
     started = System.monotonic_time(:millisecond)
 
     deadline =
-      with {:ok, result} <- CoreClient.request(state.config.runtime, :challenge, request, 5_000),
+      with {:ok, result} <- CoreClient.request(runtime, kind, :challenge, request, 5_000),
            true <- Enum.sort(Map.keys(result)) == Enum.sort(@challenge_fields),
            true <- Enum.all?(request, fn {key, value} -> result[key] === value end),
            true <- result["state"] in ["pending", "applied"],
@@ -72,96 +83,76 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
         _ -> nil
       end
 
-    {:noreply, %{state | deadline: deadline}}
+    %{nonce: nonce, deadline: deadline}
   end
 
   @impl true
-  def handle_call({:upload, _, _, _}, _from, %{stage: stage} = state) when not is_nil(stage),
-    do: {:reply, {:error, :storage_busy}, state}
-
-  def handle_call({:upload, _lease, _bytes, _deadline}, _from, %{task: task} = state) when not is_nil(task),
-    do: {:reply, {:error, :storage_busy}, state}
-
-  def handle_call({:upload, lease, bytes, deadline}, from, state) do
-    if Map.get(state.config, :kind, :init) == :init && state.deadline &&
-         System.monotonic_time(:millisecond) < state.deadline do
-      config = owned_config(state.config)
-
-      task =
-        Task.Supervisor.async_nolink(Tasks, fn ->
-          Upload.run(config, state.boot, state.deadline, lease, bytes, deadline)
-        end)
-
-      {:noreply, %{state | task: {task, from, :upload}}}
-    else
-      {:reply, {:error, :storage_authority_unavailable}, state}
-    end
-  end
-
-  def handle_call({:reserve_media, _, _, _}, _from, %{stage: %{cleanup_failed: true}} = state),
+  def handle_call({:reserve, _, _, _, _}, _from, %{stage: %{cleanup_failed: true}} = state),
     do: {:reply, {:error, :storage_scratch_reconciliation_required}, state}
 
-  def handle_call({:reserve_media, _, _, _}, _from, %{stage: stage} = state) when not is_nil(stage),
+  def handle_call({:reserve, _, _, _, _}, _from, %{stage: stage} = state) when not is_nil(stage),
     do: {:reply, {:error, :storage_busy}, state}
 
-  def handle_call({:reserve_media, _, _, _}, _from, %{task: task} = state) when not is_nil(task),
+  def handle_call({:reserve, _, _, _, _}, _from, %{task: task} = state) when not is_nil(task),
     do: {:reply, {:error, :storage_busy}, state}
 
-  def handle_call({:reserve_media, lease, length, ingress_deadline}, {owner, _} = from, state) do
-    with %{kind: :media} <- state.config,
-         true <- is_integer(length) and length in 1..state.config.desired.limits["max_media_bytes"],
-         true <- is_integer(state.deadline),
-         deadline = min(ingress_deadline, state.deadline),
-         true <- remaining(deadline) > 0,
-         {:ok, directory} <- scratch_directory(state.scratch_root) do
-      token = make_ref()
+  def handle_call({:reserve, kind, lease, length, ingress_deadline}, {owner, _} = from, state) do
+    case admit(state, kind, lease, length, ingress_deadline, owner) do
+      {:ok, stage} when kind == :init ->
+        {:reply, {:ok, Map.take(stage, [:token, :deadline])}, %{state | stage: stage}}
 
-      stage = %{
-        owner: owner,
-        monitor: Process.monitor(owner),
-        token: token,
-        directory: directory,
-        path: Path.join(directory, "media.m4s"),
-        deadline: deadline,
-        timer: Process.send_after(self(), {:stage_timeout, token, :ingress}, remaining(deadline)),
-        phase: :ingress,
-        lease: lease,
-        prepared: nil
-      }
+      {:ok, stage} ->
+        config = owned_config(state.config, kind)
 
-      config = owned_config(state.config)
+        task =
+          Task.Supervisor.async_nolink(Tasks, fn ->
+            prepare(kind, config.runtime, lease, length, stage.deadline)
+          end)
 
-      task =
-        Task.Supervisor.async_nolink(Tasks, fn ->
-          prepare_media(config.runtime, lease, length, deadline)
-        end)
+        {:noreply, %{state | stage: stage, task: {task, from, :prepare}}}
 
-      {:noreply, %{state | stage: stage, task: {task, from, :prepare}}}
-    else
-      _ -> {:reply, {:error, :storage_preparation_refused}, state}
+      {:error, _} = error ->
+        {:reply, error, state}
     end
   end
 
   def handle_call(
-        {:finish_media, token, sha},
+        {:upload_init, token, lease, bytes},
         {owner, _} = from,
-        %{stage: %{token: token, owner: owner} = stage, task: nil} = state
+        %{stage: %{kind: :init, token: token, owner: owner, phase: :ingress} = stage, task: nil} = state
       ) do
-    if stage.prepared && sha == stage.prepared["object_sha256"] && remaining(stage.deadline) > 0 do
-      Process.cancel_timer(stage.timer)
-      # Provider I/O still uses the original deadline. Only the two bounded
-      # evidence callbacks may finish afterward, including a late receipt.
-      stage = %{
-        stage
-        | phase: :evidence,
-          timer: Process.send_after(self(), {:stage_timeout, token, :evidence}, remaining(stage.deadline) + 2100)
-      }
-
-      config = owned_config(state.config)
+    if remaining(stage.deadline) > 0 do
+      stage = phase(stage, :evidence)
+      config = owned_config(state.config, :init)
 
       task =
         Task.Supervisor.async_nolink(Tasks, fn ->
-          Upload.run_media(config, state.boot, stage.lease, stage.prepared, stage.path, stage.deadline)
+          Upload.run_init(config, state.boot, lease, bytes, stage.deadline)
+        end)
+
+      {:noreply, %{state | stage: stage, task: {task, from, :upload}}}
+    else
+      {:reply, {:error, :storage_authority_unavailable}, clear_stage(state)}
+    end
+  end
+
+  def handle_call({:upload_init, _, _, _}, _from, state), do: {:reply, {:error, :storage_authority_unavailable}, state}
+
+  def handle_call(
+        {:finish, token, sha},
+        {owner, _} = from,
+        %{stage: %{kind: kind, token: token, owner: owner, phase: :ingress} = stage, task: nil} = state
+      )
+      when kind in [:media, :manifest] do
+    if stage.prepared && sha == stage.prepared["object_sha256"] && remaining(stage.deadline) > 0 do
+      # Provider I/O still uses the original deadline. Only the two bounded
+      # evidence callbacks may finish afterward, including a late receipt.
+      stage = phase(stage, :evidence)
+      config = owned_config(state.config, kind)
+
+      task =
+        Task.Supervisor.async_nolink(Tasks, fn ->
+          Upload.run_staged(kind, config, state.boot, stage.lease, stage.prepared, stage.path, stage.deadline)
         end)
 
       {:noreply, %{state | stage: stage, task: {task, from, :upload}}}
@@ -170,12 +161,12 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
     end
   end
 
-  def handle_call({:finish_media, _, _}, _from, state), do: {:reply, {:error, :storage_staging_refused}, state}
+  def handle_call({:finish, _, _}, _from, state), do: {:reply, {:error, :storage_staging_refused}, state}
 
-  def handle_call({:release_media, token}, {owner, _}, %{stage: %{token: token, owner: owner}} = state),
+  def handle_call({:release, token}, {owner, _}, %{stage: %{token: token, owner: owner}} = state),
     do: {:reply, :ok, cancel_operation(state)}
 
-  def handle_call({:release_media, _}, _from, state), do: {:reply, :ok, state}
+  def handle_call({:release, _}, _from, state), do: {:reply, :ok, state}
 
   def handle_call(
         {:http_socket_owner, task_pid, socket_pid},
@@ -247,27 +238,41 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   end
 
   defp clear_stage(%{stage: nil} = state), do: state
+  defp clear_stage(%{stage: %{cleanup_failed: true}} = state), do: state
 
   defp clear_stage(%{stage: stage} = state) do
-    Process.cancel_timer(stage.timer)
-    Process.demonitor(stage.monitor, [:flush])
+    case remove_scratch(stage) do
+      :ok ->
+        if Process.alive?(stage.owner) do
+          # Returning a result does not end the one-shot ingress process. Keep its
+          # slot until DOWN, including a suspended owner holding its response.
+          %{state | stage: phase(stage, :closing)}
+        else
+          Process.cancel_timer(stage.timer)
+          Process.demonitor(stage.monitor, [:flush])
+          %{state | stage: nil}
+        end
 
-    with :ok <- removed(File.rm(stage.path)), :ok <- removed(File.rmdir(stage.directory)) do
-      %{state | stage: nil}
-    else
-      _ -> %{state | stage: Map.put(stage, :cleanup_failed, true)}
+      _ ->
+        %{state | stage: Map.put(stage, :cleanup_failed, true)}
     end
+  end
+
+  defp remove_scratch(%{path: nil}), do: :ok
+
+  defp remove_scratch(stage) do
+    with :ok <- removed(File.rm(stage.path)), do: removed(File.rmdir(stage.directory))
   end
 
   defp removed(:ok), do: :ok
   defp removed({:error, :enoent}), do: :ok
   defp removed(error), do: error
 
-  defp owned_config(config) do
+  defp owned_config(config, kind) do
     %{
-      config
-      | runtime: Map.put(config.runtime, :socket_owner, self()),
-        provider: Map.put(config.provider, :socket_owner, self())
+      desired: Map.fetch!(config.purposes, kind),
+      runtime: Map.put(config.runtime, :socket_owner, self()),
+      provider: Map.put(config.provider, :socket_owner, self())
     }
   end
 
@@ -290,8 +295,15 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
     %{state | socket: nil}
   end
 
-  defp staging_root(:init), do: {:ok, nil}
-  defp staging_root(:media), do: create_private_directory(Path.join(System.tmp_dir!(), "vms-media-staging"))
+  defp staging_root(purposes) do
+    if Map.has_key?(purposes, :media) or Map.has_key?(purposes, :manifest) do
+      # Retain the existing exclusive root so changing installed purposes cannot
+      # bypass a previous media operation's abandoned staging budget.
+      create_private_directory(Path.join(System.tmp_dir!(), "vms-media-staging"))
+    else
+      {:ok, nil}
+    end
+  end
 
   defp scratch_directory(root), do: create_private_directory(Path.join(root, Ecto.UUID.generate()))
 
@@ -308,10 +320,10 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
     end
   end
 
-  defp prepare_media(runtime, lease, length, deadline) do
+  defp prepare(kind, runtime, lease, length, deadline) do
     with {:ok, %{"schema_version" => 1, "dispatch_id" => id, "byte_length" => ^length, "object_sha256" => sha} = prepared}
          when map_size(prepared) == 4 <-
-           CoreClient.request(runtime, :prepare, %{"schema_version" => 1, "lease" => lease}, remaining(deadline)),
+           CoreClient.request(runtime, kind, :prepare, %{"schema_version" => 1, "lease" => lease}, remaining(deadline)),
          {:ok, ^id} <- Ecto.UUID.cast(id),
          true <- is_binary(sha) and Regex.match?(~r/\A[0-9a-f]{64}\z/, sha),
          true <- remaining(deadline) > 0 do
@@ -319,6 +331,59 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
     else
       _ -> {:error, :storage_preparation_refused}
     end
+  end
+
+  defp admit(state, kind, lease, length, ingress_deadline, owner) do
+    with {:ok, desired} <- Map.fetch(state.config.purposes, kind),
+         %{deadline: authority_deadline} when is_integer(authority_deadline) <- Map.get(state.windows, kind),
+         true <- valid_length?(kind, length, desired),
+         deadline =
+           Enum.min([
+             ingress_deadline,
+             authority_deadline,
+             System.monotonic_time(:millisecond) + desired.limits["max_operation_ms"]
+           ]),
+         true <- remaining(deadline) > 0,
+         {:ok, directory, path} <- scratch(state.scratch_root, kind) do
+      stage = %{
+        kind: kind,
+        owner: owner,
+        monitor: Process.monitor(owner),
+        token: make_ref(),
+        directory: directory,
+        path: path,
+        deadline: deadline,
+        timer: nil,
+        phase: :ingress,
+        lease: lease,
+        prepared: nil
+      }
+
+      {:ok, phase(stage, :ingress)}
+    else
+      _ -> {:error, if(kind == :init, do: :storage_authority_unavailable, else: :storage_preparation_refused)}
+    end
+  end
+
+  defp valid_length?(:init, nil, _desired), do: true
+
+  defp valid_length?(kind, length, desired),
+    do: is_integer(length) and length in 1..ArchiveAuthorityConfig.byte_limit(kind, desired.limits)
+
+  defp scratch(_root, :init), do: {:ok, nil, nil}
+
+  defp scratch(root, kind) do
+    with {:ok, directory} <- scratch_directory(root) do
+      filename = if kind == :media, do: "media.m4s", else: "manifest.json"
+      {:ok, directory, Path.join(directory, filename)}
+    end
+  end
+
+  defp phase(stage, phase) do
+    if stage.timer, do: Process.cancel_timer(stage.timer)
+    deadline = stage.deadline + if(phase == :ingress, do: 0, else: 2100)
+    timer = Process.send_after(self(), {:stage_timeout, stage.token, phase}, remaining(deadline))
+    %{stage | timer: timer, phase: phase}
   end
 
   defp remaining(deadline), do: max(0, deadline - System.monotonic_time(:millisecond))
