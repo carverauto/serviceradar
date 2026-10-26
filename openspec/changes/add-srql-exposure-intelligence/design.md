@@ -1524,19 +1524,21 @@ that a verified generation may reach `complete` while ordinary live delivery
 continues. The end marker records the operation ids of in-scope `applying`
 journals when the generation enters `finalizing`. That list is the retained-load
 fence, at most one operation per bucket. Completion waits while any fenced
-operation is still `applying`, while a repair obligation is unverified, while
-a retained snapshot effect is unsettled, or while a legacy journal remains in
-scope. A `capturing`, `applying`, or `complete` journal that appears after the
-fence is ordinary traffic and stays out of it. A deployment generation's fence
+operation is still `applying`, while a retained snapshot effect is unsettled,
+or while a legacy journal remains in scope. An unverified repair keeps the
+generation finalizing until the warehouse confirms it. A `capturing`,
+`applying`, or `complete` journal that appears after the fence is ordinary
+traffic and stays out of it. A deployment generation's fence
 and legacy check cover every bucket. A device generation covers that device's
 bucket. A missing ordinal leaves both checks empty.
 
 A `snapshot_required` row that is still present after the fence is clear is a
 confirmed missing input discovered after the end manifest. The finalizing
-generation aborts with `exposure_snapshot_required`, keeps the `history_gaps`
-it already recorded, and leaves the journal row in place. Finalization then
-queues one fresh full snapshot. The successor's start accounts for those rows
-once, on that successor. A repeated start, after the rows are gone, adds
+generation aborts with `exposure_snapshot_required`, including when assigned
+repairs are still unverified. It keeps those repair records, its cursor, and
+the `history_gaps` it already recorded, and leaves the journal row in place.
+Finalization then queues one fresh full snapshot. The successor's start accounts
+for those rows once, on that successor. A repeated start, after the rows are gone, adds
 nothing. `history_gaps` belongs to the generation that records it. The
 successor's count is the gaps it discovered on its own start, and the aborted
 generation keeps the count it had. Legacy uncertainty keeps the generation
