@@ -69,6 +69,20 @@ tlc_test(
     ],
 )
 
+# A MAC a sole-source retirement released is registered by another live record.
+tlc_test(
+    name = "lifecycle_vacuity_sole_release_mac_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_sole_release_mac.cfg",
+    expect = "violation:NeverClaimsReleasedMac",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
 tlc_test(
     name = "lifecycle_vacuity_reactivate_test",
     size = "medium",
@@ -134,8 +148,9 @@ tlc_test(
     ],
 )
 
-# Retirement with one of the two identifiers a MAC: the MAC never retires, stays with the
-# record when the record is marked, and neither withholds nor clears the mark.
+# Retirement with one of the two identifiers a MAC: the collection-scoped pass never retires
+# the MAC, which stays with the record when it is marked and neither withholds nor clears the
+# mark; only a sole-source retirement (RetireSole) archives it.
 tlc_test(
     name = "lifecycle_goal_retirement_mac_test",
     size = "medium",

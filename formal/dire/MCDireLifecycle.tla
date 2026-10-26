@@ -14,6 +14,12 @@ NeverGraceDeletes == [][act'.name # "GraceDelete"]_vars
 \* mark (lifecycle_vacuity_grace_delete_mac).
 NeverGraceDeletesMacHolder ==
     [][~(act'.name = "GraceDelete" /\ \E i \in MacIds : owner[i] = act'.u)]_vars
+\* Vacuity: a MAC a sole-source retirement released is registered by another live record, the
+\* reason RetireSole releases it (lifecycle_vacuity_sole_release_mac).
+NeverClaimsReleasedMac ==
+    [][~\E i \in MacIds :
+          /\ arch[i] # {} /\ owner[i] = NoDev
+          /\ owner'[i] # NoDev /\ owner'[i] \notin arch[i]]_vars
 \* Vacuity: a returning retired id restores a grace-deleted record, the path
 \* RetiredTombstoneStaysDeleted allows (lifecycle_vacuity_reactivate).
 NeverReactivatesRetired ==
