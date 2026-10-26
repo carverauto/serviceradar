@@ -8,11 +8,14 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.ArchiveUploadIntent
+  alias ServiceRadar.Camera.ArchiveUploads
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
+  alias ServiceRadarCoreElx.CameraRecording.ArchivePublication
   alias ServiceRadarCoreElx.CameraRecording.MediaUpload
   alias ServiceRadarCoreElx.CameraRecording.Spool
   alias ServiceRadarCoreElx.CameraRecording.Storage
@@ -33,7 +36,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   @account_token "synthetic-joined-account-administration-token"
   @recorder_token "synthetic-joined-recorder-to-storage-token"
 
-  setup %{tmp_dir: directory} do
+  setup %{tmp_dir: directory} = test do
     {:ok, _} = Application.ensure_all_started(:ssl)
     installation = ArchiveStorageHTTP.installation(directory)
     origin = %{deployment_ref: installation.document["deployment_ref"], generation: 1}
@@ -44,7 +47,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
       media: [token: @admin_token, deployment_ref: origin.deployment_ref, generation: "1"]
     )
 
-    Fixtures.preserve_recording_control()
+    Fixtures.preserve_recording_control(origin.deployment_ref)
     context = Fixtures.context()
 
     destination =
@@ -60,27 +63,27 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
     runtime = ArchiveStorageHTTP.start!(installation)
     certificates = certificates()
-    store = start_supervised!({Agent, fn -> %{requests: [], object: nil} end})
+    store = start_supervised!({Agent, fn -> %{requests: [], objects: %{}} end})
 
     provider_port =
       Provider.start(certificates.server_config, fn request ->
         # This independent connection must see the real committed grant before
         # provider bytes arrive. The fixture supplies no core response or grant.
-        grant =
-          ServiceRadar.Repo.query!(
-            "SELECT d.id, d.marked_at, d.media_authority_revision, d.media_verified_at " <>
-              "FROM platform.camera_archive_upload_dispatches d " <>
-              "JOIN platform.camera_archive_upload_intents i ON i.id = d.archive_upload_intent_id " <>
-              "WHERE i.recording_block_id = $1 AND i.object_role = 'media'",
-            [Ecto.UUID.dump!(block.id)]
-          ).rows
-
-        Agent.get_and_update(store, &provider(&1, Map.put(request, :grant, grant)))
+        role = request_role(request)
+        grant = committed_grant(block.id, role)
+        request = Map.merge(request, %{grant: grant, role: role})
+        Agent.get_and_update(store, &provider(&1, request))
       end)
 
     desired = desired(binding, block, destination, installation.document)
     storage_port = free_port()
-    config = storage_config(directory, runtime, certificates, desired, storage_port)
+
+    purposes =
+      if test[:publication],
+        do: Map.new([:init, :media, :manifest], &{&1, purpose_desired(desired, &1)}),
+        else: %{media: desired}
+
+    config = storage_config(directory, runtime, certificates, desired, storage_port, test[:publication])
 
     config =
       put_in(
@@ -91,13 +94,18 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     peer_directory = Path.join(directory, "isolated-storage")
     File.mkdir!(peer_directory)
     peer = start_storage_peer(config, peer_directory)
-    pending = admin(:get, origin, binding.id)
-    assert pending["state"] == "pending"
-    assert is_binary(pending["nonce"])
 
-    applied = admin(:put, origin, binding.id, %{"schema_version" => 1, "desired" => desired, "nonce" => pending["nonce"]})
-    assert applied["state"] == "applied"
-    assert applied["archive_readiness"] == "unavailable"
+    for {kind, desired} <- purposes do
+      pending = admin(:get, origin, binding.id, %{}, kind)
+      assert pending["state"] == "pending"
+      assert is_binary(pending["nonce"])
+
+      applied =
+        admin(:put, origin, binding.id, %{"schema_version" => 1, "desired" => desired, "nonce" => pending["nonce"]}, kind)
+
+      assert applied["state"] == "applied"
+      assert applied["archive_readiness"] == "unavailable"
+    end
 
     recorder = %{
       "schema_version" => 1,
@@ -113,7 +121,18 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     }
 
     System.put_env("VMS_MEDIA_UPLOAD_CONFIG", write_file(directory, "recorder.json", Jason.encode!(recorder)))
-    Map.merge(context, %{block: block, binding: binding, directory: block_directory, store: store, peer: peer})
+
+    Map.merge(context, %{
+      block: block,
+      binding: binding,
+      directory: block_directory,
+      spool: spool,
+      store: store,
+      peer: peer,
+      origin: origin,
+      storage_port: storage_port,
+      client_tls: certificates.client_config
+    })
   end
 
   test "the real recorder and isolated HTTPS service retain verified media through committed core grants", context do
@@ -179,6 +198,233 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert Agent.get(context.store, & &1.requests) == []
     assert {:ok, %{state: :sealed}} = Ash.get(RecordingBlock, context.block.id, context.opts)
     assert directory_bytes(context.directory) == before
+
+    assert {:error, :archive_reconciliation_required} = ArchivePublication.complete_once(context.block.id)
+    assert Agent.get(context.store, & &1.requests) == []
+    assert dispatch(context) == retained
+    assert directory_bytes(context.directory) == before
+  end
+
+  @tag publication: true
+  test "the production callers publish independent init and exact manifest proofs through one isolated service",
+       context do
+    before = directory_bytes(context.directory)
+    assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
+    media = dispatch(context)
+    assert {:ok, %{status: :init_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
+
+    assert {:ok, receipt} = ArchivePublication.complete_once(context.block.id)
+    assert_publication(context, receipt)
+    assert_objects(context)
+    assert dispatch(context, :media) == media
+    assert directory_bytes(context.directory) == before
+    assert {:ok, published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    remove_local_inputs(context)
+    requests = Agent.get(context.store, & &1.requests)
+    assert {:ok, ^receipt} = ArchivePublication.complete_once(context.block.id)
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert_publication(context, receipt)
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+  end
+
+  @tag publication: true
+  test "verified manifest recovery publishes after stop without recorder configuration or local spool", context do
+    assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
+    opts = [actor: SystemActor.system(:camera_archive_storage)]
+    assert {:ok, lease} = RecordingBlocks.acquire_upload(context.block.id, Ecto.UUID.generate(), 30_000, opts)
+
+    try do
+      assert_storage_upload(context, :init, lease, "i")
+      assert {:ok, %{bytes: bytes}} = ArchiveUploads.prepare_manifest(lease, opts)
+      assert bytes == expected_manifest(context)
+      assert_storage_upload(context, :manifest, lease, bytes)
+    after
+      assert {:ok, :released} = RecordingBlocks.release_upload(lease, opts)
+    end
+
+    assert_objects(context)
+
+    assert {:ok, %{status: :archive_verified, result: nil}} =
+             ArchiveUploads.publication_status(context.block.id, context.opts)
+
+    assert {:ok, block} = Ash.get(RecordingBlock, context.block.id, context.opts)
+    assert is_nil(block.archive_manifest_dispatch_id)
+    assert is_nil(block.archive_manifest_verification_sha256)
+    assert is_nil(block.archive_published_at)
+
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(
+               context.origin,
+               %{"contract_version" => 1, "revision" => "1", "admission" => "stopped"},
+               context.opts
+             )
+
+    remove_local_inputs(context)
+    requests = Agent.get(context.store, & &1.requests)
+    assert {:ok, receipt} = ArchivePublication.complete_once(context.block.id)
+    assert_publication(context, receipt)
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert {:ok, %{state: :sealed, upload_epoch: epoch}} = Ash.get(RecordingBlock, context.block.id, context.opts)
+    assert epoch > lease.upload_epoch
+  end
+
+  defp assert_publication(context, receipt) do
+    manifest = dispatch(context, :manifest)
+    assert {:ok, block} = Ash.get(RecordingBlock, context.block.id, context.opts)
+    assert block.state == :sealed
+    assert block.descriptor == context.block.descriptor
+    assert block.archive_manifest_dispatch_id == manifest.id
+    assert block.archive_manifest_verification_sha256 == manifest.manifest_verification_sha256
+    assert %DateTime{} = block.archive_published_at
+
+    assert receipt == %{
+             "schema_version" => 1,
+             "status" => "archive_published",
+             "block_id" => context.block.id,
+             "manifest_dispatch_id" => manifest.id,
+             "manifest_verification_sha256" => manifest.manifest_verification_sha256,
+             "published_at" => DateTime.to_iso8601(block.archive_published_at),
+             "recording_readiness" => "unavailable",
+             "archive_readiness" => "unavailable"
+           }
+
+    assert {:ok, %{status: :available, result: ^receipt, roles: roles}} =
+             ArchiveUploads.publication_status(context.block.id, context.opts)
+
+    assert roles == %{init: :verified, media: :verified, manifest: :verified}
+
+    assert %{rows: [[1]]} =
+             ServiceRadar.Repo.query!(
+               "SELECT count(*) FROM platform.camera_recording_blocks WHERE id = $1 AND archive_published_at IS NOT NULL",
+               [Ecto.UUID.dump!(context.block.id)]
+             )
+
+    assert {:ok, %{capability_state: :unqualified}} = Ash.get(ArchiveBinding, context.binding.id, context.opts)
+  end
+
+  defp assert_objects(context) do
+    expected = [{:media, @bytes}, {:init, "i"}, {:manifest, expected_manifest(context)}]
+    requests = Agent.get(context.store, &Enum.reverse(&1.requests))
+    assert length(requests) == 9
+    assert Agent.get(context.store, &map_size(&1.objects)) == 3
+
+    for {{role, bytes}, [put, head, get]} <- Enum.zip(expected, Enum.chunk_every(requests, 3)) do
+      dispatch = dispatch(context, role)
+      verification = Map.fetch!(dispatch, verification_field(role))
+      {etag, version} = object_identity(role)
+
+      assert Enum.map([put, head, get], & &1.method) == ["PUT", "HEAD", "GET"]
+      assert Enum.map([put, head, get], & &1.role) == [role, role, role]
+      assert put.body == bytes
+      assert put.target == "/example-recordings/recordings/v1/#{context.block.block_key}/#{filename(role)}"
+      assert put.headers["if-none-match"] == "*"
+      assert put.headers["x-amz-server-side-encryption"] == "AES256"
+      assert put.headers["x-amz-checksum-sha256"] == Base.encode64(:crypto.hash(:sha256, bytes))
+      assert put.headers["authorization"] =~ "AWS4-HMAC-SHA256 "
+      assert [[grant_id, marked_at, 1, nil]] = put.grant
+      assert Ecto.UUID.load!(grant_id) == dispatch.id
+      assert marked_at
+      assert head.target == put.target <> "?versionId=" <> version
+      assert get.target == head.target
+      assert head.headers["if-match"] == etag
+      assert get.headers["if-match"] == etag
+      assert get.headers["range"] == "bytes=0-#{byte_size(bytes) - 1}"
+      assert verification["byte_length"] == byte_size(bytes)
+      assert verification["object_sha256"] == digest(bytes)
+      assert verification["etag"] == etag
+      assert verification["version_id"] == version
+      assert verification["encryption"] == "AES256"
+      assert is_nil(dispatch.conflict_at)
+      assert Agent.get(context.store, &Map.fetch!(&1.objects, put.target)) == bytes
+    end
+
+    init = dispatch(context, :init)
+    media = dispatch(context, :media)
+    manifest = dispatch(context, :manifest)
+    assert init.id != media.id && init.id != manifest.id && media.id != manifest.id
+    assert init.upload_epoch > media.upload_epoch
+    assert is_nil(init.media_authority_revision) && is_nil(init.media_verified_at)
+    assert is_nil(media.init_authority_revision) && is_nil(media.init_verified_at)
+
+    assert {:ok, intent} = Ash.get(ArchiveUploadIntent, manifest.archive_upload_intent_id, context.opts)
+    assert intent.init_dispatch_id == init.id
+    assert intent.init_verification_sha256 == init.init_verification_sha256
+    assert intent.media_dispatch_id == media.id
+    assert intent.media_verification_sha256 == media.media_verification_sha256
+    assert intent.object_sha256 == digest(expected_manifest(context))
+  end
+
+  defp assert_storage_upload(context, role, lease, bytes) do
+    wire_lease = %{
+      "id" => lease.id,
+      "upload_token" => lease.upload_token,
+      "upload_epoch" => Integer.to_string(lease.upload_epoch),
+      "descriptor_sha256" => lease.descriptor_sha256
+    }
+
+    {body, content_type, headers} =
+      case role do
+        :init ->
+          {Jason.encode!(%{"schema_version" => 1, "lease" => wire_lease, "init_base64" => Base.encode64(bytes)}),
+           "application/json", []}
+
+        :manifest ->
+          {bytes, "application/octet-stream", [{"x-serviceradar-upload-lease", Jason.encode!(wire_lease)}]}
+      end
+
+    assert {:ok, %{status: 200, body: receipt}} =
+             Req.request(
+               method: :post,
+               url: "https://localhost:#{context.storage_port}/v1/#{role}-uploads",
+               headers: [{"authorization", "Bearer " <> @recorder_token}, {"content-type", content_type}] ++ headers,
+               body: body,
+               retry: false,
+               receive_timeout: 30_000,
+               connect_options: [
+                 transport_opts: context.client_tls ++ [verify: :verify_peer, server_name_indication: ~c"localhost"]
+               ]
+             )
+
+    assert receipt == %{
+             "schema_version" => 1,
+             "status" => "#{role}_verified",
+             "dispatch_id" => dispatch(context, role).id,
+             "recording_readiness" => "unavailable",
+             "archive_readiness" => "unavailable"
+           }
+  end
+
+  defp remove_local_inputs(context) do
+    File.rm!(System.fetch_env!("VMS_MEDIA_UPLOAD_CONFIG"))
+    System.delete_env("VMS_MEDIA_UPLOAD_CONFIG")
+    Application.delete_env(:serviceradar_core_elx, :camera_recording_storage_id)
+    File.rm_rf!(context.spool)
+    refute File.exists?(context.spool)
+  end
+
+  # Literal canonical v1 order and invented byte identities are independent of
+  # the production manifest encoder used by both preparation and publication.
+  defp expected_manifest(context) do
+    identity = RecordingBlock.identity(context.block)
+    prefix = "recordings/v1/#{context.block.block_key}/"
+
+    IO.iodata_to_binary([
+      ~s({"format":{"codec":"avc1.42c00a","timescale":90000},"fragments":[{"duration_ns":1000000000,"length":),
+      Integer.to_string(byte_size(@bytes)),
+      ~s(,"motion":"unknown","offset":0,"sequence":0,"sha256":"#{digest(@bytes)}","start_ns":0,"tail_duration_source":null}],),
+      ~s("identity":{"block_sequence":#{identity["block_sequence"]},"clock":{"clock_epoch":"synthetic-joined-clock",),
+      ~s("dts_source":"pts_no_reordering","timebase":90000,"utc_mapping":"unknown"},"profile":),
+      Jason.encode!(identity["profile"]),
+      ~s(,"recorder_epoch":#{identity["recorder_epoch"]},"source_id":),
+      Jason.encode!(identity["source_id"]),
+      ~s(},"init":{"etag":),
+      Jason.encode!(~s("joined-init-etag")),
+      ~s(,"key":"#{prefix}init.mp4","length":1,"sha256":"#{digest("i")}","version_id":"joined-init-version-1"},),
+      ~s("media":{"etag":),
+      Jason.encode!(~s("joined-media-etag")),
+      ~s(,"key":"#{prefix}media.m4s","length":#{byte_size(@bytes)},"sha256":"#{digest(@bytes)}","version_id":"joined-version-1"},"version":1})
+    ])
   end
 
   defp start_storage_peer(config, directory) do
@@ -304,7 +550,21 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     }
   end
 
-  defp storage_config(directory, runtime, certificates, desired, port) do
+  defp purpose_desired(desired, :media), do: desired
+
+  defp purpose_desired(desired, role) do
+    {limit, bytes, milliseconds} =
+      case role do
+        :init -> {"max_init_bytes", 1_048_576, 5_000}
+        :manifest -> {"max_manifest_bytes", 2_097_152, 30_000}
+      end
+
+    desired
+    |> Map.put("operation", "#{role}_put_verified_v1")
+    |> Map.put("limits", %{limit => bytes, "max_operation_ms" => milliseconds, "max_in_flight" => 1})
+  end
+
+  defp storage_config(directory, runtime, certificates, desired, port, publication?) do
     runtime_tls = tls_files(directory, "runtime-client", runtime.client)
     listener_tls = tls_files(directory, "storage-server", certificates.server_config)
 
@@ -333,6 +593,16 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
           "token_file" => write_file(directory, "runtime-token", runtime.token)
         })
     }
+
+    document =
+      if publication? do
+        document
+        |> Map.put("schema_version", 2)
+        |> Map.delete("desired")
+        |> Map.put("purposes", Map.new([:init, :media, :manifest], &{Atom.to_string(&1), purpose_desired(desired, &1)}))
+      else
+        document
+      end
 
     assert {:ok, config} = Config.load(write_file(directory, "storage.json", Jason.encode!(document)))
     config
@@ -366,25 +636,68 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
   defp provider(state, request) do
     state = %{state | requests: [request | state.requests]}
+    path = URI.parse(request.target).path
+    {etag, version} = object_identity(request.role)
 
     headers = %{
-      "etag" => ~s("joined-media-etag"),
-      "x-amz-version-id" => "joined-version-1",
+      "etag" => etag,
+      "x-amz-version-id" => version,
       "x-amz-server-side-encryption" => "AES256"
     }
 
     case request.method do
       "PUT" ->
-        {{200, headers, ""}, %{state | object: request.body}}
+        if request.headers["if-none-match"] == "*" and not Map.has_key?(state.objects, path) and
+             map_size(state.objects) < 3 do
+          {{200, headers, ""}, %{state | objects: Map.put(state.objects, path, request.body)}}
+        else
+          {{412, %{}, ""}, state}
+        end
 
       "HEAD" ->
-        {{200, Map.put(headers, "content-length", Integer.to_string(byte_size(state.object))), ""}, state}
+        object = Map.fetch!(state.objects, path)
+        {{200, Map.put(headers, "content-length", Integer.to_string(byte_size(object))), ""}, state}
 
       "GET" ->
-        {{206, Map.put(headers, "content-range", "bytes 0-#{byte_size(state.object) - 1}/#{byte_size(state.object)}"),
-          state.object}, state}
+        object = Map.fetch!(state.objects, path)
+        {{206, Map.put(headers, "content-range", "bytes 0-#{byte_size(object) - 1}/#{byte_size(object)}"), object}, state}
     end
   end
+
+  defp committed_grant(block_id, role) do
+    {authority, verified} =
+      case role do
+        :init -> {"init_authority_revision", "init_verified_at"}
+        :media -> {"media_authority_revision", "media_verified_at"}
+        :manifest -> {"manifest_authority_revision", "manifest_verified_at"}
+      end
+
+    ServiceRadar.Repo.query!(
+      "SELECT d.id, d.marked_at, d.#{authority}, d.#{verified} " <>
+        "FROM platform.camera_archive_upload_dispatches d " <>
+        "JOIN platform.camera_archive_upload_intents i ON i.id = d.archive_upload_intent_id " <>
+        "WHERE i.recording_block_id = $1 AND i.object_role = $2",
+      [Ecto.UUID.dump!(block_id), Atom.to_string(role)]
+    ).rows
+  end
+
+  defp request_role(request) do
+    case Path.basename(URI.parse(request.target).path) do
+      "init.mp4" -> :init
+      "media.m4s" -> :media
+      "manifest.json" -> :manifest
+    end
+  end
+
+  defp object_identity(:init), do: {~s("joined-init-etag"), "joined-init-version-1"}
+  defp object_identity(:media), do: {~s("joined-media-etag"), "joined-version-1"}
+  defp object_identity(:manifest), do: {~s("joined-manifest-etag"), "joined-manifest-version-1"}
+  defp verification_field(:init), do: :init_verification
+  defp verification_field(:media), do: :media_verification
+  defp verification_field(:manifest), do: :manifest_verification
+  defp filename(:init), do: "init.mp4"
+  defp filename(:media), do: "media.m4s"
+  defp filename(:manifest), do: "manifest.json"
 
   defp dispatch(context) do
     [intent] = ArchiveUploadIntent |> Ash.Query.filter(recording_block_id == ^context.block.id) |> Ash.read!(context.opts)
@@ -396,10 +709,22 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     dispatch
   end
 
-  defp admin(method, origin, id, body \\ %{}) do
+  defp dispatch(context, role) do
+    [intent] =
+      ArchiveUploadIntent
+      |> Ash.Query.filter(recording_block_id == ^context.block.id and object_role == ^role)
+      |> Ash.read!(context.opts)
+
+    [dispatch] =
+      ArchiveUploadDispatch |> Ash.Query.filter(archive_upload_intent_id == ^intent.id) |> Ash.read!(context.opts)
+
+    dispatch
+  end
+
+  defp admin(method, origin, id, body, kind) do
     response =
       method
-      |> conn("/v1/media/media-authorities/" <> id, Jason.encode!(body))
+      |> conn("/v1/media/#{kind}-authorities/" <> id, Jason.encode!(body))
       |> put_req_header("content-type", "application/json")
       |> put_req_header("x-serviceradar-control-plane-authorization", "Bearer " <> @admin_token)
       |> put_req_header("x-serviceradar-deployment-ref", origin.deployment_ref)
@@ -416,11 +741,34 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
     %{rows: dispatches} =
       ServiceRadar.Repo.query!(
-        "DELETE FROM platform.camera_archive_upload_dispatches WHERE archive_upload_intent_id IN " <>
+        "SELECT id FROM platform.camera_archive_upload_dispatches WHERE archive_upload_intent_id IN " <>
           "(SELECT i.id FROM platform.camera_archive_upload_intents i JOIN platform.camera_recording_blocks b " <>
-          "ON b.id = i.recording_block_id WHERE b.camera_source_id = $1) RETURNING id",
+          "ON b.id = i.recording_block_id WHERE b.camera_source_id = $1)",
         [source]
       )
+
+    ServiceRadar.Repo.query!(
+      "UPDATE platform.camera_recording_blocks SET archive_manifest_dispatch_id = NULL, " <>
+        "archive_manifest_verification_sha256 = NULL, archive_published_at = NULL WHERE camera_source_id = $1",
+      [source]
+    )
+
+    ServiceRadar.Repo.query!(
+      "DELETE FROM platform.camera_archive_upload_dispatches WHERE archive_upload_intent_id IN " <>
+        "(SELECT i.id FROM platform.camera_archive_upload_intents i JOIN platform.camera_recording_blocks b " <>
+        "ON b.id = i.recording_block_id WHERE b.camera_source_id = $1 AND i.object_role = 'manifest')",
+      [source]
+    )
+
+    ServiceRadar.Repo.query!(
+      "DELETE FROM platform.camera_archive_upload_intents WHERE object_role = 'manifest' AND recording_block_id IN " <>
+        "(SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1)",
+      [source]
+    )
+
+    ServiceRadar.Repo.query!("DELETE FROM platform.camera_archive_upload_dispatches WHERE id = ANY($1::uuid[])", [
+      List.flatten(dispatches)
+    ])
 
     ServiceRadar.Repo.query!(
       "DELETE FROM platform.camera_archive_upload_intents WHERE recording_block_id IN (SELECT id FROM platform.camera_recording_blocks WHERE camera_source_id = $1)",
@@ -433,14 +781,24 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
       binding
     ])
 
+    ServiceRadar.Repo.query!("DELETE FROM platform.camera_archive_init_authorities WHERE archive_binding_id = $1", [
+      binding
+    ])
+
+    ServiceRadar.Repo.query!("DELETE FROM platform.camera_archive_manifest_authorities WHERE archive_binding_id = $1", [
+      binding
+    ])
+
     ServiceRadar.Repo.query!("DELETE FROM platform.camera_archive_bindings WHERE id = $1", [binding])
 
-    assert %{rows: [[0, 0, 0, 0, 0]]} =
+    assert %{rows: [[0, 0, 0, 0, 0, 0, 0]]} =
              ServiceRadar.Repo.query!(
                "SELECT (SELECT count(*) FROM platform.camera_archive_upload_dispatches WHERE id = ANY($1::uuid[])), " <>
                  "(SELECT count(*) FROM platform.camera_archive_upload_intents WHERE archive_binding_id = $2), " <>
                  "(SELECT count(*) FROM platform.camera_recording_blocks WHERE camera_source_id = $3), " <>
                  "(SELECT count(*) FROM platform.camera_archive_media_authorities WHERE archive_binding_id = $2), " <>
+                 "(SELECT count(*) FROM platform.camera_archive_init_authorities WHERE archive_binding_id = $2), " <>
+                 "(SELECT count(*) FROM platform.camera_archive_manifest_authorities WHERE archive_binding_id = $2), " <>
                  "(SELECT count(*) FROM platform.camera_archive_bindings WHERE id = $2)",
                [List.flatten(dispatches), binding, source]
              )
