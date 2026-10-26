@@ -696,9 +696,22 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     restart = finalizing_generation!(nil)
 
+    repair = %{
+      "kind" => "fact",
+      "key" => [ordinal, 20_240_000_040, 40],
+      "observed" => 40,
+      "required" => 41,
+      "expected" => "unverified-repair"
+    }
+
     {:ok, :ok} =
       ExposureSnapshotState.change(restart, fn current ->
-        {:ok, Map.put(current, "history_gaps", 2), :ok}
+        next =
+          current
+          |> Map.put("history_gaps", 2)
+          |> Map.put("repairs", [repair])
+
+        {:ok, next, :ok}
       end)
 
     Repo.query!(
@@ -722,11 +735,13 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert aborted["status"] == "aborted"
     assert aborted["abort_reason"] == "exposure_snapshot_required"
     assert aborted["history_gaps"] == 2
+    assert aborted["repairs"] == [repair]
+    assert aborted["cursor"] == [0, 0, 0]
     assert [["snapshot_required"]] = journal_phases!([gap])
 
     assert {:error, :exposure_snapshot_incomplete} = ExposureSnapshotFinalizer.step(restart)
 
-    assert {:ok, %{"history_gaps" => 2, "status" => "aborted"}} =
+    assert {:ok, %{"history_gaps" => 2, "status" => "aborted", "repairs" => [^repair]}} =
              ExposureSnapshotState.get(restart)
 
     assert Enum.any?(

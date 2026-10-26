@@ -11,10 +11,16 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
     with {:ok, generation} <- State.get(id),
          true <- generation["status"] == "finalizing",
          true <- generation["receipts"] == generation["manifest"] and generation["pending"] == %{} do
-      if generation["repairs"] == [] do
-        scan(generation)
-      else
-        settle(generation)
+      case custody(generation) do
+        :gap ->
+          abort_for_gap(id)
+
+        _ ->
+          if generation["repairs"] == [] do
+            scan(generation)
+          else
+            settle(generation)
+          end
       end
     else
       false -> {:error, :exposure_snapshot_incomplete}
@@ -100,49 +106,74 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
   end
 
   defp complete(generation) do
-    case State.change(generation["id"], fn current ->
-           if current["status"] == "finalizing" and current["cursor"] == generation["cursor"] and
-                current["repairs"] == [] and current["pending"] == %{} do
-             gate(current)
-           else
-             {:error, :exposure_snapshot_finalization_pending}
-           end
-         end) do
-      {:ok, :ok} ->
-        :ok
+    generation["id"]
+    |> State.change(fn current ->
+      decision = custody(current)
 
-      {:ok, :gap} ->
-        queue_full_generation()
-        {:error, :exposure_snapshot_input_missing}
+      cond do
+        current["status"] != "finalizing" or current["cursor"] != generation["cursor"] or
+          current["repairs"] != [] or current["pending"] != %{} ->
+          {:error, :exposure_snapshot_finalization_pending}
 
-      error ->
-        error
-    end
+        decision == :gap ->
+          {:ok, abort(current), :gap}
+
+        decision == :clear ->
+          {:ok, Map.put(current, "status", "complete"), :ok}
+
+        true ->
+          {:error, :exposure_snapshot_finalization_pending}
+      end
+    end)
+    |> finish()
   end
 
-  defp gate(current) do
+  defp abort_for_gap(id) do
+    id
+    |> State.change(fn current ->
+      if current["status"] == "finalizing" and current["pending"] == %{} and
+           custody(current) == :gap do
+        {:ok, abort(current), :gap}
+      else
+        {:error, :exposure_snapshot_finalization_pending}
+      end
+    end)
+    |> finish()
+  end
+
+  defp finish({:ok, :ok}), do: :ok
+
+  defp finish({:ok, :gap}) do
+    queue_full_generation()
+    {:error, :exposure_snapshot_input_missing}
+  end
+
+  defp finish(error), do: error
+
+  defp abort(current) do
+    current
+    |> Map.put("status", "aborted")
+    |> Map.put("abort_reason", "exposure_snapshot_required")
+  end
+
+  defp custody(current) do
     case device_bucket(current["scope"]) do
       :absent ->
-        {:ok, Map.put(current, "status", "complete"), :ok}
+        :clear
 
       bucket ->
         cond do
           phase?(bucket, "legacy") ->
-            {:error, :exposure_snapshot_finalization_pending}
+            :blocked
 
           fenced_applying?(bucket, Map.get(current, "retained_operations", [])) ->
-            {:error, :exposure_snapshot_finalization_pending}
+            :blocked
 
           phase?(bucket, "snapshot_required") ->
-            next =
-              current
-              |> Map.put("status", "aborted")
-              |> Map.put("abort_reason", "exposure_snapshot_required")
-
-            {:ok, next, :gap}
+            :gap
 
           true ->
-            {:ok, Map.put(current, "status", "complete"), :ok}
+            :clear
         end
     end
   end
