@@ -6,6 +6,9 @@
 - [x] 1.2 Bump Helm `core.migrations.expectedVersion`.
 - [x] 1.3 DB test: two rules coexist; the same rule under another suffix and
       two shared-key rows are refused by the index.
+- [x] 1.4 Serialize enabling writes per (partition, agent, plugin) with
+      `pg_advisory_xact_lock` and repeat the duplicate check under it; DB test
+      with two concurrent writers.
 
 ## 2. Reconciler
 

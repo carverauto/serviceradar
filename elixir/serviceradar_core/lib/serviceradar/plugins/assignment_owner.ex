@@ -25,7 +25,10 @@ defmodule ServiceRadar.Plugins.AssignmentOwner do
   owner, so it refuses two enabled rows of one rule, and two enabled manual or
   non-rule policy rows. A unique index cannot express the remaining pairing, a
   manual or non-rule policy row next to a rule-owned row, so only
-  `NoDuplicateEnabledAssignment` refuses that one.
+  `NoDuplicateEnabledAssignment` refuses that one. Its check is repeated under
+  a per-(partition, agent, plugin) transaction lock by
+  `ServiceRadar.Plugins.Changes.SerializeEnabledAssignment`, so two concurrent
+  writes cannot both pass it.
   """
 
   @rule_prefix "network-credential-rule:"
