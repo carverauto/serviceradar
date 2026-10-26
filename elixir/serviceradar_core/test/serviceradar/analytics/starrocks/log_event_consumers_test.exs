@@ -166,10 +166,10 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
         String.contains?(sql, "information_schema.materialized_views") ->
           {:ok, %{rows: [["true", "SUCCESS", 15]]}}
 
-        sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
+        String.starts_with?(sql, "SELECT MAX(`bucket`) FROM serviceradar.events_hourly WHERE ") ->
           {:ok, %{rows: [["1999-06-15 23:00:00"]], num_rows: 1}}
 
-        sql == "SELECT MAX(`time`) FROM serviceradar.events" ->
+        String.starts_with?(sql, "SELECT MAX(`time`) FROM serviceradar.events WHERE ") ->
           {:ok, %{rows: [["1999-06-15 23:30:00"]], num_rows: 1}}
 
         sql =~ "SUM(total_count)" ->
@@ -238,10 +238,10 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
           String.contains?(sql, "information_schema.materialized_views") ->
             {:ok, %{rows: [["true", "SUCCESS", 15]]}}
 
-          sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
+          String.starts_with?(sql, "SELECT MAX(`bucket`) FROM serviceradar.events_hourly WHERE ") ->
             {:ok, %{rows: [[mv_max]], num_rows: 1}}
 
-          sql == "SELECT MAX(`time`) FROM serviceradar.events" ->
+          String.starts_with?(sql, "SELECT MAX(`time`) FROM serviceradar.events WHERE ") ->
             {:ok, %{rows: [[~N[1999-06-15 12:00:00]]], num_rows: 1}}
 
           true ->
@@ -291,10 +291,10 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
         String.contains?(sql, "information_schema.materialized_views") ->
           {:ok, %{rows: [["true", "SUCCESS", 15]]}}
 
-        sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
+        String.starts_with?(sql, "SELECT MAX(`bucket`) FROM serviceradar.events_hourly WHERE ") ->
           {:ok, %{rows: [[~N[1999-06-14 00:00:00]]], num_rows: 1}}
 
-        sql == "SELECT MAX(`time`) FROM serviceradar.events" ->
+        String.starts_with?(sql, "SELECT MAX(`time`) FROM serviceradar.events WHERE ") ->
           {:ok, %{rows: [[~N[1999-06-15 12:00:00]]], num_rows: 1}}
 
         true ->
@@ -325,10 +325,10 @@ defmodule ServiceRadar.Analytics.StarRocks.LogEventConsumersTest do
         String.contains?(sql, "information_schema.materialized_views") ->
           {:ok, %{rows: [["true", "SUCCESS", 15]]}}
 
-        sql == "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
+        String.starts_with?(sql, "SELECT MAX(`bucket`) FROM serviceradar.events_hourly WHERE ") ->
           {:ok, %{rows: [[~N[1999-06-15 03:00:00]]], num_rows: 1}}
 
-        sql == "SELECT MAX(`time`) FROM serviceradar.events" ->
+        String.starts_with?(sql, "SELECT MAX(`time`) FROM serviceradar.events WHERE ") ->
           {:ok, %{rows: [[~N[1999-06-15 03:40:00]]], num_rows: 1}}
 
         true ->

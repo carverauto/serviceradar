@@ -152,10 +152,10 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.EventWindowStarRocksTest do
       "SELECT IS_ACTIVE," <> _ ->
         {:ok, %{rows: [["true", "SUCCESS", 15]]}}
 
-      "SELECT MAX(`bucket`) FROM serviceradar.events_hourly" ->
+      "SELECT MAX(`bucket`) FROM serviceradar.events_hourly WHERE " <> _ ->
         {:ok, %{rows: [[mv_max]], num_rows: 1}}
 
-      "SELECT MAX(`time`) FROM serviceradar.events" ->
+      "SELECT MAX(`time`) FROM serviceradar.events WHERE " <> _ ->
         {:ok, %{rows: [[raw_max]], num_rows: 1}}
 
       sql ->

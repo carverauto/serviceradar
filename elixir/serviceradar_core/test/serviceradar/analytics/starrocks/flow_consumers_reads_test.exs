@@ -31,10 +31,10 @@ defmodule ServiceRadar.Analytics.StarRocks.FlowConsumersReadsTest do
     parent = self()
 
     fn
-      "SELECT MAX(`time`) FROM serviceradar.ocsf_network_activity" ->
+      "SELECT MAX(`time`) FROM serviceradar.ocsf_network_activity WHERE " <> _ ->
         mark(raw_max)
 
-      "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly" ->
+      "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly WHERE " <> _ ->
         mark(mv_max)
 
       "SELECT IS_ACTIVE," <> _ ->

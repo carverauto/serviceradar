@@ -47,13 +47,13 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.MtrWarehouseRoutingTest do
     test = self()
 
     fn
-      "SELECT MAX(`time`) FROM serviceradar.mtr_traces" ->
+      "SELECT MAX(`time`) FROM serviceradar.mtr_traces WHERE " <> _ ->
         mark(raw_max)
 
       "SELECT IS_ACTIVE," <> _ ->
         {:ok, %{rows: [["true", "SUCCESS", 15]]}}
 
-      "SELECT MAX(`bucket`) FROM serviceradar.mtr_destination_hourly" ->
+      "SELECT MAX(`bucket`) FROM serviceradar.mtr_destination_hourly WHERE " <> _ ->
         mark(mv_max)
 
       sql ->

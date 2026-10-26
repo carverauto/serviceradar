@@ -60,11 +60,13 @@ A whole-hour bucket is answered at the hour grain. Requested windows are not hou
 - **AND** profiling exposes the chosen source and latency for acceptance
 
 #### Scenario: A materialized view has fallen behind its source
-- **WHEN** an hourly view's newest bucket trails the newest row of the table it aggregates by more than the configured tolerance
+- **WHEN** an hourly view's newest bucket trails the newest source row inside the freshness lookback by more than the configured tolerance
 - **THEN** the query is served from the StarRocks raw table instead, never from CNPG
 - **AND** the fallback scores the same whole hours the view would have, so the gate cannot change a bucket's value
 - **AND** a view that is level with an idle source table is still read, because freshness is the view's lag behind that source rather than its age against the wall clock
-- **AND** any probe error, empty result or unreadable high-water mark is treated as stale
+- **AND** a source with no rows inside the freshness lookback is read from the view, the same as a source table that holds no rows
+- **AND** a source row inside the lookback with no view row inside it is treated as stale
+- **AND** any probe error or unreadable high-water mark is treated as stale
 
 #### Scenario: Approximation is requested
 - **WHEN** an explicitly supported approximate analytical operation is selected
