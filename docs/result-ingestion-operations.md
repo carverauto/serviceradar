@@ -32,14 +32,16 @@ row itself, in one statement before it replies, because the killed worker's
 transaction rolls back. After three consecutive timeouts (configurable with the
 `:plugin_result_quarantine_max_timeouts` application setting) the row becomes
 `quarantined`; the next redelivery is acknowledged without running handlers,
-so the agent drops it. An acknowledged result deletes its row.
+so the agent drops it. That acknowledgement leaves the quarantined row, so it
+can be listed and retried. A success, or a committed handler-domain failure,
+deletes the row.
 
 Admission timeouts do not count. They mean the lane could not start the result,
 which says the lane is congested, not that this result is too expensive.
 
-An empty table therefore means no retained result has timed out since its last
-acknowledgement. To tell that apart from a store that cannot be written, read
-the `retained_plugin_result` lane counters `result_ingestion_events_attempt_recorded`,
+An empty table therefore means no retained result is pending or quarantined.
+To tell that apart from a store that cannot be written, read the
+`retained_plugin_result` lane counters `result_ingestion_events_attempt_recorded`,
 `_quarantined`, `_quarantine_acknowledged` and `_attempt_store_failed`. A store
 failure is also logged, and the lane then fails open: it ingests or retries the
 result as if nothing had been counted. `ServiceRadar.Observability.PluginResultQuarantine`

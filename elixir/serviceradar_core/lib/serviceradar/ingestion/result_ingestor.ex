@@ -28,24 +28,37 @@ defmodule ServiceRadar.Ingestion.ResultIngestor do
         :ok
 
       prior ->
-        case handle_plugin_results(status) do
-          :ok ->
-            clear_attempts(attempt, prior)
-
-          # PluginResultIngestor returns the handler-domain error after it has
-          # durably committed the corresponding failure marker. Retained delivery
-          # may therefore acknowledge this terminal outcome, while persistence
-          # failures below remain retryable.
-          {:error, {:plugin_result_handlers_failed, _errors}} ->
-            clear_attempts(attempt, prior)
-
-          result ->
-            result
-        end
+        conclude_retained_plugin(status, attempt, prior)
     end
   end
 
-  defp clear_attempts(attempt, :attempted), do: PluginResultQuarantine.clear(attempt)
+  @doc false
+  @spec reingest_quarantined_plugin(map()) :: :ok | {:error, term()}
+  def reingest_quarantined_plugin(status) when is_map(status) do
+    attempt = PluginResultQuarantine.identity(status)
+    conclude_retained_plugin(status, attempt, :quarantined)
+  end
+
+  defp conclude_retained_plugin(status, attempt, prior) do
+    case handle_plugin_results(status) do
+      :ok ->
+        clear_attempts(attempt, prior)
+
+      # PluginResultIngestor returns the handler-domain error after it has
+      # durably committed the corresponding failure marker. Retained delivery
+      # may therefore acknowledge this terminal outcome, while persistence
+      # failures below remain retryable.
+      {:error, {:plugin_result_handlers_failed, _errors}} ->
+        clear_attempts(attempt, prior)
+
+      result ->
+        result
+    end
+  end
+
+  defp clear_attempts(attempt, prior) when prior in [:attempted, :quarantined],
+    do: PluginResultQuarantine.clear(attempt)
+
   defp clear_attempts(_attempt, :none), do: :ok
 
   def process_and_publish(status, opts \\ []) do

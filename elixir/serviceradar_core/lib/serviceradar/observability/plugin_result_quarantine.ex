@@ -15,8 +15,9 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     `max_consecutive_timeouts/0` the row becomes `"quarantined"`.
   - The worker calls `lookup/1` before running handlers. A quarantined result is
     acknowledged without running them, so the agent drops it and its retained
-    queue drains.
-  - `clear/1` deletes the row once the result is acknowledged.
+    queue drains. That acknowledgement leaves the row in place.
+  - `clear/1` deletes the row after a success or a committed handler-domain
+    failure. The quarantine acknowledgement does not.
 
   Only execution timeouts count. An admission timeout means the lane could not
   start the result at all; it says the lane is congested, not that this result is
@@ -25,9 +26,8 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
 
   Every outcome is counted on the `:retained_plugin_result` ingestion lane
   (`result_ingestion_events_attempt_recorded`, `_quarantined`,
-  `_quarantine_acknowledged` and `_attempt_store_failed`) and emitted as
-  `[:serviceradar, :plugin_result_quarantine, event]` telemetry. A store failure
-  is logged and fails open: the result is ingested, or redelivered, as if no
+  `_quarantine_acknowledged` and `_attempt_store_failed`). A store failure is
+  logged and fails open: the result is ingested, or redelivered, as if no
   attempt had been recorded.
   """
 
@@ -194,8 +194,11 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   end
 
   @doc """
-  Operator retry of a quarantined result: resets its consecutive timeout count
-  and re-runs retained ingestion from the stored status.
+  Operator retry of a quarantined result from its stored status.
+
+  Handlers run while the row is still quarantined. A success or a committed
+  handler-domain failure deletes the row. Any other result leaves it
+  quarantined, and an exception does too, so the retry can be repeated.
   """
   @spec retry_quarantined(String.t(), String.t()) :: :ok | {:error, term()}
   def retry_quarantined(agent_id, result_key)
@@ -203,18 +206,16 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     %{rows: rows} =
       Repo.query!(
         """
-        UPDATE platform.plugin_result_ingestion_attempts
-        SET state = 'active', consecutive_timeout_count = 0, quarantine_reason = NULL,
-            quarantined_at = NULL, updated_at = $3
+        SELECT retained_status
+        FROM platform.plugin_result_ingestion_attempts
         WHERE agent_id = $1 AND result_key = $2 AND state = 'quarantined'
-        RETURNING retained_status
         """,
-        [agent_id, result_key, DateTime.utc_now()]
+        [agent_id, result_key]
       )
 
     case rows do
       [[retained]] ->
-        ServiceRadar.Ingestion.ResultIngestor.process_retained_plugin(restore(retained))
+        ServiceRadar.Ingestion.ResultIngestor.reingest_quarantined_plugin(restore(retained))
 
       [] ->
         {:error, :not_found}
@@ -290,7 +291,6 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
 
   defp observe(event) do
     RuntimeMetrics.record(@lane, event, %{count: 1})
-    :telemetry.execute([:serviceradar, :plugin_result_quarantine, event], %{count: 1}, %{})
   end
 
   defp digest(status) do

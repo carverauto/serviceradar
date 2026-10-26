@@ -162,19 +162,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
          %{lane: lane} do
       test_pid = self()
       Application.put_env(:serviceradar_core, :plugin_result_quarantine_max_timeouts, 2)
-      handler_id = {__MODULE__, System.unique_integer([:positive])}
-
-      :ok =
-        :telemetry.attach(
-          handler_id,
-          [:serviceradar, :plugin_result_quarantine, :quarantined],
-          fn _event, measurements, _metadata, _config ->
-            send(test_pid, {:quarantined_signal, measurements})
-          end,
-          nil
-        )
-
-      on_exit(fn -> :telemetry.detach(handler_id) end)
 
       put_ingest_fun(fn payload, _status ->
         send(test_pid, {:ingest, payload["summary"]})
@@ -195,8 +182,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
                  attempt_rows(over_budget.agent_id)
       end
 
-      assert_receive {:quarantined_signal, %{count: 1}}
-
       assert [%{state: "quarantined", payload_bytes: payload_bytes, result_key: result_key}] =
                PluginResultQuarantine.list_quarantined(agent_id: over_budget.agent_id)
 
@@ -209,10 +194,28 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
 
       assert :ok = admit_and_await(lane, later)
       assert_receive {:ingest, "within-budget"}
-      assert [[2, 2, "quarantined", _outcome]] = attempt_rows(over_budget.agent_id)
 
-      # An operator retry re-runs ingestion from the stored status, and its
-      # success clears the row.
+      assert [[2, 2, "quarantined", "execution_timeout"]] =
+               attempt_rows(over_budget.agent_id)
+
+      # A retryable persistence error must leave the only retained copy
+      # quarantined, so a second retry still finds it.
+      put_ingest_fun(fn payload, _status ->
+        send(test_pid, {:ingest, payload["summary"]})
+        {:error, :persistence_failed}
+      end)
+
+      assert {:error, :persistence_failed} =
+               PluginResultQuarantine.retry_quarantined(over_budget.agent_id, result_key)
+
+      assert_receive {:ingest, "always-over-budget"}
+
+      assert [[2, 2, "quarantined", "execution_timeout"]] =
+               attempt_rows(over_budget.agent_id)
+
+      assert [%{state: "quarantined", result_key: ^result_key}] =
+               PluginResultQuarantine.list_quarantined(agent_id: over_budget.agent_id)
+
       put_ingest_fun(fn payload, _status ->
         send(test_pid, {:ingest, payload["summary"]})
         :ok
