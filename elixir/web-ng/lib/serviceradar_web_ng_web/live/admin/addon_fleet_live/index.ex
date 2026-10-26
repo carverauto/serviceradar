@@ -1209,6 +1209,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonFleetLive.Index do
           <div class="text-sr-muted uppercase tracking-wide">Reported version</div>
           <div class="font-mono">{@row.running_version}</div>
         </div>
+        <div :if={Map.get(@row, :scanner_producer_version)}>
+          <div class="text-sr-muted uppercase tracking-wide">Scanner producer version</div>
+          <div class="font-mono">{Map.get(@row, :scanner_producer_version)}</div>
+        </div>
       </div>
     </div>
     """

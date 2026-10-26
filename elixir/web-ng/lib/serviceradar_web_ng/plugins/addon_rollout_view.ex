@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
   turns the Ash records into names, progress, and a "what happened" sentence.
   """
 
+  alias ServiceRadarWebNG.Plugins.AddonFleet
+
   # Operator still has a decision (Resume / Cancel). Terminal Failed/Rolled back
   # attempts belong under "Show finished", not the open-jobs list.
   @attention_states [:paused, :rolling_back]
@@ -151,6 +153,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
 
     case String.trim(key) do
       "" -> nil
+      "stale_scanner_producer_version" -> AddonFleet.stale_scanner_producer_remediation()
       trimmed -> Map.get(@reason_labels, trimmed, humanize(trimmed))
     end
   end
@@ -173,112 +176,123 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
     attempted = attempted_version(row)
     current = current_version(row)
 
-    case {category, reason} do
-      {:action_required, "candidate_health_timeout"} ->
-        action(
-          "Update blocked",
-          "A canary for #{attempted} did not pass health in time. This agent is running #{current}. Cancel or resume the paused rollout.",
-          :review_rollout
-        )
+    case_result =
+      case {category, reason} do
+        {:action_required, "candidate_health_timeout"} ->
+          action(
+            "Update blocked",
+            "A canary for #{attempted} did not pass health in time. This agent is running #{current}. Cancel or resume the paused rollout.",
+            :review_rollout
+          )
 
-      {:action_required, "candidate_reported_unhealthy"} ->
-        action(
-          "Update blocked",
-          "A canary for #{attempted} reported unhealthy. This agent is running #{current}. Cancel or resume the paused rollout.",
-          :review_rollout
-        )
+        {:action_required, "candidate_reported_unhealthy"} ->
+          action(
+            "Update blocked",
+            "A canary for #{attempted} reported unhealthy. This agent is running #{current}. Cancel or resume the paused rollout.",
+            :review_rollout
+          )
 
-      {:action_required, "rollback_recovery_unverified"} ->
-        action(
-          "Update blocked",
-          "We could not confirm this agent recovered on #{current} after #{attempted} failed.",
-          :review_rollout
-        )
+        {:action_required, "rollback_recovery_unverified"} ->
+          action(
+            "Update blocked",
+            "We could not confirm this agent recovered on #{current} after #{attempted} failed.",
+            :review_rollout
+          )
 
-      {:action_required, reason} when reason in ["rollout_failed", "rollout_target_incompatible"] ->
-        action(
-          "Update blocked",
-          "The automatic update to #{attempted} did not finish. This agent is on #{current}.",
-          :review_rollout
-        )
+        {:action_required, reason} when reason in ["rollout_failed", "rollout_target_incompatible"] ->
+          action(
+            "Update blocked",
+            "The automatic update to #{attempted} did not finish. This agent is on #{current}.",
+            :review_rollout
+          )
 
-      {:action_required, "desired_package_not_approved"} ->
-        action(
-          "Package not approved",
-          "The assigned package cannot be delivered until an operator approves it.",
-          :open_package
-        )
+        {:action_required, "desired_package_not_approved"} ->
+          action(
+            "Package not approved",
+            "The assigned package cannot be delivered until an operator approves it.",
+            :open_package
+          )
 
-      {:action_required, "runtime_reported_unhealthy"} ->
-        action(
-          "Runtime unhealthy",
-          present_string(field(row, :degradation_reason)) ||
-            "This add-on reported itself unhealthy.",
-          :inspect_runtime
-        )
+        {:action_required, "runtime_reported_unhealthy"} ->
+          action(
+            "Runtime unhealthy",
+            present_string(field(row, :degradation_reason)) ||
+              "This add-on reported itself unhealthy.",
+            :inspect_runtime
+          )
 
-      {:action_required, "desired_state_not_converged"} ->
-        %{
-          title: "Not converged",
-          detail: "Assigned #{field(row, :assigned_version) || "a newer package"} but this agent is still on #{current}.",
-          action: nil,
-          action_label: nil
-        }
+        {:action_required, "desired_state_not_converged"} ->
+          %{
+            title: "Not converged",
+            detail:
+              "Assigned #{field(row, :assigned_version) || "a newer package"} but this agent is still on #{current}.",
+            action: nil,
+            action_label: nil
+          }
 
-      {:action_required, _} ->
-        action(
-          "Needs attention",
-          reason_label(reason) || "This add-on needs an operator decision.",
-          if(field(row, :rollout_id), do: :review_rollout)
-        )
+        {:action_required, "stale_scanner_producer_version"} ->
+          action(
+            "Stale scanner producer",
+            stale_producer_detail(row),
+            stale_producer_action(row)
+          )
 
-      {:updating, _} ->
-        action(
-          "Updating",
-          "A health-gated update to #{attempted} is in progress on this agent.",
-          :review_rollout
-        )
+        {:action_required, _} ->
+          action(
+            "Needs attention",
+            reason_label(reason) || "This add-on needs an operator decision.",
+            if(field(row, :rollout_id), do: :review_rollout)
+          )
 
-      {:healthy, _} ->
-        %{
-          title: "Healthy",
-          detail: "Desired version is running.",
-          action: nil,
-          action_label: nil
-        }
+        {:updating, _} ->
+          action(
+            "Updating",
+            "A health-gated update to #{attempted} is in progress on this agent.",
+            :review_rollout
+          )
 
-      {:unavailable, reason} ->
-        %{
-          title: "Unavailable",
-          detail: reason_label(reason) || "No recent runtime evidence from this agent.",
-          action: nil,
-          action_label: nil
-        }
+        {:healthy, _} ->
+          %{
+            title: "Healthy",
+            detail: "Desired version is running.",
+            action: nil,
+            action_label: nil
+          }
 
-      {:expected_inactive, _} ->
-        %{
-          title: "Expected idle",
-          detail: "This add-on is not supposed to be running right now.",
-          action: nil,
-          action_label: nil
-        }
+        {:unavailable, reason} ->
+          %{
+            title: "Unavailable",
+            detail: reason_label(reason) || "No recent runtime evidence from this agent.",
+            action: nil,
+            action_label: nil
+          }
 
-      {:observed_only, _} ->
-        %{
-          title: "Observed only",
-          detail: "Running on the agent, but nothing assigns this add-on.",
-          action: nil,
-          action_label: nil
-        }
+        {:expected_inactive, _} ->
+          %{
+            title: "Expected idle",
+            detail: "This add-on is not supposed to be running right now.",
+            action: nil,
+            action_label: nil
+          }
 
-      _other ->
-        %{
-          title: humanize(category),
-          detail: reason_label(reason) || "",
-          action: nil,
-          action_label: nil
-        }
-    end
+        {:observed_only, _} ->
+          %{
+            title: "Observed only",
+            detail: "Running on the agent, but nothing assigns this add-on.",
+            action: nil,
+            action_label: nil
+          }
+
+        _other ->
+          %{
+            title: humanize(category),
+            detail: reason_label(reason) || "",
+            action: nil,
+            action_label: nil
+          }
+      end
+
+    with_stale_producer_detail(case_result, row)
   end
 
   @spec agent_label(map() | struct() | nil, String.t() | nil) :: String.t()
@@ -513,6 +527,37 @@ defmodule ServiceRadarWebNG.Plugins.AddonRolloutView do
 
   defp current_version(row) do
     field(row, :running_version) || field(row, :assigned_version) || "the previous version"
+  end
+
+  defp stale_producer_detail(row) do
+    AddonFleet.stale_scanner_producer_remediation(field(row, :scanner_producer_version))
+  end
+
+  defp with_stale_producer_detail(%{detail: detail} = health, row) when is_binary(detail) do
+    %{health | detail: maybe_append_stale_producer_detail(detail, row)}
+  end
+
+  defp maybe_append_stale_producer_detail(detail, row) do
+    if AddonFleet.stale_scanner_producer?(row) and
+         not String.contains?(detail, "scanner_producer_version") do
+      String.trim(detail <> " " <> stale_producer_detail(row))
+    else
+      detail
+    end
+  end
+
+  defp stale_producer_action(row) do
+    cond do
+      active_or_paused_rollout?(row) -> :review_rollout
+      present_string(field(row, :package_id)) != nil -> :open_package
+      present_string(field(row, :degradation_reason)) != nil -> :inspect_runtime
+      true -> nil
+    end
+  end
+
+  defp active_or_paused_rollout?(row) do
+    present_string(field(row, :rollout_id)) != nil and
+      normalize_atom(field(row, :rollout_state)) in @active_states
   end
 
   defp package_version(%{version: version}) when is_binary(version) and version != "", do: version

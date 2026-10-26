@@ -618,13 +618,24 @@ The ServiceRadar UI classifies each effective row into exactly one operator stat
 | --- | --- |
 | Healthy / running | Fresh evidence matches the stable desired package. |
 | Updating | An active rollout is converging and remains inside its health window. |
-| Action required | Fresh evidence proves a runtime failure, desired state is invalid/incompatible, or a rollout paused/failed. |
+| Action required | A runtime failure, invalid or incompatible desired state, a paused or failed rollout, or a current ScaLibr scan whose `scanner_producer_version` is below 0.1.6. |
 | Unavailable / stale | The agent is offline or evidence is too old to prove current health. |
 | Expected inactive | A disabled config toggle or dormant ephemeral helper is behaving as designed. |
 | Observed only | No assignment owns the reported built-in or historical runtime. Healthy observed-only rows are informational. |
 
 Every non-healthy row includes a stable reason code and evidence age. Offline or
 stale evidence is never mislabeled as a current runtime failure.
+
+For `scalibr-endpoint-inventory`, metadata `scanner_producer_version` below 0.1.6
+on the current endpoint-inventory scan means that producer still computes the
+broken package-set hash. Upgrade the add-on to 0.1.9 or later. When that check
+wins, the row is **Action required** with reason code
+`stale_scanner_producer_version`, including an agent that has the scan and no
+assignment or status. That row offers **Review rollout** while its rollout is
+active or paused, and opens the package when a package is known and the rollout
+is absent or no longer active or paused. The health detail keeps the upgrade
+sentence when another state wins. Query the winning reason with
+`in:addon_fleet addon_id:scalibr-endpoint-inventory reason_code:stale_scanner_producer_version`.
 
 In **Add-on Fleet > Automatic rollouts**, use **Show finished** to reveal history
 when active rollouts are present. When none are active, history appears automatically.

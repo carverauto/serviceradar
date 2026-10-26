@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadarWebNG.Plugins.AddonFleet
+  alias ServiceRadarWebNG.Plugins.AddonRolloutView
 
   @moduletag :db_free
 
@@ -403,6 +404,114 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
                active_rollout,
                context.now
              ) == {:updating, "waiting_for_fresh_candidate_health"}
+    end
+
+    test "flags stale scalibr scanner_producer_version (< 0.1.6) as action_required with 0.1.9 upgrade guidance",
+         context do
+      scalibr_package = %{
+        context.package
+        | addon_id: "scalibr-endpoint-inventory",
+          supervision: :systemd_timer,
+          version: "0.1.8"
+      }
+
+      scalibr_status = %{context.status | state: "waiting", version: "0.1.8"}
+
+      stale_base = %{
+        addon_id: "scalibr-endpoint-inventory",
+        assigned_version: "0.1.8",
+        scanner_producer_version: "0.1.5",
+        collector?: true
+      }
+
+      assert AddonFleet.classify(
+               stale_base,
+               scalibr_package,
+               context.assignment,
+               scalibr_status,
+               context.agent,
+               nil,
+               context.now
+             ) == {:action_required, "stale_scanner_producer_version"}
+
+      assert AddonFleet.classify(
+               stale_base,
+               scalibr_package,
+               nil,
+               scalibr_status,
+               context.agent,
+               nil,
+               context.now
+             ) == {:action_required, "stale_scanner_producer_version"}
+
+      health =
+        AddonRolloutView.fleet_health(
+          Map.merge(stale_base, %{
+            category: :action_required,
+            reason_code: "stale_scanner_producer_version",
+            package_id: scalibr_package.id
+          })
+        )
+
+      assert health.title == "Stale scanner producer"
+      assert health.detail =~ "scanner_producer_version 0.1.5 (< 0.1.6)"
+      assert health.detail =~ "broken package-set hash"
+      assert health.detail =~ "upgrade the scalibr add-on to 0.1.9 or later"
+      assert health.action == :open_package
+
+      finished_rollout_health =
+        AddonRolloutView.fleet_health(
+          Map.merge(stale_base, %{
+            category: :action_required,
+            reason_code: "stale_scanner_producer_version",
+            package_id: scalibr_package.id,
+            rollout_id: "rollout-finished-1",
+            rollout_state: :completed
+          })
+        )
+
+      assert finished_rollout_health.action == :open_package
+
+      paused_rollout_health =
+        AddonRolloutView.fleet_health(
+          Map.merge(stale_base, %{
+            category: :action_required,
+            reason_code: "stale_scanner_producer_version",
+            package_id: scalibr_package.id,
+            rollout_id: "rollout-paused-1",
+            rollout_state: :paused
+          })
+        )
+
+      assert paused_rollout_health.action == :review_rollout
+
+      degraded_health =
+        AddonRolloutView.fleet_health(
+          Map.merge(stale_base, %{
+            category: :action_required,
+            reason_code: "runtime_reported_unhealthy",
+            degradation_reason: "resource limits not enforced: no systemd"
+          })
+        )
+
+      assert degraded_health.title == "Runtime unhealthy"
+      assert degraded_health.detail =~ "resource limits not enforced: no systemd"
+      assert degraded_health.detail =~ "scanner_producer_version 0.1.5 (< 0.1.6)"
+      assert degraded_health.detail =~ "upgrade the scalibr add-on to 0.1.9 or later"
+
+      fixed_base = %{stale_base | assigned_version: "0.1.9", scanner_producer_version: "0.1.6"}
+      fixed_package = %{scalibr_package | version: "0.1.9"}
+      fixed_status = %{scalibr_status | version: "0.1.9"}
+
+      assert AddonFleet.classify(
+               fixed_base,
+               fixed_package,
+               context.assignment,
+               fixed_status,
+               context.agent,
+               nil,
+               context.now
+             ) == {:healthy, "desired_runtime_healthy"}
     end
   end
 
