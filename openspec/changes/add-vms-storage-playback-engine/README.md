@@ -10,7 +10,7 @@ fixture-generation lease release. This includes all eight spool worker cases,
 two media authority cases and both joined media-upload cases. Detailed evidence
 and the accepted review decision are in [validation](validation.md#published-head-media-validation).
 
-The next product checkpoint consumes independent verified init and media
+The [archive-publication checkpoint](archive-publication.md) consumes independent verified init and media
 receipts, derives and verifies the recovery manifest, and publishes the archive
 index under current ownership. Media verification alone is not archive
 availability. Keep the existing one-shot media command; completion is a separate
@@ -81,7 +81,7 @@ runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Start with [tasks.md](tasks.md), [media upload](media-upload.md),
+Start with [tasks.md](tasks.md), [archive publication](archive-publication.md), [media upload](media-upload.md),
 [spool lifetime](spool-lifetime.md) and [Cloud ownership](cloud-control-plane.md).
 The media, spool and registration prerequisites are merged and their final
 published-head database gates passed. Implement independent init consumption,

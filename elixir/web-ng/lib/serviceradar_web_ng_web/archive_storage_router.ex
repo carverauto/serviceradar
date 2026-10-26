@@ -43,11 +43,12 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
     path = Enum.map(conn.path_info, &URI.decode/1)
 
     case {conn.method, path} do
-      {"POST", ["v1", authorities, "challenge"]} when authorities in ~w(init-authorities media-authorities) ->
+      {"POST", ["v1", authorities, "challenge"]}
+      when authorities in ~w(init-authorities media-authorities manifest-authorities) ->
         read(conn, &ArchiveAuthorities.challenge(kind(authorities), principal, &1, actor: actor()))
 
       {"POST", ["v1", uploads, operation]}
-      when uploads in ~w(init-uploads media-uploads) and operation in ~w(prepare grant observe verify) ->
+      when uploads in ~w(init-uploads media-uploads manifest-uploads) and operation in ~w(prepare grant observe verify) ->
         read(conn, &operation(kind(uploads), operation, &1, principal))
 
       _ ->
@@ -57,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
 
   defp kind(path) when path in ~w(init-authorities init-uploads), do: :init
   defp kind(path) when path in ~w(media-authorities media-uploads), do: :media
+  defp kind(path) when path in ~w(manifest-authorities manifest-uploads), do: :manifest
 
   defp read(conn, operation) do
     case ControlPlaneJSON.read(conn, 16_384) do
@@ -80,6 +82,21 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
          {:ok, intent} <- ArchiveUploads.prepare(lease, :media, actor: actor()),
          true <- intent.byte_length in 1..16_777_216 || {:error, :media_object_too_large},
          {:ok, dispatch} <- ArchiveUploads.prepare_dispatch(lease, :media, :put_object, 30_000, actor: actor()) do
+      {:ok,
+       %{
+         schema_version: 1,
+         dispatch_id: dispatch.id,
+         byte_length: intent.byte_length,
+         object_sha256: intent.object_sha256
+       }}
+    end
+  end
+
+  defp operation(:manifest, "prepare", %{"schema_version" => 1, "lease" => lease} = document, _principal)
+       when map_size(document) == 2 do
+    with {:ok, lease} <- lease(lease),
+         {:ok, %{intent: intent}} <- ArchiveUploads.prepare_manifest(lease, actor: actor()),
+         {:ok, dispatch} <- ArchiveUploads.prepare_manifest_dispatch(lease, 30_000, actor: actor()) do
       {:ok,
        %{
          schema_version: 1,
@@ -220,12 +237,18 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
               :invalid_request,
               :invalid_init_principal,
               :invalid_media_principal,
+              :invalid_manifest_principal,
               :invalid_init_challenge,
               :invalid_media_challenge,
+              :invalid_manifest_challenge,
               :invalid_init_grant,
               :invalid_media_grant,
+              :invalid_manifest_grant,
               :invalid_init_verification,
               :invalid_media_verification,
+              :invalid_manifest_verification,
+              :invalid_recording_descriptor,
+              :invalid_manifest,
               :invalid_upload_response
             ], do: respond(conn, 400, %{status: reason})
 
@@ -234,6 +257,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
               :archive_binding_not_found,
               :init_authority_not_found,
               :media_authority_not_found,
+              :manifest_authority_not_found,
               :upload_dispatch_not_found,
               :recording_block_not_found
             ], do: respond(conn, 404, %{status: reason})
@@ -242,28 +266,40 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
        when reason in [
               :init_authority_revision_stale,
               :media_authority_revision_stale,
+              :manifest_authority_revision_stale,
               :init_authority_revision_conflict,
               :media_authority_revision_conflict,
+              :manifest_authority_revision_conflict,
               :init_authority_challenge_mismatch,
               :media_authority_challenge_mismatch,
+              :manifest_authority_challenge_mismatch,
               :init_authority_context_mismatch,
               :media_authority_context_mismatch,
+              :manifest_authority_context_mismatch,
               :init_authority_origin_mismatch,
               :media_authority_origin_mismatch,
+              :manifest_authority_origin_mismatch,
               :init_authority_generation_stale,
               :media_authority_generation_stale,
+              :manifest_authority_generation_stale,
               :init_authority_report_unqualified,
               :media_authority_report_unqualified,
+              :manifest_authority_report_unqualified,
               :init_authority_expired,
               :media_authority_expired,
+              :manifest_authority_expired,
               :init_authority_not_applied,
               :media_authority_not_applied,
+              :manifest_authority_not_applied,
               :init_dispatch_already_marked,
               :media_dispatch_already_marked,
+              :manifest_dispatch_already_marked,
               :init_verification_conflict,
               :media_verification_conflict,
+              :manifest_verification_conflict,
               :init_verification_origin_mismatch,
               :media_verification_origin_mismatch,
+              :manifest_verification_origin_mismatch,
               :upload_dispatch_expired,
               :upload_lease_lost,
               :upload_dispatch_unmarked,
@@ -271,8 +307,11 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
               :archive_upload_intent_conflict,
               :archive_upload_response_conflict,
               :archive_binding_required,
+              :recording_block_mismatch,
               :recording_block_unfrozen,
               :media_object_too_large,
+              :archive_dependencies_unverified,
+              :archive_publication_unverified,
               :recording_stopped
             ], do: respond(conn, 409, %{status: reason})
 

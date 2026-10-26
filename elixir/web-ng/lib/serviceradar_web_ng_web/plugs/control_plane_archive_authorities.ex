@@ -14,16 +14,19 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveAuthorities do
   @impl Plug
   def call(conn, _opts) do
     case {conn.method, Enum.map(conn.path_info, &URI.decode/1)} do
-      {"GET", ["v1", "media", authority, id]} when authority in ~w(init-authorities media-authorities) ->
+      {"GET", ["v1", "media", authority, id]}
+      when authority in ~w(init-authorities media-authorities manifest-authorities) ->
         respond_result(
           conn,
           ArchiveAuthorities.status(kind(authority), installation(conn), id, actor: actor())
         )
 
-      {"PUT", ["v1", "media", authority, id]} when authority in ~w(init-authorities media-authorities) ->
+      {"PUT", ["v1", "media", authority, id]}
+      when authority in ~w(init-authorities media-authorities manifest-authorities) ->
         read(conn, id, :apply, kind(authority))
 
-      {"POST", ["v1", "media", authority, id, "revoke"]} when authority in ~w(init-authorities media-authorities) ->
+      {"POST", ["v1", "media", authority, id, "revoke"]}
+      when authority in ~w(init-authorities media-authorities manifest-authorities) ->
         read(conn, id, :revoke, kind(authority))
 
       _ ->
@@ -55,8 +58,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveAuthorities do
 
   defp kind("init-authorities"), do: :init
   defp kind("media-authorities"), do: :media
+  defp kind("manifest-authorities"), do: :manifest
   defp invalid_authority(:init), do: :invalid_init_authority
   defp invalid_authority(:media), do: :invalid_media_authority
+  defp invalid_authority(:manifest), do: :invalid_manifest_authority
 
   defp installation(conn), do: conn.private.control_plane_media_installation
   defp actor, do: SystemActor.system(:camera_archive_control)
@@ -66,41 +71,59 @@ defmodule ServiceRadarWebNGWeb.Plugs.ControlPlaneArchiveAuthorities do
        when reason in [
               :invalid_init_authority,
               :invalid_media_authority,
+              :invalid_manifest_authority,
               :invalid_init_configuration,
               :invalid_media_configuration,
+              :invalid_manifest_configuration,
               :invalid_init_principal,
               :invalid_media_principal,
+              :invalid_manifest_principal,
               :invalid_init_application,
               :invalid_media_application,
+              :invalid_manifest_application,
               :invalid_init_revocation,
               :invalid_media_revocation,
+              :invalid_manifest_revocation,
               :invalid_archive_binding_id
             ], do: respond(conn, 400, %{status: reason})
 
   defp respond_result(conn, {:error, reason})
-       when reason in [:archive_binding_not_found, :init_authority_not_found, :media_authority_not_found],
-       do: respond(conn, 404, %{status: reason})
+       when reason in [
+              :archive_binding_not_found,
+              :init_authority_not_found,
+              :media_authority_not_found,
+              :manifest_authority_not_found
+            ], do: respond(conn, 404, %{status: reason})
 
   defp respond_result(conn, {:error, reason})
        when reason in [
               :init_authority_revision_stale,
               :media_authority_revision_stale,
+              :manifest_authority_revision_stale,
               :init_authority_revision_conflict,
               :media_authority_revision_conflict,
+              :manifest_authority_revision_conflict,
               :init_authority_challenge_mismatch,
               :media_authority_challenge_mismatch,
+              :manifest_authority_challenge_mismatch,
               :init_authority_context_mismatch,
               :media_authority_context_mismatch,
+              :manifest_authority_context_mismatch,
               :init_authority_origin_mismatch,
               :media_authority_origin_mismatch,
+              :manifest_authority_origin_mismatch,
               :init_authority_generation_stale,
               :media_authority_generation_stale,
+              :manifest_authority_generation_stale,
               :init_authority_report_unqualified,
               :media_authority_report_unqualified,
+              :manifest_authority_report_unqualified,
               :init_authority_expired,
               :media_authority_expired,
+              :manifest_authority_expired,
               :init_authority_not_applied,
-              :media_authority_not_applied
+              :media_authority_not_applied,
+              :manifest_authority_not_applied
             ], do: respond(conn, 409, %{status: reason})
 
   defp respond_result(conn, {:error, _}), do: respond(conn, 503, %{status: "storage_control_unavailable"})

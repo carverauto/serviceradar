@@ -1249,8 +1249,9 @@ choose a local file or a destination. The plan required a real recorder caller
 but did not choose its first orchestration interface. An automatic scheduler
 would also need admission, retry and recovery decisions that this checkpoint
 does not settle. Future runtime/Cloud orchestration must install and invoke the
-operation. There is still no production init-upload caller, so this entry point
-alone cannot publish a complete archive.
+operation. This entry point alone cannot publish a complete archive; the later
+[archive-publication command](archive-publication.md) owns init completion,
+manifest verification and index publication.
 
 ### Give outcome reporting a small grace period without renewing provider work
 
@@ -1294,3 +1295,126 @@ client in ranges of at most 4 MiB. The plan required signed, verified streaming
 but left this library integration open. Reusing these transports retains the
 configured proxy, TLS checks and socket ownership without introducing another
 HTTP client or a direct-network fallback.
+
+## Archive publication: sound, medium confidence
+
+### Share one storage process while keeping each permission independent
+
+When: explicit archive-publication checkpoint.
+
+An operator installs init, media and manifest permissions into one isolated
+credential-holding workload. A request for one role can use only that role's
+permission, but every role competes for the same single admission slot before
+reading bytes. If scratch cleanup fails or the process restarts, all roles stop.
+Separate workloads would isolate those failures but would also need coordinated
+resource budgets and additional installations. The plan required one bounded
+workload; it did not specify every consequence of sharing its lifecycle.
+
+Version-one installed configuration still works. Version two supplies a closed
+map of desired purposes; both normalize to the same internal map. Roles must
+share destination, local storage and credential identity. Their qualification
+reports may have different issue times and evidence references because each is
+validated independently. A future Cloud rollout may require a stricter
+same-report policy, but this checkpoint grants no authority from that grouping.
+Verdict: sound because the existing private-workload boundary remains intact
+and failure denies service across the shared resource budget. Confidence:
+medium because Cloud's eventual installation policy is still open.
+
+### Obtain each initial challenge without adding a renewal subsystem
+
+When: explicit archive-publication checkpoint.
+
+At startup the service asks Core for at most three independent challenges, one
+per installed purpose. A challenge is the nonce and short time window that a
+later installation must match. The requests run sequentially with a five-second
+cap each. If the first succeeds and a later one is slow, the first window keeps
+aging; startup does not reset it. Parallel requests could preserve more useful
+time but would add another concurrent lifecycle to this deliberately bounded
+checkpoint. The plan left startup scheduling unspecified. Future orchestration
+must budget this possible fifteen-second delay or deliberately replace this
+policy. Verdict: sound as a bounded, fail-closed first implementation, with no
+claim of measured production startup performance. Confidence: medium.
+
+### Keep a completed request's slot until its ingress process ends
+
+When: explicit archive-publication checkpoint.
+
+The provider can finish while the private HTTP connection is still sending its
+response. Releasing admission immediately would let a new body arrive while
+the previous connection still owns resources. The service instead removes
+scratch and stops its task/socket owners, then keeps the slot until the ingress
+process exits. The original operation deadline plus the existing 2.1-second
+reporting allowance bounds this closing phase. It never renews a provider grant.
+
+The plan required cleanup before release but left this last connection interval
+unspecified. A caller opening another request before the first process exits can
+receive busy; there is no hidden queue or retry. The joined test owns proof that
+the actual media-to-init-to-manifest sequence progresses. Verdict: sound because
+the resource budget follows real lifetime rather than receipt delivery.
+Confidence: medium for throughput until deployed capacity is measured.
+
+### Bound explicit completion without scheduling it automatically
+
+When: explicit archive-publication checkpoint.
+
+After media verification, an administrator invokes `complete_once(block_id)`.
+It has one 30-second forward-work budget and uses its remaining time for a fresh
+upload lease. It can send missing init and manifest objects, or finish a
+database-only index commit when their proofs already exist. It releases its
+lease on exit and returns an error if the remaining budget is exhausted.
+This is a budget for starting and authorizing work, not a guarantee that every
+database wait or cleanup returns at an exact wall-clock instant.
+
+The plan called for bounded completion but did not select this orchestration
+interface or duration. An automatic queue would also have to decide retry,
+admission and restart behavior; those remain separate work. Verdict: sound
+because the explicit operation exposes the missing end-to-end path without
+implicitly enabling recording or reconciling uncertain sends. Confidence:
+medium; the duration is a checkpoint ceiling, not a measured service objective.
+
+## Archive publication: sound, high confidence
+
+### Retain proof references instead of another copy of every receipt
+
+When: explicit archive-publication checkpoint.
+
+Once init and media are independently verified, the manifest intent stores their
+original dispatch identifiers and verification hashes. After manifest
+verification, the block stores its manifest dispatch, verification hash and
+publication time. A dispatch is the retained identity of one attempted provider
+operation. The complete verification documents already live there. Copying
+them into a new index table would create two copies that future readers must
+keep consistent. The plan required a fenced index but left its smallest durable
+shape open. Restricted references and all-or-none immutable fields make the
+proof chain navigable without another lifecycle owner. Verdict: sound because
+one retained object proof has one authoritative home. Confidence: high.
+
+### Preserve publication history while computing current availability
+
+When: explicit archive-publication checkpoint.
+
+A block can publish successfully and later receive conflicting evidence about
+one original object. The original publication receipt remains unchanged, while
+the canonical status becomes `reconciliation_required`. Readers must use that
+status to determine availability. An independent stored `available` flag could
+remain true after the conflict unless every observer updated it correctly.
+The plan forbids conflicting evidence from exposing an archive, but did not
+prescribe whether to erase its publication record. Verdict: sound because
+history stays intact and the same proof join decides current availability.
+This constrains future timeline/playback readers to use that canonical owner.
+Confidence: high.
+
+### Derive manifests through explicit Core operations
+
+When: explicit archive-publication checkpoint.
+
+Existing callers can prepare init or media intents from a frozen block. A
+manifest additionally depends on independently verified objects. The new
+`prepare_manifest` and `prepare_manifest_dispatch` operations derive those
+dependencies inside Core, then reuse the same immutable intent and dispatch
+owners. Existing generic preparation still rejects a manifest role and keeps
+every old assertion. The shared encoder moves to Core without changing its
+version-one bytes or leaving a second compatibility implementation. The plan
+required trusted manifest inputs but did not choose this API split. Verdict:
+sound because callers cannot accidentally treat a manifest as an ordinary
+descriptor-only object. Confidence: high.

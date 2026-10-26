@@ -3,8 +3,8 @@
 This pass uploads one already frozen media block through the isolated storage
 workload and retains exact remote-byte verification. It does not schedule
 recording or uploads, publish an archive index, reclaim spool files, or enable
-hosted recording. Verified recovery-manifest publication and then fenced index
-publication remain the next two steps.
+hosted recording. The separate [archive-publication command](archive-publication.md)
+owns recovery-manifest verification and fenced index publication.
 
 ## Entry point and local ownership
 
