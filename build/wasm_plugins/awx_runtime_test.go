@@ -139,6 +139,7 @@ func TestAWXPingReportsAuthFailedWhenMeReturnsUnauthorized(t *testing.T) {
 	ping := map[string]any{"version": "23.5.1", "active_node": "awx-1"}
 	for _, tc := range []struct {
 		name        string
+		pingBody    map[string]any
 		pingStatus  awxStatus
 		meResponse  any
 		wantStatus  string
@@ -171,9 +172,52 @@ func TestAWXPingReportsAuthFailedWhenMeReturnsUnauthorized(t *testing.T) {
 			wantStatus: "CRITICAL", wantCalls: 1, wantSummary: "awx.ping: AWX request failed: HTTP 503",
 			wantDetails: map[string]any{"verb": "awx.ping", "ok": false, "error": "AWX request failed: HTTP 503"},
 		},
+		{
+			// Oracle: the timestamp is the one the controller put on the token
+			// object. A plugin that drops it, rewrites it, or invents a 90-day
+			// due date fails this comparison.
+			name: "records token expiry from the authenticated user",
+			meResponse: map[string]any{"count": 1, "results": []any{map[string]any{
+				"id": 1, "username": "sr",
+				"summary_fields": map[string]any{"token": map[string]any{"expires": "2026-11-01T12:00:00Z"}},
+			}}},
+			wantStatus: "OK", wantCalls: 2, wantSummary: "AWX 23.5.1 reachable (active: awx-1)",
+			wantDetails: map[string]any{
+				"verb": "awx.ping", "ok": true, "version": "23.5.1", "active_node": "awx-1",
+				"token_expires_at": "2026-11-01T12:00:00Z",
+			},
+		},
+		{
+			// Oracle: 2592000 is the controller's configured access-token
+			// lifetime in seconds (30 days), not a default chosen here.
+			name:       "records configured access-token lifetime when no expiry is exposed",
+			meResponse: map[string]any{"count": 1, "results": []any{map[string]any{"id": 1}}, "access_token_expire_seconds": 2592000},
+			wantStatus: "OK", wantCalls: 2, wantSummary: "AWX 23.5.1 reachable (active: awx-1)",
+			wantDetails: map[string]any{
+				"verb": "awx.ping", "ok": true, "version": "23.5.1", "active_node": "awx-1",
+				"access_token_expire_seconds": float64(2592000),
+			},
+		},
+		{
+			// Ping can expose an expiry and still be anonymous. A 401 from
+			// /api/v2/me/ must stay auth_failed and must not keep that expiry.
+			name:       "rejected token stays auth_failed even when ping carries an expiry",
+			pingBody:   map[string]any{"version": "23.5.1", "active_node": "awx-1", "token_expires_at": "2026-11-01T12:00:00Z"},
+			meResponse: awxStatus(http.StatusUnauthorized),
+			wantStatus: "CRITICAL", wantCalls: 2, wantSummary: "awx.ping: AWX request failed: HTTP 401",
+			wantDetails: map[string]any{
+				"verb": "awx.ping", "ok": false, "status": "auth_failed",
+				"version": "23.5.1", "active_node": "awx-1",
+				"error": "AWX request failed: HTTP 401",
+			},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			responses := map[string]any{"/api/v2/ping/": ping}
+			pingBody := ping
+			if tc.pingBody != nil {
+				pingBody = tc.pingBody
+			}
+			responses := map[string]any{"/api/v2/ping/": pingBody}
 			if tc.pingStatus != 0 {
 				responses["/api/v2/ping/"] = tc.pingStatus
 			} else {
