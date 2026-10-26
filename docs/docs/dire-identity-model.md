@@ -278,7 +278,11 @@ identified devices.
   The same retention, with the same partition and existing-row exclusions,
   applies when camera inventory updates an existing camera device to a new
   address and when source succession moves the successor's address onto the
-  survivor.
+  survivor. A startup repair archives an existing row of this kind when the
+  address is not the device's current primary IP, a non-config interface of
+  the same device named like a container, CNI, or local-hypervisor bridge
+  (`GuestAddress.host_internal_name?/1`) still carries it, and no config
+  interface or differently named interface of that device does.
 
 ## Merge policy and stability
 
