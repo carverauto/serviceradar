@@ -113,17 +113,13 @@ func classify(b Base, p probe) (Verdict, string) {
 		return VerdictSkipLiveServer, fmt.Sprintf("bazel server pid %d alive", pid)
 	}
 
-	info, err := os.Stat(b.Workspace)
+	_, err := os.Stat(b.Workspace)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return VerdictStale, "workspace path no longer exists"
 		}
 
 		return VerdictKeep, "workspace path unreadable: " + err.Error()
-	}
-
-	if !info.IsDir() {
-		return VerdictStale, "workspace path no longer exists"
 	}
 
 	// A .git file means a linked worktree. The directory can outlive its

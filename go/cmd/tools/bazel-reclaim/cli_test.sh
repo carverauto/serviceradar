@@ -144,18 +144,21 @@ assert_exists "$live_ws" "apply must not delete the workspace itself"
 grep -F "deleted" "$WORKDIR/pair-apply.out" >/dev/null || fail "apply did not report deleted: $(cat "$WORKDIR/pair-apply.out")"
 pass "--apply deletes the missing-workspace base and leaves the live checkout"
 
-# --- workspace path that exists as a file is stale ---
+# --- workspace path that exists as a file is not a removed checkout ---
 file_root="$WORKDIR/file-root"
 mkdir -p "$file_root"
 file_ws="$WORKDIR/not-a-directory"
 : >"$file_ws"
 file_base="$(write_base "$file_root" "hashfile" "$file_ws")"
 tool --output-user-root "$file_root" --apply >"$WORKDIR/file-apply.out"
-assert_gone "$file_base" "apply file workspace"
+assert_exists "$file_base" "apply file workspace"
 [[ -f "$file_ws" ]] || fail "apply must not delete the workspace file: $file_ws"
-grep -F 'workspace path no longer exists' "$WORKDIR/file-apply.out" >/dev/null \
+grep -F 'keep' "$WORKDIR/file-apply.out" >/dev/null \
   || fail "file workspace reason: $(cat "$WORKDIR/file-apply.out")"
-pass "--apply deletes a base whose workspace path is not a directory"
+if grep -F 'deleted' "$WORKDIR/file-apply.out" >/dev/null; then
+  fail "apply deleted a base whose workspace path is a file: $(cat "$WORKDIR/file-apply.out")"
+fi
+pass "--apply keeps a base whose workspace path is a file"
 
 # --- linked worktree with a missing gitdir is stale even when git would not say so ---
 missing_gitdir_root="$WORKDIR/missing-gitdir-root"

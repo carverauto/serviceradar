@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,6 +79,40 @@ func deadProbe() probe {
 	}
 }
 
+func TestOutputUserRootKeepsCommaInPath(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "cache,root")
+	other := filepath.Join(t.TempDir(), "other")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(other, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := filepath.Join(t.TempDir(), "gone")
+	base := makeBase(t, root, "hash", ws)
+
+	fs := flag.NewFlagSet("bazel-reclaim", flag.ContinueOnError)
+	var roots stringList
+	fs.Var(&roots, "output-user-root", "")
+	if err := fs.Parse([]string{"--output-user-root", root, "--output-user-root", other}); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(roots) != 2 || roots[0] != root || roots[1] != other {
+		t.Fatalf("roots = %#v, want [%s %s]", roots, root, other)
+	}
+
+	bases, err := discoverBases([]string{roots[0]})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(bases) != 1 || bases[0].Path != base.Path {
+		t.Fatalf("discoverBases = %+v, want %s", bases, base.Path)
+	}
+}
+
 func TestDiscoverBasesSkipsNonBases(t *testing.T) {
 	root := t.TempDir()
 	want := makeBase(t, root, "abc123", "/synthetic/checkout")
@@ -115,6 +150,10 @@ func TestClassify(t *testing.T) {
 		t.Fatal(err)
 	}
 	gone := filepath.Join(wsDir, "removed")
+	fileWS := filepath.Join(wsDir, "not-a-directory")
+	if err := os.WriteFile(fileWS, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	liveBase := makeBase(t, root, "live", gone)
 	if err := os.MkdirAll(filepath.Join(liveBase.Path, "server"), 0o755); err != nil {
@@ -135,6 +174,12 @@ func TestClassify(t *testing.T) {
 			base:  makeBase(t, root, "gone", gone),
 			probe: deadProbe(),
 			want:  VerdictStale,
+		},
+		{
+			name:  "workspace file is kept",
+			base:  makeBase(t, root, "file", fileWS),
+			probe: deadProbe(),
+			want:  VerdictKeep,
 		},
 		{
 			name:  "main checkout is kept",

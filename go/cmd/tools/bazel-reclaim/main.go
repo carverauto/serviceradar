@@ -24,11 +24,7 @@ type stringList []string
 func (s *stringList) String() string { return strings.Join(*s, ",") }
 
 func (s *stringList) Set(v string) error {
-	for _, part := range strings.Split(v, ",") {
-		if part = strings.TrimSpace(part); part != "" {
-			*s = append(*s, part)
-		}
-	}
+	*s = append(*s, v)
 
 	return nil
 }
@@ -38,7 +34,7 @@ func main() {
 
 	apply := flag.Bool("apply", false, "delete stale output bases (default: dry-run report only)")
 	sizes := flag.Bool("sizes", true, "measure output-base sizes (walks each base)")
-	flag.Var(&roots, "output-user-root", "Bazel output user root to scan (repeatable, comma-separated); default: $XDG_CACHE_HOME/bazel and the platform cache directories that exist")
+	flag.Var(&roots, "output-user-root", "Bazel output user root to scan (repeatable); default: $XDG_CACHE_HOME/bazel and the platform cache directories that exist")
 	flag.Parse()
 
 	if err := run(roots, *apply, *sizes, defaultProbe()); err != nil {
