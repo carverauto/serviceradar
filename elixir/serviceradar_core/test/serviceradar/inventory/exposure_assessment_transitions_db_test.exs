@@ -12,13 +12,16 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   import Ecto.Query
 
   alias ServiceRadar.EventWriter.ExposureDelivery
+  alias ServiceRadar.EventWriter.ExposureRecovery
   alias ServiceRadar.Inventory.ExposureDeviceRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRelay
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.DirectSession
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.ExposureBroker
   alias ServiceRadar.TestSupport.ExposureTransitionCleanup
 
   @moduletag :integration
@@ -665,9 +668,9 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   end
 
   @tag sandbox: :unboxed
-  test "replica deliveries serialize and an uncertain load is replayed before a later lifecycle",
+  @tag :tmp_dir
+  test "replica deliveries recover retained input before a later lifecycle when the original stream is unavailable",
        ctx do
-    start_recovery_broker!()
     first = delivery_message(ctx, ctx.unique * 10)
     second = delivery_message(ctx, ctx.unique * 10 + 1)
     bucket = :erlang.phash2(ctx.device_uid, 16)
@@ -679,206 +682,446 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       )
     end)
 
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
+      parent = self()
+
+      owner =
+        Task.async(fn ->
+          ExposureDelivery.run([first], fn [_message], locked ->
+            :ok = locked.()
+            send(parent, :warehouse_load_started)
+
+            receive do
+              :uncertain -> {:error, :load_uncertain}
+            after
+              10_000 -> {:error, :timeout}
+            end
+          end)
+        end)
+
+      assert_receive :warehouse_load_started, 5_000
+
+      assert {:error, :exposure_delivery_busy} =
+               ExposureDelivery.run([second], fn _, _ ->
+                 flunk("retirement overtook an in-flight load")
+               end)
+
+      send(owner.pid, :uncertain)
+      assert {:error, :load_uncertain} = Task.await(owner)
+
+      assert [["applying"]] =
+               Repo.query!(
+                 "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               ).rows
+
+      assert %{"error" => %{"code" => 404}} =
+               ExposureBroker.request(conn, "$JS.API.STREAM.INFO.EXPOSURE_TRANSITIONS", %{})
+
+      assert {:ok, 1} =
+               ExposureDelivery.run([second], fn [message], locked ->
+                 :ok = locked.()
+                 send(parent, {:delivered, message.data})
+                 {:ok, 1}
+               end)
+
+      assert_receive {:delivered, first_data}
+      assert_receive {:delivered, second_data}
+      assert first_data == first.data
+      assert second_data == second.data
+
+      assert [] =
+               Repo.query!(
+                 "SELECT bucket FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               ).rows
+
+      assert %{"state" => %{"messages" => 0}} =
+               ExposureBroker.request(conn, "$JS.API.STREAM.INFO.EXPOSURE_RECOVERY", %{})
+    end)
+  end
+
+  @tag :tmp_dir
+  test "a completed delivery resumes cleanup without reapplying the batch", ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
+      first = delivery_message(ctx, ctx.unique * 10)
+      second = delivery_message(ctx, ctx.unique * 10 + 1)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+
+      assert {:error, _} =
+               ExposureDelivery.run([first], fn _, _ ->
+                 Gnat.stop(conn)
+                 {:ok, 1}
+               end)
+
+      assert [["complete", position]] =
+               Repo.query!(
+                 "SELECT phase, recovery_position FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [
+                   bucket
+                 ]
+               ).rows
+
+      conn = ExposureBroker.connect(port)
+      # Simulate a second interruption after deleting the input but before
+      # removing the completed journal. Cleanup must be idempotent too.
+      assert %{"success" => true} =
+               ExposureBroker.request(conn, "$JS.API.STREAM.MSG.DELETE.EXPOSURE_RECOVERY", %{
+                 seq: position
+               })
+
+      assert {:ok, 1} =
+               ExposureDelivery.run([second], fn [message], _ ->
+                 assert message.data == second.data
+                 {:ok, 1}
+               end)
+
+      assert [] =
+               Repo.query!(
+                 "SELECT bucket FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               ).rows
+    end)
+  end
+
+  @tag :tmp_dir
+  test "capture issues no warehouse write and only confirmed missing input requests a snapshot",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+      Gnat.stop(conn)
+      ingest = fn _, _ -> flunk("unretained batch reached the warehouse") end
+      assert {:error, _} = ExposureDelivery.run([message], ingest)
+      assert {:error, _} = ExposureDelivery.run([message], ingest)
+
+      assert [["capturing"]] =
+               Repo.query!(
+                 "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               ).rows
+
+      ExposureBroker.connect(port)
+
+      assert {:error, {:exposure_snapshot_required, ^bucket}} =
+               ExposureDelivery.run([message], ingest)
+
+      assert [["snapshot_required"]] =
+               Repo.query!(
+                 "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               ).rows
+    end)
+  end
+
+  @tag :tmp_dir
+  test "an unavailable legacy batch stays blocked rather than being classified as unstarted",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+
+      Repo.query!(
+        "INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences) VALUES ($1, $2)",
+        [
+          bucket,
+          [ctx.unique * 10 - 1]
+        ]
+      )
+
+      assert {:error, {:exposure_recovery_message_unavailable, _}} =
+               ExposureDelivery.run([message], fn _, _ ->
+                 flunk("legacy journal was bypassed")
+               end)
+
+      assert [["legacy"]] =
+               Repo.query!(
+                 "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               ).rows
+    end)
+  end
+
+  @tag :tmp_dir
+  test "a future lifecycle retry releases delivery ownership for the missing marker", ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+
+      assert {:error, :exposure_lifecycle_pending} =
+               ExposureDelivery.run([message], fn _, _ ->
+                 {:retry, :exposure_lifecycle_pending}
+               end)
+
+      assert {:ok, 1} = ExposureDelivery.run([message], fn _, _ -> {:ok, 1} end)
+    end)
+  end
+
+  @tag :tmp_dir
+  test "a blocked bucket does not starve independent delivery buckets", ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      first = delivery_message(ctx, ctx.unique * 10)
+
+      second =
+        Enum.find_value(1..32, fn suffix ->
+          message =
+            delivery_message(
+              %{ctx | device_uid: "#{ctx.device_uid}-#{suffix}"},
+              ctx.unique * 10 + 1
+            )
+
+          if message.metadata.subject != first.metadata.subject, do: message
+        end)
+
+      parent = self()
+
+      assert {:error, :exposure_lifecycle_pending} =
+               ExposureDelivery.run([first, second], fn [message], _ ->
+                 if message.data == first.data do
+                   {:retry, :exposure_lifecycle_pending}
+                 else
+                   send(parent, {:accepted, message.data})
+                   {:ok, 1}
+                 end
+               end)
+
+      assert_receive {:accepted, data}
+      assert data == second.data
+    end)
+  end
+
+  @tag :tmp_dir
+  test "one session owns the bucket for the whole delivery, and stranded legacy locks do not block it",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+
+      # A pooled server connection that kept the pre-fix bucket lock after its
+      # unlock ran on a different backend.
+      stranded = start_supervised!({Postgrex, DirectSession.connection_opts()})
+      Postgrex.query!(stranded, "SELECT pg_advisory_lock(74523, $1)", [bucket])
+
+      parent = self()
+
+      assert {:ok, 1} =
+               ExposureDelivery.run([message], fn [_message], locked ->
+                 # Ownership checks run on the session that holds the lock.
+                 :ok = locked.()
+                 send(parent, {:holders, delivery_lock_holders(bucket)})
+                 {:ok, 1}
+               end)
+
+      assert_received {:holders, [[_session]]}
+      assert delivery_lock_holders(bucket) == []
+    end)
+  end
+
+  @tag :tmp_dir
+  test "a delivery whose lock session ends fails closed with an error and keeps its journal",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+
+      assert {:error, :exposure_delivery_ownership_lost} =
+               ExposureDelivery.run([message], fn [_message], locked ->
+                 :ok = locked.()
+                 [[session]] = delivery_lock_holders(bucket)
+                 Repo.query!("SELECT pg_terminate_backend($1::int, 5000)", [session])
+                 # The load itself succeeded; only the ownership check stands
+                 # between it and retiring the journal entry.
+                 {:ok, 1}
+               end)
+
+      assert %{rows: [[[sequence]]]} =
+               Repo.query!(
+                 "SELECT stream_sequences FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               )
+
+      assert sequence == ctx.unique * 10
+    end)
+  end
+
+  @tag :tmp_dir
+  test "finishing a delivery leaves another owner's journal row for the same bucket", ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+      own = [ctx.unique * 10]
+      foreign = [ctx.unique * 10 + 1]
+
+      assert {:ok, 1} =
+               ExposureDelivery.run([message], fn [_message], locked ->
+                 :ok = locked.()
+
+                 assert %{num_rows: 1} =
+                          Repo.query!(
+                            """
+                            UPDATE platform.exposure_delivery_batches
+                            SET stream_sequences = $2::bigint[]
+                            WHERE bucket = $1 AND stream_sequences = $3::bigint[]
+                            """,
+                            [bucket, foreign, own]
+                          )
+
+                 {:ok, 1}
+               end)
+
+      assert %{rows: [[^foreign]]} =
+               Repo.query!(
+                 "SELECT stream_sequences FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               )
+    end)
+  end
+
+  @tag :tmp_dir
+  test "finishing a delivery preserves a replacement operation with identical source positions",
+       ctx do
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      message = delivery_message(ctx, ctx.unique * 10)
+      bucket = :erlang.phash2(ctx.device_uid, 16)
+      own = [ctx.unique * 10]
+      foreign = Ecto.UUID.generate()
+
+      assert {:ok, 1} =
+               ExposureDelivery.run([message], fn [_message], locked ->
+                 :ok = locked.()
+
+                 {:ok, body, hash} =
+                   ExposureRecovery.encode(bucket, foreign, [{ctx.unique * 10, message}])
+
+                 {:ok, position} = ExposureRecovery.retain(bucket, foreign, body, hash)
+
+                 assert %{num_rows: 1} =
+                          Repo.query!(
+                            """
+                            UPDATE platform.exposure_delivery_batches
+                            SET operation_id = $2::text::uuid, payload_hash = $3,
+                                recovery_position = $4
+                            WHERE bucket = $1 AND stream_sequences = $5::bigint[]
+                            """,
+                            [bucket, foreign, hash, position, own]
+                          )
+
+                 send(self(), {:replacement_position, position})
+                 {:ok, 1}
+               end)
+
+      assert_received {:replacement_position, position}
+
+      assert %{rows: [[^foreign, "applying", ^position]]} =
+               Repo.query!(
+                 """
+                 SELECT operation_id::text, phase, recovery_position
+                 FROM platform.exposure_delivery_batches WHERE bucket = $1
+                 """,
+                 [bucket]
+               )
+    end)
+  end
+
+  # Exclusive (not access exclusive) lets the empty journal read through and
+  # holds the insert until another owner commits the bucket row.
+  @tag sandbox: :unboxed
+  test "a journal row committed while this insert waits is busy and is not loaded", ctx do
+    message = delivery_message(ctx, ctx.unique * 10)
+    bucket = :erlang.phash2(ctx.device_uid, 16)
+    foreign = [ctx.unique * 10 + 1]
     parent = self()
 
-    owner =
-      Task.async(fn ->
-        ExposureDelivery.run([first], fn [_message], locked ->
-          :ok = locked.()
-          send(parent, :warehouse_load_started)
+    holder = start_supervised!({Postgrex, DirectSession.connection_opts()})
 
-          receive do
-            :uncertain -> {:error, :load_uncertain}
-          after
-            10_000 -> {:error, :timeout}
-          end
-        end)
-      end)
+    on_exit(fn ->
+      try do
+        Postgrex.query(holder, "ROLLBACK", [])
+      catch
+        :exit, _ -> :ok
+      end
 
-    assert_receive :warehouse_load_started, 5_000
+      Repo.query!(
+        """
+        DELETE FROM platform.exposure_delivery_batches
+        WHERE bucket = $1 AND stream_sequences = $2::bigint[]
+        """,
+        [bucket, foreign]
+      )
+    end)
 
-    assert {:error, :exposure_delivery_busy} =
-             ExposureDelivery.run([second], fn _, _ ->
-               flunk("retirement overtook an in-flight load")
-             end)
+    Postgrex.query!(holder, "BEGIN", [])
+    Postgrex.query!(holder, "SET LOCAL lock_timeout = '5s'", [])
 
-    send(owner.pid, :uncertain)
-    assert {:error, :load_uncertain} = Task.await(owner)
-
-    missing =
-      Task.async(fn ->
-        ExposureDelivery.run([second], fn _, _ ->
-          flunk("missing recovery input was ignored")
-        end)
-      end)
-
-    assert_receive {:recovery_request, broker, "$JS.API.STREAM.MSG.GET.EXPOSURE_TRANSITIONS",
-                    request},
-                   2_000
-
-    assert request == %{"seq" => ctx.unique * 10}
-    send(broker, {:respond, %{error: %{code: 404}}})
-    assert {:error, {:exposure_recovery_message_unavailable, _}} = Task.await(missing)
-
-    ingest = fn [message], locked ->
-      :ok = locked.()
-      send(parent, {:delivered, message.data})
-      {:ok, 1}
-    end
-
-    recovered = Task.async(fn -> ExposureDelivery.run([second], ingest) end)
-
-    assert_receive {:recovery_request, broker, "$JS.API.STREAM.MSG.GET.EXPOSURE_TRANSITIONS",
-                    request},
-                   2_000
-
-    assert request == %{"seq" => ctx.unique * 10}
-
-    send(
-      broker,
-      {:respond,
-       %{
-         message: %{
-           seq: ctx.unique * 10,
-           subject: first.metadata.subject,
-           data: Base.encode64(first.data)
-         }
-       }}
+    Postgrex.query!(
+      holder,
+      "LOCK TABLE platform.exposure_delivery_batches IN EXCLUSIVE MODE",
+      []
     )
 
-    assert {:ok, 1} = Task.await(recovered)
-    assert_receive {:delivered, first_data}
-    assert_receive {:delivered, second_data}
-    assert first_data == first.data
-    assert second_data == second.data
+    delivery =
+      Task.async(fn ->
+        ExposureDelivery.run([message], fn _, _ ->
+          send(parent, :loaded)
+          {:ok, 1}
+        end)
+      end)
 
-    assert %{rows: []} =
+    assert await_journal_insert_waiter!()
+
+    Postgrex.query!(
+      holder,
+      """
+      INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences)
+      VALUES ($1, $2::bigint[])
+      """,
+      [bucket, foreign]
+    )
+
+    Postgrex.query!(holder, "COMMIT", [])
+
+    assert {:error, :exposure_delivery_busy} = Task.await(delivery, 10_000)
+    refute_received :loaded
+
+    assert %{rows: [[^foreign]]} =
              Repo.query!(
-               "SELECT bucket FROM platform.exposure_delivery_batches WHERE bucket = $1",
+               "SELECT stream_sequences FROM platform.exposure_delivery_batches WHERE bucket = $1",
                [bucket]
              )
   end
 
-  test "a future lifecycle retry releases delivery ownership for the missing marker", ctx do
-    message = delivery_message(ctx, ctx.unique * 10)
+  defp await_journal_insert_waiter!(deadline \\ nil) do
+    deadline = deadline || System.monotonic_time(:millisecond) + 5_000
 
-    assert {:error, :exposure_lifecycle_pending} =
-             ExposureDelivery.run([message], fn _, _ -> {:retry, :exposure_lifecycle_pending} end)
+    waiting? =
+      Repo.query!("""
+      SELECT 1 FROM pg_locks
+      WHERE relation = 'platform.exposure_delivery_batches'::regclass
+        AND NOT granted
+        AND mode = 'RowExclusiveLock'
+      """).rows != []
 
-    assert {:ok, 1} =
-             ExposureDelivery.run([message], fn _, _ -> {:ok, 1} end)
-  end
-
-  test "a blocked bucket does not starve independent delivery buckets", ctx do
-    first = delivery_message(ctx, ctx.unique * 10)
-
-    second =
-      Enum.find_value(1..32, fn suffix ->
-        message =
-          delivery_message(
-            %{ctx | device_uid: "#{ctx.device_uid}-#{suffix}"},
-            ctx.unique * 10 + 1
-          )
-
-        if message.metadata.subject != first.metadata.subject, do: message
-      end)
-
-    parent = self()
-
-    assert {:error, :exposure_lifecycle_pending} =
-             ExposureDelivery.run([first, second], fn [message], _ ->
-               if message.data == first.data do
-                 {:retry, :exposure_lifecycle_pending}
-               else
-                 send(parent, {:accepted, message.data})
-                 {:ok, 1}
-               end
-             end)
-
-    assert_receive {:accepted, data}
-    assert data == second.data
-  end
-
-  # A protocol fixture for the external stream API. Production Gnat handles the
-  # request, subscription and response decoding; recovery has no test-only hook.
-  defp start_recovery_broker! do
-    {:ok, listener} =
-      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
-
-    {:ok, {_, port}} = :inet.sockname(listener)
-    on_exit(fn -> :gen_tcp.close(listener) end)
-    owner = self()
-
-    start_supervised!(
-      {Task,
-       fn ->
-         {:ok, socket} = :gen_tcp.accept(listener)
-
-         :ok =
-           :gen_tcp.send(
-             socket,
-             ~s(INFO {"server_id":"synthetic-exposure-broker","headers":false}\r\n)
-           )
-
-         recovery_commands(socket, owner, %{})
-       end}
-    )
-
-    start_supervised!(%{
-      id: :exposure_recovery_gnat,
-      start:
-        {Gnat, :start_link,
-         [
-           %{host: "127.0.0.1", port: port},
-           [name: ServiceRadar.NATS.Connection.connection_name()]
-         ]}
-    })
-  end
-
-  defp recovery_commands(socket, owner, subscriptions) do
-    case :gen_tcp.recv(socket, 0) do
-      {:ok, line} ->
-        case String.split(String.trim(line)) do
-          ["SUB", subject, sid] ->
-            recovery_commands(socket, owner, Map.put(subscriptions, subject, sid))
-
-          ["PUB", subject, reply, bytes] ->
-            :ok = :inet.setopts(socket, packet: :raw)
-            {:ok, payload} = :gen_tcp.recv(socket, String.to_integer(bytes) + 2)
-            :ok = :inet.setopts(socket, packet: :line)
-            request = payload |> String.trim() |> Jason.decode!()
-            send(owner, {:recovery_request, self(), subject, request})
-
-            receive do
-              {:respond, response} ->
-                body = Jason.encode!(response)
-
-                sid =
-                  Enum.find_value(subscriptions, fn {filter, sid} ->
-                    if filter == reply or
-                         String.starts_with?(reply, String.trim_trailing(filter, "*")),
-                       do: sid
-                  end)
-
-                :ok =
-                  :gen_tcp.send(socket, "MSG #{reply} #{sid} #{byte_size(body)}\r\n#{body}\r\n")
-            after
-              5_000 -> raise "recovery response was not supplied"
-            end
-
-            recovery_commands(socket, owner, subscriptions)
-
-          ["PING"] ->
-            :ok = :gen_tcp.send(socket, "PONG\r\n")
-            recovery_commands(socket, owner, subscriptions)
-
-          _ ->
-            recovery_commands(socket, owner, subscriptions)
-        end
-
-      {:error, :closed} ->
+    cond do
+      waiting? ->
         :ok
+
+      System.monotonic_time(:millisecond) > deadline ->
+        flunk("delivery insert did not wait on the journal table")
+
+      true ->
+        Process.sleep(20)
+        await_journal_insert_waiter!(deadline)
     end
+  end
+
+  defp delivery_lock_holders(bucket) do
+    Repo.query!(
+      """
+      SELECT pid FROM pg_locks
+      WHERE locktype = 'advisory' AND granted
+        AND classid = 74525 AND objid = $1 AND objsubid = 2
+      """,
+      [bucket]
+    ).rows
   end
 
   defp delivery_message(ctx, seq) do

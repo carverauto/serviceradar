@@ -761,3 +761,56 @@ All 11 complete diagnostic blocks match after accounting only for the two added
 registry lines. This establishes an existing failure under the tested toolchain;
 it does not make Dialyzer green. No source, ignore or assertion was changed.
 Cloud CI's existing `--skip-dialyzer` remains a limitation of its green result.
+
+## Provisioned spool identity
+
+This checkpoint binds the recorder to a marker written by
+`Storage.initialize/2` on an existing private empty root. The recorder verifies
+that marker and does not create or repair it. [Spool lifetime](spool-lifetime.md)
+owns the contract. Recording stays disabled. There is no new provider request,
+bucket, schema, scheduler, upload authority or reclamation.
+
+The settled production and test sources passed [focused validation](https://carverauto.buildbuddy.io/invocation/9ed5a228-c3d3-4410-b712-b64c0c84206d):
+217 unit tests, nine media tests, three RTSP tests and three browser cases, plus
+Core and CoreElx format/Credo checks. The final [full remote `make test`](https://carverauto.buildbuddy.io/invocation/46ec78df-211e-4acc-8d45-e182e49b34fb)
+passed 460 targets (six executed, 454 cached) with two Swift platform skips.
+Later documentation edits do not replace those results.
+
+Three negative controls failed at their intended keeper, in both attempts:
+[disabled identity verification](https://carverauto.buildbuddy.io/invocation/6c957987-8388-4161-a23f-c53a91dcd9ad),
+[child-directory symlink recovery](https://carverauto.buildbuddy.io/invocation/93973624-59a6-402c-8104-99cd2177deb3),
+and [aliased-file recovery](https://carverauto.buildbuddy.io/invocation/a6863c05-b2c4-4539-a39d-9f971c774dab).
+The last case observed changed foreign-block bytes. The restored guards and
+regular single-link preflight pass the final positive runs above.
+
+An earlier [full sweep](https://carverauto.buildbuddy.io/invocation/33f0eddd-ad10-4b9c-9fc0-f083c0b80a33)
+failed on local disk exhaustion and is not success evidence. The final sweep
+ran after space was restored. Recomputing the checked-in serial partition from
+module weights still places `RecordingWorkerIntegrationTest` on
+`//elixir/serviceradar_core:integration_tests_serial_4`. CI readiness on the
+published head requires that lane to execute all eight recorder worker cases
+and requires the full selected Core and Web database lifecycles, including
+cleanup and fixture-generation lease release. The invocations above predate the
+two cases that replace the marker across a successful freeze; they are not
+evidence for that receipt boundary. Those cases execute generated synthetic
+media. They do not establish provider readiness, physical-volume identity, or
+deployed-camera validation.
+
+The first publication run stopped before push. Its preserved document/format
+commit `8b4d8fea` was replayed as `6fee12020d` with the same tree, on the author
+feature head `8fc730f53a`. Subsequent reconciliation only updated the handoff
+documents. This staging rebase keeps that attestation and does not claim a new
+test run. No runtime behavior or test assertion changed during this recovery.
+Fresh no-mistakes validation and the published-head database gate above remain
+required.
+
+The synthetic storage HTTP fixture now leaves its task supervisors to ExUnit.
+`//elixir/serviceradar_core_elx:camera_storage_test` executed on RBE in
+[2fb8c5b0](https://carverauto.buildbuddy.io/invocation/2fb8c5b0-bda6-42b2-afad-72388ac67f1d):
+ExUnit reported 16 tests and 0 failures, including provider identity,
+wrong-identity verification, and the provider-body deadline. Bazel counted one
+executed test target. That run is the fixture owner on a disposable remote
+filesystem. It is not the eight guarded `RecordingWorkerIntegrationTest` cases,
+and it is not a deployed camera. Those database cases still require the
+published-head Core lane, full selected Core and Web lifecycles, teardown, and
+fixture-generation lease release.

@@ -97,6 +97,13 @@ cosign verification for plugin imports; see the [WASM Plugins](./wasm-plugins.md
 guide for the publishing flow. Then assign both plugin manifests to the agent(s)
 that reach your AWX network. The `inventory_sync` assignment is what drives the
 `Device.ansible_managed` flag — without it, no devices flip to ansible-managed.
+It also retires devices: once a complete sync of a controller no longer reports a
+host, and the host has gone unreported for `source_retirement_min_absence_hours`,
+the device loses its AWX source. A device only AWX reported, and otherwise
+retired-only, is hidden and then deleted after the retired-record grace period; a
+device another source also reports stays, without its AWX data. A partial sync
+retires nothing. See
+[DIRE identity model](./dire-identity-model.md) for the rule.
 
 If you are authoring or customizing WASM plugins, see the developer portal at
 [developer.serviceradar.cloud](https://developer.serviceradar.cloud) for the
@@ -254,7 +261,7 @@ If the `inventory_sync` plugin assignment is wired up on the controller's agent,
 1. Plugin runs on schedule.
 2. Plugin calls AWX inventory API.
 3. Plugin skips any host whose variables carry neither an IP (`ansible_host` or `ansible_ssh_host`) nor a NIC MAC, then emits a `DeviceDiscovery` aggregate (`source: "awx"`) for the remaining hosts via `result.WithDeviceDiscovery(...)`.
-4. Agent → gateway → DIRE merges the records with existing devices by the AWX source key (controller + host id), MAC, or IP — never by hostname.
+4. Agent → gateway → DIRE merges the record into the device that already owns that AWX host (controller + host id) or that shares a MAC. An exact `ansible_host` address also merges when the first DNS label of the host name agrees (case-insensitive; `host01` agrees with `host01.example.com`; an address is not a host name), when a Proxmox guest anchors the record, or when the device at that address has no MAC. The address alone does not merge into a device that has a MAC, or into an agent-managed device under a different name. A host name without that address never merges, and a MAC that contradicts the device's MACs refuses the match. The device that holds the address survives; a linked Proxmox guest survives over both. The merge is audited as `awx_host_network_match`, or `awx_proxmox_network_match` when a guest anchors it.
 5. Matched devices get `ansible_managed = true`; anchored AWX hosts that DIRE still cannot match surface in **Settings → Ansible → Controllers** as a "needs review" list (v2 feature; currently they're emitted but not yet rendered).
 
 No manual "mark Ansible-managed" toggle exists — the state is fully derived.
