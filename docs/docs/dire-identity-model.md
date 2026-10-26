@@ -267,8 +267,10 @@ resolves through it. Exactly one device must qualify across the remaining
 addresses; two qualifying devices leave the node unresolved by this step.
 
 A node found this way that already has a record holding nothing but its own
-integration ids merges that record into the fingerprinted device. The record has
-no agent, and the merge is audited in `merge_audit` with reason
+integration ids and no agent can merge that record into the fingerprinted device
+through `IdentityReconciler.merge_devices`. All MergeEngine guards apply; a
+refused merge leaves the records separate. A successful merge is audited in
+`merge_audit` with reason
 `hypervisor_node_candidate_match`. Such a record is left from before the node's
 address resolved; its address was dropped because a declarative source never
 displaces a live holder. A record holding anything else is left alone.

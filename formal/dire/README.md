@@ -156,12 +156,9 @@ Every `resolution_goal_*` configuration also checks `AddressNeverMerges`: no mer
 caused by address or IP-alias evidence. No address-only record in the model ever holds an alias
 (sweep-created records get no alias sightings, as in the code), so absorbing one is unreachable
 either way; the property guards against any change that lets address evidence merge records.
-It covers the observers the model has, and hypervisor enrichment is not one of them. Its node
-binding (`HypervisorEnrichmentIngestor`, "Hypervisor nodes" in
-`docs/docs/dire-identity-model.md`) can merge an integration-only node record into a device. That
-merge never rests on the address alone. It also needs the mapper's PVE fingerprint at the address
-and the node's identity from the authenticated controller scope. It is refused when the device
-holds another hypervisor object's integration id.
+It covers only the modeled observers; hypervisor enrichment is not modeled. See
+[Hypervisor nodes](../../docs/docs/dire-identity-model.md#hypervisor-nodes) for the
+binding and merge contract implemented by `HypervisorEnrichmentIngestor`.
 
 Every `resolution_goal_*` configuration also checks `AliasFollowsSyncedDevice`: after a source
 sync observes a device at an address, every identified record keeping a confirmed alias of the
