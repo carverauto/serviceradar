@@ -969,7 +969,9 @@ a succession and reactivation candidate. A marked record named by an open de-dup
 SHALL NOT be deleted while the task is open. A sweep, address-only or MAC-only sighting SHALL NOT
 clear the mark, extend the grace period or restore the tombstone. The grace deletion pass SHALL
 be bounded by the same mass guard as retirement. A record that an operator restores SHALL NOT be
-marked again until another of its source-authoritative identifiers is retired. When a marked
+marked again until another of its source-authoritative identifiers is retired, except by AWX
+source retirement of an AWX-only record that is still absent and retired-only (see the DIRE
+identity model). When a marked
 record comes to hold an agent identifier or a source-authoritative identifier, by reactivation,
 by a succession merge into it or by any ingest, the transaction that registers the identifier
 SHALL clear the mark.

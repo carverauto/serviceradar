@@ -40,6 +40,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.Identity.AwxSourceRetirementWorker
   alias ServiceRadar.Inventory.Identity.GuestAddress
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -99,11 +100,23 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     emit_state_events =
       Keyword.get(opts, :emit_state_events, &SyncIngestor.emit_committed_state_events/1)
 
+    retire_absent = Keyword.get(opts, :retire_absent, &AwxSourceRetirementWorker.enqueue/1)
+
     with {:ok, %{notifications: notifications, state_events: state_events}} <-
            transaction.(aggregates, fn -> ingest_payload(payload, status, opts, true) end) do
       :ok = emit_state_events.(state_events)
+      queue_awx_source_retirement(aggregates, retire_absent)
       AwxMembershipReconciler.notify_committed(notifications, opts)
     end
+  end
+
+  # Only a complete observation proves a host absent, so only one queues the controller's
+  # retirement pass, after it commits (`AwxSourceRetirementWorker`).
+  defp queue_awx_source_retirement(aggregates, retire_absent) do
+    for %{complete: true, controller_id: controller_id} <- aggregates,
+        do: :ok = retire_absent.(controller_id)
+
+    :ok
   end
 
   defp ingest_payload(payload, status, opts, serialize_awx?) do
@@ -1018,6 +1031,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end)
   end
 
+  # An AWX host record describes a host, so the live device that holds that host's network
+  # identity (a swept, mapped or agent-managed device) is the richer record: it survives and the
+  # AWX record merges into it. A linked Proxmox guest device survives over both.
   defp reconcile_one_awx_update(update, guest, actor) do
     partition = Map.get(update, "partition") || "default"
     metadata = Map.get(update, "metadata") || %{}
@@ -1040,17 +1056,18 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     existing_awx_uid =
       lookup_awx_integration_owner([integration_id | legacy_ids], partition)
 
-    network_holder_uid =
-      lookup_corroborated_network_holder(
-        ip,
-        macs,
-        partition,
-        guest_uid || existing_awx_uid,
-        guest != nil
-      )
+    holder =
+      lookup_corroborated_network_holder(ip, macs, %{
+        partition: partition,
+        anchor_uid: guest_uid || existing_awx_uid,
+        guest_anchored?: guest != nil,
+        host_name: awx_host_name(update, metadata)
+      })
+
+    holder_uid = holder && holder.uid
 
     candidate_uids =
-      [guest_uid, existing_awx_uid, network_holder_uid]
+      [guest_uid, holder_uid, existing_awx_uid]
       |> Enum.filter(&is_binary/1)
       |> Enum.uniq()
 
@@ -1059,26 +1076,34 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
         update
 
       [survivor_uid | rest] ->
-        Enum.each(rest, fn source_uid ->
-          if source_uid != survivor_uid do
-            _ =
-              IdentityReconciler.merge_devices(source_uid, survivor_uid,
-                actor: actor,
-                reason: "awx_proxmox_network_match",
-                details: %{
-                  "awx_integration_id" => integration_id,
-                  "guest_provider_ref" => guest && guest.provider_ref
-                }
-              )
-          end
-        end)
+        merge_opts = [
+          actor: actor,
+          reason: if(guest, do: "awx_proxmox_network_match", else: "awx_host_network_match"),
+          details: %{
+            "awx_integration_id" => integration_id,
+            "guest_provider_ref" => guest && guest.provider_ref,
+            "corroboration" => holder && holder.corroboration
+          }
+        ]
 
-        if is_nil(existing_awx_uid) do
+        merged_uids =
+          Enum.filter(rest, fn source_uid ->
+            IdentityReconciler.merge_devices(source_uid, survivor_uid, merge_opts) == :ok
+          end)
+
+        if is_nil(existing_awx_uid) or existing_awx_uid in merged_uids do
           Map.put(update, "device_id", survivor_uid)
         else
           update
         end
     end
+  end
+
+  defp awx_host_name(update, metadata) do
+    first_present([
+      Map.get(update, "hostname"),
+      get_in(metadata, ["awx", "host_name"])
+    ])
   end
 
   defp live_device_uid(uid) when is_binary(uid) do
@@ -1118,24 +1143,35 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end
   end
 
-  defp lookup_corroborated_network_holder(ip, macs, partition, anchor_uid, has_proxmox_link?) do
+  defp lookup_corroborated_network_holder(ip, macs, context) do
     cond do
       macs != [] ->
-        lookup_mac_holder_uid(macs, partition, anchor_uid) ||
-          if(present?(ip), do: lookup_ip_holder_uid(ip, macs, partition, anchor_uid, true))
-
-      present?(ip) and has_proxmox_link? ->
-        lookup_ip_holder_uid(ip, [], partition, anchor_uid, true)
+        lookup_mac_holder(macs, context) ||
+          if(present?(ip), do: lookup_ip_holder(ip, macs, context))
 
       present?(ip) ->
-        lookup_ip_holder_uid(ip, [], partition, anchor_uid, false)
+        lookup_ip_holder(ip, [], context)
 
       true ->
         nil
     end
   end
 
-  defp lookup_mac_holder_uid(macs, partition, anchor_uid) do
+  # The claim an AWX record makes on a matched device. Anchored to a Proxmox guest, the guest
+  # device survives, and a guest is a managed child asset that must not absorb an agent-managed
+  # device. Otherwise, once a MAC match or an address plus host name agreement identifies the
+  # device as the AWX host itself, the record is that host's inventory record.
+  defp awx_claim_type(%{guest_anchored?: true}, _host_identified?), do: :managed_child_asset
+  defp awx_claim_type(_context, true), do: :host_inventory_record
+  defp awx_claim_type(_context, false), do: :managed_child_asset
+
+  defp claimable_holder?(device, claim_type, anchor_uid) do
+    DeviceClaimPolicy.reusable_for_claim?(device, claim_type) and
+      (is_nil(anchor_uid) or device.uid == anchor_uid or
+         SourceAuthorityGuard.ensure_merge_allowed([device.uid, anchor_uid]) == :ok)
+  end
+
+  defp lookup_mac_holder(macs, context) do
     sql = """
     SELECT d.uid, d.agent_id, COALESCE(d.discovery_sources, ARRAY[]::text[]), COALESCE(d.metadata, '{}'::jsonb)
     FROM platform.ocsf_devices d
@@ -1154,7 +1190,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     LIMIT 1
     """
 
-    case Repo.query(sql, [macs, partition]) do
+    case Repo.query(sql, [macs, context.partition]) do
       {:ok, %{rows: [[uid, agent_id, discovery_sources, metadata]]}} ->
         device = %Device{
           uid: uid,
@@ -1163,10 +1199,8 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
           metadata: metadata || %{}
         }
 
-        if DeviceClaimPolicy.reusable_for_claim?(device, :managed_child_asset) and
-             (is_nil(anchor_uid) or uid == anchor_uid or
-                SourceAuthorityGuard.ensure_merge_allowed([uid, anchor_uid]) == :ok) do
-          uid
+        if claimable_holder?(device, awx_claim_type(context, true), context.anchor_uid) do
+          %{uid: uid, corroboration: "mac"}
         end
 
       _ ->
@@ -1174,12 +1208,13 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     end
   end
 
-  defp lookup_ip_holder_uid(ip, guest_macs, partition, anchor_uid, corroborated_by_proxmox?) do
+  defp lookup_ip_holder(ip, awx_macs, context) do
     sql = """
     SELECT d.uid,
            d.agent_id,
            COALESCE(d.discovery_sources, ARRAY[]::text[]),
            COALESCE(d.metadata, '{}'::jsonb),
+           d.hostname,
            d.mac,
            COALESCE(
              ARRAY(
@@ -1196,8 +1231,8 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     LIMIT 1
     """
 
-    case Repo.query(sql, [ip, partition]) do
-      {:ok, %{rows: [[uid, agent_id, discovery_sources, metadata, d_mac, device_macs]]}} ->
+    case Repo.query(sql, [ip, context.partition]) do
+      {:ok, %{rows: [[uid, agent_id, discovery_sources, metadata, hostname, d_mac, device_macs]]}} ->
         device = %Device{
           uid: uid,
           agent_id: agent_id,
@@ -1211,24 +1246,71 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
           |> Enum.filter(&present?/1)
           |> MapSet.new()
 
-        g_macs = MapSet.new(guest_macs)
+        host_name_agrees? = host_labels_agree?(context.host_name, hostname)
 
-        mac_contradicts? =
-          MapSet.size(g_macs) > 0 and MapSet.size(holder_macs) > 0 and
-            MapSet.disjoint?(g_macs, holder_macs)
+        corroboration =
+          ip_holder_corroboration(
+            MapSet.new(awx_macs),
+            holder_macs,
+            context.guest_anchored?,
+            host_name_agrees?
+          )
 
-        unanchored_holder? = MapSet.size(holder_macs) == 0
-
-        if not mac_contradicts? and
-             (corroborated_by_proxmox? or unanchored_holder?) and
-             DeviceClaimPolicy.reusable_for_claim?(device, :managed_child_asset) and
-             (is_nil(anchor_uid) or uid == anchor_uid or
-                SourceAuthorityGuard.ensure_merge_allowed([uid, anchor_uid]) == :ok) do
-          uid
+        if corroboration &&
+             claimable_holder?(
+               device,
+               awx_claim_type(context, host_name_agrees?),
+               context.anchor_uid
+             ) do
+          %{uid: uid, corroboration: corroboration}
         end
 
       _ ->
         nil
     end
   end
+
+  # An address match alone is weak: the address may have moved to another host. It is accepted
+  # when the host names agree, when the MAC sets overlap, when a Proxmox guest links the record
+  # and the holder is MAC-anchored, or when the holder carries no MAC that could contradict it.
+  # A MAC contradiction refuses the match whatever else agrees.
+  defp ip_holder_corroboration(awx_macs, holder_macs, guest_anchored?, host_name_agrees?) do
+    mac_contradicts? =
+      MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
+        MapSet.disjoint?(awx_macs, holder_macs)
+
+    macs_overlap? =
+      MapSet.size(awx_macs) > 0 and MapSet.size(holder_macs) > 0 and
+        not MapSet.disjoint?(awx_macs, holder_macs)
+
+    cond do
+      mac_contradicts? -> nil
+      host_name_agrees? -> "ip_host_name"
+      macs_overlap? -> "mac"
+      MapSet.size(holder_macs) == 0 -> "ip_unanchored_holder"
+      guest_anchored? -> "ip_proxmox"
+      true -> nil
+    end
+  end
+
+  # Host names agree when their first DNS labels are equal ignoring case, so `host01`,
+  # `HOST01` and `host01.example.com` agree. A blank name or an address never agrees.
+  defp host_labels_agree?(left, right) do
+    left_label = host_label(left)
+    left_label != nil and left_label == host_label(right)
+  end
+
+  defp host_label(name) when is_binary(name) do
+    trimmed = String.trim(name)
+
+    label =
+      trimmed
+      |> String.split(".", parts: 2)
+      |> List.first()
+      |> String.downcase()
+
+    if label != "" and not valid_ip?(trimmed), do: label
+  end
+
+  defp host_label(_name), do: nil
 end

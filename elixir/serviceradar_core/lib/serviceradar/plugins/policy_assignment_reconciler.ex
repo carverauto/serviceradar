@@ -53,8 +53,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   @callback create_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback update_assignment(map(), map(), map()) :: {:ok, map()} | {:error, term()}
   @callback disable_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
-  @callback find_enabled_assignment(String.t(), String.t(), String.t(), map()) ::
-              {:ok, map() | nil} | {:error, term()}
+  @callback list_enabled_assignments(String.t(), String.t(), String.t(), map()) ::
+              {:ok, [map()]} | {:error, term()}
 
   @spec reconcile(map(), [map()], keyword()) :: {:ok, reconcile_result()} | {:error, [String.t()]}
   def reconcile(policy, input_defs, opts \\ []) do
@@ -374,38 +374,46 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   # agent under a drifted assignment — an older policy_id/source_key whose row
   # `list_policy_assignments/3` no longer matches for the current policy. Adopt
   # that single row (update it to the desired policy spec) so there is exactly
-  # one enabled assignment per (agent, package), owned by the current rule. This
-  # is the golden path: no orphaned enabled rows are left behind, and the next
-  # reconcile is a clean matching no-op.
+  # one enabled assignment per (agent, plugin, owner), owned by the current
+  # rule. This is the golden path: no orphaned enabled rows are left behind, and
+  # the next reconcile is a clean matching no-op.
   defp adopt_existing_assignment(spec, stats, actor, store, create_reason) do
-    case store.find_enabled_assignment(
+    case store.list_enabled_assignments(
            spec.partition_id,
            spec.agent_uid,
            spec.plugin_package_id,
            actor
          ) do
-      {:ok, nil} ->
-        {:halt, {:error, create_reason}}
-
-      {:ok, existing} ->
-        adopt_if_same_owner(existing, spec, stats, actor, store, create_reason)
+      {:ok, enabled} ->
+        adopt_same_owner(enabled, spec, stats, actor, store, create_reason)
 
       {:error, reason} ->
         {:halt, {:error, reason}}
     end
   end
 
-  # Another credential rule's assignment for the same plugin may legitimately
-  # coexist on this agent (see AssignmentOwner). Adopting it would rewrite that
-  # rule's assignment into this one, so only a row of the same owner is adopted.
-  defp adopt_if_same_owner(existing, spec, stats, actor, store, create_reason) do
-    if AssignmentOwner.same_owner?(spec_policy_id(spec), Map.get(existing, :policy_id)) do
-      case store.update_assignment(existing, spec, actor) do
-        {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    else
-      {:halt, {:error, create_reason}}
+  # Other credential rules' assignments for the same plugin may legitimately
+  # coexist on this agent (see AssignmentOwner). Adopting one would rewrite that
+  # rule's assignment into this one, so only a row that collided with this
+  # owner is adopted: this rule's own row first, otherwise a manual or other
+  # policy row. With neither, the create error is reported.
+  defp adopt_same_owner(enabled, spec, stats, actor, store, create_reason) do
+    policy_id = spec_policy_id(spec)
+    owner = AssignmentOwner.owner(policy_id)
+
+    adoptable =
+      Enum.filter(enabled, &AssignmentOwner.same_owner?(policy_id, Map.get(&1, :policy_id)))
+
+    case Enum.find(adoptable, &(AssignmentOwner.owner(Map.get(&1, :policy_id)) == owner)) ||
+           List.first(adoptable) do
+      nil ->
+        {:halt, {:error, create_reason}}
+
+      existing ->
+        case store.update_assignment(existing, spec, actor) do
+          {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
     end
   end
 
@@ -639,7 +647,7 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
     end
 
     @impl true
-    def find_enabled_assignment(partition_id, agent_uid, plugin_package_id, actor) do
+    def list_enabled_assignments(partition_id, agent_uid, plugin_package_id, actor) do
       with {:ok, plugin_id} <- plugin_id_for_package(plugin_package_id, actor) do
         PluginAssignment
         |> Ash.Query.for_read(
@@ -649,11 +657,6 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
         )
         |> Ash.Query.filter(plugin_id == ^plugin_id and enabled == true)
         |> Ash.read(actor: actor)
-        |> case do
-          {:ok, [assignment | _]} -> {:ok, assignment}
-          {:ok, []} -> {:ok, nil}
-          {:error, reason} -> {:error, reason}
-        end
       end
     end
 

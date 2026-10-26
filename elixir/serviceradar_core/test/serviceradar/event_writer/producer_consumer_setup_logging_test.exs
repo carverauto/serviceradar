@@ -52,37 +52,14 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
 
     defp response_for("$JS.API.STREAM.NAMES"), do: %{"streams" => ["flows"]}
 
-    defp response_for("$JS.API.STREAM.CREATE.flows") do
-      %{"type" => "io.nats.jetstream.api.v1.stream_create_response"}
+    # Every durable the reconciler would create already exists. A worker only
+    # reads the server, so any other request is a test failure.
+    defp response_for("$JS.API.CONSUMER.INFO." <> rest) do
+      durable = rest |> String.split(".") |> List.last()
+      %{"config" => %{"durable_name" => durable, "filter_subject" => "flows.raw.netflow"}}
     end
 
-    defp response_for(topic) do
-      cond do
-        String.contains?(topic, ".CONSUMER.INFO.") ->
-          %{"error" => %{"code" => 404, "description" => "consumer not found"}}
-
-        String.contains?(topic, ".CONSUMER.DURABLE.CREATE.") ->
-          %{"type" => "io.nats.jetstream.api.v1.consumer_create_response"}
-
-        String.ends_with?(topic, ".CONSUMER.DELETE.events.already-gone") ->
-          %{
-            "error" => %{
-              "code" => 404,
-              "err_code" => 10_014,
-              "description" => "consumer not found"
-            }
-          }
-
-        String.ends_with?(topic, ".CONSUMER.DELETE.events.server-refuses") ->
-          %{"error" => %{"code" => 500, "description" => "jetstream unavailable"}}
-
-        String.contains?(topic, ".CONSUMER.DELETE.") ->
-          %{"type" => "io.nats.jetstream.api.v1.consumer_delete_response", "success" => true}
-
-        true ->
-          raise "unexpected JetStream request: #{topic}"
-      end
-    end
+    defp response_for(topic), do: raise("unexpected JetStream request: #{topic}")
   end
 
   test "best-effort setup failures warn without an error and preserve healthy consumers" do
@@ -146,29 +123,20 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     assert log =~ ~s(resolved: "flows")
     assert length(Regex.scan(~r/EventWriter skipping best-effort drain consumer/, log)) == 1
     refute log =~ "[error]"
-    refute log =~ "Failed to initialize EventWriter durable consumer"
+    refute log =~ "could not bind durable consumer"
     assert Process.alive?(conn)
 
-    assert_receive {:jetstream_request, "$JS.API.STREAM.NAMES"}
+    # Both binds only resolve the stream and read the durable.
+    durable_info = "$JS.API.CONSUMER.INFO.flows.serviceradar-event-writer-netflow-raw"
 
-    assert_receive {:jetstream_request, "$JS.API.STREAM.CREATE.flows"}
-
-    assert_receive {:jetstream_request,
-                    "$JS.API.CONSUMER.INFO.flows.serviceradar-event-writer-netflow-raw"}
-
-    assert_receive {:jetstream_request,
-                    "$JS.API.CONSUMER.DURABLE.CREATE.flows.serviceradar-event-writer-netflow-raw"}
+    assert drain_requests() == [
+             "$JS.API.STREAM.NAMES",
+             durable_info,
+             "$JS.API.STREAM.NAMES",
+             durable_info
+           ]
 
     assert_receive {:subscribed, 99, ^pull_subject}
-
-    assert_receive {:jetstream_request, "$JS.API.STREAM.NAMES"}
-
-    assert_receive {:jetstream_request,
-                    "$JS.API.CONSUMER.INFO.flows.serviceradar-event-writer-netflow-raw"}
-
-    assert_receive {:jetstream_request,
-                    "$JS.API.CONSUMER.DURABLE.CREATE.flows.serviceradar-event-writer-netflow-raw"}
-
     refute_received {:subscribed, 100, _topic}
     refute_received {:unsubscribed, 99}
   end
@@ -211,14 +179,14 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     assert String.starts_with?(pull_subject, @netflow_inbox_prefix)
 
     assert log =~ "[error]"
-    assert log =~ "Failed to initialize EventWriter durable consumer"
+    assert log =~ "EventWriter could not bind durable consumer"
     assert log =~ ~s(name="NETFLOW_RAW_REQUIRED")
     assert log =~ ~s(durable="serviceradar-event-writer-netflow-raw-required")
     assert log =~ ~s(stream="events")
     assert log =~ ~s(filter_subject="flows.raw.netflow")
     assert log =~ ~s(expected: "events")
     assert log =~ ~s(resolved: "flows")
-    assert length(Regex.scan(~r/Failed to initialize EventWriter durable consumer/, log)) == 1
+    assert length(Regex.scan(~r/EventWriter could not bind durable consumer/, log)) == 1
 
     refute log =~ "skipping best-effort drain consumer"
 
@@ -259,58 +227,6 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     assert_receive {:subscribed, _sid, ^second}
   end
 
-  test "retired consumers are deleted once the live consumers are ready, and a failure is not fatal" do
-    config = %Config{
-      consumer_name: "serviceradar-event-writer",
-      consumer_pull_batch_size: 64,
-      streams: [%{name: "NETFLOW_RAW", stream_name: "flows", subject: "flows.raw.netflow"}],
-      retired_consumers: [
-        %{stream_name: "events", consumer_name: "log-promotion"},
-        %{stream_name: "events", consumer_name: "already-gone"},
-        %{stream_name: "events", consumer_name: "server-refuses"}
-      ]
-    }
-
-    conn = start_supervised!({FakeJetStreamConnection, self()})
-
-    log =
-      capture_log(fn ->
-        assert {:ok, %{conn: ^conn, consumers: [_live]}} =
-                 Producer.setup_jetstream_consumers(conn, config)
-      end)
-
-    assert_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.log-promotion"}
-    assert_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.already-gone"}
-    assert_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.server-refuses"}
-
-    # An absent consumer is already retired; only the refused delete is a warning.
-    assert log =~ "could not delete retired JetStream consumer events/server-refuses"
-    refute log =~ "events/already-gone"
-    assert Process.alive?(conn)
-  end
-
-  test "retired consumers are not touched when the live consumers fail to start" do
-    config = %Config{
-      consumer_name: "serviceradar-event-writer",
-      consumer_pull_batch_size: 64,
-      streams: [
-        %{name: "NETFLOW_RAW_REQUIRED", stream_name: "events", subject: "flows.raw.netflow"}
-      ],
-      retired_consumers: [%{stream_name: "events", consumer_name: "log-promotion"}]
-    }
-
-    conn = start_supervised!({FakeJetStreamConnection, self()})
-
-    [stream] = config.streams
-
-    capture_log(fn ->
-      assert {:error, {:consumer_setup_failed, [{^stream, {"NETFLOW_RAW_REQUIRED", _reason}}]}} =
-               Producer.setup_jetstream_consumers(conn, config)
-    end)
-
-    refute_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.log-promotion"}
-  end
-
   test "an empty stream configuration rejects setup and closes the connection" do
     config = %Config{consumer_name: "serviceradar-event-writer", streams: []}
     conn = start_supervised!({FakeJetStreamConnection, self()})
@@ -324,17 +240,18 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     refute_received {:unsubscribed, _sid}
   end
 
-  defmodule PlacementFailingConnection do
+  defmodule DurableNotReadyConnection do
     @moduledoc false
-    # A JetStream server with room for every stream except `mtr_results`, whose
-    # creation is refused with err 10005 until `failures` attempts have failed.
+    # A JetStream server where the METRICS durable exists and the MTR_RESULTS
+    # durable appears only after `misses` reads, as when the coordinator's
+    # reconciler has not created it yet.
 
     use GenServer
 
-    def child_spec({test_pid, failures}) do
+    def child_spec({test_pid, misses}) do
       %{
         id: __MODULE__,
-        start: {__MODULE__, :start_link, [{test_pid, failures}]},
+        start: {__MODULE__, :start_link, [{test_pid, misses}]},
         restart: :temporary
       }
     end
@@ -342,13 +259,13 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
     def start_link(args), do: GenServer.start_link(__MODULE__, args)
 
     @impl true
-    def init({test_pid, failures}),
-      do: {:ok, %{test_pid: test_pid, failures: failures, request_count: 0, next_sid: 200}}
+    def init({test_pid, misses}),
+      do: {:ok, %{test_pid: test_pid, misses: misses, request_count: 0, next_sid: 200}}
 
     @impl true
     def handle_call({:request, request}, _from, state) do
       {body, state} = respond(request.topic, state)
-      inbox = "_INBOX.placement-test.#{state.request_count}"
+      inbox = "_INBOX.durable-test.#{state.request_count}"
       send(request.recipient, {:msg, %{topic: inbox, body: Jason.encode!(body)}})
       send(state.test_pid, {:jetstream_request, request.topic})
       {:reply, {:ok, inbox}, %{state | request_count: state.request_count + 1}}
@@ -367,58 +284,43 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
 
     defp respond("$JS.API.STREAM.NAMES", state), do: {%{"streams" => []}, state}
 
-    defp respond("$JS.API.STREAM.CREATE.mtr_results", %{failures: failures} = state)
-         when failures > 0 do
-      error = %{
-        "code" => 400,
-        "err_code" => 10_005,
-        "description" => "no suitable peers for placement, insufficient storage"
-      }
+    defp respond("$JS.API.CONSUMER.INFO.metrics." <> durable, state),
+      do: {durable_info(durable, "metrics.>"), state}
 
-      {%{"error" => error}, %{state | failures: failures - 1}}
+    defp respond("$JS.API.CONSUMER.INFO.mtr_results." <> _durable, %{misses: misses} = state)
+         when misses > 0 do
+      {%{
+         "error" => %{"code" => 404, "err_code" => 10_014, "description" => "consumer not found"}
+       }, %{state | misses: misses - 1}}
     end
 
-    defp respond("$JS.API.STREAM.CREATE." <> _stream, state),
-      do: {%{"type" => "io.nats.jetstream.api.v1.stream_create_response"}, state}
+    defp respond("$JS.API.CONSUMER.INFO.mtr_results." <> durable, state),
+      do: {durable_info(durable, "mtr.results.>"), state}
 
-    defp respond(topic, state) do
-      cond do
-        String.contains?(topic, ".CONSUMER.INFO.") ->
-          {%{"error" => %{"code" => 404, "description" => "consumer not found"}}, state}
+    defp respond(topic, _state), do: raise("unexpected JetStream request: #{topic}")
 
-        String.contains?(topic, ".CONSUMER.DURABLE.CREATE.") ->
-          {%{"type" => "io.nats.jetstream.api.v1.consumer_create_response"}, state}
-
-        String.contains?(topic, ".CONSUMER.DELETE.") ->
-          {%{"type" => "io.nats.jetstream.api.v1.consumer_delete_response", "success" => true},
-           state}
-
-        true ->
-          raise "unexpected JetStream request: #{topic}"
-      end
-    end
+    defp durable_info(durable, filter),
+      do: %{"config" => %{"durable_name" => durable, "filter_subject" => filter}}
   end
 
-  defmodule RecordingStreamHealth do
-    @moduledoc false
-    @behaviour ServiceRadar.EventWriter.StreamHealth
-
-    @impl true
-    def consumer_setup_failed(stream, reason, attempt) do
-      send(:event_writer_stream_health_test, {:setup_failed, stream, reason, attempt})
-      :ok
-    end
-
-    @impl true
-    def consumer_setup_recovered(stream, attempts) do
-      send(:event_writer_stream_health_test, {:setup_recovered, stream, attempts})
-      :ok
-    end
-  end
-
-  describe "a stream NATS cannot place" do
+  describe "a durable that does not exist yet" do
     setup do
-      Process.register(self(), :event_writer_stream_health_test)
+      test_pid = self()
+      handler = "producer-bind-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach_many(
+        handler,
+        [
+          [:serviceradar, :event_writer, :consumer_bind, :failed],
+          [:serviceradar, :event_writer, :consumer_bind, :recovered]
+        ],
+        fn event, measurements, metadata, _ ->
+          send(test_pid, {List.last(event), metadata.stream, measurements})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
 
       metrics = %{name: "METRICS", stream_name: "metrics", subject: "metrics.>"}
       mtr = %{name: "MTR_RESULTS", stream_name: "mtr_results", subject: "mtr.results.>"}
@@ -430,36 +332,33 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
         retired_consumers: [%{stream_name: "events", consumer_name: "log-promotion"}]
       }
 
-      %{config: config, metrics: metrics, mtr: mtr}
+      %{config: config, mtr: mtr}
     end
 
-    test "does not stop the consumers that did set up", %{config: config, mtr: mtr} do
-      conn = start_supervised!({PlacementFailingConnection, {self(), 1}})
+    test "does not stop the consumers that did bind", %{config: config, mtr: mtr} do
+      conn = start_supervised!({DurableNotReadyConnection, {self(), 1}})
 
       capture_log(fn ->
         assert {:ok, context} = Producer.setup_jetstream_consumers(conn, config)
         assert [%{stream: "metrics", sid: 200}] = context.consumers
-        assert [{^mtr, {"MTR_RESULTS", %{"err_code" => 10_005}}}] = context.failed_streams
+
+        assert [{^mtr, {"MTR_RESULTS", {:durable_not_ready, "mtr_results"}}}] =
+                 context.failed_streams
       end)
 
       # Consumer subscriptions are integer sids; request inboxes are unsubscribed by topic.
       refute_received {:unsubscribed, 200}
       assert Process.alive?(conn)
-      # The failing stream may be a retired consumer's replacement.
-      refute_received {:jetstream_request, "$JS.API.CONSUMER.DELETE." <> _}
     end
 
-    test "is retried on its own and joins the running consumers once it places",
+    test "is retried on its own and joins the running consumers once it exists",
          %{config: config, mtr: mtr} do
-      # The earlier failed attempt is the hand-built entry below; this retry places.
-      conn = start_supervised!({PlacementFailingConnection, {self(), 0}})
+      conn = start_supervised!({DurableNotReadyConnection, {self(), 0}})
       state = producer_state(conn, config)
-
-      entry = %{stream: mtr, attempt: 1, reason: :placement}
 
       state = %{
         state
-        | failed_streams: %{"MTR_RESULTS" => entry},
+        | failed_streams: %{"MTR_RESULTS" => %{stream: mtr, attempt: 1, reason: :not_ready}},
           degraded_streams: %{"MTR_RESULTS" => 1}
       }
 
@@ -472,20 +371,18 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       assert state.degraded_streams == %{}
       assert Enum.map(state.consumer_context.consumers, & &1.stream) == ["metrics", "mtr_results"]
       assert MapSet.size(state.pull_subjects) == 2
-      assert_received {:setup_recovered, "MTR_RESULTS", 1}
+      assert_received {:recovered, "MTR_RESULTS", %{attempts: 1}}
       refute_received {:unsubscribed, 200}
-      # Every live consumer is up now, so the retired consumer is deleted.
-      assert_received {:jetstream_request, "$JS.API.CONSUMER.DELETE.events.log-promotion"}
     end
 
-    test "keeps retrying with a longer backoff while placement still fails",
+    test "keeps retrying with a longer backoff while the durable is missing",
          %{config: config, mtr: mtr} do
-      conn = start_supervised!({PlacementFailingConnection, {self(), 5}})
+      conn = start_supervised!({DurableNotReadyConnection, {self(), 5}})
       state = producer_state(conn, config)
 
       state = %{
         state
-        | failed_streams: %{"MTR_RESULTS" => %{stream: mtr, attempt: 1, reason: :placement}},
+        | failed_streams: %{"MTR_RESULTS" => %{stream: mtr, attempt: 1, reason: :not_ready}},
           degraded_streams: %{"MTR_RESULTS" => 1}
       }
 
@@ -497,16 +394,16 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       assert %{"MTR_RESULTS" => %{attempt: 2}} = state.failed_streams
       assert state.degraded_streams == %{"MTR_RESULTS" => 2}
       assert Enum.map(state.consumer_context.consumers, & &1.stream) == ["metrics"]
-      assert_received {:setup_failed, "MTR_RESULTS", {"MTR_RESULTS", %{"err_code" => 10_005}}, 2}
+      assert_received {:failed, "MTR_RESULTS", %{attempt: 2}}
     end
 
     test "ignores a retry scheduled for an earlier connection", %{config: config, mtr: mtr} do
-      conn = start_supervised!({PlacementFailingConnection, {self(), 0}})
+      conn = start_supervised!({DurableNotReadyConnection, {self(), 0}})
       state = producer_state(conn, config)
 
       state = %{
         state
-        | failed_streams: %{"MTR_RESULTS" => %{stream: mtr, attempt: 1, reason: :placement}}
+        | failed_streams: %{"MTR_RESULTS" => %{stream: mtr, attempt: 1, reason: :not_ready}}
       }
 
       stale_conn = spawn(fn -> :ok end)
@@ -514,89 +411,20 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       assert {:noreply, [], ^state} =
                Producer.handle_info({:retry_consumer, stale_conn, "MTR_RESULTS"}, state)
     end
-  end
 
-  describe "stream health across reconnects" do
-    setup do
-      Process.register(self(), :event_writer_stream_health_test)
-
-      config = %Config{
-        consumer_name: "serviceradar-event-writer",
-        streams: [%{name: "MTR_RESULTS", stream_name: "mtr_results", subject: "mtr.results.>"}]
-      }
-
-      mtr = hd(config.streams)
-
-      state = %Producer{
-        config: config,
-        failed_streams: %{},
-        degraded_streams: %{},
-        setup_failures: 0
-      }
-
-      %{state: %{state | stream_health: RecordingStreamHealth}, mtr: mtr}
-    end
-
-    test "a stream degraded before a reconnect and set up after it recovers exactly once",
-         %{state: state, mtr: mtr} do
-      state = Producer.track_failed_streams(state, [{mtr, :placement}])
-      assert_received {:setup_failed, "MTR_RESULTS", :placement, 1}
-      assert state.degraded_streams == %{"MTR_RESULTS" => 1}
-
-      # The connection drops and the reconnect sets every stream up.
-      state = %{state | failed_streams: %{}}
-      state = Producer.track_failed_streams(state, [])
-      assert_received {:setup_recovered, "MTR_RESULTS", 1}
-      assert state.degraded_streams == %{}
-
-      state = Producer.track_failed_streams(state, [])
-      refute_received {:setup_recovered, _stream, _attempts}
-      assert state.degraded_streams == %{}
-    end
-
-    test "a stream failing before and after a reconnect is degraded once",
-         %{state: state, mtr: mtr} do
-      state = Producer.track_failed_streams(state, [{mtr, :placement}])
-      state = %{state | failed_streams: %{}}
-      state = Producer.track_failed_streams(state, [{mtr, :placement}])
-
-      assert_received {:setup_failed, "MTR_RESULTS", :placement, 1}
-      assert_received {:setup_failed, "MTR_RESULTS", :placement, 2}
-      refute_received {:setup_recovered, _stream, _attempts}
-      assert state.degraded_streams == %{"MTR_RESULTS" => 2}
-    end
-
-    test "a connect where no required consumer set up reports each stream and backs off",
-         %{state: state, mtr: mtr} do
-      error = {:consumer_setup_failed, [{mtr, :placement}]}
+    test "a connect where no required consumer bound backs off", %{mtr: mtr} do
+      error = {:consumer_setup_failed, [{mtr, :not_ready}]}
+      state = %Producer{failed_streams: %{}, degraded_streams: %{}, setup_failures: 0}
 
       state = Producer.record_connect_failure(state, error)
-      assert_received {:setup_failed, "MTR_RESULTS", :placement, 1}
-      assert state.degraded_streams == %{"MTR_RESULTS" => 1}
       assert state.setup_failures == 1
       assert Producer.reconnect_delay(error, state.setup_failures) == 5_000
 
       state = Producer.record_connect_failure(state, error)
-      assert_received {:setup_failed, "MTR_RESULTS", :placement, 2}
       assert state.degraded_streams == %{"MTR_RESULTS" => 2}
       assert Producer.reconnect_delay(error, state.setup_failures) == 10_000
-
-      assert Producer.reconnect_delay(error, 50) == 60_000
+      assert Producer.reconnect_delay(:econnrefused, 50) == 60_000
     end
-
-    test "a transport failure backs off and reports no stream",
-         %{state: state} do
-      assert Producer.record_connect_failure(state, :econnrefused).setup_failures == 1
-      assert Producer.reconnect_delay(:econnrefused, 7) == 60_000
-      refute_received {:setup_failed, _stream, _reason, _attempt}
-    end
-  end
-
-  test "retry backoff starts at 5 seconds and caps at 60" do
-    assert Enum.map(1..6, &Producer.consumer_retry_delay/1) ==
-             [5_000, 10_000, 20_000, 40_000, 60_000, 60_000]
-
-    assert Producer.consumer_retry_delay(1_000) == 60_000
   end
 
   test "stream health reads the NATS error code from a setup failure" do
@@ -610,7 +438,7 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
   # A producer connected with only METRICS up, as `handle_info(:connect)` leaves
   # it after a partial setup, without starting a real NATS connection.
   defp producer_state(conn, config) do
-    metrics_only = %{config | streams: Enum.take(config.streams, 1), retired_consumers: []}
+    metrics_only = %{config | streams: Enum.take(config.streams, 1)}
     {:ok, context} = Producer.setup_jetstream_consumers(conn, metrics_only)
 
     %Producer{
@@ -622,9 +450,16 @@ defmodule ServiceRadar.EventWriter.ProducerConsumerSetupLoggingTest do
       sid_to_pull_subject: context.sid_to_pull_subject,
       failed_streams: %{},
       degraded_streams: %{},
-      setup_failures: 0,
-      stream_health: RecordingStreamHealth
+      setup_failures: 0
     }
+  end
+
+  defp drain_requests(acc \\ []) do
+    receive do
+      {:jetstream_request, topic} -> drain_requests([topic | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
   end
 
   defp capture_log_result(fun) do

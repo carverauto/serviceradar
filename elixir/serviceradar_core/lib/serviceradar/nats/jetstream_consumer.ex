@@ -56,6 +56,51 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
+  @doc """
+  Finds the durable `ensure_durable/2` would have created, without changing the
+  server.
+
+  A worker sharing a durable with other replicas calls this instead of
+  `ensure_durable/2`: it resolves the stream the same way (`STREAM.NAMES`) and
+  reads the consumer (`CONSUMER.INFO`), and never creates, updates or deletes a
+  stream or consumer. Returns `{:error, {:durable_not_ready, stream}}` when the
+  durable does not exist yet, and `{:error, {:durable_filter_mismatch, ...}}`
+  when it still has another filter subject; the single owner that runs
+  `ensure_durable/2` fixes either, so the caller retries.
+  """
+  @spec bind_durable(connection_ref(), ensure_opts()) ::
+          {:ok, %{stream_name: String.t(), consumer_name: String.t()}} | {:error, term()}
+  def bind_durable(connection_ref, opts) do
+    domain = Keyword.get(opts, :domain)
+
+    with {:ok, subject} <- fetch_required(opts, :filter_subject),
+         {:ok, consumer_name} <- fetch_required(opts, :consumer_name),
+         {:ok, stream_name} <- resolve_stream_name(connection_ref, opts, subject),
+         {:ok, config} <- existing_durable(connection_ref, stream_name, consumer_name, domain),
+         :ok <- matching_filter(config, stream_name, subject) do
+      {:ok, %{stream_name: stream_name, consumer_name: consumer_name}}
+    end
+  end
+
+  defp existing_durable(connection_ref, stream_name, consumer_name, domain) do
+    case consumer_config(connection_ref, stream_name, consumer_name, domain) do
+      {:ok, config} -> {:ok, config}
+      {:error, %{"code" => 404}} -> {:error, {:durable_not_ready, stream_name}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp matching_filter(config, stream_name, subject) do
+    case Map.get(config, "filter_subject", "") do
+      ^subject ->
+        :ok
+
+      existing ->
+        {:error,
+         {:durable_filter_mismatch, stream: stream_name, expected: subject, actual: existing}}
+    end
+  end
+
   # Prefer CONSUMER.CREATE upsert (NATS 2.12 has no usable CONSUMER.UPDATE responder).
   # INFO first: preserve existing deliver_policy; if absent, use if_absent / default.
   defp upsert_consumer(connection_ref, stream_name, consumer_name, subject, opts) do

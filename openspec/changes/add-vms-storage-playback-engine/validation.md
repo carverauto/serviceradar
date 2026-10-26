@@ -785,13 +785,37 @@ regular single-link preflight pass the final positive runs above.
 
 An earlier [full sweep](https://carverauto.buildbuddy.io/invocation/33f0eddd-ad10-4b9c-9fc0-f083c0b80a33)
 failed on local disk exhaustion and is not success evidence. The final sweep
-ran after space was restored. Guarded database execution is still required on
-the published head: the current owning target is
-`//elixir/serviceradar_core:integration_tests_serial_4`, with all eight recorder
-worker cases. The invocations above predate the two cases that replace the
-marker across a successful freeze and are not evidence for that committed
-receipt. These source checks do not establish provider readiness,
-physical-volume identity or live deployment acceptance.
+ran after space was restored. Recomputing the checked-in serial partition from
+module weights against staging `dde209645` still places `RecordingWorkerIntegrationTest` on
+`//elixir/serviceradar_core:integration_tests_serial_4`. [Spool identity #6004](https://github.com/carverauto/serviceradar/pull/6004)
+is merged at `0ba042babb5b9e6edba70c28554da799e6dc78cd` from head `30566cec`.
+That merge does not record a published-head pass of all eight recorder worker
+cases, and it does not pass media's final published-head database gates. The
+recorded spool gate still requires that lane, the full selected Core and Web
+database lifecycles, cleanup, and fixture-generation lease release. The invocations above predate the
+two cases that replace the marker across a successful freeze; they are not
+evidence for that receipt boundary. Those cases execute generated synthetic
+media. They do not establish provider readiness, physical-volume identity, or
+deployed-camera validation.
+
+The first publication run stopped before push. Its preserved document/format
+commit `8b4d8fea` was replayed as `6fee12020d` with the same tree, on the author
+feature head `8fc730f53a`. Subsequent reconciliation only updated the handoff
+documents. This staging rebase keeps that attestation and does not claim a new
+test run. No runtime behavior or test assertion changed during this recovery.
+Fresh no-mistakes validation and the published-head database gate above remain
+required.
+
+The synthetic storage HTTP fixture now leaves its task supervisors to ExUnit.
+`//elixir/serviceradar_core_elx:camera_storage_test` executed on RBE in
+[2fb8c5b0](https://carverauto.buildbuddy.io/invocation/2fb8c5b0-bda6-42b2-afad-72388ac67f1d):
+ExUnit reported 16 tests and 0 failures, including provider identity,
+wrong-identity verification, and the provider-body deadline. Bazel counted one
+executed test target. That run is the fixture owner on a disposable remote
+filesystem. It is not the eight guarded `RecordingWorkerIntegrationTest` cases,
+and it is not a deployed camera. Those database cases still require the
+published-head Core lane, full selected Core and Web lifecycles, teardown, and
+fixture-generation lease release.
 
 ## Explicit sealed-media upload
 
@@ -824,11 +848,12 @@ CONNECT denial with a directly reachable provider, exact signed streamed bytes,
 range identity/digest verification, deadline cancellation, scratch cleanup and
 refusal of an abandoned staging root.
 
-Four new database cases remain mandatory on the final published head. The two
-archive-upload authority cases route to
-`//elixir/serviceradar_core:integration_tests_serial_6` at the author checkpoint;
-recompute that owner after a rebase. Two joined cases are registered on
-`//elixir/web-ng:networks_live_db_test_0`. They drive the actual one-shot caller,
+Four new database cases remain mandatory on the final published head. Recomputing
+serial weights after staging `dde209645` still places the two archive-upload
+authority cases on `//elixir/serviceradar_core:integration_tests_serial_6` and
+all eight recorder worker cases on `integration_tests_serial_4`. Both joined
+cases stay registered on `//elixir/web-ng:networks_live_db_test_0`. They drive
+the actual one-shot caller,
 private HTTPS coordination and a separate storage process with a synthetic TLS
 provider. The provider checks the committed dispatch marker before PUT. The
 positive case checks exact verification without availability and refuses a

@@ -237,7 +237,12 @@ func parseSizing(env map[string]string) (sizing, []string) {
 		problems = append(problems, fmt.Sprintf("missing %s (NATS max_file_store)", maxFileStoreKey))
 	}
 
-	out := sizing{FallbackBounds: map[string]string{}}
+	// Recovery uses a fixed 64 MiB ceiling in every installation profile;
+	// it is not selected from an environment override.
+	out := sizing{
+		Counted:        []reservation{{Stream: "EXPOSURE_RECOVERY", MaxBytes: 64 << 20, Replicas: 1}},
+		FallbackBounds: map[string]string{},
+	}
 	for _, s := range inventory() {
 		raw, ok := env[s.MaxBytesKey]
 		if !ok {
@@ -1083,9 +1088,9 @@ func TestV1473SingleServerShapeFails(t *testing.T) {
 	if !containsProblem(problems, "events (EventWriter fallback) is") {
 		t.Errorf("a fallback larger than its collector size was not rejected; problems: %q", problems)
 	}
-	// Its finite streams alone need 41.25 GiB against a 7.92 GiB limit.
-	if got, want := worstCaseNeed(parsed.Counted, 1), new(big.Rat).SetInt64(gib*165/4); got.Cmp(want) != 0 {
-		t.Errorf("need = %s, want 41.25 GiB", gibString(got))
+	// Its finite streams plus recovery need 41.3125 GiB against a 7.92 GiB limit.
+	if got, want := worstCaseNeed(parsed.Counted, 1), new(big.Rat).SetInt64(gib*661/16); got.Cmp(want) != 0 {
+		t.Errorf("need = %s, want 41.3125 GiB", gibString(got))
 	}
 }
 

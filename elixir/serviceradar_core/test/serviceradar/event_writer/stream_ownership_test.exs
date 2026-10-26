@@ -14,7 +14,7 @@ defmodule ServiceRadar.EventWriter.StreamOwnershipTest do
 
   alias Gnat.Jetstream.API.Util
   alias ServiceRadar.EventWriter.Config
-  alias ServiceRadar.EventWriter.Producer
+  alias ServiceRadar.EventWriter.ConsumerReconciler
   alias ServiceRadar.EventWriter.StreamOwnership
 
   require Logger
@@ -392,8 +392,7 @@ defmodule ServiceRadar.EventWriter.StreamOwnershipTest do
       conn = start_nats(%{})
       arancini = Enum.find(streams(), &(&1.name == "ARANCINI_CAUSAL"))
 
-      assert {:ok, %{stream: "ARANCINI_CAUSAL"}} =
-               Producer.setup_consumer(conn, config_for([arancini]), arancini)
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config_for([arancini]), arancini)
 
       assert_received {:js, "$JS.API.STREAM.CREATE.ARANCINI_CAUSAL", body}
       created = Jason.decode!(body)
@@ -409,7 +408,7 @@ defmodule ServiceRadar.EventWriter.StreamOwnershipTest do
       conn = start_nats(%{"events" => entry(legacy, 9 * @gib)})
       logs = Enum.find(streams(), &(&1.name == "LOGS"))
 
-      assert {:ok, %{stream: "events"}} = Producer.setup_consumer(conn, config_for([logs]), logs)
+      assert :ok = ConsumerReconciler.ensure_stream(conn, config_for([logs]), logs)
 
       assert_received {:js, "$JS.API.STREAM.UPDATE.events", _body}
       %{"config" => after_setup, "bytes" => bytes} = FakeNats.stream(conn, "events")
@@ -422,40 +421,33 @@ defmodule ServiceRadar.EventWriter.StreamOwnershipTest do
     end
   end
 
-  describe "producer ownership timer" do
+  describe "reconciler ownership timer" do
     test "a tick claims after the grace period and never touches a consumer", %{clock: clock} do
       streams = streams()
       conn = start_nats(%{"flows" => entry(config("flows", max_bytes: 10 * @gib), 9 * @gib)})
       config = %{config_for(streams) | ownership_reconcile_interval_ms: 20}
-      consumer = %{stream: "flows", durable: "d", sid: 41, pull_subject: "_INBOX.pull.test"}
-      context = %{consumers: [consumer], pull_subjects: MapSet.new(["_INBOX.pull.test"])}
 
-      state = %Producer{
+      state = %ConsumerReconciler{
         config: config,
         conn: conn,
         connected: true,
-        consumer_context: context,
         ownership: tracker(clock),
         owned_streams: StreamOwnership.watched_streams(streams)
       }
 
       set_clock(clock, 0)
-      assert {:noreply, [], state} = Producer.handle_info(:ownership_reconcile, state)
+      assert {:noreply, state} = ConsumerReconciler.handle_info(:ownership_reconcile, state)
       assert_receive :ownership_reconcile, 1_000
       assert_shape(conn, "flows", 10 * @gib, nil)
 
       set_clock(clock, @grace)
 
-      {{:noreply, [], state}, _log} =
-        with_log(fn -> Producer.handle_info(:ownership_reconcile, state) end)
+      {{:noreply, state}, _log} =
+        with_log(fn -> ConsumerReconciler.handle_info(:ownership_reconcile, state) end)
 
       assert_receive :ownership_reconcile, 1_000
       assert_shape(conn, "flows", @gib, "event-writer")
-
-      assert state.consumer_context == context
       assert state.connected
-      refute_received {:unsubscribed, _sid}
-      refute_received {:subscribed, _sid, _topic}
       refute Enum.any?(drain_topics(), &String.contains?(&1, ".CONSUMER."))
     end
   end

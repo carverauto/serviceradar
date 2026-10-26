@@ -4,10 +4,11 @@ defmodule ServiceRadar.FlowAttribution.Correlator do
   NetFlow in the warehouse and stamps matching `ocsf_network_activity` flows as
   `attributed_flow` (see `ServiceRadar.FlowAttribution.Correlation`).
 
-  Runs under the EventWriter supervisor, which the cluster coordinator starts on
-  one node. The next tick is scheduled only *after* the current pass finishes,
-  so a slow pass cannot pile up overlapping ticks. Observations expire with
-  their warehouse partitions, so there is nothing to prune here. Without
+  Runs under `ServiceRadar.EventWriter.CoordinatorSupervisor`, which the cluster
+  coordinator starts on one node. The next tick is scheduled only *after* the
+  current pass finishes, so a slow pass cannot pile up overlapping ticks.
+  Observations expire with their warehouse partitions, so there is nothing to
+  prune here. Without
   StarRocks a pass is a no-op (`{:ok, :not_applicable}`); otherwise every pass,
   successful or not, reports its health through `PassMetrics`.
 

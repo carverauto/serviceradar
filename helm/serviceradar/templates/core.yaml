@@ -517,6 +517,12 @@ spec:
         # so anomaly findings/alerts surface without per-deployment extraEnv.
         - name: EVENT_WRITER_ENABLED
           value: {{ include "serviceradar.boolDefaultTrue" (list $eventWriter "enabled") | eq "true" | quote }}
+        # Every core replica runs EventWriter workers bound to the shared
+        # JetStream durables. The count sizes each shared durable's
+        # max_ack_pending and splits analytics.starrocks.streamLoad.maxInFlight
+        # across the replicas.
+        - name: EVENT_WRITER_WORKERS
+          value: {{ default 1 $coreVals.replicas | quote }}
         {{- /* JetStream reservations the chart budget counted (serviceradar.jetstreamBudget):
              every stream EventWriter creates, the EventWriter fallbacks for the
              collector-owned events, flows and ARANCINI_CAUSAL streams (used until a

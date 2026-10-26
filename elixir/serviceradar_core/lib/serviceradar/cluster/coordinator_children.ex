@@ -466,9 +466,11 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     end
   end
 
+  # Only EventWriter's single-owner duties: every core replica runs the workers
+  # (see ServiceRadar.Application).
   defp event_writer_child do
-    if enabled?("EVENT_WRITER_ENABLED", :event_writer_enabled, false) do
-      Supervisor.child_spec(ServiceRadar.EventWriter.Supervisor, restart: :permanent)
+    if ServiceRadar.EventWriter.Supervisor.enabled?() do
+      Supervisor.child_spec(ServiceRadar.EventWriter.CoordinatorSupervisor, restart: :permanent)
     end
   end
 

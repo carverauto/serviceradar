@@ -1,21 +1,24 @@
 defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
   @moduledoc """
-  Node-wide Stream Load admission, shared by every dataset and flow pipeline.
+  Stream Load admission for one node, shared by every dataset and flow pipeline.
 
-  `max_in_flight` limits complete load operations, including sequential redirects
-  and label reconciliation. Waiting callers retain their own payloads under
-  Broadway backpressure; this server stores only monitored caller references.
-  At most twice the concurrency limit may wait, with combined encoded bodies
-  bounded by `max_bytes * max_in_flight`. Overload or a 60-second wait returns an
+  `max_in_flight` is the deployment-wide limit on complete load operations,
+  including sequential redirects and label reconciliation. Every core replica
+  runs EventWriter workers (`EVENT_WRITER_WORKERS` of them), so each node admits
+  its share, `max(1, div(max_in_flight, workers))`, and the deployment stays
+  within `max_in_flight` unless there are more workers than the limit. Waiting
+  callers retain their own payloads under Broadway backpressure; this server
+  stores only monitored caller references. At most twice `max_in_flight` may
+  wait on a node, with combined encoded bodies bounded by
+  `max_bytes * max_in_flight`: those bounds protect the node's memory, not the
+  warehouse, so they are not divided. Overload or a 60-second wait returns an
   error to the existing JetStream retry path. There is no independent retry queue.
-
-  This is a node-wide budget for the single coordinator-owned ingestion tree.
-  Horizontal workers require deployment-wide admission before enabling #5285.
   """
 
   use GenServer
 
   alias ServiceRadar.Analytics.StarRocks.Destination
+  alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
 
   @wait_timeout_ms 60_000
 
@@ -141,16 +144,27 @@ defmodule ServiceRadar.Analytics.StarRocks.LoadAdmission do
     end
   end
 
+  @doc """
+  This node's share of a deployment-wide `max_in_flight`: an equal split across
+  the worker replicas, never below one load.
+  """
+  @spec node_limit(pos_integer(), pos_integer()) :: pos_integer()
+  def node_limit(deployment_limit, workers)
+      when is_integer(deployment_limit) and deployment_limit > 0 and is_integer(workers) and
+             workers > 0,
+      do: max(1, div(deployment_limit, workers))
+
   @impl true
   def init(opts) do
     limits = Destination.stream_load_limits()
-    limit = Keyword.get(opts, :max_in_flight, limits[:max_in_flight])
+    deployment_limit = Keyword.get(opts, :max_in_flight, limits[:max_in_flight])
+    workers = Keyword.get_lazy(opts, :workers, &EventWriterConfig.worker_count/0)
 
     {:ok,
      %{
-       limit: limit,
-       max_waiters: limit * 2,
-       max_wait_bytes: limits[:max_bytes] * limit,
+       limit: node_limit(deployment_limit, workers),
+       max_waiters: deployment_limit * 2,
+       max_wait_bytes: limits[:max_bytes] * deployment_limit,
        wait_timeout_ms: Keyword.get(opts, :wait_timeout_ms, @wait_timeout_ms),
        active: %{},
        waiting: [],

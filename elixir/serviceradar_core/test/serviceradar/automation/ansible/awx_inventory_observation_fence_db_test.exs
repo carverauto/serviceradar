@@ -1,12 +1,15 @@
 defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
   use ServiceRadar.DataCase, async: false
 
+  import Ecto.Query, only: [from: 2]
+
   alias Ash.Seed
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxHostMembership
   alias ServiceRadar.Automation.Ansible.AwxMembershipReconciler
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
+  alias ServiceRadar.Inventory.Identity.AwxSourceRetirementWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
   alias ServiceRadar.TestSupport.CredentialIntegrationFixtures
@@ -224,6 +227,15 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventoryObservationFenceDbTest do
         end
       after
         Task.shutdown(first, :brutal_kill)
+
+        # The committed complete observation queued the controller's source retirement pass.
+        Repo.delete_all(
+          from(job in Oban.Job,
+            where:
+              job.worker == ^Oban.Worker.to_string(AwxSourceRetirementWorker) and
+                fragment("?->>'controller_id'", job.args) == ^controller.id
+          )
+        )
 
         Repo.query!("DELETE FROM platform.ansible_controllers WHERE id = ($1::text)::uuid", [
           controller.id

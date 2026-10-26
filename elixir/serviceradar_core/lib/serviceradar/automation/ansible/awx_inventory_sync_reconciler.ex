@@ -3,10 +3,9 @@ defmodule ServiceRadar.Automation.Ansible.AwxInventorySyncReconciler do
   Materializes AWX/AAP controllers into scheduled `awx-inventory-sync` plugin
   assignments.
 
-  There is one enabled assignment per `(agent, awx-inventory-sync package)`.
-  Each assignment carries every AWX controller reachable from that agent. This
-  keeps the plugin assignment invariant intact while supporting multiple
-  controllers per agent.
+  This reconciler writes one enabled assignment per agent for the
+  `awx-inventory-sync` package. Each assignment carries every AWX controller
+  reachable from that agent.
   """
 
   alias ServiceRadar.Actors.SystemActor

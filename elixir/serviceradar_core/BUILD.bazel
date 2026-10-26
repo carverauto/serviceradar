@@ -297,6 +297,8 @@ ALL_TEST_SRCS = glob(
         # below so the normal helper's :cluster exclusion cannot skip them.
         "test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs",
         "test/serviceradar/observability/stateful_alert_engine/peer_readiness_test.exs",
+        # Runs against a disposable nats-server staged by its own target below.
+        "test/serviceradar/event_writer/shared_durable_nats_test.exs",
     ],
 )
 
@@ -326,6 +328,7 @@ INTEGRATION_RUNTIME_DATA = glob(
         "test/release_gates/**",
     ],
 ) + [
+    "@nats_server_linux_amd64//:nats_server",
     "//elixir/serviceradar_core_elx:runtime_config",
     # Read at MODULE level (compile time) by
     # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
@@ -731,6 +734,7 @@ ex_unit_tests(
         allow_empty = True,
         exclude = ["test/**/*_test.exs"],
     ) + [
+        "@nats_server_linux_amd64//:nats_server",
         # Read at MODULE level (compile time) by
         # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
         # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
@@ -883,6 +887,23 @@ ex_unit_test(
     size = "medium",
     srcs = ["test/serviceradar/edge/agent_command_bus_rpc_registry_test.exs"],
     data = ["test/cluster_test_helper.exs"],
+    elixir_opts = [
+        "-r",
+        "test/cluster_test_helper.exs",
+    ],
+    deps = [":erlang_app"],
+)
+
+# EventWriter replicas bound to one durable on a real, disposable JetStream broker: each
+# message is processed once, and a replica that dies before ACKing loses nothing.
+ex_unit_test(
+    name = "event_writer_shared_durable_nats_test",
+    size = "medium",
+    srcs = ["test/serviceradar/event_writer/shared_durable_nats_test.exs"],
+    data = [
+        "test/cluster_test_helper.exs",
+        "@nats_server_linux_amd64//:nats_server",
+    ],
     elixir_opts = [
         "-r",
         "test/cluster_test_helper.exs",

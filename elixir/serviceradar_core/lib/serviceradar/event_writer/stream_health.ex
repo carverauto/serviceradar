@@ -2,14 +2,15 @@ defmodule ServiceRadar.EventWriter.StreamHealth do
   @moduledoc """
   Reports EventWriter consumers whose JetStream stream could not be set up.
 
-  A failed stream is retried on its own while every other consumer keeps
-  running (see `ServiceRadar.EventWriter.Producer`), so a stream NATS refuses
-  to place does not surface as a connection failure. This module makes it
-  visible: telemetry on every failed attempt, and a health event on the
-  transition to degraded and back to healthy.
+  The coordinator's `ServiceRadar.EventWriter.ConsumerReconciler` retries a
+  failed stream on its own while every other stream stays up, so a stream NATS
+  refuses to place does not surface as a connection failure. This module makes
+  that visible: telemetry on every failed attempt, and one health event per
+  deployment on the transition to degraded and back to healthy. Worker bind
+  failures are telemetry only (`ServiceRadar.EventWriter.Producer`).
 
-  The health event is written off the producer's process so ingestion never
-  waits on the database.
+  The health event is written in a separate task so the reconciler never waits
+  on the database.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -62,8 +63,8 @@ defmodule ServiceRadar.EventWriter.StreamHealth do
   @doc """
   The NATS JetStream `err_code` in a setup failure reason, or nil.
 
-  Reasons arrive as `{consumer_name, %{"err_code" => code}}` from
-  `Producer.setup_jetstream_consumers/2`, or as the bare error map.
+  Reasons arrive as `{consumer_name, %{"err_code" => code}}` from consumer
+  setup, or as the bare error map.
   """
   @spec nats_error_code(term()) :: integer() | nil
   def nats_error_code({_name, reason}), do: nats_error_code(reason)

@@ -1,8 +1,9 @@
 defmodule ServiceRadar.Inventory.ExposureDimensionRefreshWorker do
   @moduledoc """
   Refreshes registered CVE scores from the existing priority overlay, without
-  rewriting assessments. A session lock serializes whole passes; each bounded
-  page commits independently, so a retry resumes by comparing stored content.
+  rewriting assessments. A session lock on a `ServiceRadar.Repo.DirectSession`
+  serializes whole passes; the pooled Repo cannot hold one. Each bounded page
+  commits independently, so a retry resumes by comparing stored content.
   Source-read failures propagate before any publication, never as null scores.
   """
   use Oban.Worker,
@@ -12,28 +13,21 @@ defmodule ServiceRadar.Inventory.ExposureDimensionRefreshWorker do
 
   alias ServiceRadar.Inventory.AdvisoryFeeds.CvePriority
   alias ServiceRadar.Repo
+  alias ServiceRadar.Repo.DirectSession
 
-  @lock_key 7_345_220_001
+  # 7_345_220_001 was taken through the pooled Repo and can be stranded on pooled
+  # server connections, so passes serialize on a fresh key.
+  @lock_key 7_345_220_002
   @batch_size 500
 
   @impl Oban.Worker
   def perform(_job) do
-    Repo.checkout(
-      fn ->
-        case Repo.query!("SELECT pg_try_advisory_lock($1)", [@lock_key]).rows do
-          [[true]] ->
-            try do
-              refresh()
-            after
-              Repo.query!("SELECT pg_advisory_unlock($1)", [@lock_key])
-            end
-
-          [[false]] ->
-            {:snooze, 60}
-        end
-      end,
-      timeout: 300_000
-    )
+    DirectSession.run(fn session ->
+      case Postgrex.query!(session, "SELECT pg_try_advisory_lock($1)", [@lock_key]).rows do
+        [[true]] -> Repo.checkout(&refresh/0, timeout: 300_000)
+        [[false]] -> {:snooze, 60}
+      end
+    end)
   end
 
   defp refresh do

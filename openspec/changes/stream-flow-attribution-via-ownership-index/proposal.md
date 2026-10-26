@@ -109,8 +109,10 @@ lookups before their single StarRocks write.
     `Correlator`, `PassMetrics` modules; the `StatusHandler` flow-attribution branch; a new
     ownership publisher and index; `ServiceRadar.EventWriter.Processors.Flows`,
     `FlowAttributionObservations`, `FlowAttributionUpdates`; `EventWriter.Config` and
-    `Pipeline`; `Cluster.CoordinatorChildren` (EventWriter currently runs as a
-    coordinator-only singleton).
+    `Pipeline`; `Cluster.CoordinatorChildren` (EventWriter workers, the shared Pipeline and
+    FlowPipeline, run on every serviceradar-core replica bound to shared durables; only
+    ConsumerReconciler, the lag reporter, the flow correlator, and the six single-writer
+    streams run under `EventWriter.CoordinatorSupervisor`).
   - Warehouse DDL: `elixir/serviceradar_core/priv/starrocks/` (drop the observations table, add
     the lease history table); `Analytics.StarRocks.{Destination,Rows,Retention}`.
   - Helm: NATS stream and permissions for `flows.ownership.*`, and EventWriter flow-tier
