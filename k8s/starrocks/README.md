@@ -80,9 +80,13 @@ key/value of those devices. Neither exposes the assessment, package, advisory,
 fleet-dictionary, agent or alert tables.
 
 Nothing else is reachable: `CatalogAllowlist` rejects any other table before
-the SQL leaves core, and the grants above are column-scoped to exactly what the
-compiled subqueries read. Telemetry hypertables and
-`network_credential_secrets` are never granted.
+the SQL leaves core. The grants match the columns compiled subqueries read,
+except `location` on `ip_geo_enrichment_cache`, `sources` on
+`ip_threat_intel_cache`, and `threat_intel_indicators`. Those three stay
+granted and unread; `threat_intel_indicators` is also off the allowlist,
+because the StarRocks 4.1 JDBC catalog cannot read geography, `text[]`, or
+`cidr`. Telemetry hypertables and `network_credential_secrets` are never
+granted.
 
 Core migration `20260918120000_create_starrocks_catalog_reader_role` creates the
 role and issues the grants, but only where the migrating connection holds
