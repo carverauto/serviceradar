@@ -27,7 +27,7 @@ implementation.
   contains `manual`), or when it matches the configured SRQL exclusion query. The identifier
   rule is one SQL function, `platform.device_holds_strong_identifier(uid)`, applied both when
   selecting candidates and in the soft delete's `WHERE`, so selection and delete agree.
-- Settings (`DeviceCleanupSettings`, edited on Settings -> Networks -> Inventory Cleanup):
+- Settings (`DeviceCleanupSettings`, edited on Settings -> Network Services -> Discovery -> Inventory Cleanup, `/settings/networks/inventory-cleanup`):
   `ephemeral_expiry_enabled` (default off), `ephemeral_expiry_days` (default 30),
   `ephemeral_expiry_exclusion_query`, `ephemeral_expiry_max_fraction` (default 0.5) and
   `ephemeral_expiry_guard_override` (default off).

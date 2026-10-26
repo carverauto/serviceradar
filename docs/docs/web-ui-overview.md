@@ -99,7 +99,8 @@ platform. Common sections include:
   [Roles & Permissions](./rbac-and-roles.md).
 - **Networks** — sweep profiles (`/settings/networks`), visibility profiles
   (`/settings/networks/visibility-profiles`), discovery jobs, device
-  enrichment, credential rules, remote-access host keys and desktop targets,
+  enrichment, inventory cleanup (`/settings/networks/inventory-cleanup`),
+  credential rules, remote-access host keys and desktop targets,
   BMP, MTR profiles, field surveys, integrations, prefix tags, and threat
   intel. See [Network Sweeps](./network-sweeps.md) and
   [Visibility Profiles](./visibility-profiles.md).

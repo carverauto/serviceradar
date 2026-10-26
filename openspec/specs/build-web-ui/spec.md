@@ -1213,23 +1213,31 @@ The web-ng UI SHALL provide an option to show deleted devices in the inventory l
 - **AND** deleted rows SHALL display a visual deleted indicator
 
 ### Requirement: Inventory Cleanup Settings
-The web-ng UI SHALL expose a Network settings tab for inventory cleanup and device retention.
+The web-ng UI SHALL expose inventory cleanup and device retention as its own Settings page,
+Inventory Cleanup, at `/settings/networks/inventory-cleanup` under Network Services >
+Discovery, gated by `settings.networks.manage`. The retired Sweep Profiles tab URL
+`/settings/networks?tab=cleanup` SHALL redirect to that page.
 
 #### Scenario: Configure retention window
-- **GIVEN** an admin user on Settings → Network
-- **WHEN** they open the Inventory Cleanup tab
+- **GIVEN** an admin user on Settings → Network Services
+- **WHEN** they open the Inventory Cleanup page
 - **THEN** they can set the device deletion retention window in days
 - **AND** the value is saved for the reaper job
 
 #### Scenario: Configure reaper schedule
-- **GIVEN** an admin user on Settings → Network
+- **GIVEN** an admin user on the Inventory Cleanup page
 - **WHEN** they update the cleanup schedule
 - **THEN** the reaper job SHALL use the configured schedule
 
 #### Scenario: Run cleanup manually
-- **GIVEN** an admin user on Settings → Network
+- **GIVEN** an admin user on the Inventory Cleanup page
 - **WHEN** they click “Run cleanup now”
 - **THEN** the reaper job SHALL execute immediately
+
+#### Scenario: Old tab link
+- **GIVEN** a bookmark or log line pointing at `/settings/networks?tab=cleanup`
+- **WHEN** an admin user opens it
+- **THEN** they SHALL land on the Inventory Cleanup page
 
 ### Requirement: Device Enrichment Rules Management UI
 The web-ng Settings UI SHALL provide a Device Enrichment Rules management surface for operators.
