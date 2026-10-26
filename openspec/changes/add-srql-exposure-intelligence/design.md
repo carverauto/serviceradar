@@ -1551,17 +1551,14 @@ on 2026-10-26: a snapshot write of active sequence 40 followed by live sequence
 41 ends resolved at 41 and keeps the snapshot marker; live sequence 41 followed
 by the older snapshot write also ends resolved at 41; a later live sequence 42
 wins and keeps the marker. Filtered rows stayed zero. The schema was dropped
-afterward. That probe is storage evidence. Hosted invocation cf414b06 on tree
-81ae24f4 ran 459 tests with one failure, a duplicate journal primary key;
-observer, teardown and release exited 0. Hosted owner 50af35c1 on commit
-95336bd, tree 66a1a3e06e3d91cc71103df577ced69e11a41879, passed 460 tests under
-parent d1b0aae8. That run exercised the previous completion gate. Remote unit
-invocation 0523e10b passed 460 targets, failed the core format check, and
-skipped 2 preexisting targets; web-ng `phoenix_other` passed on an automatic
-retry. The fresh-repair negative control on tree
-3085874ff12e45a7089e42e332f712cf774d55f3, owner bd602729, produced the two
-intended fresh-sequence failures. The hosted run of this final tree is still
-required before task 1.6 can close.
+afterward. That probe is storage evidence. The fresh-repair negative control on
+tree 3085874ff12e45a7089e42e332f712cf774d55f3, owner bd602729, produced the two
+intended fresh-sequence failures. Hosted parent 40a891ce on tree 0dcabec23
+(commit d61fdc49) passed: unit invocation 799acf3c ran 445 targets with 2
+preexisting skips, and the required build, benchmark, and Go race steps passed.
+The hosted CNPG/NATS/HTTP owner on that tree passed 460 cases. Task 1.6 stays
+open for reconciliation, readiness, and the separate fleet-scale throughput
+gate.
 
 ## Section 0 evidence (2026-10-21)
 
