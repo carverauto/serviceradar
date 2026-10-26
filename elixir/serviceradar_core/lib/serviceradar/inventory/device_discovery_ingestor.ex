@@ -40,6 +40,7 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   alias ServiceRadar.Inventory.DeviceClaimPolicy
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.Identity.AwxSourceRetirementWorker
   alias ServiceRadar.Inventory.Identity.GuestAddress
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -99,11 +100,23 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     emit_state_events =
       Keyword.get(opts, :emit_state_events, &SyncIngestor.emit_committed_state_events/1)
 
+    retire_absent = Keyword.get(opts, :retire_absent, &AwxSourceRetirementWorker.enqueue/1)
+
     with {:ok, %{notifications: notifications, state_events: state_events}} <-
            transaction.(aggregates, fn -> ingest_payload(payload, status, opts, true) end) do
       :ok = emit_state_events.(state_events)
+      queue_awx_source_retirement(aggregates, retire_absent)
       AwxMembershipReconciler.notify_committed(notifications, opts)
     end
+  end
+
+  # Only a complete observation proves a host absent, so only one queues the controller's
+  # retirement pass, after it commits (`AwxSourceRetirementWorker`).
+  defp queue_awx_source_retirement(aggregates, retire_absent) do
+    for %{complete: true, controller_id: controller_id} <- aggregates,
+        do: :ok = retire_absent.(controller_id)
+
+    :ok
   end
 
   defp ingest_payload(payload, status, opts, serialize_awx?) do

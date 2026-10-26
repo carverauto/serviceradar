@@ -97,6 +97,13 @@ cosign verification for plugin imports; see the [WASM Plugins](./wasm-plugins.md
 guide for the publishing flow. Then assign both plugin manifests to the agent(s)
 that reach your AWX network. The `inventory_sync` assignment is what drives the
 `Device.ansible_managed` flag — without it, no devices flip to ansible-managed.
+It also retires devices: once a complete sync of a controller no longer reports a
+host, and the host has gone unreported for `source_retirement_min_absence_hours`,
+the device loses its AWX source. A device only AWX reported, and otherwise
+retired-only, is hidden and then deleted after the retired-record grace period; a
+device another source also reports stays, without its AWX data. A partial sync
+retires nothing. See
+[DIRE identity model](./dire-identity-model.md) for the rule.
 
 If you are authoring or customizing WASM plugins, see the developer portal at
 [developer.serviceradar.cloud](https://developer.serviceradar.cloud) for the

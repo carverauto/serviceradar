@@ -341,6 +341,29 @@ for dry-run review, execution gates, and device/source allowlists.
   instance's live records is refused and logged at error level unless the one-pass override is
   set. Telemetry: `[:serviceradar, :inventory, :source_retirement, :run]`, `:retired` and
   `:refused`.
+- AWX source retirement (`Identity.AwxSourceRetirement`, run by `AwxSourceRetirementWorker`
+  after a complete AWX inventory observation commits): an AWX host the controller's latest
+  observation no longer reports loses its AWX source. Only a complete observation counts: a
+  partial one (an unreadable inventory or page, an expired token) makes the pass retire nothing,
+  and so does a controller whose sync never sent a versioned aggregate. A record linked to the
+  controller (it holds an `awx:v2:<controller>:host:<id>` integration id, or its
+  `metadata.awx.controller_id` names the controller) is retired when its host is not reported,
+  or when its host is reported but another record holds the host's v2 id (a record from the
+  pre-v2 `awx:host:<name>` identity). Its AWX integration ids move to `device_identifier_archive`
+  (reason `source_absent`) with a `source_id_retired` decision per id. A record AWX alone reported
+  is marked `source_retired` when it is retired-only (see below), and that mark also archives
+  every other identifier it holds (an address or MAC AWX gave it). An absent or superseded
+  record that is not marked loses only its AWX source (`awx` leaves `discovery_sources`,
+  `metadata.awx` is dropped, and an AWX `metadata.integration_id` drops with
+  `metadata.legacy_integration_ids`). An id retires only once AWX last reported it at least
+  `source_retirement_min_absence_hours` ago: the later of the identifier's `last_seen` and, for
+  an absent host, the membership `last_seen_at`. A record with no AWX id row uses that
+  membership time when it has one (another source cannot refresh it), and its `last_seen_time`
+  only when it does not. The pass honours `source_retirement_enabled`,
+  `source_retirement_max_fraction` and the override, judged against the controller's linked
+  records. A first pass over a controller whose records are mostly stale is therefore refused
+  until the override admits it. Hypervisor enrichment never adopts a `source_retired` record as a
+  guest's device, whatever retired it: not by address, MAC, AWX hint or name.
 - Retired-only records (`Identity.SourceRetirement`): a retirement that leaves a live record
   with no source-authoritative id and no agent id, no identity-bearing observation within T,
   and not created by an operator marks it `source_retired` in the same transaction

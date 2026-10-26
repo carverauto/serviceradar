@@ -31,10 +31,12 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   `ServiceRadar.Inventory.SourceRetiredExpiry` soft-deletes it after
   `source_retired_grace_days` unless an identifier registered on it first clears the mark. Each
   `source_id_retired` decision records whether its retirement marked the record. Marking
-  happens only here, when an id of the record's own retires: a record an operator restores is
-  not marked again until another of its ids retires. The one exception is the remediation's
-  class 5 (design D11, `mark_unmarked_retired/2`): a retired-only record whose ids retired under
-  a release that did not mark, which is marked once unless it was revived since.
+  happens here when an id of the record's own retires: a record an operator restores is
+  not marked again by this pass until another of its ids retires. Inside this module, the one
+  exception is the remediation's class 5 (design D11, `mark_unmarked_retired/2`): a retired-only
+  record whose ids retired under a release that did not mark, which is marked once unless it
+  was revived since. `ServiceRadar.Inventory.Identity.AwxSourceRetirement` may mark an AWX-only
+  record again while that record stays absent and retired-only.
 
   Absence is counted when an exact collection activates (`record_collection/1`, inside the
   activation transaction). Each identifier of the instance's scope that a live record holds
@@ -980,7 +982,12 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     unchanged
   end
 
-  defp lock_live_device(device_id, actor) do
+  @doc false
+  # Locks the live record `device_id` and returns it, or `:not_live`. Retirement passes for
+  # sources outside the collection scope (`ServiceRadar.Inventory.Identity.AwxSourceRetirement`)
+  # take the same locks, in the same order, as `retire_device/3`.
+  @spec lock_live_device(String.t(), term()) :: {:ok, struct()} | :not_live | {:error, term()}
+  def lock_live_device(device_id, actor) do
     Device
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.Query.filter(uid == ^device_id)
@@ -998,7 +1005,9 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # The lock the `device_identifiers` ownership trigger takes for this device's writes, taken
   # before the recheck so a concurrent identifier write lands either wholly before it or after
   # the retirement commits.
-  defp lock_identifier_owner(device_id) do
+  @doc false
+  @spec lock_identifier_owner(String.t()) :: :ok
+  def lock_identifier_owner(device_id) do
     _ = Repo.query!(@owner_lock_sql, [device_id])
     :ok
   end
@@ -1247,6 +1256,23 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
 
   defp retired_only_params(cutoff) do
     [cutoff, @operator_sources, Enum.map(marking_identifier_types(), &Atom.to_string/1)]
+  end
+
+  @doc false
+  # The retired-only condition (design D5) on the record `d`, and its first three parameters for
+  # a cutoff, for a pass that marks records with SQL of its own.
+  @spec retired_only_condition(DateTime.t() | NaiveDateTime.t()) :: {String.t(), [term()]}
+  def retired_only_condition(cutoff), do: {@retired_only, retired_only_params(cutoff)}
+
+  @doc false
+  # Moves the identifier rows `ids` of `device_id` to the archive with `archive_reason`
+  # `source_absent`, as a retirement does. Returns how many rows moved.
+  @spec archive_identifiers(String.t(), [integer()], DateTime.t()) :: non_neg_integer()
+  def archive_identifiers(_device_id, [], _at), do: 0
+
+  def archive_identifiers(device_id, ids, at) do
+    %{num_rows: archived} = Repo.query!(@archive_sql, [device_id, ids, at, @archive_reason])
+    archived
   end
 
   defp identity_state(device), do: Map.get(device.metadata || %{}, "identity_state")
