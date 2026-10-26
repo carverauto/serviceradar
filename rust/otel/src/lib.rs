@@ -1286,4 +1286,58 @@ mod tests {
         assert!(response.into_inner().partial_success.is_none());
         assert_eq!(output.last_identity(), Some("tenant-grpc".to_string()));
     }
+
+    /// A zstd-compressed OTLP/gRPC export is decoded by the listener that
+    /// `start_server` builds. tonic answers UNIMPLEMENTED for an encoding the
+    /// service does not accept, and a frame that fails to decompress or decode
+    /// never reaches the output backend.
+    #[tokio::test]
+    async fn test_grpc_listener_decodes_zstd_compressed_export() {
+        use opentelemetry::proto::collector::trace::v1::trace_service_client::TraceServiceClient;
+        use tonic::codec::CompressionEncoding;
+
+        // start_server binds by address, so reserve a free loopback port first.
+        let addr = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|listener| listener.local_addr())
+            .unwrap();
+        let output = Arc::new(MockOutput::default());
+        let server = crate::server::start_server(
+            addr,
+            None,
+            ServiceRadarCollector::with_output(output.clone()),
+            4 * 1024 * 1024,
+            Arc::new(crate::auth::IngestAuth::disabled()),
+        );
+
+        let export = async {
+            let endpoint =
+                tonic::transport::Endpoint::from_shared(format!("http://{addr}")).unwrap();
+            let mut attempts = 0;
+            let channel = loop {
+                match endpoint.connect().await {
+                    Ok(channel) => break channel,
+                    Err(_) if attempts < 100 => {
+                        attempts += 1;
+                        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+                    }
+                    Err(err) => panic!("collector never accepted a connection: {err}"),
+                }
+            };
+            TraceServiceClient::new(channel)
+                .send_compressed(CompressionEncoding::Zstd)
+                .export(create_test_trace_request())
+                .await
+        };
+
+        let response = tokio::select! {
+            result = server => panic!("gRPC server exited before the export finished: {result:?}"),
+            response = export => response,
+        };
+        let response = response.expect("zstd-compressed export must be accepted");
+        assert!(response.into_inner().partial_success.is_none());
+        assert_eq!(
+            output.trace_calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
 }

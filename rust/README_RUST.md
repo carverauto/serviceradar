@@ -396,6 +396,20 @@ Bumping `@openssl` is a separate, deliberate act: change the `bazel_dep` version
 `//MODULE.bazel` and rebuild. `openssl-sys` probes the headers it is pointed at, so a major
 OpenSSL move can require moving the `openssl-sys` pin with it.
 
+### The `[patch.crates-io]` crate: tonic
+
+`tonic` is not fetched from crates.io. The root `Cargo.toml` replaces it with
+`third_party/rust_patches/tonic-0.14.6`, the published crate with its `zstd` requirement
+raised from 0.13 to 0.14.3, the first release fixed for RUSTSEC-2026-0391 and
+RUSTSEC-2026-0395..0406/0410. No tonic release depends on zstd 0.14 yet. `rules_rs` reads
+the same `[patch]` entry and builds that directory as `@crates//:tonic`, so consumers keep
+the usual label and Cargo and Bazel build the same source. Because it is a path crate,
+`Cargo.lock` records it without a checksum and `//third_party/crate_mirror` holds no
+archive for it.
+
+Its `README.serviceradar.md` lists exactly what differs from the published crate. Delete the
+directory and the `[patch.crates-io]` entry once tonic ships with zstd 0.14.
+
 ---
 
 ## 5. Crate annotations
@@ -617,6 +631,6 @@ bazel test  //rust/...
 | `Cargo.toml` (root) | **every** dependency version; alphabetical |
 | `third_party/crate_mirror/` | the vendored `.crate` archives (generated -- never hand-edit) |
 | `MODULE.bazel` | the `crate.from_cargo` extension + per-crate `crate.annotation` tags |
-| `third_party/rust_patches/` | source patches for the two system crates |
+| `third_party/rust_patches/` | the pq-src source patch, the rperf fork, and the `[patch.crates-io]` tonic |
 | `//third_party/crate_mirror:sync` | refresh the archives from `Cargo.lock`, verify checksums, prune |
 | `scripts/update-rust-bazel-deps.sh` | the wrapper: `cargo update` -> `cargo check` -> `crate_mirror:sync` -> `bazel build` (`make update-rust-deps`) |

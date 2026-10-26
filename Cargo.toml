@@ -225,6 +225,13 @@ lto = true
 debug-assertions = false
 panic = "abort"
 
+# tonic 0.14.6 with only its zstd requirement raised from 0.13 to 0.14.3, the first zstd
+# release fixed for RUSTSEC-2026-0391 and 0395-0406/0410. No tonic release takes zstd
+# 0.14 yet. rules_rs resolves this path patch to the same source, so Bazel builds what
+# Cargo builds. Delete it once tonic ships with zstd 0.14; see the README beside it.
+[patch.crates-io]
+tonic = { path = "third_party/rust_patches/tonic-0.14.6" }
+
 # Crate build configuration, read by rules_rs from Cargo's own metadata table.
 # Binary-only crates: //rust/protoc-plugins exists solely to pin these, and the plugins
 # have to be generated as runnable binaries rather than libraries.
