@@ -1149,7 +1149,10 @@ existing status-only behavior and newest-report ordering.
 
 WASM fleet rows include partition, agent, plugin, package/version, assignment
 source/policy, enabled state, cadence, latest runtime evidence, and the reported
-`result_status` (`OK`, `WARNING`, `CRITICAL`, or `UNKNOWN`). An otherwise healthy
+`result_status` (`OK`, `WARNING`, `CRITICAL`, or `UNKNOWN`). One agent has one
+row per owner of a plugin: the newest enabled assignment of each credential
+rule, and one row for the shared manual or other non-rule owner when that
+assignment is enabled. An otherwise healthy
 runtime with a fresh warning requires action even when it reports availability.
 The join matches both partition and agent; legacy name-only evidence is used
 only for an unambiguous plugin name. Disabled assignments remain visible as
@@ -1181,8 +1184,11 @@ resolved observation time.
 WASM results do not currently carry a host-authored version; an explicitly
 reported `package_version` is shown when present, without inferring it from the
 assignment. `assignment_drift` compares a reported assignment ID with the
-current assignment; it is null when either ID is unknown. Otherwise healthy
-WASM results with known drift require action.
+current assignment. It is null when either ID is unknown. A reported ID that
+is another enabled assignment of the same plugin, agent, and partition is not
+drift, because those owners still share one service state. Any other known
+mismatch is drift. Otherwise healthy WASM results with known drift require
+action.
 
 `last_success_at` and `last_failure_at` describe availability of the latest WASM
 result: `available:true` sets the former and `available:false` sets the latter.
