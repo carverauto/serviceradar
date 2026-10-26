@@ -228,6 +228,38 @@ write_source_files(
     tags = ["manual"],
 )
 
+ash_schema(
+    name = "camera_archive_publication_schema",
+    outs = [
+        "generated_camera_archive_publication/authority.json",
+        "generated_camera_archive_publication/dispatch.json",
+        "generated_camera_archive_publication/intent.json",
+        "generated_camera_archive_publication/block.json",
+        "generated_camera_archive_publication/migration.exs",
+    ],
+    srcs = [
+        "priv/resource_snapshots/repo/platform.camera_archive_upload_dispatches/20261025153000.json",
+        "priv/resource_snapshots/repo/platform.camera_archive_upload_intents/20261024030000.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261023180000.json",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_archive_publication_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_archive_publication_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_archive_manifest_authorities/20261026160000.json": ":generated_camera_archive_publication/authority.json",
+        "priv/resource_snapshots/repo/platform.camera_archive_upload_dispatches/20261026160000.json": ":generated_camera_archive_publication/dispatch.json",
+        "priv/resource_snapshots/repo/platform.camera_archive_upload_intents/20261026160000.json": ":generated_camera_archive_publication/intent.json",
+        "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261026160000.json": ":generated_camera_archive_publication/block.json",
+        "priv/repo/migrations/20261026160000_add_camera_archive_publication.exs": ":generated_camera_archive_publication/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.

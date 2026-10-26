@@ -16,6 +16,7 @@ defmodule ServiceRadar.Camera.ArchiveAuthorities do
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveCanonicalJSON
   alias ServiceRadar.Camera.ArchiveInitAuthority
+  alias ServiceRadar.Camera.ArchiveManifestAuthority
   alias ServiceRadar.Camera.ArchiveMediaAuthority
   alias ServiceRadar.Repo
 
@@ -59,17 +60,45 @@ defmodule ServiceRadar.Camera.ArchiveAuthorities do
     invalid_init_revocation: :invalid_media_revocation
   }
 
-  defp for_operation(kind, opts, fun) when kind in [:init, :media] do
-    resource = if kind == :init, do: ArchiveInitAuthority, else: ArchiveMediaAuthority
+  @manifest_errors %{
+    init_authority: :manifest_authority,
+    init_authority_challenge_mismatch: :manifest_authority_challenge_mismatch,
+    init_authority_context_mismatch: :manifest_authority_context_mismatch,
+    init_authority_expired: :manifest_authority_expired,
+    init_authority_generation_stale: :manifest_authority_generation_stale,
+    init_authority_not_applied: :manifest_authority_not_applied,
+    init_authority_not_found: :manifest_authority_not_found,
+    init_authority_origin_mismatch: :manifest_authority_origin_mismatch,
+    init_authority_report_unqualified: :manifest_authority_report_unqualified,
+    init_authority_revision_conflict: :manifest_authority_revision_conflict,
+    init_authority_revision_stale: :manifest_authority_revision_stale,
+    init_authority_storage_unavailable: :manifest_authority_storage_unavailable,
+    init_authority_transaction_required: :manifest_authority_transaction_required,
+    invalid_init_application: :invalid_manifest_application,
+    invalid_init_challenge: :invalid_manifest_challenge,
+    invalid_init_grant: :invalid_manifest_grant,
+    invalid_init_principal: :invalid_manifest_principal,
+    invalid_init_revocation: :invalid_manifest_revocation
+  }
+
+  defp for_operation(kind, opts, fun) when kind in [:init, :media, :manifest] do
+    resource = authority_resource(kind)
 
     case fun.(%{kind: kind, resource: resource, ash: opts}) do
       {:error, reason} when kind == :media and is_atom(reason) ->
         {:error, Map.get(@media_errors, reason, reason)}
 
+      {:error, reason} when kind == :manifest and is_atom(reason) ->
+        {:error, Map.get(@manifest_errors, reason, reason)}
+
       result ->
         result
     end
   end
+
+  defp authority_resource(:init), do: ArchiveInitAuthority
+  defp authority_resource(:media), do: ArchiveMediaAuthority
+  defp authority_resource(:manifest), do: ArchiveManifestAuthority
 
   defp do_challenge(principal, document, opts) do
     with :ok <- actor(opts),

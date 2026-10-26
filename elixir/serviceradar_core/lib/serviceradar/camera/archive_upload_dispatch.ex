@@ -31,6 +31,15 @@ defmodule ServiceRadar.Camera.ArchiveUploadDispatch do
     :media_deadline_at
   ]
 
+  @manifest_grant_fields [
+    :manifest_authority_revision,
+    :manifest_authority_sha256,
+    :manifest_storage_boot_id,
+    :manifest_nonce_sha256,
+    :manifest_principal_sha256,
+    :manifest_deadline_at
+  ]
+
   postgres do
     table "camera_archive_upload_dispatches"
     schema "platform"
@@ -102,8 +111,40 @@ defmodule ServiceRadar.Camera.ArchiveUploadDispatch do
                         media_verified_at IS NOT NULL AND media_verification_conflict_sha256 ~ '^[0-9a-f]{64}$')
                        """
 
+      check_constraint :manifest_authority_revision, "camera_upload_manifest_grant_bounds",
+        check: """
+        (manifest_authority_revision IS NULL AND manifest_authority_sha256 IS NULL AND
+         manifest_storage_boot_id IS NULL AND manifest_nonce_sha256 IS NULL AND
+         manifest_principal_sha256 IS NULL AND manifest_deadline_at IS NULL) OR
+        (manifest_authority_revision IS NOT NULL AND manifest_authority_revision > 0 AND
+         manifest_authority_sha256 IS NOT NULL AND manifest_authority_sha256 ~ '^[0-9a-f]{64}$' AND
+         manifest_storage_boot_id IS NOT NULL AND manifest_nonce_sha256 IS NOT NULL AND
+         manifest_nonce_sha256 ~ '^[0-9a-f]{64}$' AND manifest_principal_sha256 IS NOT NULL AND
+         manifest_principal_sha256 ~ '^[0-9a-f]{64}$' AND manifest_deadline_at IS NOT NULL AND
+         marked_at IS NOT NULL AND operation = 'put_object' AND
+         manifest_deadline_at > marked_at AND manifest_deadline_at <= marked_at + interval '30 seconds' AND
+         manifest_deadline_at <= deadline_at)
+        """
+
+      check_constraint :manifest_verification, "camera_upload_manifest_verification_bounds",
+        check: """
+        (manifest_verification IS NULL AND manifest_verification_sha256 IS NULL AND manifest_verified_at IS NULL) OR
+        (manifest_verification IS NOT NULL AND manifest_verification_sha256 IS NOT NULL AND manifest_verified_at IS NOT NULL AND
+         manifest_authority_revision IS NOT NULL AND jsonb_typeof(manifest_verification) = 'object' AND
+         octet_length(manifest_verification::text) <= 4096 AND manifest_verification_sha256 ~ '^[0-9a-f]{64}$')
+        """
+
+      check_constraint :manifest_verification_conflict_at,
+                       "camera_upload_manifest_verification_conflict",
+                       check: """
+                       (manifest_verification_conflict_at IS NULL AND manifest_verification_conflict_sha256 IS NULL) OR
+                       (manifest_verification_conflict_at IS NOT NULL AND manifest_verification_conflict_sha256 IS NOT NULL AND
+                        manifest_verified_at IS NOT NULL AND manifest_verification_conflict_sha256 ~ '^[0-9a-f]{64}$')
+                       """
+
       check_constraint :media_authority_revision, "camera_upload_grant_purpose",
-        check: "init_authority_revision IS NULL OR media_authority_revision IS NULL"
+        check:
+          "num_nonnulls(init_authority_revision, media_authority_revision, manifest_authority_revision) <= 1"
 
       check_constraint :upload_epoch, "camera_upload_dispatch_identity_bounds",
         check: """
@@ -204,6 +245,39 @@ defmodule ServiceRadar.Camera.ArchiveUploadDispatch do
       validate changing(:media_verification_conflict_at, from: nil)
     end
 
+    update :grant_manifest do
+      accept [:marked_at] ++ @manifest_grant_fields
+      validate present([:marked_at] ++ @manifest_grant_fields)
+      validate changing(:marked_at, from: nil)
+
+      for field <- @manifest_grant_fields do
+        validate changing(field, from: nil)
+      end
+    end
+
+    update :verify_manifest do
+      accept [:manifest_verification, :manifest_verification_sha256, :manifest_verified_at]
+
+      validate present([
+                 :manifest_verification,
+                 :manifest_verification_sha256,
+                 :manifest_verified_at
+               ])
+
+      validate changing(:manifest_verified_at, from: nil)
+    end
+
+    update :conflict_manifest_verification do
+      accept [:manifest_verification_conflict_at, :manifest_verification_conflict_sha256]
+
+      validate present([
+                 :manifest_verification_conflict_at,
+                 :manifest_verification_conflict_sha256
+               ])
+
+      validate changing(:manifest_verification_conflict_at, from: nil)
+    end
+
     update :mark do
       accept [:marked_at]
       validate present(:marked_at)
@@ -296,6 +370,20 @@ defmodule ServiceRadar.Camera.ArchiveUploadDispatch do
     attribute :media_verification_conflict_sha256, :string,
       constraints: [match: ~r/\A[0-9a-f]{64}\z/]
 
+    attribute :manifest_authority_revision, :integer, constraints: [min: 1]
+    attribute :manifest_authority_sha256, :string, constraints: [match: ~r/\A[0-9a-f]{64}\z/]
+    attribute :manifest_storage_boot_id, :uuid
+    attribute :manifest_nonce_sha256, :string, constraints: [match: ~r/\A[0-9a-f]{64}\z/]
+    attribute :manifest_principal_sha256, :string, constraints: [match: ~r/\A[0-9a-f]{64}\z/]
+    attribute :manifest_deadline_at, :utc_datetime_usec
+    attribute :manifest_verification, :map
+    attribute :manifest_verification_sha256, :string, constraints: [match: ~r/\A[0-9a-f]{64}\z/]
+    attribute :manifest_verified_at, :utc_datetime_usec
+    attribute :manifest_verification_conflict_at, :utc_datetime_usec
+
+    attribute :manifest_verification_conflict_sha256, :string,
+      constraints: [match: ~r/\A[0-9a-f]{64}\z/]
+
     attribute :marked_at, :utc_datetime_usec
     attribute :unknown_at, :utc_datetime_usec
     attribute :response_at, :utc_datetime_usec
@@ -319,5 +407,6 @@ defmodule ServiceRadar.Camera.ArchiveUploadDispatch do
     identity :intent, [:archive_upload_intent_id]
     identity :init_request_nonce, [:init_storage_boot_id, :init_nonce_sha256]
     identity :media_request_nonce, [:media_storage_boot_id, :media_nonce_sha256]
+    identity :manifest_request_nonce, [:manifest_storage_boot_id, :manifest_nonce_sha256]
   end
 end

@@ -2,7 +2,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ManifestTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Camera.RecordingDescriptor
-  alias ServiceRadarCoreElx.CameraRecording.Manifest
+  alias ServiceRadar.Camera.RecordingManifest, as: Manifest
   alias ServiceRadarCoreElx.CameraRecording.Spool
   alias ServiceRadarCoreElx.CameraRecording.Storage
 

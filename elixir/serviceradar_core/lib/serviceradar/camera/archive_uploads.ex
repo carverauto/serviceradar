@@ -22,9 +22,11 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   alias ServiceRadar.Camera.ArchiveCanonicalJSON
   alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.ArchiveUploadIntent
+  alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingDescriptor
+  alias ServiceRadar.Camera.RecordingManifest
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -59,13 +61,35 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     init_verification_conflict_sha256: :media_verification_conflict_sha256
   }
 
+  @manifest_fields %{
+    init_authority_revision: :manifest_authority_revision,
+    init_authority_sha256: :manifest_authority_sha256,
+    init_storage_boot_id: :manifest_storage_boot_id,
+    init_nonce_sha256: :manifest_nonce_sha256,
+    init_principal_sha256: :manifest_principal_sha256,
+    init_deadline_at: :manifest_deadline_at,
+    init_verification: :manifest_verification,
+    init_verification_sha256: :manifest_verification_sha256,
+    init_verified_at: :manifest_verified_at,
+    init_verification_conflict_at: :manifest_verification_conflict_at,
+    init_verification_conflict_sha256: :manifest_verification_conflict_sha256
+  }
+
   defp field(:init, field), do: field
   defp field(:media, field), do: Map.fetch!(@media_fields, field)
+  defp field(:manifest, field), do: Map.fetch!(@manifest_fields, field)
   defp value(dispatch, kind, name), do: Map.get(dispatch, field(kind, name))
   defp attributes(:init, attrs), do: attrs
 
   defp attributes(:media, attrs),
     do: Map.new(attrs, fn {key, value} -> {Map.get(@media_fields, key, key), value} end)
+
+  defp attributes(:manifest, attrs),
+    do: Map.new(attrs, fn {key, value} -> {Map.get(@manifest_fields, key, key), value} end)
+
+  defp action(:manifest, :grant), do: :grant_manifest
+  defp action(:manifest, :verify), do: :verify_manifest
+  defp action(:manifest, :conflict), do: :conflict_manifest_verification
 
   defp action(:init, :grant), do: :grant_init
   defp action(:media, :grant), do: :grant_media
@@ -81,11 +105,75 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
          :ok <- valid_role(role),
          :ok <- valid_operation(operation),
          :ok <- valid_ttl(ttl_ms) do
+      dispatch_for_role(lease, role, operation, ttl_ms, actor_id, opts)
+    end
+  end
+
+  @doc "Prepare a manifest attempt derived only from independently verified object receipts."
+  def prepare_manifest_dispatch(lease, ttl_ms, opts \\ []) do
+    with :ok <- outside_transaction(),
+         {:ok, actor_id} <- dispatcher(opts),
+         :ok <- valid_ttl(ttl_ms) do
+      dispatch_for_role(lease, :manifest, :put_object, ttl_ms, actor_id, opts)
+    end
+  end
+
+  defp dispatch_for_role(lease, role, operation, ttl_ms, actor_id, opts) do
+    RecordingBlocks.with_current_upload(
+      lease,
+      fn block ->
+        with {:ok, intent} <- prepare_locked(block, role, opts) do
+          prepare_dispatch_locked(block, intent, actor_id, operation, ttl_ms, opts)
+        end
+      end,
+      opts
+    )
+  end
+
+  @doc """
+  Read coherent archive progress without acquiring an upload lease or loading a
+  local spool. The result is publication history; only status `:available`
+  confirms that its exact retained proofs remain free of conflicts.
+  """
+  def publication_status(block_id, opts \\ []) do
+    with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do
+      transaction(fn ->
+        with {:ok, block} <- lock_block(block_id, opts),
+             {:ok, binding, evidence} <- publication_evidence(block, opts) do
+          {:ok,
+           %{
+             status: publication_phase(block, evidence),
+             roles: Map.new(evidence, fn {role, item} -> {role, item.state} end),
+             binding: %{id: binding.id, destination_sha256: binding.destination_sha256},
+             result: publication_receipt(block)
+           }}
+        end
+      end)
+    end
+  end
+
+  @doc "Freeze canonical manifest identity and bytes; preparation grants no provider I/O."
+  def prepare_manifest(lease, opts \\ []) do
+    with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do
+      RecordingBlocks.with_current_upload(lease, &prepare_manifest_locked(&1, opts), opts)
+    end
+  end
+
+  @doc """
+  Publish exact verified archive references under current upload ownership.
+  Completed proof survives the original grants and recording stop. No provider
+  configuration, authority renewal or local storage belongs in this transaction.
+  """
+  def publish_archive(lease, opts \\ []) do
+    with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do
       RecordingBlocks.with_current_upload(
         lease,
         fn block ->
-          with {:ok, intent} <- prepare_locked(block, role, opts) do
-            prepare_dispatch_locked(block, intent, actor_id, operation, ttl_ms, opts)
+          with {:ok, _binding, evidence} <- publication_evidence(block, opts),
+               true <-
+                 publication_phase(block, evidence) in [:archive_verified, :available] ||
+                   {:error, :archive_publication_unverified} do
+            publish_locked(block, evidence.manifest.dispatch, opts)
           end
         end,
         opts
@@ -209,8 +297,20 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     init_verification_conflict: :media_verification_conflict
   }
 
+  @manifest_errors %{
+    init_authority_context_mismatch: :manifest_authority_context_mismatch,
+    init_authority_storage_unavailable: :manifest_authority_storage_unavailable,
+    init_dispatch_already_marked: :manifest_dispatch_already_marked,
+    init_verification_origin_mismatch: :manifest_verification_origin_mismatch,
+    invalid_init_verification: :invalid_manifest_verification,
+    init_verification_conflict: :manifest_verification_conflict
+  }
+
   defp bounded_result(:media, {:error, reason}) when is_atom(reason),
     do: {:error, Map.get(@media_errors, reason, reason)}
+
+  defp bounded_result(:manifest, {:error, reason}) when is_atom(reason),
+    do: {:error, Map.get(@manifest_errors, reason, reason)}
 
   defp bounded_result(_kind, {:ok, _} = result), do: result
   defp bounded_result(_kind, {:error, reason} = result) when is_atom(reason), do: result
@@ -219,10 +319,11 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     do: bounded_result(kind, {:error, :init_authority_storage_unavailable})
 
   defp current_dispatch(block, lease, id, actor_id, opts) do
-    with {:ok, dispatch} <- lock_dispatch(id, opts),
-         {:ok, intent} <- matching_origin(dispatch, lease, actor_id, opts),
+    with {:ok, retained} <- get_dispatch(id, opts),
+         {:ok, intent} <- matching_origin(retained, lease, actor_id, opts),
          {:ok, derived} <- prepare_locked(block, intent.object_role, opts),
          true <- derived.id == intent.id || {:error, :archive_upload_dispatch_conflict},
+         {:ok, dispatch} <- lock_dispatch(id, opts),
          :ok <- matching_request(dispatch, derived) do
       {:ok, dispatch, derived}
     end
@@ -313,7 +414,7 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
       is_binary(wire_sha) and Regex.match?(~r/\A[0-9a-f]{64}\z/, wire_sha) and
         is_binary(etag) and byte_size(etag) in 3..256 and Regex.match?(~r/\A"[!#-~]+"\z/, etag) and
         (is_nil(version) or bounded_text?(version, 1024)) and is_integer(length) and
-        length in 1..if(kind == :init, do: 1_048_576, else: 16_777_216) and
+        length in 1..verification_limit(kind) and
         length == intent.byte_length and
         sha == intent.object_sha256
 
@@ -321,6 +422,10 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   end
 
   defp valid_verification(_, _, _), do: {:error, :invalid_init_verification}
+
+  defp verification_limit(:init), do: 1_048_576
+  defp verification_limit(:media), do: 16_777_216
+  defp verification_limit(:manifest), do: 2_097_152
 
   defp retain_verification(kind, dispatch, verification, opts) do
     sha = verification |> ArchiveCanonicalJSON.encode() |> digest()
@@ -430,7 +535,7 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   defp observe(lease, dispatch_id, opts, fun) do
     with :ok <- outside_transaction(),
          {:ok, actor_id} <- dispatcher(opts) do
-      observation_transaction(fn ->
+      transaction(fn ->
         with {:ok, dispatch} <- lock_dispatch(dispatch_id, opts),
              {:ok, _intent} <- matching_origin(dispatch, lease, actor_id, opts),
              true <- not is_nil(dispatch.marked_at) || {:error, :upload_dispatch_unmarked} do
@@ -468,22 +573,37 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
 
   # Ordered values give this logical request a stable identity. These are not
   # signed HTTP bytes; a provider adapter must verify its own wire contract.
-  defp request_digest(intent, operation) do
+  defp request_digest(%{object_role: :manifest} = intent, operation) do
     digest(
       Jason.encode!([
-        1,
-        operation,
-        intent.id,
-        intent.recording_block_id,
-        intent.archive_binding_id,
-        intent.descriptor_sha256,
-        intent.destination_sha256,
-        intent.object_role,
-        intent.object_key,
-        intent.byte_length,
-        intent.object_sha256
+        "manifest-request-v1",
+        request_identity(intent, operation),
+        intent.init_dispatch_id,
+        intent.init_verification_sha256,
+        intent.media_dispatch_id,
+        intent.media_verification_sha256
       ])
     )
+  end
+
+  defp request_digest(intent, operation) do
+    digest(Jason.encode!(request_identity(intent, operation)))
+  end
+
+  defp request_identity(intent, operation) do
+    [
+      1,
+      operation,
+      intent.id,
+      intent.recording_block_id,
+      intent.archive_binding_id,
+      intent.descriptor_sha256,
+      intent.destination_sha256,
+      intent.object_role,
+      intent.object_key,
+      intent.byte_length,
+      intent.object_sha256
+    ]
   end
 
   defp retain_response(dispatch, response, opts) do
@@ -603,8 +723,8 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   defp valid_ttl(_), do: {:error, :invalid_ttl}
   defp digest(bytes), do: :sha256 |> :crypto.hash(bytes) |> Base.encode16(case: :lower)
 
-  defp observation_transaction(fun) do
-    [ArchiveUploadDispatch]
+  defp transaction(fun) do
+    [RecordingBlock, ArchiveUploadIntent, ArchiveUploadDispatch]
     |> Ash.transact(fn ->
       case fun.() do
         {:error, reason} when is_atom(reason) ->
@@ -644,38 +764,240 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   defp prepare_locked(%{archive_binding_id: nil}, _role, _opts),
     do: {:error, :archive_binding_required}
 
+  defp prepare_locked(block, :manifest, opts) do
+    with {:ok, %{intent: intent}} <- prepare_manifest_locked(block, opts), do: {:ok, intent}
+  end
+
   defp prepare_locked(block, role, opts) do
     with {:ok, %ArchiveBinding{} = binding} <-
            Ash.get(ArchiveBinding, block.archive_binding_id, opts) do
-      object = Map.fetch!(block.descriptor, Atom.to_string(role))
-
-      attributes = %{
-        recording_block_id: block.id,
-        archive_binding_id: binding.id,
-        descriptor_sha256: block.descriptor_sha256,
-        destination_sha256: binding.destination_sha256,
-        object_role: role,
-        object_key: RecordingDescriptor.object_key(block.descriptor["identity"], role),
-        byte_length: object["length"],
-        object_sha256: object["sha256"]
-      }
-
-      case ArchiveUploadIntent
-           |> Ash.Query.filter(recording_block_id == ^block.id and object_role == ^role)
-           |> Ash.read_one(opts) do
-        {:ok, nil} ->
-          ArchiveUploadIntent
-          |> Ash.Changeset.for_create(:prepare, attributes)
-          |> Ash.create(opts)
-
-        {:ok, retained} ->
-          if Map.take(retained, Map.keys(attributes)) == attributes,
-            do: {:ok, retained},
-            else: {:error, :archive_upload_intent_conflict}
-
-        {:error, _} = error ->
-          error
-      end
+      block |> object_attributes(binding, role) |> retain_intent(opts)
     end
+  end
+
+  defp object_attributes(block, binding, role) do
+    object = Map.fetch!(block.descriptor, Atom.to_string(role))
+
+    %{
+      recording_block_id: block.id,
+      archive_binding_id: binding.id,
+      descriptor_sha256: block.descriptor_sha256,
+      destination_sha256: binding.destination_sha256,
+      object_role: role,
+      object_key: RecordingDescriptor.object_key(block.descriptor["identity"], role),
+      byte_length: object["length"],
+      object_sha256: object["sha256"]
+    }
+  end
+
+  defp retain_intent(attributes, opts) do
+    case read_intent(attributes.recording_block_id, attributes.object_role, opts) do
+      {:ok, nil} ->
+        ArchiveUploadIntent
+        |> Ash.Changeset.for_create(:prepare, attributes)
+        |> Ash.create(opts)
+
+      {:ok, retained} ->
+        if intent_matches?(retained, attributes),
+          do: {:ok, retained},
+          else: {:error, :archive_upload_intent_conflict}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp read_intent(block_id, role, opts) do
+    ArchiveUploadIntent
+    |> Ash.Query.filter(recording_block_id == ^block_id and object_role == ^role)
+    |> Ash.read_one(opts)
+  end
+
+  defp intent_matches?(intent, attributes),
+    do: Map.take(intent, Map.keys(attributes)) == attributes
+
+  defp lock_block(id, opts) do
+    case RecordingBlock
+         |> Ash.Query.filter(id == ^id)
+         |> Ash.Query.lock(:for_update)
+         |> Ash.read_one(opts) do
+      {:ok, nil} -> {:error, :recording_block_not_found}
+      result -> result
+    end
+  end
+
+  defp publication_evidence(%{state: :open_local}, _opts), do: {:error, :recording_block_unfrozen}
+
+  defp publication_evidence(%{archive_binding_id: nil}, _opts),
+    do: {:error, :archive_binding_required}
+
+  defp publication_evidence(block, opts) do
+    with {:ok, bytes} <- RecordingDescriptor.encode(block.descriptor),
+         true <-
+           (block.state in [:sealed, :uploading] and digest(bytes) == block.descriptor_sha256 and
+              block.descriptor["identity"] == RecordingBlock.identity(block) and
+              RecordingDescriptor.block_key(block.descriptor["identity"]) == block.block_key) ||
+             {:error, :recording_block_mismatch},
+         {:ok, %ArchiveBinding{} = binding} <-
+           Ash.get(ArchiveBinding, block.archive_binding_id, opts),
+         {:ok, init} <-
+           read_evidence(block, :init, object_attributes(block, binding, :init), opts),
+         {:ok, media} <-
+           read_evidence(block, :media, object_attributes(block, binding, :media), opts),
+         {:ok, manifest} <-
+           read_manifest_evidence(block, binding, %{init: init, media: media}, opts) do
+      {:ok, binding, %{init: init, media: media, manifest: manifest}}
+    end
+  end
+
+  # Every caller holds the block first, then reads dispatches in init/media/
+  # manifest order. Late observations lock only their own dispatch, never a block.
+  defp read_evidence(block, role, expected, opts) do
+    with {:ok, intent} <- read_intent(block.id, role, opts),
+         {:ok, dispatch} <- evidence_dispatch(intent, opts) do
+      {:ok,
+       %{
+         state: evidence_state(role, intent, dispatch, expected),
+         intent: intent,
+         dispatch: dispatch
+       }}
+    end
+  end
+
+  defp evidence_dispatch(nil, _opts), do: {:ok, nil}
+
+  defp evidence_dispatch(intent, opts) do
+    ArchiveUploadDispatch
+    |> Ash.Query.filter(archive_upload_intent_id == ^intent.id)
+    |> Ash.Query.lock(:for_update)
+    |> Ash.read_one(opts)
+  end
+
+  defp evidence_state(_role, nil, nil, _expected), do: :missing
+  defp evidence_state(_role, _intent, _dispatch, nil), do: :conflicted
+
+  defp evidence_state(role, intent, dispatch, expected) do
+    cond do
+      not intent_matches?(intent, expected) -> :conflicted
+      is_nil(dispatch) -> :missing
+      matching_request(dispatch, intent) != :ok -> :conflicted
+      dispatch.conflict_at || value(dispatch, role, :init_verification_conflict_at) -> :conflicted
+      is_nil(value(dispatch, role, :init_verified_at)) -> :prepared
+      verified_evidence?(role, intent, dispatch) -> :verified
+      true -> :conflicted
+    end
+  end
+
+  defp verified_evidence?(role, intent, dispatch) do
+    verification = value(dispatch, role, :init_verification)
+
+    dispatch.operation == :put_object and not is_nil(dispatch.marked_at) and
+      is_integer(value(dispatch, role, :init_authority_revision)) and
+      valid_verification(role, verification, intent) == :ok and
+      value(dispatch, role, :init_verification_sha256) ==
+        digest(ArchiveCanonicalJSON.encode(verification))
+  end
+
+  defp read_manifest_evidence(block, binding, evidence, opts) do
+    case manifest_description(block, binding, evidence) do
+      {:ok, attributes, _bytes} -> read_evidence(block, :manifest, attributes, opts)
+      {:error, :archive_dependencies_unverified} -> read_evidence(block, :manifest, nil, opts)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp manifest_description(block, binding, %{
+         init: %{state: :verified} = init,
+         media: %{state: :verified} = media
+       }) do
+    receipts = %{
+      init: manifest_receipt(:init, init.dispatch),
+      media: manifest_receipt(:media, media.dispatch)
+    }
+
+    with {:ok, bytes} <- RecordingManifest.encode_descriptor(block.descriptor, receipts) do
+      {:ok,
+       %{
+         recording_block_id: block.id,
+         archive_binding_id: binding.id,
+         descriptor_sha256: block.descriptor_sha256,
+         destination_sha256: binding.destination_sha256,
+         object_role: :manifest,
+         object_key: RecordingDescriptor.object_key(block.descriptor["identity"], :manifest),
+         byte_length: byte_size(bytes),
+         object_sha256: digest(bytes),
+         init_dispatch_id: init.dispatch.id,
+         init_verification_sha256: init.dispatch.init_verification_sha256,
+         media_dispatch_id: media.dispatch.id,
+         media_verification_sha256: media.dispatch.media_verification_sha256
+       }, bytes}
+    end
+  end
+
+  defp manifest_description(_block, _binding, _evidence),
+    do: {:error, :archive_dependencies_unverified}
+
+  defp manifest_receipt(role, dispatch) do
+    verification = value(dispatch, role, :init_verification)
+    %{etag: verification["etag"], version_id: verification["version_id"]}
+  end
+
+  defp prepare_manifest_locked(block, opts) do
+    with {:ok, binding, evidence} <- publication_evidence(block, opts),
+         true <-
+           evidence.manifest.state != :conflicted || {:error, :archive_upload_intent_conflict},
+         {:ok, attributes, bytes} <- manifest_description(block, binding, evidence),
+         {:ok, intent} <- retain_intent(attributes, opts) do
+      {:ok, %{intent: intent, bytes: bytes}}
+    end
+  end
+
+  defp publication_phase(block, evidence) do
+    states = Enum.map(evidence, fn {_role, item} -> item.state end)
+
+    cond do
+      Enum.any?(states, &(&1 in [:prepared, :conflicted])) -> :reconciliation_required
+      evidence.media.state == :missing -> :media_required
+      evidence.init.state == :missing -> :init_required
+      evidence.manifest.state == :missing -> :manifest_required
+      is_nil(block.archive_published_at) -> :archive_verified
+      published_identity?(block, evidence.manifest.dispatch) -> :available
+      true -> :reconciliation_required
+    end
+  end
+
+  defp published_identity?(block, dispatch) do
+    block.archive_manifest_dispatch_id == dispatch.id and
+      block.archive_manifest_verification_sha256 == dispatch.manifest_verification_sha256
+  end
+
+  defp publish_locked(%{archive_published_at: nil} = block, dispatch, opts) do
+    attrs = %{
+      archive_manifest_dispatch_id: dispatch.id,
+      archive_manifest_verification_sha256: dispatch.manifest_verification_sha256,
+      archive_published_at: block.database_now
+    }
+
+    with {:ok, published} <-
+           block |> Ash.Changeset.for_update(:publish_archive, attrs) |> Ash.update(opts) do
+      {:ok, publication_receipt(published)}
+    end
+  end
+
+  defp publish_locked(block, _dispatch, _opts), do: {:ok, publication_receipt(block)}
+
+  defp publication_receipt(%{archive_published_at: nil}), do: nil
+
+  defp publication_receipt(block) do
+    %{
+      "schema_version" => 1,
+      "status" => "archive_published",
+      "block_id" => block.id,
+      "manifest_dispatch_id" => block.archive_manifest_dispatch_id,
+      "manifest_verification_sha256" => block.archive_manifest_verification_sha256,
+      "published_at" => DateTime.to_iso8601(block.archive_published_at),
+      "recording_readiness" => "unavailable",
+      "archive_readiness" => "unavailable"
+    }
   end
 end
