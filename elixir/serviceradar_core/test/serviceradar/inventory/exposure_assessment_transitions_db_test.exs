@@ -126,6 +126,37 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                |> snapshot_control("end", %{"manifest" => received["receipts"]})
                |> ExposureSnapshots.process_batch()
 
+      # A warehouse row missed by this generation needs a durable repair, even
+      # when the publisher and every page have already finished successfully.
+      unseen = row |> Map.put("snapshot_generation", 0) |> Map.put("transition_xid", 3)
+      snapshot_query!(fn _sql -> warehouse_rows([unseen]) end)
+
+      assert {:error, :exposure_snapshot_finalization_pending} =
+               ExposureSnapshotFinalizer.step(id)
+
+      assert {:ok, scanned} = ExposureSnapshotState.get(id)
+      assert scanned["cursor"] == SnapshotWarehouse.key(unseen)
+      assert [_] = scanned["repairs"]
+
+      assert {:error, :exposure_snapshot_repairs_pending} = ExposureSnapshotFinalizer.step(id)
+      assert {:ok, repairing} = ExposureSnapshotState.get(id)
+      assert [required] = repairing["repairs"]
+      assert required["required"] > row["transition_seq"]
+      assert repairing["status"] == "finalizing"
+
+      # Each step reloads CNPG state. A replacement finalizer must retain the
+      # assigned repair rather than minting another sequence or rescanning.
+      assert {:error, :exposure_snapshot_repairs_pending} = ExposureSnapshotFinalizer.step(id)
+      assert {:ok, resumed} = ExposureSnapshotState.get(id)
+      assert resumed["repairs"] == repairing["repairs"]
+      assert resumed["cursor"] == repairing["cursor"]
+      repaired = publication(ctx.device_uid, "EXAMPLE-SNAPSHOT-RECEIPT")
+      assert repaired["transition_seq"] == required["required"]
+      {:ok, [%{fact: confirmed}]} = ExposureTransitions.decode([%{data: Jason.encode!(repaired)}])
+      snapshot_query!(fn _sql -> warehouse_rows([confirmed]) end)
+      assert :ok = ExposureSnapshotFinalizer.step(id)
+      assert {:ok, %{"status" => "finalizing", "repairs" => []}} = ExposureSnapshotState.get(id)
+      snapshot_query!(fn _sql -> warehouse_rows([]) end)
       assert :ok = ExposureSnapshotFinalizer.step(id)
       assert {:ok, %{"status" => "complete"}} = ExposureSnapshotState.get(id)
       assert Snapshot.digest(body) == hash
