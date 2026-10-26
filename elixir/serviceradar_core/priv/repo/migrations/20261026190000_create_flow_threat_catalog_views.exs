@@ -18,6 +18,14 @@ defmodule ServiceRadar.Repo.Migrations.CreateFlowThreatCatalogViews do
       `threat_indicator:` compares those hex bounds the way SRQL's `cidr:`
       filter does.
 
+  Both views hold only current matches: matched cache rows that have not
+  expired, and for memberships, indicators that have not expired either. The
+  cache and indicator timestamps are UTC without a time zone, so `now()` is
+  taken at UTC. Whoever reads a view, and whatever predicates reach it, the
+  containment join only ever expands live matches. SRQL still repeats those
+  conditions in the query it sends, which keeps the result the same if a view
+  is ever widened.
+
   `near:` reads `latitude` and `longitude` from `ip_geo_enrichment_cache`, so
   the reader gains those two columns. A view would not help there: the center
   point is chosen at query time.
@@ -46,6 +54,7 @@ defmodule ServiceRadar.Repo.Migrations.CreateFlowThreatCatalogViews do
     SELECT c.ip, c.matched, c.expires_at, s.source
     FROM platform.ip_threat_intel_cache c
     CROSS JOIN LATERAL unnest(c.sources) AS s(source)
+    WHERE c.matched AND c.expires_at > (now() AT TIME ZONE 'utc')
     """)
 
     execute("""
@@ -58,6 +67,8 @@ defmodule ServiceRadar.Repo.Migrations.CreateFlowThreatCatalogViews do
            i.expires_at AS indicator_expires_at
     FROM platform.ip_threat_intel_cache c
     JOIN platform.threat_intel_indicators i ON c.ip::inet <<= i.indicator
+    WHERE c.matched AND c.expires_at > (now() AT TIME ZONE 'utc')
+      AND (i.expires_at IS NULL OR i.expires_at > (now() AT TIME ZONE 'utc'))
     """)
 
     for {relation, columns} <- @grants do
