@@ -141,6 +141,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecretActionsTest do
 
   defp lifecycle_cases do
     [
+      {:schedule_rotation, :active, %{}},
       {:mark_rotation_due, :active, %{}},
       {:start_rotation, :active, %{}},
       {:complete_rotation, :rotating,

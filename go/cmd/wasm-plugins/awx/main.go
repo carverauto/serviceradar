@@ -2393,7 +2393,8 @@ func runPing(cfg Config) *sdk.Result {
 		return errorResult("awx.ping", fmt.Errorf("AWX returned an invalid ping response"))
 	}
 
-	if _, err := getJSON(cfg, "/api/v2/me/"); err != nil {
+	meResp, err := getJSON(cfg, "/api/v2/me/")
+	if err != nil {
 		if isAWXAuthFailure(err) {
 			return authFailedPingResult(err, version, activeNode)
 		}
@@ -2406,6 +2407,13 @@ func runPing(cfg Config) *sdk.Result {
 		"version":     version,
 		"active_node": activeNode,
 	}
+	tokenExpiresAt, expireSeconds := extractAWXTokenExpiry(ping, meResp)
+	if tokenExpiresAt != "" {
+		payload["token_expires_at"] = tokenExpiresAt
+	}
+	if expireSeconds > 0 {
+		payload["access_token_expire_seconds"] = expireSeconds
+	}
 	body, _ := json.Marshal(payload)
 
 	summary := "AWX " + version + " reachable (active: " + activeNode + ")"
@@ -2416,6 +2424,130 @@ func runPing(cfg Config) *sdk.Result {
 	result.WithLabel("awx_version", version)
 	result.WithLabel("active_node", activeNode)
 	return result
+}
+
+const maxAWXTokenLifetimeSeconds int64 = 10 * 365 * 86_400
+
+func extractAWXTokenExpiry(ping map[string]json.RawMessage, meResp *sdk.HTTPResponse) (string, int64) {
+	var meRoot map[string]json.RawMessage
+	var meEntry map[string]json.RawMessage
+	if meResp != nil && len(meResp.Body) > 0 {
+		if json.Unmarshal(meResp.Body, &meRoot) == nil {
+			var results []json.RawMessage
+			if len(meRoot["results"]) > 0 && json.Unmarshal(meRoot["results"], &results) == nil && len(results) > 0 {
+				_ = json.Unmarshal(results[0], &meEntry)
+			}
+		}
+	}
+
+	expiresAt := firstValidTokenExpiry(meEntry, meRoot, ping, meResp)
+	expireSeconds := firstValidTokenLifetimeSeconds(meEntry, meRoot, ping)
+	return expiresAt, expireSeconds
+}
+
+func firstValidTokenExpiry(
+	meEntry map[string]json.RawMessage,
+	meRoot map[string]json.RawMessage,
+	ping map[string]json.RawMessage,
+	meResp *sdk.HTTPResponse,
+) string {
+	for _, source := range []map[string]json.RawMessage{meEntry, meRoot, ping} {
+		if ts := tokenExpiryFromMap(source); ts != "" {
+			return ts
+		}
+	}
+	if meResp != nil {
+		for k, v := range meResp.Headers {
+			switch strings.ToLower(strings.TrimSpace(k)) {
+			case "x-oauth-token-expires", "x-api-token-expires", "x-token-expires-at":
+				if ts := normalizeRFC3339(strings.TrimSpace(v)); ts != "" {
+					return ts
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func tokenExpiryFromMap(source map[string]json.RawMessage) string {
+	if len(source) == 0 {
+		return ""
+	}
+	for _, key := range []string{"token_expires_at", "expires_at", "expires", "token_expiration"} {
+		if raw, ok := rawString(source[key]); ok {
+			if ts := normalizeRFC3339(raw); ts != "" {
+				return ts
+			}
+		}
+	}
+	var summaryFields map[string]json.RawMessage
+	if len(source["summary_fields"]) > 0 && json.Unmarshal(source["summary_fields"], &summaryFields) == nil {
+		for _, tokenKey := range []string{"token", "access_token"} {
+			var tokenObj map[string]json.RawMessage
+			if len(summaryFields[tokenKey]) > 0 && json.Unmarshal(summaryFields[tokenKey], &tokenObj) == nil {
+				for _, key := range []string{"expires", "expires_at", "token_expires_at"} {
+					if raw, ok := rawString(tokenObj[key]); ok {
+						if ts := normalizeRFC3339(raw); ts != "" {
+							return ts
+						}
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func firstValidTokenLifetimeSeconds(
+	meEntry map[string]json.RawMessage,
+	meRoot map[string]json.RawMessage,
+	ping map[string]json.RawMessage,
+) int64 {
+	for _, source := range []map[string]json.RawMessage{meEntry, meRoot, ping} {
+		if seconds := tokenLifetimeFromMap(source); seconds > 0 {
+			return seconds
+		}
+	}
+	return 0
+}
+
+func tokenLifetimeFromMap(source map[string]json.RawMessage) int64 {
+	if len(source) == 0 {
+		return 0
+	}
+	for _, key := range []string{
+		"access_token_expire_seconds",
+		"token_expire_seconds",
+		"auth_token_expiration",
+		"ACCESS_TOKEN_EXPIRE_SECONDS",
+		"AUTH_TOKEN_EXPIRATION",
+	} {
+		if seconds, ok := rawInteger(source[key], 1, maxAWXTokenLifetimeSeconds); ok {
+			return seconds
+		}
+	}
+	for _, nestedKey := range []string{"oauth2_provider", "OAUTH2_PROVIDER"} {
+		var nested map[string]json.RawMessage
+		if len(source[nestedKey]) > 0 && json.Unmarshal(source[nestedKey], &nested) == nil {
+			for _, key := range []string{"ACCESS_TOKEN_EXPIRE_SECONDS", "access_token_expire_seconds"} {
+				if seconds, ok := rawInteger(nested[key], 1, maxAWXTokenLifetimeSeconds); ok {
+					return seconds
+				}
+			}
+		}
+	}
+	return 0
+}
+
+func normalizeRFC3339(value string) string {
+	if !validRFC3339(value) {
+		return ""
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return ""
+	}
+	return parsed.UTC().Format(time.RFC3339Nano)
 }
 
 func isAWXAuthFailure(err error) bool {

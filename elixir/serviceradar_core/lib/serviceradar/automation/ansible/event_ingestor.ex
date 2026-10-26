@@ -17,12 +17,17 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
   3c, 4, 6.
   """
 
+  alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.IngestorAshActions
   alias ServiceRadar.Automation.Ansible.OcsfMapper
   alias ServiceRadar.Automation.Ansible.PubSub, as: AnsiblePubSub
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
 
   require Logger
+
+  @default_awx_token_lifetime_seconds 90 * 86_400
+  @default_awx_rotation_reminder_lead_seconds 14 * 86_400
+  @max_awx_token_lifetime_seconds 10 * 365 * 86_400
 
   @type result_data :: %{
           required(:command_type) => String.t(),
@@ -454,11 +459,275 @@ defmodule ServiceRadar.Automation.Ansible.EventIngestor do
          {:ok, controller} <- actions.get_controller_by_id(controller_id) do
       args = ping_args(payload)
       _ = actions.record_controller_health(controller, args)
+      _ = maybe_reconcile_controller_token_expiry(controller, payload, actions)
       :ok
     else
       _ -> :ok
     end
   end
+
+  defp maybe_reconcile_controller_token_expiry(controller, %{"ok" => true} = payload, actions) do
+    now = DateTime.utc_now()
+
+    controller
+    |> controller_credential_secret_ids()
+    |> Enum.each(fn {secret_id, sync_secret?} ->
+      reconcile_credential_secret_expiry(
+        secret_id,
+        sync_secret?,
+        controller,
+        payload,
+        actions,
+        now
+      )
+    end)
+
+    :ok
+  end
+
+  defp maybe_reconcile_controller_token_expiry(_controller, _payload, _actions), do: :ok
+
+  defp controller_credential_secret_ids(controller) when is_map(controller) do
+    sync_id =
+      case Controller.credential_secret_id_for(controller, :sync) do
+        {:ok, id} -> id
+        _ -> nil
+      end
+
+    other_ids =
+      for purpose <- [:execution, :callback],
+          {:ok, id} <- [Controller.credential_secret_id_for(controller, purpose)],
+          id != sync_id do
+        {id, false}
+      end
+
+    sync_entries = if is_binary(sync_id), do: [{sync_id, true}], else: []
+
+    Enum.uniq_by(sync_entries ++ other_ids, fn {id, _sync?} -> id end)
+  end
+
+  defp controller_credential_secret_ids(_controller), do: []
+
+  defp reconcile_credential_secret_expiry(
+         secret_id,
+         sync_secret?,
+         controller,
+         payload,
+         actions,
+         now
+       ) do
+    with true <- function_exported?(actions, :get_credential_secret_by_id, 1),
+         {:ok, secret} when is_map(secret) <- actions.get_credential_secret_by_id(secret_id) do
+      due_at = resolve_token_expiry(secret, controller, payload, sync_secret?, now)
+      apply_credential_rotation_schedule(secret, due_at, controller, actions, now)
+    else
+      _ -> :ok
+    end
+  end
+
+  defp resolve_token_expiry(secret, controller, payload, true, now) do
+    case parse_token_expires_at(payload) do
+      {:ok, %DateTime{} = expires_at} ->
+        expires_at
+
+      :error ->
+        fallback_token_expiry(secret, controller, payload, now)
+    end
+  end
+
+  defp resolve_token_expiry(secret, controller, payload, false, now) do
+    fallback_token_expiry(secret, controller, payload, now)
+  end
+
+  defp fallback_token_expiry(secret, controller, payload, now) do
+    configured_lifetime = configured_token_lifetime_seconds(payload, controller, secret)
+    lifetime_seconds = configured_lifetime || default_awx_token_lifetime_seconds()
+    existing_due_at = Map.get(secret, :next_rotation_due_at)
+
+    if not is_struct(existing_due_at, DateTime) or not is_nil(configured_lifetime) or
+         rotated_after_due_at?(secret, existing_due_at) do
+      DateTime.shift(secret_epoch(secret, now), second: lifetime_seconds)
+    else
+      existing_due_at
+    end
+  end
+
+  defp apply_credential_rotation_schedule(secret, %DateTime{} = due_at, controller, actions, now) do
+    rotation_state = Map.get(secret, :rotation_state, :active)
+    existing_due_at = Map.get(secret, :next_rotation_due_at)
+
+    if rotation_reminder_due?(due_at, controller, secret, now) do
+      cond do
+        rotation_state in [:active, :rotation_failed] and
+            function_exported?(actions, :mark_credential_rotation_due, 2) ->
+          _ = actions.mark_credential_rotation_due(secret, due_at)
+          :ok
+
+        rotation_state == :rotation_due and not same_datetime?(existing_due_at, due_at) and
+            function_exported?(actions, :schedule_credential_rotation, 2) ->
+          _ = actions.schedule_credential_rotation(secret, due_at)
+          :ok
+
+        true ->
+          :ok
+      end
+    else
+      if not same_datetime?(existing_due_at, due_at) and
+           function_exported?(actions, :schedule_credential_rotation, 2) do
+        _ = actions.schedule_credential_rotation(secret, due_at)
+        :ok
+      else
+        :ok
+      end
+    end
+  end
+
+  defp rotation_reminder_due?(%DateTime{} = due_at, controller, secret, %DateTime{} = now) do
+    DateTime.diff(due_at, now, :second) <= rotation_reminder_lead_seconds(controller, secret)
+  end
+
+  defp parse_token_expires_at(payload) when is_map(payload) do
+    raw =
+      Map.get(payload, "token_expires_at") ||
+        Map.get(payload, :token_expires_at) ||
+        Map.get(payload, "expires_at") ||
+        Map.get(payload, :expires_at)
+
+    case raw do
+      %DateTime{} = dt ->
+        {:ok, dt}
+
+      ts when is_binary(ts) ->
+        case DateTime.from_iso8601(ts) do
+          {:ok, dt, _offset} -> {:ok, dt}
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
+  defp parse_token_expires_at(_payload), do: :error
+
+  defp configured_token_lifetime_seconds(payload, controller, secret) do
+    lifetime_seconds_from_map(payload) ||
+      lifetime_seconds_from_map(Map.get(controller, :metadata)) ||
+      lifetime_seconds_from_map(Map.get(secret, :metadata))
+  end
+
+  defp lifetime_seconds_from_map(map) when is_map(map) do
+    seconds =
+      first_positive_integer(map, [
+        "access_token_expire_seconds",
+        :access_token_expire_seconds,
+        "access_token_lifetime_seconds",
+        :access_token_lifetime_seconds,
+        "token_expire_seconds",
+        :token_expire_seconds
+      ])
+
+    days =
+      first_positive_integer(map, [
+        "access_token_lifetime_days",
+        :access_token_lifetime_days,
+        "token_lifetime_days",
+        :token_lifetime_days
+      ])
+
+    cond do
+      is_integer(seconds) and seconds <= @max_awx_token_lifetime_seconds ->
+        seconds
+
+      is_integer(days) and days * 86_400 <= @max_awx_token_lifetime_seconds ->
+        days * 86_400
+
+      true ->
+        nil
+    end
+  end
+
+  defp lifetime_seconds_from_map(_), do: nil
+
+  defp default_awx_token_lifetime_seconds do
+    case Application.get_env(:serviceradar_core, :awx_access_token_expire_seconds) do
+      seconds
+      when is_integer(seconds) and seconds > 0 and seconds <= @max_awx_token_lifetime_seconds ->
+        seconds
+
+      _ ->
+        @default_awx_token_lifetime_seconds
+    end
+  end
+
+  defp rotation_reminder_lead_seconds(controller, secret) do
+    reminder_seconds_from_map(Map.get(controller, :metadata)) ||
+      reminder_seconds_from_map(Map.get(secret, :metadata)) ||
+      case Application.get_env(:serviceradar_core, :awx_token_rotation_reminder_lead_seconds) do
+        seconds when is_integer(seconds) and seconds > 0 -> seconds
+        _ -> @default_awx_rotation_reminder_lead_seconds
+      end
+  end
+
+  defp reminder_seconds_from_map(map) when is_map(map) do
+    seconds =
+      first_positive_integer(map, [
+        "rotation_reminder_lead_seconds",
+        :rotation_reminder_lead_seconds
+      ])
+
+    days =
+      first_positive_integer(map, [
+        "rotation_reminder_days",
+        :rotation_reminder_days
+      ])
+
+    cond do
+      is_integer(seconds) -> seconds
+      is_integer(days) -> days * 86_400
+      true -> nil
+    end
+  end
+
+  defp reminder_seconds_from_map(_), do: nil
+
+  defp first_positive_integer(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(map, key) do
+        v when is_integer(v) and v > 0 ->
+          v
+
+        v when is_binary(v) ->
+          case Integer.parse(String.trim(v)) do
+            {parsed, ""} when parsed > 0 -> parsed
+            _ -> nil
+          end
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  defp secret_epoch(secret, %DateTime{} = now) do
+    case Map.get(secret, :last_rotated_at) || Map.get(secret, :inserted_at) do
+      %DateTime{} = dt -> dt
+      _ -> now
+    end
+  end
+
+  defp rotated_after_due_at?(secret, %DateTime{} = due_at) do
+    case Map.get(secret, :last_rotated_at) do
+      %DateTime{} = rotated_at -> DateTime.after?(rotated_at, due_at)
+      _ -> false
+    end
+  end
+
+  defp same_datetime?(%DateTime{} = left, %DateTime{} = right) do
+    DateTime.diff(left, right, :second) == 0
+  end
+
+  defp same_datetime?(_, _), do: false
 
   defp ping_args(%{"ok" => true} = payload) do
     %{

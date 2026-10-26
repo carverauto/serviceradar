@@ -28,6 +28,28 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjectionTest do
 
     assert {:ok,
             %{
+              "verb" => "awx.ping",
+              "ok" => true,
+              "version" => "24.6.1",
+              "active_node" => "awx-task-0",
+              "token_expires_at" => "2026-12-01T00:00:00Z",
+              "access_token_expire_seconds" => 7_776_000
+            }} =
+             AWXResultProjection.project("awx.ping", %{
+               "verb" => "awx.ping",
+               "ok" => true,
+               "version" => "24.6.1",
+               "active_node" => "awx-task-0",
+               "token_expires_at" => "2026-12-01T00:00:00Z",
+               "access_token_expire_seconds" => 7_776_000,
+               "install_uuid" => @play_uuid,
+               "ha" => false,
+               "instances" => [],
+               "groups" => []
+             })
+
+    assert {:ok,
+            %{
               "verb" => "awx.current_user",
               "ok" => true,
               "user_id" => 3,
