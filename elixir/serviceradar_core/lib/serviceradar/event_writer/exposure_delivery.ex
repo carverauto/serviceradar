@@ -34,6 +34,9 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.StreamLoad
   alias ServiceRadar.EventWriter.ExposureRecovery
+  alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope
+  alias ServiceRadar.EventWriter.ExposureSnapshotIngestion
+  alias ServiceRadar.EventWriter.Processors.ExposureTransitions
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Repo
@@ -95,6 +98,53 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
     )
   end
 
+  @doc "Snapshot labels name both the generation and the actual physical chunk bytes."
+  def persist_snapshot(dataset, rows, locked, identity, limits) do
+    Destination.persist_warehouse(dataset, rows,
+      stream_load: limits,
+      persist: fn table, chunk, opts ->
+        digest =
+          ExposureSnapshotEnvelope.digest(
+            ExposureSnapshotEnvelope.canonical([table, identity, chunk])
+          )
+
+        with :ok <- locked.(),
+             result =
+               StreamLoad.persist(
+                 table,
+                 chunk,
+                 Keyword.put(opts, :label, "exposure-snapshot-" <> digest)
+               ),
+             :ok <- locked.() do
+          result
+        end
+      end
+    )
+  end
+
+  @doc "Shared live/snapshot ownership, including the two dictionary lanes."
+  def with_lane(lane, fun, opts \\ []) when lane in 0..17 do
+    DirectSession.run(fn session ->
+      lock(session, lane, fn locked ->
+        with :ok <-
+               ExposureSnapshotIngestion.release_unstarted(
+                 Keyword.get(opts, :snapshot),
+                 lane,
+                 locked
+               ),
+             :ok <- recover_live(lane, locked),
+             :ok <- ExposureSnapshotIngestion.settle(lane, locked) do
+          fun.(locked)
+        end
+      end)
+    end)
+  end
+
+  defp recover_live(lane, locked) when lane in 0..15,
+    do: recover(lane, &ExposureTransitions.ingest_batch/2, locked)
+
+  defp recover_live(_lane, _locked), do: :ok
+
   defp positions(messages) do
     Enum.reduce_while(messages, {:ok, %{}}, fn message, {:ok, buckets} ->
       ack = Map.get(message.metadata, :jetstream_ack)
@@ -124,13 +174,17 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   end
 
   defp deliver(session, bucket, entries, ingest) do
+    lock(session, bucket, fn locked -> deliver_owned(bucket, entries, ingest, locked) end)
+  end
+
+  defp lock(session, bucket, fun) do
     case Postgrex.query(session, "SELECT pg_try_advisory_lock($1, $2)", [
            @lock_namespace,
            bucket
          ]) do
       {:ok, %Postgrex.Result{rows: [[true]]}} ->
         try do
-          deliver_owned(bucket, entries, ingest, fn -> owned(session, bucket) end)
+          fun.(fn -> owned(session, bucket) end)
         after
           # Frees the bucket while later buckets of this run deliver. If the
           # session was lost, it holds nothing and closing it is enough.
@@ -150,7 +204,8 @@ defmodule ServiceRadar.EventWriter.ExposureDelivery do
   end
 
   defp deliver_owned(bucket, entries, ingest, locked) do
-    with :ok <- recover(bucket, ingest, locked) do
+    with :ok <- recover(bucket, ingest, locked),
+         :ok <- ExposureSnapshotIngestion.settle(bucket, locked) do
       entries = entries |> Enum.uniq_by(&elem(&1, 0)) |> Enum.sort_by(&elem(&1, 0))
       deliver_pages(bucket, entries, ingest, locked)
     end

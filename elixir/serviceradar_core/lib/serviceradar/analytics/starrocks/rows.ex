@@ -17,6 +17,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :bmp_routing_events
           | :flow_attribution_observations
           | :exposure_facts
+          | :exposure_snapshot_facts
           | :exposure_transitions_log
           | :exposure_cve_dim
           | :exposure_package_dim
@@ -144,6 +145,9 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   end
 
   defp encode_row(:exposure_facts, row), do: Map.take(row, @exposure_fact_columns)
+
+  defp encode_row(:exposure_snapshot_facts, row),
+    do: Map.take(row, @exposure_fact_columns ++ ["snapshot_generation"])
 
   defp encode_row(dataset, row)
        when dataset in [

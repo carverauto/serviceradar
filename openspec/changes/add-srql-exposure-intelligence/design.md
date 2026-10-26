@@ -1498,6 +1498,27 @@ after cleanup. Database tests own interrupted delivery and cleanup behavior.
 Before an eventual rollout, quiesce old-version exposure consumers: their old
 journal cleanup cannot account for retained envelopes. No rollout is included.
 
+**Second implementation slice.** Migration `20261026061000` adds snapshot
+generation control and bounded source-repair helpers. The source worker holds
+one direct read-only transaction, publishes at most one pending page per lane,
+and waits for dimension and lifecycle receipts before facts. Loss of its reader
+aborts the generation; maintenance schedules a fresh generation instead of
+reusing its cursor.
+
+EventWriter retains an immutable warehouse plan before applying a page. The plan
+also retains load-size limits, so a replacement consumer settles the same
+physical chunks even if runtime batching changes. Device and dictionary writers
+share lane ownership. Equal-sequence drift produces a fresh source publication;
+the stored repair obligation includes the required sequence and content digest.
+An outbox acknowledgement cannot discharge it. Only confirmed warehouse content
+or a valid newer source publication permits the page receipt.
+
+The finalizer scans in bounded keyset pages, persists its cursor together with
+repair obligations, and validates retirement coverage against both retained
+source and warehouse fences. This slice adds no scheduled fleet reconciliation,
+readiness signal, or rollout. Task 1.6 remains open; fleet-scale throughput and
+the complete readiness contract require separate evidence.
+
 ## Section 0 evidence (2026-10-21)
 
 ### Task 0.6: synthetic warehouse spike

@@ -348,6 +348,7 @@ spec:
                       # stream deletion; individual message deletion stays on
                       # the JetStream API allow.
                       "exposure.delivery.recovery.>",
+                      "exposure.snapshots.>",
                       "metrics.exposure_transitions",
                       "metrics.exposure_dimensions",
                       "\$JS.API.>",
