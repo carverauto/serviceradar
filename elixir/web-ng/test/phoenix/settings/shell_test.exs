@@ -42,6 +42,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     LazyHTML.text(link) =~ "Inventory Cleanup"
   end
 
+  defp links_to_delivery_log?(item) do
+    link = LazyHTML.query(item, ~s(a[href="/settings/notifications/deliveries"]))
+    text = LazyHTML.text(link)
+    text =~ "Notifications" and text =~ "Delivery Log"
+  end
+
   defp catalog_assigns(path) do
     scope = auditor_scope()
     view = Catalog.view_for_path(path)
@@ -493,6 +499,64 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
         assert Enum.any?(tree_hits, &links_to_inventory_cleanup?/1),
                "view-tree query #{inspect(query)} does not find Inventory Cleanup"
+      end
+    end
+
+    test "a deliveries-only scope finds Notifications › Delivery Log in the palette and view tree" do
+      scope = %Scope{permissions: MapSet.new(["notifications.deliveries.view"])}
+      view = Catalog.view(:notifications)
+      category = Catalog.category(:system)
+
+      assigns = %{
+        current_path: "/settings/notifications/deliveries",
+        current_scope: scope,
+        active_view: view,
+        active_category: category,
+        breadcrumbs: Catalog.breadcrumbs_for_path("/settings/notifications/deliveries", scope),
+        nav_tree: %{
+          categories: Catalog.visible_categories(scope),
+          groups: Catalog.nav_tree(scope, category.id)
+        },
+        palette: Catalog.palette_index(scope),
+        stats: StatusCards.for_view(view)
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Shell.settings_chrome
+          current_path={@current_path}
+          current_scope={@current_scope}
+          active_view={@active_view}
+          active_category={@active_category}
+          breadcrumbs={@breadcrumbs}
+          nav_tree={@nav_tree}
+          palette={@palette}
+          stats={@stats}
+        >
+          <p>notifications body</p>
+        </Shell.settings_chrome>
+        """)
+
+      doc = LazyHTML.from_fragment(html)
+
+      for query <- ["delivery", "deliveries"] do
+        tokens = String.split(query)
+
+        palette_hits =
+          doc
+          |> LazyHTML.query("[data-command-palette-item]")
+          |> Enum.filter(&search_hit?(&1, "data-search", tokens))
+
+        assert Enum.any?(palette_hits, &links_to_delivery_log?/1),
+               "palette query #{inspect(query)} does not find Notifications › Delivery Log"
+
+        tree_hits =
+          doc
+          |> LazyHTML.query("#settings-view-tree [data-view-search]")
+          |> Enum.filter(&search_hit?(&1, "data-view-search", tokens))
+
+        assert Enum.any?(tree_hits, &links_to_delivery_log?/1),
+               "view-tree query #{inspect(query)} does not find Notifications › Delivery Log"
       end
     end
 

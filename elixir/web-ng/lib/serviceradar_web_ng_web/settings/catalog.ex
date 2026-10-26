@@ -997,7 +997,11 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       icon: "hero-megaphone",
       route: "/settings/notifications",
       live_view: ServiceRadarWebNGWeb.Settings.NotificationsLive.Index,
-      permission: "notifications.channels.view",
+      permission: [
+        "notifications.channels.view",
+        "notifications.routes.view",
+        "notifications.deliveries.view"
+      ],
       order: 340,
       has_own_stats: false,
       feature_flag: nil,
@@ -1230,7 +1234,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
       parent_group: :net_discovery,
       subgroup: nil,
       title: "Discovery Jobs",
-      description: "View active running sweeps and trigger frequencies.",
+      description: "View active discovery jobs, mapper runs, and trigger frequencies.",
       icon: "hero-magnifying-glass-circle",
       route: "/settings/networks/discovery",
       live_view: ServiceRadarWebNGWeb.Settings.NetworksLive.Index,
