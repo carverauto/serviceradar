@@ -76,6 +76,10 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :crash,
     :retry,
     :failed,
+    :attempt_recorded,
+    :quarantined,
+    :quarantine_acknowledged,
+    :attempt_store_failed,
     :other
   ]
   @reasons [

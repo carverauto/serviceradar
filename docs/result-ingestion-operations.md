@@ -21,6 +21,32 @@ lane confirms its existing durable completion condition. A committed plugin
 handler failure marker is terminal; a persistence failure is not accepted.
 Timeout or overload retains the agent's pending payload for idempotent replay.
 
+### Retained plugin results that keep exceeding the budget
+
+A retained plugin result whose worker is killed at the execution budget would
+otherwise be redelivered forever and hold back the agent's later results. The
+retained plugin lane coordinator counts each execution timeout in
+`platform.plugin_result_ingestion_attempts`, keyed by agent, logical service
+identity and a digest of the raw retained message. The coordinator writes the
+row itself, in one statement before it replies, because the killed worker's
+transaction rolls back. After three consecutive timeouts (configurable with the
+`:plugin_result_quarantine_max_timeouts` application setting) the row becomes
+`quarantined`; the next redelivery is acknowledged without running handlers,
+so the agent drops it. That acknowledgement leaves the quarantined row, so it
+can be listed and retried. A success, or a committed handler-domain failure,
+deletes the row.
+
+Admission timeouts do not count. They mean the lane could not start the result,
+which says the lane is congested, not that this result is too expensive.
+
+An empty table therefore means no retained result is pending or quarantined.
+To tell that apart from a store that cannot be written, read the
+`retained_plugin_result` lane counters `result_ingestion_events_attempt_recorded`,
+`_quarantined`, `_quarantine_acknowledged` and `_attempt_store_failed`. A store
+failure is also logged, and the lane then fails open: it ingests or retries the
+result as if nothing had been counted. `ServiceRadar.Observability.PluginResultQuarantine`
+lists quarantined results and retries one from its stored status.
+
 A gateway first reserves a small metadata descriptor, then transfers the full
 payload directly to that lane. Failed capability discovery or reservation never
 falls back automatically to a full-payload singleton call. Older gateways can

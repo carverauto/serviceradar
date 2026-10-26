@@ -3,6 +3,8 @@ defmodule ServiceRadar.Admission.Lane do
 
   use GenServer
 
+  require Logger
+
   @envelope_overhead_bytes 256
   @max_queue_wait_ms 2_000
   @max_worker_timeout_ms 20_000
@@ -534,6 +536,9 @@ defmodule ServiceRadar.Admission.Lane do
     Process.cancel_timer(job.execution_timer)
     Process.exit(job.lease, :kill)
     Process.exit(job.worker, :kill)
+    # The killed worker's transaction rolls back, so the coordinator records the
+    # timeout itself, and before replying so the count is committed before the
+    # caller can redeliver.
     notify_execution_timeout(state.on_execution_timeout, job.status, job.payload_bytes)
     reply(job.reply_to, {:error, reason})
 
@@ -780,23 +785,17 @@ defmodule ServiceRadar.Admission.Lane do
 
   defp notify_execution_timeout(nil, _status, _payload_bytes), do: :ok
 
+  # A failing callback must not take the coordinator, and every job it holds,
+  # down with it; it is logged instead.
   defp notify_execution_timeout({module, function, extra_args}, status, payload_bytes) do
     apply(module, function, [status, payload_bytes | extra_args])
-  rescue
-    _ -> :ok
   catch
-    _, _ -> :ok
+    kind, reason ->
+      Logger.warning(
+        "Admission lane execution-timeout callback failed: " <>
+          Exception.format_banner(kind, reason)
+      )
   end
-
-  defp notify_execution_timeout(fun, status, payload_bytes) when is_function(fun, 2) do
-    fun.(status, payload_bytes)
-  rescue
-    _ -> :ok
-  catch
-    _, _ -> :ok
-  end
-
-  defp notify_execution_timeout(_callback, _status, _payload_bytes), do: :ok
 
   defp dispatch(state) when map_size(state.running) >= state.concurrency, do: state
 
