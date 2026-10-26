@@ -23,7 +23,7 @@ The `Device` resource SHALL gain `ansible_managed` (boolean, default false) and 
 - **GIVEN** a live device, swept, mapped or agent-managed, that holds the address an AWX host names as its `ansible_host`, and no Proxmox guest linked to the AWX host
 - **WHEN** the first DNS label of the AWX host name equals the first DNS label of the device's host name, ignoring case (`host01` matches `host01.example.com`)
 - **THEN** DIRE SHALL merge the AWX record into that device, and the device SHALL survive the merge
-- **AND** an address match without host-name agreement SHALL NOT merge the AWX record into a device that carries a MAC or is agent-managed
+- **AND** the address alone, with neither host-name agreement nor an overlapping MAC, SHALL NOT merge the AWX record into a device that carries a MAC or is agent-managed
 - **AND** a host-name match without the address SHALL NOT merge the records
 - **AND** an AWX MAC that contradicts the device's MACs SHALL refuse the merge
 
