@@ -437,7 +437,9 @@ These existing grants are reused unchanged:
 - `ip_threat_intel_cache (ip, matched, expires_at, max_severity)`, read through the plain
   catalog relation exactly as the flow threat filters do. StarRocks 4.1 has no JDBC
   `native_query` (it first ships in 4.2) and cannot read the `sources` `text[]` or the
-  indicator `cidr` columns, so neither is part of the matched-set read;
+  indicator `cidr` columns; the flow `threat_source` and `threat_indicator` filters read
+  the `ip_threat_intel_sources_catalog` and `threat_intel_indicator_members_catalog`
+  views instead;
 - `netflow_local_cidrs_catalog`.
 
 Never catalog-joined per query: `endpoint_vulnerability_assessments`,

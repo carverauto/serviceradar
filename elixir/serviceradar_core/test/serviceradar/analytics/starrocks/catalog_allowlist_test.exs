@@ -47,6 +47,22 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     end
   end
 
+  # SRQL's flow threat filters name these views; the 4.1 JDBC catalog cannot
+  # read the cache's text[] sources or the indicator cidr directly.
+  test "flow threat filters read the flattened threat views, not the indicator table" do
+    for table <- ~w(ip_threat_intel_sources_catalog threat_intel_indicator_members_catalog) do
+      assert :ok ==
+               CatalogAllowlist.assert_sql_allowlisted(
+                 "SELECT c.ip FROM cnpg_platform.platform.#{table} c WHERE c.matched"
+               )
+    end
+
+    assert {:error, {:not_allowlisted, "threat_intel_indicators"}} ==
+             CatalogAllowlist.assert_sql_allowlisted(
+               "SELECT indicator FROM cnpg_platform.platform.threat_intel_indicators"
+             )
+  end
+
   test "exposure joins use narrow views and reject source dictionaries and assessments" do
     for table <- ~w(exposure_device_catalog exposure_device_tags_catalog) do
       assert {:ok, "cnpg_platform.platform.#{table}"} == CatalogAllowlist.qualify(table)

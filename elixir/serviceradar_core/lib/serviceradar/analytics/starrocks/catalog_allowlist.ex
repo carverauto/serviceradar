@@ -17,8 +17,9 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
   carries no device uid: `device_id:` on logs resolves the uid to the addresses
   and names the inventory knows, and CNPG reads those two relations to do it.
   The `_catalog` views carry what JDBC cannot: an interface's address array,
-  the metadata-derived device aliases, and the exposure device attributes and
-  tags, flattened to text rows. The exposure views are the only CNPG relations
+  the metadata-derived device aliases, the exposure device attributes and
+  tags, and the threat cache's feed sources and indicator memberships, flattened
+  to text rows. The exposure views are the only CNPG relations
   exposure queries join; the assessment, package, advisory, dictionary, agent
   and alert tables stay off this list.
   """
@@ -41,6 +42,8 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
     netflow_local_cidrs_catalog
     ip_geo_enrichment_cache
     ip_threat_intel_cache
+    ip_threat_intel_sources_catalog
+    threat_intel_indicator_members_catalog
   )
 
   @forbidden_tables ~w(

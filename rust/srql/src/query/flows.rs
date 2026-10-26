@@ -54,6 +54,79 @@ pub(super) mod literals {
         }
         Ok(trimmed.to_string())
     }
+
+    /// Parsed proximity term: latitude, longitude, radius in meters.
+    #[derive(Debug, Clone, Copy, PartialEq)]
+    pub(in crate::query) struct NearPoint {
+        pub lat: f64,
+        pub lng: f64,
+        pub radius_m: f64,
+    }
+
+    /// Parse `near` filter values like `30.2672,-97.7431,50km` or `30.27,-97.74,5000m`.
+    ///
+    /// Default unit when omitted is kilometers. Supported suffixes: `km`, `m`, `mi`.
+    pub(in crate::query) fn normalize_near_literal(raw: &str) -> Result<NearPoint> {
+        let trimmed = raw.trim().trim_matches('"').trim_matches('\'').trim();
+        if trimmed.is_empty() {
+            return Err(ServiceError::InvalidRequest(
+                "near filter requires lat,lng,radius (e.g. 30.27,-97.74,50km)".into(),
+            ));
+        }
+
+        let parts: Vec<&str> = trimmed.split(',').map(str::trim).collect();
+        if parts.len() != 3 {
+            return Err(ServiceError::InvalidRequest(
+                "near filter must be lat,lng,radius (exactly three comma-separated fields)".into(),
+            ));
+        }
+
+        let lat: f64 = parts[0].parse().map_err(|_| {
+            ServiceError::InvalidRequest(format!("near latitude is not a number: {}", parts[0]))
+        })?;
+        let lng: f64 = parts[1].parse().map_err(|_| {
+            ServiceError::InvalidRequest(format!("near longitude is not a number: {}", parts[1]))
+        })?;
+
+        if !(-90.0..=90.0).contains(&lat) {
+            return Err(ServiceError::InvalidRequest(
+                "near latitude must be between -90 and 90".into(),
+            ));
+        }
+        if !(-180.0..=180.0).contains(&lng) {
+            return Err(ServiceError::InvalidRequest(
+                "near longitude must be between -180 and 180".into(),
+            ));
+        }
+
+        let radius_m = parse_radius_meters(parts[2])?;
+        if !(radius_m.is_finite() && radius_m > 0.0 && radius_m <= 20_000_000.0) {
+            return Err(ServiceError::InvalidRequest(
+                "near radius must be a positive distance (max ~20000 km)".into(),
+            ));
+        }
+
+        Ok(NearPoint { lat, lng, radius_m })
+    }
+
+    fn parse_radius_meters(raw: &str) -> Result<f64> {
+        let s = raw.trim().to_ascii_lowercase();
+        let (num_str, factor) = if let Some(rest) = s.strip_suffix("km") {
+            (rest.trim(), 1_000.0)
+        } else if let Some(rest) = s.strip_suffix("mi") {
+            (rest.trim(), 1_609.344)
+        } else if let Some(rest) = s.strip_suffix('m') {
+            (rest.trim(), 1.0)
+        } else {
+            // default kilometers
+            (s.as_str(), 1_000.0)
+        };
+
+        let value: f64 = num_str.parse().map_err(|_| {
+            ServiceError::InvalidRequest(format!("near radius is not a number: {raw}"))
+        })?;
+        Ok(value * factor)
+    }
 }
 
 pub(crate) use self::literals::normalize_cidr_literal;
@@ -149,10 +222,66 @@ mod tests {
 
     #[test]
     fn flow_endpoint_and_catalog_filters_compile_for_starrocks() {
-        // StarRocks 4.1 has no JDBC pass-through table function, so threat
-        // filters must read the cache through the plain catalog relation.
-        let threat_cache = "IN (SELECT c.ip FROM cnpg_platform.platform.ip_threat_intel_cache c \
-                            WHERE c.matched AND c.expires_at > UTC_TIMESTAMP()";
+        // StarRocks 4.1 has no JDBC pass-through table function and cannot
+        // read PostgreSQL text[], cidr or geography columns, so every catalog
+        // filter reads scalar columns of a plain cache or a `_catalog` view.
+        let live = "WHERE c.matched AND c.expires_at > UTC_TIMESTAMP()";
+        let cache = "cnpg_platform.platform.ip_threat_intel_cache c";
+        let sources = "cnpg_platform.platform.ip_threat_intel_sources_catalog c";
+        let members = "cnpg_platform.platform.threat_intel_indicator_members_catalog c";
+        let indicator_live =
+            "AND (c.indicator_expires_at IS NULL OR c.indicator_expires_at > UTC_TIMESTAMP()) AND ";
+        let geo = "IN (SELECT g.ip FROM cnpg_platform.platform.ip_geo_enrichment_cache g \
+                   WHERE (g.expires_at IS NULL OR g.expires_at > UTC_TIMESTAMP()) \
+                   AND g.latitude BETWEEN ";
+        let distance = "st_distance_sphere(g.longitude, g.latitude, 56.78, 12.34) <= 5000)";
+        let threat_cases = [
+            ("threat_matched:true", cache, String::new()),
+            ("threat_matched:false", cache, String::new()),
+            (
+                "threat_source:example_feed",
+                sources,
+                " AND c.source IN ('example_feed')".to_string(),
+            ),
+            (
+                "threat_source:(example_feed,other_feed)",
+                sources,
+                " AND c.source IN ('example_feed', 'other_feed')".to_string(),
+            ),
+            (
+                "threat_observed_ip:192.0.2.10",
+                cache,
+                " AND c.ip = '192.0.2.10'".to_string(),
+            ),
+            (
+                "threat_indicator:198.51.100.0/24",
+                members,
+                format!(
+                    " {indicator_live}c.first_ip_hex = 'c6336400' AND c.last_ip_hex = 'c63364ff'"
+                ),
+            ),
+            (
+                "threat_indicator:198.51.100.20",
+                members,
+                format!(
+                    " {indicator_live}c.indicator_family = 4 \
+                     AND c.first_ip_hex <= 'c6336414' AND c.last_ip_hex >= 'c6336414'"
+                ),
+            ),
+            (
+                "threat_indicator:\"2001:db8::/32\"",
+                members,
+                format!(
+                    " {indicator_live}c.first_ip_hex = '20010db8000000000000000000000000' \
+                     AND c.last_ip_hex = '20010db8ffffffffffffffffffffffff'"
+                ),
+            ),
+            (
+                "threat_severity:>3",
+                cache,
+                " AND c.max_severity > 3".to_string(),
+            ),
+        ];
         for mode in [Some("starrocks"), Some("starrocks_raw")] {
             for (filter, contract) in [
                 ("ip:192.0.2.10", "src_endpoint_ip"),
@@ -163,10 +292,6 @@ mod tests {
                 ("src_tag:site:example", "src_prefix_tags"),
                 ("dst_tag:site:example", "dst_prefix_tags"),
                 ("tag:site:example", "src_prefix_tags"),
-                ("threat_matched:true", threat_cache),
-                ("threat_matched:false", threat_cache),
-                ("threat_observed_ip:192.0.2.10", "AND c.ip = '192.0.2.10')"),
-                ("threat_severity:>3", "AND c.max_severity > 3)"),
             ] {
                 let response = compile_filter_request(filter, mode);
                 let predicate = response.sql.split_once(" WHERE ").expect("WHERE").1;
@@ -174,48 +299,81 @@ mod tests {
                     predicate.contains(contract),
                     "{mode:?} {filter}: {predicate}"
                 );
-                if filter.starts_with("threat_") {
-                    assert!(!predicate.contains("TABLE("), "{predicate}");
-                    for side in ["src_endpoint_ip", "dst_endpoint_ip"] {
-                        assert!(
-                            predicate.contains(&format!("COALESCE({side} {threat_cache}")),
-                            "{mode:?} {filter}: {predicate}"
-                        );
-                    }
-                    assert_eq!(
-                        predicate.contains("NOT ("),
-                        filter == "threat_matched:false",
+            }
+            for (filter, relation, condition) in &threat_cases {
+                let predicate = compile_predicate(filter, mode);
+                assert!(!predicate.contains("TABLE("), "{predicate}");
+                let subquery =
+                    format!("IN (SELECT c.ip FROM {relation} {live}{condition}), FALSE)");
+                for side in ["src_endpoint_ip", "dst_endpoint_ip"] {
+                    assert!(
+                        predicate.contains(&format!("COALESCE({side} {subquery}")),
                         "{mode:?} {filter}: {predicate}"
                     );
                 }
+                assert_eq!(
+                    predicate.contains("NOT ("),
+                    *filter == "threat_matched:false",
+                    "{mode:?} {filter}: {predicate}"
+                );
+            }
+            for (filter, sides) in [
+                (
+                    "near:12.34,56.78,5km",
+                    &["src_endpoint_ip", "dst_endpoint_ip"][..],
+                ),
+                ("src_near:12.34,56.78,5km", &["src_endpoint_ip"][..]),
+                ("dst_near:12.34,56.78,5km", &["dst_endpoint_ip"][..]),
+                (
+                    "!near:12.34,56.78,5km",
+                    &["src_endpoint_ip", "dst_endpoint_ip"][..],
+                ),
+            ] {
+                let predicate = compile_predicate(filter, mode);
+                assert!(
+                    predicate.contains(distance),
+                    "{mode:?} {filter}: {predicate}"
+                );
+                for side in ["src_endpoint_ip", "dst_endpoint_ip"] {
+                    assert_eq!(
+                        predicate.contains(&format!("COALESCE({side} {geo}")),
+                        sides.contains(&side),
+                        "{mode:?} {filter}: {predicate}"
+                    );
+                }
+                assert_eq!(
+                    predicate.contains("NOT ("),
+                    filter.starts_with('!'),
+                    "{mode:?} {filter}: {predicate}"
+                );
             }
         }
     }
 
     #[test]
-    fn catalog_filters_on_unreadable_postgres_columns_are_refused() {
-        // These need a PostgreSQL text[], cidr or geography column that the
-        // StarRocks 4.1 JDBC catalog cannot read; an approximation would
-        // return rows the documented filter excludes.
-        for mode in [Some("starrocks"), Some("starrocks_raw")] {
-            for filter in [
-                "near:12.34,56.78,5km",
-                "src_near:12.34,56.78,5km",
-                "dst_near:12.34,56.78,5km",
-                "threat_source:example_feed",
-                "threat_indicator:198.51.100.0/24",
-                "threat_indicator:198.51.100.20",
-            ] {
-                let field = filter.split_once(':').expect("field").0;
-                match try_compile_filter_request(filter, mode) {
-                    Err(crate::error::ServiceError::NotImplemented(message)) => assert!(
-                        message.starts_with(&format!("starrocks_unsupported_filter: {field} ")),
-                        "{mode:?} {filter}: {message}"
-                    ),
-                    other => panic!("{mode:?} {filter}: expected a refusal, got {other:?}"),
-                }
-            }
+    fn threat_indicator_rejects_values_postgres_would_reject() {
+        for filter in [
+            "threat_indicator:198.51.100.5/24",
+            "threat_indicator:not-an-address",
+            "threat_indicator:198.51.100.0/33",
+        ] {
+            let error = try_compile_filter_request(filter, Some("starrocks"))
+                .expect_err("an invalid indicator must be refused");
+            assert!(
+                matches!(error, crate::error::ServiceError::InvalidRequest(_)),
+                "{filter}: {error:?}"
+            );
         }
+    }
+
+    fn compile_predicate(filter: &str, mode: Option<&str>) -> String {
+        let response = compile_filter_request(filter, mode);
+        response
+            .sql
+            .split_once(" WHERE ")
+            .expect("WHERE")
+            .1
+            .to_string()
     }
 
     #[test]
