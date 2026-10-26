@@ -573,10 +573,10 @@ defmodule ServiceRadarWebNG.SRQLStarRocksModeTest do
       "SELECT IS_ACTIVE," <> _ ->
         {:ok, %{rows: [["true", "SUCCESS", 15]]}}
 
-      "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly" ->
+      "SELECT MAX(`bucket`) FROM serviceradar.ocsf_network_activity_hourly WHERE " <> _ ->
         {:ok, postgrex_result(["max"], [[NaiveDateTime.to_string(mv_max)]])}
 
-      "SELECT MAX(`time`) FROM serviceradar.ocsf_network_activity" ->
+      "SELECT MAX(`time`) FROM serviceradar.ocsf_network_activity WHERE " <> _ ->
         {:ok, postgrex_result(["max"], [[NaiveDateTime.to_string(raw_max)]])}
 
       sql ->

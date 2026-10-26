@@ -34,6 +34,15 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   `LogEventConsumers` already normalizes off this seam; treating a binary as
   unreadable would silently disable every rollup.
 
+  Both probes are bounded to a recent window so StarRocks prunes to the newest
+  day partitions instead of scanning a year of them. The source window reaches
+  back twice the staleness threshold plus one bucket; a source table with no
+  rows inside it has nothing a view could be lagging, so it reads as fresh,
+  like an empty table. The view window starts a further threshold before the
+  floored source cutoff, which is the oldest bucket a caught-up view can hold,
+  so bounding it never turns a fresh verdict stale; it is matched on the view's
+  `day` partition column, because a predicate on `bucket` prunes nothing.
+
   `RollupFreshnessCache` holds each mark for `rollup_cache_ttl_seconds` so the
   queries of one dashboard render share a pair of probes. Callers inject the
   transport with `:query`, the arity-1 seam the readers already use; otherwise
@@ -178,15 +187,23 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
   end
 
   defp caught_up?(run, dataset, mv, raw, column, grain, opts) do
-    case high_water(run, dataset, :raw, "SELECT MAX(`#{column}`) FROM #{Env.table(raw)}") do
+    stale_after = stale_after_seconds(opts)
+    {lookback, source_since, view_day} = windows(grain, stale_after)
+
+    raw_sql =
+      "SELECT MAX(`#{column}`) FROM #{Env.table(raw)} WHERE `#{column}` >= '#{iso(source_since)}'"
+
+    case high_water(run, {dataset, :raw, lookback}, raw_sql) do
       {:ok, nil} ->
         true
 
       {:ok, raw_max} ->
-        case high_water(run, dataset, :mv, "SELECT MAX(`bucket`) FROM #{Env.table(mv)}") do
+        mv_sql =
+          "SELECT MAX(`bucket`) FROM #{Env.table(mv)} WHERE `day` >= '#{iso(view_day)}'"
+
+        case high_water(run, {dataset, :mv, lookback}, mv_sql) do
           {:ok, %NaiveDateTime{} = mv_max} ->
-            NaiveDateTime.diff(floor_to_grain(raw_max, grain), mv_max) <=
-              stale_after_seconds(opts)
+            NaiveDateTime.diff(floor_to_grain(raw_max, grain), mv_max) <= stale_after
 
           _ ->
             false
@@ -197,14 +214,41 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
     end
   end
 
-  defp high_water(run, dataset, kind, sql) do
-    case RollupFreshnessCache.fetch({dataset, kind}) do
+  # The source window is twice the threshold plus one bucket: a row older than
+  # that which a successfully refreshed view has not absorbed is not lag the
+  # threshold is meant to catch. A view is fresh when its newest bucket is
+  # within `stale_after` of the floored source mark, so the oldest bucket a
+  # fresh view can hold for a row inside the window is the floored cutoff
+  # minus `stale_after`. Reading the view from that bucket's day returns the
+  # exact maximum whenever the verdict could be fresh, and nothing or an older
+  # bucket -- stale either way -- when it could not.
+  defp windows(grain, stale_after) do
+    lookback = 2 * (stale_after + grain * 60)
+
+    source_since =
+      DateTime.shift(DateTime.truncate(DateTime.utc_now(), :second), second: -lookback)
+
+    view_day =
+      source_since
+      |> floor_to_grain(grain)
+      |> DateTime.shift(second: -stale_after)
+      |> then(&%{&1 | hour: 0, minute: 0, second: 0})
+
+    {lookback, source_since, view_day}
+  end
+
+  defp iso(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  # Each mark is cached under the window it was read with, so a call with a
+  # different threshold never reuses a mark bounded for another one.
+  defp high_water(run, key, sql) do
+    case RollupFreshnessCache.fetch(key) do
       {:ok, mark} ->
         mark
 
       :miss ->
         case probe(run, sql) do
-          {:ok, _} = mark -> RollupFreshnessCache.put({dataset, kind}, mark)
+          {:ok, _} = mark -> RollupFreshnessCache.put(key, mark)
           :error -> :error
         end
     end
@@ -231,7 +275,7 @@ defmodule ServiceRadar.Analytics.StarRocks.RollupFreshness do
 
   defp to_naive(_value), do: :error
 
-  defp floor_to_grain(%NaiveDateTime{} = value, minutes) do
+  defp floor_to_grain(%{minute: _} = value, minutes) do
     minute = value.minute - rem(value.minute, minutes)
     %{value | minute: minute, second: 0, microsecond: {0, 0}}
   end
