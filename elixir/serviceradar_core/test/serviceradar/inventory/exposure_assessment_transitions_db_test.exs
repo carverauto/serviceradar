@@ -48,6 +48,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   test "snapshot receipts wait for warehouse confirmation and reject gaps, conflicts and early end markers",
        ctx do
     snapshot_http!()
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
     package = insert_endpoint_package!(ctx.unique)
     insert_assessment!(ctx, package, "EXAMPLE-SNAPSHOT-RECEIPT")
     payload = publication(ctx.device_uid, "EXAMPLE-SNAPSHOT-RECEIPT")
@@ -135,6 +136,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   test "snapshot drift creates a fresh source publication and PubAck or equal-sequence wrong content cannot discharge it",
        ctx do
     snapshot_http!()
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
     package = insert_endpoint_package!(ctx.unique)
     cve = "EXAMPLE-SNAPSHOT-REPAIR"
     insert_assessment!(ctx, package, cve)
@@ -204,6 +206,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                publish: fn _, _, _ -> :ok end
              )
 
+    assert {:ok, [^repair]} = ExposureSnapshotRepairs.verify([repair])
+    snapshot_query!(fn _sql -> warehouse_rows([]) end)
     assert {:ok, [^repair]} = ExposureSnapshotRepairs.verify([repair])
     {:ok, [%{fact: repaired}]} = ExposureTransitions.decode([%{data: Jason.encode!(updated)}])
     snapshot_query!(fn _sql -> warehouse_rows([Map.put(repaired, "kev", !repaired["kev"])]) end)
@@ -276,6 +280,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   test "the publisher holds one MVCC view across phase boundaries and a lost reader starts a new generation",
        ctx do
     snapshot_http!()
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
     package = insert_endpoint_package!(ctx.unique)
     cve = "EXAMPLE-SNAPSHOT-VIEW-#{ctx.unique}"
     insert_assessment!(ctx, package, cve)
