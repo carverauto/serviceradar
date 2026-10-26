@@ -59,7 +59,7 @@ Reasons  == {"none", "merged", "other", "expired", "source_retired", "seed_relea
 MergeKinds == {"conflict", "auto", "manual"}
 ActNames == {"Init", "StartWork", "Commit", "CommitDropped", "Reactivate", "Merge", "Unmerge",
              "SoftDelete", "Expire", "SweepCreate", "SweepRestore", "SweepRefresh", "SweepSkip",
-             "GatewaySync", "Purge", "Tick", "Retire", "GraceDelete"}
+             "GatewaySync", "Purge", "Tick", "Retire", "RetireSole", "GraceDelete"}
 \* The steps of a sweep that matched an existing row.
 SweepMatchActs == {"SweepRestore", "SweepRefresh", "SweepSkip"}
 \* Tombstones only an operator or the return of a retired source id may restore.
@@ -171,13 +171,15 @@ StartWork(u) ==
 \* Reporting it again moves those archive rows back to t, and is the only write that restores
 \* a source_retired tombstone. The corroboration and the one-holder rules are the resolution
 \* model's; here any such write reactivates, and bumps the record it returns to whether or not
-\* it was live (SourceReactivation.revive/2). A write that registers a source or agent id on a
+\* it was live (SourceReactivation.revive/2). Only a source or agent id reactivates: a MAC an
+\* earlier retirement archived (RetireSole) is registered like any unowned MAC, by whichever record
+\* the write resolves to. A write that registers a source or agent id on a
 \* marked record clears the mark, because the record is no longer retired-only; a MAC does not.
 \* The upsert unions discovery_sources with the source's own, so the record it writes is no
 \* longer sweep-only.
 CommitWork(w, S, p) ==
     LET t     == w.target
-        back  == {i \in S : \E d \in arch[i] : Follow(d) = t}
+        back  == {i \in S \ MacIds : \E d \in arch[i] : Follow(d) = t}
         newIp == IF status[t] = "tomb" THEN p
                  ELSE IF p = NoIp THEN ipOf[t] ELSE p
         bump  == CASE status[t] \in {"absent", "purged"} -> {t}  \* absent is a new row; purged keeps its row
@@ -412,7 +414,9 @@ Tick ==
 
 \* The retirement of source ids R that u holds (D1): each row moves to
 \* device_identifier_archive in one transaction, which bumps u's identity_revision
-\* (SourceRetirement.archive/4). A MAC never retires. If u then holds no source or agent id, the
+\* (SourceRetirement.archive/4). A MAC never retires here: this is the collection-scoped pass
+\* (Armis), and it is every retirement of a record another source also reports. Only RetireSole
+\* archives a MAC. If u then holds no source or agent id, the
 \* same transaction marks it source_retired (D5); the MACs it holds stay with it. The absence
 \* count, the minimum absence and the mass guard are the resolution model's, as are the
 \* conditions on agent and other-type ids, recent identity-bearing observations and
@@ -429,9 +433,34 @@ Retire(u, R) ==
     /\ act' = MkAct("Retire", u, NoDev, 0, FALSE, {u})
     /\ UNCHANGED <<status, reason, ipOf, audit, sweepOnly>>
 
+\* The retirement of a record whose only evidence source is the one that stopped reporting it
+\* (AwxSourceRetirement: an AWX-only record whose host a complete observation no longer reports,
+\* or a pre-v2 AWX record another record superseded). Every identifier the record holds came
+\* from that source, so the transaction that archives its source ids and marks it also moves
+\* every other identifier it holds, its MACs included, to device_identifier_archive with reason
+\* source_absent (AwxSourceRetirement release_identifiers/2), and bumps it. A released MAC is
+\* unowned, so a live record of the device that really has it may register it (CommitWork). The
+\* code acts only on a live, unmarked record whose discovery_sources hold that source alone and
+\* that is retired-only once its ids are archived; those conditions only ever withhold the step,
+\* so here any live unmarked record holding an identifier may retire this way. A record holding
+\* no identifier is linked by its metadata only, which the expiry pass reads as strong (D13); it
+\* is left out, so Expire never takes a record this step marked.
+RetireSole(u) ==
+    /\ RetirementEnabled
+    /\ Live(u)
+    /\ u \notin marked
+    /\ Owned(u) # {}
+    /\ owner' = [i \in Ids |-> IF owner[i] = u THEN NoDev ELSE owner[i]]
+    /\ arch' = [i \in Ids |-> IF owner[i] = u THEN arch[i] \cup {u} ELSE arch[i]]
+    /\ marked' = marked \cup {u}
+    /\ work' = MarkStale(work, {u})
+    /\ act' = MkAct("RetireSole", u, NoDev, 0, FALSE, {u})
+    /\ UNCHANGED <<status, reason, ipOf, audit, sweepOnly>>
+
 \* DeviceCleanupWorker's grace pass (D5): a record marked for the grace period is soft-deleted
 \* through Device :soft_delete with deleted_reason "source_retired", and the same transaction
-\* releases its address; the MACs it holds stay with the tombstone. The open-review hold and the
+\* releases its address; the MACs it holds stay with the tombstone (a record RetireSole marked
+\* holds none). The open-review hold and the
 \* mass guard only ever refuse, so they are left nondeterministic, and elapsed time is not
 \* modeled: any marked record may be deleted.
 GraceDelete(u) ==
@@ -447,7 +476,7 @@ GraceDelete(u) ==
 Next ==
     \/ \E u \in Devices :
          StartWork(u) \/ Unmerge(u) \/ SoftDelete(u) \/ Expire(u) \/ GatewaySync(u) \/ Purge(u)
-         \/ GraceDelete(u) \/ \E R \in SUBSET Ids : Retire(u, R)
+         \/ GraceDelete(u) \/ RetireSole(u) \/ \E R \in SUBSET Ids : Retire(u, R)
     \/ \E w \in work, S \in SUBSET Ids, p \in Ips \cup {NoIp} : CommitWork(w, S, p)
     \/ \E f, t \in Devices, kind \in MergeKinds, S \in SUBSET Ids : Merge(f, t, kind, S)
     \/ \E p \in Ips, d \in Devices : Sweep(p, d) \/ SweepCreate(p, d)
@@ -473,7 +502,8 @@ MergedRedirectsSomewhere == \A u \in Devices : MergedTomb(u) => Follow(u) # u
 
 \* Retired Records Without A Successor (add-source-id-succession D5): a marked record is live
 \* and holds no source or agent id, so the grace delete never removes a record that holds one.
-\* A MAC is not evidence the source still reports the record, so a marked record may hold one.
+\* A MAC is not evidence the source still reports the record, so a marked record may hold one,
+\* unless its only source retired it (RetireSole releases them all).
 MarkedHoldsOnlyMacs == \A u \in marked : Live(u) /\ Counted(u) = {}
 
 NoStaleRedirect ==
@@ -499,6 +529,11 @@ UnmergeRestoresExactly ==
              owner'[i] = IF i \in row.srcIds THEN act'.u ELSE row.to]_vars
 
 NoStaleCommit == [][act'.name = "Commit" => ~act'.stale]_vars
+
+\* A MAC is hardware evidence and retires only with a record whose sole evidence source retired
+\* it: neither the collection-scoped pass nor a reactivation nor any other step archives one.
+OnlySoleRetirementArchivesMacs ==
+    [][\A i \in MacIds : arch'[i] # arch[i] => act'.name = "RetireSole"]_vars
 
 \* Randomized MACs Are Evidence Only (update-dire-strong-identity-goal D4): expiry never removes
 \* a device holding a strong identifier (#4603).

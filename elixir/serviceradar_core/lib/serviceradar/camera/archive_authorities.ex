@@ -1,6 +1,6 @@
-defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
+defmodule ServiceRadar.Camera.ArchiveAuthorities do
   @moduledoc """
-  Installs one origin-bound, nonrenewable thirty-second init authority window.
+  Installs one origin-bound, nonrenewable thirty-second operation authority window.
 
   Transport authentication supplies the principal; no payload supplies it.
   Binding locks serialize first issuance. Grant admission instead locks recording
@@ -12,22 +12,71 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
   import Kernel, except: [apply: 3]
 
   alias Ash.Error.Query.InvalidArgument
+  alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveCanonicalJSON
   alias ServiceRadar.Camera.ArchiveInitAuthority
-  alias ServiceRadar.Camera.ArchiveInitConfig
+  alias ServiceRadar.Camera.ArchiveMediaAuthority
   alias ServiceRadar.Repo
 
   require Ash.Query
 
   @maximum 9_223_372_036_854_775_807
 
-  def challenge(principal, document, opts \\ []) do
+  def challenge(kind, principal, document, opts \\ []),
+    do: for_operation(kind, opts, &do_challenge(principal, document, &1))
+
+  def apply(kind, installation, envelope, opts \\ []),
+    do: for_operation(kind, opts, &do_apply(installation, envelope, &1))
+
+  def revoke(kind, installation, document, opts \\ []),
+    do: for_operation(kind, opts, &do_revoke(installation, document, &1))
+
+  def status(kind, installation, id, opts \\ []),
+    do: for_operation(kind, opts, &do_status(installation, id, &1))
+
+  def with_current(kind, id, principal, context, fun, opts),
+    do: for_operation(kind, opts, &do_with_current(id, principal, context, fun, &1))
+
+  @media_errors %{
+    init_authority: :media_authority,
+    init_authority_challenge_mismatch: :media_authority_challenge_mismatch,
+    init_authority_context_mismatch: :media_authority_context_mismatch,
+    init_authority_expired: :media_authority_expired,
+    init_authority_generation_stale: :media_authority_generation_stale,
+    init_authority_not_applied: :media_authority_not_applied,
+    init_authority_not_found: :media_authority_not_found,
+    init_authority_origin_mismatch: :media_authority_origin_mismatch,
+    init_authority_report_unqualified: :media_authority_report_unqualified,
+    init_authority_revision_conflict: :media_authority_revision_conflict,
+    init_authority_revision_stale: :media_authority_revision_stale,
+    init_authority_storage_unavailable: :media_authority_storage_unavailable,
+    init_authority_transaction_required: :media_authority_transaction_required,
+    invalid_init_application: :invalid_media_application,
+    invalid_init_challenge: :invalid_media_challenge,
+    invalid_init_grant: :invalid_media_grant,
+    invalid_init_principal: :invalid_media_principal,
+    invalid_init_revocation: :invalid_media_revocation
+  }
+
+  defp for_operation(kind, opts, fun) when kind in [:init, :media] do
+    resource = if kind == :init, do: ArchiveInitAuthority, else: ArchiveMediaAuthority
+
+    case fun.(%{kind: kind, resource: resource, ash: opts}) do
+      {:error, reason} when kind == :media and is_atom(reason) ->
+        {:error, Map.get(@media_errors, reason, reason)}
+
+      result ->
+        result
+    end
+  end
+
+  defp do_challenge(principal, document, opts) do
     with :ok <- actor(opts),
-         {:ok, fingerprint} <- principal_sha256(principal),
+         {:ok, fingerprint} <- principal_sha256(opts.kind, principal),
          {:ok, input} <- challenge_input(document),
          :ok <- outside_transaction() do
-      transaction(fn ->
+      transaction(opts, fn ->
         with {:ok, binding} <- binding(input.binding_id, opts, true),
              {:ok, current} <- current(input.binding_id, opts, true),
              :ok <- origin(current, principal),
@@ -38,12 +87,12 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
     end
   end
 
-  def apply(installation, envelope, opts \\ []) do
+  defp do_apply(installation, envelope, opts) do
     with :ok <- actor(opts),
          :ok <- installation(installation),
-         {:ok, config, nonce} <- application(installation, envelope),
+         {:ok, config, nonce} <- application(installation, envelope, opts),
          :ok <- outside_transaction() do
-      transaction(fn ->
+      transaction(opts, fn ->
         with {:ok, binding} <- binding(config.binding_id, opts, true),
              {:ok, current} <- required_current(config.binding_id, opts),
              :ok <- origin(current, installation),
@@ -60,12 +109,12 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
     end
   end
 
-  def revoke(installation, document, opts \\ []) do
+  defp do_revoke(installation, document, opts) do
     with :ok <- actor(opts),
          :ok <- installation(installation),
          {:ok, id, revision} <- revocation(document),
          :ok <- outside_transaction() do
-      transaction(fn ->
+      transaction(opts, fn ->
         with {:ok, _} <- binding(id, opts, true),
              {:ok, current} <- current(id, opts, true),
              :ok <- origin(current, installation) do
@@ -74,7 +123,7 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
               revision: revision,
               desired_sha256:
                 digest([
-                  "init-authority-revoke-v1",
+                  "#{opts.kind}-authority-revoke-v1",
                   installation.deployment_ref,
                   Integer.to_string(installation.generation),
                   document
@@ -101,25 +150,24 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
     end
   end
 
-  def status(installation, id, opts \\ []) do
+  defp do_status(installation, id, opts) do
     with :ok <- actor(opts),
          :ok <- installation(installation),
          true <- uuid?(id) || {:error, :invalid_archive_binding_id},
          {:ok, _} <- binding(id, opts, false),
          {:ok, current} <- current(id, opts, false),
          :ok <- origin(current, installation) do
-      if current, do: {:ok, projection(current)}, else: {:ok, absent(id)}
+      if current, do: {:ok, projection(current, opts)}, else: {:ok, absent(id, opts)}
     end
   rescue
     _ in [DBConnection.ConnectionError, Postgrex.Error] ->
       {:error, :init_authority_storage_unavailable}
   end
 
-  @doc "Locks current authority around a short grant callback inside its caller's transaction."
-  def with_current(id, principal, context, fun, opts) when is_function(fun, 1) do
+  defp do_with_current(id, principal, context, fun, opts) when is_function(fun, 1) do
     with :ok <- actor(opts),
          true <- Repo.in_transaction?() || {:error, :init_authority_transaction_required},
-         {:ok, fingerprint} <- principal_sha256(principal),
+         {:ok, fingerprint} <- principal_sha256(opts.kind, principal),
          :ok <- grant_context(context),
          {:ok, authority} <- required_current(id, opts),
          :ok <- origin(authority, principal),
@@ -143,7 +191,7 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
   end
 
   @doc "Identity fingerprint used by retained grants, including their late evidence."
-  def principal_sha256(principal) do
+  def principal_sha256(kind, principal) do
     with :ok <- installation(principal),
          %{
            storage_service_id: service,
@@ -155,7 +203,7 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
              is_integer(generation) and generation in 1..@maximum do
       {:ok,
        digest([
-         "init-storage-principal-v1",
+         "#{kind}-storage-principal-v1",
          principal.deployment_ref,
          Integer.to_string(principal.generation),
          service,
@@ -255,7 +303,7 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
           applied_at: current.database_now,
           expires_at: expires_at
         })
-        |> Ash.update(opts)
+        |> Ash.update(opts.ash)
 
       :expired ->
         {:error, :init_authority_expired}
@@ -265,23 +313,23 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
   defp persist(nil, id, action, attrs, opts) do
     action = if action == :challenge, do: :initial_challenge, else: :initial_revoke
 
-    ArchiveInitAuthority
+    opts.resource
     |> Ash.Changeset.for_create(action, Map.put(attrs, :archive_binding_id, id))
-    |> Ash.create(opts)
+    |> Ash.create(opts.ash)
   end
 
   defp persist(current, _id, action, attrs, opts),
-    do: current |> Ash.Changeset.for_update(action, attrs) |> Ash.update(opts)
+    do: current |> Ash.Changeset.for_update(action, attrs) |> Ash.update(opts.ash)
 
   defp projected(authority, opts) do
-    with {:ok, current} <- Ash.load(authority, :database_now, opts),
+    with {:ok, current} <- Ash.load(authority, :database_now, opts.ash),
          :ok <- if(current.state == :revoked, do: :ok, else: live(current)) do
-      {:ok, projection(current)}
+      {:ok, projection(current, opts)}
     end
   end
 
-  defp projection(current) do
-    Map.merge(absent(current.archive_binding_id), %{
+  defp projection(current, opts) do
+    Map.merge(absent(current.archive_binding_id, opts), %{
       "revision" => Integer.to_string(current.revision),
       "desired_sha256" => current.desired_sha256,
       "state" => Atom.to_string(current.state),
@@ -298,7 +346,7 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
     })
   end
 
-  defp absent(id),
+  defp absent(id, opts),
     do: %{
       "schema_version" => 1,
       "binding_id" => id,
@@ -313,7 +361,7 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
       "applied_revision" => nil,
       "recording_readiness" => "unavailable",
       "archive_readiness" => "unavailable",
-      "reason" => "init_authority_only"
+      "reason" => "#{opts.kind}_authority_only"
     }
 
   defp milliseconds(nil), do: nil
@@ -323,19 +371,19 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
     query = Ash.Query.filter(ArchiveBinding, id == ^id)
     query = if lock?, do: Ash.Query.lock(query, :for_update), else: query
 
-    case Ash.read_one(query, opts) do
+    case Ash.read_one(query, opts.ash) do
       {:ok, nil} -> {:error, :archive_binding_not_found}
-      {:ok, value} -> value |> Ash.load(:database_now, opts) |> bounded()
+      {:ok, value} -> value |> Ash.load(:database_now, opts.ash) |> bounded()
       result -> bounded(result)
     end
   end
 
   defp current(id, opts, lock?) do
-    query = Ash.Query.filter(ArchiveInitAuthority, archive_binding_id == ^id)
+    query = Ash.Query.filter(opts.resource, archive_binding_id == ^id)
     query = if lock?, do: Ash.Query.lock(query, :for_update), else: query
 
-    with {:ok, value} <- query |> Ash.read_one(opts) |> bounded() do
-      if value, do: value |> Ash.load(:database_now, opts) |> bounded(), else: {:ok, nil}
+    with {:ok, value} <- query |> Ash.read_one(opts.ash) |> bounded() do
+      if value, do: value |> Ash.load(:database_now, opts.ash) |> bounded(), else: {:ok, nil}
     end
   end
 
@@ -407,16 +455,17 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
 
   defp application(
          installation,
-         %{"schema_version" => 1, "desired" => document, "nonce" => nonce} = envelope
+         %{"schema_version" => 1, "desired" => document, "nonce" => nonce} = envelope,
+         opts
        )
        when map_size(envelope) == 3 do
     with true <- sha?(nonce),
-         {:ok, config} <- ArchiveInitConfig.parse(installation, document),
+         {:ok, config} <- ArchiveAuthorityConfig.parse(opts.kind, installation, document),
          do: {:ok, config, nonce},
          else: (_ -> {:error, :invalid_init_application})
   end
 
-  defp application(_, _), do: {:error, :invalid_init_application}
+  defp application(_, _, _), do: {:error, :invalid_init_application}
 
   defp revocation(%{"schema_version" => 1, "binding_id" => id, "revision" => revision} = document)
        when map_size(document) == 3 do
@@ -443,7 +492,7 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
   defp installation(_), do: {:error, :invalid_init_principal}
 
   defp actor(opts) do
-    case Keyword.get(opts, :actor) do
+    case Keyword.get(opts.ash, :actor) do
       %{role: :system, id: id} when is_binary(id) and byte_size(id) in 1..128 ->
         if reference?(id), do: :ok, else: {:error, :invalid_init_principal}
 
@@ -482,8 +531,8 @@ defmodule ServiceRadar.Camera.ArchiveInitAuthorities do
   defp outside_transaction,
     do: if(Repo.in_transaction?(), do: {:error, :ambient_transaction}, else: :ok)
 
-  defp transaction(fun) do
-    [ArchiveBinding, ArchiveInitAuthority]
+  defp transaction(opts, fun) do
+    [ArchiveBinding, opts.resource]
     |> Ash.transact(fn ->
       case fun.() do
         {:error, reason} when is_atom(reason) ->

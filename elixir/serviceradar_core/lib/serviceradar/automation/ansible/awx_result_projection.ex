@@ -58,6 +58,7 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
     "AWX request failed: HTTP 401",
     "AWX request failed: HTTP 403"
   ]
+  @max_token_lifetime_seconds 10 * 365 * 86_400
 
   @type projection_result :: {:ok, map()} | :error
 
@@ -73,6 +74,9 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
            true <- value(payload, :ok) == true,
            {:ok, version} <- bounded_text(value(payload, :version), 64),
            {:ok, active_node} <- bounded_text(value(payload, :active_node), 255),
+           {:ok, token_expires_at} <- optional_timestamp(value(payload, :token_expires_at)),
+           {:ok, access_token_expire_seconds} <-
+             optional_token_lifetime_seconds(value(payload, :access_token_expire_seconds)),
            :ok <- validate_legacy_ping_topology(shape, payload) do
         {:ok,
          %{
@@ -80,36 +84,12 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
            "ok" => true,
            "version" => version,
            "active_node" => active_node
-         }}
+         }
+         |> maybe_put("token_expires_at", token_expires_at)
+         |> maybe_put("access_token_expire_seconds", access_token_expire_seconds)}
       else
         _ -> :error
       end
-    end
-  end
-
-  defp project_auth_failed_ping(verb, payload) do
-    expected_keys =
-      ~w(verb ok status) ++
-        Enum.filter([:version, :active_node, :error], &has_key?(payload, &1))
-
-    with true <- exact_keys?(payload, Enum.map(expected_keys, &to_string/1)),
-         true <- value(payload, :verb) == verb,
-         true <- value(payload, :ok) == false,
-         true <- value(payload, :status) == "auth_failed",
-         {:ok, version} <- optional_nonempty_text(value(payload, :version), 64),
-         {:ok, active_node} <- optional_nonempty_text(value(payload, :active_node), 255),
-         {:ok, error} <- optional_enum(value(payload, :error), @auth_failed_ping_errors) do
-      {:ok,
-       %{
-         "verb" => verb,
-         "ok" => false,
-         "status" => "auth_failed"
-       }
-       |> maybe_put("version", version)
-       |> maybe_put("active_node", active_node)
-       |> maybe_put("error", error)}
-    else
-      _ -> :error
     end
   end
 
@@ -199,6 +179,32 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
 
   defp do_project(_verb, _payload), do: :error
 
+  defp project_auth_failed_ping(verb, payload) do
+    expected_keys =
+      ~w(verb ok status) ++
+        Enum.filter([:version, :active_node, :error], &has_key?(payload, &1))
+
+    with true <- exact_keys?(payload, Enum.map(expected_keys, &to_string/1)),
+         true <- value(payload, :verb) == verb,
+         true <- value(payload, :ok) == false,
+         true <- value(payload, :status) == "auth_failed",
+         {:ok, version} <- optional_nonempty_text(value(payload, :version), 64),
+         {:ok, active_node} <- optional_nonempty_text(value(payload, :active_node), 255),
+         {:ok, error} <- optional_enum(value(payload, :error), @auth_failed_ping_errors) do
+      {:ok,
+       %{
+         "verb" => verb,
+         "ok" => false,
+         "status" => "auth_failed"
+       }
+       |> maybe_put("version", version)
+       |> maybe_put("active_node", active_node)
+       |> maybe_put("error", error)}
+    else
+      _ -> :error
+    end
+  end
+
   defp project_current_event_batch(verb, payload) do
     with true <- exact_keys?(payload, ~w(verb ok contract_version jobs)),
          true <- value(payload, :verb) == verb,
@@ -286,13 +292,18 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
   defp expected_pages(count), do: div(count + @page_size - 1, @page_size)
 
   defp ping_shape(payload) do
+    optional_keys =
+      [:token_expires_at, :access_token_expire_seconds]
+      |> Enum.filter(&has_key?(payload, &1))
+      |> Enum.map(&to_string/1)
+
     cond do
-      exact_keys?(payload, ~w(verb ok version active_node)) ->
+      exact_keys?(payload, ~w(verb ok version active_node) ++ optional_keys) ->
         {:ok, :projected}
 
       exact_keys?(
         payload,
-        ~w(verb ok version active_node install_uuid ha instances groups)
+        ~w(verb ok version active_node install_uuid ha instances groups) ++ optional_keys
       ) ->
         {:ok, :legacy}
 
@@ -300,6 +311,11 @@ defmodule ServiceRadar.Automation.Ansible.AWXResultProjection do
         :error
     end
   end
+
+  defp optional_token_lifetime_seconds(nil), do: {:ok, nil}
+
+  defp optional_token_lifetime_seconds(value),
+    do: bounded_integer(value, 1, @max_token_lifetime_seconds)
 
   defp validate_legacy_ping_topology(:projected, _payload), do: :ok
 

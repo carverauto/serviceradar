@@ -8,7 +8,7 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   future request. Dispatch marking is committed before returning, and only the
   first caller receives `:marked`; a retry receives `:already_marked`. This is
   local coordination evidence, not provider qualification or permission to send.
-  Only `authorize_init/5` adds a current, short-lived init authority grant to
+  Only `authorize/6` adds a current, short-lived operation authority grant to
   that same marker. Ordinary bookkeeping markers never authorize provider I/O.
 
   Observation methods retain bounded facts from the original trusted internal
@@ -16,9 +16,10 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   late response may coexist; neither publishes availability or retries a send.
   """
   alias Ash.Error.Query.InvalidArgument
+  alias ServiceRadar.Camera.ArchiveAuthorities
+  alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveCanonicalJSON
-  alias ServiceRadar.Camera.ArchiveInitAuthorities
   alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.ArchiveUploadIntent
   alias ServiceRadar.Camera.RecordingBlocks
@@ -43,6 +44,35 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
       true -> RecordingBlocks.with_current_upload(lease, &prepare_locked(&1, role, opts), opts)
     end
   end
+
+  @media_fields %{
+    init_authority_revision: :media_authority_revision,
+    init_authority_sha256: :media_authority_sha256,
+    init_storage_boot_id: :media_storage_boot_id,
+    init_nonce_sha256: :media_nonce_sha256,
+    init_principal_sha256: :media_principal_sha256,
+    init_deadline_at: :media_deadline_at,
+    init_verification: :media_verification,
+    init_verification_sha256: :media_verification_sha256,
+    init_verified_at: :media_verified_at,
+    init_verification_conflict_at: :media_verification_conflict_at,
+    init_verification_conflict_sha256: :media_verification_conflict_sha256
+  }
+
+  defp field(:init, field), do: field
+  defp field(:media, field), do: Map.fetch!(@media_fields, field)
+  defp value(dispatch, kind, name), do: Map.get(dispatch, field(kind, name))
+  defp attributes(:init, attrs), do: attrs
+
+  defp attributes(:media, attrs),
+    do: Map.new(attrs, fn {key, value} -> {Map.get(@media_fields, key, key), value} end)
+
+  defp action(:init, :grant), do: :grant_init
+  defp action(:media, :grant), do: :grant_media
+  defp action(:init, :verify), do: :verify_init
+  defp action(:media, :verify), do: :verify_media
+  defp action(:init, :conflict), do: :conflict_init_verification
+  defp action(:media, :conflict), do: :conflict_media_verification
 
   @doc "Prepares one attempt per object, retaining its original actor, lease and deadline."
   def prepare_dispatch(lease, role, operation, ttl_ms, opts \\ []) do
@@ -87,8 +117,8 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     end
   end
 
-  @doc "Commits the existing first marker with current init authority; only this fresh result grants I/O."
-  def authorize_init(lease, dispatch_id, principal, context, opts \\ []) do
+  @doc "Commits the existing first marker with current operation authority; only this fresh result grants I/O."
+  def authorize(kind, lease, dispatch_id, principal, context, opts \\ []) do
     result =
       with :ok <- outside_transaction(),
            {:ok, actor_id} <- dispatcher(opts),
@@ -96,7 +126,8 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
            {:ok, intent} <- matching_origin(retained, lease, actor_id, opts) do
         RecordingControl.with_admission(
           fn ->
-            ArchiveInitAuthorities.with_current(
+            ArchiveAuthorities.with_current(
+              kind,
               intent.archive_binding_id,
               principal,
               context,
@@ -117,10 +148,11 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
                   fn block ->
                     with {:ok, dispatch, frozen} <-
                            current_dispatch(block, lease, dispatch_id, actor_id, opts),
-                         :ok <- init_context(dispatch, frozen, block, authority),
+                         :ok <- operation_context(kind, dispatch, frozen, block, authority),
                          true <-
                            is_nil(dispatch.marked_at) || {:error, :init_dispatch_already_marked} do
-                      grant_init(
+                      grant(
+                        kind,
                         dispatch,
                         frozen,
                         block,
@@ -142,35 +174,49 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
         )
       end
 
-    bounded_init_result(result)
+    bounded_result(kind, result)
   rescue
     _ in [DBConnection.ConnectionError, Postgrex.Error] ->
-      {:error, :init_authority_storage_unavailable}
+      bounded_result(kind, {:error, :init_authority_storage_unavailable})
   end
 
-  @doc "Retains exact init verification under the original grant, including after revocation or expiry."
-  def observe_init_verification(lease, dispatch_id, principal, context, verification, opts \\ []) do
+  @doc "Retains exact operation verification under the original grant, including after revocation or expiry."
+  def observe_verification(kind, lease, dispatch_id, principal, context, verification, opts \\ []) do
     result =
-      with {:ok, fingerprint} <- ArchiveInitAuthorities.principal_sha256(principal) do
+      with {:ok, fingerprint} <- ArchiveAuthorities.principal_sha256(kind, principal) do
         observe(lease, dispatch_id, opts, fn dispatch ->
-          with :ok <- verification_origin(dispatch, fingerprint, context),
+          with :ok <- verification_origin(kind, dispatch, fingerprint, context),
                {:ok, intent} <-
                  Ash.get(ArchiveUploadIntent, dispatch.archive_upload_intent_id, opts),
-               :ok <- valid_verification(verification, intent) do
-            retain_verification(dispatch, verification, opts)
+               :ok <- valid_verification(kind, verification, intent) do
+            retain_verification(kind, dispatch, verification, opts)
           end
         end)
       end
 
-    bounded_init_result(result)
+    bounded_result(kind, result)
   rescue
     _ in [DBConnection.ConnectionError, Postgrex.Error] ->
-      {:error, :init_authority_storage_unavailable}
+      bounded_result(kind, {:error, :init_authority_storage_unavailable})
   end
 
-  defp bounded_init_result({:ok, _} = result), do: result
-  defp bounded_init_result({:error, reason} = result) when is_atom(reason), do: result
-  defp bounded_init_result(_), do: {:error, :init_authority_storage_unavailable}
+  @media_errors %{
+    init_authority_context_mismatch: :media_authority_context_mismatch,
+    init_authority_storage_unavailable: :media_authority_storage_unavailable,
+    init_dispatch_already_marked: :media_dispatch_already_marked,
+    init_verification_origin_mismatch: :media_verification_origin_mismatch,
+    invalid_init_verification: :invalid_media_verification,
+    init_verification_conflict: :media_verification_conflict
+  }
+
+  defp bounded_result(:media, {:error, reason}) when is_atom(reason),
+    do: {:error, Map.get(@media_errors, reason, reason)}
+
+  defp bounded_result(_kind, {:ok, _} = result), do: result
+  defp bounded_result(_kind, {:error, reason} = result) when is_atom(reason), do: result
+
+  defp bounded_result(kind, _),
+    do: bounded_result(kind, {:error, :init_authority_storage_unavailable})
 
   defp current_dispatch(block, lease, id, actor_id, opts) do
     with {:ok, dispatch} <- lock_dispatch(id, opts),
@@ -182,15 +228,16 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     end
   end
 
-  defp init_context(dispatch, intent, block, authority) do
-    if dispatch.operation == :put_object and intent.object_role == :init and
+  defp operation_context(kind, dispatch, intent, block, authority) do
+    if dispatch.operation == :put_object and intent.object_role == kind and
          block.storage_id == authority.desired_document["local_storage_id"] and
-         intent.byte_length <= authority.desired_document["limits"]["max_init_bytes"],
+         intent.byte_length <=
+           ArchiveAuthorityConfig.byte_limit(kind, authority.desired_document["limits"]),
        do: :ok,
        else: {:error, :init_authority_context_mismatch}
   end
 
-  defp grant_init(dispatch, intent, block, authority, context, deadline, opts) do
+  defp grant(kind, dispatch, intent, block, authority, context, deadline, opts) do
     attrs = %{
       marked_at: dispatch.database_now,
       init_authority_revision: authority.revision,
@@ -201,9 +248,9 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
       init_deadline_at: deadline
     }
 
-    case ArchiveInitAuthorities.operation_budget(deadline, dispatch.database_now) do
+    case ArchiveAuthorities.operation_budget(deadline, dispatch.database_now) do
       {:ok, remaining_ms} ->
-        with {:ok, _} <- update(dispatch, :grant_init, attrs, opts) do
+        with {:ok, _} <- update(dispatch, action(kind, :grant), attributes(kind, attrs), opts) do
           {:ok,
            %{
              "schema_version" => 1,
@@ -232,20 +279,24 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   defp earliest(times), do: Enum.min_by(times, &DateTime.to_unix(&1, :microsecond))
 
   defp verification_origin(
+         kind,
          dispatch,
          fingerprint,
          %{storage_boot_id: boot, desired_sha256: sha, nonce: nonce} = context
        )
        when map_size(context) == 3 and is_binary(nonce) do
-    if dispatch.init_principal_sha256 == fingerprint and dispatch.init_storage_boot_id == boot and
-         dispatch.init_authority_sha256 == sha and dispatch.init_nonce_sha256 == digest(nonce),
+    if value(dispatch, kind, :init_principal_sha256) == fingerprint and
+         value(dispatch, kind, :init_storage_boot_id) == boot and
+         value(dispatch, kind, :init_authority_sha256) == sha and
+         value(dispatch, kind, :init_nonce_sha256) == digest(nonce),
        do: :ok,
        else: {:error, :init_verification_origin_mismatch}
   end
 
-  defp verification_origin(_, _, _), do: {:error, :init_verification_origin_mismatch}
+  defp verification_origin(_, _, _, _), do: {:error, :init_verification_origin_mismatch}
 
   defp valid_verification(
+         kind,
          %{
            "schema_version" => 1,
            "put_request_sha256" => wire_sha,
@@ -262,44 +313,47 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
       is_binary(wire_sha) and Regex.match?(~r/\A[0-9a-f]{64}\z/, wire_sha) and
         is_binary(etag) and byte_size(etag) in 3..256 and Regex.match?(~r/\A"[!#-~]+"\z/, etag) and
         (is_nil(version) or bounded_text?(version, 1024)) and is_integer(length) and
-        length in 1..1_048_576 and length == intent.byte_length and sha == intent.object_sha256
+        length in 1..if(kind == :init, do: 1_048_576, else: 16_777_216) and
+        length == intent.byte_length and
+        sha == intent.object_sha256
 
     if valid, do: :ok, else: {:error, :invalid_init_verification}
   end
 
-  defp valid_verification(_, _), do: {:error, :invalid_init_verification}
+  defp valid_verification(_, _, _), do: {:error, :invalid_init_verification}
 
-  defp retain_verification(dispatch, verification, opts) do
+  defp retain_verification(kind, dispatch, verification, opts) do
     sha = verification |> ArchiveCanonicalJSON.encode() |> digest()
 
     cond do
-      dispatch.init_verification_conflict_at ->
+      value(dispatch, kind, :init_verification_conflict_at) ->
         {:error, :init_verification_conflict}
 
-      is_nil(dispatch.init_verified_at) ->
+      is_nil(value(dispatch, kind, :init_verified_at)) ->
         update(
           dispatch,
-          :verify_init,
-          %{
+          action(kind, :verify),
+          attributes(kind, %{
             init_verification: verification,
             init_verification_sha256: sha,
             init_verified_at: dispatch.database_now
-          },
+          }),
           opts
         )
 
-      dispatch.init_verification == verification and dispatch.init_verification_sha256 == sha ->
+      value(dispatch, kind, :init_verification) == verification and
+          value(dispatch, kind, :init_verification_sha256) == sha ->
         {:ok, dispatch}
 
       true ->
         with {:ok, _} <-
                update(
                  dispatch,
-                 :conflict_init_verification,
-                 %{
+                 action(kind, :conflict),
+                 attributes(kind, %{
                    init_verification_conflict_at: dispatch.database_now,
                    init_verification_conflict_sha256: sha
-                 },
+                 }),
                  opts
                ),
              do: {:ok, :init_verification_conflict_committed}

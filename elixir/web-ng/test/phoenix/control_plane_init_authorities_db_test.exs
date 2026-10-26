@@ -5,8 +5,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneInitAuthoritiesDBTest do
   import Plug.Test
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveBinding
-  alias ServiceRadar.Camera.ArchiveInitConfig
   alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.RecorderOwnership
   alias ServiceRadar.Camera.RecordingBlock
@@ -107,7 +107,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneInitAuthoritiesDBTest do
   test "storage challenge and media administration persist one correlated window without declaring archive readiness",
        context do
     %{installation: installation, storage: storage, desired: desired, binding: binding, actor: actor} = context
-    {:ok, parsed} = ArchiveInitConfig.parse(installation, desired)
+    {:ok, parsed} = ArchiveAuthorityConfig.parse(:init, installation, desired)
 
     challenge = %{
       "schema_version" => 1,

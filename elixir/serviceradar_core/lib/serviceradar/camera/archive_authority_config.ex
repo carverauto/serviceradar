@@ -1,6 +1,6 @@
-defmodule ServiceRadar.Camera.ArchiveInitConfig do
+defmodule ServiceRadar.Camera.ArchiveAuthorityConfig do
   @moduledoc """
-  Complete bounded identity for a nonrenewable init-object installation.
+  Complete bounded identity for a nonrenewable operation-specific installation.
 
   Parsing grants no authority. The authenticated challenge/application owner
   checks required observations, freshness and the installed principal separately.
@@ -14,24 +14,22 @@ defmodule ServiceRadar.Camera.ArchiveInitConfig do
   @maximum 9_223_372_036_854_775_807
 
   def parse(
+        kind,
         %{deployment_ref: ref, generation: generation},
-        %{
-          "schema_version" => 1,
-          "operation" => "init_put_verified_v1",
-          "protection_mode" => "sse_s3_aes256"
-        } = document
+        %{"schema_version" => 1, "operation" => operation, "protection_mode" => "sse_s3_aes256"} =
+          document
       )
-      when is_integer(generation) and generation in 1..@maximum do
-    with true <- exact_keys?(document, @fields),
+      when kind in [:init, :media] and is_integer(generation) and generation in 1..@maximum do
+    with true <- exact_keys?(document, @fields) and operation == operation(kind),
          true <-
            uuid?(ref) and uuid?(document["binding_id"]) and uuid?(document["local_storage_id"]),
          {:ok, revision} <- revision(document["revision"]),
-         true <- limits?(document["limits"]),
+         true <- limits?(kind, document["limits"]),
          {:ok, report} <- ArchiveQualificationReport.parse(document["qualification_report"]),
          true <- report.document["binding_id"] == document["binding_id"] do
       bytes =
         ArchiveCanonicalJSON.encode([
-          "init-authority-v1",
+          domain(kind),
           ref,
           Integer.to_string(generation),
           document
@@ -50,11 +48,11 @@ defmodule ServiceRadar.Camera.ArchiveInitConfig do
          limits: document["limits"]
        }}
     else
-      _ -> {:error, :invalid_init_configuration}
+      _ -> invalid(kind)
     end
   end
 
-  def parse(_, _), do: {:error, :invalid_init_configuration}
+  def parse(kind, _, _), do: invalid(kind)
 
   defp revision(value) when is_binary(value) and byte_size(value) in 1..19 do
     case Integer.parse(value) do
@@ -68,13 +66,28 @@ defmodule ServiceRadar.Camera.ArchiveInitConfig do
 
   defp revision(_), do: :error
 
-  defp limits?(
-         %{"max_init_bytes" => bytes, "max_operation_ms" => ms, "max_in_flight" => 1} = limits
-       )
-       when map_size(limits) == 3,
-       do: is_integer(bytes) and bytes in 1..1_048_576 and is_integer(ms) and ms in 1..5000
+  def kind(%{"operation" => "init_put_verified_v1"}), do: {:ok, :init}
+  def kind(%{"operation" => "media_put_verified_v1"}), do: {:ok, :media}
+  def kind(_), do: {:error, :invalid_archive_operation}
 
-  defp limits?(_), do: false
+  def byte_limit(:init, limits), do: limits["max_init_bytes"]
+  def byte_limit(:media, limits), do: limits["max_media_bytes"]
+
+  defp operation(:init), do: "init_put_verified_v1"
+  defp operation(:media), do: "media_put_verified_v1"
+  defp domain(:init), do: "init-authority-v1"
+  defp domain(:media), do: "media-authority-v1"
+  defp invalid(:init), do: {:error, :invalid_init_configuration}
+  defp invalid(_), do: {:error, :invalid_media_configuration}
+
+  defp limits?(kind, %{"max_operation_ms" => ms, "max_in_flight" => 1} = limits)
+       when map_size(limits) == 3 do
+    bytes = byte_limit(kind, limits)
+    {max_bytes, max_ms} = if kind == :init, do: {1_048_576, 5000}, else: {16_777_216, 30_000}
+    is_integer(bytes) and bytes in 1..max_bytes and is_integer(ms) and ms in 1..max_ms
+  end
+
+  defp limits?(_, _), do: false
 
   defp uuid?(value) when is_binary(value),
     do: Regex.match?(~r/\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/, value)

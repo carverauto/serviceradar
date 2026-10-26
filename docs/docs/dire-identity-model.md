@@ -278,7 +278,11 @@ identified devices.
   The same retention, with the same partition and existing-row exclusions,
   applies when camera inventory updates an existing camera device to a new
   address and when source succession moves the successor's address onto the
-  survivor.
+  survivor. A startup repair archives an existing row of this kind when the
+  address is not the device's current primary IP, a non-config interface of
+  the same device named like a container, CNI, or local-hypervisor bridge
+  (`GuestAddress.host_internal_name?/1`) still carries it, and no config
+  interface or differently named interface of that device does.
 
 ## Merge policy and stability
 
@@ -362,8 +366,11 @@ for dry-run review, execution gates, and device/source allowlists.
   only when it does not. The pass honours `source_retirement_enabled`,
   `source_retirement_max_fraction` and the override, judged against the controller's linked
   records. A first pass over a controller whose records are mostly stale is therefore refused
-  until the override admits it. Hypervisor enrichment never adopts a `source_retired` record as a
-  guest's device, whatever retired it: not by address, MAC, AWX hint or name.
+  until the override admits it. Hypervisor enrichment's guest-candidate query excludes a
+  `source_retired` record, whatever retired it, on address, MAC, an identifier it still holds
+  and an AWX hint, and the name index skips one. A batch that already names the record by uid
+  still returns it. The identifier-row lookup stays unfiltered; the DIRE lifecycle note
+  (`formal/dire/README.md`) says why.
 - Retired-only records (`Identity.SourceRetirement`): a retirement that leaves a live record
   with no source-authoritative id and no agent id, no identity-bearing observation within T,
   and not created by an operator marks it `source_retired` in the same transaction

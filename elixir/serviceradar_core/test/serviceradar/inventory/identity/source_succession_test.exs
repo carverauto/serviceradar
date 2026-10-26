@@ -22,6 +22,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
   alias ServiceRadar.Inventory.Identity.MergeEngine
   alias ServiceRadar.Inventory.Identity.ReconciliationRun
   alias ServiceRadar.Inventory.Identity.SourceCorroboration
+  alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.SourceSuccession
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.MergeAudit
@@ -527,6 +528,189 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
              )
              |> Ash.read!(actor: actor)
              |> Enum.filter(&(Enum.sort(&1.device_uids) == conflict.device_ids))
+  end
+
+  # The pass finds the records reporting a retired record's MAC wherever they carry it and in
+  # whatever form it was stored, and reads only the source observations that carry the MAC: a
+  # deployment's observation table is far larger than the MACs a pass looks for.
+  test "a shared MAC is found in each place and stored form, reading only the observations carrying it",
+       %{actor: actor} do
+    instance = "mac-forms-#{System.unique_integer([:positive])}"
+    partition = "default:armis:#{instance}"
+
+    [predecessor, by_mac, by_identifier, by_interface, by_dashes, by_dots] =
+      uids = for _ <- 1..6, do: create_record!(actor).uid
+
+    ids = Map.new(uids, &{&1, register_source_id!(actor, &1, partition)})
+    assert 1 = SourceRetirement.archive_identifiers(predecessor, [ids[predecessor].id], @later)
+
+    set_mac!(predecessor, "00005E00532A")
+    set_mac!(by_mac, "00:00:5e:00:53:2a")
+
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:register, %{
+      device_id: by_identifier,
+      identifier_type: :mac,
+      identifier_value: "00005E00532A",
+      partition: "default",
+      source: "sweep"
+    })
+    |> Ash.create!(actor: actor)
+
+    Repo.query!(
+      "INSERT INTO platform.device_interface_macs (device_id, mac) VALUES ($1, '00005E00532A')",
+      [by_interface]
+    )
+
+    observe!(
+      instance,
+      by_dashes,
+      ids[by_dashes].identifier_value,
+      "00-00-5E-00-53-2B, 00-00-5E-00-53-2A"
+    )
+
+    observe!(instance, by_dots, ids[by_dots].identifier_value, "0000.5e00.532a")
+
+    # Observations of another MAC, which the lookup must not read, each for an id a live
+    # record holds, so a plan that starts from the identifiers reaches them too.
+    Repo.query!(
+      """
+      INSERT INTO platform.device_identifiers
+        (device_id, identifier_type, identifier_value, partition, confidence, source,
+         first_seen, last_seen)
+      SELECT $1, 'armis_device_id', 'other-' || n, $2, 'strong', 'armis',
+             timezone('utc', now()), timezone('utc', now())
+      FROM generate_series(1, 200) AS n
+      """,
+      [by_mac, partition]
+    )
+
+    Repo.query!(
+      """
+      INSERT INTO platform.device_source_observations
+        (device_id, partition, source, source_instance, source_object_id, source_integration_id,
+         collection_id, content_hash, first_observed_at, last_observed_at, mac)
+      SELECT $1, 'default', 'armis', $2, 'other-' || n, $2, $2, md5(n::text),
+             timezone('utc', now()), timezone('utc', now()), '00:00:5E:00:53:FF'
+      FROM generate_series(1, 200) AS n
+      """,
+      [by_mac, instance]
+    )
+
+    {%{reviews: reviews}, statements} =
+      capture_statements(fn -> SourceSuccession.plan(actor: actor) end)
+
+    assert %{reason: :shared_mac} = Enum.find(reviews, &(&1.device_uids == Enum.sort(uids)))
+
+    [{lookup, params}] =
+      Enum.filter(statements, fn {sql, _params} ->
+        sql =~ "o.mac IS NOT NULL"
+      end)
+
+    assert observations_read(lookup, params) <= 10
+  end
+
+  defp register_source_id!(actor, device_uid, partition) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:register, %{
+      device_id: device_uid,
+      identifier_type: :armis_device_id,
+      identifier_value: Integer.to_string(System.unique_integer([:positive])),
+      partition: partition,
+      source: "armis"
+    })
+    |> Ash.create!(actor: actor)
+  end
+
+  defp set_mac!(uid, mac) do
+    assert %{num_rows: 1} =
+             Repo.query!("UPDATE platform.ocsf_devices SET mac = $2 WHERE uid = $1", [uid, mac])
+  end
+
+  defp observe!(instance, device_uid, source_object_id, mac) do
+    Repo.query!(
+      """
+      INSERT INTO platform.device_source_observations
+        (device_id, partition, source, source_instance, source_object_id, source_integration_id,
+         collection_id, content_hash, first_observed_at, last_observed_at, mac)
+      VALUES ($1, 'default', 'armis', $2, $3, $2, $2, md5($3),
+              timezone('utc', now()), timezone('utc', now()), $4)
+      """,
+      [device_uid, instance, source_object_id, mac]
+    )
+  end
+
+  @doc false
+  def record_statement(_event, _measurements, %{query: query, params: params}, {parent, ref}) do
+    if self() == parent, do: send(parent, {ref, query, params})
+  end
+
+  defp capture_statements(fun) do
+    ref = make_ref()
+    id = {__MODULE__, ref}
+
+    :ok =
+      :telemetry.attach(
+        id,
+        [:service_radar, :repo, :query],
+        &__MODULE__.record_statement/4,
+        {self(), ref}
+      )
+
+    result =
+      try do
+        fun.()
+      after
+        :telemetry.detach(id)
+      end
+
+    {result, collect_statements(ref, [])}
+  end
+
+  defp collect_statements(ref, acc) do
+    receive do
+      {^ref, query, params} -> collect_statements(ref, [{query, params} | acc])
+    after
+      0 -> Enum.reverse(acc)
+    end
+  end
+
+  # The observation rows the statement reads, replayed under EXPLAIN ANALYZE. The tables are
+  # analyzed so the planner knows the test's rows, and sequential scans are disfavored: the
+  # test's tables are a few pages each, where reading one in full looks cheaper than an index
+  # lookup, which is not true of a deployment's. Rolling the savepoint back undoes both.
+  defp observations_read(sql, params) do
+    {:error, {:read, read}} =
+      Repo.transaction(fn ->
+        Repo.query!("ANALYZE platform.device_source_observations, platform.device_identifiers")
+        Repo.query!("SET LOCAL enable_seqscan = off")
+        Repo.query!("SET LOCAL plan_cache_mode = force_custom_plan")
+
+        %{rows: [[[plan]]]} =
+          Repo.query!(
+            "EXPLAIN (ANALYZE, COSTS OFF, TIMING OFF, SUMMARY OFF, FORMAT JSON) " <> sql,
+            params
+          )
+
+        Repo.rollback({:read, rows_read(plan["Plan"], "device_source_observations")})
+      end)
+
+    read
+  end
+
+  defp rows_read(node, relation) do
+    own =
+      if node["Relation Name"] == relation do
+        rows =
+          Map.get(node, "Actual Rows", 0) + Map.get(node, "Rows Removed by Filter", 0) +
+            Map.get(node, "Rows Removed by Index Recheck", 0)
+
+        round(Map.get(node, "Actual Loops", 1) * rows)
+      else
+        0
+      end
+
+    own + (node |> Map.get("Plans", []) |> Enum.map(&rows_read(&1, relation)) |> Enum.sum())
   end
 
   # Runs `write` once, in the test process, right after the merge transaction locks the records.

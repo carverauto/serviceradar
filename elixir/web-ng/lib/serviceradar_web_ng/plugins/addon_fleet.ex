@@ -16,6 +16,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   Everything here goes through the existing `ServiceRadar.Plugins.Addon*` Ash
   resources (scoped reads, same authorizers as the rest of web-ng) plus the
   `ServiceRadar.Inventory.EndpointInventoryScan` resource for collector add-ons.
+  A current scan also adds a `scalibr-endpoint-inventory` row for an agent with
+  no assignment and no status when `stale_scanner_producer?/1` is true.
   No new writes and no bypass of the resource layer.
   """
 
@@ -33,7 +35,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   require Ash.Query
 
-  @collector_addon_ids MapSet.new(["scalibr-endpoint-inventory"])
+  @scalibr_addon_id "scalibr-endpoint-inventory"
+  @collector_addon_ids MapSet.new([@scalibr_addon_id])
+  @min_fixed_scalibr_producer_version "0.1.6"
+  @min_fixed_scalibr_addon_version "0.1.9"
 
   @max_rows 2000
   @default_freshness_seconds 180
@@ -90,6 +95,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
           reported_at: DateTime.t() | nil,
           last_health_at: DateTime.t() | nil,
           last_scan_at: DateTime.t() | nil,
+          scanner_producer_version: String.t() | nil,
           collector?: boolean(),
           version_status: version_status(),
           stale_assignments: [stale_assignment()],
@@ -207,9 +213,35 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         )
       end)
 
+    observed_keys =
+      statuses
+      |> MapSet.new(&{&1.agent_uid, &1.addon_id})
+      |> MapSet.union(assigned_keys)
+
+    scan_only_rows =
+      scans_by_agent
+      |> Enum.filter(fn {agent_uid, scan_info} ->
+        stale_scanner_producer_version?(scan_info.scanner_producer_version) and
+          not MapSet.member?(observed_keys, {agent_uid, @scalibr_addon_id})
+      end)
+      |> Enum.map(fn {agent_uid, _scan_info} ->
+        package = latest_package_for_addon(package_index, @scalibr_addon_id)
+        history = Map.get(assignment_groups, {agent_uid, @scalibr_addon_id}, [])
+
+        build_row(
+          agent_uid,
+          @scalibr_addon_id,
+          package,
+          nil,
+          nil,
+          stale_assignment_infos(history, package_index),
+          row_context
+        )
+      end)
+
     rows =
       Enum.sort_by(
-        assigned_rows ++ observed_only_rows,
+        assigned_rows ++ observed_only_rows ++ scan_only_rows,
         &{String.downcase(&1.agent_label), &1.addon_id}
       )
 
@@ -383,7 +415,9 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   defp build_row(agent_uid, addon_id, package, assignment, status, stale_assignments, row_context) do
     collector? = MapSet.member?(@collector_addon_ids, addon_id)
-    last_scan_at = if collector?, do: Map.get(row_context.scans_by_agent, agent_uid)
+    scan_info = if collector?, do: Map.get(row_context.scans_by_agent, agent_uid)
+    last_scan_at = scan_info && scan_info.last_scan_at
+    scanner_producer_version = scan_info && scan_info.scanner_producer_version
     management_mode = AddonRuntimePolicy.management_mode(addon_id, not is_nil(assignment))
     agent = Map.get(row_context.agents_by_uid, agent_uid)
     rollout = rollout_for(assignment, row_context.rollout_index)
@@ -410,9 +444,14 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       # running; the stale case is still classified below as unavailable/observed-only.
       active?: status != nil and status.active and not stale_observation?(status, row_context.now),
       observation_stale?: stale_status?(status, row_context.now),
-      degradation_reason: status && present(status.degradation_reason),
+      degradation_reason:
+        merge_degradation_reason(
+          status && present(status.degradation_reason),
+          stale_scanner_producer_diagnostic(addon_id, scanner_producer_version)
+        ),
       reported_at: status && status.reported_at,
       last_scan_at: last_scan_at,
+      scanner_producer_version: scanner_producer_version,
       last_health_at: status && status.last_health_at,
       collector?: collector?,
       stale_assignments: stale_assignments
@@ -423,7 +462,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     {category, reason_code} =
       classify(base, package, assignment, status, agent, rollout, row_context.now)
 
-    attention = if category == :action_required, do: [reason_code], else: []
+    attention =
+      [
+        if(category == :action_required, do: reason_code),
+        if(stale_scanner_producer?(base), do: "stale_scanner_producer_version")
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
 
     row =
       base
@@ -530,22 +575,29 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
         {:expected_inactive, "assignment_disabled"}
 
       is_nil(assignment) ->
-        classify_observed_only(status, now)
+        classify_observed_only(base, status, now)
 
       agent_unavailable?(agent, now) ->
         {:unavailable, "agent_unavailable_or_stale"}
 
+      is_nil(status) and stale_scanner_producer?(base) ->
+        {:action_required, "stale_scanner_producer_version"}
+
       is_nil(status) ->
         {:unavailable, "desired_runtime_not_yet_reported"}
 
-      stale_observation?(status, now) ->
+      stale_observation?(status, now) and not stale_scanner_producer?(base) ->
         {:unavailable, "runtime_observation_stale"}
 
       explicitly_unhealthy?(status) ->
         {:action_required, "runtime_reported_unhealthy"}
 
-      expected_inactive?(package, status) ->
+      expected_inactive?(package, status) and not stale_scanner_producer?(base) ->
         {:expected_inactive, "ephemeral_helper_ready"}
+
+      stale_scanner_producer?(base) and
+          (converged?(base, package, status) or expected_inactive?(package, status)) ->
+        {:action_required, "stale_scanner_producer_version"}
 
       # Live desired-vs-running wins over a finished canary. A Failed/Paused
       # rollout is history on the fleet list; it must not paint a healthy,
@@ -559,25 +611,94 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       convergence_grace?(assignment, now) ->
         {:updating, "desired_state_converging"}
 
+      stale_scanner_producer?(base) ->
+        {:action_required, "stale_scanner_producer_version"}
+
       true ->
         {:action_required, "desired_state_not_converged"}
     end
   end
 
-  defp classify_observed_only(nil, _now), do: {:observed_only, "no_managed_assignment"}
+  defp classify_observed_only(base, nil, _now) do
+    if stale_scanner_producer?(base) do
+      {:action_required, "stale_scanner_producer_version"}
+    else
+      {:observed_only, "no_managed_assignment"}
+    end
+  end
 
-  defp classify_observed_only(status, now) do
+  defp classify_observed_only(base, status, now) do
     cond do
+      explicitly_unhealthy?(status) and not stale_observation?(status, now) ->
+        {:action_required, "runtime_reported_unhealthy"}
+
+      stale_scanner_producer?(base) ->
+        {:action_required, "stale_scanner_producer_version"}
+
       stale_observation?(status, now) ->
         {:observed_only, "observed_only_stale"}
-
-      explicitly_unhealthy?(status) ->
-        {:action_required, "runtime_reported_unhealthy"}
 
       true ->
         {:observed_only, "healthy_observed_only_runtime"}
     end
   end
+
+  @doc """
+  True when an endpoint-inventory collector row reports a
+  `scanner_producer_version` below `#{@min_fixed_scalibr_producer_version}`,
+  which still computes the pre-#5155 package-set hash and requires upgrading
+  `#{@scalibr_addon_id}` to `#{@min_fixed_scalibr_addon_version}` or later.
+  """
+  @spec stale_scanner_producer?(map()) :: boolean()
+  def stale_scanner_producer?(row) when is_map(row) do
+    (Map.get(row, :addon_id) in [nil, @scalibr_addon_id] or Map.get(row, :collector?) == true) and
+      stale_scanner_producer_version?(Map.get(row, :scanner_producer_version))
+  end
+
+  def stale_scanner_producer?(_row), do: false
+
+  @doc false
+  @spec stale_scanner_producer_version?(term()) :: boolean()
+  def stale_scanner_producer_version?(version) when is_binary(version) do
+    compare_versions(String.trim_leading(version, "v"), @min_fixed_scalibr_producer_version) == :lt
+  end
+
+  def stale_scanner_producer_version?(_version), do: false
+
+  @doc """
+  Actionable operator remediation sentence for a stale ScaLibr producer
+  version (`< #{@min_fixed_scalibr_producer_version}`).
+  """
+  @spec stale_scanner_producer_remediation(term()) :: String.t()
+  def stale_scanner_producer_remediation(version \\ nil) do
+    subject =
+      case present(version) do
+        nil -> "scanner_producer_version < #{@min_fixed_scalibr_producer_version}"
+        trimmed -> "scanner_producer_version #{trimmed} (< #{@min_fixed_scalibr_producer_version})"
+      end
+
+    "#{subject} has the broken package-set hash; " <>
+      "upgrade the scalibr add-on to #{@min_fixed_scalibr_addon_version} or later"
+  end
+
+  defp merge_degradation_reason(nil, stale), do: stale
+  defp merge_degradation_reason(status_reason, nil), do: status_reason
+
+  defp merge_degradation_reason(status_reason, stale) do
+    if String.contains?(status_reason, "scanner_producer_version") do
+      status_reason
+    else
+      "#{status_reason}; #{stale}"
+    end
+  end
+
+  defp stale_scanner_producer_diagnostic(@scalibr_addon_id, version) when is_binary(version) do
+    if stale_scanner_producer_version?(version) do
+      stale_scanner_producer_remediation(version)
+    end
+  end
+
+  defp stale_scanner_producer_diagnostic(_addon_id, _version), do: nil
 
   defp explicitly_unhealthy?(nil), do: false
 
@@ -759,15 +880,40 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     |> read(scope)
     |> Enum.reduce(%{}, fn scan, acc ->
       agent_id = scan.agent_id
-      scanned_at = scan.last_scan_at
+      scanned_at = scan.last_scan_at || scan.ingested_at || scan.inserted_at
+      producer_version = extract_scanner_producer_version(scan)
+
+      entry = %{
+        last_scan_at: scanned_at,
+        scanner_producer_version: producer_version
+      }
 
       cond do
-        is_nil(agent_id) or is_nil(scanned_at) -> acc
-        not Map.has_key?(acc, agent_id) -> Map.put(acc, agent_id, scanned_at)
-        DateTime.after?(scanned_at, Map.get(acc, agent_id)) -> Map.put(acc, agent_id, scanned_at)
-        true -> acc
+        is_nil(agent_id) or (is_nil(scanned_at) and is_nil(producer_version)) ->
+          acc
+
+        not Map.has_key?(acc, agent_id) ->
+          Map.put(acc, agent_id, entry)
+
+        newer_scan_time?(scanned_at, acc[agent_id].last_scan_at) ->
+          Map.put(acc, agent_id, entry)
+
+        true ->
+          acc
       end
     end)
+  end
+
+  defp newer_scan_time?(%DateTime{} = candidate, %DateTime{} = existing), do: DateTime.after?(candidate, existing)
+
+  defp newer_scan_time?(%DateTime{}, nil), do: true
+  defp newer_scan_time?(_, _), do: false
+
+  defp extract_scanner_producer_version(scan) do
+    metadata = Map.get(scan, :metadata) || %{}
+
+    present(Map.get(metadata, "scanner_producer_version")) ||
+      present(Map.get(metadata, :scanner_producer_version))
   end
 
   defp agents_by_uid(scope, limit) do

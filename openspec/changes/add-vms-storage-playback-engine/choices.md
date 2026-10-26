@@ -1104,22 +1104,6 @@ establish that persistence behavior. The published-head guarded execution in
 [validation](validation.md#published-head-registration-validation) is the record
 that this conflict status reached the database.
 
-### Advance product bytes while Cloud allocation proof remains unresolved
-
-When: post-registration maintenance checkpoint. Verdict: sound, medium confidence.
-
-The next product test can send an invented sealed recording to an isolated HTTP
-endpoint without creating a real bucket. Product development therefore proceeds
-through bounded media upload, recovery-manifest verification and index publication
-while Cloud establishes safe allocation ownership independently. The plan did
-not prescribe this implementation order. Starting with one bounded PUT keeps the
-first byte path reviewable; multipart and full hosted acceptance remain required.
-It does not let the init-only grant authorize media, nor make an upload response
-proof of archive availability. Cloud's existing create response cannot distinguish
-a new bucket from an existing one, so adding a queue that always reports that
-limitation would add machinery without advancing provisioning. Its allocator
-waits for a supported proof contract or separately authorized explicit adoption.
-
 ### Detect observed local replacement without claiming physical-volume attestation
 
 When: [spool lifetime checkpoint](spool-lifetime.md). Verdict: sound, medium confidence.
@@ -1193,3 +1177,120 @@ callback and reports a shutdown timeout if a child does not stop. The public
 storage errors, request checks, and production recorder path stay unchanged.
 Guarded recorder database cases and deployed-camera proof stay on their own
 lanes.
+
+### Refuse abandoned media scratch until its owner reconciles it
+
+When: explicit sealed-media upload checkpoint. Verdict: sound, medium confidence.
+
+If the isolated storage process is killed while holding media, its temporary
+file may outlive the process. A restart refuses the existing private staging
+root instead of creating another file beside it. During normal operation, the
+Session waits for the request and provider-socket processes to exit, removes
+only its registered path, and releases the single admission slot only after
+cleanup succeeds. An unlink failure also keeps admission closed. The plan
+required bounded scratch use but did not choose hard-kill recovery. Automatic
+adoption or a background cleaner would need durable ownership and recovery
+rules that this byte-upload checkpoint does not establish. Operators must
+reconcile an abandoned root before restarting; later pod-recovery work must
+replace this refusal with an equally bounded, evidence-preserving contract.
+
+### Keep isolated media ingress on one-shot HTTP/1 connections
+
+When: explicit sealed-media upload checkpoint. Verdict: sound, high confidence.
+
+If a client advertises a body larger than the limit, Plug rejects it before
+admission. Bandit's normal HTTP/1 keepalive path nevertheless drains the unread
+body after that response. The listener therefore serves one request per
+connection and disables HTTP/2, while retaining mutual TLS and bearer checks.
+The existing production client already opens one HTTP/1 connection per
+request. The plan specified bounded authenticated ingress but left connection
+reuse and protocol negotiation unspecified. Supporting persistent or HTTP/2
+connections later requires an equally tested no-drain and admission boundary;
+it cannot be enabled as an unrelated transport optimization.
+
+### Advance product bytes while Cloud allocation proof remains unresolved
+
+When: post-registration maintenance checkpoint. Verdict: sound, medium confidence.
+
+The next product test can send an invented sealed recording to an isolated HTTP
+endpoint without creating a real bucket. Product development therefore proceeds
+through bounded media upload, recovery-manifest verification and index publication
+while Cloud establishes safe allocation ownership independently. The plan did
+not prescribe this implementation order. Starting with one bounded PUT keeps the
+first byte path reviewable; multipart and full hosted acceptance remain required.
+It does not let the init-only grant authorize media, nor make an upload response
+proof of archive availability. Cloud's existing create response cannot distinguish
+a new bucket from an existing one, so adding a queue that always reports that
+limitation would add machinery without advancing provisioning. Its allocator
+waits for a supported proof contract or separately authorized explicit adoption.
+
+### Prove one small media upload before expanding block capacity
+
+When: explicit sealed-media upload checkpoint. Verdict: sound, medium confidence.
+
+An operator can upload one sealed block of at most 16 MiB. A second request is
+refused while that request owns the service, and provider work has one budget
+of at most 30 seconds. A 20 MiB block stays intact and is refused; it is not
+split or truncated. The installed temporary volume is 32 MiB, while the spool
+defaults to 64 MiB blocks and its format permits up to 512 MiB. The plan required
+bounded work but did not select this first-pass capacity. The smaller cap lets
+the complete byte path be measured within the existing scratch volume without
+claiming support for ordinary full-size blocks. Production block sizing,
+multipart upload and throughput objectives remain separate acceptance work.
+
+### Make the first production media caller an explicit block-ID operation
+
+When: explicit sealed-media upload checkpoint. Verdict: sound, medium confidence.
+
+An administrator invokes `MediaUpload.upload_once(block_id)` for an already
+frozen block. The process loads its spool root, archive binding and private
+storage connection from installed `VMS_MEDIA_UPLOAD_CONFIG`; the caller cannot
+choose a local file or a destination. The plan required a real recorder caller
+but did not choose its first orchestration interface. An automatic scheduler
+would also need admission, retry and recovery decisions that this checkpoint
+does not settle. Future runtime/Cloud orchestration must install and invoke the
+operation. There is still no production init-upload caller, so this entry point
+alone cannot publish a complete archive.
+
+### Give outcome reporting a small grace period without renewing provider work
+
+When: explicit sealed-media upload checkpoint. Verdict: sound, medium confidence.
+
+If the provider deadline expires, the service stops the actual socket/request
+owners. It may spend up to 2.1 more seconds on two existing one-second evidence
+callbacks plus a 100 ms scheduling allowance. These callbacks record what was
+observed; they cannot authorize another provider request. The plan required a
+nonrenewable provider budget but left this reporting interval unspecified.
+Removing the interval can lose useful late evidence; extending it without a
+bound would hold admission indefinitely. If reporting still fails, the original
+dispatch marker remains and the caller receives unavailable rather than a new
+attempt. The grace number is a bounded checkpoint choice, not a measured service
+objective.
+
+### Share authority logic while keeping init and media permission separate
+
+When: explicit sealed-media upload checkpoint. Verdict: sound, high confidence.
+
+An old init-only process must never read a newly installed media permission and
+treat it as an init grant. Media therefore has a separate authority table and
+operation-specific grant evidence, while the coordinator and configuration
+validator share one implementation. Existing init rows, digest rules, wire
+responses and assertions remain unchanged. The plan required separate purposes
+but did not prescribe the implementation split. Duplicating the full coordinator
+would require future fencing fixes in two places; combining the permission rows
+would expose media data to old init readers. Later operation purposes must retain
+this separation without adding parallel copies of the common fencing logic.
+
+### Sign and verify streamed media using the existing bounded transports
+
+When: explicit sealed-media upload checkpoint. Verdict: sound, high confidence.
+
+The storage service hashes the staged file, signs that actual digest with the
+existing Req signing utility, and sends 64 KiB file chunks through its Mint
+connection. The pinned Req enumerable-body path would instead sign
+`UNSIGNED-PAYLOAD`; loading the whole object merely to sign it would defeat the
+bounded-memory contract. Exact readback uses the existing external-artifact
+client in ranges of at most 4 MiB. The plan required signed, verified streaming
+but left this library integration open. Reusing these transports retains the
+configured proxy, TLS checks and socket ownership without introducing another
+HTTP client or a direct-network fallback.

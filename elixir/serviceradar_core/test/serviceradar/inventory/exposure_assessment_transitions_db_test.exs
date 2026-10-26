@@ -898,12 +898,15 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       insert_journal!(other, "applying")
 
-      snapshot_query!(fn sql ->
-        bound = "(#{ordinal},20240000040,40)"
+      pages = :counters.new(1, [:atomics])
 
-        if String.contains?(sql, "exposure_facts") and not String.contains?(sql, bound),
-          do: warehouse_rows([resolved]),
-          else: warehouse_rows([])
+      snapshot_query!(fn _sql ->
+        if :counters.get(pages, 1) == 0 do
+          :counters.add(pages, 1, 1)
+          warehouse_rows([resolved])
+        else
+          warehouse_rows([])
+        end
       end)
 
       assert {:error, :exposure_snapshot_finalization_pending} =

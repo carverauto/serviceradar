@@ -17,43 +17,82 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
   def request(config, method, url, headers, body, timeout, max_bytes, range \\ nil) do
     caller = self()
     token = make_ref()
+    deadline = System.monotonic_time(:millisecond) + timeout
+
+    operation = fn ->
+      parent = Process.monitor(caller)
+      {:ok, timer} = :timer.exit_after(timeout, self(), :request_timeout)
+
+      receive do
+        {:start, ^token} ->
+          Process.demonitor(parent, [:flush])
+
+          result =
+            try do
+              execute(config, method, url, headers, body, timeout, max_bytes, range)
+            rescue
+              _ -> {:error, :transport_error}
+            catch
+              _, _ -> {:error, :transport_error}
+            after
+              :timer.cancel(timer)
+            end
+
+          send(caller, {token, result})
+
+        {:DOWN, ^parent, :process, ^caller, _} ->
+          :ok
+      end
+    end
 
     {pid, monitor} =
-      spawn_monitor(fn ->
-        # The socket owner remains bounded even if its waiting caller exits.
-        {:ok, timer} = :timer.exit_after(timeout, self(), :request_timeout)
+      case Map.get(config, :socket_owner) do
+        nil ->
+          spawn_monitor(operation)
 
-        result =
-          try do
-            execute(config, method, url, headers, body, timeout, max_bytes, range)
-          rescue
-            _ -> {:error, :transport_error}
-          catch
-            _, _ -> {:error, :transport_error}
-          after
-            :timer.cancel(timer)
-          end
+        _ ->
+          {:ok, pid} = Task.Supervisor.start_child(ServiceRadarCoreElx.CameraStorage.Tasks, operation)
+          {pid, Process.monitor(pid)}
+      end
 
-        send(caller, {token, result})
-      end)
+    if register_owner(config, pid, timeout) == :ok do
+      send(pid, {:start, token})
 
-    receive do
-      {^token, result} ->
-        Process.demonitor(monitor, [:flush])
-        result
+      receive do
+        {^token, result} ->
+          # A task cannot release admission while its socket/file owner survives.
+          receive do: ({:DOWN, ^monitor, :process, ^pid, _} -> :ok)
+          result
 
-      {:DOWN, ^monitor, :process, ^pid, :request_timeout} ->
-        {:error, :request_timeout}
+        {:DOWN, ^monitor, :process, ^pid, :request_timeout} ->
+          {:error, :request_timeout}
 
-      {:DOWN, ^monitor, :process, ^pid, _} ->
-        {:error, :transport_error}
-    after
-      timeout ->
-        Process.exit(pid, :kill)
-        receive do: ({:DOWN, ^monitor, :process, ^pid, _} -> :ok)
-        receive do: ({^token, _} -> :ok), after: (0 -> :ok)
-        {:error, :request_timeout}
+        {:DOWN, ^monitor, :process, ^pid, _} ->
+          {:error, :transport_error}
+      after
+        max(0, deadline - System.monotonic_time(:millisecond)) ->
+          stop_owner(pid, monitor)
+          receive do: ({^token, _} -> :ok), after: (0 -> :ok)
+          {:error, :request_timeout}
+      end
+    else
+      stop_owner(pid, monitor)
+      {:error, :request_cancelled}
     end
+  end
+
+  defp register_owner(config, pid, timeout) do
+    case Map.get(config, :socket_owner) do
+      nil -> :ok
+      owner -> GenServer.call(owner, {:http_socket_owner, self(), pid}, timeout)
+    end
+  catch
+    :exit, _ -> {:error, :request_cancelled}
+  end
+
+  defp stop_owner(pid, monitor) do
+    Process.exit(pid, :kill)
+    receive do: ({:DOWN, ^monitor, :process, ^pid, _} -> :ok)
   end
 
   defp execute(config, :get, url, headers, _body, timeout, max_bytes, {first, last, size, etag}) do
@@ -98,7 +137,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
         try do
           path = (uri.path || "/") <> if(uri.query, do: "?" <> uri.query, else: "")
 
-          with {:ok, conn, ref} <- Mint.HTTP.request(conn, String.upcase(to_string(method)), path, headers, body) do
+          with {:ok, conn, ref} <- send_request(conn, method, path, headers, body) do
             receive_response(conn, ref, %{status: nil, headers: [], body: [], bytes: 0}, max_bytes, timeout)
           end
         after
@@ -107,6 +146,40 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
       end
 
     normalize(with_result)
+  end
+
+  defp send_request(conn, method, path, headers, {:file, filename, size}) do
+    with {:ok, file} <- File.open(filename, [:read, :binary, :raw]) do
+      try do
+        with {:ok, conn, ref} <- Mint.HTTP.request(conn, String.upcase(to_string(method)), path, headers, :stream),
+             {:ok, conn} <- stream_file(conn, ref, file, size) do
+          {:ok, conn, ref}
+        end
+      after
+        File.close(file)
+      end
+    end
+  end
+
+  defp send_request(conn, method, path, headers, body),
+    do: Mint.HTTP.request(conn, String.upcase(to_string(method)), path, headers, body)
+
+  defp stream_file(conn, ref, file, 0) do
+    case IO.binread(file, 1) do
+      :eof -> Mint.HTTP.stream_request_body(conn, ref, :eof)
+      _ -> {:error, :request_file_changed}
+    end
+  end
+
+  defp stream_file(conn, ref, file, remaining) when remaining > 0 do
+    case IO.binread(file, min(65_536, remaining)) do
+      bytes when is_binary(bytes) and byte_size(bytes) > 0 ->
+        with {:ok, conn} <- Mint.HTTP.stream_request_body(conn, ref, bytes),
+             do: stream_file(conn, ref, file, remaining - byte_size(bytes))
+
+      _ ->
+        {:error, :request_file_changed}
+    end
   end
 
   defp receive_response(conn, ref, response, limit, timeout) do

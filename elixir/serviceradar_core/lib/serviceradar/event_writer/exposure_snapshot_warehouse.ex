@@ -217,25 +217,39 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
   def facts([]), do: {:ok, %{}}
 
   def facts(keys) do
-    tuples = Enum.map_join(keys, ",", fn key -> "(" <> Enum.join(key, ",") <> ")" end)
-
     with {:ok, rows} <-
-           rows(
-             "SELECT * FROM #{Env.table("exposure_facts")} WHERE (device_ord,cve_ord,pkg_ord) IN (#{tuples})"
-           ) do
+           rows("SELECT * FROM #{Env.table("exposure_facts")} WHERE #{fact_predicate(keys)}") do
       {:ok, Map.new(rows, &{key(&1), &1})}
     end
   end
 
   def scan(scope, [device, cve, package]) do
-    scope_sql = if scope, do: "AND device_ord = #{scope}", else: ""
-
-    rows("""
-    SELECT * FROM #{Env.table("exposure_facts")}
-    WHERE (device_ord,cve_ord,pkg_ord) > (#{device},#{cve},#{package}) #{scope_sql}
-    ORDER BY device_ord,cve_ord,pkg_ord LIMIT 500
-    """)
+    rows(
+      "SELECT * FROM #{Env.table("exposure_facts")} WHERE #{cursor_predicate(device, cve, package)}#{scope_predicate(scope)} ORDER BY device_ord,cve_ord,pkg_ord LIMIT 500"
+    )
   end
+
+  defp fact_predicate(keys) do
+    groups =
+      Enum.map_join(keys, " OR ", fn [device, cve, package] ->
+        "(device_ord = #{sql_integer(device)} AND cve_ord = #{sql_integer(cve)} AND pkg_ord = #{sql_integer(package)})"
+      end)
+
+    "(#{groups})"
+  end
+
+  defp cursor_predicate(device, cve, package) do
+    device = sql_integer(device)
+    cve = sql_integer(cve)
+    package = sql_integer(package)
+
+    "(device_ord > #{device} OR (device_ord = #{device} AND cve_ord > #{cve}) OR (device_ord = #{device} AND cve_ord = #{cve} AND pkg_ord > #{package}))"
+  end
+
+  defp scope_predicate(nil), do: ""
+  defp scope_predicate(scope), do: " AND device_ord = #{sql_integer(scope)}"
+
+  defp sql_integer(value) when is_integer(value), do: Integer.to_string(value)
 
   def visibility(rows, snapshot) do
     xids = rows |> Enum.map(&to_string(&1["transition_xid"])) |> Enum.uniq()

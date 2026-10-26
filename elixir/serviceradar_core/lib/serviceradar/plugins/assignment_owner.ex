@@ -25,7 +25,10 @@ defmodule ServiceRadar.Plugins.AssignmentOwner do
   owner, so it refuses two enabled rows of one rule, and two enabled manual or
   non-rule policy rows. A unique index cannot express the remaining pairing, a
   manual or non-rule policy row next to a rule-owned row, so only
-  `NoDuplicateEnabledAssignment` refuses that one.
+  `NoDuplicateEnabledAssignment` refuses that one. Its check is repeated under
+  a per-(partition, agent, plugin) transaction lock by
+  `ServiceRadar.Plugins.Changes.SerializeEnabledAssignment`, so two concurrent
+  writes cannot both pass it.
   """
 
   @rule_prefix "network-credential-rule:"
@@ -67,8 +70,11 @@ defmodule ServiceRadar.Plugins.AssignmentOwner do
   end
 
   @doc """
-  Whether the reconciler may adopt `existing` for `policy_id`: never another
-  credential rule's assignment, otherwise as before.
+  Whether `existing_policy_id` collides with `policy_id` under `conflict?/2`.
+
+  This is false only for two different credential rules. Adoption is narrower:
+  `PolicyAssignmentReconciler` adopts a credential-rule row only for that same
+  rule.
   """
   @spec same_owner?(String.t() | nil, String.t() | nil) :: boolean()
   def same_owner?(policy_id, existing_policy_id), do: conflict?(policy_id, existing_policy_id)

@@ -104,6 +104,109 @@ defmodule ServiceRadar.Credentials.CredentialRotationDbTest do
     assert_ciphertext_and_audits_are_redacted!(secret.id, password_marker, legacy_password)
   end
 
+  test "awx.ping records token expiry, fires rotation reminder when near expiry, and reports auth_failed when expired" do
+    alias ServiceRadar.Automation.Ansible.Controller
+    alias ServiceRadar.Automation.Ansible.EventIngestor
+    alias ServiceRadar.Edge.AgentCommand
+
+    suffix = Integer.to_string(System.unique_integer([:positive, :monotonic]))
+    near_expiry = DateTime.utc_now() |> DateTime.shift(day: 5) |> DateTime.truncate(:microsecond)
+
+    secret =
+      NetworkCredentialSecret
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "awx-sync-token-#{suffix}",
+          provider: "awx",
+          credential_kind: :api_token,
+          secret_payload: "awx-token-secret-#{suffix}",
+          source_type: :internal_encrypted,
+          last_rotated_at: DateTime.shift(DateTime.utc_now(), day: -85),
+          next_rotation_due_at: nil,
+          metadata: %{
+            "credential_descriptor" => "package_manifest.v1",
+            "auth_method" => "api_token",
+            "plugin_id" => "awx",
+            "plugin_version" => "0.1.22"
+          }
+        },
+        actor: @system_actor
+      )
+      |> Ash.create!(actor: @system_actor)
+
+    controller =
+      Controller
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "AWX Controller #{suffix}",
+          base_url: "https://awx.example.test",
+          agent_id: "agent-awx-#{suffix}",
+          enabled: false,
+          sync_credential_secret_id: secret.id
+        },
+        actor: @system_actor
+      )
+      |> Ash.create!(actor: @system_actor)
+
+    ping_cmd =
+      AgentCommand
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          command_type: "awx.ping",
+          agent_id: controller.agent_id,
+          context: %{"controller_id" => controller.id}
+        },
+        actor: @system_actor
+      )
+      |> Ash.create!(actor: @system_actor)
+
+    assert :ok =
+             EventIngestor.handle_command_result(%{
+               command_type: "awx.ping",
+               command_id: ping_cmd.id,
+               result_payload: %{
+                 "verb" => "awx.ping",
+                 "ok" => true,
+                 "version" => "24.6.1",
+                 "active_node" => "awx-1",
+                 "token_expires_at" => DateTime.to_iso8601(near_expiry)
+               }
+             })
+
+    refreshed_secret =
+      NetworkCredentialSecret
+      |> Ash.Query.for_read(:by_id, %{id: secret.id}, actor: @system_actor)
+      |> Ash.read_one!(actor: @system_actor)
+
+    assert refreshed_secret.rotation_state == :rotation_due
+    assert DateTime.compare(refreshed_secret.next_rotation_due_at, near_expiry) == :eq
+
+    assert :ok =
+             EventIngestor.handle_command_result(%{
+               command_type: "awx.ping",
+               command_id: ping_cmd.id,
+               result_payload: %{
+                 "verb" => "awx.ping",
+                 "ok" => false,
+                 "status" => "auth_failed",
+                 "version" => "24.6.1",
+                 "active_node" => "awx-1",
+                 "error" => "AWX request failed: HTTP 401"
+               }
+             })
+
+    refreshed_controller =
+      Controller
+      |> Ash.Query.for_read(:by_id, %{id: controller.id}, actor: @system_actor)
+      |> Ash.read_one!(actor: @system_actor)
+
+    assert refreshed_controller.status == :auth_failed
+    assert refreshed_controller.last_health_summary =~ "401"
+  end
+
   defp credential_manager!(suffix) do
     profile =
       RoleProfile

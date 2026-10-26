@@ -54,6 +54,14 @@ defmodule ServiceRadar.Automation.Ansible.IngestorActions do
   @callback record_controller_health(controller :: map(), args :: map()) ::
               {:ok, map()} | {:error, term()}
 
+  @callback get_credential_secret_by_id(secret_id :: id) :: {:ok, map()} | {:error, term()}
+
+  @callback schedule_credential_rotation(secret :: map(), due_at :: DateTime.t()) ::
+              {:ok, map()} | {:error, term()}
+
+  @callback mark_credential_rotation_due(secret :: map(), due_at :: DateTime.t()) ::
+              {:ok, map()} | {:error, term()}
+
   @doc """
   Upsert one Playbook row with `source_type: :awx` from a list_templates
   entry. Driven by the `awx.list_templates` result handler in EventIngestor.

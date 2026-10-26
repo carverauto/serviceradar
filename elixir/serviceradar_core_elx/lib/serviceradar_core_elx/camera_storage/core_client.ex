@@ -22,7 +22,15 @@ defmodule ServiceRadarCoreElx.CameraStorage.CoreClient do
     ]
 
     with {:ok, %{status: 200, body: bytes}} <-
-           HTTP.request(config, :post, config.base_url <> Map.fetch!(@paths, operation), headers, body, timeout, 16_384),
+           HTTP.request(
+             config,
+             :post,
+             config.base_url <> path(Map.get(config, :kind, :init), operation),
+             headers,
+             body,
+             timeout,
+             16_384
+           ),
          {:ok, result} <- JSONDocument.decode_object(bytes, 16_384) do
       {:ok, result}
     else
@@ -31,4 +39,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.CoreClient do
   end
 
   def request(_, _, _, _), do: {:error, :storage_deadline_expired}
+
+  defp path(:init, operation), do: Map.fetch!(@paths, operation)
+  defp path(:media, operation), do: String.replace(Map.fetch!(@paths, operation), "/init-", "/media-")
 end

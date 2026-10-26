@@ -223,6 +223,21 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
                  |> Enum.uniq()
                  |> Map.new(&{Atom.to_string(&1), &1})
 
+  # The MACs of the existing devices one result reports (`sync_existing_device_mac_identities/4`).
+  @device_macs_sql """
+  UPDATE platform.ocsf_devices AS d
+  SET mac = COALESCE(NULLIF(btrim(d.mac), ''), u.mac),
+      metadata = jsonb_set(COALESCE(d.metadata, '{}'::jsonb), '{mac_addresses}', u.macs, true)
+  FROM (
+    SELECT uid, mac, CAST(macs AS jsonb) AS macs
+    FROM unnest(CAST($1 AS text[]), CAST($2 AS text[]), CAST($3 AS text[])) AS u(uid, mac, macs)
+  ) AS u
+  WHERE d.uid = u.uid AND d.deleted_at IS NULL
+    AND (d.mac IS DISTINCT FROM COALESCE(NULLIF(btrim(d.mac), ''), u.mac)
+      OR d.metadata IS NULL
+      OR d.metadata -> 'mac_addresses' IS DISTINCT FROM u.macs)
+  """
+
   @spec supports?(map() | list(), map()) :: boolean()
   def supports?(payload, status \\ %{})
 
@@ -1416,10 +1431,11 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       {:ok, %{rows: rows}} ->
         {:ok,
          %{
-           by_uid: Map.new(rows, fn [uid, _name, _hostname] -> {uid, uid} end),
+           by_uid: Map.new(rows, fn [uid, _name, _hostname, _retired] -> {uid, uid} end),
            by_name:
              rows
-             |> Enum.flat_map(fn [uid, name, hostname] ->
+             |> Enum.reject(fn [_uid, _name, _hostname, retired] -> retired end)
+             |> Enum.flat_map(fn [uid, name, hostname, _retired] ->
                [
                  {normalize_lookup_key(name), uid},
                  {normalize_lookup_key(hostname), uid}
@@ -1437,14 +1453,16 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp device_lookup_sql do
     """
-    SELECT uid, name, hostname
+    SELECT uid, name, hostname, source_retired_at IS NOT NULL AS retired
     FROM platform.ocsf_devices
+    -- The uid arm still returns a marked record this batch already points at.
+    -- Name indexing skips that row: a source_retired record is awaiting deletion,
+    -- so sharing its name or hostname must not adopt it.
     WHERE deleted_at IS NULL
       AND (
         uid = ANY($1::text[])
-        -- A record marked source_retired is awaiting deletion: sharing a name never adopts it.
-        OR (source_retired_at IS NULL
-          AND (LOWER(name) = ANY($2::text[]) OR LOWER(hostname) = ANY($2::text[])))
+        OR LOWER(name) = ANY($2::text[])
+        OR LOWER(hostname) = ANY($2::text[])
       )
     """
   end
@@ -1780,7 +1798,36 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     -- A record marked source_retired is awaiting deletion, whichever source retired it: no
     -- address, MAC or AWX hint it still carries makes it a guest's device. Adopting it would
     -- not clear the mark, and the grace pass would then delete the guest's record.
-    WHERE d.deleted_at IS NULL
+    --
+    -- The uid list finds the candidates through indexes, and the conditions after it are the
+    -- match itself. The address arm reads the live-address index: every writer of `ip` trims
+    -- it. The MAC arm reads the MAC token index (migration 20260709210000; the expression must
+    -- match it): the MACs are normalized 12-hex values, which a MAC equal to one, separators
+    -- replaced, carries as a token. The AWX arm reads the partial index of AWX records
+    -- (migration 20261026070000; its condition must match the index predicate).
+    WHERE d.uid IN (
+        SELECT i.uid FROM platform.ocsf_devices i
+        WHERE i.deleted_at IS NULL AND i.ip = ANY($1::text[]) AND i.ip <> ''
+        UNION
+        SELECT m.uid FROM platform.ocsf_devices m
+        WHERE m.mac IS NOT NULL
+          AND regexp_split_to_array(upper(translate(m.mac, ':-.', '')), '[,;[:space:]]+')
+              && $2::text[]
+        UNION
+        SELECT di.device_id FROM platform.device_identifiers di
+        WHERE (di.identifier_type = 'mac' AND di.identifier_value = ANY($2::text[]))
+           OR (di.identifier_type = 'ip' AND di.identifier_value = ANY($1::text[]))
+        UNION
+        SELECT a.uid FROM platform.ocsf_devices a
+        WHERE $3::boolean
+          AND a.deleted_at IS NULL
+          AND (
+            'awx' = ANY(COALESCE(a.discovery_sources, ARRAY[]::text[]))
+            OR COALESCE(a.metadata->>'integration_type', '') = 'awx'
+            OR COALESCE(a.metadata, '{}'::jsonb) ? 'awx'
+          )
+      )
+      AND d.deleted_at IS NULL
       AND d.source_retired_at IS NULL
       AND (
         btrim(COALESCE(d.ip, '')) = ANY($1::text[])
@@ -1915,19 +1962,12 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
           |> Enum.reject(fn {ref, _uid} -> ref == guest_ref end)
           |> MapSet.new(&elem(&1, 1))
 
+        # The evidence match is pure and rejects nearly every candidate, so it runs first. The
+        # eligibility check reads the database (the source-authority guard); run on every
+        # candidate, it cost guests x candidates queries per result.
         matched =
           candidates
-          |> Enum.filter(fn cand ->
-            cand.partition == partition and
-              eligible_guest_candidate?(
-                cand,
-                guest_ref,
-                record_integration_id(guest),
-                reserved_host_uids,
-                other_guest_uids,
-                integration_uid
-              )
-          end)
+          |> Enum.filter(&(&1.partition == partition))
           |> Enum.flat_map(fn cand ->
             case classify_guest_candidate_match(
                    cand,
@@ -1941,6 +1981,16 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
               nil -> []
               rank -> [{rank, cand}]
             end
+          end)
+          |> Enum.filter(fn {_rank, cand} ->
+            eligible_guest_candidate?(
+              cand,
+              guest_ref,
+              record_integration_id(guest),
+              reserved_host_uids,
+              other_guest_uids,
+              integration_uid
+            )
           end)
           |> Enum.sort_by(fn {rank, cand} -> {rank, cand.uid} end)
           |> Enum.map(&elem(&1, 1))
@@ -2399,23 +2449,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     entries = host_entries ++ guest_entries
 
     if entries != [] do
-      Enum.each(entries, fn {_record, _role, uid, macs, _macs_by_ref} ->
-        _ =
-          Repo.query(
-            """
-            UPDATE platform.ocsf_devices
-            SET mac = COALESCE(NULLIF(btrim(mac), ''), $2),
-                metadata = jsonb_set(
-                  COALESCE(metadata, '{}'::jsonb),
-                  '{mac_addresses}',
-                  $3::jsonb,
-                  true
-                )
-            WHERE uid = $1 AND deleted_at IS NULL
-            """,
-            [uid, List.first(macs), macs]
-          )
-      end)
+      _ = Repo.query(@device_macs_sql, device_mac_params(entries))
 
       resolved_updates =
         Enum.map(entries, fn {record, role, uid, macs, macs_by_ref} ->
@@ -2435,6 +2469,20 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
 
     :ok
+  end
+
+  # One statement per result. A device keeps a MAC it already has, takes its first entry's
+  # first MAC otherwise, and its last entry's MACs as `metadata.mac_addresses`; a device both
+  # already hold is not rewritten.
+  defp device_mac_params(entries) do
+    by_uid =
+      Enum.reduce(entries, %{}, fn {_record, _role, uid, macs, _macs_by_ref}, acc ->
+        Map.update(acc, uid, {List.first(macs), macs}, fn {mac, _macs} -> {mac, macs} end)
+      end)
+
+    {uids, rows} = by_uid |> Enum.sort() |> Enum.unzip()
+    {macs, mac_lists} = Enum.unzip(rows)
+    [uids, macs, Enum.map(mac_lists, &Jason.encode!/1)]
   end
 
   defp lookup_identifier_devices(identifiers) do

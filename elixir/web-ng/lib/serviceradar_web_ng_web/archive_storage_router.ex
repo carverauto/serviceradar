@@ -10,7 +10,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
   import Plug.Conn
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Camera.ArchiveInitAuthorities
+  alias ServiceRadar.Camera.ArchiveAuthorities
   alias ServiceRadar.Camera.ArchiveUploads
   alias ServiceRadarWebNGWeb.ControlPlaneJSON
 
@@ -43,17 +43,20 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
     path = Enum.map(conn.path_info, &URI.decode/1)
 
     case {conn.method, path} do
-      {"POST", ["v1", "init-authorities", "challenge"]} ->
-        read(conn, &ArchiveInitAuthorities.challenge(principal, &1, actor: actor()))
+      {"POST", ["v1", authorities, "challenge"]} when authorities in ~w(init-authorities media-authorities) ->
+        read(conn, &ArchiveAuthorities.challenge(kind(authorities), principal, &1, actor: actor()))
 
-      {"POST", ["v1", "init-uploads", operation]}
-      when operation in ~w(prepare grant observe verify) ->
-        read(conn, &operation(operation, &1, principal))
+      {"POST", ["v1", uploads, operation]}
+      when uploads in ~w(init-uploads media-uploads) and operation in ~w(prepare grant observe verify) ->
+        read(conn, &operation(kind(uploads), operation, &1, principal))
 
       _ ->
         respond(conn, 404, %{status: "not_found"})
     end
   end
+
+  defp kind(path) when path in ~w(init-authorities init-uploads), do: :init
+  defp kind(path) when path in ~w(media-authorities media-uploads), do: :media
 
   defp read(conn, operation) do
     case ControlPlaneJSON.read(conn, 16_384) do
@@ -62,7 +65,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
     end
   end
 
-  defp operation("prepare", %{"schema_version" => 1, "lease" => lease} = document, _principal)
+  defp operation(:init, "prepare", %{"schema_version" => 1, "lease" => lease} = document, _principal)
        when map_size(document) == 2 do
     with {:ok, lease} <- lease(lease),
          {:ok, dispatch} <-
@@ -71,7 +74,24 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
     end
   end
 
+  defp operation(:media, "prepare", %{"schema_version" => 1, "lease" => lease} = document, _principal)
+       when map_size(document) == 2 do
+    with {:ok, lease} <- lease(lease),
+         {:ok, intent} <- ArchiveUploads.prepare(lease, :media, actor: actor()),
+         true <- intent.byte_length in 1..16_777_216 || {:error, :media_object_too_large},
+         {:ok, dispatch} <- ArchiveUploads.prepare_dispatch(lease, :media, :put_object, 30_000, actor: actor()) do
+      {:ok,
+       %{
+         schema_version: 1,
+         dispatch_id: dispatch.id,
+         byte_length: intent.byte_length,
+         object_sha256: intent.object_sha256
+       }}
+    end
+  end
+
   defp operation(
+         kind,
          "grant",
          %{
            "schema_version" => 1,
@@ -86,11 +106,12 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
        when map_size(document) == 6 do
     with {:ok, lease} <- lease(lease),
          {:ok, correlation} <- correlation(dispatch_id, boot, digest, nonce) do
-      ArchiveUploads.authorize_init(lease, dispatch_id, principal, correlation, actor: actor())
+      ArchiveUploads.authorize(kind, lease, dispatch_id, principal, correlation, actor: actor())
     end
   end
 
   defp operation(
+         _kind,
          "observe",
          %{"schema_version" => 1, "lease" => lease, "dispatch_id" => dispatch_id, "outcome" => "unknown"} = document,
          _principal
@@ -104,6 +125,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
   end
 
   defp operation(
+         _kind,
          "observe",
          %{
            "schema_version" => 1,
@@ -123,6 +145,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
   end
 
   defp operation(
+         kind,
          "verify",
          %{
            "schema_version" => 1,
@@ -139,7 +162,8 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
     with {:ok, lease} <- lease(lease),
          {:ok, correlation} <- correlation(dispatch_id, boot, digest, nonce),
          {:ok, dispatch} <-
-           ArchiveUploads.observe_init_verification(
+           ArchiveUploads.observe_verification(
+             kind,
              lease,
              dispatch_id,
              principal,
@@ -151,7 +175,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
     end
   end
 
-  defp operation(_, _, _), do: {:error, :invalid_request}
+  defp operation(_, _, _, _), do: {:error, :invalid_request}
 
   defp lease(%{"id" => id, "upload_token" => token, "upload_epoch" => epoch, "descriptor_sha256" => sha} = lease)
        when map_size(lease) == 4 do
@@ -195,9 +219,13 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
        when reason in [
               :invalid_request,
               :invalid_init_principal,
+              :invalid_media_principal,
               :invalid_init_challenge,
+              :invalid_media_challenge,
               :invalid_init_grant,
+              :invalid_media_grant,
               :invalid_init_verification,
+              :invalid_media_verification,
               :invalid_upload_response
             ], do: respond(conn, 400, %{status: reason})
 
@@ -205,6 +233,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
        when reason in [
               :archive_binding_not_found,
               :init_authority_not_found,
+              :media_authority_not_found,
               :upload_dispatch_not_found,
               :recording_block_not_found
             ], do: respond(conn, 404, %{status: reason})
@@ -212,17 +241,29 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
   defp respond_result(conn, {:error, reason})
        when reason in [
               :init_authority_revision_stale,
+              :media_authority_revision_stale,
               :init_authority_revision_conflict,
+              :media_authority_revision_conflict,
               :init_authority_challenge_mismatch,
+              :media_authority_challenge_mismatch,
               :init_authority_context_mismatch,
+              :media_authority_context_mismatch,
               :init_authority_origin_mismatch,
+              :media_authority_origin_mismatch,
               :init_authority_generation_stale,
+              :media_authority_generation_stale,
               :init_authority_report_unqualified,
+              :media_authority_report_unqualified,
               :init_authority_expired,
+              :media_authority_expired,
               :init_authority_not_applied,
+              :media_authority_not_applied,
               :init_dispatch_already_marked,
+              :media_dispatch_already_marked,
               :init_verification_conflict,
+              :media_verification_conflict,
               :init_verification_origin_mismatch,
+              :media_verification_origin_mismatch,
               :upload_dispatch_expired,
               :upload_lease_lost,
               :upload_dispatch_unmarked,
@@ -231,6 +272,7 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouter do
               :archive_upload_response_conflict,
               :archive_binding_required,
               :recording_block_unfrozen,
+              :media_object_too_large,
               :recording_stopped
             ], do: respond(conn, 409, %{status: reason})
 

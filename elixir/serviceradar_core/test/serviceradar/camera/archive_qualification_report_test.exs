@@ -1,8 +1,8 @@
 defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
   use ExUnit.Case, async: true
 
-  alias ServiceRadar.Camera.ArchiveInitAuthorities
-  alias ServiceRadar.Camera.ArchiveInitConfig
+  alias ServiceRadar.Camera.ArchiveAuthorities
+  alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveQualificationReport
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
 
@@ -169,7 +169,7 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
     }
 
     document = init_configuration()
-    assert {:ok, parsed} = ArchiveInitConfig.parse(origin, document)
+    assert {:ok, parsed} = ArchiveAuthorityConfig.parse(:init, origin, document)
 
     assert parsed.desired_sha256 ==
              "640efa2bc7fa06e27032c7a3ca6bd90c13de0dcea404fc0db3ab100a833d3a26"
@@ -189,7 +189,7 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
           {origin, put_in(document, ["limits", "max_operation_ms"], 4999)},
           {origin, put_in(document, ["qualification_report", "credential", "generation"], 2)}
         ] do
-      assert {:ok, different} = ArchiveInitConfig.parse(installed, changed)
+      assert {:ok, different} = ArchiveAuthorityConfig.parse(:init, installed, changed)
       refute different.desired_sha256 == parsed.desired_sha256
     end
 
@@ -222,7 +222,8 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
               [1, "0", "01", "+1", "1.0", "9223372036854775808"],
               &Map.put(document, "revision", &1)
             ) do
-      assert {:error, :invalid_init_configuration} = ArchiveInitConfig.parse(origin, invalid)
+      assert {:error, :invalid_init_configuration} =
+               ArchiveAuthorityConfig.parse(:init, origin, invalid)
     end
 
     for invalid <- [
@@ -231,7 +232,45 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
           %{origin | generation: 1.0},
           %{origin | deployment_ref: "invalid"}
         ] do
-      assert {:error, :invalid_init_configuration} = ArchiveInitConfig.parse(invalid, document)
+      assert {:error, :invalid_init_configuration} =
+               ArchiveAuthorityConfig.parse(:init, invalid, document)
+    end
+  end
+
+  test "media configuration has a distinct purpose and bounded staging budget" do
+    origin = %{deployment_ref: "33333333-3333-4333-8333-333333333333", generation: 1}
+
+    document =
+      init_configuration()
+      |> Map.put("operation", "media_put_verified_v1")
+      |> Map.put("limits", %{
+        "max_media_bytes" => 16_777_216,
+        "max_operation_ms" => 30_000,
+        "max_in_flight" => 1
+      })
+
+    assert {:ok, parsed} = ArchiveAuthorityConfig.parse(:media, origin, document)
+    assert parsed.document == document
+
+    assert {:error, :invalid_init_configuration} =
+             ArchiveAuthorityConfig.parse(:init, origin, document)
+
+    assert {:error, :invalid_media_configuration} =
+             ArchiveAuthorityConfig.parse(:media, origin, init_configuration())
+
+    for changed <- [
+          put_in(document, ["limits", "max_media_bytes"], 16_777_217),
+          put_in(document, ["limits", "max_operation_ms"], 30_001),
+          put_in(document, ["limits", "max_in_flight"], 2),
+          put_in(document, ["limits", "max_media_bytes"], 1.0),
+          update_in(
+            document,
+            ["qualification_report", "checks"],
+            &Map.delete(&1, "conditional_ranges")
+          )
+        ] do
+      assert {:error, :invalid_media_configuration} =
+               ArchiveAuthorityConfig.parse(:media, origin, changed)
     end
   end
 
@@ -240,20 +279,20 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
 
     for offset <- [-1, 0, 1, 500, 999] do
       assert :expired =
-               ArchiveInitAuthorities.operation_budget(
+               ArchiveAuthorities.operation_budget(
                  DateTime.add(now, offset, :microsecond),
                  now
                )
     end
 
     assert {:ok, 1} =
-             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 1_000, :microsecond), now)
+             ArchiveAuthorities.operation_budget(DateTime.add(now, 1_000, :microsecond), now)
 
     assert {:ok, 1} =
-             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 1_500, :microsecond), now)
+             ArchiveAuthorities.operation_budget(DateTime.add(now, 1_500, :microsecond), now)
 
     assert {:ok, 2} =
-             ArchiveInitAuthorities.operation_budget(DateTime.add(now, 2_000, :microsecond), now)
+             ArchiveAuthorities.operation_budget(DateTime.add(now, 2_000, :microsecond), now)
   end
 
   defp init_configuration do

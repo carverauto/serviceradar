@@ -379,6 +379,48 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilderTest do
   end
 
   describe "build_rotation/4" do
+    test "defaults AWX token next_rotation_due_at to 90 days on build and rotation when omitted" do
+      now = ~U[2026-10-25 12:00:00.000000Z]
+      expected_due = DateTime.shift(now, day: 90)
+
+      awx_profile =
+        CredentialIntegrationFixtures.target_policy_profile()
+        |> Map.put("provider", "awx")
+        |> Map.put("plugin_id", "awx")
+        |> Map.put("plugin_version", "0.1.22")
+
+      assert {:ok, built} =
+               CredentialSecretBuilder.build(
+                 awx_profile,
+                 "api_token",
+                 %{"token" => "awx-token-material"},
+                 %{name: "AWX token", last_rotated_at: now}
+               )
+
+      assert built.next_rotation_due_at == expected_due
+
+      awx_secret =
+        rotatable_secret(%{
+          provider: "awx",
+          credential_kind: :api_token,
+          next_rotation_due_at: nil,
+          metadata: %{
+            "credential_descriptor" => "package_manifest.v1",
+            "auth_method" => "api_token"
+          }
+        })
+
+      assert {:ok, rotated} =
+               CredentialSecretBuilder.build_rotation(
+                 awx_secret,
+                 awx_profile,
+                 %{"token" => "awx-rotated-material"},
+                 now: now
+               )
+
+      assert rotated.next_rotation_due_at == expected_due
+    end
+
     test "builds only replacement-safe attributes and preserves the due date" do
       due_at = ~U[2027-01-02 03:04:05.000000Z]
 

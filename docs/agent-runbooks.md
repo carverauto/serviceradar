@@ -9,8 +9,9 @@ documentation.
 
 Related runbooks in this directory:
 
-- [Isolated init-object storage](archive-init-storage.md): infrastructure file
-  custody, private HTTPS deployment and the bounded init-only authority contract.
+- [Isolated archive storage](archive-init-storage.md): infrastructure file
+  custody and private HTTPS deployment for one init or media authority. The
+  protocol contracts are the VMS docs that page links.
 - [Atlas server scale acceptance](topology-bitmap-scale-acceptance.md): the
   opt-in hosted scratch-database workload for two publishers and 100 real
   WebSocket views, with database, memory and recovery measurement procedures.

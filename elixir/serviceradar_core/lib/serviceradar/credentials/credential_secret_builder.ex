@@ -23,6 +23,7 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
   }
 
   @rotatable_states [:active, :rotation_due, :rotation_failed]
+  @awx_default_token_lifetime_seconds 90 * 86_400
   @rotation_attributes [
     :secret_payload,
     :username,
@@ -48,16 +49,20 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
         "plugin_version" => profile["plugin_version"]
       }
 
+      rotated_at = Map.get(common_attrs, :last_rotated_at) || DateTime.utc_now()
+
       {:ok,
-       Map.merge(common_attrs, %{
+       common_attrs
+       |> Map.merge(%{
          provider: profile["provider"],
          credential_kind: credential_kind,
          username: public_username(method, normalized_values),
          public_fingerprint: public_fingerprint,
          secret_payload: payload,
-         last_rotated_at: DateTime.utc_now(),
+         last_rotated_at: rotated_at,
          metadata: metadata |> Enum.reject(fn {_key, value} -> is_nil(value) end) |> Map.new()
-       })}
+       })
+       |> maybe_put_default_rotation_due_at(profile["provider"], rotated_at)}
     else
       nil -> {:error, :credential_method_not_found}
       {:error, _reason} = error -> error
@@ -84,11 +89,13 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
          %{} = method <- find_method(profile, auth_method),
          {:ok, method_kind} <- credential_kind(method["credential_kind"]),
          :ok <- validate_rotation_kind(secret, method_kind),
-         {:ok, attrs} <- build(profile, auth_method, submitted_values, %{}) do
+         rotated_at = Keyword.get(opts, :now, DateTime.utc_now()),
+         {:ok, attrs} <-
+           build(profile, auth_method, submitted_values, %{last_rotated_at: rotated_at}) do
       {:ok,
        attrs
        |> Map.take(@rotation_attributes)
-       |> Map.put(:next_rotation_due_at, Map.get(secret, :next_rotation_due_at))}
+       |> Map.put(:next_rotation_due_at, rotation_due_at(secret, attrs))}
     else
       nil -> {:error, :credential_method_not_found}
       {:error, _reason} = error -> error
@@ -97,6 +104,17 @@ defmodule ServiceRadar.Credentials.CredentialSecretBuilder do
 
   def build_rotation(_secret, _profile, _submitted_values, _opts),
     do: {:error, :invalid_credential_rotation}
+
+  defp maybe_put_default_rotation_due_at(attrs, "awx", rotated_at) do
+    Map.put_new_lazy(attrs, :next_rotation_due_at, fn ->
+      DateTime.shift(rotated_at, second: @awx_default_token_lifetime_seconds)
+    end)
+  end
+
+  defp maybe_put_default_rotation_due_at(attrs, _provider, _rotated_at), do: attrs
+
+  defp rotation_due_at(%{provider: "awx"}, attrs), do: Map.get(attrs, :next_rotation_due_at)
+  defp rotation_due_at(secret, _attrs), do: Map.get(secret, :next_rotation_due_at)
 
   defp validate_rotation_source(%{source_type: :internal_encrypted}), do: :ok
   defp validate_rotation_source(_secret), do: {:error, :credential_rotation_not_supported}

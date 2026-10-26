@@ -55,6 +55,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
   @editable_fields [:name, :description]
   @lifecycle_actions [
+    :schedule_rotation,
     :mark_rotation_due,
     :start_rotation,
     :complete_rotation,
@@ -151,6 +152,8 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
     define :get_secret_by_id, action: :by_id_with_secret, args: [:id]
     define :list_by_provider, action: :by_provider, args: [:provider]
     define :create_secret, action: :create
+    define :schedule_rotation, action: :schedule_rotation
+    define :mark_rotation_due, action: :mark_rotation_due
   end
 
   actions do
@@ -198,6 +201,10 @@ defmodule ServiceRadar.Credentials.NetworkCredentialSecret do
 
     update :edit_details do
       accept @editable_fields
+    end
+
+    update :schedule_rotation do
+      accept [:next_rotation_due_at]
     end
 
     update :mark_rotation_due do
