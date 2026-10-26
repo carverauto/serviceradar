@@ -3,6 +3,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
   alias ServiceRadar.EventWriter.ExposureSnapshotWarehouse, as: Warehouse
   alias ServiceRadar.Inventory.ExposureSnapshotRepairs, as: Repairs
   alias ServiceRadar.Inventory.ExposureSnapshotState, as: State
+  alias ServiceRadar.Inventory.ExposureSnapshotWorker, as: Publisher
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo
 
@@ -94,40 +95,118 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
     end
   end
 
-  defp complete(generation) do
-    with {:ok, :ok} <-
-           State.change(generation["id"], fn current ->
-             if current["status"] == "finalizing" and current["cursor"] == generation["cursor"] and
-                  current["repairs"] == [] and current["pending"] == %{} and
-                  not unresolved_recovery?(current["scope"]) do
-               {:ok, Map.put(current, "status", "complete"), :ok}
-             else
-               {:error, :exposure_snapshot_finalization_pending}
-             end
-           end),
-         do: :ok
+  def fence(state) do
+    Map.put_new(state, "retained_operations", applying_operation_ids(state["scope"]))
   end
 
-  defp unresolved_recovery?(scope) do
+  defp complete(generation) do
+    case State.change(generation["id"], fn current ->
+           if current["status"] == "finalizing" and current["cursor"] == generation["cursor"] and
+                current["repairs"] == [] and current["pending"] == %{} do
+             gate(current)
+           else
+             {:error, :exposure_snapshot_finalization_pending}
+           end
+         end) do
+      {:ok, :ok} ->
+        :ok
+
+      {:ok, :gap} ->
+        queue_full_generation()
+        {:error, :exposure_snapshot_input_missing}
+
+      error ->
+        error
+    end
+  end
+
+  defp gate(current) do
+    case device_bucket(current["scope"]) do
+      :absent ->
+        {:ok, Map.put(current, "status", "complete"), :ok}
+
+      bucket ->
+        cond do
+          phase?(bucket, "legacy") ->
+            {:error, :exposure_snapshot_finalization_pending}
+
+          fenced_applying?(bucket, Map.get(current, "retained_operations", [])) ->
+            {:error, :exposure_snapshot_finalization_pending}
+
+          phase?(bucket, "snapshot_required") ->
+            next =
+              current
+              |> Map.put("status", "aborted")
+              |> Map.put("abort_reason", "exposure_snapshot_required")
+
+            {:ok, next, :gap}
+
+          true ->
+            {:ok, Map.put(current, "status", "complete"), :ok}
+        end
+    end
+  end
+
+  defp applying_operation_ids(scope) do
     case device_bucket(scope) do
       :absent ->
-        false
+        []
 
-      scope ->
-        {bucket_sql, params} =
-          case scope do
-            :deployment -> {"", []}
-            {:bucket, bucket} -> {" AND bucket = $1", [bucket]}
-          end
+      bucket ->
+        {clause, params} = bucket_clause(bucket, 1)
 
-        Repo.query!(
-          """
-          SELECT 1 FROM platform.exposure_delivery_batches
-          WHERE phase IN ('legacy', 'snapshot_required', 'applying')
-          #{bucket_sql} LIMIT 1
-          """,
-          params
-        ).rows != []
+        List.flatten(
+          Repo.query!(
+            """
+            SELECT operation_id::text
+            FROM platform.exposure_delivery_batches
+            WHERE phase = 'applying' AND operation_id IS NOT NULL
+            #{clause}
+            """,
+            params
+          ).rows
+        )
+    end
+  end
+
+  defp fenced_applying?(_bucket, []), do: false
+
+  defp fenced_applying?(bucket, operation_ids) do
+    {clause, params} = bucket_clause(bucket, 2)
+
+    Repo.query!(
+      """
+      SELECT 1 FROM platform.exposure_delivery_batches
+      WHERE phase = 'applying' AND operation_id::text = ANY($1::text[])
+      #{clause}
+      LIMIT 1
+      """,
+      [operation_ids | params]
+    ).rows != []
+  end
+
+  defp phase?(bucket, phase) do
+    {clause, params} = bucket_clause(bucket, 2)
+
+    Repo.query!(
+      """
+      SELECT 1 FROM platform.exposure_delivery_batches
+      WHERE phase = $1
+      #{clause}
+      LIMIT 1
+      """,
+      [phase | params]
+    ).rows != []
+  end
+
+  defp bucket_clause(:deployment, _index), do: {"", []}
+
+  defp bucket_clause({:bucket, bucket}, index), do: {"AND bucket = $#{index}", [bucket]}
+
+  defp queue_full_generation do
+    case %{} |> Publisher.new() |> Oban.insert() do
+      {:ok, _job} -> :ok
+      {:error, _reason} -> :ok
     end
   end
 

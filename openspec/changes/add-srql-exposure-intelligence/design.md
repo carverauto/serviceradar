@@ -1520,29 +1520,46 @@ readiness signal, or rollout. Task 1.6 remains open; fleet-scale throughput and
 the complete readiness contract require separate evidence.
 
 **Completion during live traffic.** On 2026-10-26 the product owner confirmed
-the reading already implied by Decision 14: a verified generation may reach
-`complete` while ordinary live delivery continues. A `capturing` journal has
-not retained a recovery copy or started a warehouse load. A `complete` journal
-has already recorded that load. Those journals, and an empty lane, do not have
-to drain before completion. Completion still waits while a repair obligation
-is unverified, a retained snapshot effect is unsettled, a legacy journal
-remains, a `snapshot_required` gap remains, or an `applying` journal still
-holds a retained delivery input whose warehouse load has not finished. A
-deployment generation sees every bucket. A device generation sees only that
-device's bucket. A missing ordinal does not extend the wait to every bucket.
-Completion leaves `snapshot_required` rows in place; the next full snapshot
-accounts for them. This `complete` status is not slice 3 readiness, which
-still requires no unresolved scoped delivery journal. Outbox PubAck still
-cannot discharge a page. A disposable scratch StarRocks schema confirmed the
-in-flight storage example on 2026-10-26: a snapshot write of active sequence
-40 followed by live sequence 41 ends resolved at 41 and keeps the snapshot
-marker; live sequence 41 followed by the older snapshot write also ends
-resolved at 41; a later live sequence 42 wins and keeps the marker. Filtered
-rows stayed zero. The schema was dropped afterward. That probe is storage
-evidence. Hosted invocation cf414b06 on tree 81ae24f4 ran 459 tests with one
-failure, a duplicate journal primary key; observer, teardown and release
-exited 0. The hosted run of this final tree is still required before task
-1.6 can close.
+that a verified generation may reach `complete` while ordinary live delivery
+continues. The end marker records the operation ids of in-scope `applying`
+journals when the generation enters `finalizing`. That list is the retained-load
+fence, at most one operation per bucket. Completion waits while any fenced
+operation is still `applying`, while a repair obligation is unverified, while
+a retained snapshot effect is unsettled, or while a legacy journal remains in
+scope. A `capturing`, `applying`, or `complete` journal that appears after the
+fence is ordinary traffic and stays out of it. A deployment generation's fence
+and legacy check cover every bucket. A device generation covers that device's
+bucket. A missing ordinal leaves both checks empty.
+
+A `snapshot_required` row that is still present after the fence is clear is a
+confirmed missing input discovered after the end manifest. The finalizing
+generation aborts with `exposure_snapshot_required`, keeps the `history_gaps`
+it already recorded, and leaves the journal row in place. Finalization then
+queues one fresh full snapshot. The successor's start accounts for those rows
+once, on that successor. A repeated start, after the rows are gone, adds
+nothing. `history_gaps` belongs to the generation that records it. The
+successor's count is the gaps it discovered on its own start, and the aborted
+generation keeps the count it had. Legacy uncertainty keeps the generation
+finalizing, because a fresh snapshot cannot retire a pre-protocol journal.
+This `complete` status is not slice 3 readiness. Outbox PubAck still cannot
+discharge a page.
+
+A disposable scratch StarRocks schema confirmed the in-flight storage example
+on 2026-10-26: a snapshot write of active sequence 40 followed by live sequence
+41 ends resolved at 41 and keeps the snapshot marker; live sequence 41 followed
+by the older snapshot write also ends resolved at 41; a later live sequence 42
+wins and keeps the marker. Filtered rows stayed zero. The schema was dropped
+afterward. That probe is storage evidence. Hosted invocation cf414b06 on tree
+81ae24f4 ran 459 tests with one failure, a duplicate journal primary key;
+observer, teardown and release exited 0. Hosted owner 50af35c1 on commit
+95336bd, tree 66a1a3e06e3d91cc71103df577ced69e11a41879, passed 460 tests under
+parent d1b0aae8. That run exercised the previous completion gate. Remote unit
+invocation 0523e10b passed 460 targets, failed the core format check, and
+skipped 2 preexisting targets; web-ng `phoenix_other` passed on an automatic
+retry. The fresh-repair negative control on tree
+3085874ff12e45a7089e42e332f712cf774d55f3, owner bd602729, produced the two
+intended fresh-sequence failures. The hosted run of this final tree is still
+required before task 1.6 can close.
 
 ## Section 0 evidence (2026-10-21)
 

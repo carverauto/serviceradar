@@ -7,6 +7,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureSnapshots do
   alias ServiceRadar.EventWriter.ExposureRecovery
   alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Envelope
   alias ServiceRadar.EventWriter.ExposureSnapshotIngestion, as: Ingestion
+  alias ServiceRadar.Inventory.ExposureSnapshotFinalizer, as: Finalizer
   alias ServiceRadar.Inventory.ExposureSnapshotState, as: State
 
   @impl true
@@ -98,9 +99,13 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureSnapshots do
                  state["manifest"] == manifest and state["receipts"] == manifest and
                    state["pending"] == %{} ->
                  next =
-                   if state["status"] == "published",
-                     do: Map.put(state, "status", "finalizing"),
-                     else: state
+                   if state["status"] == "published" do
+                     state
+                     |> Map.put("status", "finalizing")
+                     |> Finalizer.fence()
+                   else
+                     state
+                   end
 
                  {:ok, next, :ok}
 
