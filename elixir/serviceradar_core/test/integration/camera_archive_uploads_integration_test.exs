@@ -1963,7 +1963,9 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   test "stop refuses a new init dispatch and leaves the retained media attempt unchanged", ctx do
     bind(ctx)
     media = verified_object(ctx, :media)
-    assert {:ok, %{"stop_enforced" => true}} = RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(@installation, stop_document(), ctx.opts)
 
     assert {:error, :recording_stopped} =
              ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
@@ -1982,12 +1984,17 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert dispatch_identity(unchanged) == dispatch_identity(media.dispatch)
   end
 
-  test "stop refuses a new manifest dispatch without changing verified init or media attempts", ctx do
+  test "stop refuses a new manifest dispatch without changing verified init or media attempts",
+       ctx do
     bind(ctx)
     media = verified_object(ctx, :media)
     init = verified_object(ctx, :init)
-    assert {:ok, %{status: :manifest_required}} = ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
-    assert {:ok, %{"stop_enforced" => true}} = RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:ok, %{status: :manifest_required}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(@installation, stop_document(), ctx.opts)
 
     assert {:error, :recording_stopped} =
              ArchiveUploads.prepare_manifest_dispatch(ctx.lease, 30_000, ctx.opts)
