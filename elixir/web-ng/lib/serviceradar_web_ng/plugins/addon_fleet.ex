@@ -443,8 +443,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       active?: status != nil and status.active and not stale_observation?(status, row_context.now),
       observation_stale?: stale_status?(status, row_context.now),
       degradation_reason:
-        (status && present(status.degradation_reason)) ||
-          stale_scanner_producer_diagnostic(addon_id, scanner_producer_version),
+        merge_degradation_reason(
+          status && present(status.degradation_reason),
+          stale_scanner_producer_diagnostic(addon_id, scanner_producer_version)
+        ),
       reported_at: status && status.reported_at,
       last_scan_at: last_scan_at,
       scanner_producer_version: scanner_producer_version,
@@ -459,11 +461,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       classify(base, package, assignment, status, agent, rollout, row_context.now)
 
     attention =
-      case {category == :action_required, stale_scanner_producer?(base)} do
-        {true, true} -> Enum.uniq([reason_code, "stale_scanner_producer_version"])
-        {true, false} -> [reason_code]
-        {false, _} -> []
-      end
+      [
+        if(category == :action_required, do: reason_code),
+        if(stale_scanner_producer?(base), do: "stale_scanner_producer_version")
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
 
     row =
       base
@@ -587,10 +590,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
       explicitly_unhealthy?(status) ->
         {:action_required, "runtime_reported_unhealthy"}
 
-      expected_inactive?(package, status) ->
+      expected_inactive?(package, status) and not stale_scanner_producer?(base) ->
         {:expected_inactive, "ephemeral_helper_ready"}
 
-      stale_scanner_producer?(base) and converged?(base, package, status) ->
+      stale_scanner_producer?(base) and
+          (converged?(base, package, status) or expected_inactive?(package, status)) ->
         {:action_required, "stale_scanner_producer_version"}
 
       # Live desired-vs-running wins over a finished canary. A Failed/Paused
@@ -658,6 +662,17 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   end
 
   def stale_scanner_producer_version?(_version), do: false
+
+  defp merge_degradation_reason(nil, stale), do: stale
+  defp merge_degradation_reason(status_reason, nil), do: status_reason
+
+  defp merge_degradation_reason(status_reason, stale) do
+    if String.contains?(status_reason, "scanner_producer_version") do
+      status_reason
+    else
+      "#{status_reason}; #{stale}"
+    end
+  end
 
   defp stale_scanner_producer_diagnostic(@scalibr_addon_id, version) when is_binary(version) do
     if stale_scanner_producer_version?(version) do

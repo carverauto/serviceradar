@@ -459,6 +459,46 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleetTest do
       assert health.detail =~ "Upgrade the scalibr add-on to 0.1.9 or later"
       assert health.action == :open_package
 
+      finished_rollout_health =
+        AddonRolloutView.fleet_health(
+          Map.merge(stale_base, %{
+            category: :action_required,
+            reason_code: "stale_scanner_producer_version",
+            package_id: scalibr_package.id,
+            rollout_id: "rollout-finished-1",
+            rollout_state: :completed
+          })
+        )
+
+      assert finished_rollout_health.action == :open_package
+
+      paused_rollout_health =
+        AddonRolloutView.fleet_health(
+          Map.merge(stale_base, %{
+            category: :action_required,
+            reason_code: "stale_scanner_producer_version",
+            package_id: scalibr_package.id,
+            rollout_id: "rollout-paused-1",
+            rollout_state: :paused
+          })
+        )
+
+      assert paused_rollout_health.action == :review_rollout
+
+      degraded_health =
+        AddonRolloutView.fleet_health(
+          Map.merge(stale_base, %{
+            category: :action_required,
+            reason_code: "runtime_reported_unhealthy",
+            degradation_reason: "resource limits not enforced: no systemd"
+          })
+        )
+
+      assert degraded_health.title == "Runtime unhealthy"
+      assert degraded_health.detail =~ "resource limits not enforced: no systemd"
+      assert degraded_health.detail =~ "scanner_producer_version 0.1.5 (< 0.1.6)"
+      assert degraded_health.detail =~ "Upgrade the scalibr add-on to 0.1.9 or later"
+
       fixed_base = %{stale_base | assigned_version: "0.1.9", scanner_producer_version: "0.1.6"}
       fixed_package = %{scalibr_package | version: "0.1.9"}
       fixed_status = %{scalibr_status | version: "0.1.9"}
