@@ -41,9 +41,10 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouterTest do
     assert {:error, _} =
              ArchiveStorageHTTP.request(server, @path, "not-json", client: without_certificate)
 
-    for token <- [@account_token, @media_token, "wrong-token"] do
+    for token <- [@account_token, @media_token, "wrong-token"],
+        path <- [@path, "/v1/manifest-uploads/prepare"] do
       assert {:ok, %{status: 401, body: %{"status" => "unauthorized"}}} =
-               ArchiveStorageHTTP.request(server, @path, "not-json", headers: [{"authorization", "Bearer " <> token}])
+               ArchiveStorageHTTP.request(server, path, "not-json", headers: [{"authorization", "Bearer " <> token}])
     end
 
     for headers <- [
@@ -53,9 +54,10 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouterTest do
             {"authorization", "Bearer " <> server.token},
             {"authorization", "Bearer " <> server.token}
           ]
-        ] do
+        ],
+        path <- [@path, "/v1/manifest-uploads/prepare"] do
       assert {:ok, %{status: 401, body: %{"status" => "unauthorized"}}} =
-               ArchiveStorageHTTP.request(server, @path, "not-json", headers: headers)
+               ArchiveStorageHTTP.request(server, path, "not-json", headers: headers)
     end
 
     assert {:ok, %{status: 400, body: %{"status" => "invalid_request"}}} =
@@ -98,14 +100,24 @@ defmodule ServiceRadarWebNGWeb.ArchiveStorageRouterTest do
           {@path, ~s({"schema_version":1,"lease":[]})},
           {"/v1/init-uploads/grant", ~s({"schema_version":1,"lease":{},"dispatch_id":"invalid"})},
           {"/v1/init-uploads/observe", ~s({"schema_version":1,"lease":{},"outcome":"response"})},
-          {"/v1/init-uploads/verify", ~s({"schema_version":1,"verification":{}})}
+          {"/v1/init-uploads/verify", ~s({"schema_version":1,"verification":{}})},
+          {"/v1/manifest-authorities/challenge", "not-json"},
+          {"/v1/manifest-uploads/prepare", duplicate_version},
+          {"/v1/manifest-uploads/prepare", duplicate_lease_id},
+          {"/v1/manifest-uploads/prepare", Jason.encode!(Map.put(document, "actor", "caller-selected"))},
+          {"/v%31/%6danifest-uploads/prepare", ~s({"schema_version":1,"lease":[]})},
+          {"/v1/manifest-uploads/grant", ~s({"schema_version":1,"lease":{},"dispatch_id":"invalid"})},
+          {"/v1/manifest-uploads/observe", ~s({"schema_version":1,"lease":{},"outcome":"response"})},
+          {"/v1/manifest-uploads/verify", ~s({"schema_version":1,"verification":{}})}
         ] do
       assert {:ok, %{status: 400, body: %{"status" => "invalid_request"}}} =
                ArchiveStorageHTTP.request(server, path, body)
     end
 
-    assert {:ok, %{status: 413, body: %{"status" => "request_too_large"}}} =
-             ArchiveStorageHTTP.request(server, @path, String.duplicate(" ", 16_385) <> "{}")
+    for path <- [@path, "/v1/manifest-uploads/prepare"] do
+      assert {:ok, %{status: 413, body: %{"status" => "request_too_large"}}} =
+               ArchiveStorageHTTP.request(server, path, String.duplicate(" ", 16_385) <> "{}")
+    end
 
     assert {:ok, %{status: 404, body: %{"status" => "not_found"}}} =
              ArchiveStorageHTTP.request(server, "/v1/media/installation", "{}")
