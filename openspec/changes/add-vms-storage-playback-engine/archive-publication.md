@@ -16,8 +16,8 @@ Core returns a coherent status from the retained block and its object proofs:
 | Status | Action |
 | --- | --- |
 | `media_required` | Refuse completion until independent media verification exists. |
-| `init_required` | Read the bounded sealed init object from the verified spool, transfer it, then prepare and transfer the manifest. |
-| `manifest_required` | Use retained init/media proofs to prepare and transfer the manifest. |
+| `init_required` | When recording is stopped, return `recording_stopped` before recorder configuration, the spool, manifest preparation or transfer. Otherwise read the bounded sealed init object from the verified spool, transfer it, then prepare and transfer the manifest. |
+| `manifest_required` | When recording is stopped, return `recording_stopped` before those same steps. Otherwise use retained init/media proofs to prepare and transfer the manifest. |
 | `archive_verified` | Publish the database index without loading recorder configuration, opening local storage or contacting the provider. |
 | `available` | Return the original immutable publication receipt without acquiring another lease or performing provider/local-file I/O. |
 | `reconciliation_required` | Refuse automatic completion; preserve the original attempted operation and its evidence. |
@@ -35,7 +35,13 @@ verification can resolve an originally unknown outcome; a response conflict or
 verification conflict always excludes the object from availability.
 
 An already verified archive can be indexed after recording stops. That path
-consumes retained evidence and still requires current upload ownership. A stop
+consumes retained evidence and still requires current upload ownership. It does
+not load recorder configuration, open the spool or contact the provider, and
+index publication does not take the stop fence. Missing init or manifest is new
+work: completion returns `recording_stopped` before configuration, local files,
+manifest preparation or transfer. Init and manifest dispatch creation takes the
+recording-control admission lock before the block lock, so a stopped control
+cannot commit that dispatch. Media preparation stays outside that fence. A stop
 does prevent new provider sends. Neither path resets recording control.
 
 ## Immutable proofs and the index
@@ -101,12 +107,16 @@ the same slot before reading a request body, including init. A slow partial
 init request therefore cannot bypass admission while media or manifest work is
 active. Oversize inputs are refused rather than split.
 
-Media and manifest share the existing exclusive staging root. Restart with
-abandoned staged work refuses service rather than treating a different purpose
-as a new owner. Failed scratch cleanup disables all purposes. One workload also
-means a process restart interrupts every purpose; independent authorities do
-not imply independent failure domains. HTTP remains one request per connection,
-with bounded ingress, task/socket ownership and no unread-body keepalive drain.
+Media and manifest share one exclusive staging root and create it only when
+that path is absent. Every startup, including preserved schema-v1 desired
+config and a version-two init-only map, refuses an existing path or an
+unreadable inspection and does not delete it. Init-only does not create the
+root when the path is absent. Restart cannot bypass abandoned raw staging by
+installing a different purpose. Failed scratch cleanup disables all purposes.
+One workload also means a process restart interrupts every purpose; independent
+authorities do not imply independent failure domains. HTTP remains one request
+per connection, with bounded ingress, task/socket ownership and no unread-body
+keepalive drain.
 
 ## Validation ownership and remaining gates
 

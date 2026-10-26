@@ -102,16 +102,19 @@ reads, each at most 4 MiB. Exact framing, length, identity and cumulative SHA
 must match the frozen intent; redirects, whole-object fallbacks and encryption
 mismatches fail. A 412 or unknown outcome never permits another PUT.
 
-The Session owns a media-only exclusive private `vms-media-staging` root under
-its temporary directory and one registered child directory per admitted
-request. It monitors the ingress process and registers each supervised HTTP
+The Session uses one exclusive private `vms-media-staging` root under its
+temporary directory and one registered child directory per admitted media or
+manifest request. Media and manifest create that root when it is absent.
+Init-only startup does not. Every startup refuses an existing path, including
+a later init-only install, and an inspection that cannot tell whether the path
+exists. It monitors the ingress process and registers each supervised HTTP
 socket owner before I/O. Cancellation waits for actual file/socket owners to
 exit before removing the registered scratch path and reusing admission. A
 failed unlink or directory removal keeps the service unavailable. Normal
 supervisor shutdown cleans its owned root; a hard kill can leave it behind.
-Startup refuses an existing root and requires operator reconciliation rather
-than scanning, adopting or deleting uncertain data. Whole-pod recovery and
-automatic cleanup remain separate acceptance work.
+Startup requires operator reconciliation rather than scanning, adopting or
+deleting uncertain data. Whole-pod recovery and automatic cleanup remain
+separate acceptance work.
 
 Original spool media and durable unknown/late-response evidence are preserved.
 If cancellation prevents the outcome callback, the committed dispatch marker

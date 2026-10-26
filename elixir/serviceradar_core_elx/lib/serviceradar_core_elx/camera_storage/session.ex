@@ -296,12 +296,21 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   end
 
   defp staging_root(purposes) do
-    if Map.has_key?(purposes, :media) or Map.has_key?(purposes, :manifest) do
-      # Retain the existing exclusive root so changing installed purposes cannot
-      # bypass a previous media operation's abandoned staging budget.
-      create_private_directory(Path.join(System.tmp_dir!(), "vms-media-staging"))
-    else
-      {:ok, nil}
+    root = Path.join(System.tmp_dir!(), "vms-media-staging")
+
+    case File.lstat(root) do
+      {:error, :enoent} ->
+        if Map.has_key?(purposes, :media) or Map.has_key?(purposes, :manifest) do
+          create_private_directory(root)
+        else
+          {:ok, nil}
+        end
+
+      {:ok, _stat} ->
+        {:error, :eexist}
+
+      {:error, _reason} ->
+        {:error, :eacces}
     end
   end
 

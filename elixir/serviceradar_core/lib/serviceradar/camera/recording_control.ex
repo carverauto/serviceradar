@@ -8,8 +8,9 @@ defmodule ServiceRadar.Camera.RecordingControl do
 
   Lock order is control singleton, then init authority when granting, then
   ingest owner when recording, then recorder claim or block, then dispatch.
-  Only acquire, renew, reserve and dispatch mark
-  take this outer fence. Freeze, release and late observations remain usable.
+  Acquire, renew, reserve, dispatch mark, and init or manifest dispatch
+  preparation take this outer fence. Media dispatch preparation, publication,
+  freeze, release and late observations remain usable.
   No media, provider I/O or worker enumeration occurs under the control lock.
   New-work callers acquire this fence before entering any preservation callback.
   Stop rejects ambient transactions so success means its restriction committed.

@@ -171,6 +171,33 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     }
   end
 
+  test "schema v1 init-only startup does not create the shared staging root", _ctx do
+    refute File.exists?(Path.join(System.tmp_dir!(), "vms-media-staging"))
+  end
+
+  @tag purposes: [:init]
+  test "version-two init-only startup does not create the shared staging root", _ctx do
+    refute File.exists?(Path.join(System.tmp_dir!(), "vms-media-staging"))
+  end
+
+  test "init-only startup refuses an existing staging path and leaves its bytes in place", ctx do
+    assert :ok = Supervisor.stop(ctx.service)
+    root = Path.join(System.tmp_dir!(), "vms-media-staging")
+    File.write!(root, "abandoned raw staging")
+    on_exit(fn -> File.rm(root) end)
+    challenges = Enum.count(Agent.get(ctx.store, & &1.core), fn {path, _} -> String.ends_with?(path, "/challenge") end)
+
+    assert {:error, _} =
+             start_supervised(
+               Supervisor.child_spec({Service, ctx.config}, id: :init_only_existing_path, restart: :temporary)
+             )
+
+    assert File.read!(root) == "abandoned raw staging"
+
+    assert Enum.count(Agent.get(ctx.store, & &1.core), fn {path, _} -> String.ends_with?(path, "/challenge") end) ==
+             challenges
+  end
+
   test "isolated HTTPS ingress performs one signed conditional PUT and verifies exact versioned bytes", ctx do
     assert {:ok, %{status: 200, body: body}} = upload(ctx)
     assert %{"status" => "init_verified", "archive_readiness" => "unavailable"} = Jason.decode!(body)
@@ -612,6 +639,19 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
 
     assert File.dir?(scratch_root)
     assert Enum.count(Agent.get(ctx.store, & &1.provider), &(&1.method == "PUT")) == 1
+    challenges = Enum.count(Agent.get(ctx.store, & &1.core), fn {path, _} -> String.ends_with?(path, "/challenge") end)
+    init_only = %{ctx.config | purposes: Map.take(ctx.config.purposes, [:init])}
+
+    assert {:error, _} =
+             start_supervised(
+               Supervisor.child_spec({Service, init_only}, id: :init_only_abandoned_root, restart: :temporary)
+             )
+
+    assert File.dir?(scratch_root)
+    assert Enum.count(Agent.get(ctx.store, & &1.provider), &(&1.method == "PUT")) == 1
+
+    assert Enum.count(Agent.get(ctx.store, & &1.core), fn {path, _} -> String.ends_with?(path, "/challenge") end) ==
+             challenges
   end
 
   @tag kind: :media

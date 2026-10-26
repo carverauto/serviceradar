@@ -269,6 +269,43 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert epoch > lease.upload_epoch
   end
 
+  @tag publication: true
+  test "stopped missing init returns recording_stopped without local inputs or provider traffic", context do
+    assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
+    assert {:ok, %{status: :init_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
+    requests = Agent.get(context.store, & &1.requests)
+    stop_recording(context)
+    remove_local_inputs(context)
+
+    assert {:error, :recording_stopped} = ArchivePublication.complete_once(context.block.id)
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert role_intents(context, :init) == []
+    assert {:ok, %{status: :init_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
+  end
+
+  @tag publication: true
+  test "stopped missing manifest returns recording_stopped without local inputs or provider traffic", context do
+    assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
+    opts = [actor: SystemActor.system(:camera_archive_storage)]
+    assert {:ok, lease} = RecordingBlocks.acquire_upload(context.block.id, Ecto.UUID.generate(), 30_000, opts)
+
+    try do
+      assert_storage_upload(context, :init, lease, "i")
+    after
+      assert {:ok, :released} = RecordingBlocks.release_upload(lease, opts)
+    end
+
+    assert {:ok, %{status: :manifest_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
+    requests = Agent.get(context.store, & &1.requests)
+    stop_recording(context)
+    remove_local_inputs(context)
+
+    assert {:error, :recording_stopped} = ArchivePublication.complete_once(context.block.id)
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert role_intents(context, :manifest) == []
+    assert {:ok, %{status: :manifest_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
+  end
+
   defp assert_publication(context, receipt) do
     manifest = dispatch(context, :manifest)
     assert {:ok, block} = Ash.get(RecordingBlock, context.block.id, context.opts)
@@ -393,6 +430,21 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
              "recording_readiness" => "unavailable",
              "archive_readiness" => "unavailable"
            }
+  end
+
+  defp stop_recording(context) do
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(
+               context.origin,
+               %{"contract_version" => 1, "revision" => "1", "admission" => "stopped"},
+               context.opts
+             )
+  end
+
+  defp role_intents(context, role) do
+    ArchiveUploadIntent
+    |> Ash.Query.filter(recording_block_id == ^context.block.id and object_role == ^role)
+    |> Ash.read!(context.opts)
   end
 
   defp remove_local_inputs(context) do

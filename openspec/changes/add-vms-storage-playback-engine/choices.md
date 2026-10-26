@@ -1184,7 +1184,10 @@ When: explicit sealed-media upload checkpoint. Verdict: sound, medium confidence
 
 If the isolated storage process is killed while holding media, its temporary
 file may outlive the process. A restart refuses the existing private staging
-root instead of creating another file beside it. During normal operation, the
+root instead of creating another file beside it. An init-only restart, including
+preserved schema version one and a version-two init-only map, uses that same
+check and cannot bypass the abandoned directory by changing purpose. During
+normal operation, the
 Session waits for the request and provider-socket processes to exit, removes
 only its registered path, and releases the single admission slot only after
 cleanup succeeds. An unlink failure also keeps admission closed. The plan
@@ -1306,9 +1309,11 @@ An operator installs init, media and manifest permissions into one isolated
 credential-holding workload. A request for one role can use only that role's
 permission, but every role competes for the same single admission slot before
 reading bytes. If scratch cleanup fails or the process restarts, all roles stop.
-Separate workloads would isolate those failures but would also need coordinated
-resource budgets and additional installations. The plan required one bounded
-workload; it did not specify every consequence of sharing its lifecycle.
+Restart with only init installed still refuses an existing shared staging path
+and does not create one when the path is absent. Separate workloads would
+isolate those failures but would also need coordinated resource budgets and
+additional installations. The plan required one bounded workload; it did not
+specify every consequence of sharing its lifecycle.
 
 Version-one installed configuration still works. Version two supplies a closed
 map of desired purposes; both normalize to the same internal map. Roles must
@@ -1319,6 +1324,22 @@ same-report policy, but this checkpoint grants no authority from that grouping.
 Verdict: sound because the existing private-workload boundary remains intact
 and failure denies service across the shared resource budget. Confidence:
 medium because Cloud's eventual installation policy is still open.
+
+### Deny missing init and manifest work after stop before any provider send
+
+When: explicit archive-publication checkpoint.
+
+Completion of a block that still needs init or manifest returns
+`recording_stopped` before recorder configuration, local files, manifest
+preparation or provider transfer. Creating those dispatches takes the control
+admission lock before the block lock, so a stopped control cannot commit the
+row. A retained media attempt keeps its original identity and deadline. Index
+publication after verification does not take this fence, and late observations
+stay available. The plan required publication after stop for an already verified
+archive and forbade an automatic retry of an unresolved attempt. It did not
+spell out this admission split. Verdict: sound, medium confidence, because stop
+remains non-resumable and this checkpoint still has no tool that repairs a
+prepared dispatch.
 
 ### Obtain each initial challenge without adding a renewal subsystem
 

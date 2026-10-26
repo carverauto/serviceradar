@@ -14,6 +14,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchivePublication do
   alias ServiceRadar.Camera.ArchiveUploads
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
+  alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.JSONDocument
   alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.CameraStorage.Config
@@ -62,6 +63,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchivePublication do
   defp finish(%{status: phase, binding: binding}, lease, deadline, opts)
        when phase in [:init_required, :manifest_required] do
     with {:ok, _} <- remaining(deadline),
+         :ok <- RecordingControl.with_admission(fn -> :ok end, opts),
          {:ok, config} <- Config.load_recorder(System.get_env("VMS_MEDIA_UPLOAD_CONFIG")),
          true <- config.binding_id == binding.id || {:error, :archive_binding_mismatch},
          :ok <- ensure_init(phase, config, lease, deadline, opts),

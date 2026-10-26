@@ -119,15 +119,23 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   end
 
   defp dispatch_for_role(lease, role, operation, ttl_ms, actor_id, opts) do
-    RecordingBlocks.with_current_upload(
-      lease,
-      fn block ->
-        with {:ok, intent} <- prepare_locked(block, role, opts) do
-          prepare_dispatch_locked(block, intent, actor_id, operation, ttl_ms, opts)
-        end
-      end,
-      opts
-    )
+    prepare = fn ->
+      RecordingBlocks.with_current_upload(
+        lease,
+        fn block ->
+          with {:ok, intent} <- prepare_locked(block, role, opts) do
+            prepare_dispatch_locked(block, intent, actor_id, operation, ttl_ms, opts)
+          end
+        end,
+        opts
+      )
+    end
+
+    if role in [:init, :manifest] do
+      RecordingControl.with_admission(prepare, opts)
+    else
+      prepare.()
+    end
   end
 
   @doc """

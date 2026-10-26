@@ -1960,6 +1960,48 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
   end
 
+  test "stop refuses a new init dispatch and leaves the retained media attempt unchanged", ctx do
+    bind(ctx)
+    media = verified_object(ctx, :media)
+    assert {:ok, %{"stop_enforced" => true}} = RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    assert [retained] = dispatches(ctx)
+    assert dispatch_identity(retained) == dispatch_identity(media.dispatch)
+    assert retained.deadline_at == media.dispatch.deadline_at
+    assert Enum.filter(intents(ctx), &(&1.object_role == :init)) == []
+
+    assert {:ok, retried} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :media, :put_object, 30_000, ctx.opts)
+
+    assert retried.id == media.dispatch.id
+    assert retried.deadline_at == media.dispatch.deadline_at
+    assert [unchanged] = dispatches(ctx)
+    assert dispatch_identity(unchanged) == dispatch_identity(media.dispatch)
+  end
+
+  test "stop refuses a new manifest dispatch without changing verified init or media attempts", ctx do
+    bind(ctx)
+    media = verified_object(ctx, :media)
+    init = verified_object(ctx, :init)
+    assert {:ok, %{status: :manifest_required}} = ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+    assert {:ok, %{"stop_enforced" => true}} = RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             ArchiveUploads.prepare_manifest_dispatch(ctx.lease, 30_000, ctx.opts)
+
+    assert Enum.filter(intents(ctx), &(&1.object_role == :manifest)) == []
+    retained = Map.new(dispatches(ctx), &{&1.id, dispatch_identity(&1)})
+    assert retained[media.dispatch.id] == dispatch_identity(media.dispatch)
+    assert retained[init.dispatch.id] == dispatch_identity(init.dispatch)
+    assert {:ok, media_row} = Ash.get(ArchiveUploadDispatch, media.dispatch.id, ctx.opts)
+    assert {:ok, init_row} = Ash.get(ArchiveUploadDispatch, init.dispatch.id, ctx.opts)
+    assert media_row.deadline_at == media.dispatch.deadline_at
+    assert init_row.deadline_at == init.dispatch.deadline_at
+  end
+
   test "verified manifest publishes once under a new lease after stop and authority revocation",
        ctx do
     bind(ctx)
