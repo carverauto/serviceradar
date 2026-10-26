@@ -2,10 +2,7 @@ use super::{field_sql, flow_cidr_filter_sql, sql_literal, text_predicate_on};
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
-    query::{
-        QueryPlan,
-        flows::literals::{normalize_cidr_literal, normalize_near_literal, normalize_tag_literal},
-    },
+    query::{QueryPlan, flows::literals::normalize_tag_literal},
 };
 
 /// Resolve flow aliases and JSON metadata without expanding the shared dataset dispatcher.
@@ -74,9 +71,25 @@ pub(super) fn predicate(plan: &QueryPlan, filter: &Filter) -> Result<Option<Stri
             format!("({src} {join} {dst})")
         }
         "tag" | "src_tag" | "dst_tag" => tags(plan, filter)?,
-        "near" | "src_near" | "dst_near" => proximity(plan, filter)?,
-        "threat_matched" | "threat_source" | "threat_observed_ip" | "threat_indicator"
-        | "threat_severity" => threat(plan, filter)?,
+        "near" | "src_near" | "dst_near" => {
+            return Err(unreadable_catalog_filter(
+                &filter.field,
+                "geography distance (ip_geo_enrichment_cache.location)",
+            ));
+        }
+        "threat_source" => {
+            return Err(unreadable_catalog_filter(
+                &filter.field,
+                "text[] source list (ip_threat_intel_cache.sources)",
+            ));
+        }
+        "threat_indicator" => {
+            return Err(unreadable_catalog_filter(
+                &filter.field,
+                "cidr containment (threat_intel_indicators.indicator)",
+            ));
+        }
+        "threat_matched" | "threat_observed_ip" | "threat_severity" => threat(plan, filter)?,
         "protocol_num" | "proto" => {
             require_op(filter, &[FilterOp::Eq, FilterOp::NotEq])?;
             integer_predicate(&field_sql(plan, &filter.field)?, filter, false)?
@@ -339,58 +352,43 @@ fn tags(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     })
 }
 
-/// PostgreSQL owns geography, inet and array semantics for control-plane
-/// caches. StarRocks 4.1 executes this SELECT through its JDBC native_query
-/// table function; telemetry itself stays exclusively in the warehouse.
-fn catalog_membership(plan: &QueryPlan, source_sql: &str, sides: &[&str]) -> Result<String> {
-    let source = format!(
-        "TABLE(cnpg_platform.native_query({}))",
-        sql_literal(source_sql)
+/// StarRocks reads the threat cache through the plain `cnpg_platform` JDBC
+/// catalog. StarRocks 4.1 has no JDBC pass-through table function
+/// (`native_query` first ships in 4.2) and its JDBC catalog cannot read
+/// PostgreSQL `text[]`, `inet`/`cidr` or `geography` columns, so every
+/// predicate here is on a scalar cache column. StarRocks pushes these
+/// predicates into the remote PostgreSQL query, so only matching rows cross
+/// the catalog; flow telemetry itself stays in the warehouse.
+fn threat_cache_membership(plan: &QueryPlan, condition: Option<&str>) -> Result<String> {
+    let mut source = String::from(
+        "SELECT c.ip FROM cnpg_platform.platform.ip_threat_intel_cache c \
+         WHERE c.matched AND c.expires_at > UTC_TIMESTAMP()",
     );
-    let predicates = sides
+    if let Some(condition) = condition {
+        source.push_str(" AND ");
+        source.push_str(condition);
+    }
+    let predicates = ["src_endpoint_ip", "dst_endpoint_ip"]
         .iter()
         .map(|field| {
             let endpoint = field_sql(plan, field)?;
-            Ok(format!(
-                "COALESCE({endpoint} IN (SELECT ip FROM {source}), FALSE)"
-            ))
+            Ok(format!("COALESCE({endpoint} IN ({source}), FALSE)"))
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(format!("({})", predicates.join(" OR ")))
 }
 
-fn proximity(plan: &QueryPlan, filter: &Filter) -> Result<String> {
-    require_op(filter, &[FilterOp::Eq, FilterOp::NotEq])?;
-    let point = normalize_near_literal(filter.value.as_scalar()?)?;
-    let source = format!(
-        "SELECT g.ip FROM platform.ip_geo_enrichment_cache g \
-         WHERE g.location IS NOT NULL AND (g.expires_at IS NULL OR g.expires_at > NOW()) \
-         AND ST_DWithin(g.location, ST_SetSRID(ST_MakePoint({}, {}), 4326)::geography, {})",
-        point.lng, point.lat, point.radius_m
-    );
-    let sides: &[&str] = match filter.field.as_str() {
-        "src_near" => &["src_endpoint_ip"],
-        "dst_near" => &["dst_endpoint_ip"],
-        _ => &["src_endpoint_ip", "dst_endpoint_ip"],
-    };
-    let predicate = catalog_membership(plan, &source, sides)?;
-    Ok(if negative(&filter.op) {
-        format!("NOT ({predicate})")
-    } else {
-        predicate
-    })
-}
-
-// This literal is interpreted by PostgreSQL inside the outer StarRocks
-// literal. PostgreSQL standard-conforming strings escape quotes, not slashes;
-// sql_literal supplies the second layer when encoding the native_query call.
-fn pg_literal(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+/// A filter whose exact semantics live in a column the StarRocks 4.1 JDBC
+/// catalog cannot read. Refusing beats returning rows that differ from the
+/// documented PostgreSQL meaning.
+fn unreadable_catalog_filter(field: &str, column: &str) -> ServiceError {
+    ServiceError::NotImplemented(format!(
+        "starrocks_unsupported_filter: {field} needs the PostgreSQL {column}, \
+         which the StarRocks JDBC catalog cannot read"
+    ))
 }
 
 fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
-    let mut source = "SELECT c.ip FROM platform.ip_threat_intel_cache c".to_string();
-    let live = "c.matched AND c.expires_at > NOW()";
     let mut invert = false;
     let condition = match filter.field.as_str() {
         "threat_matched" => {
@@ -404,27 +402,7 @@ fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
                     )));
                 }
             };
-            "TRUE".into()
-        }
-        "threat_source" => {
-            require_op(filter, &[FilterOp::Eq, FilterOp::In])?;
-            let values = match &filter.value {
-                crate::parser::FilterValue::Scalar(value) => vec![value.as_str()],
-                crate::parser::FilterValue::List(values) => {
-                    values.iter().map(String::as_str).collect()
-                }
-            };
-            if values.is_empty() {
-                return Ok("TRUE".into());
-            }
-            format!(
-                "c.sources && ARRAY[{}]::text[]",
-                values
-                    .into_iter()
-                    .map(pg_literal)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
+            None
         }
         "threat_observed_ip" => {
             require_op(filter, &[FilterOp::Eq])?;
@@ -432,25 +410,7 @@ fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
             value.parse::<std::net::IpAddr>().map_err(|_| {
                 ServiceError::InvalidRequest("threat_observed_ip must be an IP address".into())
             })?;
-            format!("c.ip = {}", pg_literal(value))
-        }
-        "threat_indicator" => {
-            require_op(filter, &[FilterOp::Eq])?;
-            let raw = filter.value.as_scalar()?;
-            let (cast, value, op) = if raw.contains('/') {
-                ("cidr", normalize_cidr_literal(raw)?, "=")
-            } else {
-                let ip: std::net::IpAddr = raw.parse().map_err(|_| {
-                    ServiceError::InvalidRequest("threat_indicator must be an IP or CIDR".into())
-                })?;
-                ("inet", ip.to_string(), ">>=")
-            };
-            source
-                .push_str(" JOIN platform.threat_intel_indicators i ON c.ip::inet <<= i.indicator");
-            format!(
-                "(i.expires_at IS NULL OR i.expires_at > NOW()) AND i.indicator {op} {}::text::{cast}",
-                pg_literal(&value)
-            )
+            Some(format!("c.ip = {}", sql_literal(value)))
         }
         "threat_severity" => {
             let op = match filter.op {
@@ -469,12 +429,11 @@ fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest("threat_severity must be an integer".into())
             })?;
-            format!("c.max_severity {op} {value}")
+            Some(format!("c.max_severity {op} {value}"))
         }
         _ => unreachable!("threat field checked by predicate"),
     };
-    source.push_str(&format!(" WHERE {live} AND {condition}"));
-    let predicate = catalog_membership(plan, &source, &["src_endpoint_ip", "dst_endpoint_ip"])?;
+    let predicate = threat_cache_membership(plan, condition.as_deref())?;
     Ok(if invert {
         format!("NOT ({predicate})")
     } else {

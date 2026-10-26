@@ -232,9 +232,13 @@ in:flows time:last_6h bucket:5m agg:sum value_field:bytes_total
 in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
 in:threat_intel_matches observed_ip:198.51.100.10
 in:flows threat_matched:true time:last_24h sort:time:desc limit:100
-in:flows threat_indicator:"198.51.100.0/24" time:last_24h sort:time:desc limit:100
-in:attributed_flows threat_source:alienvault_otx time:last_24h sort:time:desc limit:100
+in:flows threat_observed_ip:"198.51.100.10" time:last_24h sort:time:desc limit:100
+in:attributed_flows threat_matched:true time:last_24h sort:time:desc limit:100
 ```
+
+`threat_indicator:`, `threat_source:` and `near:` are refused on flows: the
+StarRocks 4.1 JDBC catalog cannot read the CIDR, source-list or geography
+columns they need. Use `in:threat_intel_matches` to find matched endpoints.
 
 Current matches are cache memberships, not flow counts. Threat-aware `in:flows`
 defaults to `time:last_24h` when `time:` is omitted.

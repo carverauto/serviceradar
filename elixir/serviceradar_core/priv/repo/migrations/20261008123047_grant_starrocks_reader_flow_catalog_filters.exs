@@ -1,8 +1,14 @@
 defmodule ServiceRadar.Repo.Migrations.GrantStarrocksReaderFlowCatalogFilters do
   @moduledoc """
   Grants the catalog reader the current-state columns used by flow proximity
-  and threat filters. PostgreSQL evaluates PostGIS, inet and array predicates
-  inside StarRocks 4.1 native_query; only matching IPs cross the catalog.
+  and threat filters.
+
+  These grants assumed a JDBC pass-through (`native_query`) that StarRocks 4.1
+  does not have; it first ships in 4.2. The flow threat filters now read the
+  scalar `ip_threat_intel_cache` columns (ip, matched, expires_at,
+  max_severity) through the plain catalog. The `location`, `sources` and
+  `indicator` grants are unused: the 4.1 JDBC catalog cannot read geography,
+  `text[]` or `cidr` columns, so SRQL refuses the filters that need them.
 
   Role creation remains CNPG-managed. The chart's catalog-reader Job converges
   the same grants when the catalog is enabled after this migration has run.

@@ -243,10 +243,14 @@ Flow proximity does **not** store geometry on the flow hypertable. Instead:
    flows by IP membership (src and/or dst).
 
 Writers of the geo cache continue to set `latitude`/`longitude` only; Postgres
-maintains `location`. See [SRQL Cookbook](./srql-cookbook.md) for examples.
+maintains `location`.
+
+Flows are stored in StarRocks, and the StarRocks 4.1 JDBC catalog cannot read
+the `location` geography, so SRQL currently refuses `near:` on flows rather
+than approximate the distance. See [SRQL Cookbook](./srql-cookbook.md).
 
 ## Related
 
 - [NetBox Integration](./netbox.md) — credentials UI and current capability status
 - [NetFlow](./netflow.md) — collector and EventWriter path
-- [SRQL Cookbook](./srql-cookbook.md) — example `tag:` and `near:` queries
+- [SRQL Cookbook](./srql-cookbook.md) — example `tag:` queries

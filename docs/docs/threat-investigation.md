@@ -23,9 +23,15 @@ security findings.
 | Current matched endpoints | `/security/threat-intel` |
 | Current matches in SRQL | `in:threat_intel_matches source:alienvault_otx` |
 | Flows for a live match | `in:flows threat_matched:true time:last_24h` |
-| Flows for one indicator | `in:flows threat_indicator:"198.51.100.0/24" time:last_24h` |
-| Attributed threat flows | `in:attributed_flows threat_source:alienvault_otx time:last_24h` |
+| Flows for one matched endpoint | `in:flows threat_observed_ip:"198.51.100.10" time:last_24h` |
+| Attributed threat flows | `in:attributed_flows threat_matched:true time:last_24h` |
 | Feed configuration | **Settings -> Networks -> Threat Intel** |
+
+`threat_indicator:` and `threat_source:` are not available on flows yet. The
+StarRocks 4.1 JDBC catalog cannot read the indicator `cidr` or the cache's
+source list, so SRQL refuses these filters rather than return approximate
+rows. Find the matched endpoints in `in:threat_intel_matches`, then narrow
+flows to one of them with `threat_observed_ip:`.
 
 Dashboard **Matched IPs** is distinct live cache endpoints.
 **Indicator matches** is endpoint-to-indicator memberships, not flow
