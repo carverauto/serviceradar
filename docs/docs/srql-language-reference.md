@@ -359,7 +359,7 @@ fields; using a field that the entity does not support returns an
 | `gateways` | `gateway` | Gateway/agent operational state |
 | `addon_statuses` | `addon_status` | Observed native add-on reports. Requires `devices.view`. |
 | `addon_fleet` | `addon_fleets` | Native add-on assignments, observed health, freshness and version drift per agent. Requires `devices.view`. |
-| `plugin_fleet` | `plugin_fleets` | WASM plugin assignments and current runtime evidence, one row per owner on a partition and agent. Requires `plugins.view`. |
+| `plugin_fleet` | `plugin_fleets` | WASM plugin assignments and current runtime evidence, one row per owner of a plugin on a partition and agent. Requires `plugins.view`. |
 | `interfaces` | `interface`, `discovered_interfaces` | Discovered network interfaces (time-series) |
 | `bmp_events` | `bmp_event`, `bmp_routing_events` | BGP Monitoring Protocol (BMP) routing events |
 | `alerts` | `alert` | Generated alerts |
