@@ -619,7 +619,9 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   defp freeze_update?(%{query: query} = metadata) do
     sql = query |> query_text() |> String.downcase()
     source = metadata[:source]
-    blocks? = source == "camera_recording_blocks" or String.contains?(sql, "camera_recording_blocks")
+
+    blocks? =
+      source == "camera_recording_blocks" or String.contains?(sql, "camera_recording_blocks")
 
     successful_query?(metadata) and blocks? and String.contains?(sql, "descriptor") and
       update_statement?(sql)
@@ -628,7 +630,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   defp freeze_update?(_metadata), do: false
 
   defp update_statement?(sql) do
-    String.match?(sql, ~r/(?:^|\s)update\s/) and not String.match?(sql, ~r/(?:^|\s)for\s+update\b/)
+    String.match?(sql, ~r/(?:^|\s)update\s/) and
+      not String.match?(sql, ~r/(?:^|\s)for\s+update\b/)
   end
 
   defp successful_query?(%{result: {:ok, _}}), do: true

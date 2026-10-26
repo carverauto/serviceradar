@@ -46,7 +46,7 @@ match. Packaging retains its existing bounded in-memory behavior; it does not
 perform filesystem validation for every encoded access unit.
 
 `Spool.create` requires a verified handle. Create, append and seal verify before
-and after filesystem mutations; a detected change cannot produce a new committed
+and after filesystem mutations; a detected change cannot produce a new spool
 receipt. Existing snapshots retain the handle, so subsequent init/fragment reads
 also refuse a changed root. The portable descriptor, journal identity, archive
 keys and manifest digest are unchanged: the local handle is never serialized
@@ -77,13 +77,14 @@ separately.
 
 A successful `RecordingBlocks.freeze/5` result is the historical receipt. The
 worker does not apply a later local usability check that turns that committed
-row into a missing stopped snapshot. The stopped snapshot is retained only when
-that freeze result is known, including when the marker is replaced across the
-freeze return on the end-of-stream seal and the finite-capacity stop. A locally
-sealed spool without a successful freeze is not a receipt. Current init and
-fragment reads still verify the retained handle and refuse the replaced marker.
-An upload lease of the frozen descriptor is not proof those bytes are still
-readable.
+row into a missing stopped snapshot. When that freeze result is known, the
+stopped snapshot keeps the committed descriptor, including when the marker is
+replaced across the freeze return on the end-of-stream seal and the
+finite-capacity stop. A stop that has not frozen still returns a snapshot only
+while the retained handle remains usable. A locally sealed spool without a
+successful freeze is not a receipt. Current init and fragment reads still
+verify the retained handle and refuse the replaced marker. An upload lease of
+the frozen descriptor is not proof those bytes are still readable.
 
 ## Owning proof and remaining work
 
@@ -97,8 +98,8 @@ the historical receipt; current reads refuse the replaced marker. CI readiness
 still requires its recomputed `integration_tests_serial_4` lane to run all
 eight synthetic cases, with the full selected Core and Web database lifecycles,
 cleanup, and fixture-generation lease release. That lane is not deployed-camera
-validation. Existing media,
-RTSP, browser, manifest-byte and lifecycle assertions remain required.
+validation. Existing media, RTSP, browser, manifest-byte and lifecycle
+assertions remain required.
 
 This supplies part of tasks 1.4/1.7, not complete recovery or hosted readiness.
 Production recording remains disabled. There is no new database resource,
