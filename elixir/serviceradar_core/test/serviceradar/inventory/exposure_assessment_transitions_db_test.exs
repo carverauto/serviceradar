@@ -540,7 +540,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     end)
   end
 
-  test "verified snapshot completion continues through ordinary live journals and stops for legacy uncertainty",
+  test "verified snapshot completion continues through ordinary live journals and stops for unresolved recovery",
        ctx do
     snapshot_http!()
     Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
@@ -566,10 +566,19 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     flowing = finalizing_generation!(nil)
     insert_journal!(bucket, "capturing")
-    insert_journal!(other, "applying")
-    insert_journal!(gap, "snapshot_required")
+    insert_journal!(other, "complete")
     assert :ok = ExposureSnapshotFinalizer.step(flowing)
     assert {:ok, %{"status" => "complete"}} = ExposureSnapshotState.get(flowing)
+
+    assert [["capturing"], ["complete"]] =
+             journal_phases!([bucket, other]) |> Enum.sort()
+
+    clear_journals!([bucket, other])
+
+    missing = finalizing_generation!(nil)
+    insert_journal!(gap, "snapshot_required")
+    assert {:error, :exposure_snapshot_finalization_pending} = ExposureSnapshotFinalizer.step(missing)
+    assert {:ok, %{"status" => "finalizing"}} = ExposureSnapshotState.get(missing)
 
     assert [["snapshot_required"]] =
              Repo.query!(
@@ -577,21 +586,41 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                [gap]
              ).rows
 
-    Repo.query!("DELETE FROM platform.exposure_delivery_batches")
+    retire_generation!(missing)
+    clear_journals!([gap])
+
+    retained = finalizing_generation!(nil)
+    insert_journal!(bucket, "applying")
+    assert {:error, :exposure_snapshot_finalization_pending} =
+             ExposureSnapshotFinalizer.step(retained)
+
+    assert {:ok, %{"status" => "finalizing"}} = ExposureSnapshotState.get(retained)
+
+    assert [["applying"]] =
+             Repo.query!(
+               "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
+               [bucket]
+             ).rows
+
+    retire_generation!(retained)
+    clear_journals!([bucket])
+
     blocked = finalizing_generation!(nil)
     insert_journal!(other, "legacy")
     insert_journal!(bucket, "capturing")
     assert {:error, :exposure_snapshot_finalization_pending} = ExposureSnapshotFinalizer.step(blocked)
     assert {:ok, %{"status" => "finalizing"}} = ExposureSnapshotState.get(blocked)
     retire_generation!(blocked)
+    clear_journals!([other, bucket])
 
     scoped = finalizing_generation!(ordinal)
     insert_journal!(other, "legacy")
-    insert_journal!(bucket, "applying")
+    insert_journal!(bucket, "capturing")
     assert :ok = ExposureSnapshotFinalizer.step(scoped)
     assert {:ok, %{"status" => "complete"}} = ExposureSnapshotState.get(scoped)
+    assert [["capturing"], ["legacy"]] = journal_phases!([bucket, other]) |> Enum.sort()
+    clear_journals!([other, bucket])
 
-    Repo.query!("DELETE FROM platform.exposure_delivery_batches")
     own_legacy = finalizing_generation!(ordinal)
     insert_journal!(bucket, "legacy")
     assert {:error, :exposure_snapshot_finalization_pending} =
@@ -599,12 +628,118 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert {:ok, %{"status" => "finalizing"}} = ExposureSnapshotState.get(own_legacy)
     retire_generation!(own_legacy)
+    clear_journals!([bucket])
 
-    Repo.query!("DELETE FROM platform.exposure_delivery_batches")
+    own_gap = finalizing_generation!(ordinal)
+    insert_journal!(bucket, "snapshot_required")
+    assert {:error, :exposure_snapshot_finalization_pending} =
+             ExposureSnapshotFinalizer.step(own_gap)
+
+    assert [["snapshot_required"]] =
+             Repo.query!(
+               "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
+               [bucket]
+             ).rows
+
+    retire_generation!(own_gap)
+    clear_journals!([bucket])
+
+    own_retained = finalizing_generation!(ordinal)
+    insert_journal!(bucket, "applying")
+    assert {:error, :exposure_snapshot_finalization_pending} =
+             ExposureSnapshotFinalizer.step(own_retained)
+
+    assert {:ok, %{"status" => "finalizing"}} = ExposureSnapshotState.get(own_retained)
+    retire_generation!(own_retained)
+    clear_journals!([bucket])
+
     absent = finalizing_generation!(4_000_000_001)
     insert_journal!(0, "legacy")
+    insert_journal!(1, "snapshot_required")
     assert :ok = ExposureSnapshotFinalizer.step(absent)
     assert {:ok, %{"status" => "complete"}} = ExposureSnapshotState.get(absent)
+  end
+
+  @tag :tmp_dir
+  test "live sequence 41 resolves before completion and a later live transition follows it", ctx do
+    snapshot_http!()
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+
+    [[ordinal]] =
+      Repo.query!("SELECT ordinal FROM platform.device_fleet_ordinals WHERE uid = $1", [
+        ctx.device_uid
+      ]).rows
+
+    bucket =
+      ctx.device_uid
+      |> ExposureTransitionRelay.subject()
+      |> String.split(".")
+      |> List.last()
+      |> String.to_integer()
+
+    lane = "device-#{bucket}"
+    owner = Ecto.UUID.generate()
+    [[view]] = Repo.query!("SELECT pg_current_snapshot()::text").rows
+
+    {:ok, generation} =
+      ExposureSnapshotState.create(ordinal, view, owner, System.system_time(:millisecond) + 30_000)
+
+    id = generation["id"]
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      assert {:ok, 1} =
+               generation
+               |> snapshot_control("start", %{"snapshot" => view})
+               |> ExposureSnapshots.process_batch()
+
+      assert {:ok, :ok} = ExposureSnapshotState.phase(id, owner, "lifecycle")
+      assert {:ok, :ok} = ExposureSnapshotState.phase(id, owner, "facts")
+      seen = inflight_transition(ctx, ordinal, 40, "active")
+      page = Snapshot.page(generation, lane, Snapshot.empty_receipt(), "facts", [seen])
+      {:ok, _body, hash} = Snapshot.encode(page)
+      assert {:ok, _} = ExposureSnapshotState.reserve(id, owner, page, hash)
+      task = Task.async(fn -> ExposureSnapshots.process_batch(snapshot_message(page)) end)
+
+      assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [row]},
+                     5_000
+
+      assert row["transition_seq"] == 40
+      assert row["state"] == 1
+      assert row["snapshot_generation"] == id
+      send(http, :commit)
+      assert {:ok, 1} = Task.await(task)
+      assert {:ok, received} = ExposureSnapshotState.get(id)
+
+      assert {:ok, finished} =
+               ExposureSnapshotState.end_manifest(id, owner, received["receipts"])
+
+      assert {:ok, 1} =
+               finished
+               |> snapshot_control("end", %{"manifest" => received["receipts"]})
+               |> ExposureSnapshots.process_batch()
+
+      assert {:ok, %{"status" => "finalizing"}} = ExposureSnapshotState.get(id)
+      assert {:ok, 1} = deliver_transition!(ctx, inflight_transition(ctx, ordinal, 41, "resolved"))
+      insert_journal!(bucket, "capturing")
+      assert :ok = ExposureSnapshotFinalizer.step(id)
+      assert {:ok, %{"status" => "complete"}} = ExposureSnapshotState.get(id)
+
+      assert [["capturing"]] =
+               Repo.query!(
+                 "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               ).rows
+
+      clear_journals!([bucket])
+      assert {:ok, 1} = deliver_transition!(ctx, inflight_transition(ctx, ordinal, 42, "resolved"))
+      assert {:ok, %{"status" => "complete"}} = ExposureSnapshotState.get(id)
+
+      assert [] =
+               Repo.query!(
+                 "SELECT 1 FROM platform.exposure_delivery_batches WHERE bucket = $1",
+                 [bucket]
+               ).rows
+    end)
   end
 
   defp finalizing_generation!(scope) do
@@ -650,7 +785,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   end
 
   defp insert_journal!(bucket, phase) do
-    position = if phase == "applying", do: 1, else: nil
+    position = if phase in ["applying", "complete"], do: 1, else: nil
 
     Repo.query!(
       """
@@ -667,6 +802,83 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
         position
       ]
     )
+  end
+
+  defp clear_journals!(buckets) do
+    Enum.each(buckets, fn bucket ->
+      Repo.query!("DELETE FROM platform.exposure_delivery_batches WHERE bucket = $1", [bucket])
+    end)
+  end
+
+  defp journal_phases!(buckets) do
+    buckets
+    |> Enum.flat_map(fn bucket ->
+      Repo.query!(
+        "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = $1",
+        [bucket]
+      ).rows
+    end)
+    |> Enum.sort()
+  end
+
+  defp inflight_transition(ctx, ordinal, seq, state) do
+    %{
+      "schema_version" => 1,
+      "device_uid" => ctx.device_uid,
+      "device_ord" => ordinal,
+      "device_lifecycle_seq" => 0,
+      "cve_ord" => 20_240_000_040,
+      "pkg_ord" => 40,
+      "pkgver_ord" => 41,
+      "transition_seq" => seq,
+      "transition_xid" => seq,
+      "state" => state,
+      "source_scope" => "host",
+      "severity" => "high",
+      "cvss_score" => 7.5,
+      "kev" => false,
+      "exploit_available" => false,
+      "fix_available" => state == "resolved",
+      "first_exposed_at" => "2026-10-26T00:00:00",
+      "resolved_at" => if(state == "resolved", do: "2026-10-26T00:00:41", else: nil),
+      "changed_at" => "2026-10-26T00:00:#{String.pad_leading(Integer.to_string(seq), 2, "0")}",
+      "package_identity_key" => "pkgkey:examplelib:#{ctx.unique}",
+      "cve_id" => "EXAMPLE-INFLIGHT-40"
+    }
+  end
+
+  defp deliver_transition!(ctx, payload) do
+    task =
+      Task.async(fn ->
+        ExposureTransitions.process_batch([
+          %{
+            data: Jason.encode!(payload),
+            metadata: %{
+              subject: ExposureTransitionRelay.subject(ctx.device_uid),
+              jetstream_ack: %{
+                stream: "EXPOSURE_TRANSITIONS",
+                stream_sequence: payload["transition_seq"]
+              }
+            }
+          }
+        ])
+      end)
+
+    assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [fact]},
+                   5_000
+
+    assert fact["transition_seq"] == payload["transition_seq"]
+    assert fact["state"] == if(payload["state"] == "resolved", do: 0, else: 1)
+    refute Map.has_key?(fact, "snapshot_generation")
+    send(http, :commit)
+
+    assert_receive {:load, log_http, "/api/serviceradar/exposure_transitions_log/_stream_load", _,
+                    [history]},
+                   5_000
+
+    assert history["transition_seq"] == payload["transition_seq"]
+    send(log_http, :commit)
+    Task.await(task)
   end
 
   defp stall_applying_snapshot!(ctx, payload) do

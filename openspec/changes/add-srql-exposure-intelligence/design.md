@@ -1521,23 +1521,28 @@ the complete readiness contract require separate evidence.
 
 **Completion during live traffic.** On 2026-10-26 the product owner confirmed
 the reading already implied by Decision 14: a verified generation may reach
-`complete` while ordinary live delivery continues. `capturing`, `applying` and
-`complete` journals are that traffic. They do not have to drain first, and an
-empty lane is not unfinished work. Completion still waits while a repair
-obligation is unverified, a retained snapshot effect is unsettled, or a legacy
-journal remains. A deployment generation sees every bucket's legacy journal. A
-device generation sees only that device's bucket. A missing ordinal does not
-widen the wait to every bucket. `snapshot_required` stays recorded for the next
-full snapshot; start already counts those unstarted gaps, and completion does
-not delete them. This `complete` status is not slice 3 readiness, which still
-requires no unresolved scoped delivery journal. Outbox PubAck still cannot
-discharge a page. A disposable scratch StarRocks schema confirmed the in-flight
-example on 2026-10-26: a snapshot write of active sequence 40 followed by live
-sequence 41 ends resolved at 41 and keeps the snapshot marker; live sequence 41
-followed by the older snapshot write also ends resolved at 41; a later live
-sequence 42 wins and keeps the marker. Filtered rows stayed zero. The schema
-was dropped afterward. The hosted run of this final tree is still required
-before task 1.6 can close.
+`complete` while ordinary live delivery continues. A `capturing` journal has
+not retained a recovery copy or started a warehouse load. A `complete` journal
+has already recorded that load. Those journals, and an empty lane, do not have
+to drain before completion. Completion still waits while a repair obligation
+is unverified, a retained snapshot effect is unsettled, a legacy journal
+remains, a `snapshot_required` gap remains, or an `applying` journal still
+holds a retained delivery input whose warehouse load has not finished. A
+deployment generation sees every bucket. A device generation sees only that
+device's bucket. A missing ordinal does not extend the wait to every bucket.
+Completion leaves `snapshot_required` rows in place; the next full snapshot
+accounts for them. This `complete` status is not slice 3 readiness, which
+still requires no unresolved scoped delivery journal. Outbox PubAck still
+cannot discharge a page. A disposable scratch StarRocks schema confirmed the
+in-flight storage example on 2026-10-26: a snapshot write of active sequence
+40 followed by live sequence 41 ends resolved at 41 and keeps the snapshot
+marker; live sequence 41 followed by the older snapshot write also ends
+resolved at 41; a later live sequence 42 wins and keeps the marker. Filtered
+rows stayed zero. The schema was dropped afterward. That probe is storage
+evidence. Hosted invocation cf414b06 on tree 81ae24f4 ran 459 tests with one
+failure, a duplicate journal primary key; observer, teardown and release
+exited 0. The hosted run of this final tree is still required before task
+1.6 can close.
 
 ## Section 0 evidence (2026-10-21)
 
