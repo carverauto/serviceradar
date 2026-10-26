@@ -1146,17 +1146,19 @@ EventWriter serializes each of the existing sixteen transition subject buckets
 using a CNPG session advisory lock, held on a direct connection that bypasses
 the transaction-mode pooler: through the pooler, the lock and its unlock can run
 on different server backends and strand the lock on a shared one. Its durable
-control journal contains only
-JetStream stream positions, never exposure payloads. A replacement owner fetches
-and replays an unfinished batch before admitting another, settling its immutable
-warehouse load labels. The journal insert does nothing when that bucket row
-already exists, and the delivery is busy without a load; finishing deletes only
-the positions this run journaled or replayed. Namespace 74523 was never in a
-tagged release (it landed after v1.4.97), so a mixed-version overlap only
-affects an installation running an untagged staging build during this upgrade,
-and draining to one EventWriter for that upgrade is optional. Every physical
-load, including a size-split chunk, checks that the owning session still holds
-the bucket lock. Retirement uses bounded pages and retains unfinished work.
+control journal records source positions and the delivery operation, never
+exposure payloads. A replacement owner fetches and replays an unfinished batch
+before admitting another, settling its immutable warehouse load labels. The
+journal insert does nothing when that bucket row already exists, and the
+delivery is busy without a load; finishing removes the journal only for the
+operation this run created or adopted. Decision 25 binds that removal to the
+operation, so matching source positions are not enough. Namespace 74523 was
+never in a tagged release (it landed after v1.4.97), so a mixed-version
+overlap only affects an installation running an untagged staging build during
+this upgrade, and draining to one EventWriter for that upgrade is optional.
+Every physical load, including a size-split chunk, checks that the owning
+session still holds the bucket lock. Retirement uses bounded pages and retains
+unfinished work.
 Retirement appends each known fact's terminal after-image to transition history
 before loading its terminal current state. A retry after a committed fact load
 will no longer select that key, so appending first prevents a crash from losing
@@ -1309,6 +1311,192 @@ Strict OpenSpec validation passed. These checks do not execute the new SQL
 migration or database scenarios. Hosted CNPG integration, a database negative
 control, and synthetic storage/write-cost measurements remain required before
 readiness. No live rollout is claimed.
+
+### Decision 25: Complete snapshot generations and retain unfinished delivery inputs
+
+**Approved by the product owner on 2026-10-25.** This settles
+the remaining task 1.6 protocol after #6002. Decisions 14, 19, 20, 22, 23 and 24
+continue to own source visibility, sequences, lifecycle fencing and repair.
+
+**Concrete gap.** `ExposureDelivery` records only positions in
+`EXPOSURE_TRANSITIONS`. A replacement consumer must replay the unfinished batch
+before admitting another write, because its predecessor may have left a warehouse
+load in flight. If the seven-day stream or its byte limit removes that message,
+the journal cannot reconstruct the batch. A new snapshot cannot safely erase
+that journal and let an unknown old load finish afterward. Also, the existing
+live load label identifies fact keys and sequences, so reusing it for an
+otherwise identical snapshot would not perform the new generation-marker write.
+
+**Retain only work that has not finished.** Add one file-backed JetStream stream,
+`EXPOSURE_RECOVERY`, for immutable snapshot envelopes and unfinished delivery
+copies. It has limits retention, no age expiry, discard-new, a bounded byte
+budget, and one message per exact subject with `discard_new_per_subject` enabled.
+An envelope subject contains its durable operation identity. Retrying an
+uncertain publication reads that subject and verifies identical bytes; it does
+not rely on the ordinary duplicate window. A different payload for the same
+identity fails closed. NATS documents the required
+[per-subject insert semantics](https://nats.io/blog/new-per-subject-discard-policy/)
+and [discard-new behavior](https://docs.nats.io/learn/jetstream/shaping-the-stream).
+
+The initial transport bounds are 500 records and 512 KiB per complete encoded
+envelope, one unfinished live envelope per existing device bucket, and one
+unreceipted snapshot page per lane. Split before admission, never after reserving
+an unbounded batch. A single oversized record fails visibly; it is not truncated
+or acknowledged as processed. Use 64 MiB for this stream in every installation
+profile initially. This is a storage ceiling, not an instruction to preallocate
+memory. Publication backpressure must leave room for bounded control messages and
+cleanup; it must not evict an unfinished envelope. Validate the minimum-profile
+capacity and progress under a full stream before enabling the protocol.
+
+CNPG keeps operation IDs, source positions, envelope hashes and positions,
+generation manifests, receipts, cursors and completion state. It keeps no copy of
+the recovery envelope's fact payload. These are control records, not a new
+exposure projection. Core publishes snapshot subjects; EventWriter publishes and
+reads its delivery-copy subjects, consumes snapshots and deletes only completed
+envelopes. Permissions do not grant either component a general stream purge.
+
+**Delivery recovery.** Under the existing bucket ownership lock, first create a
+durable `capturing` journal identity, then retain the complete original batch in
+JetStream. Record its verified recovery position and move to `applying` before
+the first warehouse call. The existing ingestion path and immutable load labels
+then settle that exact batch on any replacement owner, even when the original
+transition messages have expired. No change to Stream Load retry internals is
+needed for this contract.
+
+After all loads settle, record `complete` before deleting the recovery envelope;
+only then remove the journal and admit the next batch. Phase changes and journal
+removal match the operation this run created or adopted. Another operation keeps
+its phase, journal and recovery position when the source positions are the same.
+The only claim on a journal that has no operation yet is the initial legacy
+adoption, and it applies only while that operation id is still null. A crash
+between completion and cleanup resumes cleanup without reapplying data. A crash
+while capturing cannot have started a warehouse load: if neither the retained
+copy nor the original messages can be obtained, abandon that unstarted
+operation and request a fresh snapshot. Its missing input is reported, not
+counted as delivered.
+
+An old journal created before this protocol must first finish through its old
+replay path, or be upgraded by retaining its still-available exact inputs before
+another load. If those inputs are already gone, keep the affected bucket blocked.
+That case requires a separately scheduled operator recovery which proves old
+warehouse writes are quiescent; this proposal does not authorize deleting the
+journal, resetting the warehouse, or claiming automatic recovery of lost NATS
+storage. A snapshot restores current state, not missing historical transitions;
+record a history gap when original transitions are no longer recoverable.
+
+**One snapshot generation at a time.** Allocate a monotonically increasing
+generation `G` in a durable coordinator record with either deployment or one
+device as its scope. Queue other requests and coalesce repeated requests for the
+same device. A source reader uses the one read-only `REPEATABLE READ` transaction
+and first-statement `pg_current_snapshot()` required by Decision 14. Keyset-page
+the source; do not materialize the deployment in memory. Check preparation,
+dictionary publications, lifecycle bootstrap and restore work in that same
+snapshot. Missing prerequisites make the generation incomplete and schedule
+bounded preparation outside the read transaction.
+The reader has a finite configured deadline; timeout or sustained backpressure
+aborts the generation rather than pinning CNPG's MVCC horizon indefinitely.
+
+Envelopes carry protocol version, `G`, scope, the recorded snapshot identity,
+lane, contiguous page number, record count and content digest. The lanes are the
+existing sixteen device buckets plus the two dimension kinds. Lifecycle and
+assessment records for a device stay in its bucket. Replay exact retained
+assessment, watermark and dimension publications. A retired ordinal is covered
+by its lifecycle fence; do not manufacture an active after-image or a replacement
+transaction ID for it. Apply the generation's dimensions and lifecycle coverage
+before emitting fact pages, using receipted phase boundaries within the same
+recorded snapshot.
+
+The start marker establishes the manifest. Each receiver durably advances its
+contiguous receipt and rolling digest only after that page's warehouse effects
+are confirmed. It then permits cleanup and the next page. Counts and chained
+hashes cover the envelope identity and ordered records, so a duplicate receipt
+cannot fill a missing page. Keep per-lane progress and bounded pending state,
+not one permanent CNPG receipt per fact or every historical page. The end marker
+declares each lane's final page, record count and digest; empty lanes are explicit.
+Receiving the end marker alone never authorizes finalization.
+
+If the reader loses its transaction or producer ownership before recording a
+complete end manifest, mark `G` aborted and restart with a new generation and
+snapshot. Never resume a saved cursor under a different database snapshot while
+retaining `G`. Already-applied rows remain valid sequenced after-images, but an
+aborted generation cannot sweep unseen rows or establish readiness. Settle its
+unfinished loads through retained envelopes before admitting a successor's writes;
+reject late messages for the aborted generation. Ownership and cleanup are fenced
+by the durable generation state, including delayed publication after cancellation.
+
+**Warehouse application and finalization.** Snapshot loads use a separate stable
+label namespace including generation, lane, page and physical chunk.
+Chunk identity includes its content digest so a different size split cannot reuse
+a label for different rows. Snapshot replay rebuilds current state and does not
+invent missing transition-log history. Live replay
+keeps its existing labels and never writes `snapshot_generation`. Snapshot
+comparisons and generation-marker writes use the same cross-replica bucket lock
+as live transitions and retirement. Dimensions receive equivalent serialization
+between their live and snapshot writers. An equal-sequence content mismatch
+requests a source-locked fresh publication; it is never overwritten in place.
+A newer warehouse transition not visible in `V` is preserved and accounted for
+as post-snapshot work. Retired-lifecycle drops are likewise explicit outcomes,
+not missing pages.
+
+Only matching complete receipts for every declared lane admit the end-marker
+scan. Scan the scoped warehouse in bounded keyset pages. Apply Decision 14's
+`transition_xid` visibility rule to untouched rows, then use the existing
+source-locked repair path in fresh transactions. Persist repair requests and
+verify the resulting source sequence has reached the warehouse, or has been
+superseded by a valid newer transition. Outbox PubAck is not warehouse evidence.
+An interrupted finalizer resumes its cursor and outstanding repairs; it cannot
+mark the generation complete merely because it dispatched them.
+
+**Reconciliation and readiness.** Run the approved daily per-device comparison
+over the union of source and warehouse device ordinals, including warehouse-only
+devices. Use bounded reads and one versioned canonical fact encoding for the
+specified identity, sequence and actionable attributes on both sides. Compare
+the count and an order-independent sum of SHA-256 row hashes modulo 2^256;
+include the key and explicit null/type encodings. Reconciliation reads current
+source attributes, not only retained publications, and also checks lifecycle and
+dimension state. Live changes may cause a retry or a repair request; rechecking
+under the source locks preserves those changes.
+
+Export inspected-device, mismatch, deferred, repair-pending, generation-age and
+delivery-recovery counts. A completed generation records its fence and verified
+coverage. Exposure readiness additionally requires prepared sources, restored
+device work and dimension coverage, no unresolved scoped delivery journal, and
+no unresolved comparison/repair obligation. Ordinary live traffic continues;
+readiness does not require a globally empty outbox. Freshness still uses the
+existing age gates. StarRocks-disabled behavior and CNPG assessment queries are
+unchanged. Task 1.6 stays open until the entire protocol is validated.
+
+**Delivery order and evidence.** Implement in three reviewable PRs: (1) retained
+delivery envelopes and crash-safe cleanup, (2) the bounded source publisher and
+snapshot ingestion/finalization, (3) reconciliation and readiness. They form one
+approved contract, so routine implementation choices do not need new product
+decisions. Each PR uses no-mistakes and hosted checks; no rollout is included.
+Acceptance must cover original-stream expiry during an unfinished load, crashes
+at capture/apply/receipt/cleanup boundaries, duplicate and conflicting envelopes,
+missing/reordered pages and early end markers, aborted-reader restart, generation
+label separation, both orders of concurrent live resolution, equal-sequence
+drift, lifecycle restoration, missing dimensions, out-of-band warehouse deletion,
+warehouse-only devices, full-stream backpressure and a legacy unrecoverable
+journal staying blocked. Prove negative cases can fail; report the remaining
+fleet-scale performance gate separately from small synthetic correctness tests.
+
+
+**First implementation slice.** `ExposureRecovery` retains deterministic envelopes
+and verifies their hashes through the real JetStream API. The delivery journal
+uses `capturing`, `applying`, `complete` and `snapshot_required`; migration
+`20261025234000` classifies existing journals as `legacy`. A confirmed missing
+unstarted input leaves its source positions in `snapshot_required` for the later
+coordinator; it does not clear the bucket or report delivery. Legacy uncertainty
+remains blocked. This slice includes no snapshot producer, finalizer,
+reconciliation or readiness signal, so task 1.6 remains unchecked.
+
+The chart and single-server capacity checks include the fixed recovery
+reservation. The smallest chart profile reserves about 1.44 GiB against its
+1.58 GiB planning limit. Real-broker tests exercise immutable repeat publication,
+conflicting content, the full 64 MiB stream, deletion retries and forward progress
+after cleanup. Database tests own interrupted delivery and cleanup behavior.
+Before an eventual rollout, quiesce old-version exposure consumers: their old
+journal cleanup cannot account for retained envelopes. No rollout is included.
 
 ## Section 0 evidence (2026-10-21)
 
