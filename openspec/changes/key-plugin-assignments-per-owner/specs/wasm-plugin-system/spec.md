@@ -3,7 +3,7 @@
 ### Requirement: Per-Rule Plugin Assignment Ownership
 The control plane SHALL allow an agent to hold more than one enabled assignment for the same plugin when the assignments are owned by different credential rules, and SHALL otherwise keep at most one enabled assignment per (partition, agent, plugin).
 Ownership SHALL be derived from the assignment's policy id: `network-credential-rule:<rule id>` with any suffix is owned by that rule; a manual assignment or any other policy id keeps the original single-assignment rule. Reconciliation SHALL NOT adopt an assignment owned by a different credential rule, and SHALL adopt the assignment of its own rule even when other rules' assignments for the plugin are enabled on the same agent. When a same-rule row and a manual or other non-rule row both collide, reconciliation SHALL adopt the same-rule row.
-The database SHALL enforce same-owner duplicates with a unique index on (partition, agent, plugin, owner key) over enabled assignments, where the owner key is the credential rule id for a rule-owned assignment and one shared value for every other assignment. That index cannot express a manual or other non-rule assignment beside a rule-owned assignment; `NoDuplicateEnabledAssignment` refuses that pairing.
+The database SHALL enforce same-owner duplicates with a unique index on (partition, agent, plugin, owner key) over enabled assignments, where the owner key is the credential rule id for a rule-owned assignment and one shared value for every other assignment. That index cannot express a manual or other non-rule assignment beside a rule-owned assignment; `NoDuplicateEnabledAssignment` refuses that pairing, and writes that leave an assignment enabled SHALL be serialized per (partition, agent, plugin) inside their transaction, with a transaction-scoped lock, so that two concurrent writes cannot both pass that check.
 Config delivery SHALL deliver every enabled assignment of a plugin that does not conflict with a more recently updated one, each under its own assignment id and with credentials resolved from its own parameters, and the agent SHALL run one plugin instance per assignment id.
 
 #### Scenario: Inventory and interface check rules coexist
@@ -29,6 +29,12 @@ Config delivery SHALL deliver every enabled assignment of a plugin that does not
 - **WHEN** the first rule is reconciled under its current policy id
 - **THEN** the first rule's existing assignment is adopted and no second enabled assignment is created
 - **AND** the other rule's assignment is left unchanged
+
+#### Scenario: Concurrent manual and rule-owned writes cannot both enable a row
+- **GIVEN** a transaction that has written an enabled manual assignment of a plugin for an agent and not yet committed
+- **WHEN** a credential rule concurrently creates an enabled assignment of that plugin for the same agent
+- **THEN** the rule's write waits for the manual write to commit
+- **AND** the rule's write is rejected, leaving one enabled assignment
 
 #### Scenario: Manual assignments keep the single-assignment rule
 - **GIVEN** an enabled manual assignment for a plugin on an agent

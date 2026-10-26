@@ -24,6 +24,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
   alias ServiceRadar.Plugins.Changes.RejectLegacyUnboundAssignmentMutation
   alias ServiceRadar.Plugins.Changes.RejectPolicyOwnedAssignmentDestroy
   alias ServiceRadar.Plugins.Changes.ReleaseRolloutOverride
+  alias ServiceRadar.Plugins.Changes.SerializeEnabledAssignment
   alias ServiceRadar.Plugins.Changes.SetAssignmentPluginId
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.Validations.AssignmentParams
@@ -117,6 +118,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change SetAssignmentPluginId
       change ApplyConfigDefaults
       change ApplyPluginUpdatePolicy
+      change SerializeEnabledAssignment
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate ServiceRadar.Plugins.Validations.NoShadowedManualAssignment
@@ -135,6 +137,7 @@ defmodule ServiceRadar.Plugins.PluginAssignment do
       change ApplyPluginUpdatePolicy
       change ClearRetractionOnEnable
       change ReleaseRolloutOverride
+      change SerializeEnabledAssignment
       validate PackageApproved
       validate NoDuplicateEnabledAssignment
       validate AssignmentParams

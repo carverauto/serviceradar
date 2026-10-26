@@ -225,6 +225,90 @@ defmodule ServiceRadar.Plugins.PluginAssignmentTest do
     assert owner_conflict?.(insert.("other-policy", "policy-#{unique_id}"))
   end
 
+  # The owner index allows a manual row next to a rule-owned row, so only the
+  # validation refuses that pair. Two writers that each validate before the
+  # other commits must not both enable a row.
+  @tag sandbox: :unboxed
+  test "a manual create and a concurrent rule-owned create cannot both enable a row", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
+    system = SystemActor.system(:plugin_assignment_test)
+    plugin_id = "serialized-enable-#{unique_id}"
+    agent_uid = "agent-serialized-enable-#{unique_id}"
+    %{rows: [[job_floor]]} = Repo.query!("SELECT COALESCE(max(id), 0) FROM platform.oban_jobs")
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.plugin_assignments WHERE agent_uid = $1", [agent_uid])
+      Repo.query!("DELETE FROM platform.plugin_packages WHERE plugin_id = $1", [plugin_id])
+      Repo.query!("DELETE FROM platform.plugins WHERE plugin_id = $1", [plugin_id])
+      Repo.query!("DELETE FROM platform.oban_jobs WHERE id > $1", [job_floor])
+    end)
+
+    register_control_session!(agent_uid, "partition-a")
+    on_exit(fn -> unregister_control_session!("partition-a", agent_uid) end)
+    {:ok, package} = create_approved_package(actor, plugin_id)
+    parent = self()
+
+    manual =
+      Task.async(fn ->
+        Repo.transaction(fn ->
+          created =
+            PluginAssignment
+            |> Ash.Changeset.for_create(
+              :create,
+              %{agent_uid: agent_uid, plugin_package_id: package.id, enabled: true, params: %{}},
+              actor: actor
+            )
+            |> Ash.create()
+
+          send(parent, {:manual_written, created})
+
+          receive do
+            :commit -> created
+          after
+            10_000 -> Repo.rollback(:not_released)
+          end
+        end)
+      end)
+
+    assert_receive {:manual_written, {:ok, _manual}}, 10_000
+
+    rule =
+      Task.async(fn ->
+        PluginAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            agent_uid: agent_uid,
+            plugin_package_id: package.id,
+            source: :policy,
+            source_key: "serialized-enable:#{unique_id}",
+            policy_id: "network-credential-rule:rule-#{unique_id}:inventory",
+            enabled: true,
+            params: %{}
+          },
+          actor: system
+        )
+        |> Ash.create()
+      end)
+
+    # Unserialized, the rule create finishes here, before the manual row commits.
+    rule_before_commit = Task.yield(rule, 2_000)
+    send(manual.pid, :commit)
+    assert {:ok, {:ok, _manual}} = Task.await(manual, 10_000)
+    {:ok, rule_result} = rule_before_commit || Task.yield(rule, 10_000)
+
+    assert {:error, error} = rule_result
+    assert Exception.message(error) =~ "plugin is already enabled for this agent"
+
+    assert %{rows: [[1]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.plugin_assignments WHERE agent_uid = $1 AND enabled",
+               [agent_uid]
+             )
+  end
+
   test "disabled duplicate assignments are allowed but not active", %{
     actor: actor,
     unique_id: unique_id
