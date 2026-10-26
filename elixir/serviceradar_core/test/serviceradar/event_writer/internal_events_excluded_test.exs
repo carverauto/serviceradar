@@ -61,9 +61,9 @@ defmodule ServiceRadar.EventWriter.InternalEventsExcludedTest do
         # agent, not this deployment reporting on itself, so it belongs on JetStream like
         # every other ingestion subject. `mtr` is the same case: agents trace remote targets and
         # core relays the traces for EventWriter to store. Assessment transitions
-        # describe vulnerabilities on monitored devices and use the same durable path.
+        # and their recovery snapshots describe vulnerabilities on monitored devices.
         assert stream.subject =~
-                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr|vulnerability\.assessment\.transitions|exposure\.dimensions)/,
+                 ~r/(events|logs|otel|netflow|scans|sweep|telemetry|metrics|analytics|falco|trivy|bmp|arancini|siem|pdns|flow|flows|inventory|mtr|vulnerability\.assessment\.transitions|exposure\.dimensions|^exposure\.snapshots\.>$)/,
                "Stream #{stream.name} has subject #{stream.subject} which may not be for external data"
       end
     end

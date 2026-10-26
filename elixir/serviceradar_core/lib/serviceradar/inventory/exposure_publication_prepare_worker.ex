@@ -95,8 +95,12 @@ defmodule ServiceRadar.Inventory.ExposurePublicationPrepareWorker do
       Repo.query!(
         """
         SELECT id::text, device_uid, package_identity_key, cve_id,
-          last_exposure_publication IS NULL
-        FROM platform.endpoint_vulnerability_assessments
+          last_exposure_publication IS NULL OR
+          NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'cve'
+            AND d.ordinal = (a.last_exposure_publication->>'cve_ord')::bigint) OR
+          NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'package'
+            AND d.ordinal = (a.last_exposure_publication->>'pkgver_ord')::bigint)
+        FROM platform.endpoint_vulnerability_assessments a
         WHERE id > $1 AND ($2::text IS NULL OR device_uid = $2)
         ORDER BY id LIMIT #{@page_size}
         """,
@@ -112,8 +116,12 @@ defmodule ServiceRadar.Inventory.ExposurePublicationPrepareWorker do
     rows =
       Repo.query!(
         """
-        SELECT device_uid, package_identity_key, cve_id, payload IS NULL
-        FROM platform.exposure_fact_watermarks
+        SELECT device_uid, package_identity_key, cve_id, payload IS NULL OR
+          NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'cve'
+            AND d.ordinal = (w.payload->>'cve_ord')::bigint) OR
+          NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'package'
+            AND d.ordinal = (w.payload->>'pkgver_ord')::bigint)
+        FROM platform.exposure_fact_watermarks w
         WHERE (device_uid, package_identity_key, cve_id) > ($1, $2, $3)
           AND ($4::text IS NULL OR device_uid = $4)
         ORDER BY device_uid, package_identity_key, cve_id LIMIT #{@page_size}
@@ -143,7 +151,7 @@ defmodule ServiceRadar.Inventory.ExposurePublicationPrepareWorker do
 
   defp repair(uid, package, cve) do
     [[payload]] =
-      Repo.query!("SELECT platform.exposure_repair_publication($1, $2, $3, 0, true)", [
+      Repo.query!("SELECT platform.exposure_prepare_snapshot_publication($1, $2, $3)", [
         uid,
         package,
         cve

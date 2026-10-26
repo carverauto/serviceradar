@@ -70,6 +70,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :bmp_routing_events
           | :flow_attribution_observations
           | :exposure_facts
+          | :exposure_snapshot_facts
           | :exposure_transitions_log
           | :exposure_cve_dim
           | :exposure_package_dim
@@ -90,6 +91,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     bmp_routing_events: "bmp_routing_events",
     flow_attribution_observations: "flow_process_attribution_observations",
     exposure_facts: "exposure_facts",
+    exposure_snapshot_facts: "exposure_facts",
     exposure_transitions_log: "exposure_transitions_log",
     exposure_cve_dim: "exposure_cve_dim",
     exposure_package_dim: "exposure_package_dim",
@@ -356,6 +358,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
       when dataset in [
              :flow_attribution,
              :exposure_facts,
+             :exposure_snapshot_facts,
              :exposure_transitions_log,
              :exposure_cve_dim,
              :exposure_package_dim,
@@ -594,6 +597,13 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     |> Keyword.put(:partial_update, true)
     |> Keyword.put(:merge_condition, "transition_seq")
     |> Keyword.put(:columns, Rows.exposure_fact_columns())
+  end
+
+  defp dataset_load_opts(opts, :exposure_snapshot_facts) do
+    opts
+    |> Keyword.put(:partial_update, true)
+    |> Keyword.put(:merge_condition, "transition_seq")
+    |> Keyword.put(:columns, Rows.exposure_fact_columns() ++ ["snapshot_generation"])
   end
 
   defp dataset_load_opts(opts, dataset)

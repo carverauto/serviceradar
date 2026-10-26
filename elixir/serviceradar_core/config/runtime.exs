@@ -1749,6 +1749,8 @@ if config_env() == :prod do
            {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
            {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
            {"* * * * *", ServiceRadar.Inventory.ExposureDeviceRefreshWorker, queue: :maintenance},
+           {"* * * * *", ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker,
+            queue: :maintenance},
            {"17 * * * *", ServiceRadar.Inventory.ExposurePublicationPrepareWorker,
             queue: :maintenance},
            {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker,
@@ -2028,6 +2030,7 @@ if config_env() == :prod do
         Config.mtr_results_stream(),
         Config.exposure_transitions_stream(),
         Config.exposure_dimensions_stream(),
+        Config.exposure_snapshots_stream(),
         %{
           name: "BMP_CAUSAL",
           stream_name: "events",

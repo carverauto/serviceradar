@@ -63,35 +63,56 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
   end
 
   def retain(bucket, id, body, hash) do
-    with :ok <- ensure_stream() do
-      case request(subject(bucket, id), body) do
+    retain_envelope(subject(bucket, id), body, hash)
+  end
+
+  @doc "Retain a bounded immutable envelope on an owned recovery subject."
+  def retain_envelope(subject, body, hash) when byte_size(body) <= @max_bytes do
+    with true <- digest(body) == hash,
+         :ok <- ensure_stream() do
+      case request(subject, body) do
         {:ok, %{"stream" => @stream, "seq" => seq}} when is_integer(seq) and seq > 0 ->
           {:ok, seq}
 
         result ->
           # Covers lost PubAck and insert-only subject conflicts, without relying
           # on JetStream's time-limited duplicate window.
-          case fetch(bucket, id, hash) do
-            {:ok, seq, _entries} -> {:ok, seq}
+          case fetch_envelope(subject, hash) do
+            {:ok, seq, _body} -> {:ok, seq}
             :missing -> {:error, {:exposure_recovery_publish, result}}
             error -> error
           end
       end
+    else
+      false -> {:error, :exposure_recovery_content_conflict}
+      error -> error
     end
   end
 
+  def retain_envelope(_subject, _body, _hash), do: {:error, :exposure_recovery_envelope_too_large}
+
   def fetch(bucket, id, hash, position \\ nil) do
-    selector = if position, do: %{seq: position}, else: %{last_by_subj: subject(bucket, id)}
-    expected_subject = subject(bucket, id)
+    with {:ok, seq, body} <- fetch_envelope(subject(bucket, id), hash, position),
+         {:ok, [1, ^id, ^bucket, rows]} when is_list(rows) <- Jason.decode(body),
+         {:ok, entries} <- decode_rows(rows, bucket) do
+      {:ok, seq, entries}
+    else
+      :missing -> :missing
+      {:error, _} = error -> error
+      _ -> {:error, :exposure_recovery_content_conflict}
+    end
+  end
+
+  @doc "Read an exact retained position (or uncertain publication) and verify its bytes."
+  def fetch_envelope(expected_subject, hash, position \\ nil) do
+    selector = if position, do: %{seq: position}, else: %{last_by_subj: expected_subject}
 
     case request("$JS.API.STREAM.MSG.GET.#{@stream}", Jason.encode!(selector)) do
       {:ok, %{"message" => %{"subject" => ^expected_subject, "seq" => seq, "data" => data}}}
       when is_integer(seq) and seq > 0 ->
         with {:ok, body} <- Base.decode64(data),
-             true <- byte_size(body) <= @max_bytes and digest(body) == hash,
-             {:ok, [1, ^id, ^bucket, rows]} when is_list(rows) <- Jason.decode(body),
-             {:ok, entries} <- decode_rows(rows, bucket) do
-          {:ok, seq, entries}
+             true <- byte_size(body) <= @max_bytes and digest(body) == hash do
+          {:ok, seq, body}
         else
           _ -> {:error, :exposure_recovery_content_conflict}
         end
@@ -126,7 +147,7 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
     end
   end
 
-  defp ensure_stream do
+  def ensure_stream do
     case JetstreamConsumer.stream_info(&request/2, @stream) do
       {:ok, config, _bytes} ->
         validate_config(config)

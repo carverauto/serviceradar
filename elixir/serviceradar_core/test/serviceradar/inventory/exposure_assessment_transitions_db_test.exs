@@ -13,10 +13,18 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
   alias ServiceRadar.EventWriter.ExposureDelivery
   alias ServiceRadar.EventWriter.ExposureRecovery
+  alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Snapshot
+  alias ServiceRadar.EventWriter.ExposureSnapshotWarehouse, as: SnapshotWarehouse
+  alias ServiceRadar.EventWriter.Processors.ExposureSnapshots
+  alias ServiceRadar.EventWriter.Processors.ExposureTransitions
   alias ServiceRadar.Inventory.ExposureDeviceRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRefreshWorker
   alias ServiceRadar.Inventory.ExposureDimensionRelay
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
+  alias ServiceRadar.Inventory.ExposureSnapshotFinalizer
+  alias ServiceRadar.Inventory.ExposureSnapshotRepairs
+  alias ServiceRadar.Inventory.ExposureSnapshotState
+  alias ServiceRadar.Inventory.ExposureSnapshotWorker
   alias ServiceRadar.Inventory.ExposureTransitionRelay
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.DirectSession
@@ -34,6 +42,450 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   setup do
     unique = System.unique_integer([:positive])
     {:ok, unique: unique, device_uid: "sr:exposure-transition-#{unique}"}
+  end
+
+  @tag :tmp_dir
+  test "snapshot receipts wait for warehouse confirmation and reject gaps, conflicts and early end markers",
+       ctx do
+    snapshot_http!()
+    package = insert_endpoint_package!(ctx.unique)
+    insert_assessment!(ctx, package, "EXAMPLE-SNAPSHOT-RECEIPT")
+    payload = publication(ctx.device_uid, "EXAMPLE-SNAPSHOT-RECEIPT")
+    lane = "device-#{:erlang.phash2(ctx.device_uid, 16)}"
+    owner = Ecto.UUID.generate()
+    [[view]] = Repo.query!("SELECT pg_current_snapshot()::text").rows
+
+    {:ok, generation} =
+      ExposureSnapshotState.create(
+        payload["device_ord"],
+        view,
+        owner,
+        System.system_time(:millisecond) + 30_000
+      )
+
+    id = generation["id"]
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      assert {:ok, 1} =
+               generation
+               |> snapshot_control("start", %{"snapshot" => view})
+               |> ExposureSnapshots.process_batch()
+
+      assert {:ok, :ok} = ExposureSnapshotState.phase(id, owner, "lifecycle")
+      assert {:ok, :ok} = ExposureSnapshotState.phase(id, owner, "facts")
+      page = Snapshot.page(generation, lane, Snapshot.empty_receipt(), "facts", [payload])
+      {:ok, body, hash} = Snapshot.encode(page)
+
+      assert {:error, :exposure_snapshot_page_not_reserved} =
+               page
+               |> Map.put("page", 2)
+               |> snapshot_message()
+               |> ExposureSnapshots.process_batch()
+
+      assert {:error, :exposure_snapshot_incomplete} =
+               generation
+               |> snapshot_control("end", %{"manifest" => Snapshot.empty_manifest()})
+               |> ExposureSnapshots.process_batch()
+
+      assert {:ok, _} = ExposureSnapshotState.reserve(id, owner, page, hash)
+      message = snapshot_message(page)
+      task = Task.async(fn -> ExposureSnapshots.process_batch(message) end)
+
+      assert_receive {:load, http, "/api/serviceradar/exposure_facts/_stream_load", _, [row]},
+                     5_000
+
+      assert row["snapshot_generation"] == id
+      assert {:ok, pending} = ExposureSnapshotState.get(id)
+      assert pending["receipts"][lane]["page"] == 0
+      assert pending["pending"][lane]["state"] == "applying"
+
+      assert {:error, :exposure_snapshot_incomplete} =
+               ExposureSnapshotState.end_manifest(id, owner, Snapshot.empty_manifest())
+
+      refute Task.yield(task, 20)
+      send(http, :commit)
+      assert {:ok, 1} = Task.await(task)
+      assert {:ok, received} = ExposureSnapshotState.get(id)
+      assert received["receipts"][lane] == %{"page" => 1, "count" => 1, "digest" => hash}
+      assert received["pending"] == %{}
+      assert :missing = ExposureRecovery.fetch_envelope(Snapshot.subject(id, lane, 1), hash)
+      assert {:ok, 1} = ExposureSnapshots.process_batch(snapshot_message(page))
+      changed = put_in(page, ["records"], [Map.put(payload, "kev", !payload["kev"])])
+
+      assert {:error, :exposure_snapshot_receipt_conflict} =
+               ExposureSnapshots.process_batch(snapshot_message(changed))
+
+      # Delete rejected test messages so their distinct bytes do not occupy
+      # the exact-subject slot needed by the valid end marker.
+      assert :ok = delete_snapshot_subject(id, "end")
+      assert {:ok, finished} = ExposureSnapshotState.end_manifest(id, owner, received["receipts"])
+
+      assert {:ok, 1} =
+               finished
+               |> snapshot_control("end", %{"manifest" => received["receipts"]})
+               |> ExposureSnapshots.process_batch()
+
+      assert :ok = ExposureSnapshotFinalizer.step(id)
+      assert {:ok, %{"status" => "complete"}} = ExposureSnapshotState.get(id)
+      assert Snapshot.digest(body) == hash
+      refute_received {:load, _, "/api/serviceradar/exposure_transitions_log/_stream_load", _, _}
+    end)
+  end
+
+  test "snapshot drift creates a fresh source publication and PubAck or equal-sequence wrong content cannot discharge it",
+       ctx do
+    snapshot_http!()
+    package = insert_endpoint_package!(ctx.unique)
+    cve = "EXAMPLE-SNAPSHOT-REPAIR"
+    insert_assessment!(ctx, package, cve)
+    original = publication(ctx.device_uid, cve)
+    {:ok, [%{fact: fact}]} = ExposureTransitions.decode([%{data: Jason.encode!(original)}])
+
+    request = %{
+      "key" => SnapshotWarehouse.key(fact),
+      "observed" => original["transition_seq"],
+      "source" => [ctx.device_uid, original["package_identity_key"], cve]
+    }
+
+    assert {:ok, {:ok, [repair]}} =
+             Repo.transaction(fn -> ExposureSnapshotRepairs.publish([request]) end)
+
+    assert repair["required"] > original["transition_seq"]
+    updated = publication(ctx.device_uid, cve)
+    assert updated["transition_seq"] == repair["required"]
+
+    assert {:ok, %{failed: 0}} =
+             ExposureTransitionRelay.relay_once(
+               batch_size: 10_000,
+               publish: fn _, _, _ -> :ok end
+             )
+
+    assert {:ok, [^repair]} = ExposureSnapshotRepairs.verify([repair])
+    {:ok, [%{fact: repaired}]} = ExposureTransitions.decode([%{data: Jason.encode!(updated)}])
+    snapshot_query!(fn _sql -> warehouse_rows([Map.put(repaired, "kev", !repaired["kev"])]) end)
+    assert {:ok, [^repair]} = ExposureSnapshotRepairs.verify([repair])
+    snapshot_query!(fn _sql -> warehouse_rows([repaired]) end)
+    assert {:ok, []} = ExposureSnapshotRepairs.verify([repair])
+
+    for {kind, ordinal} <- [{"cve", updated["cve_ord"]}, {"package", updated["pkgver_ord"]}] do
+      [[before]] =
+        Repo.query!(
+          "SELECT payload FROM platform.exposure_dimension_state WHERE kind = $1 AND ordinal = $2",
+          [
+            kind,
+            ordinal
+          ]
+        ).rows
+
+      assert {:ok, {:ok, [assigned]}} =
+               Repo.transaction(fn ->
+                 ExposureSnapshotRepairs.publish([
+                   %{"kind" => kind, "key" => ordinal, "observed" => before["transition_seq"]}
+                 ])
+               end)
+
+      [[after_repair]] =
+        Repo.query!(
+          "SELECT payload FROM platform.exposure_dimension_state WHERE kind = $1 AND ordinal = $2",
+          [
+            kind,
+            ordinal
+          ]
+        ).rows
+
+      assert assigned["required"] == after_repair["transition_seq"]
+      assert after_repair["transition_seq"] > before["transition_seq"]
+
+      assert Map.drop(before, ["transition_seq", "updated_at"]) ==
+               Map.drop(after_repair, ["transition_seq", "updated_at"])
+    end
+
+    Repo.query!("UPDATE platform.device_fleet_ordinals SET tombstoned = true WHERE uid = $1", [
+      ctx.device_uid
+    ])
+
+    [[marker]] =
+      Repo.query!("SELECT platform.exposure_lifecycle_publication($1)", [updated["device_ord"]]).rows
+
+    assert {:ok, {:ok, [assigned]}} =
+             Repo.transaction(fn ->
+               ExposureSnapshotRepairs.publish([
+                 %{
+                   "kind" => "lifecycle",
+                   "key" => updated["device_ord"],
+                   "observed" => marker["transition_seq"]
+                 }
+               ])
+             end)
+
+    [[new_marker]] =
+      Repo.query!("SELECT platform.exposure_lifecycle_publication($1)", [updated["device_ord"]]).rows
+
+    assert new_marker["state"] == "retired"
+    assert new_marker["transition_seq"] == assigned["required"]
+    assert new_marker["transition_seq"] > marker["transition_seq"]
+    assert new_marker in transitions(ctx.device_uid)
+  end
+
+  @tag sandbox: :unboxed
+  @tag :tmp_dir
+  test "the publisher holds one MVCC view across phase boundaries and a lost reader starts a new generation",
+       ctx do
+    snapshot_http!()
+    package = insert_endpoint_package!(ctx.unique)
+    cve = "EXAMPLE-SNAPSHOT-VIEW-#{ctx.unique}"
+    insert_assessment!(ctx, package, cve)
+    original = publication(ctx.device_uid, cve)
+    scope = original["device_ord"]
+
+    on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.exposure_snapshot_generations WHERE (control->>'scope')::bigint = $1",
+        [scope]
+      )
+
+      Repo.query!(
+        "DELETE FROM oban_jobs WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker' AND args->>'device_ord' = $1",
+        [to_string(scope)]
+      )
+
+      cleanup_source(ctx, package)
+    end)
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
+      {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
+      args = %{"device_ord" => scope}
+      publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+      assert_receive {:msg, %{topic: start_subject, body: start_body}}, 5_000
+      {:ok, start, _} = Snapshot.decode(start_body)
+      assert start["kind"] == "start"
+      first_id = start["generation"]
+      # This commit occurs after V but before the reader is allowed to page.
+      update_assessment!(ctx.device_uid, cve, kev: true)
+      later = publication(ctx.device_uid, cve)
+      assert later["transition_seq"] > original["transition_seq"]
+      assert {:ok, 1} = consume_retained(conn, start_subject, start_body)
+      {pages, loads} = consume_snapshot_until_end(conn, [])
+      assert :ok = Task.await(publisher, 5_000)
+      facts = pages |> Enum.filter(&(&1["phase"] == "facts")) |> Enum.flat_map(& &1["records"])
+      assert facts == [original]
+
+      assert Enum.any?(loads, fn {path, rows} ->
+               String.contains?(path, "exposure_facts") and
+                 Enum.any?(rows, &(&1["transition_seq"] == original["transition_seq"]))
+             end)
+
+      assert {:ok, first} = ExposureSnapshotState.get(first_id)
+      assert first["status"] == "finalizing"
+      assert first["snapshot"] == start["snapshot"]
+      assert :ok = ExposureSnapshotFinalizer.step(first_id)
+
+      lost = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+      assert_receive {:msg, %{body: lost_body}}, 5_000
+      {:ok, lost_start, _} = Snapshot.decode(lost_body)
+      assert lost_start["kind"] == "start"
+      # Kill the reader while it waits for start receipt, before any load.
+      Task.shutdown(lost, :brutal_kill)
+      assert :ok = ExposureSnapshotWorker.recover_reader()
+      assert {:ok, %{"status" => "aborted"}} = ExposureSnapshotState.get(lost_start["generation"])
+      replacement = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+      assert_receive {:msg, %{topic: replacement_subject, body: replacement_body}}, 5_000
+      {:ok, replacement_start, _} = Snapshot.decode(replacement_body)
+      assert replacement_start["generation"] > lost_start["generation"]
+      assert replacement_start["snapshot"] != lost_start["snapshot"]
+      assert {:ok, 1} = consume_retained(conn, replacement_subject, replacement_body)
+      {replacement_pages, _} = consume_snapshot_until_end(conn, [])
+      assert :ok = Task.await(replacement, 5_000)
+
+      assert replacement_pages
+             |> Enum.filter(&(&1["phase"] == "facts"))
+             |> Enum.flat_map(& &1["records"]) == [later]
+
+      assert :ok = ExposureSnapshotFinalizer.step(replacement_start["generation"])
+    end)
+  end
+
+  defp consume_snapshot_until_end(conn, pages, loads \\ []) do
+    receive do
+      {:msg, %{topic: subject, body: body}} ->
+        if String.contains?(subject, ".plan.") do
+          consume_snapshot_until_end(conn, pages, loads)
+        else
+          {:ok, envelope, _} = Snapshot.decode(body)
+          task = Task.async(fn -> consume_retained(conn, subject, body) end)
+          {{:ok, 1}, written} = answer_snapshot_loads(task)
+
+          if envelope["kind"] == "end" do
+            {Enum.reverse(pages), loads ++ written}
+          else
+            consume_snapshot_until_end(conn, [envelope | pages], loads ++ written)
+          end
+        end
+    after
+      10_000 -> flunk("snapshot publisher stopped before a complete end marker")
+    end
+  end
+
+  defp consume_retained(conn, subject, body) do
+    %{"message" => %{"seq" => position}} =
+      ExposureBroker.request(conn, "$JS.API.STREAM.MSG.GET.EXPOSURE_RECOVERY", %{
+        last_by_subj: subject
+      })
+
+    ExposureSnapshots.process_batch([
+      %{
+        data: body,
+        metadata: %{
+          subject: subject,
+          jetstream_ack: %{stream: "EXPOSURE_RECOVERY", stream_sequence: position}
+        }
+      }
+    ])
+  end
+
+  defp answer_snapshot_loads(task, loads \\ []) do
+    ref = task.ref
+
+    receive do
+      {:load, http, path, _headers, rows} ->
+        send(http, :commit)
+        answer_snapshot_loads(task, [{path, rows} | loads])
+
+      {^ref, result} ->
+        Process.demonitor(ref, [:flush])
+        {result, Enum.reverse(loads)}
+    after
+      10_000 -> flunk("snapshot processor did not settle")
+    end
+  end
+
+  @tag :tmp_dir
+  test "a deployment start accounts for unstarted gaps in empty lanes but keeps legacy uncertainty blocked",
+       ctx do
+    snapshot_http!()
+    owner = Ecto.UUID.generate()
+    [[view]] = Repo.query!("SELECT pg_current_snapshot()::text").rows
+
+    {:ok, generation} =
+      ExposureSnapshotState.create(nil, view, owner, System.system_time(:millisecond) + 30_000)
+
+    Repo.query!(
+      """
+      INSERT INTO platform.exposure_delivery_batches(bucket, stream_sequences, phase, operation_id, payload_hash)
+      VALUES (0, ARRAY[90001,90002]::bigint[], 'snapshot_required', $1, repeat('0', 64)),
+             (1, ARRAY[90003]::bigint[], 'legacy', NULL, NULL)
+      """,
+      [Ecto.UUID.dump!(Ecto.UUID.generate())]
+    )
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn _conn, _port ->
+      assert {:error, _} =
+               generation
+               |> snapshot_control("start", %{"snapshot" => view})
+               |> ExposureSnapshots.process_batch()
+
+      assert [] =
+               Repo.query!("SELECT 1 FROM platform.exposure_delivery_batches WHERE bucket = 0").rows
+
+      assert [["legacy"]] =
+               Repo.query!(
+                 "SELECT phase FROM platform.exposure_delivery_batches WHERE bucket = 1"
+               ).rows
+
+      assert {:ok, state} = ExposureSnapshotState.get(generation["id"])
+      assert state["history_gaps"] == 2
+      refute state["started"]
+      refute_received {:load, _, _, _, _}
+    end)
+  end
+
+  defp snapshot_http! do
+    alias ServiceRadar.Analytics.StarRocks
+    alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
+
+    previous = Application.get_env(:serviceradar_core, StarRocks, [])
+    on_exit(fn -> Application.put_env(:serviceradar_core, StarRocks, previous) end)
+    if !Process.whereis(LoadSupervisor), do: start_supervised!(LoadSupervisor)
+
+    {:ok, listener} =
+      :gen_tcp.listen(0, [:binary, packet: :line, active: false, ip: {127, 0, 0, 1}])
+
+    {:ok, {_, port}} = :inet.sockname(listener)
+    on_exit(fn -> :gen_tcp.close(listener) end)
+    parent = self()
+
+    start_supervised!(
+      {Task, fn -> ServiceRadar.TestSupport.ExposureHTTPLoad.serve(listener, parent) end}
+    )
+
+    Application.put_env(:serviceradar_core, StarRocks,
+      enabled: true,
+      fe_http: "http://127.0.0.1:#{port}",
+      mysql: fn _ -> warehouse_rows([]) end
+    )
+  end
+
+  defp snapshot_query!(fun) do
+    alias ServiceRadar.Analytics.StarRocks
+
+    config = Application.get_env(:serviceradar_core, StarRocks, [])
+    Application.put_env(:serviceradar_core, StarRocks, Keyword.put(config, :mysql, fun))
+  end
+
+  defp warehouse_rows([]), do: {:ok, %{columns: [], rows: []}}
+
+  defp warehouse_rows([row | _] = rows) do
+    columns = Enum.sort(Map.keys(row))
+
+    {:ok,
+     %{columns: columns, rows: Enum.map(rows, fn value -> Enum.map(columns, &value[&1]) end)}}
+  end
+
+  defp snapshot_control(generation, kind, fields) do
+    snapshot_message(
+      Map.merge(
+        %{
+          "version" => 1,
+          "generation" => generation["id"],
+          "scope" => generation["scope"],
+          "fence" => Snapshot.digest(generation["snapshot"]),
+          "kind" => kind
+        },
+        fields
+      )
+    )
+  end
+
+  defp snapshot_message(envelope) do
+    {:ok, body, hash} = Snapshot.encode(envelope)
+
+    subject =
+      if envelope["kind"],
+        do: "exposure.snapshots.#{envelope["generation"]}.#{envelope["kind"]}",
+        else: Snapshot.subject(envelope["generation"], envelope["lane"], envelope["page"])
+
+    {:ok, position} = ExposureRecovery.retain_envelope(subject, body, hash)
+
+    [
+      %{
+        data: body,
+        metadata: %{
+          subject: subject,
+          jetstream_ack: %{stream: "EXPOSURE_RECOVERY", stream_sequence: position}
+        }
+      }
+    ]
+  end
+
+  defp delete_snapshot_subject(id, suffix) do
+    conn = Process.whereis(ServiceRadar.NATS.Connection.connection_name())
+
+    %{"message" => %{"seq" => position}} =
+      ExposureBroker.request(conn, "$JS.API.STREAM.MSG.GET.EXPOSURE_RECOVERY", %{
+        last_by_subj: "exposure.snapshots.#{id}.#{suffix}"
+      })
+
+    ExposureRecovery.delete(position)
   end
 
   test "an actionable attribute change publishes the complete after-image with ordinals; other writes publish nothing",
