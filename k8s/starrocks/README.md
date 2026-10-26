@@ -79,16 +79,25 @@ exposure views: `exposure_device_catalog` is one row per non-deleted device with
 a non-tombstoned fleet ordinal (owner name, `site` tag and an agent-managed
 flag already extracted), and `exposure_device_tags_catalog` is one row per tag
 key/value of those devices. Neither exposes the assessment, package, advisory,
-fleet-dictionary, agent or alert tables.
+fleet-dictionary, agent or alert tables. Core migration
+`20261026190000_create_flow_threat_catalog_views` creates the two flow threat
+views for the StarRocks 4.1 JDBC catalog: `ip_threat_intel_sources_catalog`
+is one row per cache IP and feed source (the unnested `sources` array), and
+`threat_intel_indicator_members_catalog` is one row per cache IP and containing
+indicator, joined with PostgreSQL's `<<=`, with the indicator text, family and
+fixed-width hex bounds. It also grants `latitude`/`longitude` on
+`ip_geo_enrichment_cache` for `near`.
 
 Nothing else is reachable: `CatalogAllowlist` rejects any other table before
 the SQL leaves core. The grants match the columns compiled subqueries read,
 except `location` on `ip_geo_enrichment_cache`, `sources` on
-`ip_threat_intel_cache`, and `threat_intel_indicators`. Those three stay
-granted and unread; `threat_intel_indicators` is also off the allowlist,
-because the StarRocks 4.1 JDBC catalog cannot read geography, `text[]`, or
-`cidr`. Telemetry hypertables and `network_credential_secrets` are never
-granted.
+`ip_threat_intel_cache`, `indicator` on
+`threat_intel_indicator_members_catalog`, and `threat_intel_indicators`.
+`indicator` is the members view's indicator text, granted for readability and
+not read by SRQL. The other three stay granted and unread;
+`threat_intel_indicators` is also off the allowlist, because the StarRocks 4.1
+JDBC catalog cannot read geography, `text[]`, or `cidr`. Telemetry hypertables
+and `network_credential_secrets` are never granted.
 
 Core migration `20260918120000_create_starrocks_catalog_reader_role` creates the
 role and issues the grants, but only where the migrating connection holds
