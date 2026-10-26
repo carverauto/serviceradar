@@ -1,9 +1,10 @@
 // bazel-reclaim lists stale Bazel output bases left behind by removed git
 // worktrees and, with --apply, deletes them. Dry-run is the default: with no
 // --apply it only reports. A base is stale only when its workspace path no
-// longer exists or its worktree registration is gone from the backing repo;
-// bases with a live workspace or a running Bazel server are never deleted,
-// because other sessions on the same workstation share these roots.
+// longer exists or its worktree registration is gone; an uncertain stat or
+// git failure is not stale. Bases with a live workspace or a running Bazel
+// server are never deleted, because other sessions on the same workstation
+// share these roots.
 package main
 
 import (
@@ -49,7 +50,7 @@ func run(roots []string, apply bool, sizes bool, p probe) error {
 	}
 
 	if len(roots) == 0 {
-		return fmt.Errorf("no output user root found; pass --output-user-root (see bazel info output_path)")
+		return fmt.Errorf("no output user root found; pass --output-user-root (parent of bazel info output_base)")
 	}
 
 	bases, err := discoverBases(roots)
@@ -68,6 +69,10 @@ func run(roots []string, apply bool, sizes bool, p probe) error {
 		var size int64
 		if sizes {
 			size = dirSize(b.Path)
+		}
+
+		if apply && verdict == VerdictStale {
+			verdict, reason = classify(b, p)
 		}
 
 		fmt.Printf("%s\t%s\t%s\t%s (%s)\n", verdict, humanSize(size, sizes), b.Workspace, b.Path, reason)

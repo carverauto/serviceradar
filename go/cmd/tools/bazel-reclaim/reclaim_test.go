@@ -3,7 +3,9 @@ package main
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -44,6 +46,26 @@ func makeWorkspace(t *testing.T, dir, name string, gitDir bool) string {
 	return ws
 }
 
+// materializeGitdir creates the directory named by a linked worktree's gitdir
+// line so classification reaches the worktree list instead of the missing-gitdir path.
+func materializeGitdir(t *testing.T, workspace string) {
+	t.Helper()
+
+	raw, err := os.ReadFile(filepath.Join(workspace, ".git"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rest, ok := strings.CutPrefix(strings.TrimSpace(string(raw)), "gitdir:")
+	if !ok {
+		t.Fatalf("%s .git file has no gitdir line", workspace)
+	}
+
+	if err := os.MkdirAll(strings.TrimSpace(rest), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func deadProbe() probe {
 	return probe{
 		worktreePaths: func(string) ([]string, error) { return nil, nil },
@@ -75,7 +97,18 @@ func TestClassify(t *testing.T) {
 
 	mainCheckout := makeWorkspace(t, wsDir, "main", true)
 	registered := makeWorkspace(t, wsDir, "feature", false)
+	materializeGitdir(t, registered)
 	unregistered := makeWorkspace(t, wsDir, "leftover", false)
+	materializeGitdir(t, unregistered)
+	missingGitdir := makeWorkspace(t, wsDir, "pruned", false)
+	relKeep := makeWorkspace(t, wsDir, "relkeep", false)
+	relGitdir := filepath.Join(wsDir, ".git", "worktrees", "relkeep")
+	if err := os.MkdirAll(relGitdir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(relKeep, ".git"), []byte("gitdir: ../.git/worktrees/relkeep\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	gone := filepath.Join(wsDir, "removed")
 
 	liveBase := makeBase(t, root, "live", gone)
@@ -123,13 +156,44 @@ func TestClassify(t *testing.T) {
 			want: VerdictStale,
 		},
 		{
-			name: "unreadable registration is stale",
-			base: makeBase(t, root, "broken", unregistered),
+			name: "missing gitdir is stale when git cannot be asked",
+			base: makeBase(t, root, "pruned", missingGitdir),
 			probe: probe{
-				worktreePaths: func(string) ([]string, error) { return nil, errors.New("not a git repository") },
+				worktreePaths: func(string) ([]string, error) { return nil, errors.New("executable file not found in $PATH") },
 				pidAlive:      func(int) bool { return false },
 			},
 			want: VerdictStale,
+		},
+		{
+			name: "git reports missing repository is stale",
+			base: makeBase(t, root, "notrepo", unregistered),
+			probe: probe{
+				worktreePaths: func(string) ([]string, error) {
+					return nil, &exec.ExitError{Stderr: []byte("fatal: not a git repository: /synthetic/gitdir\n")}
+				},
+				pidAlive: func(int) bool { return false },
+			},
+			want: VerdictStale,
+		},
+		{
+			name: "other git failure keeps the base",
+			base: makeBase(t, root, "uncertain", unregistered),
+			probe: probe{
+				worktreePaths: func(string) ([]string, error) {
+					return nil, errors.New("fatal: detected dubious ownership in repository")
+				},
+				pidAlive: func(int) bool { return false },
+			},
+			want: VerdictKeep,
+		},
+		{
+			name: "relative gitdir that exists is kept when registered",
+			base: makeBase(t, root, "relkeep", relKeep),
+			probe: probe{
+				worktreePaths: func(string) ([]string, error) { return []string{relKeep}, nil },
+				pidAlive:      func(int) bool { return false },
+			},
+			want: VerdictKeep,
 		},
 		{
 			name: "live server is never reclaimed",
@@ -180,5 +244,84 @@ func TestRunApplyDeletesOnlyStaleBases(t *testing.T) {
 
 	if _, err := os.Stat(keep.Path); err != nil {
 		t.Fatalf("live-workspace base removed by apply: %v", err)
+	}
+}
+
+func TestClassifyUnreadableWorkspaceIsKept(t *testing.T) {
+	root := t.TempDir()
+	outer := t.TempDir()
+	parent := filepath.Join(outer, "parent")
+	ws := filepath.Join(parent, "ws")
+
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	base := makeBase(t, root, "base", ws)
+
+	if err := os.Chmod(parent, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(parent, 0o755) })
+
+	if _, err := os.Stat(ws); err == nil {
+		t.Skip("workspace remained stat-able after removing parent search permission")
+	}
+
+	got, reason := classify(base, deadProbe())
+	if got != VerdictKeep {
+		t.Fatalf("classify = %s (%s), want keep", got, reason)
+	}
+}
+
+func TestRunApplySkipsBaseThatBecomesRegistered(t *testing.T) {
+	root := t.TempDir()
+	wsDir := t.TempDir()
+	ws := makeWorkspace(t, wsDir, "feature", false)
+	materializeGitdir(t, ws)
+	base := makeBase(t, root, "base", ws)
+
+	var calls int
+
+	p := probe{
+		worktreePaths: func(string) ([]string, error) {
+			calls++
+			if calls == 1 {
+				return nil, nil
+			}
+
+			return []string{ws}, nil
+		},
+		pidAlive: func(int) bool { return false },
+	}
+
+	if err := run([]string{root}, true, true, p); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(base.Path); err != nil {
+		t.Fatalf("apply removed a base that was registered again before delete: %v", err)
+	}
+
+	if calls < 2 {
+		t.Fatalf("apply classified %d time(s), want a second check before delete", calls)
+	}
+}
+
+func TestClassifyRealGitMissingRepositoryIsStale(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+
+	root := t.TempDir()
+	wsDir := t.TempDir()
+	ws := makeWorkspace(t, wsDir, "feature", false)
+	materializeGitdir(t, ws)
+	base := makeBase(t, root, "base", ws)
+
+	got, reason := classify(base, defaultProbe())
+	if got != VerdictStale {
+		t.Fatalf("classify = %s (%s), want stale", got, reason)
 	}
 }

@@ -809,8 +809,8 @@ bazel run //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-use
 bazel run //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root --apply
 ```
 
-Find the output user root with `bazel info output_path` (its parent
-directory); a custom root from `~/.bazelrc` must be passed explicitly. A base
+Find the output user root as the parent directory of `bazel info output_base`;
+a custom root from `~/.bazelrc` must be passed explicitly. A base
 counts as stale only when its workspace path no longer exists, or the
 worktree is gone from `git worktree list` in the backing repo. Bases with a
 live workspace or a running Bazel server are never deleted, so `--apply` is

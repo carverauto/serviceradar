@@ -3,13 +3,15 @@
 // Bazel keys each output base on the workspace path, so every git worktree
 // gets its own multi-gigabyte base under the output user root. Removing the
 // worktree does not remove the base. A base is stale only when its workspace
-// is gone: the path no longer exists, or the path is a leftover directory
-// whose git worktree registration was removed. A base whose workspace still
-// exists as a live checkout is never stale, because other sessions on the
-// same workstation share these roots.
+// is gone: the path does not exist, the linked worktree's gitdir does not
+// exist, git reports that path is not a repository, or a successful
+// `git worktree list --porcelain` omits it. A stat or git failure that does
+// not prove the workspace is gone keeps the base. A live checkout is never
+// stale, because other sessions on the same workstation share these roots.
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -98,14 +100,23 @@ func discoverBases(roots []string) ([]Base, error) {
 }
 
 // classify decides whether a base can be reclaimed. A live Bazel server
-// always wins: its base must not be deleted from under it.
+// always wins: its base must not be deleted from under it. Stale means the
+// workspace is positively gone. Any other stat or git failure keeps the base.
 func classify(b Base, p probe) (Verdict, string) {
 	if pid, ok := serverPID(b.Path); ok && p.pidAlive(pid) {
 		return VerdictSkipLiveServer, fmt.Sprintf("bazel server pid %d alive", pid)
 	}
 
 	info, err := os.Stat(b.Workspace)
-	if err != nil || !info.IsDir() {
+	if err != nil {
+		if os.IsNotExist(err) {
+			return VerdictStale, "workspace path no longer exists"
+		}
+
+		return VerdictKeep, "workspace path unreadable: " + err.Error()
+	}
+
+	if !info.IsDir() {
 		return VerdictStale, "workspace path no longer exists"
 	}
 
@@ -115,18 +126,101 @@ func classify(b Base, p probe) (Verdict, string) {
 	gitPath := filepath.Join(b.Workspace, ".git")
 
 	gitInfo, err := os.Stat(gitPath)
-	if err == nil && !gitInfo.IsDir() {
-		registered, listErr := p.worktreePaths(b.Workspace)
-		if listErr != nil {
-			return VerdictStale, "worktree registration unreadable: " + listErr.Error()
+	if err != nil || gitInfo.IsDir() {
+		return VerdictKeep, "workspace exists"
+	}
+
+	if missing, ok := gitdirMissing(gitPath); ok && missing {
+		return VerdictStale, "worktree gitdir no longer exists"
+	}
+
+	registered, listErr := p.worktreePaths(b.Workspace)
+	if listErr != nil {
+		if worktreeRegistrationGone(listErr) {
+			return VerdictStale, "worktree registration no longer exists: " + errText(listErr)
 		}
 
-		if !containsPath(registered, b.Workspace) {
-			return VerdictStale, "worktree no longer registered with its backing repo"
-		}
+		return VerdictKeep, "worktree registration unreadable: " + errText(listErr)
+	}
+
+	if !containsPath(registered, b.Workspace) {
+		return VerdictStale, "worktree no longer registered with its backing repo"
 	}
 
 	return VerdictKeep, "workspace exists"
+}
+
+// gitdirMissing reports whether a linked worktree's gitdir target is absent.
+// ok is false when the .git file or the target cannot be read, which is not
+// proof that the registration was removed.
+func gitdirMissing(gitFile string) (missing bool, ok bool) {
+	raw, err := os.ReadFile(gitFile)
+	if err != nil {
+		return false, false
+	}
+
+	var target string
+
+	for _, line := range strings.Split(string(raw), "\n") {
+		rest, found := strings.CutPrefix(strings.TrimSpace(line), "gitdir:")
+		if !found {
+			continue
+		}
+
+		target = strings.TrimSpace(rest)
+
+		break
+	}
+
+	if target == "" {
+		return false, false
+	}
+
+	if !filepath.IsAbs(target) {
+		target = filepath.Join(filepath.Dir(gitFile), target)
+	}
+
+	_, err = os.Stat(target)
+	if err == nil {
+		return false, true
+	}
+
+	if os.IsNotExist(err) {
+		return true, true
+	}
+
+	return false, false
+}
+
+// worktreeRegistrationGone is true only when git itself reports that the
+// worktree path is not a repository, which is how a removed gitdir shows up.
+// Other failures (git missing, safe.directory, a non-zero exit while the
+// gitdir still exists) are not proof the worktree is gone.
+func worktreeRegistrationGone(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := errText(err)
+
+	return strings.Contains(strings.ToLower(msg), "not a git repository")
+}
+
+func errText(err error) string {
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		if msg := strings.TrimSpace(string(exitErr.Stderr)); msg != "" {
+			return msg
+		}
+
+		if exitErr.ProcessState != nil {
+			return exitErr.Error()
+		}
+
+		return "git worktree list failed"
+	}
+
+	return err.Error()
 }
 
 func serverPID(basePath string) (int, bool) {
