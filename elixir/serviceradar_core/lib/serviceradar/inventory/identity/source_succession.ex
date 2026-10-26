@@ -103,7 +103,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
 
   # The live records reporting one of the MACs: as their MAC, a MAC identifier, an interface
   # MAC, or the MAC the source reports for an id of the type they hold or held. The token
-  # expressions are the ones the MAC indexes are built on (migration 20260709210000).
+  # expressions match the MAC indexes: devices and identifiers in migration 20260709210000,
+  # Armis observations in migration 20261026070000. The query text must stay identical to them.
   @mac_reporters_sql """
   SELECT d.uid FROM platform.ocsf_devices AS d
   WHERE d.deleted_at IS NULL AND d.mac IS NOT NULL
