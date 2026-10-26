@@ -227,6 +227,68 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirementTest do
     assert source_retired?(retired)
   end
 
+  test "hostname-only guest lookup skips a source_retired record when another guest in the batch points at its uid",
+       %{controller: controller} do
+    assert :ok = ingest(controller, 10, [10, 11])
+    retired = record_of(controller, 11)
+    assert :ok = ingest(controller, 20, [10])
+    assert {:ok, %{marked: 1}} = run(controller, hours: 25)
+    assert source_retired?(retired)
+
+    suffix = System.unique_integer([:positive])
+    host_ref = "testhv:node:pve-retired-uid-#{suffix}"
+    guest_a_ref = "testhv:guest:pve-retired-uid-#{suffix}:qemu:411"
+    guest_b_ref = "testhv:guest:pve-retired-uid-#{suffix}:qemu:412"
+
+    payload = %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => "testhv",
+        "hosts" => [
+          %{
+            "provider_ref" => host_ref,
+            "name" => "pve-retired-uid-#{suffix}",
+            "status" => "online",
+            "metadata" => %{"ip" => "203.0.113.201"}
+          }
+        ],
+        "guests" => [
+          %{
+            "provider_ref" => guest_a_ref,
+            "host_provider_ref" => host_ref,
+            "device_uid" => retired,
+            "name" => "vm411-#{suffix}.example.com",
+            "guest_type" => "vm",
+            "vmid" => 411,
+            "status" => "running"
+          },
+          %{
+            "provider_ref" => guest_b_ref,
+            "host_provider_ref" => host_ref,
+            "name" => "host11.example.com",
+            "guest_type" => "vm",
+            "vmid" => 412,
+            "status" => "running"
+          }
+        ]
+      }
+    }
+
+    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: @actor)
+
+    %{rows: guest_devices} =
+      Repo.query!(
+        "SELECT provider_ref, device_uid FROM platform.virtualization_guests WHERE provider = 'testhv' AND provider_ref = ANY ($1)",
+        [[guest_a_ref, guest_b_ref]]
+      )
+
+    guest_uids = Map.new(guest_devices, fn [ref, uid] -> {ref, uid} end)
+    assert guest_uids[guest_a_ref] == retired
+    assert is_binary(guest_uids[guest_b_ref])
+    refute guest_uids[guest_b_ref] == retired
+    assert source_retired?(retired)
+  end
+
   test "a complete observation that reports no host is refused by the mass guard",
        %{controller: controller} do
     assert :ok = ingest(controller, 10, [10, 11])
