@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 
 go_binary(
     name = "bazel-reclaim",
@@ -20,4 +21,12 @@ go_test(
     name = "bazel-reclaim_test",
     srcs = ["reclaim_test.go"],
     embed = [":bazel-reclaim_lib"],
+)
+
+sh_test(
+    name = "cli_test",
+    timeout = "short",
+    srcs = ["cli_test.sh"],
+    args = ["$(rootpath :bazel-reclaim)"],
+    data = [":bazel-reclaim"],
 )
