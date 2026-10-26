@@ -314,6 +314,144 @@ func TestRunApplySkipsBaseThatBecomesRegistered(t *testing.T) {
 	}
 }
 
+func TestApplyIgnoresInheritedGitRepoEnv(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+
+	// Two redirects that both make an uncleared probe lie: a successful list
+	// of another repository, and a missing GIT_DIR that git reports as
+	// "not a git repository" even though this worktree is registered.
+	other := realGitRepo(t)
+	missing := filepath.Join(t.TempDir(), "missing-git-dir")
+
+	cases := []struct {
+		name string
+		env  []string
+	}{
+		{
+			name: "other repository",
+			env: []string{
+				"GIT_DIR=" + filepath.Join(other, ".git"),
+				"GIT_WORK_TREE=" + other,
+				"GIT_COMMON_DIR=" + filepath.Join(other, ".git"),
+				"GIT_OBJECT_DIRECTORY=" + filepath.Join(other, ".git", "objects"),
+			},
+		},
+		{
+			name: "missing repository",
+			env: []string{
+				"GIT_DIR=" + missing,
+				"GIT_WORK_TREE=" + missing + "-worktree",
+				"GIT_COMMON_DIR=" + missing + "-common",
+				"GIT_OBJECT_DIRECTORY=" + missing + "-objects",
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, kv := range tc.env {
+				key, val, _ := strings.Cut(kv, "=")
+				t.Setenv(key, val)
+			}
+
+			root := t.TempDir()
+			_, worktree := realLinkedWorktree(t)
+			live := makeBase(t, root, "live", worktree)
+
+			emptyWS := filepath.Join(t.TempDir(), "empty-ws")
+			emptyGitdir := filepath.Join(t.TempDir(), "empty-gitdir")
+			if err := os.MkdirAll(emptyWS, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.MkdirAll(emptyGitdir, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(emptyWS, ".git"), []byte("gitdir: "+emptyGitdir+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			empty := makeBase(t, root, "empty", emptyWS)
+
+			got, reason := classify(live, defaultProbe())
+			if got != VerdictKeep || reason != "workspace exists" {
+				t.Fatalf("live classify = %s (%s), want keep (workspace exists)", got, reason)
+			}
+
+			got, reason = classify(empty, defaultProbe())
+			if got != VerdictStale || !strings.Contains(strings.ToLower(reason), "not a git repository") {
+				t.Fatalf("empty gitdir classify = %s (%s), want stale because git reports it is not a repository", got, reason)
+			}
+
+			if err := run([]string{root}, true, false, defaultProbe()); err != nil {
+				t.Fatal(err)
+			}
+
+			if _, err := os.Stat(live.Path); err != nil {
+				t.Fatalf("apply removed a registered worktree base: %v", err)
+			}
+
+			if _, err := os.Stat(empty.Path); !os.IsNotExist(err) {
+				t.Fatalf("apply left the empty-gitdir base in place: %v", err)
+			}
+		})
+	}
+}
+
+func realGitRepo(t *testing.T) string {
+	t.Helper()
+
+	repo := filepath.Join(t.TempDir(), "repo")
+	gitRun(t, "init", "-b", "main", repo)
+	gitRun(t, "-C", repo, "commit", "--allow-empty", "-m", "init")
+
+	return repo
+}
+
+func realLinkedWorktree(t *testing.T) (repo string, worktree string) {
+	t.Helper()
+
+	repo = realGitRepo(t)
+	worktree = filepath.Join(t.TempDir(), "wt")
+	gitRun(t, "-C", repo, "worktree", "add", "--detach", worktree)
+
+	return repo, worktree
+}
+
+func gitRun(t *testing.T, args ...string) {
+	t.Helper()
+
+	cmd := exec.Command("git", args...)
+	cmd.Env = append(gitFixtureEnv(),
+		"GIT_CONFIG_COUNT=1",
+		"GIT_CONFIG_KEY_0=safe.directory",
+		"GIT_CONFIG_VALUE_0=*",
+		"GIT_AUTHOR_EMAIL=reclaim@example.com",
+		"GIT_AUTHOR_NAME=reclaim",
+		"GIT_COMMITTER_EMAIL=reclaim@example.com",
+		"GIT_COMMITTER_NAME=reclaim",
+	)
+
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
+}
+
+func gitFixtureEnv() []string {
+	var env []string
+
+	for _, kv := range os.Environ() {
+		key, _, _ := strings.Cut(kv, "=")
+		switch key {
+		case "PATH", "HOME", "TMPDIR", "TMP", "TEMP", "SYSTEMROOT":
+			env = append(env, kv)
+		}
+	}
+
+	return env
+}
+
 func TestClassifyRealGitMissingRepositoryIsStale(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not on PATH")

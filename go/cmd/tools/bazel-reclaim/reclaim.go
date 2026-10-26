@@ -5,9 +5,12 @@
 // worktree does not remove the base. A base is stale only when its workspace
 // is gone: the path does not exist, the linked worktree's gitdir does not
 // exist, git reports that path is not a repository, or a successful
-// `git worktree list --porcelain` omits it. A stat or git failure that does
-// not prove the workspace is gone keeps the base. A live checkout is never
-// stale, because other sessions on the same workstation share these roots.
+// `git worktree list --porcelain` omits it. That list is taken with
+// GIT_DIR, GIT_WORK_TREE, GIT_COMMON_DIR, and GIT_OBJECT_DIRECTORY cleared,
+// so an inherited environment cannot point git at another repository.
+// A stat or git failure that does not prove the workspace is gone keeps the
+// base. A live checkout is never stale, because other sessions on the same
+// workstation share these roots.
 package main
 
 import (
@@ -241,7 +244,10 @@ func serverPID(basePath string) (int, bool) {
 }
 
 func gitWorktreePaths(workspace string) ([]string, error) {
-	out, err := exec.CommandContext(context.Background(), "git", "-C", workspace, "worktree", "list", "--porcelain").Output()
+	cmd := exec.CommandContext(context.Background(), "git", "-C", workspace, "worktree", "list", "--porcelain")
+	cmd.Env = withoutEnv(os.Environ(), "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY")
+
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, err
 	}
@@ -257,16 +263,48 @@ func gitWorktreePaths(workspace string) ([]string, error) {
 	return paths, nil
 }
 
-func containsPath(paths []string, target string) bool {
-	cleanTarget := filepath.Clean(target)
+func withoutEnv(env []string, drop ...string) []string {
+	skip := make(map[string]struct{}, len(drop))
+	for _, key := range drop {
+		skip[key] = struct{}{}
+	}
 
+	kept := make([]string, 0, len(env))
+
+	for _, kv := range env {
+		key, _, _ := strings.Cut(kv, "=")
+		if _, ok := skip[key]; ok {
+			continue
+		}
+
+		kept = append(kept, kv)
+	}
+
+	return kept
+}
+
+func containsPath(paths []string, target string) bool {
 	for _, p := range paths {
-		if filepath.Clean(p) == cleanTarget {
+		if samePath(p, target) {
 			return true
 		}
 	}
 
 	return false
+}
+
+func samePath(a, b string) bool {
+	if filepath.Clean(a) == filepath.Clean(b) {
+		return true
+	}
+
+	infoA, errA := os.Stat(a)
+	infoB, errB := os.Stat(b)
+	if errA != nil || errB != nil {
+		return false
+	}
+
+	return os.SameFile(infoA, infoB)
 }
 
 // dirSize sums file sizes under root without following symlinks.
