@@ -873,11 +873,11 @@ defmodule ServiceRadar.EventWriter.Config do
     }
   end
 
-  @doc "Retained snapshots share the recovery stream, filtering out live-delivery copies."
+  @doc "Snapshots and delayed delivery-copy cleanup share the bounded recovery stream."
   def exposure_snapshots_stream do
     %{
       name: "EXPOSURE_RECOVERY",
-      subject: "exposure.snapshots.>",
+      subject: "exposure.>",
       processor: ServiceRadar.EventWriter.Processors.ExposureSnapshots,
       ensure_stream: false,
       consumer_max_deliver: -1,
