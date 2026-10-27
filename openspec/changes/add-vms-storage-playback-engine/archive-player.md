@@ -1,7 +1,17 @@
 # Per-camera archive player
 
-The recordings page is separate from live viewing. It uses the same fresh
-recording permission and scoped Source reads as the archive API; opening it does
+Open **Recordings** on a device's camera row to reach
+`/cameras/:camera_source_id/recordings` without opening live video. The live camera
+page also links to Recordings. Access follows the
+[recording access policy](../../../docs/docs/rbac-and-roles.md#recording-metadata-and-footage).
+
+Select a published recording, then use the native video controls to start playback.
+**Previous window** and **Next window** select another finite portion of that
+recording. **Next page** replaces the inventory page; **Refresh** returns to the
+newest publications. Both clear the selected player, so select a recording again.
+
+The recordings page is separate from live viewing. It uses fresh
+permission and scoped Source reads as the archive API does; opening it does
 not acquire a live relay. Inventory pages replace the visible candidates instead
 of growing an unbounded list. Each page may be empty with a continuation cursor.
 A recording selection and each later media request are independently authorized.

@@ -2,8 +2,9 @@
 
 This checkpoint exposes a finite HLS media playlist for a known published block.
 It reuses canonical archive metadata and the [authorized fragment reader](archive-reads.md).
-It does not discover recordings by wall-clock time, combine blocks, install a
-browser player, serve provisional local media or enable recording.
+It does not discover recordings by wall-clock time, combine blocks, serve
+provisional local media or enable recording. The [archive player](archive-player.md)
+owns browser consumption and navigation.
 
 ## Request and representation
 
@@ -74,5 +75,6 @@ client failure. This is deliberate sequential-consumer coverage, not a claim
 about default FFmpeg behavior or browser compatibility.
 
 Remote author checks and actual published-head database execution remain separate
-gates. Browser UX, cross-block seeking, live provider qualification and hosted
-deployment acceptance remain open.
+gates. Browser qualification is tracked in the [archive player](archive-player.md).
+Cross-block seeking, live provider qualification and hosted deployment acceptance
+remain open.

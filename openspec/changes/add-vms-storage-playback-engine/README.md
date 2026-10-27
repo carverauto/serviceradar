@@ -10,7 +10,7 @@ uncached, with successful observer, teardown and generation release. The
 availability and bounded continuation in publication order.
 
 The current checkpoint implements a [separate recordings page and single-block
-HLS player](archive-player.md). Author validation passed 467 targets plus seven
+HLS player](archive-player.md). Author validation passed 467 targets including seven
 real Chromium cases. Complete no-mistakes publication and published-head database
 CI next. Client fragment requests are serialized; interrupted seeks and switches
 may require explicit retry while the existing single reader retires old work. Unknown capture UTC remains unknown; publication order is
