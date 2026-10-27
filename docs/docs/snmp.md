@@ -149,6 +149,19 @@ ServiceRadar includes built-in OID templates for common device types:
 
 Create custom templates from the **Custom** tab in the OID Template browser.
 
+### Control Plane Delivery Compatibility
+
+Core automatically shares repeated OID lists when an agent advertises
+`snmp-config-shared-oids:v1`. This reduces configuration payload size without
+changing the OIDs polled or requiring changes to profiles or templates.
+
+Ship and roll out the Go agent support before deploying the core change that
+activates shared delivery. Agents without the capability continue receiving the
+legacy inline format with byte-for-byte compatible protobuf encoding. Upgraded
+agents accept both formats. Unknown formats and malformed shared OID references
+are rejected before replacing the running SNMP configuration, so existing
+polling continues.
+
 ### Local Configuration Override
 
 Agents can use a local configuration file that overrides control plane settings:

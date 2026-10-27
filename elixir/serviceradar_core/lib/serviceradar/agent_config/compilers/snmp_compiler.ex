@@ -21,9 +21,15 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   ## Output Format
 
-  The compiled config contains the SNMP payload below plus a deterministic
+  The default `:legacy` config contains the SNMP payload below plus a deterministic
   `config_hash` computed by `config_hash/1`, including for disabled configs.
   The hash is internal cache/version metadata and is not a proto SNMPConfig field.
+
+  Compilation accepts `:format` (or its alias `:snmp_format`) with values
+  `:legacy` and `:shared_oids_v1`; `:format` takes precedence when both are set.
+  The shared representation is described by `shared_oids_document/1`.
+  When no enabled profile resolves, compilation still returns the legacy-shaped
+  disabled config regardless of the requested format.
 
       %{
         "enabled" => true,
@@ -350,8 +356,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   Transforms a legacy compiled SNMP config map into the `shared-oids/v1` format.
 
   Deduplicates per-target `oids` lists into a deterministic top-level `oid_sets`
-  table (`[%{"key" => "oids-...", "oids" => [...]}]`, sorted by `key`) and
-  replaces each target's inline `oids` list with `"oid_set" => key`.
+  table (`[%{"key" => "oids-...", "oids" => [...]}]`, sorted by `key`). Keys
+  contain `oids-` followed by the first 16 hex characters of the OID content hash.
+  Non-empty target OID lists become `"oid_set" => key`; empty lists are removed
+  without a reference. The document includes `"format" => "shared-oids/v1"`
+  and recomputes `config_hash` if the input contained it.
   """
   @spec shared_oids_document(map()) :: map()
   def shared_oids_document(config) when is_map(config) do
