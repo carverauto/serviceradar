@@ -6,11 +6,9 @@ Recording remains disabled by default.
 
 ## Authorization and identity
 
-The authenticated API reloads the user's persisted active account and role
-permissions for each request. Both `devices.view` and
-`devices.cameras.recordings.view` are required. The recording permission is
-separate from live-video access, defaults to administrators and can be granted
-through custom roles. A cached scope or a shared link does not confer access.
+The [recording access policy](../../../docs/docs/rbac-and-roles.md#recording-metadata)
+owns required permissions, role defaults and per-request authority refresh.
+A shared link does not confer access.
 
 The source is read under that refreshed user scope. Only then may the controller
 use the internal archive reader. That reader matches the retained block's source
