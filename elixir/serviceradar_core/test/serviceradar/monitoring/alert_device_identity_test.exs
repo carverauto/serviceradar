@@ -41,29 +41,9 @@ defmodule ServiceRadar.Monitoring.AlertDeviceIdentityTest do
     end
   end
 
-  # This is the bug that broke integration_tests_serial_3/4 on the first attempt.
-  #
-  # DeviceCorrelation.resolve/1 was treated as "returns a canonical uid or nil".
-  # It does not: for a uid already shaped like `sr:<...>` it follows the merge
-  # chain and falls back to returning the INPUT VERBATIM when the follow finds
-  # nothing. That is correct for its own callers -- a pre-merge uid should
-  # survive -- but it means a producer that invents an `sr:`-prefixed id gets it
-  # handed straight back, and the FK to ocsf_devices then rejects the alert.
-  #
-  # Losing the alert is far worse than losing its device attribution, so the
-  # engine confirms the resolved uid exists before using it.
+  # Correlation can preserve an unknown canonical-shaped UID after a successful
+  # lookup. The Falco processor tests exercise that behavior with database access.
   describe "the resolver's contract" do
-    test "a resolved uid is not guaranteed to exist, so it cannot be trusted directly" do
-      source =
-        File.read!("lib/serviceradar/event_writer/device_correlation.ex")
-
-      assert source =~ ~r/"sr:" <> _ = uid ->/,
-             "the passthrough clause this guards against has moved or changed"
-
-      assert source =~ ~r/follow_canonical_device_id\(uid, actor\) end\) \|\| uid/,
-             "resolve/1 no longer falls back to the raw uid; the existence check may be redundant"
-    end
-
     test "the engine confirms the device exists before writing the uid" do
       source =
         File.read!("lib/serviceradar/observability/stateful_alert_engine/alert_lifecycle.ex")

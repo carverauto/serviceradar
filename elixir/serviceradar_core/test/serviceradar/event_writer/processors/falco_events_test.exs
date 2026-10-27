@@ -1,10 +1,8 @@
 defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
-  use ExUnit.Case, async: true
+  use ServiceRadar.DataCase, async: true
 
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.FalcoEvents
-
-  @moduletag :requires_app
 
   describe "table_name/0" do
     test "returns correct table name" do
