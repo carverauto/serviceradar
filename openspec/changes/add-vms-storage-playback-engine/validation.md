@@ -1259,7 +1259,31 @@ No existing assertion was removed.
   with retries disabled executed once and passed in 114.2 seconds. No assertion,
   timeout or production code was changed to obtain that pass.
 
-Actual published-head Core/Web database execution remains mandatory and pending.
-These prepublication results do not prove the new database pagination or HTTP
-publication behavior. Recording, browser playback and hosted readiness remain
-outside this checkpoint.
+The prepublication no-mistakes Test phase reported 0/6 runtime scenarios and
+used the approved draft-publication exception to reach CI-only database gates.
+The following final execution supplies that evidence; it does not turn the
+prepublication phase into a runtime pass.
+
+## Published-head archive discovery validation
+
+[PR #6089](https://github.com/carverauto/serviceradar/pull/6089) merged at
+`e0635e06eed27d741d3e7308214d0d962b624ea9`. Its published and actual executor head
+`76d4c063ca41fd10e31798bff4fb2fce2c26b8ca` passed all 19 checks.
+
+- [Core suite](https://carverauto.buildbuddy.io/invocation/90e51d24-6779-44dc-b917-038410334ef2)
+  executed 12/12 guarded targets uncached, once each. Suite, observer, teardown
+  and generation-release statuses were all zero. The publication owner lane
+  executed 324 tests with no failures, skips or exclusions. Normal Core output
+  has no individual case traces; source selection and the complete owner run
+  establish coverage of the two new database cases.
+- [Web suite](https://carverauto.buildbuddy.io/invocation/f755112a-ee64-450c-aa93-9b736f4b63ab)
+  executed 7/7 targets uncached with all four lifecycle statuses zero. Shard 0
+  ran 836 tests and two properties with zero failures, including completed
+  traces for inventory/publication, authenticated HLS consumption, byte proof
+  and authorization cases, including stale cached authority.
+- [Migration replay](https://carverauto.buildbuddy.io/invocation/05c26767-ea97-4196-9917-5d6893d16c2a)
+  passed; generation preflight reported ready with the migrator started. Both
+  migration ledgers matched the manifest including `20261027160000`. This is
+  migration replay evidence, not a separate catalog-index inspection.
+
+Recording, browser playback and hosted readiness remain outside that checkpoint.

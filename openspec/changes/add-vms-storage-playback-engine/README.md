@@ -2,18 +2,18 @@
 
 ## Current pickup
 
-[Bounded single-block HLS playlists #6071](https://github.com/carverauto/serviceradar/pull/6071)
-merged at `80af80b6e1563d071667634073719b7c396b2681`. Its final head
-`240e6ff7` passed all 19 checks. Core executed 12 guarded targets and Web seven,
-uncached, with successful observer, teardown and generation release. Independent
-FFmpeg/FFprobe consumers decoded synthetic media through the real authenticated
-HTTP endpoint; [validation](validation.md#published-head-archive-playlist-validation)
-records the evidence and the deliberate sequential/no-Range consumer settings.
+[Bounded publication inventory #6089](https://github.com/carverauto/serviceradar/pull/6089)
+merged at `e0635e06eed27d741d3e7308214d0d962b624ea9`. Its final head
+`76d4c063` passed all 19 checks. Core executed 12 guarded targets and Web seven,
+uncached, with successful observer, teardown and generation release. The
+[discovery contract](archive-discovery.md) preserves fresh authority, canonical
+availability and bounded continuation in publication order.
 
-The current checkpoint is [bounded publication inventory](archive-discovery.md).
-It discovers available block IDs through fresh authority and canonical proofs,
-ordered by publication time. Runtime and database validation are in progress.
-Unknown capture UTC remains unknown; this is not a wall-clock timeline.
+The current checkpoint is a separate per-camera recordings page and single-block
+HLS player. Measure forward/backward seeking, interrupted requests, recording
+switches and teardown with the existing single-reader admission limit before
+changing that limit. Unknown capture UTC remains unknown; publication order is
+not a wall-clock timeline.
 
 [Archive publication](archive-publication.md), [media upload](media-upload.md),
 [registration](archive-registration.md) and [spool identity](spool-lifetime.md)
@@ -31,8 +31,7 @@ identifiers and failure injections are independently invented synthetic data.
 
 ## Priority order
 
-1. Complete bounded publication inventory and its real HTTP/database gates.
-   Then add a separate recording player with measured HLS seek/cancellation
+1. Add a separate recording player with measured HLS seek/cancellation
    behavior; retain capture-time timeline and provisional local delivery as
    distinct work. Every request reauthorizes independently; neither metadata nor a
    previously fetched plan grants later access. Preserve unknown clock mappings.
@@ -70,6 +69,7 @@ identifiers and failure injections are independently invented synthetic data.
 | Authorized archive metadata | #6055 merged at `ca8ad4e2`; head `a586219c` passed 19 checks. Core `5c6abc7a` and Web `a05a66e9` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-metadata-validation) | Byte delivery is covered by [archive reads](archive-reads.md); timeline and hosted acceptance remain open |
 | Authorized archive bytes | #6060 merged at `9a68975d`; head `cf918169` passed 19 checks. Core `fc501f97` and Web `88ddf619` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-fragment-read-validation) | Playlists are merged below; browser player, timeline and hosted acceptance |
 | Bounded archive playlists | #6071 merged at `80af80b6`; head `240e6ff7` passed 19 checks. Core `44a5a8ab` and Web `89379230` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Real HTTP HLS consumer passed with 30 selected-window frames and 90 full-stream frames | Browser compatibility, discovery, provisional local delivery and hosted acceptance |
+| Bounded publication inventory | #6089 merged at `e0635e06`; head `76d4c063` passed 19 checks. Core `90e51d24` and Web `f755112a` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Core owner 324 tests and Web owner 836 tests plus two properties passed | Archive player, capture-time timeline and hosted acceptance |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -81,10 +81,10 @@ runtime or live acceptance tasks.
 ## Next agent prompt
 
 Start with [tasks](tasks.md), [archive discovery](archive-discovery.md) and
-[Cloud ownership](cloud-control-plane.md). Finish the bounded publication
-inventory through remote validation and no-mistakes, preserving every existing
-assertion. Require actual published-head Core/Web database execution with
-successful fixture cleanup; draft publication may precede these CI-only gates.
+[Cloud ownership](cloud-control-plane.md). Implement the archive player through
+remote validation and no-mistakes, preserving every existing assertion. Require
+actual published-head Core/Web database execution with successful fixture
+cleanup; draft publication may precede these CI-only gates.
 
 The [archive reader](archive-reads.md) owns isolated credentials, byte selectors
 and authorization before byte release. The [playlist contract](archive-playlists.md)
