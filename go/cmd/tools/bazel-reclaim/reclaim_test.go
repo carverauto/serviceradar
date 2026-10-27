@@ -297,6 +297,46 @@ func TestRunApplyDeletesOnlyStaleBases(t *testing.T) {
 	}
 }
 
+func TestRunApplyKeepsUncertainServerPID(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		contents string
+		mode     os.FileMode
+	}{
+		{name: "unreadable", contents: "4242\n", mode: 0},
+		{name: "empty", mode: 0o644},
+		{name: "malformed", contents: "not-a-pid", mode: 0o644},
+		{name: "zero", contents: "0", mode: 0o644},
+		{name: "negative", contents: "-1", mode: 0o644},
+		{name: "overflow", contents: "999999999999999999999999", mode: 0o644},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			base := makeBase(t, root, "base", filepath.Join(t.TempDir(), "removed"))
+			server := filepath.Join(base.Path, "server")
+			if err := os.Mkdir(server, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			pidFile := filepath.Join(server, "server.pid.txt")
+			if err := os.WriteFile(pidFile, []byte(tc.contents), tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			if tc.mode == 0 {
+				t.Cleanup(func() { _ = os.Chmod(pidFile, 0o644) })
+				if _, err := os.ReadFile(pidFile); err == nil {
+					t.Skip("PID file remains readable without permissions")
+				}
+			}
+			if err := run([]string{root}, true, false, defaultProbe()); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(base.Path); err != nil {
+				t.Fatalf("apply removed base with uncertain server PID: %v", err)
+			}
+		})
+	}
+}
+
 func TestClassifyUnreadableWorkspaceIsKept(t *testing.T) {
 	root := t.TempDir()
 	outer := t.TempDir()

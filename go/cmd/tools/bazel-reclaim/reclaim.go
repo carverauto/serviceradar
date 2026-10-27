@@ -110,7 +110,11 @@ func discoverBases(roots []string) ([]Base, error) {
 // always wins: its base must not be deleted from under it. Stale means the
 // workspace is positively gone. Any other stat or git failure keeps the base.
 func classify(b Base, p probe) (Verdict, string) {
-	if pid, ok := serverPID(b.Path); ok && p.pidAlive(pid) {
+	pid, pidErr := serverPID(b.Path)
+	if pidErr != nil {
+		return VerdictKeep, "bazel server pid uncertain: " + pidErr.Error()
+	}
+	if pid > 0 && p.pidAlive(pid) {
 		return VerdictSkipLiveServer, fmt.Sprintf("bazel server pid %d alive", pid)
 	}
 
@@ -261,18 +265,21 @@ func errText(err error) string {
 	return err.Error()
 }
 
-func serverPID(basePath string) (int, bool) {
+func serverPID(basePath string) (int, error) {
 	raw, err := os.ReadFile(filepath.Join(basePath, "server", "server.pid.txt"))
 	if err != nil {
-		return 0, false
+		if os.IsNotExist(err) {
+			return 0, nil
+		}
+		return 0, err
 	}
 
 	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
 	if err != nil || pid <= 0 {
-		return 0, false
+		return 0, errors.New("invalid server PID")
 	}
 
-	return pid, true
+	return pid, nil
 }
 
 func gitWorktreePaths(workspace string) ([]string, error) {
