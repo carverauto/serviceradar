@@ -817,6 +817,132 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("ocsf_network_activity", @rows, http: http, label: label)
   end
 
+  test "ordinary load labels distinguish content while ignoring encode-time stamps" do
+    row = %{"id" => "synthetic-event", "time" => "2026-01-15T10:00:00Z", "message" => "first"}
+    label = StreamLoad.load_label("events", [row])
+
+    for changed <- [
+          Map.put(row, "time", "2026-01-15T11:00:00Z"),
+          Map.put(row, "message", "resolved")
+        ] do
+      refute StreamLoad.load_label("events", [changed]) == label
+    end
+
+    assert StreamLoad.load_label("events", [Map.put(row, "created_at", "2026-01-16T10:00:00Z")]) ==
+             label
+  end
+
+  test "interleaved replacement redelivery restores the delivered event" do
+    first = %{
+      "id" => "00000000-0000-4000-8000-000000000001",
+      "time" => "2026-01-15T10:00:00Z",
+      "log_provider" => "trivy",
+      "message" => "first"
+    }
+
+    second = %{
+      "id" => "00000000-0000-4000-8000-000000000001",
+      "time" => "2026-01-15T11:00:00Z",
+      "log_provider" => "trivy",
+      "message" => "rescan"
+    }
+
+    parent = self()
+    loaded_labels = :ets.new(:loaded_labels, [:set, :public])
+
+    warehouse = :ets.new(:warehouse, [:set, :public])
+
+    http = fn
+      %{method: :put, headers: headers, body: body} ->
+        {"label", label} = List.keyfind(headers, "label", 0)
+
+        if :ets.member(loaded_labels, label) do
+          {:ok,
+           %{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "Status" => "Label Already Exists",
+                 "Message" => "Label [#{label}] has already been used."
+               })
+           }}
+        else
+          :ets.insert(loaded_labels, {label})
+          rows = Jason.decode!(body)
+
+          for row <- rows do
+            :ets.insert(warehouse, {{row["id"], row["time"]}, row})
+          end
+
+          send(parent, {:loaded, label, rows})
+
+          {:error, :timeout}
+        end
+
+      %{method: :get, url: url} ->
+        label =
+          url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("label")
+
+        assert :ets.member(loaded_labels, label)
+        send(parent, {:reconciled, label})
+        {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
+    end
+
+    delete = fn sql ->
+      protected =
+        ~r/\(id = '([^']+)' AND time = '([^']+)'\)/
+        |> Regex.scan(sql)
+        |> Enum.map(fn [_, id, time] -> {id, NaiveDateTime.from_iso8601!(time)} end)
+
+      for {{id, time} = key, _row} <- :ets.tab2list(warehouse),
+          {id, NaiveDateTime.from_iso8601!(time)} not in protected do
+        :ets.delete(warehouse, key)
+      end
+
+      {:ok, %{}}
+    end
+
+    opts = [
+      http: http,
+      delete: delete,
+      replace: %{ids: [first["id"]], log_provider: "trivy"},
+      completed: [:cnpg],
+      require_all: true
+    ]
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [first], opts)
+    assert_received {:loaded, first_label, [_]}
+    assert_received {:reconciled, ^first_label}
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [second], opts)
+    assert_received {:loaded, second_label, [replacement]}
+    refute first_label == second_label
+    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replacement}]
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [first], opts)
+    assert_received {:loaded, restored_label, [restored]}
+    assert_received {:reconciled, ^restored_label}
+    refute restored_label == first_label
+    assert restored["message"] == "first"
+    assert :ets.tab2list(warehouse) == [{{first["id"], first["time"]}, restored}]
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [second], opts)
+    assert_received {:loaded, replay_label, [replayed]}
+    refute replay_label == second_label
+    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replayed}]
+
+    updated = Map.put(second, "message", "resolved")
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [updated], opts)
+    assert_received {:loaded, updated_label, [latest]}
+    refute updated_label == second_label
+    assert latest["message"] == "resolved"
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [updated], opts)
+    assert_received {:loaded, replay_label, [replayed]}
+    refute replay_label == updated_label
+    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replayed}]
+  end
+
   test "redelivery of an already-loaded batch reconciles instead of failing the ACK" do
     label = StreamLoad.load_label("ocsf_network_activity", @rows)
 

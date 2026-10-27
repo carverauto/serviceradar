@@ -328,9 +328,40 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
       assert sql ==
                "DELETE FROM serviceradar.events WHERE log_provider = 'trivy' " <>
-                 "AND id IN ('#{@report_id}', '#{@other_report_id}')"
+                 "AND id IN ('#{@report_id}', '#{@other_report_id}')" <>
+                 " AND NOT ((id = '#{@report_id}' AND time = '2026-01-15 10:00:00'))"
 
       assert {:statement, {:load, "events", 1}} = next_message()
+    end
+
+    test "split replacement calls use fresh labels even with a caller label" do
+      parent = self()
+      rows = [@report_event, %{@report_event | id: @other_report_id}]
+
+      persist = fn _table, rows, opts ->
+        send(parent, {:replacement_label, opts[:label]})
+        {:ok, %{loaded: length(rows)}}
+      end
+
+      labels =
+        for _ <- 1..2 do
+          assert {:ok, %{loaded: 2}} =
+                   Destination.persist_warehouse(:events, rows,
+                     config: @replace_config,
+                     replace: %{ids: [@report_id, @other_report_id], log_provider: "trivy"},
+                     delete: fn _sql -> {:ok, %{}} end,
+                     persist: persist,
+                     label: "synthetic-caller-label",
+                     stream_load: [max_rows: 1, max_in_flight: 1]
+                   )
+
+          for _ <- 1..2 do
+            assert_received {:replacement_label, label}
+            label
+          end
+        end
+
+      assert labels |> List.flatten() |> Enum.uniq() |> length() == 4
     end
 
     test "a failed delete loads nothing and fails a required load" do

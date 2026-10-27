@@ -532,12 +532,45 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
 
   defp row_identity(row) when is_map(row) do
     id = ServiceRadar.Analytics.StarRocks.Identity.record_id(:flows, row)
+    identity = "#{id}:#{content_fingerprint(row)}"
 
     case Map.get(row, "attribution_version") || Map.get(row, :attribution_version) do
-      version when is_integer(version) and version > 0 -> "#{id}:attribution:#{version}"
-      _ -> id
+      version when is_integer(version) and version > 0 -> "#{identity}:attribution:#{version}"
+      _ -> identity
     end
   end
+
+  # The label must name the row's content, not only its id. A producer that
+  # replaces a row by id -- a Trivy report's event across rescans, a lifecycle
+  # transition on an aligned (id, time) -- delivers the same id with new
+  # content; under an id-only label StarRocks refuses the load as already
+  # used and reconciliation reports the old load's success, so the new row
+  # never lands (and a replace delete has already removed the old one). A
+  # true redelivery encodes identical rows, so it keeps the same label and
+  # still reconciles. `created_at` is excluded: encoders stamp it at encode
+  # time when a row carries none, so it differs across redeliveries of the
+  # same observation.
+  defp content_fingerprint(row) do
+    canonical =
+      row
+      |> Enum.reject(fn {key, _value} -> to_string(key) == "created_at" end)
+      |> Map.new()
+      |> canonical_term()
+
+    :sha256
+    |> :crypto.hash(:erlang.term_to_binary(canonical))
+    |> Base.encode16(case: :lower)
+    |> String.slice(0, 16)
+  end
+
+  defp canonical_term(%{} = map) do
+    map
+    |> Enum.map(fn {key, value} -> {to_string(key), canonical_term(value)} end)
+    |> Enum.sort()
+  end
+
+  defp canonical_term(list) when is_list(list), do: Enum.map(list, &canonical_term/1)
+  defp canonical_term(value), do: value
 
   defp int_field(payload, key) do
     case Map.get(payload, key) do
