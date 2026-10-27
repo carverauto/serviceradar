@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
-  @moduledoc "Authenticated metadata and bounded fragment reads for retained camera archives."
+  @moduledoc "Authenticated metadata, playlists and bounded fragment reads for retained camera archives."
 
   use ServiceRadarWebNGWeb, :controller
 
@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
   alias ServiceRadar.Camera.ArchiveUploads
   alias ServiceRadar.Camera.Source
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.CameraArchivePlaylist
   alias ServiceRadarWebNG.CameraArchiveReader
   alias ServiceRadarWebNG.RBAC
 
@@ -30,28 +31,36 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
     end
   end
 
+  def playlist(conn, %{"camera_source_id" => source_id, "id" => block_id} = params) do
+    conn = private_media(conn)
+
+    with {:ok, _scope, source_id, block_id} <- authorize_read(conn.assigns[:current_scope], source_id, block_id),
+         true <- get_req_header(conn, "range") == [] || {:error, :invalid_id},
+         {:ok, first} <- decimal(Map.get(params, "first", "0"), 0, 4095),
+         {:ok, count} <- decimal(Map.get(params, "count", "64"), 1, 64),
+         {:ok, metadata} <-
+           ArchiveUploads.archive_metadata(source_id, block_id, actor: SystemActor.system(:camera_archive_metadata)),
+         {:ok, playlist} <- CameraArchivePlaylist.render(metadata, first, count) do
+      conn |> put_resp_content_type("application/vnd.apple.mpegurl", nil) |> send_resp(200, playlist)
+    else
+      {:error, reason} -> archive_error(conn, reason)
+    end
+  end
+
   def init_object(conn, params), do: read_object(conn, params, :init)
 
-  def fragment(conn, %{"index" => index} = params) when byte_size(index) in 1..4 do
+  def fragment(conn, params) do
     selector =
-      case Integer.parse(index) do
-        {value, ""} when value in 0..4095 ->
-          if Integer.to_string(value) == index, do: {:fragment, value}, else: :invalid
-
-        _ ->
-          :invalid
+      case decimal(params["index"], 0, 4095) do
+        {:ok, index} -> {:fragment, index}
+        _ -> :invalid
       end
 
     read_object(conn, params, selector)
   end
 
-  def fragment(conn, params), do: read_object(conn, params, :invalid)
-
   defp read_object(conn, %{"camera_source_id" => source_id, "id" => block_id}, selector) do
-    conn =
-      conn
-      |> put_resp_header("cache-control", "private, no-store")
-      |> put_resp_header("x-content-type-options", "nosniff")
+    conn = private_media(conn)
 
     deadline = System.monotonic_time(:millisecond) + 10_000
     opts = [actor: SystemActor.system(:camera_archive_reader)]
@@ -65,31 +74,43 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
          true <- current == plan and System.monotonic_time(:millisecond) < deadline do
       conn |> put_resp_content_type("video/mp4", nil) |> send_resp(200, bytes)
     else
-      {:error, :unauthorized} ->
-        error(conn, :unauthorized, "unauthorized")
-
-      {:error, :permission_revoked} ->
-        error(conn, :forbidden, "forbidden")
-
-      {:error, %Forbidden{}} ->
-        error(conn, :forbidden, "forbidden")
-
-      {:error, :invalid_id} ->
-        error(conn, :bad_request, "invalid_request")
-
-      {:error, :recording_block_not_found} ->
-        error(conn, :not_found, "recording_not_found")
-
-      {:error, :archive_unavailable} ->
-        error(conn, :conflict, "recording_unavailable")
-
-      {:error, reason} when reason in [:invalid_recording_range, :recording_range_too_large] ->
-        error(conn, 416, "recording_range_not_satisfiable")
-
-      _ ->
-        error(conn, :service_unavailable, "archive_read_unavailable")
+      {:error, reason} -> archive_error(conn, reason)
+      _ -> archive_error(conn, :read_failed)
     end
   end
+
+  defp private_media(conn) do
+    conn
+    |> put_resp_header("cache-control", "private, no-store")
+    |> put_resp_header("x-content-type-options", "nosniff")
+  end
+
+  defp decimal(value, minimum, maximum) when is_binary(value) and byte_size(value) in 1..4 do
+    case Integer.parse(value) do
+      {integer, ""} when integer >= minimum and integer <= maximum ->
+        if Integer.to_string(integer) == value, do: {:ok, integer}, else: {:error, :invalid_id}
+
+      _ ->
+        {:error, :invalid_id}
+    end
+  end
+
+  defp decimal(_, _, _), do: {:error, :invalid_id}
+
+  defp archive_error(conn, :unauthorized), do: error(conn, :unauthorized, "unauthorized")
+  defp archive_error(conn, :permission_revoked), do: error(conn, :forbidden, "forbidden")
+  defp archive_error(conn, %Forbidden{}), do: error(conn, :forbidden, "forbidden")
+  defp archive_error(conn, :invalid_id), do: error(conn, :bad_request, "invalid_request")
+  defp archive_error(conn, :recording_block_not_found), do: error(conn, :not_found, "recording_not_found")
+  defp archive_error(conn, :archive_unavailable), do: error(conn, :conflict, "recording_unavailable")
+
+  defp archive_error(conn, reason) when reason in [:invalid_recording_range, :recording_range_too_large],
+    do: error(conn, 416, "recording_range_not_satisfiable")
+
+  defp archive_error(conn, reason) when reason in [:invalid_recording_window, :recording_window_too_large],
+    do: error(conn, 416, "recording_window_not_satisfiable")
+
+  defp archive_error(conn, _), do: error(conn, :service_unavailable, "archive_read_unavailable")
 
   defp authorize_read(%Scope{user: user} = scope, source_id, block_id) when not is_nil(user) do
     with {:ok, scope} <- RBAC.authorize_current(scope, @read_permissions),

@@ -186,6 +186,18 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:require_authenticated_user_api)
   end
 
+  # This download has a fixed HLS representation; it does not use MIME's
+  # compile-time extension table to negotiate a Phoenix rendering format.
+  pipeline :archive_playlist_api do
+    plug(SecurityHeaders)
+    plug(:fetch_session)
+    plug(:skip_csrf_protection_for_bearer_auth)
+    plug(:protect_from_forgery)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
+    plug(:require_authenticated_user_api)
+  end
+
   # API authentication for CLI/external tools (API key or bearer token)
   pipeline :api_key_auth do
     plug(:accepts, ["json"])
@@ -583,6 +595,12 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/cameras/:camera_source_id/recordings/:id/init", CameraRecordingController, :init_object)
     get("/cameras/:camera_source_id/recordings/:id/fragments/:index", CameraRecordingController, :fragment)
+  end
+
+  scope "/api", ServiceRadarWebNGWeb.Api do
+    pipe_through([:archive_playlist_api, :rate_limit_api_default])
+
+    get("/cameras/:camera_source_id/recordings/:id/playlist.m3u8", CameraRecordingController, :playlist)
   end
 
   # Other scopes may use custom stacks.

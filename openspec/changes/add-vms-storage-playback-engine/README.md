@@ -2,18 +2,18 @@
 
 ## Current pickup
 
-[Authorized archive metadata #6055](https://github.com/carverauto/serviceradar/pull/6055)
-is merged at `ca8ad4e2b106c120824ebf35fcd256ce8a69f387`. Its final head
-`a586219c` passed all 19 checks. Core executed 12 guarded targets and Web seven,
+[Authorized archive reads #6060](https://github.com/carverauto/serviceradar/pull/6060)
+merged at `9a68975d1ee7434916f59eb6bcf9ab3827207fa8`. Its final head
+`cf918169` passed all 19 checks. Core executed 12 guarded targets and Web seven,
 uncached, with successful observer, teardown and generation release. The
-[validation ledger](validation.md#published-head-archive-metadata-validation)
-retains the approved prepublication exception and the actual execution evidence.
+[validation ledger](validation.md#published-head-archive-fragment-read-validation)
+retains the approved prepublication exception, two repaired fixture defects and
+the final execution evidence.
 
-The current checkpoint is [authorized archive fragment reads](archive-reads.md).
-It builds on canonical publication and separate recording-read permission, with
-fresh checks before provider I/O and before byte delivery. Its runtime and
-joined synthetic validation are in progress; compilation does not complete the
-required published-head Core/Web database gates.
+The current checkpoint is [bounded single-block HLS playlists](archive-playlists.md).
+It reuses canonical archive metadata and independently authorized fragment URLs.
+Runtime and independent-consumer validation are in progress. Relative timing is
+preserved; unknown UTC does not become a wall-clock timeline.
 
 [Archive publication](archive-publication.md), [media upload](media-upload.md),
 [registration](archive-registration.md) and [spool identity](spool-lifetime.md)
@@ -31,8 +31,8 @@ identifiers and failure injections are independently invented synthetic data.
 
 ## Priority order
 
-1. Complete the isolated archive fragment reader and its real HTTP/database
-   gates. Then implement bounded HLS/timeline windows and provisional local
+1. Complete bounded single-block HLS playlists and their real HTTP/database
+   consumer gates. Then implement timeline discovery, player and provisional local
    delivery. Every request reauthorizes independently; neither metadata nor a
    previously fetched plan grants later access. Preserve unknown clock mappings.
 2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
@@ -67,6 +67,7 @@ identifiers and failure injections are independently invented synthetic data.
 | Sealed-media upload | #6007 merged at `575dfc1f`; head `4c965ee8` passed 19 checks. Core `773fd2dc` and Web `7fd98129` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. [Byte-path contract](media-upload.md) | Publication is complete below; hosted qualification and deployment acceptance remain open |
 | Archive publication | #6047 merged at `35078ce5`; final head `3bd7402a` passed 20 checks. Core `cb53539e` and Web `78dee076` executed all 12/seven guarded targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-publication-validation) | Byte access; reconciliation, hosted qualification and deployment acceptance |
 | Authorized archive metadata | #6055 merged at `ca8ad4e2`; head `a586219c` passed 19 checks. Core `5c6abc7a` and Web `a05a66e9` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-metadata-validation) | Byte delivery, timeline and hosted acceptance |
+| Authorized archive bytes | #6060 merged at `9a68975d`; head `cf918169` passed 19 checks. Core `fc501f97` and Web `88ddf619` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-fragment-read-validation) | HLS/player, timeline and hosted acceptance |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -77,11 +78,11 @@ runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Start with [tasks](tasks.md), [archive reads](archive-reads.md) and
-[Cloud ownership](cloud-control-plane.md). Finish the current fragment-read
-checkpoint through remote validation and no-mistakes, preserving every existing
-assertion. Require the actual published-head Core proof owner and Web joined
-publication/read tests to execute with successful fixture cleanup.
+Start with [tasks](tasks.md), [archive playlists](archive-playlists.md) and
+[Cloud ownership](cloud-control-plane.md). Finish the bounded playlist checkpoint
+through remote validation and no-mistakes, preserving every existing assertion.
+Require independent HLS consumption through the real endpoint, plus actual
+published-head Core/Web database execution with successful fixture cleanup.
 
 Read credentials stay in a separate, nondistributed process. Browser input is
 only camera UUID, block UUID and init/fragment selector. Compare a freshly
@@ -89,7 +90,7 @@ rederived canonical plan and current human authority before releasing bounded,
 digest-verified bytes. Reads must work independently of recording stop and
 expired upload grants. No arbitrary object-range or URL endpoint is permitted.
 
-Next add bounded HLS/timeline windows; keep local provisional reads, retention,
+Next add timeline discovery and player; keep local provisional reads, retention,
 provider qualification and hosted enablement distinct. Cloud #188 remains
 unmerged: inventory/preservation classification can proceed, but matching names
 or create success cannot authorize bucket adoption or cleanup.
