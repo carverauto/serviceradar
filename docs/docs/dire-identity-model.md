@@ -246,7 +246,7 @@ the MACs identify.
 ### Hypervisor nodes
 
 Hypervisor enrichment resolves a node, in order, by its integration id, then by
-its own NIC MACs, then by the device fingerprinted at its address. The Proxmox
+its own NIC MACs, then, for Proxmox, by the device fingerprinted at its address. The Proxmox
 API reports no node NIC MACs, so the last step is how a Proxmox node finds the
 record discovery already holds for it. That record must meet four conditions:
 
@@ -258,7 +258,7 @@ record discovery already holds for it. That record must meet four conditions:
 - its fingerprinted title and its MACs do not contradict the node;
 - it holds no hypervisor integration id but this node's.
 
-This step never uses the node name, because two clusters can share node names.
+This step never binds by node name alone, because two clusters can share node names.
 It never binds a node to a device that holds another node's integration id, so a
 node of a second cluster at an address the first cluster's node already holds
 does not bind there. The sync's hostname-agreement rule (above) is a separate
