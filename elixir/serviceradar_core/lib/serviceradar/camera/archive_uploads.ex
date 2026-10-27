@@ -160,6 +160,47 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     end
   end
 
+  @doc """
+  Read bounded archive metadata for one authorized camera and block.
+
+  The caller must authorize camera-recording access before using its internal
+  actor. Source matching and the retained proof check share the existing lock
+  order. A descriptor is returned only for a currently available archive. This
+  snapshot grants no future byte access and contains no storage destinations.
+  """
+  def archive_metadata(camera_source_id, block_id, opts \\ []) do
+    with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do
+      transaction(fn ->
+        with {:ok, block} <- lock_block(block_id, opts),
+             true <-
+               block.camera_source_id == camera_source_id || {:error, :recording_block_not_found},
+             {:ok, status} <- metadata_phase(block, opts) do
+          available? = status == :available
+
+          {:ok,
+           %{
+             schema_version: 1,
+             block_id: block.id,
+             camera_source_id: block.camera_source_id,
+             stream_profile_id: block.stream_profile_id,
+             archive_status: Atom.to_string(status),
+             published_at: if(available?, do: DateTime.to_iso8601(block.archive_published_at)),
+             descriptor: if(available?, do: block.descriptor)
+           }}
+        end
+      end)
+    end
+  end
+
+  defp metadata_phase(%{state: :open_local}, _opts), do: {:ok, :unavailable}
+  defp metadata_phase(%{archive_binding_id: nil}, _opts), do: {:ok, :unavailable}
+
+  defp metadata_phase(block, opts) do
+    with {:ok, _binding, evidence} <- publication_evidence(block, opts) do
+      {:ok, publication_phase(block, evidence)}
+    end
+  end
+
   @doc "Freeze canonical manifest identity and bytes; preparation grants no provider I/O."
   def prepare_manifest(lease, opts \\ []) do
     with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do

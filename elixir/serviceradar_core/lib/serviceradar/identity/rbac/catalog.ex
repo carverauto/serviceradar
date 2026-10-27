@@ -247,6 +247,16 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           default_roles: @all_roles
         },
         %{
+          key: "devices.cameras.recordings.view",
+          section: "devices",
+          resource: "devices.cameras.recordings",
+          action: "view",
+          label: "View camera recordings",
+          description:
+            "Inspect historical camera recording metadata. Live camera access is separate.",
+          default_roles: @admin_roles
+        },
+        %{
           key: "devices.console.open",
           section: "devices",
           resource: "devices.console",
