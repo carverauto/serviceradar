@@ -174,33 +174,24 @@ fn parse_recog_file(
 
     loop {
         match reader.read_event()? {
-            Event::Start(element) if element.name().as_ref() == b"fingerprint" => {
+            Event::Start(element) if element.name().as_ref() == "fingerprint" => {
                 let mut pattern = None;
                 let mut flags = None;
                 let mut service = default_service;
                 for attr in element.attributes() {
                     let attr = attr?;
-                    if attr.key.as_ref() == b"pattern" {
+                    if attr.key.as_ref() == "pattern" {
                         pattern = Some(
-                            attr.decoded_and_normalized_value(
-                                quick_xml::XmlVersion::Implicit1_0,
-                                reader.decoder(),
-                            )?
-                            .into_owned(),
+                            attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)?
+                                .into_owned(),
                         );
-                    } else if attr.key.as_ref() == b"flags" {
+                    } else if attr.key.as_ref() == "flags" {
                         flags = Some(
-                            attr.decoded_and_normalized_value(
-                                quick_xml::XmlVersion::Implicit1_0,
-                                reader.decoder(),
-                            )?
-                            .into_owned(),
+                            attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)?
+                                .into_owned(),
                         );
-                    } else if attr.key.as_ref() == b"service" {
-                        let value = attr.decoded_and_normalized_value(
-                            quick_xml::XmlVersion::Implicit1_0,
-                            reader.decoder(),
-                        )?;
+                    } else if attr.key.as_ref() == "service" {
+                        let value = attr.normalized_value(quick_xml::XmlVersion::Implicit1_0)?;
                         service = Some(recog_service_for_addition(&value).ok_or_else(|| {
                             format!(
                                 "unknown Recog additions service {value:?} in {}",
@@ -223,14 +214,12 @@ fn parse_recog_file(
                     params: Vec::new(),
                 });
             }
-            Event::Empty(element) if element.name().as_ref() == b"param" => {
+            Event::Empty(element) if element.name().as_ref() == "param" => {
                 if let Some(fingerprint) = &mut current {
-                    fingerprint
-                        .params
-                        .push(parse_recog_param(&reader, &element)?);
+                    fingerprint.params.push(parse_recog_param(&element)?);
                 }
             }
-            Event::End(element) if element.name().as_ref() == b"fingerprint" => {
+            Event::End(element) if element.name().as_ref() == "fingerprint" => {
                 if let Some(fingerprint) = current.take() {
                     fingerprints.push(fingerprint);
                 }
@@ -282,7 +271,6 @@ fn apply_recog_flags(pattern: String, flags: Option<&str>) -> String {
 }
 
 fn parse_recog_param(
-    reader: &Reader<&[u8]>,
     element: &quick_xml::events::BytesStart<'_>,
 ) -> Result<RecogParam, Box<dyn std::error::Error>> {
     let mut name = None;
@@ -292,12 +280,12 @@ fn parse_recog_param(
     for attr in element.attributes() {
         let attr = attr?;
         let attr_value = attr
-            .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder())?
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)?
             .into_owned();
         match attr.key.as_ref() {
-            b"name" => name = Some(attr_value),
-            b"value" => value = Some(attr_value),
-            b"pos" => pos = attr_value.parse()?,
+            "name" => name = Some(attr_value),
+            "value" => value = Some(attr_value),
+            "pos" => pos = attr_value.parse()?,
             _ => {}
         }
     }

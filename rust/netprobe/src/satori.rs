@@ -352,15 +352,15 @@ fn parse_satori_file(path: &Path) -> Result<Vec<SatoriEntry>> {
 
     loop {
         match reader.read_event() {
-            Ok(Event::Start(start)) if start.name().as_ref() == b"fingerprint" => {
-                current = Some(parse_fingerprint_start(axis, &source, &reader, &start)?);
+            Ok(Event::Start(start)) if start.name().as_ref() == "fingerprint" => {
+                current = Some(parse_fingerprint_start(axis, &source, &start)?);
             }
-            Ok(Event::Empty(start)) if start.name().as_ref() == b"test" => {
+            Ok(Event::Empty(start)) if start.name().as_ref() == "test" => {
                 if let Some(entry) = current.as_mut() {
-                    entry.tests.push(parse_test(&reader, &start)?);
+                    entry.tests.push(parse_test(&start)?);
                 }
             }
-            Ok(Event::End(end)) if end.name().as_ref() == b"fingerprint" => {
+            Ok(Event::End(end)) if end.name().as_ref() == "fingerprint" => {
                 if let Some(entry) = current.take()
                     && !entry.tests.is_empty()
                 {
@@ -382,10 +382,9 @@ fn parse_satori_file(path: &Path) -> Result<Vec<SatoriEntry>> {
 fn parse_fingerprint_start(
     axis: SatoriAxis,
     source: &str,
-    reader: &Reader<&[u8]>,
     start: &BytesStart<'_>,
 ) -> Result<SatoriEntry> {
-    let attrs = attributes(reader, start)?;
+    let attrs = attributes(start)?;
 
     Ok(SatoriEntry {
         axis,
@@ -403,8 +402,8 @@ fn parse_fingerprint_start(
     })
 }
 
-fn parse_test(reader: &Reader<&[u8]>, start: &BytesStart<'_>) -> Result<SatoriTest> {
-    let attrs = attributes(reader, start)?;
+fn parse_test(start: &BytesStart<'_>) -> Result<SatoriTest> {
+    let attrs = attributes(start)?;
     let weight = attrs
         .get("weight")
         .and_then(|value| value.parse::<u32>().ok())
@@ -425,16 +424,15 @@ fn parse_test(reader: &Reader<&[u8]>, start: &BytesStart<'_>) -> Result<SatoriTe
     })
 }
 
-fn attributes(reader: &Reader<&[u8]>, start: &BytesStart<'_>) -> Result<BTreeMap<String, String>> {
+fn attributes(start: &BytesStart<'_>) -> Result<BTreeMap<String, String>> {
     let mut attrs = BTreeMap::new();
 
     for attr in start.attributes() {
         let attr = attr?;
-        let key = std::str::from_utf8(attr.key.as_ref())
-            .context("Satori XML attribute key is not UTF-8")?
-            .to_owned();
+        let key: &str = attr.key.as_ref();
+        let key = key.to_owned();
         let value = attr
-            .decoded_and_normalized_value(quick_xml::XmlVersion::Implicit1_0, reader.decoder())
+            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
             .context("failed to decode Satori XML attribute value")?
             .trim()
             .to_owned();
