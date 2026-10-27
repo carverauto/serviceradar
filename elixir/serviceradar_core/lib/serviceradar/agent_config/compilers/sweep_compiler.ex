@@ -1005,7 +1005,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     WHERE a.device_id = ANY($1::text[])
       AND a.alias_type = 'ip'
       AND a.state IN ('confirmed', 'updated', 'detected')
-      -- An alias no identity source has seen within the window is an address the device
+      -- An alias not seen within the window is an address the device
       -- has most likely left (ServiceRadar.SweepJobs.AliasRecency).
       AND a.last_seen_at >= (now() AT TIME ZONE 'utc') - make_interval(days => $3)
       AND NOT EXISTS (

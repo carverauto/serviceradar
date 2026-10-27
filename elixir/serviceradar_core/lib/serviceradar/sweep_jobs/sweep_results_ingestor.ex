@@ -730,7 +730,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   end
 
   # The addresses whose results this batch does not credit to the device it resolved them to:
-  # an alias the device holds that no identity source has seen within AliasRecency's window,
+  # an alias the device holds whose last_seen_at is older than AliasRecency's window,
   # with no answering result. The device's own address always counts, as does any answer.
   defp stale_alias_failure_ips(results, device_map) do
     answered =

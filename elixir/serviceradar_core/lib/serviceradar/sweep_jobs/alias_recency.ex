@@ -1,17 +1,10 @@
 defmodule ServiceRadar.SweepJobs.AliasRecency do
   @moduledoc """
-  How recently an identity source must have seen a device's IP alias for a sweep to treat
-  the address as the device's: `:sweep_alias_max_age_days` (default 30).
+  Shared alias recency policy for sweep compilation and result attribution.
 
-  Nothing ages an IP alias out: it stays `confirmed` until something invalidates it, and a
-  sweep never refreshes its `last_seen_at`. An address a device left months ago therefore
-  kept being swept as the device, and every unanswered probe of it was recorded as the
-  device being down.
-
-  Within the window an alias is swept and its results count. Past it, the sweep compiler
-  no longer targets it, and a result for it is credited to the device only when the address
-  answered: an answer is evidence the device is there, silence at an address it left is not.
-  The alias row itself is untouched, so identity resolution reads it as before.
+  See `docs/docs/network-sweeps.md`, Execution Notes, for configuration and behavior.
+  Read recency before confirming detected aliases: `DeviceAliasState.confirm_from_sweep`
+  refreshes `last_seen_at`. This policy does not mutate alias state or identity resolution.
   """
 
   alias ServiceRadar.Repo
@@ -36,8 +29,8 @@ defmodule ServiceRadar.SweepJobs.AliasRecency do
   end
 
   @doc """
-  The addresses among `pairs` (`{ip, device_uid}`) the device holds as an alias that no
-  identity source has seen within the window.
+  The addresses among `pairs` (`{ip, device_uid}`) whose alias `last_seen_at` is older
+  than the window.
   """
   @spec stale_alias_ips([{String.t(), String.t()}]) :: MapSet.t(String.t())
   def stale_alias_ips([]), do: MapSet.new()
