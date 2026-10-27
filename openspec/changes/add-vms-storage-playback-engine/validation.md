@@ -1090,3 +1090,55 @@ permission and cleanup assertions remain pending guarded Web execution. Core's
 existing proof/fencing regressions and both complete lifecycle workflows remain
 mandatory on the published head. This documentation-only evidence addition does
 not change runtime or test inputs.
+
+
+## Published-head archive metadata validation
+
+PR #6055 merged at `ca8ad4e2b106c120824ebf35fcd256ce8a69f387` from
+`a586219c7097daade3dcc2019d3614b8477a4a16`, with all 19 hosted checks passing.
+The prepublication Test gate was an approved exception because its database
+owners run only in guarded CI. The following actual execution satisfies that
+published-head requirement without rewriting the historical gate result.
+
+- [Core](https://carverauto.buildbuddy.io/invocation/5c6abc7a-62ed-4100-be4c-b90047122011):
+  checked out the final head and used merged CI tree `855a4b4a`; actual suite
+  `ce6438e0-703c-4ca0-8243-50c1d01c8ef8` executed all 12 targets uncached,
+  including serial lane six (153.6 seconds).
+- [Web](https://carverauto.buildbuddy.io/invocation/a05a66e9-c3fe-4d37-b22b-5648f105febd):
+  checked out the final head and used merged CI tree `06431f1b`; actual suite
+  `3de17570-7a93-4c03-959e-48d892a0eb2a` executed all seven targets uncached.
+  Both changed files belonged to `networks_live_db_test_0` (91.2 seconds).
+- Both printed numeric `suite_status=0 observer_status=0 teardown_status=0
+  release_status=0`. Selected actions ran in full without individual test filters.
+- [Hosted unit CI](https://carverauto.buildbuddy.io/invocation/50e7cd22-2676-45fd-aa26-c73fbeed1a74)
+  passed overlapping waves of 447, 17 and 73 targets. The first executed 32 and
+  retained the two existing Swift skips; the later waves were cached.
+
+The joined owner exercised unbound/available/conflicted metadata, exact public
+fields, wrong-camera denial and unchanged provider traffic/upload ownership.
+The authorization owner exercised current permissions, custom grants,
+revocation despite stale cache, malformed identities and response cache policy.
+The `open_local` and generic 503 branches were not individually driven by the
+new cases; no claim that every subcase of the earlier five-group matrix ran is
+made. No live camera/provider deployment was performed.
+
+## Archive fragment-read author validation
+
+The isolated reader's focused remote invocation
+[`7016b092`](https://carverauto.buildbuddy.io/invocation/7016b092-3a1e-468a-b2a7-50d57bf5dab1)
+passed 50 storage-service tests, 16 provider-probe tests and both Core/CoreElx
+quality checks. Existing upload assertions remain intact.
+
+The combined remote full suite
+[`307f0526`](https://carverauto.buildbuddy.io/invocation/307f0526-bd55-41d1-b6e7-7cdeb906ba3f)
+passed all 464 supported targets, executing 14 and reusing 450 results; the two
+Swift platform targets were skipped. The preceding full run
+[`47332284`](https://carverauto.buildbuddy.io/invocation/47332284-b85c-4348-a864-ad37117fd270)
+passed 463 targets but failed the existing CSRF pipeline-shape assertion.
+Restoring the original JSON API pipeline and giving the media routes their own
+identical authentication plugs fixed it without changing that assertion.
+
+These results do not execute the Core archive database owner or the joined Web
+publication/read owner. Their published-head guarded runs and successful fixture
+cleanup remain required before this checkpoint is ready. No deployed provider,
+camera, playback UI or Cloud installation is qualified by these synthetic checks.

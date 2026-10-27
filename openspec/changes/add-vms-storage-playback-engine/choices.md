@@ -1490,3 +1490,38 @@ left the first read interface unspecified. Returning one existing bounded
 record avoids a speculative time index while clock/capacity experiments remain
 open. Verdict: sound, medium confidence; this adds a useful inspection API but
 leaves timeline search, local/provisional reads and media delivery unfinished.
+
+
+## Archive fragment-read choices
+
+### Buffer and verify one exact fragment before delivery
+
+When: archive fragment-read pass. Verdict: sound, medium confidence.
+
+The plan required bounded playback but left the first delivery surface open.
+Init and fragment-index resources make the permitted bytes explicit without
+exposing the rest of a packed object. A 4 MiB fragment ceiling bounds memory;
+valid larger fragments remain unsupported until measured streaming or chunked
+verification is designed. This is a checkpoint limit, not a codec capability
+claim or a promised deployment throughput.
+
+### Reauthorize at the byte-release point without a durable read lease
+
+When: archive fragment-read pass. Verdict: sound, medium confidence.
+
+Provider GET can be repeated and no retention/deletion worker exists yet. A
+fresh user check and exact canonical-plan comparison after the buffered read
+prevent a mid-read revocation or proof conflict from releasing those bytes.
+No database lock spans the network and no new lease table is needed. This
+choice must be revisited when retention/delete claims become active; it does
+not authorize deleting objects while reads are in flight.
+
+### Keep historical reads independent of upload authority
+
+When: archive fragment-read pass. Verdict: sound, high confidence.
+
+A recording can remain viewable after recording stops or a write grant expires.
+The reader therefore has a separate installed identity and only GET behavior,
+while provider keys remain isolated from Web. The approved recording-read
+permission covers footage as well as metadata. Cloud installation and real
+credential-policy qualification remain separate acceptance work.

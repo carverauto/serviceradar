@@ -6,7 +6,7 @@ Recording remains disabled by default.
 
 ## Authorization and identity
 
-The [recording access policy](../../../docs/docs/rbac-and-roles.md#recording-metadata)
+The [recording access policy](../../../docs/docs/rbac-and-roles.md#recording-metadata-and-footage)
 owns required permissions, role defaults and per-request authority refresh.
 A shared link does not confer access.
 

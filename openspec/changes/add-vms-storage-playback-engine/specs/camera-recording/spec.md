@@ -81,6 +81,13 @@ The system SHALL authorize timeline, HLS manifest, media ranges and export opera
 - **THEN** the playback gateway SHALL enforce the permitted range/time scope
 - **AND** SHALL not issue an object URL that grants the remaining footage
 
+#### Scenario: Authorization changes during an archive fragment read
+- **WHEN** a current user requests one published archive's initialization object or frozen fragment
+- **THEN** the gateway SHALL choose the exact bounded interval and verified object identity without accepting a provider location or arbitrary client range
+- **AND** provider credentials SHALL remain in a separate read-only storage process
+- **AND** the gateway SHALL repeat current human authorization and canonical proof checks before releasing verified bytes
+- **AND** permission revocation, late proof conflicts, changed identity or byte-integrity failures SHALL withhold the response bytes
+
 #### Scenario: Cross-block seeking and shared links
 - **WHEN** an authorized user seeks across blocks or opens a camera/object/time link
 - **THEN** the player SHALL receive correct init/range and discontinuity information

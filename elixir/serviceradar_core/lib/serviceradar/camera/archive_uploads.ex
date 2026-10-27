@@ -250,12 +250,14 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
 
   defp valid_range_selector(_), do: {:error, :invalid_recording_range}
 
+  defp available_archive(%{state: :open_local}, _opts), do: {:error, :archive_unavailable}
+  defp available_archive(%{archive_binding_id: nil}, _opts), do: {:error, :archive_unavailable}
+
   defp available_archive(block, opts) do
-    with {:ok, binding, evidence} <- publication_evidence(block, opts),
-         :available <- publication_phase(block, evidence) do
-      {:ok, binding, evidence}
-    else
-      _ -> {:error, :archive_unavailable}
+    with {:ok, binding, evidence} <- publication_evidence(block, opts) do
+      if publication_phase(block, evidence) == :available,
+        do: {:ok, binding, evidence},
+        else: {:error, :archive_unavailable}
     end
   end
 
