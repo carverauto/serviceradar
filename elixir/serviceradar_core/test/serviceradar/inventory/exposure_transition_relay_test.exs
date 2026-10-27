@@ -157,9 +157,11 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
         assert recovered.new_state == :healthy
         assert recovered.old_state == :degraded
         assert recovered.reason == :stream_freshness_recovered
+        assert is_number(recovered.metadata["oldest_age_seconds"])
         assert recovered.metadata["oldest_age_seconds"] >= 0
 
         metrics = retained_metrics!(conn)
+        assert is_number(metrics["exposure_transitions_stream_oldest_age_seconds"])
         assert metrics["exposure_transitions_stream_oldest_age_seconds"] >= 0
         assert metrics["exposure_transitions_stream_max_age_seconds"] == 604_800.0
 
@@ -221,8 +223,12 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
                  HealthTracker.current_status(:custom, "exposure_transitions_stream")
 
         assert old.reason == :stream_age_exceeded
+        assert is_number(old.metadata["oldest_age_seconds"])
         assert old.metadata["oldest_age_seconds"] > 604_800
-        assert retained_metrics!(conn)["exposure_transitions_stream_oldest_age_seconds"] > 604_800
+
+        metrics = retained_metrics!(conn)
+        assert is_number(metrics["exposure_transitions_stream_oldest_age_seconds"])
+        assert metrics["exposure_transitions_stream_oldest_age_seconds"] > 604_800
 
         Agent.update(replies, &put_in(&1, ["state", "messages"], 0))
         report!(relay)
