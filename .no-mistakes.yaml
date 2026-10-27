@@ -94,6 +94,26 @@ review:
     `cargo build/check/test/clippy`, `go build/test/vet`, `npm`/`bun` builds,
     or `bazel` without `--config=remote`. If a check cannot run remotely, report
     it as untested instead of running it here.
+
+    DIRE FORMAL-MODEL RULE: `formal/dire/README.md` requires that "each model
+    describes the code as it is". The model checks run in BazelCI on every PR,
+    but they only catch a regression when the changed behaviour is in the
+    model. When a diff changes device-identity behaviour, meaning any file under
+    `elixir/serviceradar_core/lib/serviceradar/inventory/identity/`,
+    `inventory/sync/device_writes.ex`, `inventory/sync_ingestor.ex`, or
+    `inventory/hypervisor_enrichment_ingestor.ex`, and the change alters what
+    matches, merges, retires, revives or reseeds a device, then the diff must
+    do one of these:
+      (a) update `formal/dire`: the actions naming the changed Elixir functions,
+          the goal or vacuity configs, the `CurrentBugs.tla` table, or the golden
+          traces under `formal/dire/traces/`; or
+      (b) state precisely, in `formal/dire/README.md` and in the intent, which
+          behaviour the model does not cover and why it cannot.
+    Pure refactors, logging, docs and tests with no behaviour change are
+    exempt; say so. If neither (a) nor (b) is present for a behaviour
+    change, raise an ask-user finding named `dire-formal-model-not-updated`
+    that cites the changed functions. Never treat passing model checks on an
+    unchanged `formal/dire` as evidence that the new behaviour is safe.
 lint:
   instructions: |
     REMOTE-ONLY RULE (this machine is a shared, overloaded laptop): every
