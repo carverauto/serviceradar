@@ -51,15 +51,28 @@ runs. The resolver instead treats a device whose stored provenance is `legacy_mi
 decision is written and broadcast to the UI but emits no state-feed transition and no
 `device.*` event. This covers the full resolve and any inline resolution that reaches an
 unreconciled device first, so the upgrade never storms. `ReconcileWorker` then publishes
-the one summary and, when `transition_events` is on, the recovery events for devices the
+the one summary whenever live devices exist (including zero differences) and, when
+`transition_events` is on, the recovery events for devices the
 legacy value held down and the merged value holds available.
+
+The internal `availability_settings.converged_at` timestamp is a one-time upgrade
+convergence marker, not an operator mode. Nothing user-facing sets or reads it. Before
+dropping the mode function, the migration sets it for authoritative deployments and for
+installs with no device rows. For other upgrades it stays NULL until the full resolve
+and rollup rebuild succeed. Every resolving transaction reads it once; while NULL,
+devices with NULL provenance are read as the legacy mirror's projection of
+`is_available`. Thus ordinary ingestion, resolver and expiry workers, and reconciliation
+all preserve unknown's last boolean and suppress the initial transition. Once set, new
+devices use normal first-decision semantics. At completion, an existing unhealthy
+`availability_cutover_readiness` health check is recorded healthy through HealthTracker,
+retaining its history; absent and already healthy checks receive no new record.
 
 ## Decision 3: What stays, and why
 
 - `device_availability_legacy`, its insert trigger and `LegacyWrites`: the value that
   `legacy`-semantics Armis sources push. Kept while such a source can exist.
-- `availability_settings` with `transition_events` and `expiry_watermark`: a product
-  setting and the expiry job's cursor.
+- `availability_settings` with `transition_events`, `expiry_watermark` and `converged_at`:
+  a product setting, the expiry job's cursor and the internal upgrade marker.
 - `Operator.transition_events/1`: the only setter of that product setting.
 - The `ArmisAvailabilityPreview`: the counts an operator sees before adopting merged
   semantics. It now reads `availability_state` only, which is what it read in

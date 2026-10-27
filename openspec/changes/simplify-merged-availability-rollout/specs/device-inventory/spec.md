@@ -2,7 +2,16 @@
 
 ### Requirement: Merged Availability Convergence On Upgrade
 The system SHALL converge every deployment on merged device availability once, on upgrade, without an operator action and whatever staged-rollout mode (`legacy`, `shadow`, `cutover` or `authoritative`) it was in, and SHALL have no availability mode, mode control, readiness condition or shadow decision store afterwards.
-Before the resolver takes `is_available` from the legacy writers, every device of a deployment in `legacy` or `shadow` that has no compatibility value SHALL get its current `is_available` as that value; an existing compatibility value SHALL NOT be overwritten. The system SHALL then resolve every live device once, rebuild the inventory counts, and, for a deployment that was not yet `authoritative`, publish one reconciliation summary and, when transition events are on, a recovery event for each device the legacy value holds down and the merged state holds available. A device's first merged decision after the legacy mirror SHALL NOT emit a state-feed transition or a `device.*` event. Per-agent ledger rows SHALL NOT be changed by the convergence.
+Before the resolver takes `is_available` from the legacy writers, every device of a deployment in `legacy` or `shadow` that has no compatibility value SHALL get its current `is_available` as that value; an existing compatibility value SHALL NOT be overwritten. The system SHALL then resolve every live device once, rebuild the inventory counts, and, for a deployment that was not yet `authoritative`, publish one reconciliation summary whenever live devices exist, including zero differences, and, when transition events are on, a recovery event for each device the legacy value holds down and the merged state holds available. A device's first merged decision after the legacy mirror SHALL NOT emit a state-feed transition or a `device.*` event. Per-agent ledger rows SHALL NOT be changed by the convergence.
+
+The internal `availability_settings.converged_at` timestamp SHALL be a one-time upgrade convergence marker, not an operator mode; nothing user-facing SHALL set or read it. The migration SHALL set it before dropping the mode function for authoritative deployments and installs with no device rows. Otherwise it SHALL remain NULL until the full resolve and rollup rebuild succeed. While NULL, every resolution path SHALL read NULL device provenance as the legacy mirror's projection of `is_available`, retaining the last boolean for unknown and suppressing the first transition. After it is set, new devices SHALL use normal first-decision behavior. Completion SHALL record an existing unhealthy `availability_cutover_readiness` check as healthy through HealthTracker, retaining history, and SHALL write nothing for absent or already healthy checks.
+
+#### Scenario: Ordinary resolution precedes reconciliation
+- **GIVEN** a legacy deployment with pre-capture devices carrying NULL provenance and true `is_available`
+- **WHEN** ordinary resolution runs after migration but before reconciliation
+- **THEN** the first merged decision SHALL emit no transition
+- **AND** unknown SHALL retain true `is_available`
+- **AND** after reconciliation sets the marker, a new device's first decisive result SHALL emit its normal transition
 
 #### Scenario: Upgrade from legacy
 - **GIVEN** a deployment in mode `legacy` whose Wi-Fi access point is held offline by failing sweeps while its controller reports it up

@@ -132,29 +132,26 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   transaction rolls back; used by the resolver worker, the expiry job and the full pass.
   """
   @spec resolve_locked([String.t()], keyword()) :: result()
-  def resolve_locked(device_uids, query_opts \\ []),
-    do: resolve_batches(device_uids, query_opts, false)
+  def resolve_locked(device_uids, query_opts \\ []) do
+    case normalize_uids(device_uids) do
+      [] ->
+        %{resolved: 0, written: 0}
 
-  @doc """
-  `resolve_locked/2` for the one-time reconciliation of a deployment that was not yet on
-  merged availability (`ServiceRadar.Inventory.Availability.ReconcileWorker`). A device
-  that neither the resolver nor the legacy mirror ever decided (it predates availability
-  capture) is read as the mirror would have shown it: the projection of its
-  `is_available`, with `legacy_mirror` provenance. Its first merged decision is then a
-  reconciliation like every other device's, emitting no transition, and an `unknown`
-  decision keeps its last boolean.
-  """
-  @spec reconcile_locked([String.t()]) :: result()
-  def reconcile_locked(device_uids), do: resolve_batches(device_uids, [], true)
+      uids ->
+        %{rows: [[converging?]]} =
+          Repo.query!(
+            "SELECT EXISTS (SELECT 1 FROM platform.availability_settings WHERE singleton AND converged_at IS NULL)",
+            [],
+            query_opts
+          )
 
-  defp resolve_batches(device_uids, query_opts, reconcile?) do
-    device_uids
-    |> normalize_uids()
-    |> Enum.chunk_every(@batch_size)
-    |> Enum.reduce(
-      %{resolved: 0, written: 0},
-      &add(&2, resolve_batch(&1, query_opts, reconcile?))
-    )
+        uids
+        |> Enum.chunk_every(@batch_size)
+        |> Enum.reduce(
+          %{resolved: 0, written: 0},
+          &add(&2, resolve_batch(&1, query_opts, converging?))
+        )
+    end
   end
 
   @doc """

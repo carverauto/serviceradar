@@ -22,6 +22,7 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.HealthTracker
   alias ServiceRadar.Integrations.ArmisAvailabilityPreview
   alias ServiceRadar.Integrations.ArmisNorthboundPopulation
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
@@ -69,8 +70,23 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
       ledger_before = ledger_rows(fixture)
       transitions_before = Map.new(aps ++ [probed, silent], &{&1.uid, transitions_for(&1)})
 
-      assert job_args = upgrade!()
+      job_args = migrate!()
       assert job_args["announce"] == true
+      assert converged_at() == nil
+      assert {:ok, _} = Availability.resolve_devices([probed.uid, silent.uid])
+      assert {true, "available"} = device_row(probed)
+      assert {true, "unknown"} = device_row(silent)
+
+      for device <- [probed, silent],
+          do: assert(transitions_for(device) == transitions_before[device.uid])
+
+      assert :ok = ReconcileWorker.perform(%Oban.Job{args: job_args})
+      assert %NaiveDateTime{} = converged_at()
+
+      new_device = create_device!(actor, TestSupport.unique_device_ip())
+      assert transitions_for(new_device) == []
+      assert {:ok, _} = Availability.record_evidence([wifi(new_device.uid, :up, minutes_ago(1))])
+      assert [[%{"from" => "unknown", "to" => "available"}]] = transitions_for(new_device)
 
       # The Wi-Fi access point the legacy hysteresis held offline: the badge and the
       # order read the merged state, the count follows it, and no per-device event was
@@ -115,8 +131,10 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
     preview = ArmisAvailabilityPreview.build(fixture.legacy.source)
     assert %{linked_ids: 3, would_change: 1, withheld: 2} = preview
 
-    assert job_args = upgrade!()
+    job_args = migrate!()
     assert job_args["announce"] == false
+    assert %NaiveDateTime{} = converged_at()
+    assert :ok = ReconcileWorker.perform(%Oban.Job{args: job_args})
 
     assert {true, "available"} = device_row(fixture.merged.ap)
     assert semantics(fixture.merged.source) == :merged
@@ -149,6 +167,77 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
     assert legacy_value(device) == false
     assert {false, "unknown"} = device_row(device)
     assert pushed(source, "armis-after-upgrade") == false
+  end
+
+  test "announcement includes zero differences but skips an empty live population", %{
+    actor: actor
+  } do
+    Repo.query!("UPDATE platform.ocsf_devices SET deleted_at = now() WHERE deleted_at IS NULL")
+    before = reconciliation_summaries()
+    assert :ok = ReconcileWorker.announce()
+    assert reconciliation_summaries() == before
+
+    device = create_device!(actor, TestSupport.unique_device_ip())
+    legacy_mirror!(device, true)
+
+    Repo.query!(
+      "UPDATE platform.device_availability_legacy SET is_available = true WHERE device_uid = $1",
+      [device.uid]
+    )
+
+    assert :ok = ReconcileWorker.announce()
+    assert [summary] = reconciliation_summaries() -- before
+
+    assert summary["attributes"] == %{
+             "event_type" => "availability.reconciliation",
+             "to_available" => 0,
+             "to_unavailable" => 0,
+             "to_unknown" => 0
+           }
+  end
+
+  test "reconciliation clears an unhealthy readiness check and retains its history", %{
+    actor: actor
+  } do
+    upgrade_fixture!(actor, "legacy")
+
+    Repo.query!(
+      "DELETE FROM platform.health_events WHERE entity_type = 'core' AND entity_id = $1",
+      [
+        "availability_cutover_readiness"
+      ]
+    )
+
+    assert {:ok, unhealthy} =
+             HealthTracker.record_health_check(:core, "availability_cutover_readiness",
+               healthy: false
+             )
+
+    assert upgrade!()
+
+    assert {:ok, %{new_state: :healthy}} =
+             HealthTracker.current_status(:core, "availability_cutover_readiness")
+
+    assert {:ok, history} = HealthTracker.timeline(:core, "availability_cutover_readiness")
+    assert Enum.any?(history, &(&1.id == unhealthy.id))
+    assert length(history) == 2
+
+    assert :ok = ReconcileWorker.perform(%Oban.Job{args: %{"phase" => "reconcile"}})
+    assert {:ok, ^history} = HealthTracker.timeline(:core, "availability_cutover_readiness")
+  end
+
+  test "reconciliation does not create a readiness check that never existed", %{actor: actor} do
+    upgrade_fixture!(actor, "legacy")
+
+    Repo.query!(
+      "DELETE FROM platform.health_events WHERE entity_type = 'core' AND entity_id = $1",
+      [
+        "availability_cutover_readiness"
+      ]
+    )
+
+    assert upgrade!()
+    assert {:ok, nil} = HealthTracker.current_status(:core, "availability_cutover_readiness")
   end
 
   # -- the pre-upgrade deployment --------------------------------------------------------
@@ -184,6 +273,7 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
 
   defp pre_upgrade_schema!(mode) do
     Repo.query!("DROP TABLE platform.integration_source_availability_semantics_changes")
+    Repo.query!("UPDATE platform.availability_settings SET converged_at = NULL")
 
     Repo.query!(
       "ALTER TABLE platform.availability_settings ADD COLUMN mode text NOT NULL DEFAULT 'legacy'"
@@ -324,6 +414,31 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
   # Runs the migration's statements, then the reconciliation it enqueued. Returns that
   # job's arguments.
   defp upgrade! do
+    args = migrate!()
+    assert :ok = ReconcileWorker.perform(%Oban.Job{args: args})
+    args
+  end
+
+  defp reconciliation_summaries do
+    %{rows: rows} =
+      Repo.query!("""
+      SELECT (args ->> 'body')::jsonb FROM platform.oban_jobs
+      WHERE worker = 'ServiceRadar.NATS.DurablePublishWorker'
+        AND (args ->> 'body')::jsonb ->> 'event_type' = 'availability.reconciliation'
+      ORDER BY id
+      """)
+
+    Enum.map(rows, &hd/1)
+  end
+
+  defp converged_at do
+    %{rows: [[at]]} =
+      Repo.query!("SELECT converged_at FROM platform.availability_settings WHERE singleton")
+
+    at
+  end
+
+  defp migrate! do
     Enum.each(Migration.statements(), &Repo.query!/1)
 
     %{rows: [[args]]} =
@@ -336,7 +451,6 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
         [inspect(ReconcileWorker)]
       )
 
-    assert :ok = ReconcileWorker.perform(%Oban.Job{args: args})
     args
   end
 

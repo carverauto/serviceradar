@@ -33,13 +33,24 @@ merged availability by itself, whatever stage it had reached:
    so, then removes the rollout objects.
 2. Shortly after start-up, core resolves every device once, rebuilds the inventory
    counts, and, for an install that was not yet on merged availability, publishes one
-   `availability.reconciliation` summary event. A device's first merged decision emits
-   no per-device event.
+   `availability.reconciliation` summary event whenever live devices exist, even if
+   all difference counts are zero. A device's first merged decision emits no per-device
+   event. An existing unhealthy readiness warning is recorded as healthy, retaining
+   its history.
 3. When `transition_events` is on, devices that the old value held down and the merged
    value holds available get one `device.available` recovery event, so alerts opened by
    the old flapping close through the normal recovery path.
 
-A fresh install needs none of this and starts on merged availability.
+The internal `availability_settings.converged_at` timestamp is a one-time upgrade
+convergence marker, not an operator mode; nothing user-facing sets or reads it. The
+migration sets it immediately for authoritative deployments and installs with no devices.
+Otherwise, until the full resolve and rollup rebuild finish, every resolution path reads
+a device with NULL provenance as the legacy mirror would have shown it. This preserves
+its last boolean when evidence is unknown and suppresses its first transition, even if
+ordinary ingestion resolves it before the reconciliation job. The job then sets the
+marker once; new devices subsequently follow normal first-decision behavior.
+
+A fresh install starts on merged availability and publishes no reconciliation summary.
 
 ### Checking the result
 

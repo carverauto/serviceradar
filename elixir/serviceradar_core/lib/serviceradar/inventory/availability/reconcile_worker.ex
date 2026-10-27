@@ -10,7 +10,7 @@ defmodule ServiceRadar.Inventory.Availability.ReconcileWorker do
       decision (its stored provenance is the `legacy_mirror` a pre-merge release wrote)
       emits no per-device transition. When the migration found the deployment not yet on
       merged availability (`"announce"`), a device that predates availability capture is
-      read as the mirror would have shown it (`Resolution.reconcile_locked/1`). The
+      read as the mirror would have shown it until convergence completes. The
       inventory rollups are then rebuilt once, and, for such a deployment, `"announce"`
       is enqueued.
     * `"announce"`: one summary event with the number of live devices whose state now
@@ -28,9 +28,11 @@ defmodule ServiceRadar.Inventory.Availability.ReconcileWorker do
 
   import Ecto.Query
 
+  alias ServiceRadar.Infrastructure.HealthTracker
   alias ServiceRadar.Inventory.Availability.Resolution
   alias ServiceRadar.Inventory.Availability.Transitions
   alias ServiceRadar.Inventory.Sync.DeviceWrites
+  alias ServiceRadar.Observability.TripwireHealth
   alias ServiceRadar.Repo
 
   require Logger
@@ -85,7 +87,7 @@ defmodule ServiceRadar.Inventory.Availability.ReconcileWorker do
   @impl Oban.Worker
   def perform(%Oban.Job{args: %{"phase" => "reconcile"} = args}) do
     converging? = args["announce"] == true
-    {pages, resolved, written} = reconcile_pages("", converging?, 0, 0, 0)
+    {pages, resolved, written} = reconcile_pages("", 0, 0, 0)
 
     Logger.info("merged availability reconciliation done",
       pages: pages,
@@ -94,6 +96,13 @@ defmodule ServiceRadar.Inventory.Availability.ReconcileWorker do
     )
 
     with :ok <- DeviceWrites.refresh_inventory_rollups() do
+      Repo.query!("""
+      UPDATE platform.availability_settings
+      SET converged_at = now() AT TIME ZONE 'utc'
+      WHERE singleton AND converged_at IS NULL
+      """)
+
+      :ok = clear_readiness_warning()
       if converging?, do: enqueue("announce"), else: :ok
     end
   end
@@ -101,7 +110,7 @@ defmodule ServiceRadar.Inventory.Availability.ReconcileWorker do
   def perform(%Oban.Job{args: %{"phase" => "announce"}}), do: announce()
   def perform(%Oban.Job{}), do: :ok
 
-  defp reconcile_pages(cursor, converging?, pages, resolved, written) do
+  defp reconcile_pages(cursor, pages, resolved, written) do
     %{rows: rows} = Repo.query!(@live_page, [cursor, @page_size])
 
     case Enum.map(rows, &hd/1) do
@@ -109,11 +118,10 @@ defmodule ServiceRadar.Inventory.Availability.ReconcileWorker do
         {pages, resolved, written}
 
       uids ->
-        {:ok, result} = Repo.transaction(fn -> resolve_page(uids, converging?) end)
+        {:ok, result} = Repo.transaction(fn -> Resolution.resolve_locked(uids) end)
 
         reconcile_pages(
           List.last(uids),
-          converging?,
           pages + 1,
           resolved + result.resolved,
           written + result.written
@@ -121,18 +129,42 @@ defmodule ServiceRadar.Inventory.Availability.ReconcileWorker do
     end
   end
 
-  defp resolve_page(uids, true), do: Resolution.reconcile_locked(uids)
-  defp resolve_page(uids, false), do: Resolution.resolve_locked(uids)
+  defp clear_readiness_warning do
+    case HealthTracker.current_status(:core, "availability_cutover_readiness") do
+      {:ok, %{new_state: :unhealthy}} ->
+        TripwireHealth.record("availability_cutover_readiness", true, %{"unmet" => []},
+          refresh_metadata: true
+        )
+
+      other ->
+        Logger.warning("availability reconciliation: readiness health check not cleared",
+          reason: inspect(other)
+        )
+
+        :ok
+    end
+  rescue
+    error ->
+      Logger.warning("availability reconciliation: health check read failed",
+        reason: inspect(error)
+      )
+
+      :ok
+  end
 
   @doc """
-  Publishes the reconciliation summary when some device's merged state differs from its
-  legacy value and, when transition events are on, the recoveries.
+  Publishes the reconciliation summary when live devices exist and, when transition
+  events are on, the recoveries.
   """
   @spec announce() :: :ok
   def announce do
-    # A deployment where no device changed (a fresh install) has nothing to announce.
-    %{rows: rows} = Repo.query!(@summary, [], timeout: :infinity)
-    if rows != [], do: :ok = Transitions.publish_summary(Map.new(rows, &List.to_tuple/1))
+    %{rows: [[live?]]} =
+      Repo.query!("SELECT EXISTS (SELECT 1 FROM platform.ocsf_devices WHERE deleted_at IS NULL)")
+
+    if live? do
+      %{rows: rows} = Repo.query!(@summary, [], timeout: :infinity)
+      :ok = Transitions.publish_summary(Map.new(rows, &List.to_tuple/1))
+    end
 
     if Transitions.enabled?(), do: recover("")
     :ok
