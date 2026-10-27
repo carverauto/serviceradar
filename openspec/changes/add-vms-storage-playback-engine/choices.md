@@ -2,6 +2,63 @@
 
 ## Sound, medium confidence
 
+### Bound a playlist by count and duration before adding timeline discovery
+
+When: single-block archive playlist pass. Verdict: sound, medium confidence.
+
+A reader asking for the next 64 fragments receives at most those fragments, and
+fewer only when the block ends. If that selection exceeds five minutes, it fails
+explicitly so the caller can request a smaller count. The plan required bounded
+HLS windows but did not select ceilings or request parameters. This pass chooses
+64 fragments, five minutes and 64 KiB of playlist text, while retaining the
+existing reader's object and fragment byte limits. Canonical decimal `first` and
+`count` parameters select positions inside a known block; they are not timestamps.
+Malformed or out-of-domain parameters return 400, whereas a valid selection that
+is empty or exceeds the serving limits returns 416. These reversible ceilings
+bound work now; measured workloads must guide later capacity and timeline APIs.
+
+### Serve one fixed playlist representation through the existing proof owner
+
+When: single-block archive playlist pass. Verdict: sound, medium confidence.
+
+When a client downloads `playlist.m3u8`, success always contains HLS text and
+errors contain JSON. The route uses the existing authentication and security
+plugs without format negotiation. The plan did not choose MIME registration;
+the pinned MIME library builds its extension map at compilation, and changing
+the shared dependency configuration would rebuild unrelated packages. A fixed
+download avoids that coupling and a separate Accept parser. Future clients can
+send the standard HLS Accept header, but cannot request another success format.
+
+The existing canonical metadata read remains the only database proof owner.
+Rendering creates no lease or grant. It emits relative init/fragment URLs, exact
+decimal durations and a finite end marker; every later byte request still checks
+current access. Whole fragment URLs avoid packed-object range access. This
+keeps the playlist useful even when UTC is unknown, while leaving wall-clock
+discovery and cross-block continuity to their own contracts.
+
+### Validate HLS with a sequential consumer under current reader admission
+
+When: single-block archive playlist pass. Verdict: sound, medium confidence.
+
+A consumer follows the server playlist to fetch and decode generated media.
+The existing pinned FFmpeg can do that independently of ServiceRadar's renderer,
+so this pass uses it without a new player dependency. Its requests disable HTTP
+range probing, parallel prefetch and persistent connections to fit complete
+fragment URLs and the reader's single admission slot. The plan required playback
+proof but did not choose this intermediate consumer. This proves the bounded
+sequential path; it does not select browser behavior or promise that a client's
+default parallel request policy will work. Browser integration must deliberately
+coordinate requests or evolve admission with its own measured acceptance.
+
+The existing generator supplies only invented media bytes, codec data and timing.
+The joined fixture appends those bytes through a fresh spool and publishes them
+through real grants, so it does not manufacture a successful archive receipt.
+One consumer checks the middle window's retained media timestamps; another checks
+the full sequence of decoded colors. The tools are declared inputs only of the
+owning database shard. Their socket deadlines and finite reload policy retain
+the existing media-test subprocess pattern; forced test-timeout cleanup of an OS
+child is not a separately established guarantee.
+
 ### Establish media authentication before storage authority
 
 When: deployment-scoped media authentication pass. Verdict: sound, medium confidence.

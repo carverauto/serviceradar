@@ -768,7 +768,10 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
             "//elixir/serviceradar_core:test/db/fixture_config.exs",
             "//elixir/serviceradar_core:test/db/integration_env.exs",
             "//elixir/serviceradar_core:test/db/integration_env_config.exs",
-        ],
+        ] + ([
+            "//elixir/serviceradar_core_elx:recording_browser_fixture",
+            "//third_party/membrane:media_test_tools",
+        ] if "test/integration/camera_media_upload_db_test.exs" in shard_srcs else []),
         elixir_opts = [
             "-r",
             "../serviceradar_core/test/db/integration_env.exs",
@@ -819,11 +822,17 @@ ex_unit_test(
     size = "large",
     srcs = ["test/integration/plugin_config_cli_test.exs"],
     data = glob(
-        ["config/**", "lib/**", "priv/**", "test/**"],
-        exclude = ["priv/plts/**", "test/**/*_test.exs"],
+        [
+            "config/**",
+            "lib/**",
+            "priv/**",
+            "test/**",
+        ],
+        exclude = [
+            "priv/plts/**",
+            "test/**/*_test.exs",
+        ],
     ) + [
-        "//js/cli:plugin_config_cli",
-        "//js/cli:plugin_config_cli_runfiles_path",
         "//build:elixir_test_config_loader.exs",
         "//build:run_id_file",
         "//config/environments:ci_binpb",
@@ -831,8 +840,9 @@ ex_unit_test(
         "//elixir/serviceradar_core:test/db/fixture_config.exs",
         "//elixir/serviceradar_core:test/db/integration_env.exs",
         "//elixir/serviceradar_core:test/db/integration_env_config.exs",
+        "//js/cli:plugin_config_cli",
+        "//js/cli:plugin_config_cli_runfiles_path",
     ],
-    tools = ["//js/cli:plugin_config_cli"],
     elixir_opts = [
         "-r",
         "../serviceradar_core/test/db/integration_env.exs",
@@ -847,8 +857,12 @@ ex_unit_test(
         "SERVICERADAR_TEST_DB_SHARD": WEB_NG_PLUGIN_CONFIG_CLI_LANE,
         "TEST_CNPG_POOL_SIZE": "8",
     },
-    tags = ["integration_test", "manual"],
+    tags = [
+        "integration_test",
+        "manual",
+    ],
     target_compatible_with = requires_shared_fixture(),
+    tools = ["//js/cli:plugin_config_cli"],
     deps = [
         ":erlang_app",
         "//config/manager_config/elixir:manager",
@@ -998,23 +1012,33 @@ test_suite(
 # Every variant seeds the run's dedicated serial_1 clone, never a web-ng lane
 # clone, and the lifecycle's clone drop owns its data cleanup.
 _TOPOLOGY_SCALE_DATA = glob(
-    ["config/**", "lib/**", "priv/**", "test/integration/topology_bitmap_scale/**"],
+    [
+        "config/**",
+        "lib/**",
+        "priv/**",
+        "test/integration/topology_bitmap_scale/**",
+    ],
     exclude = ["priv/plts/**"],
 ) + ["//build:elixir_test_config_loader.exs"]
 
 ex_unit_test(
     name = "topology_bitmap_scale_harness_test",
     srcs = [
-        "test/integration/topology_bitmap_scale_harness_test.exs",
         "test/integration/topology_bitmap_scale_acceptance_test.exs",
+        "test/integration/topology_bitmap_scale_harness_test.exs",
     ],
     data = _TOPOLOGY_SCALE_DATA,
     elixir_opts = [
-        "-r", "../../build/elixir_test_config_loader.exs",
-        "-r", "test/integration/topology_bitmap_scale/harness_helper.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/integration/topology_bitmap_scale/harness_helper.exs",
     ],
     target_compatible_with = ["@platforms//os:linux"],
-    deps = [":erlang_app", "@hexpm//:gun"],
+    deps = [
+        ":erlang_app",
+        "@hexpm//:gun",
+    ],
 )
 
 [
@@ -1034,9 +1058,12 @@ ex_unit_test(
             "//elixir/serviceradar_core:test/db/integration_env_config.exs",
         ],
         elixir_opts = [
-            "-r", "../serviceradar_core/test/db/integration_env.exs",
-            "-r", "../../build/elixir_test_config_loader.exs",
-            "-r", "test/db/topology_bitmap_scale_test_helper.exs",
+            "-r",
+            "../serviceradar_core/test/db/integration_env.exs",
+            "-r",
+            "../../build/elixir_test_config_loader.exs",
+            "-r",
+            "test/db/topology_bitmap_scale_test_helper.exs",
         ],
         env = {
             "SERVICERADAR_REQUIRE_DB_TESTS": "1",
@@ -1045,22 +1072,33 @@ ex_unit_test(
             "TEST_CNPG_POOL_SIZE": "8",
             "TOPOLOGY_BITMAP_SCALE_ORDINALS": distribution,
         },
-        tags = ["manual", "integration_test", "acceptance_test", "no-remote-cache"],
+        tags = [
+            "acceptance_test",
+            "integration_test",
+            "manual",
+            "no-remote-cache",
+        ],
         target_compatible_with = requires_shared_fixture(),
         deps = [
             ":erlang_app",
-            "@hexpm//:gun",
             "//config/manager_config/elixir:manager",
             "//config/manager_secret/elixir:secret",
+            "@hexpm//:gun",
         ],
     )
-    for distribution in ["compact", "sparse"]
+    for distribution in [
+        "compact",
+        "sparse",
+    ]
 ]
 
 test_suite(
     name = "topology_bitmap_scale_acceptance",
-    tests = [":topology_bitmap_scale_compact_acceptance", ":topology_bitmap_scale_sparse_acceptance"],
     tags = ["manual"],
+    tests = [
+        ":topology_bitmap_scale_compact_acceptance",
+        ":topology_bitmap_scale_sparse_acceptance",
+    ],
 )
 
 # Real loopback HTTP upgrades and concurrent WebSockets; isolated peer VM owns
@@ -1069,12 +1107,23 @@ ex_unit_test(
     name = "bitmap_websocket_transport_test",
     size = "medium",
     srcs = ["test/transport/bitmap_websocket_transport_test.exs"],
-    data = glob(["test/transport/*.exs"], exclude = ["test/transport/*_test.exs"]),
-    elixir_opts = ["-r", "test/transport/bitmap_transport_helper.exs"],
-    tags = ["integration_test", "manual", "no-remote-cache"],
+    data = glob(
+        ["test/transport/*.exs"],
+        exclude = ["test/transport/*_test.exs"],
+    ),
+    elixir_opts = [
+        "-r",
+        "test/transport/bitmap_transport_helper.exs",
+    ],
+    tags = [
+        "integration_test",
+        "manual",
+        "no-remote-cache",
+    ],
     target_compatible_with = ["@platforms//os:linux"],
     deps = [":erlang_app"],
 )
+
 # Last, so existing_rules() sees every ex_unit_test above. manual: bazel test
 # //... must not execute the suite.
 web_ng_lane_scope(name = "web_ng_lane_scope")

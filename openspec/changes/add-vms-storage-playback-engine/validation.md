@@ -1142,3 +1142,63 @@ These results do not execute the Core archive database owner or the joined Web
 publication/read owner. Their published-head guarded runs and successful fixture
 cleanup remain required before this checkpoint is ready. No deployed provider,
 camera, playback UI or Cloud installation is qualified by these synthetic checks.
+
+## Published-head archive fragment-read validation
+
+PR #6060 merged at `9a68975d1ee7434916f59eb6bcf9ab3827207fa8` from
+`cf9181690accb3498bb7489b982a072a943a502c`, with all 19 hosted checks passing.
+The prepublication Test exception deferred four database scenarios to guarded
+CI; it did not waive them. The first hosted attempt found two fixture defects:
+an absent version header was represented as null, and a Guardian subject prefix
+was passed to UUID conversion. Their repairs preserved production code and every
+assertion, followed by fresh Review and validation.
+
+- [Core parent](https://carverauto.buildbuddy.io/invocation/da2c88a5-5114-4b3a-bd10-2152d764e308)
+  tested the published head merged with staging as `8b5e5266`.
+  [Actual suite](https://carverauto.buildbuddy.io/invocation/fc501f97-bb85-457b-8286-4521c5152d0f)
+  executed all 12 targets uncached, including serial lane six, all passing.
+- [Web parent](https://carverauto.buildbuddy.io/invocation/1c75fdc9-8cb6-44b0-9289-53e58fbe6a0c)
+  tested merged tree `ea49a66e`.
+  [Actual suite](https://carverauto.buildbuddy.io/invocation/88ddf619-b2ff-4955-a061-bfcc0eba71dc)
+  executed all seven targets uncached, including the joined archive-read owner,
+  all passing. Exact init/fragment bytes, post-stop/spool-removal reads, index
+  and Range denial, persisted revocation during GET, and late proof conflict
+  were covered. No fetched bytes escaped those final failure checks.
+- Both parents printed actual numeric `suite_status=0 observer_status=0
+  teardown_status=0 release_status=0` lifecycle records.
+- [Unit workflow](https://carverauto.buildbuddy.io/invocation/7f41e50a-9895-4e67-8751-3df397d44447)
+  tested merged tree `f689a57a`: 447 supported targets passed (49 executed and
+  398 cached), with two existing Swift platform skips. The overlapping benchmark
+  and race groups also passed.
+- [Fresh isolated runtime checks](https://carverauto.buildbuddy.io/invocation/36e7e45c-d0e9-4bb0-9108-ac2ad97eb990)
+  executed storage and provider-probe targets uncached, both passing.
+
+The earlier combined public-denial scenario was broader than the new byte-route
+cases: wrong-camera denial was directly covered at Core and the existing metadata
+route, not separately driven on each new byte route. These results qualify the
+synthetic checkpoint, not a live provider, deployed camera, HLS consumer, playback
+UI or hosted installation.
+
+## Single-block playlist author validation
+
+The pure serializer's
+[remote owner and Web quality run](https://carverauto.buildbuddy.io/invocation/f9b83f25-c9e0-48c1-831d-1d75a6e17fb6)
+passed 120 tests with zero failures and 14 unrelated exclusions. The root
+[router regression and quality run](https://carverauto.buildbuddy.io/invocation/4b564112-f39d-4f1b-845e-aaae26745985)
+executed both targets successfully. The joined test's
+[format/Credo check](https://carverauto.buildbuddy.io/invocation/3f77dd56-990d-4ff5-8b22-3aae15a65eed)
+passed; its existing generated media and pinned tools also built remotely.
+
+The combined [full remote suite](https://carverauto.buildbuddy.io/invocation/96390a11-d79f-49b0-ab8c-6b021729dfbd)
+passed all 464 supported targets: 15 executed and 449 cached. The two existing
+Swift platform targets were skipped. Source files remained unchanged during
+execution. Strict OpenSpec, edited-document ASCII/local links and diff checks
+passed. Independent controller/router review found no concrete defect.
+
+This full unit run does not execute the changed database test bodies. The real
+Endpoint/FFmpeg/FFprobe consumer, parameter/authorization denials and committed
+fixture cleanup remain pending actual published-head guarded Web execution.
+Core's complete guarded regression suite is also mandatory. In particular, the
+middle-window timestamp and decoded-color assertions must execute unchanged;
+building tools or compiling test source is not evidence that HLS consumption
+passed. No live or browser deployment acceptance is claimed.

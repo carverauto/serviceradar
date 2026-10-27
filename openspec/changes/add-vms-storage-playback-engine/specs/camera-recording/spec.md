@@ -88,6 +88,13 @@ The system SHALL authorize timeline, HLS manifest, media ranges and export opera
 - **AND** the gateway SHALL repeat current human authorization and canonical proof checks before releasing verified bytes
 - **AND** permission revocation, late proof conflicts, changed identity or byte-integrity failures SHALL withhold the response bytes
 
+#### Scenario: Finite playlist for a published block
+- **WHEN** an authorized reader selects a bounded fragment window in a known published block
+- **THEN** the system SHALL derive the playlist from current canonical archive metadata without storage I/O
+- **AND** its initialization and fragment URLs SHALL require independent authorization and proof checks
+- **AND** the playlist SHALL preserve exact relative durations and a finite end without inventing a UTC mapping
+- **AND** invalid, unavailable or oversized windows SHALL fail explicitly rather than expose a whole packed object
+
 #### Scenario: Cross-block seeking and shared links
 - **WHEN** an authorized user seeks across blocks or opens a camera/object/time link
 - **THEN** the player SHALL receive correct init/range and discontinuity information
