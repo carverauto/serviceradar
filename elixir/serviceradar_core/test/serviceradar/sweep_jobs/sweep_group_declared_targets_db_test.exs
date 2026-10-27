@@ -23,6 +23,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroupDeclaredTargetsDbTest do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupDeclaredTarget
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.AvailabilityFixtures
 
   require Ash.Query
 
@@ -252,6 +253,22 @@ defmodule ServiceRadar.SweepJobs.SweepGroupDeclaredTargetsDbTest do
 
       assert Map.new(declared_rows(actor, group.id), &{&1.target, {&1.device_uid, &1.source}}) ==
                %{"203.0.113.60" => {device.uid, :srql}}
+    end
+
+    test "a device is declared at the aliases seen within the alias window, not an older one", %{
+      actor: actor,
+      unique: unique
+    } do
+      {:ok, device} = create_device(actor, "dev-aliases-#{unique}", "203.0.113.70")
+      AvailabilityFixtures.ip_alias!(device, "203.0.113.71", AvailabilityFixtures.days_ago(1))
+      AvailabilityFixtures.ip_alias!(device, "203.0.113.72", AvailabilityFixtures.days_ago(40))
+
+      {:ok, group} = create_group(actor, unique, %{target_query: "in:devices ip:203.0.113.70"})
+
+      assert Map.new(declared_rows(actor, group.id), &{&1.target, &1.device_uid}) == %{
+               "203.0.113.70" => device.uid,
+               "203.0.113.71" => device.uid
+             }
     end
 
     test "a compile whose target query fails keeps the recorded device targets", %{

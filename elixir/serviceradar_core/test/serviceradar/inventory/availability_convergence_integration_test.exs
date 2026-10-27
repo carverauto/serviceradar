@@ -18,7 +18,16 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
   use ServiceRadar.DataCase, async: false
 
   import ServiceRadar.TestSupport.AvailabilityFixtures,
-    only: [create_device!: 2, ledger_row!: 5, minutes_ago: 1, wifi: 3]
+    only: [
+      armis_source!: 2,
+      armis_source!: 3,
+      create_device!: 2,
+      ingest_armis!: 5,
+      keep_legacy_semantics!: 1,
+      ledger_row!: 5,
+      minutes_ago: 1,
+      wifi: 3
+    ]
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
@@ -31,7 +40,6 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
   alias ServiceRadar.Inventory.Availability.ReconcileWorker
   alias ServiceRadar.Inventory.Availability.Transitions
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
-  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.Migrations.ConvergeMergedAvailability, as: Migration
   alias ServiceRadar.TestSupport
@@ -252,11 +260,11 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
   defp upgrade_fixture!(actor, mode) do
     pre_upgrade_schema!(mode)
 
-    legacy_source = actor |> create_source!("SITE01 legacy") |> keep_legacy_semantics!()
-    merged_source = create_source!(actor, "SITE01 merged")
+    legacy_source = actor |> armis_source!("SITE01 legacy") |> keep_legacy_semantics!()
+    merged_source = armis_source!(actor, "SITE01 merged")
 
     pinned_source =
-      create_source!(actor, "SITE01 pinned", northbound_availability_source_agent_id: "agent-pin")
+      armis_source!(actor, "SITE01 pinned", northbound_availability_source_agent_id: "agent-pin")
 
     legacy = canonical_devices!(actor, legacy_source, mode)
     merged = canonical_devices!(actor, merged_source, mode)
@@ -618,55 +626,6 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
 
   # -- Armis fixtures ---------------------------------------------------------------------
 
-  defp create_source!(actor, name, attrs \\ []) do
-    attrs =
-      Map.merge(
-        %{
-          name: name <> " " <> Ash.UUID.generate(),
-          source_type: :armis,
-          endpoint: "https://armis.example.invalid/#{System.unique_integer([:positive])}",
-          northbound_enabled: true,
-          custom_fields: ["availability"]
-        },
-        Map.new(attrs)
-      )
-
-    IntegrationSource
-    |> Ash.Changeset.new()
-    |> Ash.Changeset.set_argument(:credentials, %{secret_key: "secret", api_key: "api"})
-    |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-    |> Ash.create!(actor: actor)
-  end
-
-  # A source created before merged availability: `legacy` semantics, which new sources
-  # cannot choose.
-  defp keep_legacy_semantics!(source) do
-    Repo.query!(
-      "UPDATE platform.integration_sources SET northbound_availability_semantics = 'legacy' WHERE id = $1",
-      [Ecto.UUID.dump!(source.id)]
-    )
-
-    %{source | northbound_availability_semantics: :legacy}
-  end
-
-  defp ingest_armis!(actor, source, ip, armis_id, available?) do
-    update = %{
-      "ip" => ip,
-      "mac" => unique_mac(),
-      "hostname" => "armis-" <> String.replace(ip, ".", "-") <> ".example.com",
-      "source" => "armis",
-      "is_available" => available?,
-      "metadata" => %{
-        "armis_device_id" => armis_id,
-        "integration_id" => armis_id,
-        "integration_type" => "armis"
-      },
-      "sync_meta" => %{"sync_service_id" => source.id}
-    }
-
-    :ok = SyncIngestor.ingest_updates([update], actor: actor)
-  end
-
   defp activate_collection!(source, devices) do
     observed_at = ~U[2026-09-01 08:00:00.000000Z]
     content_hash = String.duplicate("a", 64)
@@ -722,17 +681,5 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
       end)
 
     assert :ok = DeviceSourceObservationIngestor.activate_resolved(snapshot, observations)
-  end
-
-  defp unique_mac do
-    [:positive]
-    |> System.unique_integer()
-    |> Integer.to_string(16)
-    |> String.pad_leading(10, "0")
-    |> String.upcase()
-    |> String.graphemes()
-    |> Enum.chunk_every(2)
-    |> Enum.map_join(":", &Enum.join/1)
-    |> then(&"02:#{&1}")
   end
 end

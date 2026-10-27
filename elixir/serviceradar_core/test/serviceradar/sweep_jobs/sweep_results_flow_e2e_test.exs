@@ -4544,9 +4544,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                  config_version: "hash-#{unique_id}"
                )
 
-      # Second pass drops it, as a redelivery would.
+      {:ok, first} = Ash.get(Device, device.uid, actor: actor)
+      assert first.metadata["sweep_consecutive_failures"] == 1
+
+      # A later chunk of the same execution drops it, as a redelivery would. It carries an
+      # answer: within one execution only an answer changes the result, and the legacy
+      # writers take it only from a reporter the group expects.
+      later_chunk = Enum.map(results, &Map.put(&1, "available", true))
+
       assert {:ok, _stats} =
-               SweepResultsIngestor.ingest_results(results, execution_id,
+               SweepResultsIngestor.ingest_results(later_chunk, execution_id,
                  sweep_group_id: nil,
                  agent_id: agent_id,
                  authenticated_agent_id: agent_id,
@@ -4556,12 +4563,12 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
       {:ok, reloaded} = Ash.get(Device, device.uid, actor: actor)
 
-      refute reloaded.is_available
-      assert reloaded.metadata["sweep_consecutive_failures"] == 2
+      assert reloaded.metadata["sweep_consecutive_failures"] == 0
 
       assert {:ok, row} =
                DeviceAgentAvailability.get_by_device_agent(device.uid, agent_id, actor: actor)
 
+      assert row.is_available
       assert row.metadata["sweep_reporter_expectation"] == "expected"
       assert row.metadata["sweep_resolved_group_id"] == group.id
     end

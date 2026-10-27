@@ -31,6 +31,18 @@ defmodule ServiceRadar.SweepJobs.SweepAvailabilityDedupeTest do
     assert dev1.is_available
   end
 
+  test "a device swept at two addresses is up when either answered, in any order" do
+    now = DateTime.utc_now()
+    later = DateTime.shift(now, second: 1)
+    answered = record("dev-1", "agent-a", now, true)
+    failed = record("dev-1", "agent-a", later, false)
+
+    for rows <- [[answered, failed], [failed, answered]] do
+      assert [%{is_available: true, checked_at: ^now}] =
+               SweepResultsIngestor.dedupe_availability_records(rows)
+    end
+  end
+
   test "passes distinct keys through untouched" do
     now = DateTime.utc_now()
 

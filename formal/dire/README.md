@@ -551,7 +551,18 @@ still describes the code. The switches today's code has are listed once, in `Cur
 - Availability and `last_seen_time`. A sweep's write to a record changes no modeled variable;
   only the step's name (`SweepRefresh` or `SweepSkip`) tells a write from none. A sweep that
   finds an address down is not modeled: it restores only a tombstone an answering sweep restores
-  too, never an expired one, and writes only to a live record.
+  too, never an expired one, and writes only to a live record. How one agent's results for a
+  device swept at several addresses combine into its per-agent availability row (up when any
+  address answered, `SweepResultsIngestor.dedupe_availability_records/1` and the ledger
+  upsert) is availability, not identity, and is left to the tests.
+- Which addresses a sweep targets, and the alias recency window. The models' `Sweep` may observe
+  any address. The compiler sweeps a device's primary address and its aliases seen within
+  `ServiceRadar.SweepJobs.AliasRecency`'s window; that only withholds observations, so the model
+  allows more than the code does. Past the window, `SweepResultsIngestor` credits an alias
+  address's result to the alias holder only when the address answered. An answered address
+  still resolves through the confirmed alias holder exactly as `SweepObserve` says; only an
+  unanswered probe is dropped, and an unanswered probe is not modeled (above). The alias rows
+  themselves are unchanged, so every other reader of them resolves as before.
 - What a succession merge writes besides the join. The model's `Succession` step gives the
   survivor the merged record's ids, aliases and evidence and the successor's address. In the
   code the merge also writes the source's metadata to the survivor, and a database trigger (D5)
