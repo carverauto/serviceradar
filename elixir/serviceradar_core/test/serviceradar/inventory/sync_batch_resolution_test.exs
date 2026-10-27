@@ -23,6 +23,7 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityConflict
+  alias ServiceRadar.Inventory.Sync.Normalize
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -2143,6 +2144,158 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       {:ok, swept} = Device.get_by_uid(device.uid, false, actor: actor)
       assert DateTime.after?(swept.last_seen_time, seen), "the sweep did not reach the device"
       assert_observed_at(swept, seen)
+    end
+  end
+
+  describe "unregistered Armis IDs against historical MACs and tombstones" do
+    test "an incoming Armis update's historical MAC does not attach to another device's primary MAC",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      holder_mac = universal_mac()
+      incoming_primary_mac = universal_mac()
+      refute holder_mac == incoming_primary_mac
+
+      holder = create_device(actor, doc_ip(n, 1), holder_mac)
+      register_identifier(actor, holder.uid, :mac, holder_mac)
+
+      armis_id = "armis-hist-incoming-#{n}"
+
+      update = %{
+        "ip" => doc_ip(n, 2),
+        "hostname" => "armis-#{armis_id}",
+        "source" => "armis",
+        "mac" => "#{incoming_primary_mac},#{holder_mac}",
+        "metadata" => %{
+          "integration_type" => "armis",
+          "armis_device_id" => armis_id,
+          "mac_addresses" => "#{incoming_primary_mac},#{holder_mac}"
+        }
+      }
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      resolved = device_for_armis_id(armis_id, actor)
+      assert is_binary(resolved)
+      assert resolved != holder.uid
+
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+    end
+
+    test "an unregistered Armis ID whose deterministic UID is a source_retired tombstone reseeds to a live record",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      armis_id = "armis-tombstone-det-#{n}"
+      mac = universal_mac()
+      ip = doc_ip(n, 1)
+
+      update = armis_update(armis_id, ip, mac)
+
+      det_uid =
+        update
+        |> Normalize.normalize_update()
+        |> IdentityReconciler.extract_strong_identifiers()
+        |> IdentityReconciler.generate_deterministic_device_id()
+
+      {:ok, tombstone} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: det_uid,
+          ip: doc_ip(n, 2),
+          mac: mac,
+          hostname: "retired-det-#{n}"
+        })
+        |> Ash.create(actor: actor)
+
+      now = DateTime.to_naive(DateTime.utc_now())
+
+      %{num_rows: 1} =
+        Repo.query!(
+          "UPDATE platform.ocsf_devices SET deleted_at = $2, deleted_reason = 'source_retired', source_retired_at = $2 WHERE uid = $1",
+          [tombstone.uid, now]
+        )
+
+      assert :ok =
+               SyncIngestor.ingest_updates([update],
+                 actor: actor
+               )
+
+      resolved = device_for_armis_id(armis_id, actor)
+      assert is_binary(resolved)
+      assert resolved != tombstone.uid
+
+      assert {:ok, %Device{deleted_at: nil, ip: ^ip}} =
+               Device.get_by_uid(resolved, false, actor: actor)
+
+      assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "source_retired"}} =
+               Device.get_by_uid(tombstone.uid, true, actor: actor)
+    end
+
+    test "an unregistered Armis ID sharing a MAC with a source_retired tombstone or purged-merge survivor gets its own live record",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      shared_mac = universal_mac()
+      retired = create_device(actor, doc_ip(n, 1), shared_mac)
+      register_identifier(actor, retired.uid, :mac, shared_mac)
+
+      now = DateTime.to_naive(DateTime.utc_now())
+
+      %{num_rows: 1} =
+        Repo.query!(
+          "UPDATE platform.ocsf_devices SET deleted_at = $2, deleted_reason = 'source_retired', source_retired_at = $2 WHERE uid = $1",
+          [retired.uid, now]
+        )
+
+      armis_a = "armis-shared-retired-mac-#{n}"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_a, doc_ip(n, 2), shared_mac)],
+                 actor: actor
+               )
+
+      resolved_a = device_for_armis_id(armis_a, actor)
+      assert is_binary(resolved_a)
+      assert resolved_a != retired.uid
+
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved_a, false, actor: actor)
+
+      # Now test a merged deterministic UID whose canonical survivor holds a different Armis ID.
+      armis_b = "armis-purged-merge-#{n}"
+      mac_b = universal_mac()
+      update_b = armis_update(armis_b, doc_ip(n, 4), mac_b)
+
+      det_b =
+        update_b
+        |> Normalize.normalize_update()
+        |> IdentityReconciler.extract_strong_identifiers()
+        |> IdentityReconciler.generate_deterministic_device_id()
+
+      {:ok, merged_from} =
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: det_b,
+          ip: doc_ip(n, 3),
+          mac: mac_b,
+          hostname: "merged-from-#{n}"
+        })
+        |> Ash.create(actor: actor)
+
+      assert :ok =
+               IdentityReconciler.merge_devices(merged_from.uid, resolved_a,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      assert :ok =
+               SyncIngestor.ingest_updates([update_b],
+                 actor: actor
+               )
+
+      resolved_b = device_for_armis_id(armis_b, actor)
+      assert is_binary(resolved_b)
+      assert resolved_b != resolved_a
+      assert resolved_b != merged_from.uid
+
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved_b, false, actor: actor)
     end
   end
 

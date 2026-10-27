@@ -84,6 +84,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       trusted: preload_agent_trust(updates_with_ids, lookups, actor),
       canonical_macs: preload_canonical_macs(updates_with_ids, lookups, actor),
       source_ids: preload_source_ids(updates_with_ids, lookups, actor),
+      retained: preload_retained(updates_with_ids, lookups, actor),
       reactivated: Map.get(lookups, :reactivated, %{}),
       reissued: Map.get(lookups, :reissued, %{})
     }
@@ -118,36 +119,60 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     # (merged-away IDs must not be resurrected, purged or not).
     canonical = canonical_mapping(candidates, actor)
 
+    redirect_targets =
+      canonical
+      |> Map.values()
+      |> Enum.uniq()
+      |> Enum.reject(&Map.has_key?(preloads.source_ids, &1))
+
+    preloads = %{
+      preloads
+      | source_ids:
+          Map.merge(
+            preloads.source_ids,
+            SourceAuthorityGuard.held_source_ids(redirect_targets, actor)
+          )
+    }
+
     # Phase 3: if this batch already owns both sides of a UAA/LAA NIC pair
     # on different devices, merge the LAA sibling into the UAA survivor
     # before upsert. Identifier ownership is never stolen by upsert.
     candidates =
       heal_hardware_mac_siblings(candidates, preloads, actor)
 
-    {resolved_rev, strong, overrides_rev} =
-      Enum.reduce(candidates, {[], MapSet.new(), []}, fn {update, ids, device_id},
-                                                         {acc, strong, overrides} ->
-        final_id =
-          canonical
-          |> Map.get(device_id, device_id)
-          |> away_from_holders(ids, preloads.reissued)
+    unrevivable = unrevivable_source_targets(candidates, canonical, preloads.reissued, actor)
 
-        strong =
-          if Ids.has_strong_identifier?(ids), do: MapSet.put(strong, final_id), else: strong
+    {resolved_rev, strong, overrides_rev, _final_source_ids} =
+      Enum.reduce(candidates, {[], MapSet.new(), [], preloads.source_ids}, fn
+        {update, ids, device_id}, {acc, strong, overrides, claimed_source_ids} ->
+          final_id =
+            resolve_final_id(
+              device_id,
+              ids,
+              canonical,
+              %{preloads | source_ids: claimed_source_ids},
+              unrevivable,
+              actor
+            )
 
-        overrides =
-          case source_overrides(ids, final_id, preloads) do
-            [] ->
-              overrides
+          claimed_source_ids = SourceAuthorityGuard.claim(claimed_source_ids, ids, final_id)
 
-            overridden ->
-              [
-                %{update: update, ids: ids, device_uid: final_id, overridden: overridden}
-                | overrides
-              ]
-          end
+          strong =
+            if Ids.has_strong_identifier?(ids), do: MapSet.put(strong, final_id), else: strong
 
-        {[{update, final_id} | acc], strong, overrides}
+          overrides =
+            case source_overrides(ids, final_id, %{preloads | source_ids: claimed_source_ids}) do
+              [] ->
+                overrides
+
+              overridden ->
+                [
+                  %{update: update, ids: ids, device_uid: final_id, overridden: overridden}
+                  | overrides
+                ]
+            end
+
+          {[{update, final_id} | acc], strong, overrides, claimed_source_ids}
       end)
 
     _ = SourceAuthorityGuard.record_overrides(Enum.reverse(overrides_rev))
@@ -218,6 +243,98 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         nil -> nil
       end
     end)
+  end
+
+  # A source-authoritative update never lands on an unrevivable tombstone
+  # (`deleted_reason in ["merged" | Device.retained_reasons()]`) or a canonical
+  # merge redirect whose survivor holds a different source-authoritative
+  # identifier in the same scope: landing there either withholds the update at
+  # the identity fence or collapses two source-authoritative devices onto one
+  # survivor. Step to `Ids.reseeded_device_id/1` instead so the active source
+  # record gets its own deterministic UID.
+  defp resolve_final_id(device_id, ids, canonical, preloads, unrevivable, actor) do
+    target =
+      canonical
+      |> Map.get(device_id, device_id)
+      |> away_from_holders(ids, preloads.reissued)
+
+    if SourceAuthorityGuard.carries_source_id?(ids) and
+         (MapSet.member?(unrevivable, target) or
+            (target != device_id and source_mismatch?(ids, target, preloads))) do
+      reseed_source_uid(ids, device_id, canonical, unrevivable, actor)
+    else
+      target
+    end
+  end
+
+  defp reseed_source_uid(ids, device_id, canonical, unrevivable, actor) do
+    derived = Ids.generate_deterministic_device_id(ids)
+
+    start =
+      if derived != device_id and not Map.has_key?(canonical, derived) and
+           not MapSet.member?(unrevivable, derived) do
+        derived
+      else
+        Ids.reseeded_device_id(derived)
+      end
+
+    step_reseeded_uid(start, canonical, unrevivable, actor, 5)
+  end
+
+  defp step_reseeded_uid(uid, _canonical, _unrevivable, _actor, 0), do: uid
+
+  defp step_reseeded_uid(uid, canonical, unrevivable, actor, depth) do
+    if Map.has_key?(canonical, uid) or MapSet.member?(unrevivable, uid) or
+         unrevivable_or_purged_merged?(uid, actor) do
+      step_reseeded_uid(Ids.reseeded_device_id(uid), canonical, unrevivable, actor, depth - 1)
+    else
+      uid
+    end
+  end
+
+  defp unrevivable_or_purged_merged?(uid, actor) do
+    unrevivable_ids([uid], actor) != [] or purged_merged_ids([uid], actor) != []
+  end
+
+  defp unrevivable_source_targets(candidates, canonical, reissued, actor) do
+    targets =
+      candidates
+      |> Enum.flat_map(fn {_update, ids, device_id} ->
+        if SourceAuthorityGuard.carries_source_id?(ids) do
+          target =
+            canonical
+            |> Map.get(device_id, device_id)
+            |> away_from_holders(ids, reissued)
+
+          [device_id, target]
+        else
+          []
+        end
+      end)
+      |> Enum.filter(&Ids.serviceradar_uuid?/1)
+      |> Enum.uniq()
+
+    MapSet.new(unrevivable_ids(targets, actor))
+  end
+
+  defp unrevivable_ids([], _actor), do: []
+
+  defp unrevivable_ids(candidate_ids, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+    reasons = ["merged" | Device.retained_reasons()]
+
+    Device
+    |> Ash.Query.for_read(:read, %{include_deleted: true})
+    |> Ash.Query.filter(
+      uid in ^candidate_ids and not is_nil(deleted_at) and deleted_reason in ^reasons
+    )
+    |> Ash.Query.select([:uid])
+    |> Page.stream!(query_opts)
+    |> Enum.map(& &1.uid)
+  rescue
+    e ->
+      Logger.warning("BatchResolver: unrevivable tombstone check failed: #{inspect(e)}")
+      reraise e, __STACKTRACE__
   end
 
   # Maps tombstoned or purged-after-merge candidate IDs to their canonical
@@ -295,6 +412,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   defp strong_match(ids, preloads) do
     %{identifiers: identifier_map, trusted: trusted, canonical_macs: canonical_macs} = preloads
     incoming_macs = incoming_universal_macs(ids)
+    incoming_primary_macs = incoming_primary_universal_macs(ids)
 
     Enum.find_value(Ids.identifier_priority(), fn id_type ->
       id_type
@@ -303,7 +421,10 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         case Map.get(identifier_map, {id_type, value, ids.partition}) do
           nil when id_type == :mac ->
             sibling = hardware_mac_sibling_match(value, ids, identifier_map)
-            if is_binary(sibling) and not source_mismatch?(ids, sibling, preloads), do: sibling
+
+            if is_binary(sibling) and not source_mismatch?(ids, sibling, preloads) and
+                 not retained_non_source_match?(id_type, ids, sibling, preloads),
+               do: sibling
 
           nil ->
             nil
@@ -315,17 +436,25 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
               source_mismatch?(ids, device_id, preloads) ->
                 nil
 
+              # A retained tombstone (`source_retired`, `seed_released`) never
+              # redirects and is withheld at the identity fence, so a
+              # source-authoritative update never attaches to one through a
+              # non-source identifier.
+              retained_non_source_match?(id_type, ids, device_id, preloads) ->
+                nil
+
               # agent_id keeps its existing trusted-match gate.
               id_type == :agent_id ->
                 if trusted_agent_match?(trusted, value, device_id), do: device_id
 
               # A direct MAC match is self-consistent when it is the canonical
-              # device's current primary MAC. Armis also reports historical
-              # MACs; if a typed ID is new and only a historical MAC matches,
-              # the typed ID must win and resolve to its own deterministic UID.
+              # device's current primary MAC and matches the incoming update's
+              # current primary MAC. Armis also reports historical MACs; if a
+              # typed ID is new and only a historical MAC matches, the typed ID
+              # must win and resolve to its own deterministic UID.
               id_type == :mac ->
                 if ids.armis_id not in [nil, ""] and
-                     historical_mac_veto?(canonical_macs, device_id, incoming_macs) do
+                     historical_mac_veto?(canonical_macs, device_id, incoming_primary_macs) do
                   emit_distinct_mac_veto(:mac, value, device_id, incoming_macs, canonical_macs)
                   nil
                 else
@@ -347,6 +476,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         end
       end)
     end)
+  end
+
+  defp retained_non_source_match?(id_type, ids, device_id, preloads) do
+    SourceAuthorityGuard.carries_source_id?(ids) and
+      id_type not in SourceAuthorityGuard.source_identifier_types() and
+      MapSet.member?(Map.get(preloads, :retained, MapSet.new()), device_id)
   end
 
   defp source_mismatch?(ids, device_id, preloads),
@@ -395,6 +530,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   defp incoming_universal_macs(ids) do
     :mac
     |> Ids.get_identifier_values(ids)
+    |> universal_macs()
+  end
+
+  defp incoming_primary_universal_macs(ids) do
+    ids.mac
+    |> List.wrap()
     |> universal_macs()
   end
 
@@ -660,6 +801,48 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   rescue
     e ->
       Logger.warning("BatchResolver: source identifier preload failed: #{inspect(e)}")
+      reraise e, __STACKTRACE__
+  end
+
+  # Bulk-load retained tombstones (`Device.retained_reasons/0`) reachable via
+  # non-source identifiers on updates carrying a source-authoritative
+  # identifier, so `strong_match/2` refuses to attach a live source record onto
+  # a retained tombstone that the identity fence will withhold.
+  @doc false
+  def preload_retained(updates_with_ids, lookups, actor) do
+    candidate_ids =
+      updates_with_ids
+      |> Enum.flat_map(fn {_update, ids} ->
+        if SourceAuthorityGuard.carries_source_id?(ids) do
+          for id_type <- Ids.identifier_priority(),
+              id_type not in SourceAuthorityGuard.source_identifier_types(),
+              value <- Ids.get_identifier_values(id_type, ids),
+              device_id <- identifier_owners(id_type, value, ids, lookups.identifiers),
+              do: device_id
+        else
+          []
+        end
+      end)
+      |> Enum.uniq()
+
+    if candidate_ids == [] do
+      MapSet.new()
+    else
+      query_opts = if actor, do: [actor: actor], else: []
+      reasons = Device.retained_reasons()
+
+      Device
+      |> Ash.Query.for_read(:read, %{include_deleted: true})
+      |> Ash.Query.filter(
+        uid in ^candidate_ids and not is_nil(deleted_at) and deleted_reason in ^reasons
+      )
+      |> Ash.Query.select([:uid])
+      |> Page.stream!(query_opts)
+      |> MapSet.new(& &1.uid)
+    end
+  rescue
+    e ->
+      Logger.warning("BatchResolver: retained tombstone preload failed: #{inspect(e)}")
       reraise e, __STACKTRACE__
   end
 
