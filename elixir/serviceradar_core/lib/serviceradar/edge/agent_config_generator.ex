@@ -2838,25 +2838,19 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
     # Compute version hash from all config components
     config_version =
-      compute_version_hash(
-        check_configs,
-        full_payload,
-        sysmon_config,
-        snmp_config,
-        visibility_config,
-        bumblebee_config,
-        endpoint_inventory_config,
-        plugin_assignments,
-        plugin_engine_limits,
-        addon_assignments
-      )
-
-    config_json_payload =
-      Map.put(full_payload, "plugins", %{
-        # host_params is transport material for the typed plugin_config proto,
-        # never part of the generic JSON config surface.
-        "assignments" => Enum.map(plugin_assignments, &public_plugin_assignment/1),
-        "engine_limits" => plugin_engine_limits
+      compute_version_hash(%{
+        checks: check_configs,
+        sync: sync_payload,
+        sweep: sweep_config,
+        mapper: mapper_config,
+        sysmon: sysmon_config,
+        snmp: snmp_config,
+        visibility: visibility_config,
+        bumblebee: bumblebee_config,
+        endpoint_inventory: endpoint_inventory_config,
+        plugins: plugin_assignments,
+        plugin_engine_limits: plugin_engine_limits,
+        addons: addon_assignments
       })
 
     %{
@@ -2868,7 +2862,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       plugins: plugin_assignments,
       plugin_engine_limits: plugin_engine_limits,
       mapper_jobs_count: mapper_scheduled_job_count(mapper_config),
-      config_json_payload: config_json_payload,
+      config_json_payload: full_payload,
       sysmon_config: build_sysmon_proto_config(sysmon_config),
       snmp_config: build_snmp_proto_config(snmp_config),
       visibility_config: build_visibility_proto_config(visibility_config),
@@ -2915,14 +2909,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     do: length(jobs)
 
   defp mapper_scheduled_job_count(_mapper), do: 0
-
-  defp public_plugin_assignment(assignment) when is_map(assignment) do
-    assignment
-    |> Map.delete(:host_params)
-    |> Map.delete("host_params")
-  end
-
-  defp public_plugin_assignment(assignment), do: assignment
 
   # Convert a ServiceCheck record to our check config format
   defp convert_check_to_config(%ServiceCheck{} = check) do
@@ -2984,20 +2970,47 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp maybe_put_device_uid(settings, _device_uid), do: settings
 
-  # Compute SHA256 hash of the config for versioning
-  defp compute_version_hash(
-         check_configs,
-         sync_payload,
-         sysmon_config,
-         snmp_config,
-         visibility_config,
-         bumblebee_config,
-         endpoint_inventory_config,
-         plugin_assignments,
-         plugin_engine_limits,
-         addon_assignments
-       ) do
-    require Logger
+  # Compute SHA256 hash of the config for versioning.
+  @doc false
+  @spec compute_version_hash(map()) :: String.t()
+  def compute_version_hash(components) when is_map(components) do
+    check_configs = Map.get(components, :checks, [])
+    raw_sync = Map.get(components, :sync, %{})
+
+    sweep_config =
+      Map.get(components, :sweep) ||
+        (is_map(raw_sync) && Map.get(raw_sync, "sweep")) ||
+        %{}
+
+    mapper_config =
+      Map.get(components, :mapper) ||
+        (is_map(raw_sync) && Map.get(raw_sync, "mapper")) ||
+        %{}
+
+    bumblebee_config =
+      Map.get(components, :bumblebee) ||
+        (is_map(raw_sync) && Map.get(raw_sync, "bumblebee")) ||
+        %{}
+
+    endpoint_inventory_config =
+      Map.get(components, :endpoint_inventory) ||
+        (is_map(raw_sync) && Map.get(raw_sync, "endpoint_inventory")) ||
+        %{}
+
+    sync_payload =
+      if is_map(raw_sync) do
+        Map.drop(raw_sync, ["sweep", "mapper", "bumblebee", "endpoint_inventory"])
+      else
+        raw_sync
+      end
+
+    sysmon_config = Map.get(components, :sysmon, %{})
+    snmp_config = Map.get(components, :snmp, %{})
+    visibility_config = Map.get(components, :visibility, %{})
+    plugin_assignments = Map.get(components, :plugins, [])
+    plugin_engine_limits = Map.get(components, :plugin_engine_limits, %{})
+    addon_assignments = Map.get(components, :addons, [])
+
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
 
@@ -3014,8 +3027,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     version_payload = %{
       checks: sorted_checks,
       sync: stable_config_fragment(sync_payload),
+      sweep: sweep_version_fragment(sweep_config),
+      mapper: stable_config_fragment(mapper_config),
       sysmon: stable_config_fragment(sysmon_config),
-      snmp: stable_config_fragment(snmp_config),
+      snmp: snmp_version_fragment(snmp_config),
       visibility: stable_config_fragment(visibility_config),
       bumblebee: stable_config_fragment(bumblebee_config),
       endpoint_inventory: stable_config_fragment(endpoint_inventory_config),
@@ -3034,6 +3049,27 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     }
 
     "v" <> Compiler.content_hash(version_payload)
+  end
+
+  defp sweep_version_fragment(%{"config_hash" => config_hash} = sweep_config)
+       when is_binary(config_hash) and config_hash != "" do
+    %{
+      "format" => sweep_config_format_label(sweep_config),
+      "config_hash" => config_hash
+    }
+  end
+
+  defp sweep_version_fragment(sweep_config) do
+    stable_config_fragment(sweep_config)
+  end
+
+  defp snmp_version_fragment(%{"config_hash" => config_hash})
+       when is_binary(config_hash) and config_hash != "" do
+    %{"config_hash" => config_hash}
+  end
+
+  defp snmp_version_fragment(snmp_config) do
+    stable_config_fragment(snmp_config)
   end
 
   # Task 3.3 (refactor-device-identity-reconciliation): artifact download
@@ -3729,7 +3765,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
            agent_id: agent_id
          ) do
       {:ok, entry} ->
-        entry.config
+        put_cached_config_hash(entry.config, entry.hash)
 
       {:error, :no_config_found} ->
         Logger.debug("No SNMP config found for agent #{agent_id}, using default (disabled)")
@@ -3739,6 +3775,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         raise "failed to load SNMP config for agent #{agent_id}: #{inspect(reason)}"
     end
   end
+
+  defp put_cached_config_hash(%{"config_hash" => hash} = config, _entry_hash)
+       when is_binary(hash) and hash != "",
+       do: config
+
+  defp put_cached_config_hash(config, entry_hash)
+       when is_map(config) and is_binary(entry_hash) and entry_hash != "",
+       do: Map.put(config, "config_hash", entry_hash)
+
+  defp put_cached_config_hash(config, _entry_hash), do: config
 
   # Load visibility configuration from the AgentConfig system. No profile is
   # a valid disabled config; a compile or read error raises so generation fails

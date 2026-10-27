@@ -206,10 +206,22 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   defp build_cache_entry(compiled_config) do
     %{
       config: compiled_config,
-      hash: Compiler.content_hash(compiled_config),
+      hash: compiled_config_hash(compiled_config),
       version: 1,
       cached_at: DateTime.utc_now()
     }
+  end
+
+  defp compiled_config_hash(%{"config_hash" => hash} = compiled_config)
+       when is_binary(hash) and hash != "" do
+    case Map.get(compiled_config, "format") do
+      format when is_binary(format) and format != "" -> "#{format}:#{hash}"
+      _ -> hash
+    end
+  end
+
+  defp compiled_config_hash(compiled_config) do
+    Compiler.content_hash(compiled_config)
   end
 
   defp load_from_database(config_type, partition, agent_id) do
