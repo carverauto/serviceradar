@@ -1,9 +1,10 @@
 defmodule ServiceRadar.Inventory.Identity.BatchResolver do
   @moduledoc """
-  Batch device resolution sharing the single-update decision semantics of
-  `Identity.Resolver`, fed by preloaded lookup maps for bulk ingest paths.
+  Batch device resolution fed by preloaded lookup maps for bulk ingest paths.
+  Batch-specific MAC and redirect rules are documented in
+  `docs/docs/dire-identity-model.md` under "Resolution order (single and batch)".
 
-  Decision order per update (mirrors `Resolver.resolve_device_id/2`):
+  Candidate decision order per update, before final-target checks:
 
     1. service-component IDs pass through
     2. a retired source-authoritative identifier returned to a record
