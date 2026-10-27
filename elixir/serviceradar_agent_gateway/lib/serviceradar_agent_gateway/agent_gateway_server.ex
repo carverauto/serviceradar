@@ -1643,8 +1643,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp config_mapper_job_count(%{mapper_jobs_count: count}) when is_integer(count) and count >= 0, do: count
 
-  defp config_mapper_job_count(%{mapper: %{"scheduled_jobs" => jobs}}) when is_list(jobs), do: length(jobs)
-
   defp config_mapper_job_count(_config), do: 0
 
   defp config_plugin_assignment_count(%{plugins: plugins}) when is_list(plugins), do: length(plugins)

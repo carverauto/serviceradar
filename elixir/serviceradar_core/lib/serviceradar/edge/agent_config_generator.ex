@@ -2903,8 +2903,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> Map.put(:config_json, config_json)
   end
 
-  def materialize_config_json(config) when is_map(config), do: config
-
   defp sweep_config_format_label(%{"format" => format}) when is_binary(format) and format != "",
     do: format
 
