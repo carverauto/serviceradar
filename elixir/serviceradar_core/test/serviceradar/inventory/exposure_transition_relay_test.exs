@@ -1,16 +1,20 @@
 defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
   @moduledoc """
   The outbox relay deletes a transition only after the stream acknowledged it,
-  and publishes each one under its sequence as the JetStream message id.
+  publishes it under its sequence as the JetStream message id, and reports
+  stream freshness without treating unavailable status as healthy.
   """
 
   use ServiceRadar.DataCase, async: false
 
   import Ecto.Query
 
+  alias ServiceRadar.Infrastructure.HealthTracker
   alias ServiceRadar.Inventory.ExposureTransitionRelay
+  alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.ExposureBroker
 
   @moduletag :integration
 
@@ -66,6 +70,248 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
     end
 
     assert outbox_devices([accepted_device, refused_device]) == [refused_device]
+  end
+
+  @tag :tmp_dir
+  test "real stream retention drift degrades health once and recovery emits retained age metrics",
+       ctx do
+    enable_health_tracking!()
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
+      metrics_stream!(conn)
+
+      assert %{"config" => config} =
+               ExposureBroker.request(conn, "$JS.API.STREAM.CREATE.EXPOSURE_TRANSITIONS", %{
+                 name: "EXPOSURE_TRANSITIONS",
+                 subjects: ["vulnerability.assessment.transitions.>"],
+                 max_age: 0,
+                 max_bytes: ExposureTransitionRelay.default_max_bytes()
+               })
+
+      relay = health_relay!()
+
+      try do
+        assert %{"seq" => 1} =
+                 ExposureBroker.request(
+                   conn,
+                   ExposureTransitionRelay.subject("sr:health-example"),
+                   %{
+                     synthetic: true
+                   }
+                 )
+
+        report!(relay)
+
+        assert {:ok, %{new_state: :degraded} = degraded} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert degraded.reason == :stream_retention_unbounded
+        assert degraded.metadata["max_age_seconds"] == 0
+
+        report!(relay)
+
+        assert {:ok, repeated} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert repeated.id == degraded.id
+
+        stop_supervised!(ExposureTransitionRelay)
+        relay = health_relay!()
+        report!(relay)
+
+        assert {:ok, restarted} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert restarted.id == degraded.id
+
+        assert %{"config" => %{}} =
+                 ExposureBroker.request(
+                   conn,
+                   "$JS.API.STREAM.UPDATE.EXPOSURE_TRANSITIONS",
+                   Map.put(config, "max_age", 691_200_000_000_000)
+                 )
+
+        report!(relay)
+
+        assert {:ok, over_limit} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert over_limit.id == degraded.id
+        assert retained_metrics!(conn)["exposure_transitions_stream_max_age_seconds"] == 691_200.0
+
+        stop_supervised!(ExposureTransitionRelay)
+        relay = health_relay!()
+
+        assert %{"config" => %{"max_age" => 604_800_000_000_000}} =
+                 ExposureBroker.request(
+                   conn,
+                   "$JS.API.STREAM.UPDATE.EXPOSURE_TRANSITIONS",
+                   Map.put(config, "max_age", 604_800_000_000_000)
+                 )
+
+        report!(relay)
+
+        assert {:ok, recovered} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert recovered.new_state == :healthy
+        assert recovered.old_state == :degraded
+        assert recovered.reason == :stream_freshness_recovered
+        assert is_number(recovered.metadata["oldest_age_seconds"])
+        assert recovered.metadata["oldest_age_seconds"] >= 0
+
+        metrics = retained_metrics!(conn)
+        assert is_number(metrics["exposure_transitions_stream_oldest_age_seconds"])
+        assert metrics["exposure_transitions_stream_oldest_age_seconds"] >= 0
+        assert metrics["exposure_transitions_stream_max_age_seconds"] == 604_800.0
+
+        assert %{"success" => true} =
+                 ExposureBroker.request(conn, "$JS.API.STREAM.DELETE.EXPOSURE_TRANSITIONS", %{})
+
+        report!(relay)
+
+        assert {:ok, missing} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert missing.new_state == :degraded
+        assert missing.reason == :stream_health_unavailable
+
+        refute Map.has_key?(
+                 retained_metrics!(conn),
+                 "exposure_transitions_stream_oldest_age_seconds"
+               )
+      after
+        stop_supervised!(ExposureTransitionRelay)
+      end
+    end)
+  end
+
+  @tag :tmp_dir
+  test "reported old messages and invalid timestamps cannot produce healthy stream telemetry",
+       ctx do
+    enable_health_tracking!()
+
+    ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
+      metrics_stream!(conn)
+      timestamp = DateTime.to_iso8601(DateTime.shift(DateTime.utc_now(), minute: -10_081))
+
+      response = %{
+        "config" => %{
+          "subjects" => ["vulnerability.assessment.transitions.>"],
+          "max_bytes" => ExposureTransitionRelay.default_max_bytes(),
+          "max_age" => 604_800_000_000_000
+        },
+        "state" => %{"messages" => 1, "bytes" => 1, "first_ts" => timestamp}
+      }
+
+      replies = start_supervised!({Agent, fn -> response end})
+      server = start_supervised!({Task, fn -> stream_info_replies(conn, replies) end})
+
+      assert {:ok, _} =
+               Gnat.sub(
+                 conn,
+                 server,
+                 "$JS.EXPOSURE_HEALTH_TEST.API.STREAM.INFO.EXPOSURE_TRANSITIONS"
+               )
+
+      relay = health_relay!(domain: "EXPOSURE_HEALTH_TEST")
+
+      try do
+        report!(relay)
+
+        assert {:ok, %{new_state: :degraded} = old} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert old.reason == :stream_age_exceeded
+        assert is_number(old.metadata["oldest_age_seconds"])
+        assert old.metadata["oldest_age_seconds"] > 604_800
+
+        metrics = retained_metrics!(conn)
+        assert is_number(metrics["exposure_transitions_stream_oldest_age_seconds"])
+        assert metrics["exposure_transitions_stream_oldest_age_seconds"] > 604_800
+
+        Agent.update(replies, &put_in(&1, ["state", "messages"], 0))
+        report!(relay)
+        assert {:ok, empty} = HealthTracker.current_status(:custom, "exposure_transitions_stream")
+        assert empty.new_state == :healthy
+        assert retained_metrics!(conn)["exposure_transitions_stream_oldest_age_seconds"] == 0.0
+
+        Agent.update(replies, fn value ->
+          %{value | "state" => %{"messages" => 1, "bytes" => 1, "first_ts" => "invalid"}}
+        end)
+
+        report!(relay)
+
+        assert {:ok, invalid} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert invalid.new_state == :degraded
+        assert invalid.reason == :stream_health_unavailable
+
+        refute Map.has_key?(
+                 retained_metrics!(conn),
+                 "exposure_transitions_stream_oldest_age_seconds"
+               )
+      after
+        stop_supervised!(ExposureTransitionRelay)
+        stop_supervised!(Task)
+      end
+    end)
+  end
+
+  defp enable_health_tracking! do
+    previous = Application.get_env(:serviceradar_core, :repo_enabled)
+    Application.put_env(:serviceradar_core, :repo_enabled, true)
+    on_exit(fn -> Application.put_env(:serviceradar_core, :repo_enabled, previous) end)
+  end
+
+  defp health_relay!(opts \\ []) do
+    start_supervised!(
+      {ExposureTransitionRelay,
+       Keyword.merge(
+         [
+           name: __MODULE__.HealthRelay,
+           poll_interval_ms: 3_600_000,
+           report_interval_ms: 3_600_000
+         ],
+         opts
+       )}
+    )
+  end
+
+  defp report!(relay) do
+    send(relay, :report)
+    :sys.get_state(relay, 30_000)
+    :ok
+  end
+
+  defp metrics_stream!(conn) do
+    assert %{"config" => %{}} =
+             ExposureBroker.request(conn, "$JS.API.STREAM.CREATE.EXPOSURE_HEALTH_METRICS", %{
+               name: "EXPOSURE_HEALTH_METRICS",
+               subjects: ["metrics.exposure_transitions"]
+             })
+  end
+
+  defp retained_metrics!(conn) do
+    assert %{"message" => %{"data" => encoded}} =
+             ExposureBroker.request(conn, "$JS.API.STREAM.MSG.GET.EXPOSURE_HEALTH_METRICS", %{
+               last_by_subj: "metrics.exposure_transitions"
+             })
+
+    encoded
+    |> Base.decode64!()
+    |> MetricBatch.decode()
+    |> Map.fetch!(:metrics)
+    |> Map.new(fn metric -> {metric.name, hd(metric.points).value} end)
+  end
+
+  defp stream_info_replies(conn, replies) do
+    receive do
+      {:msg, %{reply_to: subject}} ->
+        :ok = Gnat.pub(conn, subject, Jason.encode!(Agent.get(replies, & &1)))
+        stream_info_replies(conn, replies)
+    end
   end
 
   defp outbox_devices(device_uids) do

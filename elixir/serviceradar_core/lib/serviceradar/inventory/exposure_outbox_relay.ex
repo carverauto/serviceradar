@@ -42,6 +42,7 @@ defmodule ServiceRadar.Inventory.ExposureOutboxRelay do
   def init(opts) do
     send(self(), :relay)
     Process.send_after(self(), :report, report_interval(opts))
+
     {:ok, %{opts: opts, relayed: 0, degraded?: false, stream_ready?: false}}
   end
 
@@ -299,12 +300,19 @@ defmodule ServiceRadar.Inventory.ExposureOutboxRelay do
     age = oldest_age_seconds(now, spec)
     bound = Keyword.get(state.opts, :age_bound_seconds, @default_age_bound_seconds)
     pending = pending_count(spec)
+    {stream_metrics, reason, metadata} = stream_report(now, spec, state.opts)
 
-    publish_metrics(now, spec, [
-      {"#{spec.table}_oldest_age_seconds", age},
-      {"#{spec.table}_pending", pending},
-      {"#{spec.metrics}_relayed", state.relayed}
-    ])
+    publish_metrics(
+      now,
+      spec,
+      [
+        {"#{spec.table}_oldest_age_seconds", age},
+        {"#{spec.table}_pending", pending},
+        {"#{spec.metrics}_relayed", state.relayed}
+      ] ++ stream_metrics
+    )
+
+    record_stream_health(spec, reason, metadata)
 
     %{
       state
@@ -315,6 +323,70 @@ defmodule ServiceRadar.Inventory.ExposureOutboxRelay do
     error ->
       Logger.warning("Exposure outbox report failed: #{Exception.message(error)}")
       state
+  end
+
+  defp stream_report(now, spec, opts) do
+    subject =
+      JetstreamConsumer.js_api(Keyword.get(opts, :domain)) <> ".STREAM.INFO." <> spec.stream
+
+    bound = div(@max_age_ns, 1_000_000_000)
+
+    with {:ok, %{"config" => %{"max_age" => retention}, "state" => stream}} <-
+           request(subject, "{}"),
+         true <- is_integer(retention) and retention >= 0,
+         {:ok, age} <- stream_age(stream, now) do
+      reason =
+        cond do
+          age > bound -> :stream_age_exceeded
+          retention == 0 or retention > @max_age_ns -> :stream_retention_unbounded
+          true -> nil
+        end
+
+      metadata = %{
+        "oldest_age_seconds" => age,
+        "max_age_seconds" => retention / 1_000_000_000,
+        "age_bound_seconds" => bound
+      }
+
+      metrics = [
+        {"#{spec.metrics}_stream_oldest_age_seconds", age},
+        {"#{spec.metrics}_stream_max_age_seconds", metadata["max_age_seconds"]}
+      ]
+
+      {metrics, reason, metadata}
+    else
+      # Missing or malformed status is unknown, never evidence of an empty stream.
+      _ -> {[], :stream_health_unavailable, %{"age_bound_seconds" => bound}}
+    end
+  end
+
+  defp stream_age(%{"messages" => 0}, _now), do: {:ok, 0}
+
+  defp stream_age(%{"messages" => count, "first_ts" => timestamp}, now)
+       when is_integer(count) and count > 0 and is_binary(timestamp) do
+    with {:ok, first, _offset} <- DateTime.from_iso8601(timestamp) do
+      {:ok, max(0, DateTime.diff(now, first, :second))}
+    end
+  end
+
+  defp stream_age(_stream, _now), do: :error
+
+  defp record_stream_health(spec, reason, metadata) do
+    entity_id = spec.metrics <> "_stream"
+
+    with {:ok, previous} <- HealthTracker.current_status(:custom, entity_id) do
+      old_state = if previous, do: previous.new_state, else: :healthy
+      new_state = health_state(not is_nil(reason))
+
+      if old_state != new_state do
+        HealthTracker.record_state_change(:custom, entity_id,
+          old_state: old_state,
+          new_state: new_state,
+          reason: reason || :stream_freshness_recovered,
+          metadata: metadata
+        )
+      end
+    end
   end
 
   defp pending_count(spec) do

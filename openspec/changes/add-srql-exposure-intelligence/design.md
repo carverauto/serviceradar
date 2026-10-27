@@ -1812,7 +1812,7 @@ Refresh budgets:
 | A transition for a retired ordinal arrives after the retirement | An older lifecycle is dropped and counted. A future lifecycle stays retryable until its marker. An authorized restore republishes current facts on the same ordinal (Decision 23). |
 | A deleted assessment key is re-created later | Under the shared full fact-key serialization, the re-creating transaction draws a new sequence above the terminal watermark's and removes the key's row from `platform.exposure_fact_watermarks` in the same transaction. |
 | An active warehouse fact has neither an assessment nor a source watermark | Snapshot repair rechecks under the same fact-key serialization as creation, then records a new terminal watermark and outbox transition atomically if the source is still absent (Decision 20). |
-| A transitions-stream message expires (`max_age`) before it is consumed | Freshness is lost and the stream-age health alert fires; the daily reconciliation finds the device mismatched and a per-device snapshot repairs it. Watermarks still prevent any older state from winning. |
+| A transitions-stream message expires (`max_age`) before it is consumed | Retained-stream health cannot detect an already expired message (see Stream freshness below). The daily reconciliation finds the device mismatched and a per-device snapshot repairs it. Watermarks still prevent any older state from winning. |
 | A warehouse is restored from a backup taken after compaction | Compacted tombstones in the backup still carry their watermark; the snapshot supplies every newer watermark. |
 | A `network_only` candidate's tolerance range crosses an hour boundary | It is evaluated with the later hour, the hour containing `flow_end + tolerance`. |
 | A flow arrives later than the maximum accepted flow delay | Its sides are `outside_history` and counted; the exporter's hour counts as unhealthy, so it cannot produce a `host_only` gap. |
@@ -1865,6 +1865,23 @@ size. It publishes `exposure_transition_outbox_oldest_age_seconds`,
 `metrics.exposure_transitions`, and records a health state change for
 `exposure_transition_outbox` when the oldest row crosses 10 minutes. The EventWriter
 consumer (task 1.4) attaches to this producer-owned stream; it must not create it.
+
+**Stream freshness (task 1.7).** The existing relay reporting cycle also reads
+JetStream stream status for transitions and dimensions. It publishes
+`exposure_transitions_stream_oldest_age_seconds` and
+`exposure_transitions_stream_max_age_seconds` on the existing metrics subject;
+dimensions use the corresponding `exposure_dimensions` prefix. Empty streams
+report age zero. Missing streams, failed status requests and invalid timestamps
+omit age metrics rather than reporting a fabricated zero.
+
+The `exposure_transitions_stream` and `exposure_dimensions_stream` health entities
+degrade when observed age exceeds seven days, retention is unlimited or exceeds
+seven days, or status cannot be established. A subsequent valid sample within
+both bounds records recovery. Events are emitted on health state changes, not
+on every poll. This monitoring does not shorten existing retention or discard
+stored messages. It does not establish consumer delivery completeness; snapshot
+and reconciliation readiness retain their separate proof requirements. Payload
+compaction and the fleet-scale completion gates remain open.
 
 This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequence,
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and
