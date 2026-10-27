@@ -184,7 +184,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.WarehouseQueryInventoryTest do
 
          capture(fn ->
            ICMPData.load(CapturingSRQL, @devices, @scope, opts)
-           ICMPData.load_availability(CapturingSRQL, @devices, @scope, opts)
+           ICMPData.load_availability(CapturingSRQL, @device, @scope, opts)
          end)
        end},
       {"DeviceLive.IndexData.Telemetry.metric_presence/2 and icmp_sparklines/2",

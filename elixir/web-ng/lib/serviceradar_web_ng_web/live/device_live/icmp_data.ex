@@ -26,20 +26,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
     load_sources(@sources, srql_module, device_uids, scope, opts, :latency)
   end
 
-  def load_availability(srql_module, device_uids, scope, opts) when is_list(device_uids) do
-    # A selected observer owns the result. With no selection, availability wins
-    # across observers, matching the device's fallback availability policy.
-    aggregate = if is_binary(Keyword.get(opts, :agent_id)), do: :min, else: :max
-    opts = Keyword.put(opts, :aggregate, aggregate)
+  @doc """
+  Availability buckets for one device, one row per bucket whose `series` is the device uid.
 
-    load_sources(
-      @availability_sources,
-      srql_module,
-      device_uids,
-      scope,
-      opts,
-      {:bucket, aggregate}
-    )
+  Each address the device is probed at is its own series (`target_device_ip`): a sweep of a
+  device that holds several addresses writes one `sweep.host.available` sample per address.
+  Within a bucket, the observer aggregate applies to each address on its own, and the device is
+  then online when any of its addresses was. A selected observer owns the result, so any
+  failure it saw on an address in the bucket marks that address offline (`min`). With no
+  selection, availability wins across observers (`max`), matching the device's fallback
+  availability policy.
+
+  "Any address answered" matches the agent's sweep aggregator, which marks a multi-address
+  device available when any address answers (`go/pkg/sweeper/sweeper_aggregators.go`,
+  `IsAvailable = availableCount > 0`), and the merged resolver, which lets any decisive `up`
+  win within the deciding class (`ServiceRadar.Inventory.Availability.Resolver`, rule 6).
+  Aggregating every address of the device as one series let a single address that never
+  answers, such as one the device no longer holds, mark every bucket offline.
+  """
+  def load_availability(srql_module, device_uid, scope, opts) when is_binary(device_uid) do
+    aggregate = if is_binary(Keyword.get(opts, :agent_id)), do: :min, else: :max
+
+    opts =
+      opts
+      |> Keyword.put(:aggregate, aggregate)
+      |> Keyword.put(:series, "target_device_ip")
+
+    load_sources(@availability_sources, srql_module, [device_uid], scope, opts, :availability)
   end
 
   defp load_sources(_sources, _srql_module, [], _scope, _opts, _selection), do: {:ok, []}
@@ -51,7 +64,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
 
       case srql_module.query(query, %{scope: scope}) do
         {:ok, %{"results" => rows}} when is_list(rows) ->
-          rows = normalize_rows(rows, device_uids, unit, Keyword.fetch!(opts, :aggregate))
+          rows = normalize_rows(rows, device_uids, unit, opts)
           {:cont, {:ok, [rows | batches]}}
 
         {:error, _} = error ->
@@ -76,19 +89,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
     |> Enum.uniq_by(&bucket_key/1)
   end
 
-  defp select_rows(batches, {:bucket, aggregate}) do
-    # Preferred observations, including failures, win only their own bucket.
-    # A producer may have stopped mid-window while sweep observations continue.
+  defp select_rows(batches, :availability) do
+    # Within a source, the device is online in a bucket when any of its addresses was. A
+    # preferred source's observations, including failures, then win only their own bucket:
+    # a producer may have stopped mid-window while sweep observations continue.
     batches
     |> Enum.flat_map(fn rows ->
       rows
       |> Enum.group_by(&bucket_key/1)
-      |> Enum.map(fn {_key, observations} ->
-        case aggregate do
-          :min -> Enum.min_by(observations, & &1["value"])
-          :max -> Enum.max_by(observations, & &1["value"])
-        end
-      end)
+      |> Enum.map(fn {_key, addresses} -> Enum.max_by(addresses, & &1["value"]) end)
     end)
     |> Enum.uniq_by(&bucket_key/1)
   end
@@ -117,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
       "time:#{Keyword.fetch!(opts, :time_range)}",
       "bucket:#{Keyword.fetch!(opts, :bucket)}",
       "agg:#{Keyword.fetch!(opts, :aggregate)}",
-      "series:uid",
+      "series:#{Keyword.get(opts, :series, "uid")}",
       "sort:timestamp:asc",
       "limit:#{Keyword.fetch!(opts, :limit)}"
     ]
@@ -128,16 +137,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
   defp agent_filter(nil), do: nil
   defp agent_filter(agent_id), do: "agent_id:#{quote_uid(agent_id)}"
 
-  defp normalize_rows(rows, device_uids, unit, aggregate) do
-    wanted = MapSet.new(device_uids)
+  defp normalize_rows(rows, device_uids, unit, opts) do
+    aggregate = Keyword.fetch!(opts, :aggregate)
+    owner = series_owner(device_uids, Keyword.get(opts, :series, "uid"))
 
     Enum.flat_map(rows, fn
-      %{"series" => uid, "value" => value} = row ->
+      %{"series" => series, "value" => value} = row ->
         value = number(value)
+        uid = owner.(series)
 
-        if MapSet.member?(wanted, uid) and valid_value?(value, unit) do
+        if is_binary(uid) and valid_value?(value, unit) do
           value = if aggregate == :avg, do: latency_ms(value, unit), else: value
-          [Map.put(row, "value", value)]
+          [%{row | "series" => uid, "value" => value}]
         else
           []
         end
@@ -146,6 +157,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPData do
         []
     end)
   end
+
+  # The device a row belongs to. A per-address series is one device's address, since an
+  # address-split query is only ever made for a single device.
+  defp series_owner(device_uids, "uid") do
+    wanted = MapSet.new(device_uids)
+    fn uid -> if MapSet.member?(wanted, uid), do: uid end
+  end
+
+  defp series_owner([device_uid], _address_series), do: fn _address -> device_uid end
 
   defp valid_value?(value, :status), do: value in [0, 0.0, 1, 1.0]
   defp valid_value?(value, _unit), do: is_number(value)

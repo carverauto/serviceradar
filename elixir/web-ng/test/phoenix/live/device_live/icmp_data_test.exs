@@ -112,8 +112,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     assert dedicated =~ "metric_name:icmp_available"
     assert dedicated =~ "time:[1999-06-15T00:00:00Z,1999-06-16T00:00:00Z] bucket:30m agg:max"
     assert sweep =~ "metric_name:sweep.host.available"
-    assert sweep =~ "bucket:30m agg:max"
-    assert sweep =~ "limit:100"
+    assert sweep =~ "bucket:30m agg:max series:target_device_ip"
+    assert sweep =~ "limit:500"
     refute_receive {:icmp_query, _, _}
   end
 
@@ -123,7 +123,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     assert {:ok, [%{"value" => 1}]} =
              ICMPData.load_availability(
                __MODULE__,
-               [@host_alpha],
+               @host_alpha,
                @scope,
                Keyword.put(@opts, :agent_id, "agent-north")
              )
@@ -139,7 +139,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ICMPDataTest do
     respond_with([rows([point(@host_alpha, 0), point(@host_alpha, 1)]), rows([])])
 
     assert {:ok, [%{"value" => 1}]} =
-             ICMPData.load_availability(__MODULE__, [@host_alpha], @scope, @opts)
+             ICMPData.load_availability(__MODULE__, @host_alpha, @scope, @opts)
 
     for _source <- 1..2 do
       assert_receive {:icmp_query, query, _}
