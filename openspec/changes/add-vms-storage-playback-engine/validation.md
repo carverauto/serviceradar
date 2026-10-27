@@ -1032,3 +1032,61 @@ Core and Web execution, connection observation, teardown and fixture-generation
 lease release remain mandatory. Until those gates pass, keep the manifest/index
 tasks open. No live provider, camera deployment, hosted readiness, playback,
 multipart reconciliation or local reclamation is established by these checks.
+
+## Published-head archive publication validation
+
+[PR #6047](https://github.com/carverauto/serviceradar/pull/6047) merged at
+`35078ce5b0e4233b30da59edec994ddd258ade87`. Its final published head
+`3bd7402af750a793e43a5f50e21255fe4f81fffc` passed all 20 reported checks.
+The workflows below explicitly checked out that head and merged current staging,
+as the standard BuildBuddy PR workflow requires. Normal workflow stdout was read;
+these are executed results, not build-only claims.
+
+- [Core guarded workflow](https://carverauto.buildbuddy.io/invocation/cb53539e-5a6c-46c4-a679-7ed3fc70ad47):
+  [suite](https://carverauto.buildbuddy.io/invocation/794ba61a-1e3b-439a-9260-f7065f444659)
+  executed all 12 targets uncached and passed. The archive owner
+  `integration_tests_serial_6` passed in 177.6 seconds. Actual lifecycle output
+  reported suite, observer, teardown and release status zero.
+- [Web guarded workflow](https://carverauto.buildbuddy.io/invocation/78dee076-5de9-4d1e-9124-8e835aec25a2):
+  [suite](https://carverauto.buildbuddy.io/invocation/bd1a4405-818b-426f-a9e4-7209bdba0a27)
+  executed all seven targets uncached and passed. The joined media/publication
+  owner `networks_live_db_test_0` passed in 183.9 seconds. Actual lifecycle output
+  reported suite, observer, teardown and release status zero.
+- [Unit workflow](https://carverauto.buildbuddy.io/invocation/b3e30839-9bc8-4768-bff1-413f37222e16):
+  all three waves passed: 447 targets with four executed and two Swift platform
+  skips; 17 targets with four executed; 73 targets with one executed. These waves
+  overlap and are not a sum of unique tests.
+
+The earlier approved prepublication Test exception deferred database execution to
+these mandatory hosted lanes. It did not waive them; their completed execution
+satisfies that deferral. Historical pending statements above describe their named
+prepublication heads, not the merged checkpoint's current state. Recovery-manifest
+verification and fenced index publication are complete. Playback, multipart and
+unknown-outcome reconciliation, provider qualification, hosted provisioning and
+live acceptance remain open.
+
+## Archive metadata validation
+
+This branch adds the separately authorized single-block metadata read. Its new
+HTTP/database scenarios require their own published-head guarded execution;
+#6047's results establish the prerequisite only. Remote quality/unit and final
+hosted results will be recorded after execution. No live provider or deployment
+acceptance is claimed.
+
+Combined source `5821c9b9847496e681b44dc962f53e66f19c3361` passed
+[`make test` on RBE](https://carverauto.buildbuddy.io/invocation/d1f905f2-dc5f-42d2-b52c-f39f035d3c0a)
+with exit zero: 464 targets passed, 54 executed and 410 cached. Only
+`//build/arrow_swift:ios_compile_test` and
+`//build/arrow_swift:swift_regression_test` were skipped. Core and Web quality
+checks executed successfully. The clean source stayed unchanged during the run;
+normal command stdout and independently retrieved BuildBuddy output agree.
+Strict OpenSpec validation and edited-document local links/ASCII checks passed.
+Independent production and test reviews found no blocking defect.
+
+Both changed HTTP/database files remain in `networks_live_db_test_0`; no test
+source moved and no routing registration changed. The unit result above does
+not execute their database-tagged bodies. Their real route, publication/conflict,
+permission and cleanup assertions remain pending guarded Web execution. Core's
+existing proof/fencing regressions and both complete lifecycle workflows remain
+mandatory on the published head. This documentation-only evidence addition does
+not change runtime or test inputs.

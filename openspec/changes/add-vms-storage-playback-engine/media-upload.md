@@ -32,8 +32,8 @@ The separate storage instance uses the existing infrastructure configuration
 file entry point with a `media_put_verified_v1` desired document. Its boot
 challenge must be applied through the private media-authority route before
 the explicit upload. An init-kind instance continues to accept only init
-authority. No production init-upload caller exists yet; the next publication
-pass must obtain or consume independently retained init verification.
+authority. The [archive-publication command](archive-publication.md#entry-point-and-recovery)
+owns the production init-upload caller and consumption of retained init verification.
 
 ## Distinct media authority
 

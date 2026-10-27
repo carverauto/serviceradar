@@ -69,6 +69,13 @@ The system SHALL store recording/index/hold state in CNPG/Ash, durable media in 
 ### Requirement: Authorized bounded replay
 The system SHALL authorize timeline, HLS manifest, media ranges and export operations and expose unavailable, provisional, expired and discontinuous intervals explicitly.
 
+#### Scenario: Inspect a retained archive block
+- **WHEN** an authenticated caller requests one camera's recording metadata
+- **THEN** the system SHALL require current recording-read and inventory permissions and match the retained block to that camera
+- **AND** live-video permission alone SHALL NOT authorize historical recording access
+- **AND** the frozen fragment descriptor SHALL be returned only while the canonical archive proof chain is available, with late conflicts withholding it
+- **AND** the metadata response SHALL NOT contain storage credentials, object locations or a future media-access grant
+
 #### Scenario: Packed object contains footage outside access scope
 - **WHEN** a user is authorized for only part of a packed object
 - **THEN** the playback gateway SHALL enforce the permitted range/time scope

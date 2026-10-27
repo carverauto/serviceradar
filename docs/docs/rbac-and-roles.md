@@ -92,6 +92,16 @@ The entity-to-permission mapping and scope authorization contract are owned by
 `ServiceRadarWebNG.SRQL.EntityAccess` in
 `elixir/web-ng/lib/serviceradar_web_ng/srql/entity_access.ex`.
 
+### Recording metadata
+
+Inspecting historical camera recording metadata requires both
+`devices.cameras.recordings.view` and `devices.view`. The recording permission
+defaults to administrators and can be granted through custom role profiles;
+live-video permission does not grant it. Each metadata request reloads the
+user's persisted active account and current permissions, so cached authority
+does not preserve revoked access. This permission currently enables metadata
+inspection, not playback or media downloads.
+
 ## Custom role profiles
 
 When the built-in roles do not match a team's needs, an administrator can create

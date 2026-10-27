@@ -1,6 +1,7 @@
 defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   use ServiceRadarWebNG.DataCase, async: false
 
+  import Phoenix.ConnTest, only: [build_conn: 0, get: 2, json_response: 2]
   import Plug.Conn
   import Plug.Test
 
@@ -14,6 +15,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingDescriptor
+  alias ServiceRadar.Camera.Source
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarCoreElx.CameraRecording.ArchivePublication
   alias ServiceRadarCoreElx.CameraRecording.MediaUpload
@@ -22,6 +24,8 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   alias ServiceRadarCoreElx.CameraStorage.Config
   alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Provider
   alias ServiceRadarWebNG.ArchiveStorageHTTP
+  alias ServiceRadarWebNG.AshTestHelpers
+  alias ServiceRadarWebNG.Auth.Guardian
   alias ServiceRadarWebNGWeb.ControlPlaneRuntimeRouter
 
   require Ash.Query
@@ -32,6 +36,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   @moduletag timeout: 120_000
 
   @bytes :binary.copy("invented joined media;", 7000)
+  @endpoint ServiceRadarWebNGWeb.Endpoint
   @admin_token "synthetic-joined-media-administration-token"
   @account_token "synthetic-joined-account-administration-token"
   @recorder_token "synthetic-joined-recorder-to-storage-token"
@@ -209,6 +214,22 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   test "the production callers publish independent init and exact manifest proofs through one isolated service",
        context do
     before = directory_bytes(context.directory)
+    token = recording_reader_token()
+    path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
+
+    assert token |> recording_metadata(path) |> json_response(200) == %{
+             "data" => %{
+               "schema_version" => 1,
+               "block_id" => context.block.id,
+               "camera_source_id" => context.source.id,
+               "stream_profile_id" => context.block.stream_profile_id,
+               "archive_status" => "unavailable",
+               "published_at" => nil,
+               "descriptor" => nil
+             }
+           }
+
+    assert Agent.get(context.store, & &1.requests) == []
     assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
     media = dispatch(context)
     assert {:ok, %{status: :init_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
@@ -226,6 +247,57 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert Agent.get(context.store, & &1.requests) == requests
     assert_publication(context, receipt)
     assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    response = recording_metadata(token, path)
+
+    assert json_response(response, 200) == %{
+             "data" => %{
+               "schema_version" => 1,
+               "block_id" => context.block.id,
+               "camera_source_id" => context.source.id,
+               "stream_profile_id" => context.block.stream_profile_id,
+               "archive_status" => "available",
+               "published_at" => receipt["published_at"],
+               "descriptor" => context.block.descriptor
+             }
+           }
+
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    other_source = other_recording_source(context)
+    wrong_source = recording_metadata(token, "/api/cameras/#{other_source.id}/recordings/#{context.block.id}")
+    assert json_response(wrong_source, 404)["error"] == "recording_not_found"
+
+    manifest = dispatch(context, :manifest)
+
+    assert {:error, :archive_upload_response_conflict} =
+             ArchiveUploads.observe_response(
+               published,
+               manifest.id,
+               %{"status" => 503},
+               actor: SystemActor.system(:camera_archive_storage)
+             )
+
+    conflicted = recording_metadata(token, path)
+
+    assert json_response(conflicted, 200) == %{
+             "data" => %{
+               "schema_version" => 1,
+               "block_id" => context.block.id,
+               "camera_source_id" => context.source.id,
+               "stream_profile_id" => context.block.stream_profile_id,
+               "archive_status" => "reconciliation_required",
+               "published_at" => nil,
+               "descriptor" => nil
+             }
+           }
+
+    assert {:ok, %{status: :reconciliation_required, result: ^receipt}} =
+             ArchiveUploads.publication_status(context.block.id, context.opts)
+
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+    assert Agent.get(context.store, & &1.requests) == requests
   end
 
   @tag publication: true
@@ -304,6 +376,55 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert Agent.get(context.store, & &1.requests) == requests
     assert role_intents(context, :manifest) == []
     assert {:ok, %{status: :manifest_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
+  end
+
+  defp recording_metadata(token, path) do
+    response = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
+    assert get_resp_header(response, "cache-control") == ["private, no-store"]
+    response
+  end
+
+  defp recording_reader_token do
+    user = AshTestHelpers.admin_user_fixture()
+
+    on_exit(fn ->
+      id = Ecto.UUID.dump!(user.id)
+      ServiceRadar.Identity.RBAC.Cache.invalidate(user.id)
+      ServiceRadar.Repo.query!("DELETE FROM platform.api_tokens WHERE user_id = $1", [id])
+      ServiceRadar.Repo.query!("DELETE FROM platform.ng_users WHERE id = $1", [id])
+
+      assert %{rows: [[0, 0]]} =
+               ServiceRadar.Repo.query!(
+                 "SELECT (SELECT count(*) FROM platform.ng_users WHERE id = $1), " <>
+                   "(SELECT count(*) FROM platform.api_tokens WHERE user_id = $1)",
+                 [id]
+               )
+    end)
+
+    {:ok, token, _claims} = Guardian.create_access_token(user)
+    token
+  end
+
+  defp other_recording_source(context) do
+    source =
+      Source
+      |> Ash.Changeset.for_create(:create, %{
+        device_uid: context.source.device_uid,
+        vendor: "synthetic",
+        vendor_camera_id: Ecto.UUID.generate(),
+        display_name: "Synthetic archive isolation camera"
+      })
+      |> Ash.create!(context.opts)
+
+    on_exit(fn ->
+      id = Ecto.UUID.dump!(source.id)
+      ServiceRadar.Repo.query!("DELETE FROM platform.camera_sources WHERE id = $1", [id])
+
+      assert %{rows: [[0]]} =
+               ServiceRadar.Repo.query!("SELECT count(*) FROM platform.camera_sources WHERE id = $1", [id])
+    end)
+
+    source
   end
 
   defp assert_publication(context, receipt) do

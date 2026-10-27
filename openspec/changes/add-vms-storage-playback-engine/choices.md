@@ -1464,3 +1464,29 @@ left reconciliation of such older receipts unspecified. Verdict: sound because
 failure remains explicit and canonical bytes stay unchanged; future provider
 qualification/reconciliation must address the original evidence deliberately.
 Confidence: high.
+
+## Archive metadata: sound, medium confidence
+
+### Separate historical access from live viewing
+
+When: authorized archive-metadata checkpoint. The operator explicitly selected
+separate recording-read permission. The existing live permission names live
+video, so an ordinary live viewer cannot inspect old footage metadata just
+because recording was added. The new permission defaults to administrators and
+is grantable through custom roles. Each request reloads current persisted
+account/role authority and also requires camera inventory access. The plan
+required authorization but did not specify these permission/default choices.
+Verdict: sound; future playback should use the same separate recording boundary
+while independently authorizing every requested range.
+
+### Inspect one proof-backed block before adding playback delivery
+
+When: authorized archive-metadata checkpoint. A caller names one camera and block
+and receives its current state; only an available archive includes the frozen
+fragment descriptor. Open/unbound blocks return unavailable. A later conflict
+hides the descriptor and timestamp without erasing internal publication history.
+The response does not expose storage locations or grant byte access. The plan
+left the first read interface unspecified. Returning one existing bounded
+record avoids a speculative time index while clock/capacity experiments remain
+open. Verdict: sound, medium confidence; this adds a useful inspection API but
+leaves timeline search, local/provisional reads and media delivery unfinished.
