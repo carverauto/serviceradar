@@ -147,7 +147,10 @@ py_test(
     name = "publish_oci_workflow_contract_test",
     size = "small",
     srcs = ["publish_oci_workflow_contract_test.py"],
-    data = ["//:.github/workflows/publish-oci.yml"],
+    data = [
+        "//:.github/workflows/publish-oci.yml",
+        "//scripts:ci/prepare-openbao-cosign-env.sh",
+    ],
 )
 
 py_binary(
