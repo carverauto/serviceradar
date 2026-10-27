@@ -11,6 +11,9 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
   import Ecto.Query
 
+  alias ServiceRadar.Analytics.StarRocks
+  alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
+  alias ServiceRadar.Analytics.StarRocks.MySQL
   alias ServiceRadar.EventWriter.ExposureDelivery
   alias ServiceRadar.EventWriter.ExposureRecovery
   alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Snapshot
@@ -46,6 +49,222 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   setup do
     unique = System.unique_integer([:positive])
     {:ok, unique: unique, device_uid: "sr:exposure-transition-#{unique}"}
+  end
+
+  @tag sandbox: :unboxed
+  @tag :tmp_dir
+  @tag :live_warehouse
+  @tag timeout: 600_000
+  @tag skip: is_nil(System.get_env("EXPOSURE_LIVE_WAREHOUSE"))
+  test "live warehouse reconciliation retains repairs through loss, upgrades and queued traffic", ctx do
+    config = live_warehouse_config!()
+    previous = Application.get_env(:serviceradar_core, StarRocks, [])
+    previous_database = System.get_env("SERVICERADAR_STARROCKS_DATABASE")
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, StarRocks, previous)
+
+      if previous_database,
+        do: System.put_env("SERVICERADAR_STARROCKS_DATABASE", previous_database),
+        else: System.delete_env("SERVICERADAR_STARROCKS_DATABASE")
+    end)
+
+    Application.put_env(:serviceradar_core, StarRocks, config)
+    System.put_env("SERVICERADAR_STARROCKS_DATABASE", config[:database])
+    refute Process.whereis(MySQL), "live scenario requires its own MySQL pool"
+    start_supervised!({MyXQL, MySQL.connection_opts(config)})
+    if !Process.whereis(LoadSupervisor), do: start_supervised!(LoadSupervisor)
+
+    tables = ~w(exposure_facts exposure_cve_dim exposure_package_dim exposure_retired_ordinals exposure_transitions_log)
+
+    # The coordinator owns this unique schema. Never empty a reused database.
+    for table <- tables do
+      assert {:ok, %{rows: [[0]]}} = MySQL.query("SELECT count(*) FROM #{table}")
+    end
+
+    try do
+      cve = "EXAMPLE-LIVE-RECONCILE"
+      {scope, original, _dimensions} = reconciliation_source!(ctx, cve, false)
+      args = %{"device_ord" => scope}
+
+      ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
+        {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
+        {:ok, _} = Gnat.sub(conn, self(), "exposure.dimensions.>")
+        first = live_snapshot!(conn, args)
+        assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
+        assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+        assert {:ok, %{ready: true, generation: ^first}} = ExposureReadiness.status(scope)
+        assert {:ok, %{rows: [[1]]}} =
+                 MySQL.query("SELECT count(*) FROM exposure_facts WHERE device_ord = #{scope}")
+
+        # Real storage loss must admit replacement work before readiness returns.
+        assert {:ok, _} = MySQL.query("DELETE FROM exposure_facts WHERE device_ord = #{scope}")
+        assert {:ok, %{rows: [[0]]}} =
+                 MySQL.query("SELECT count(*) FROM exposure_facts WHERE device_ord = #{scope}")
+        assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+        assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
+        assert Repo.exists?(
+                 from(j in Oban.Job,
+                   where: j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
+                     j.state == "available" and
+                     fragment("?->>'device_ord'", j.args) == ^to_string(scope)
+                 )
+               )
+        replacement = live_snapshot!(conn, args)
+        assert replacement > first
+        assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+        assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
+
+        # Current columns, not retained replay, are the comparison oracle.
+        assert {:ok, _} = Repo.transaction(fn ->
+          Repo.query!("""
+          ALTER TABLE platform.endpoint_vulnerability_assessments
+            DISABLE TRIGGER trg_exposure_assessment_sequence,
+            DISABLE TRIGGER trg_exposure_assessment_publish_update
+          """)
+          update_assessment!(ctx.device_uid, cve, kev: true, severity: "critical")
+          Repo.query!("""
+          ALTER TABLE platform.endpoint_vulnerability_assessments
+            ENABLE TRIGGER trg_exposure_assessment_sequence,
+            ENABLE TRIGGER trg_exposure_assessment_publish_update
+          """)
+        end)
+        assert publication(ctx.device_uid, cve) == original
+        assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+        repaired = publication(ctx.device_uid, cve)
+        assert repaired["kev"] == true
+        assert repaired["severity"] == "critical"
+        assert repaired["transition_seq"] > original["transition_seq"]
+        assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} = ExposureReadiness.status(scope)
+        live_snapshot!(conn, args)
+        assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+
+        old_key = repaired["pkgver_ord"]
+        assert {:ok, _} = MySQL.query("DELETE FROM exposure_package_dim WHERE pkgver_ord = #{old_key}")
+        assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+        [[%{"repairs" => [assigned]}]] = Repo.query!(
+          "SELECT control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [scope]
+        ).rows
+        assert assigned["kind"] == "package"
+        assert assigned["key"] == old_key
+
+        # PubAck without ingestion, then upgrade away from V1 before its repair settles.
+        live_dimensions!(false)
+        update_assessment!(ctx.device_uid, cve, installed_version: "2.0.0")
+        upgraded = publication(ctx.device_uid, cve)
+        refute upgraded["pkgver_ord"] == old_key
+        assert {:ok, current} = DirectSession.run(fn reader ->
+          ExposureSnapshotWorker.source_page(reader, "dimensions", scope, nil)
+        end)
+        refute Enum.any?(current, fn [key, _] -> key == ["package", old_key] end)
+        assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+        assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} = ExposureReadiness.status(scope)
+        live_dimensions!(true)
+        assert {:ok, []} = ExposureSnapshotRepairs.verify([assigned])
+        live_snapshot!(conn, args)
+        assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+        assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
+
+        # A confirmed assigned CVE repair must not chase a newer queued EPSS update.
+        ordinal = original["cve_ord"]
+        [[before]] = Repo.query!(
+          "SELECT payload FROM platform.exposure_dimension_state WHERE kind = 'cve' AND ordinal = $1", [ordinal]
+        ).rows
+        assert {:ok, {:ok, [target]}} = Repo.transaction(fn ->
+          ExposureSnapshotRepairs.publish([
+            %{"kind" => "cve", "key" => ordinal, "observed" => before["transition_seq"]}
+          ])
+        end)
+        live_dimensions!(true)
+        content = before |> Map.take(["cve_ord", "cve_id"]) |> Map.put("epss_score", 0.25)
+        [[newer]] = Repo.query!("SELECT platform.exposure_publish_dimension('cve',$1,$2,false)", [ordinal, content]).rows
+        assert newer > target["required"]
+        assert {:ok, {:ok, [replayed]}} = Repo.transaction(fn -> ExposureSnapshotRepairs.publish([target]) end)
+        assert {:ok, []} = ExposureSnapshotRepairs.verify([replayed])
+        assert [[1]] = Repo.query!(
+          "SELECT 1 FROM platform.exposure_dimension_outbox WHERE kind = 'cve' AND ordinal = $1 AND transition_seq = $2",
+          [ordinal, newer]
+        ).rows
+
+        Repo.query!("UPDATE platform.exposure_reconciliation_checks SET checked_at = now() - interval '2 days' WHERE device_ord = $1", [scope])
+        assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
+        Application.put_env(:serviceradar_core, StarRocks, Keyword.put(config, :enabled, false))
+        assert {:error, :starrocks_required} = ExposureReadiness.status(scope)
+        assert [["active"]] = Repo.query!(
+          "SELECT status FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1", [ctx.device_uid]
+        ).rows
+      end)
+    after
+      for table <- tables do
+        assert {:ok, _} = MySQL.query("DELETE FROM #{table} WHERE 1 = 1")
+        assert {:ok, %{rows: [[0]]}} = MySQL.query("SELECT count(*) FROM #{table}")
+      end
+    end
+  end
+
+  defp live_warehouse_config! do
+    assert System.fetch_env!("EXPOSURE_LIVE_WAREHOUSE") == "1"
+    database = System.fetch_env!("EXPOSURE_LIVE_DATABASE")
+    assert Regex.match?(~r/^exposure_reconcile_[a-f0-9]{32}$/, database),
+           "live warehouse requires a uniquely owned exposure_reconcile_<32 hex> schema"
+
+    [
+      enabled: true,
+      database: database,
+      fe_http: System.fetch_env!("EXPOSURE_LIVE_FE_HTTP"),
+      fe_mysql_host: System.fetch_env!("EXPOSURE_LIVE_MYSQL_HOST"),
+      fe_mysql_port: String.to_integer(System.fetch_env!("EXPOSURE_LIVE_MYSQL_PORT")),
+      user: System.fetch_env!("EXPOSURE_LIVE_USER"),
+      password: System.fetch_env!("EXPOSURE_LIVE_PASSWORD")
+    ]
+  end
+
+  defp live_snapshot!(conn, args) do
+    publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+
+    try do
+      generation = live_snapshot_messages!(conn)
+      assert :ok = Task.await(publisher, 30_000)
+      assert :ok = ExposureSnapshotFinalizer.step(generation)
+      generation
+    after
+      Task.shutdown(publisher, :brutal_kill)
+    end
+  end
+
+  defp live_snapshot_messages!(conn) do
+    receive do
+      {:msg, %{topic: "exposure.snapshots." <> _ = subject, body: body}} ->
+        if String.contains?(subject, ".plan.") do
+          live_snapshot_messages!(conn)
+        else
+          {:ok, envelope, _} = Snapshot.decode(body)
+          assert {:ok, 1} = consume_retained(conn, subject, body)
+          if envelope["kind"] == "end",
+            do: envelope["generation"],
+            else: live_snapshot_messages!(conn)
+        end
+    after
+      30_000 -> flunk("live snapshot publisher stopped before end marker")
+    end
+  end
+
+  defp live_dimensions!(ingest?) do
+    # First pass creates the disposable stream if necessary; no injected transport.
+    assert {:ok, first} = ExposureDimensionRelay.relay_once()
+    assert {:ok, second} = ExposureDimensionRelay.relay_once()
+    assert second.failed == 0
+    count = first.relayed + second.relayed
+    assert count > 0
+
+    for _ <- 1..count do
+      receive do
+        {:msg, %{topic: "exposure.dimensions." <> _, body: body}} ->
+          if ingest?, do: assert({:ok, 1} = ExposureDimensions.process_batch([%{data: body}]))
+      after
+        5_000 -> flunk("dimension PubAck had no broker delivery")
+      end
+    end
   end
 
   @tag sandbox: :unboxed
@@ -598,8 +817,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert :ok = ExposureReconciliationWorker.perform(job)
   end
 
-  defp reconciliation_source!(ctx, cve) do
-    snapshot_http!()
+  defp reconciliation_source!(ctx, cve, mock_warehouse? \\ true) do
+    if mock_warehouse?, do: snapshot_http!()
     Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
     package = insert_endpoint_package!(ctx.unique)
     insert_assessment!(ctx, package, cve)
