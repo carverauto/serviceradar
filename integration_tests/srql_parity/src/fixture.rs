@@ -98,6 +98,8 @@ pub struct MetricRow {
     pub value: f64,
     pub if_index: Option<i32>,
     pub counter_width: Option<i32>,
+    /// The address a per-host probe reached the device at; one device may be probed at several.
+    pub target_device_ip: Option<&'static str>,
     /// JSON text. `jsonb` on CNPG, VARCHAR on StarRocks.
     pub tags: Option<String>,
     /// JSON text. CNPG only: the warehouse table has no `metadata` column, which is the whole
@@ -342,6 +344,7 @@ struct Series {
     counter_width: Option<i32>,
     tags: Option<String>,
     metadata: Option<String>,
+    target_device_ip: Option<&'static str>,
     key_suffix: &'static str,
 }
 
@@ -361,6 +364,7 @@ impl Series {
             value,
             if_index: self.if_index,
             counter_width: self.counter_width,
+            target_device_ip: self.target_device_ip,
             tags: self.tags.clone(),
             metadata: self.metadata.clone(),
         }
@@ -385,6 +389,7 @@ fn snmp(
         counter_width,
         tags: None,
         metadata: None,
+        target_device_ip: None,
         key_suffix,
     }
 }
@@ -482,6 +487,7 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
         counter_width: None,
         tags,
         metadata: None,
+        target_device_ip: None,
         key_suffix,
     };
     let cores = [
@@ -562,6 +568,7 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
             counter_width: None,
             tags: Some(tags.into()),
             metadata: None,
+            target_device_ip: None,
             key_suffix: "compat",
         };
         for minute in 0..360_i64 {
@@ -587,6 +594,7 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
                 counter_width: None,
                 tags: None,
                 metadata: None,
+                target_device_ip: None,
                 key_suffix: "probe",
             };
             for minute in 0..360_i64 {
@@ -617,6 +625,7 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
                 counter_width: None,
                 tags: None,
                 metadata: None,
+                target_device_ip: None,
                 key_suffix: "rperf",
             };
             for sample in 0..180_i64 {
@@ -627,6 +636,29 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
                     base * bump * (1.0 + wobble / 10.0),
                 ));
             }
+        }
+    }
+
+    // 9c. Sweep availability of one device probed at two addresses by one agent: the first
+    //     answers every sweep but one, the second never answers. A per-address series keeps
+    //     them apart, so a backend that ignores `target_device_ip` folds them into one series.
+    for (address, answers) in [("192.0.2.10", true), ("192.0.2.20", false)] {
+        let series = Series {
+            gateway: GATEWAY_1,
+            agent: AGENT_1,
+            device: DEVICE_A,
+            metric_type: "sweep",
+            metric_name: "sweep.host.available",
+            if_index: None,
+            counter_width: None,
+            tags: None,
+            metadata: None,
+            target_device_ip: Some(address),
+            key_suffix: if answers { "sweep-a" } else { "sweep-b" },
+        };
+        for sweep in 0..72_i64 {
+            let up = answers && sweep != 40;
+            rows.push(series.row(anchor.at(sweep * 300 + 41), if up { 1.0 } else { 0.0 }));
         }
     }
 
@@ -641,6 +673,7 @@ pub fn metrics(anchor: Anchor) -> Vec<MetricRow> {
         counter_width: None,
         tags: None,
         metadata: None,
+        target_device_ip: None,
         key_suffix: "edge",
     };
     for (offset_minutes, value) in [(10, 1.0), (20, 2.0), (30, 3.0), (40, 4.0), (50, 5.0)] {
@@ -852,11 +885,11 @@ pub fn metric_inserts(rows: &[MetricRow], backend: Backend, qualifier: &str) -> 
     let columns = match backend {
         Backend::Cnpg => {
             "\"timestamp\", gateway_id, agent_id, series_key, metric_name, metric_type, device_id, \
-             value, if_index, counter_width, tags, metadata"
+             value, if_index, counter_width, target_device_ip, tags, metadata"
         }
         Backend::StarRocks => {
             "`timestamp`, gateway_id, agent_id, series_key, metric_name, metric_type, device_id, \
-             value, if_index, counter_width, tags"
+             value, if_index, counter_width, target_device_ip, tags"
         }
     };
     rows.chunks(BATCH_ROWS)
@@ -875,6 +908,7 @@ pub fn metric_inserts(rows: &[MetricRow], backend: Backend, qualifier: &str) -> 
                         format!("{:?}", row.value),
                         opt_num(row.if_index),
                         opt_num(row.counter_width),
+                        opt_text(row.target_device_ip),
                     ];
                     match backend {
                         Backend::Cnpg => {

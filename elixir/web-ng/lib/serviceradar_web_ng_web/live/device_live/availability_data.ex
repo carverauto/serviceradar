@@ -11,17 +11,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
 
   @bucket_seconds 30 * 60
   @window_seconds 24 * 60 * 60
+  # One row per bucket and probed address: a full window spans up to 49 buckets, and a sweep probes a
+  # device at its own address plus up to eight aliases.
+  @row_limit 500
 
   def load_availability(srql_module, device_uid, scope, opts \\ []) do
     now = opts |> Keyword.get_lazy(:now, &DateTime.utc_now/0) |> DateTime.truncate(:second)
     start_at = DateTime.shift(now, second: -@window_seconds)
     range = "[#{DateTime.to_iso8601(start_at)},#{DateTime.to_iso8601(now)}]"
 
-    case ICMPData.load_availability(srql_module, [device_uid], scope,
+    case ICMPData.load_availability(srql_module, device_uid, scope,
            time_range: range,
            bucket: "30m",
            agent_id: Keyword.get(opts, :agent_id),
-           limit: 100
+           limit: @row_limit
          ) do
       {:ok, [_ | _] = rows} ->
         build_availability(rows, start_at, now)

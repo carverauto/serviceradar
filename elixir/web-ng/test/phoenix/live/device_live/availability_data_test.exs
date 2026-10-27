@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
   @now ~U[1999-06-16 12:15:00Z]
   @scope %{permissions: MapSet.new(["observability.metrics.view"])}
   @device_uid "sr:host-alpha"
+  @current_address "192.0.2.10"
+  @former_address "192.0.2.20"
 
   test "a full day preserves unknown gaps and counts only observed status buckets" do
     respond_with([
@@ -42,16 +44,41 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
     refute_receive {:query, _, _}
   end
 
-  test "a selected agent's observed failure wins within its bucket" do
-    respond_with([rows([point("1999-06-16T01:00:00Z", 1), point("1999-06-16T01:00:00Z", 0)])])
+  test "a selected agent judges each address on its own and the device is up when any address was" do
+    # The device answers at its current address; an address it no longer holds never does.
+    samples_for_sweep([
+      sample("1999-06-16T01:00:00Z", @current_address, [1, 1]),
+      sample("1999-06-16T01:00:00Z", @former_address, [0, 0]),
+      sample("1999-06-16T01:30:00Z", @current_address, [1, 0]),
+      sample("1999-06-16T01:30:00Z", @former_address, [0, 0]),
+      sample("1999-06-16T02:00:00Z", @current_address, [0, 0]),
+      sample("1999-06-16T02:00:00Z", @former_address, [0, 0])
+    ])
 
-    assert %{total_checks: 1, offline_checks: 1, online_checks: 0, uptime_pct: percent} =
-             load(agent_id: "agent-north")
+    result = load(agent_id: "agent-north")
 
+    assert statuses(result, ~w(1999-06-16T01:00:00Z 1999-06-16T01:30:00Z 1999-06-16T02:00:00Z)) ==
+             [:online, :offline, :offline]
+
+    assert %{online_checks: 1, offline_checks: 2} = result
+
+    for _source <- 1..2 do
+      assert_receive {:query, query, _}
+      assert query =~ ~s(agent_id:"agent-north")
+      assert query =~ "agg:min series:target_device_ip"
+    end
+  end
+
+  test "a device none of whose addresses answered any observer stays offline" do
+    samples_for_sweep([
+      sample("1999-06-16T01:00:00Z", @current_address, [0, 0]),
+      sample("1999-06-16T01:00:00Z", @former_address, [0])
+    ])
+
+    result = load()
+    assert statuses(result, ["1999-06-16T01:00:00Z"]) == [:offline]
+    assert %{online_checks: 0, offline_checks: 1, uptime_pct: percent} = result
     assert percent == 0.0
-    assert_receive {:query, query, _}
-    assert query =~ ~s(agent_id:"agent-north")
-    assert query =~ "agg:min"
   end
 
   test "unselected availability uses successful observations and leaves absent buckets unknown" do
@@ -167,9 +194,48 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityDataTest do
 
   def query(query, opts) do
     send(self(), {:query, query, opts})
-    [response | remaining] = Process.get(:availability_responses)
-    Process.put(:availability_responses, remaining)
-    response
+
+    case Process.get(:availability_samples) do
+      nil ->
+        [response | remaining] = Process.get(:availability_responses)
+        Process.put(:availability_responses, remaining)
+        response
+
+      samples ->
+        rows(aggregate(query, samples))
+    end
+  end
+
+  # Raw sweep samples, answered as SRQL answers a bucketed query: grouped by bucket and the
+  # query's `series:` field, reduced with its `agg:`. The dedicated ICMP source has none.
+  defp aggregate(query, samples) do
+    if query =~ "metric_name:sweep.host.available" do
+      [_, series] = Regex.run(~r/series:(\S+)/, query)
+      [_, agg] = Regex.run(~r/agg:(min|max)/, query)
+      reduce = if agg == "min", do: &Enum.min/1, else: &Enum.max/1
+
+      samples
+      |> Enum.group_by(&{&1["timestamp"], Map.fetch!(&1, series)}, & &1["value"])
+      |> Enum.map(fn {{timestamp, key}, values} ->
+        %{"timestamp" => timestamp, "series" => key, "value" => reduce.(values)}
+      end)
+    else
+      []
+    end
+  end
+
+  defp samples_for_sweep(samples), do: Process.put(:availability_samples, List.flatten(samples))
+
+  defp sample(timestamp, address, values) do
+    for value <- values do
+      %{"timestamp" => timestamp, "uid" => @device_uid, "target_device_ip" => address, "value" => value}
+    end
+  end
+
+  defp statuses(result, timestamps) do
+    Enum.map(timestamps, fn timestamp ->
+      Enum.find(result.segments, &(&1.timestamp == timestamp)).status
+    end)
   end
 
   defp load(opts \\ []) do

@@ -23,6 +23,14 @@ on your role — see [Roles & Permissions](./rbac-and-roles.md).
 - **Gateways** — the agent-gateways that agents push status through, with
   connection and health information.
 
+On a device's **24h Availability Timeline**, probe observations are grouped into
+30-minute buckets. Each probed address is evaluated separately: with an agent
+selected, any failure in the bucket makes that address offline; without a
+selection, a successful observation makes that address online. The device's
+bucket is online if any address is online. Dedicated availability checks take
+precedence over sweep observations in each bucket. Missing buckets remain
+unknown when probe history exists.
+
 ## Events & alerts
 
 - **Events** — the raw event stream ingested by ServiceRadar.

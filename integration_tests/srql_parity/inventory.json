@@ -252,6 +252,20 @@
       "query": "in:timeseries_metrics {window_main} metric_type:icmp metric_name:icmp.loss_pct uid:(\"sr:parity-dev-a\",\"sr:parity-dev-b\") bucket:5m agg:max series:uid sort:timestamp:asc limit:500"
     },
     {
+      "id": "metrics.availability.max_by_address",
+      "query": "in:timeseries_metrics {window_main} metric_type:sweep metric_name:sweep.host.available uid:\"sr:parity-dev-a\" bucket:30m agg:max series:target_device_ip sort:timestamp:asc limit:500",
+      "sources": [
+        "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/icmp_data.ex"
+      ]
+    },
+    {
+      "id": "metrics.availability.min_by_address_for_agent",
+      "query": "in:timeseries_metrics {window_main} metric_type:sweep metric_name:sweep.host.available uid:\"sr:parity-dev-a\" agent_id:\"agent-parity-01\" bucket:30m agg:min series:target_device_ip sort:timestamp:asc limit:500",
+      "sources": [
+        "elixir/web-ng/lib/serviceradar_web_ng_web/live/device_live/icmp_data.ex"
+      ]
+    },
+    {
       "id": "metrics.icmp.avg_2h_buckets_long_window",
       "query": "in:timeseries_metrics {window_long} metric_type:icmp metric_name:icmp.rtt_ms bucket:2h agg:avg series:uid limit:100"
     },
