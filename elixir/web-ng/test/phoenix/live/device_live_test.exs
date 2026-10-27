@@ -202,6 +202,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         type: "Server",
         hostname: hostname,
         is_available: true,
+        availability_state: "available",
         availability_agents: %{"up" => 0, "down" => 1, "stale" => 0, "total" => 1},
         first_seen_time: now,
         last_seen_time: now

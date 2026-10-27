@@ -116,10 +116,6 @@ defmodule ServiceRadar.TestSupport.AvailabilityFixtures do
     }
   end
 
-  def set_mode!(mode) do
-    Repo.query!("UPDATE platform.availability_settings SET mode = $1", [mode])
-  end
-
   def drain! do
     case ResolverWorker.pass() do
       %{claimed: 0} -> :ok
@@ -130,8 +126,6 @@ defmodule ServiceRadar.TestSupport.AvailabilityFixtures do
   def minutes_ago(minutes) do
     DateTime.utc_now() |> DateTime.shift(minute: -minutes) |> DateTime.truncate(:microsecond)
   end
-
-  def perform_job(worker, args), do: worker.perform(%Oban.Job{args: args})
 
   @doc "`{is_available, availability_state, availability_decided_by rule}` of a device."
   def device_state(uid) do

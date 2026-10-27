@@ -67,7 +67,7 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
       clear_writes()
 
       Repo.query!(
-        "UPDATE platform.ocsf_devices SET is_available = false WHERE starts_with(uid, $1)",
+        "UPDATE platform.ocsf_devices SET is_available = false, availability_state = 'unavailable' WHERE starts_with(uid, $1)",
         [batch]
       )
 
@@ -80,7 +80,7 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
       clear_writes()
 
       Repo.query!(
-        "UPDATE platform.ocsf_devices SET is_available = false, hostname = 'host01.example.com' WHERE starts_with(uid, $1)",
+        "UPDATE platform.ocsf_devices SET is_available = false, availability_state = 'unavailable', hostname = 'host01.example.com' WHERE starts_with(uid, $1)",
         [batch]
       )
 
@@ -93,14 +93,19 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
     insert_batch(prefix, 20)
 
     Repo.query!(
-      "UPDATE platform.ocsf_devices SET is_available = false WHERE uid = ANY($1)",
+      "UPDATE platform.ocsf_devices SET is_available = false, availability_state = 'unavailable' WHERE uid = ANY($1)",
       [Enum.map(1..10, &"#{prefix}#{&1}")]
     )
 
     clear_writes()
 
     Repo.query!(
-      "UPDATE platform.ocsf_devices SET is_available = NOT is_available WHERE starts_with(uid, $1)",
+      """
+      UPDATE platform.ocsf_devices
+      SET is_available = NOT is_available,
+          availability_state = CASE WHEN is_available THEN 'unavailable' ELSE 'available' END
+      WHERE starts_with(uid, $1)
+      """,
       [prefix]
     )
 
@@ -236,7 +241,7 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
     migrate(:down)
 
     Repo.query!(
-      "UPDATE platform.ocsf_devices SET is_available = false WHERE starts_with(uid, $1)",
+      "UPDATE platform.ocsf_devices SET is_available = false, availability_state = 'unavailable' WHERE starts_with(uid, $1)",
       [prefix]
     )
 
@@ -245,7 +250,7 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
     clear_writes()
 
     Repo.query!(
-      "UPDATE platform.ocsf_devices SET is_available = true WHERE starts_with(uid, $1)",
+      "UPDATE platform.ocsf_devices SET is_available = true, availability_state = 'available' WHERE starts_with(uid, $1)",
       [prefix]
     )
 
@@ -389,8 +394,9 @@ defmodule ServiceRadar.Inventory.DeviceInventoryRollupDbTest do
   defp insert_batch(prefix, size) do
     Repo.query!(
       """
-      INSERT INTO platform.ocsf_devices (uid, is_available, type, vendor_name)
-      SELECT $1 || n, true, 'switch', 'Example Devices' FROM generate_series(1, $2::int) n
+      INSERT INTO platform.ocsf_devices (uid, is_available, availability_state, type, vendor_name)
+      SELECT $1 || n, true, 'available', 'switch', 'Example Devices'
+      FROM generate_series(1, $2::int) n
       """,
       [prefix, size]
     )

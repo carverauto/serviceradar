@@ -7,24 +7,16 @@ defmodule ServiceRadar.Integrations.ArmisAvailabilityPreview do
 
   An Armis id is pushed as the AND of its linked devices, as the runner collapses it.
   `legacy` is the compatibility value (`ArmisNorthboundRunner.canonical_availability_query/1`).
-  `merged` is the canonical state: the shadow decision in `shadow` mode, and the
-  device's `availability_state` from `cutover` on. The query expression also reads
-  the shadow column in `legacy` mode, where no shadow rows are written, so that
-  result is not a cutover forecast. Callers that forecast use `forecast_available?/1`
-  and skip `legacy`. An id with any unknown or undecided device is withheld under
-  `merged`.
+  `merged` is the device's canonical `availability_state`. An id with any unknown or
+  undecided device is withheld under `merged`.
 
   The source settings page shows these counts before an operator adopts merged
-  semantics, and only once `forecast_available?/1` is true. The shadow divergence
-  report (`ServiceRadar.Inventory.Availability.DivergenceReport`) includes the
-  same counts for every canonical source.
+  semantics.
   """
 
   import Ecto.Query
 
   alias ServiceRadar.Integrations.ArmisNorthboundRunner
-  alias ServiceRadar.Inventory.Availability.Mode
-  alias ServiceRadar.Inventory.Availability.ShadowDecision
   alias ServiceRadar.Repo
 
   @default_samples 20
@@ -44,18 +36,6 @@ defmodule ServiceRadar.Integrations.ArmisAvailabilityPreview do
         }
 
   @doc """
-  Whether a merged-availability preview has a decision to count.
-
-  True when `platform.availability_mode()` is not `legacy`. In `legacy` no shadow
-  rows are written, so there is nothing to forecast. `query_opts` are passed to
-  the mode read.
-  """
-  @spec forecast_available?(keyword()) :: boolean()
-  def forecast_available?(query_opts \\ []) do
-    Mode.current(query_opts) != :legacy
-  end
-
-  @doc """
   The preview for `source` (anything with an `:id`). Options: `:samples` (uids per
   direction, default #{@default_samples}) and `:query_opts` (passed to the repo).
   """
@@ -66,18 +46,11 @@ defmodule ServiceRadar.Integrations.ArmisAvailabilityPreview do
 
     per_device =
       from(c in subquery(ArmisNorthboundRunner.canonical_availability_query(source)),
-        left_join: s in ShadowDecision,
-        on: s.device_uid == c.device_id,
         select: %{
           armis_device_id: c.armis_device_id,
           device_id: c.device_id,
           legacy: c.legacy,
-          merged_state:
-            fragment(
-              "CASE WHEN platform.availability_mode() IN ('cutover', 'authoritative') THEN ? ELSE ?::text END",
-              c.state,
-              s.availability_state
-            )
+          merged_state: c.state
         }
       )
 

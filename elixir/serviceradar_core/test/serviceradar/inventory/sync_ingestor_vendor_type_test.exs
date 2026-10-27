@@ -1547,6 +1547,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     baseline_total = inventory_count!("total")
     baseline_available = inventory_count!("available")
     baseline_unavailable = inventory_count!("unavailable")
+    baseline_unknown = inventory_count!("unknown")
     baseline_type = type_count!(type)
     baseline_vendor = vendor_count!(vendor)
 
@@ -1575,8 +1576,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert :ok = SyncIngestor.ingest_updates([available_update, unavailable_update], actor: actor)
 
     assert inventory_count!("total") == baseline_total + 2
+    # The mapper's sighting is evidence that a device is up; its `false` is no evidence,
+    # so that device is counted unknown by merged availability, not unavailable.
     assert inventory_count!("available") == baseline_available + 1
-    assert inventory_count!("unavailable") == baseline_unavailable + 1
+    assert inventory_count!("unavailable") == baseline_unavailable
+    assert inventory_count!("unknown") == baseline_unknown + 1
     assert type_count!(type) == baseline_type + 2
     assert vendor_count!(vendor) == baseline_vendor + 2
   end

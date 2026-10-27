@@ -69,6 +69,8 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
 
 ## 3. Stage c: cutover (`cutover` then `authoritative`)
 
+> Superseded in part by `simplify-merged-availability-rollout`: the modes, the mode switch, the drained cutover and the rollback (3.1, 3.2, 3.3a) are removed; every install converges once on upgrade.
+
 - [ ] 3.1 The mode switch takes an advisory lock that drains in-flight writers. Sweep, sync, camera and composite writers read the mode under the shared lock. An agent check-in reads `Mode.current/0` without it (`LegacyWrites`).
 - [ ] 3.2 Under the drained switch to `cutover`, seed `device_availability_legacy` from `is_available` before any reader switches. In `cutover`, legacy writers write only that table, computing against it, and the resolver suppresses all transition side effects.
 - [ ] 3.3 The reconciliation job (`CutoverWorker`, phase `reconcile`):
@@ -103,6 +105,8 @@ Phasing: phase 1 is sections 1 and 2 (capture plus shadow and the divergence rep
   - WAL per hour is at or below the baseline.
 
 ### 3a. Automatic progression (decided 2026-10-25; design.md, Decision 10)
+
+> Superseded by `simplify-merged-availability-rollout`: the progression, its readiness conditions, the mode control and its Helm pin are removed.
 
 - [x] 3a.1 Migration: `availability_settings.mode_control` (default `auto`), `mode_control_pin`, `shadow_entered_at`, `shadow_resolved_at`, `readiness`, `readiness_checked_at`; a deployment already in `shadow` takes `shadow_entered_at` from `updated_at`. Helm `core.migrations.expectedVersion` bumped.
 - [x] 3a.2 `ModeControl`: the three controls, the `SERVICERADAR_AVAILABILITY_MODE_CONTROL` pin (an invalid value holds), and `set/2`, which runs `Setting.set_mode_control` and enqueues a run. The action is refused while a pin is recorded.

@@ -296,8 +296,6 @@ config :serviceradar_core, Oban,
   peer: false,
   notifier: Oban.Notifiers.PG
 
-# Tests set the availability mode inside their sandbox transaction, so every gate reads
-# it instead of a node-wide cache another test may have filled.
 config :serviceradar_core, ServiceRadar.Inventory.Availability.Mode, cache_ms: 0
 
 # Use Test adapter for mailer

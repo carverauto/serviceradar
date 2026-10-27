@@ -35,7 +35,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   end
 
   test "load_candidates returns only devices linked to the requested source", %{actor: actor} do
-    source_a = create_source!(actor, "armis-source-a")
+    source_a = actor |> create_source!("armis-source-a") |> keep_legacy_semantics!()
     source_b = create_source!(actor, "armis-source-b")
 
     ingest_armis_update(actor, source_a.id, TestSupport.unique_device_ip(), "armis-a-1", true)
@@ -52,7 +52,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   test "load_candidates includes Armis-discovered devices after sync registers typed identity", %{
     actor: actor
   } do
-    source = create_source!(actor, "armis-metadata-only")
+    source = actor |> create_source!("armis-metadata-only") |> keep_legacy_semantics!()
 
     update = %{
       "ip" => TestSupport.unique_device_ip(),
@@ -79,7 +79,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   end
 
   test "legacy candidate queries accept only matching scoped metadata", %{actor: actor} do
-    source = create_source!(actor, "scoped-source")
+    source = actor |> create_source!("scoped-source") |> keep_legacy_semantics!()
     ip = TestSupport.unique_device_ip()
     ingest_armis_update(actor, source.id, ip, "301", true)
     {:ok, device} = Device.get_by_ip(ip, false, actor: actor)
@@ -260,7 +260,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       before = Repo.all(ArmisNorthboundRunner.candidates_query(source))
 
       # Resolution, as stage c runs it: the device row carries the merged state.
-      set_availability_mode!("authoritative")
       set_canonical_state!(device.uid, "available", true)
 
       assert Repo.all(ArmisNorthboundRunner.candidates_query(source)) == before
@@ -278,7 +277,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
       # Seeded at cutover; no legacy writer touches it afterwards, while the resolver
       # decides the device unavailable.
       seed_legacy_value!(device.uid, true)
-      set_availability_mode!("authoritative")
       set_canonical_state!(device.uid, "unavailable", false)
 
       assert {:ok, [%{armis_device_id: "armis-legacy-1", is_available: true}]} =
@@ -299,7 +297,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
           ip |> Device.get_by_ip(false, actor: actor) |> elem(1) |> single_result()
         end
 
-      set_availability_mode!("authoritative")
       set_canonical_state!(known.uid, "unavailable", false)
       # Unknown keeps its last decided boolean, which merged semantics must not push.
       set_canonical_state!(unknown.uid, "unknown", true)
@@ -356,7 +353,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
   test "run binds one collection and persists terminal outcome for every source ID", %{
     actor: actor
   } do
-    source = create_source!(actor, "armis-accounted-run")
+    source = actor |> create_source!("armis-accounted-run") |> keep_legacy_semantics!()
 
     devices =
       Enum.map(1..3, fn index ->
@@ -422,7 +419,8 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
   test "records partial batch failure and retains failed and withheld conflict rows across retention prune",
        %{actor: actor} do
-    source = create_source!(actor, "armis-partial-and-conflict-retention")
+    source =
+      actor |> create_source!("armis-partial-and-conflict-retention") |> keep_legacy_semantics!()
 
     devices =
       Enum.map(1..3, fn index ->
@@ -504,7 +502,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
 
   test "idempotent rerun against the same activated collection preserves exact population and reconciliation counts",
        %{actor: actor} do
-    source = create_source!(actor, "armis-idempotent-rerun")
+    source = actor |> create_source!("armis-idempotent-rerun") |> keep_legacy_semantics!()
 
     devices =
       Enum.map(1..3, fn index ->
@@ -691,10 +689,6 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerIntegrationTest do
     )
 
     %{source | northbound_availability_semantics: :legacy}
-  end
-
-  defp set_availability_mode!(mode) do
-    Repo.query!("UPDATE platform.availability_settings SET mode = $1", [mode])
   end
 
   # The device row as the resolver leaves it from cutover on.

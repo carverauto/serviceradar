@@ -72,6 +72,7 @@ defmodule ServiceRadar.TestSupport do
         fun.()
         purge_devices!(uids)
         ServiceRadar.TestSupport.ExposureTransitionCleanup.delete_for_devices!(uids)
+        delete_availability_work!(uids)
 
         ServiceRadar.Repo.query!(
           "ALTER TABLE platform.device_fleet_ordinals DISABLE TRIGGER trg_protect_fleet_identity_delete"
@@ -106,6 +107,24 @@ defmodule ServiceRadar.TestSupport do
       end)
 
     :ok
+  end
+
+  # Merged availability resolves every device a committing test writes: its transition
+  # outbox jobs and invalidation log rows are keyed by device uid, not by foreign key.
+  defp delete_availability_work!(uids) do
+    ServiceRadar.Repo.query!(
+      """
+      DELETE FROM platform.oban_jobs
+      WHERE worker = 'ServiceRadar.Inventory.Availability.Transitions'
+        AND (args -> 'invalidated') ?| $1::text[]
+      """,
+      [uids]
+    )
+
+    ServiceRadar.Repo.query!(
+      "DELETE FROM platform.availability_invalidations WHERE device_uid = ANY($1::text[])",
+      [uids]
+    )
   end
 
   defp validate_fixture_database! do

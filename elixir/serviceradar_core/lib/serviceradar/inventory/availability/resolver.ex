@@ -38,7 +38,7 @@ defmodule ServiceRadar.Inventory.Availability.Resolver do
   @ineligible_expectations ["unexpected", "unknown"]
 
   defmodule Decision do
-    @moduledoc "A resolved availability: what `device_availability_shadow` stores."
+    @moduledoc "A resolved availability: what `Resolution` writes to the device row."
 
     @enforce_keys [:state, :decided_by, :conflict, :agents, :changed_at]
     defstruct @enforce_keys

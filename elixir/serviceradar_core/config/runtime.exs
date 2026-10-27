@@ -1792,15 +1792,11 @@ if config_env() == :prod do
            {"53 3 * * *", AuditVersionRetentionWorker, queue: :maintenance},
            # Kept in step with serviceradar_core_elx's runtime.exs, as above.
            {"29 * * * *", ServiceRadar.Identity.SAMLAssertionCleanupWorker, queue: :maintenance},
-           # Merged device availability (stage b): drains the invalidation log and re-resolves
-           # devices whose evidence aged out. Neither resolves outside `shadow` mode. Kept
-           # in step with serviceradar_core_elx's runtime.exs and config.exs.
+           # Merged device availability: drains the invalidation log and re-resolves
+           # devices whose evidence aged out. Kept in step with
+           # serviceradar_core_elx's runtime.exs and config.exs.
            {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
            {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
-           # Moves the availability mode on by itself (legacy -> shadow -> cutover) as the
-           # deployment's mode control says. Kept in step with the two entries above.
-           {"* * * * *", ServiceRadar.Inventory.Availability.ProgressionWorker,
-            queue: :maintenance},
            # Composite checks' only scheduler: one evaluation job per enabled
            # check per minute (full or incremental pass). Kept in step with
            # serviceradar_core_elx's runtime.exs, which the release loads.

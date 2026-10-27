@@ -160,6 +160,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         hostname: "site01-avail-#{unique}",
         is_active: true,
         is_available: true,
+        availability_state: "available",
         first_seen_time: observed_at,
         last_seen_time: observed_at
       },
@@ -169,6 +170,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         hostname: "site01-unavail-#{unique}",
         is_active: true,
         is_available: false,
+        availability_state: "unavailable",
         first_seen_time: observed_at,
         last_seen_time: observed_at
       },
@@ -178,6 +180,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         hostname: "site01-unknown-#{unique}",
         is_active: true,
         is_available: nil,
+        availability_state: "unknown",
         first_seen_time: observed_at,
         last_seen_time: observed_at
       },
@@ -187,6 +190,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         hostname: "site01-retired-#{unique}",
         is_active: true,
         is_available: false,
+        availability_state: "unavailable",
         source_retired_at: observed_at,
         first_seen_time: observed_at,
         last_seen_time: observed_at
@@ -197,6 +201,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLiveTest do
         hostname: "site01-deleted-#{unique}",
         is_active: true,
         is_available: true,
+        availability_state: "available",
         deleted_at: observed_at,
         first_seen_time: observed_at,
         last_seen_time: observed_at

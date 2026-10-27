@@ -3,8 +3,8 @@ defmodule ServiceRadar.Inventory.Availability.Invalidation do
   One entry of the append-only availability invalidation log
   (`availability_invalidations`, design Decision 1).
 
-  Only database triggers append, with a plain INSERT, and only outside `legacy` mode;
-  the stage-b resolver worker claims and deletes entries.
+  Database triggers, and an inline resolution that could not run, append with a plain
+  INSERT; the resolver worker claims and deletes entries.
   """
 
   use Ash.Resource,

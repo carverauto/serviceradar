@@ -14,7 +14,6 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Availability.LegacyWrites
-  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
@@ -427,15 +426,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # One statement per chunk, so a wide batch stays under the bound-parameter
   # limit without losing whole-batch atomicity.
   #
-  # A record's non-nil is_available is the legacy value the sync path computed. While
-  # the legacy writers own the column (mode legacy or shadow) it is upserted as before;
-  # from cutover the column belongs to the merged resolver, so the records go in with
-  # is_available nil (the upsert's COALESCE keeps the stored value) and the values go to
-  # the compatibility table instead (LegacyWrites). The mode is read under the shared
-  # mode-switch lock in this transaction.
+  # A record's non-nil is_available is the legacy value the sync path computed. The
+  # column belongs to the merged resolver, so the records go in with is_available nil
+  # (the upsert's COALESCE keeps the stored value) and the values go to the
+  # compatibility table instead (LegacyWrites).
   defp insert_devices(records, update_query, false) do
     within_transaction(fn ->
-      {records, legacy_values} = route_legacy_availability(records, LegacyWrites.admit())
+      {records, legacy_values} = route_legacy_availability(records)
 
       records
       |> jsonb_safe()
@@ -447,17 +444,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     end)
   end
 
-  defp route_legacy_availability(records, mode) do
-    if Mode.legacy_column?(mode) do
-      {records, []}
-    else
-      values =
-        for %{uid: uid, is_available: available?} <- records,
-            is_boolean(available?),
-            do: {uid, available?}
+  defp route_legacy_availability(records) do
+    values =
+      for %{uid: uid, is_available: available?} <- records,
+          is_boolean(available?),
+          do: {uid, available?}
 
-      {Enum.map(records, &clear_availability/1), values}
-    end
+    {Enum.map(records, &clear_availability/1), values}
   end
 
   defp clear_availability(%{is_available: _} = record), do: %{record | is_available: nil}
