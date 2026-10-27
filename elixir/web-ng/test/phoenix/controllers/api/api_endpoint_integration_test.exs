@@ -139,6 +139,7 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
   # offset paging is deterministic (no tie ambiguity across pages).
   defp seed_devices(n, overrides \\ %{}) do
     now = DateTime.utc_now()
+    {availability_state, overrides} = Map.pop(overrides, :availability_state)
 
     for i <- 1..n do
       last_seen = DateTime.shift(now, second: -i)
@@ -157,7 +158,16 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
           overrides
         )
 
-      device_fixture(attrs)
+      device = device_fixture(attrs)
+
+      if availability_state do
+        ServiceRadarWebNG.Repo.query!(
+          "UPDATE platform.ocsf_devices SET availability_state = $2 WHERE uid = $1",
+          [device.uid, availability_state]
+        )
+      end
+
+      device
     end
   end
 
