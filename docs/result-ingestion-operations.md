@@ -42,10 +42,28 @@ which says the lane is congested, not that this result is too expensive.
 An empty table therefore means no retained result is pending or quarantined.
 To tell that apart from a store that cannot be written, read the
 `retained_plugin_result` lane counters `result_ingestion_events_attempt_recorded`,
-`_quarantined`, `_quarantine_acknowledged` and `_attempt_store_failed`. A store
-failure is also logged, and the lane then fails open: it ingests or retries the
-result as if nothing had been counted. `ServiceRadar.Observability.PluginResultQuarantine`
-lists quarantined results and retries one from its stored status.
+`_quarantined`, `_quarantine_acknowledged`, `_attempt_pruned` and
+`_attempt_store_failed`. A store failure is also logged, and the lane then fails
+open: it ingests or retries the result as if nothing had been counted.
+`ServiceRadar.Observability.PluginResultQuarantine` lists quarantined results and
+retries one from its stored status.
+
+`ServiceRadar.Observability.PluginResultAttemptPruneWorker` runs daily on the
+`:maintenance` queue (`SERVICERADAR_PLUGIN_RESULT_ATTEMPT_PRUNE_CRON`, default
+`33 3 * * *`) and deletes expired rows from
+`platform.plugin_result_ingestion_attempts` in primary-key batches through
+`PluginResultQuarantine.prune/1`:
+
+- Active, non-quarantined rows (`state = 'active'`) whose `last_attempt_at` is
+  older than `:plugin_result_attempt_active_retention_days` (default 7 days;
+  `SERVICERADAR_PLUGIN_RESULT_ATTEMPT_ACTIVE_RETENTION_DAYS`) are deleted,
+  cleaning up attempt rows left behind by retired agents or dropped results.
+- Quarantined rows (`state = 'quarantined'`) whose `quarantined_at` (falling
+  back to `last_attempt_at`) is older than
+  `:plugin_result_quarantine_retention_days` (default 30 days;
+  `SERVICERADAR_PLUGIN_RESULT_QUARANTINE_RETENTION_DAYS`) are deleted.
+- Pruned row counts are reported on the `retained_plugin_result` lane under
+  `result_ingestion_events_attempt_pruned`.
 
 A gateway first reserves a small metadata descriptor, then transfers the full
 payload directly to that lane. Failed capability discovery or reservation never

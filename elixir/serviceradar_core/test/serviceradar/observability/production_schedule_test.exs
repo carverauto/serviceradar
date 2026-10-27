@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
   alias ServiceRadar.Observability.AnomalyIngestSilenceWorker
   alias ServiceRadar.Observability.OtelServiceCatalogPruneWorker
+  alias ServiceRadar.Observability.PluginResultAttemptPruneWorker
   alias ServiceRadar.Observability.ProductionSchedule
   alias ServiceRadar.Observability.ResolveStaleAnomaliesWorker
   alias ServiceRadar.Observability.SeasonalBaselineFreshnessWorker
@@ -55,6 +56,22 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
       assert {"5 4 * * *", _opts} =
                crons_by_worker(ProductionSchedule.cron_entries(fetch(env)))[
                  OtelServiceCatalogPruneWorker
+               ]
+    end
+
+    test "schedules the plugin result attempt prune daily, with a cron override" do
+      assert {"33 3 * * *", opts} =
+               crons_by_worker(ProductionSchedule.cron_entries(fetch(%{})))[
+                 PluginResultAttemptPruneWorker
+               ]
+
+      assert opts[:queue] == :maintenance
+
+      env = %{"SERVICERADAR_PLUGIN_RESULT_ATTEMPT_PRUNE_CRON" => "15 4 * * *"}
+
+      assert {"15 4 * * *", _opts} =
+               crons_by_worker(ProductionSchedule.cron_entries(fetch(env)))[
+                 PluginResultAttemptPruneWorker
                ]
     end
 
@@ -301,6 +318,18 @@ defmodule ServiceRadar.Observability.ProductionScheduleTest do
       env = %{"SERVICERADAR_OTEL_SERVICE_CATALOG_RETENTION_DAYS" => "14"}
 
       assert ProductionSchedule.app_env(fetch(env)) == [otel_service_catalog_retention_days: 14]
+    end
+
+    test "returns operator-set plugin result attempt retention windows" do
+      env = %{
+        "SERVICERADAR_PLUGIN_RESULT_ATTEMPT_ACTIVE_RETENTION_DAYS" => "3",
+        "SERVICERADAR_PLUGIN_RESULT_QUARANTINE_RETENTION_DAYS" => "45"
+      }
+
+      assert ProductionSchedule.app_env(fetch(env)) == [
+               plugin_result_attempt_active_retention_days: 3,
+               plugin_result_quarantine_retention_days: 45
+             ]
     end
 
     test "returns operator-set episode liveness knobs" do

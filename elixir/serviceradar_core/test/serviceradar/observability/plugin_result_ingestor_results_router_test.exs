@@ -3,6 +3,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
 
   alias ServiceRadar.Admission.Lane
   alias ServiceRadar.Admission.RetainedPluginLane
+  alias ServiceRadar.Ingestion.RuntimeMetrics
+  alias ServiceRadar.Observability.PluginResultAttemptPruneWorker
   alias ServiceRadar.Observability.PluginResultQuarantine
 
   defmodule BudgetIngestor do
@@ -224,6 +226,194 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
       assert :ok = PluginResultQuarantine.retry_quarantined(over_budget.agent_id, result_key)
       assert_receive {:ingest, "always-over-budget"}
       assert [] = attempt_rows(over_budget.agent_id)
+    end
+  end
+
+  describe "attempt row retention prune (#6061)" do
+    setup do
+      previous_active =
+        Application.get_env(:serviceradar_core, :plugin_result_attempt_active_retention_days)
+
+      previous_quarantine =
+        Application.get_env(:serviceradar_core, :plugin_result_quarantine_retention_days)
+
+      previous_batch_size =
+        Application.get_env(:serviceradar_core, :plugin_result_attempt_prune_batch_size)
+
+      on_exit(fn ->
+        restore_env(:plugin_result_attempt_active_retention_days, previous_active)
+        restore_env(:plugin_result_quarantine_retention_days, previous_quarantine)
+        restore_env(:plugin_result_attempt_prune_batch_size, previous_batch_size)
+      end)
+
+      :ok
+    end
+
+    test "prunes expired active and quarantined attempt rows while keeping recent ones" do
+      suffix = System.unique_integer([:positive])
+      agent_id = "prune-agent-#{suffix}"
+      now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+      on_exit(fn ->
+        Repo.query!(
+          "DELETE FROM platform.plugin_result_ingestion_attempts WHERE agent_id = $1",
+          [agent_id]
+        )
+      end)
+
+      insert_attempt_row!(agent_id, "active-expired-#{suffix}", "active",
+        last_attempt_at: DateTime.shift(now, day: -8)
+      )
+
+      insert_attempt_row!(agent_id, "active-recent-#{suffix}", "active",
+        last_attempt_at: DateTime.shift(now, day: -2)
+      )
+
+      insert_attempt_row!(agent_id, "quarantined-mid-#{suffix}", "quarantined",
+        quarantined_at: DateTime.shift(now, week: -2),
+        last_attempt_at: DateTime.shift(now, week: -2)
+      )
+
+      insert_attempt_row!(agent_id, "quarantined-expired-#{suffix}", "quarantined",
+        quarantined_at: DateTime.shift(now, day: -31),
+        last_attempt_at: DateTime.shift(now, day: -31)
+      )
+
+      insert_attempt_row!(agent_id, "quarantined-null-ts-expired-#{suffix}", "quarantined",
+        quarantined_at: nil,
+        last_attempt_at: DateTime.shift(now, week: -5)
+      )
+
+      assert :ok = PluginResultAttemptPruneWorker.perform(%Oban.Job{args: %{}})
+
+      remaining_keys =
+        List.flatten(
+          Repo.query!(
+            """
+            SELECT result_key
+            FROM platform.plugin_result_ingestion_attempts
+            WHERE agent_id = $1
+            ORDER BY result_key
+            """,
+            [agent_id]
+          ).rows
+        )
+
+      assert remaining_keys == [
+               "active-recent-#{suffix}",
+               "quarantined-mid-#{suffix}"
+             ]
+
+      # Tightening the quarantine window via application env prunes the 14-day-old row too.
+      Application.put_env(:serviceradar_core, :plugin_result_quarantine_retention_days, 10)
+      assert :ok = PluginResultAttemptPruneWorker.perform(%Oban.Job{args: %{}})
+
+      remaining_after_override =
+        List.flatten(
+          Repo.query!(
+            """
+            SELECT result_key
+            FROM platform.plugin_result_ingestion_attempts
+            WHERE agent_id = $1
+            ORDER BY result_key
+            """,
+            [agent_id]
+          ).rows
+        )
+
+      assert remaining_after_override == ["active-recent-#{suffix}"]
+    end
+
+    test "deletes expired attempt rows in primary-key batches and records attempt_pruned metric" do
+      if !Process.whereis(RuntimeMetrics) do
+        start_supervised!(
+          {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
+        )
+      end
+
+      suffix = System.unique_integer([:positive])
+      agent_id = "prune-batch-agent-#{suffix}"
+      now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+      on_exit(fn ->
+        Repo.query!(
+          "DELETE FROM platform.plugin_result_ingestion_attempts WHERE agent_id = $1",
+          [agent_id]
+        )
+      end)
+
+      for idx <- 1..3 do
+        insert_attempt_row!(agent_id, "expired-active-#{idx}-#{suffix}", "active",
+          last_attempt_at: DateTime.shift(now, day: -10)
+        )
+      end
+
+      for idx <- 1..2 do
+        insert_attempt_row!(agent_id, "expired-quarantined-#{idx}-#{suffix}", "quarantined",
+          quarantined_at: DateTime.shift(now, day: -40),
+          last_attempt_at: DateTime.shift(now, day: -40)
+        )
+      end
+
+      insert_attempt_row!(agent_id, "fresh-active-#{suffix}", "active",
+        last_attempt_at: DateTime.shift(now, day: -1)
+      )
+
+      before_pruned = pruned_metric_counter()
+
+      assert {:ok, %{deleted: deleted, batches: batches}} =
+               PluginResultQuarantine.prune(now: now, batch_size: 2)
+
+      assert deleted >= 5
+      assert batches >= 3
+      assert pruned_metric_counter() - before_pruned == deleted
+
+      remaining =
+        List.flatten(
+          Repo.query!(
+            """
+            SELECT result_key
+            FROM platform.plugin_result_ingestion_attempts
+            WHERE agent_id = $1
+            """,
+            [agent_id]
+          ).rows
+        )
+
+      assert remaining == ["fresh-active-#{suffix}"]
+    end
+  end
+
+  defp insert_attempt_row!(agent_id, result_key, state, opts) do
+    last_attempt_at = Keyword.fetch!(opts, :last_attempt_at)
+    quarantined_at = Keyword.get(opts, :quarantined_at)
+    reason = if state == "quarantined", do: "execution_timeout_budget_exceeded"
+
+    Repo.query!(
+      """
+      INSERT INTO platform.plugin_result_ingestion_attempts (
+        agent_id, result_key, gateway_id, partition, service_type, service_name,
+        observation_timestamp, payload_digest, payload_bytes, attempt_count,
+        consecutive_timeout_count, state, last_outcome, last_error,
+        quarantine_reason, quarantined_at, last_attempt_at, retained_status,
+        inserted_at, updated_at
+      )
+      VALUES (
+        $1, $2, 'prune-gateway', 'default', 'plugin', 'prune-service',
+        $6, 'digest', 64, 3,
+        3, $3, 'execution_timeout', 'worker_execution_timeout',
+        $4, $5, $6, '{}'::jsonb,
+        $6, $6
+      )
+      """,
+      [agent_id, result_key, state, reason, quarantined_at, last_attempt_at]
+    )
+  end
+
+  defp pruned_metric_counter do
+    case :ets.lookup(RuntimeMetrics, {:events, :retained_plugin_result, :attempt_pruned}) do
+      [{_key, count}] -> count
+      [] -> 0
     end
   end
 
