@@ -91,15 +91,10 @@ If you prefer the script style locally, just run:
 ./buildbuddy_setup_docker_auth.sh
 ```
 
-For local pushes without the script you can export the same environment variables manually:
-
-```bash
-export OCI_REGISTRY="registry.carverauto.dev"
-export OCI_USERNAME='robot$serviceradar-ci'
-export OCI_TOKEN="replace-with-harbor-robot-secret"
-
-make push_all PUSH_TAG="v$(git describe --tags --always)"
-```
+For demo test builds, use the in-cluster publisher described in the
+[test image rollout skill](../.agents/skills/demo-local-rollout/SKILL.md).
+That skill owns the workstation image-build restriction and its gateway
+capacity rationale. Formal releases use [Release Publishing](RELEASE_PUBLISHING.md).
 
 ## Command usage
 

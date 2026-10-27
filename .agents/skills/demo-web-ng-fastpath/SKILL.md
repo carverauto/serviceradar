@@ -117,12 +117,8 @@ Verified Facts).
 These were each confirmed against the live `carverauto` cluster during a real web-ng roll.
 Do not re-derive them.
 
-- **OpenBao is HTTPS.** Through the port-forward, `https://127.0.0.1:18200` works and
-  `http://` returns `400 Client sent an HTTP request to an HTTPS server`.
-- **The signer is the `github-signing-runner` service account in `arc-systems`, logging in
-  with the Kubernetes-auth role `github-signing-runner`** (rechecked 2026-10-27; the same
-  identity `publish-oci.yml` signs with). The Forgejo-era `forgejo-signing-runner` account,
-  its role, and the `forgejo-actions` namespace no longer exist.
+- For the OpenBao endpoint, signing identity, and token handling, follow
+  `$demo-local-rollout` (demo roll, step 3).
 - **`.argocd-source-serviceradar-demo-prod.yaml` REPLACES `helm.parameters` at render time.**
   This is stronger than a race: a `kubectl patch` of `spec.source.helm.parameters` on
   `serviceradar-demo-prod` persists in the Application spec, syncs `Synced|Healthy|Succeeded`,

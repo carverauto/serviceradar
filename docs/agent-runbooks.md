@@ -472,24 +472,15 @@ Restart the checker using the persisted config:
 
 ## Release Playbook
 
-1. Prep metadata:
-   - Update `VERSION` with the new semver (example: `1.0.54-pre.1`).
-   - Add a matching entry at the top of `CHANGELOG` that summarizes the release highlights.
-   - Run `scripts/cut-release.sh --version <version> --dry-run` to confirm the changelog entry is detected before committing.
-2. Tag the release:
-   - Execute `scripts/cut-release.sh --version <version>` to stage `VERSION`/`CHANGELOG`, create the release commit, and author the annotated tag (append `--push` when you are ready to publish the refs).
-3. Build and push Bazel release artifacts:
-   - Authenticate to Harbor if needed: `./scripts/docker-login.sh`.
-   - Run `bazel build -c opt --config=ci $(bazel query 'kind(oci_image, //docker/images:*)')` to ensure every container bakes successfully before publishing.
-   - Run `make push_all_release`. This publishes container images plus first-party Wasm plugin OCI artifacts, signs both with cosign, and verifies the published metadata/signatures locally.
-   - If a single image needs republishing on Linux/CI, use `bazel run -c opt --config=ci --stamp //docker/images:<target>_push` (for example `//docker/images:web_ng_image_amd64_push`). On macOS use `make push_all`; direct `cache_only` image targets preserve the Darwin platform and cannot produce a valid Linux image.
-   - If only Wasm plugins need republishing, run `make push_wasm_plugins`.
-   - Capture the new image identifiers you care about (for example `git rev-parse HEAD` for the commit tag or the full digest printed during the push). You'll use these when refreshing Kubernetes.
-4. Roll the demo namespace:
-   - Run `helm upgrade --install serviceradar ./helm/serviceradar -n demo -f helm/serviceradar/values-demo.yaml --set global.imageTag="sha-<git-sha>" --rollback-on-failure` to roll demo to the newly published immutable tag.
-   - Local shortcut: `sr_demo_deploy <sha-...|git-sha>` if the helper is installed in `~/.zshrc`.
-   - Watch for readiness: `kubectl get pods -n demo` until all pods are `1/1` and `Running`.
-5. Close out: verify the demo web UI reports the new version, file follow-up docs, and proceed with Forgejo release packaging if required.
+Follow [Release Publishing](RELEASE_PUBLISHING.md) for release metadata,
+branch and tag publication, artifact verification, and recovery. Follow the
+[release rollout skill](../.agents/skills/release-cut-and-demo-roll/SKILL.md)
+for demo rollout checks.
+
+For unpublished test images, use the
+[test image rollout skill](../.agents/skills/demo-local-rollout/SKILL.md), or
+its [web-ng fast path](../.agents/skills/demo-web-ng-fastpath/SKILL.md) when
+only web-ng changed.
 
 ## CNPG Database Access (Kubernetes demo-staging)
 
