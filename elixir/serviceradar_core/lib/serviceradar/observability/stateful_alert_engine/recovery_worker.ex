@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker do
   require Logger
 
   @batch_size 100
+  @ready_query_timeout_ms 2_000
   @ready_sql """
   SELECT rule_id FROM (
     SELECT DISTINCT ON (rule_id) rule_id, available_at, accepted_at
@@ -49,32 +50,82 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{}) do
+    maybe_set_process_label({__MODULE__, :perform})
     if Rollout.consumers_enabled?(), do: recover(), else: :ok
   end
 
   defp recover do
-    with {:ok, %{rows: rows}} <-
-           Repo.query(@ready_sql, [@batch_size, Oban.Worker.to_string(EvaluationWorker)]) do
-      result =
-        Enum.reduce_while(rows, :ok, fn [raw_id], :ok ->
-          case EvaluationWorker.enqueue(Ecto.UUID.load!(raw_id)) do
-            {:ok, _job} -> {:cont, :ok}
-            {:error, _reason} = error -> {:halt, error}
-          end
-        end)
+    case query_ready_rules() do
+      {:ok, %{rows: rows}} ->
+        result =
+          Enum.reduce_while(rows, :ok, fn [raw_id], :ok ->
+            case EvaluationWorker.enqueue(Ecto.UUID.load!(raw_id)) do
+              {:ok, _job} -> {:cont, :ok}
+              {:error, _reason} = error -> {:halt, error}
+            end
+          end)
 
-      # Retention and observability must not stop the recovery wake-ups.
-      case RuntimeMetrics.sample_health() do
-        :ok -> :ok
-        {:error, _} -> Logger.warning("Could not sample alert evaluation health")
+        # Retention and observability must not stop the recovery wake-ups.
+        _ = RuntimeMetrics.sample_health()
+        _ = AlertEvaluationReceipt.prune()
+
+        result
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp query_ready_rules do
+    caller = {__MODULE__, :recover_ready_rules}
+    maybe_set_process_label(caller)
+
+    try do
+      case Repo.query(
+             @ready_sql,
+             [@batch_size, Oban.Worker.to_string(EvaluationWorker)],
+             timeout: @ready_query_timeout_ms,
+             telemetry_options: [caller: caller, timeout_ms: @ready_query_timeout_ms]
+           ) do
+        {:ok, _} = ok ->
+          ok
+
+        {:error, reason} = error ->
+          recovery_failed(caller, reason)
+          error
       end
+    rescue
+      error ->
+        recovery_failed(caller, error)
+        {:error, error}
+    catch
+      :exit, reason ->
+        recovery_failed(caller, {:exit, reason})
+        {:error, {:exit, reason}}
+    end
+  end
 
-      case AlertEvaluationReceipt.prune() do
-        {:ok, :ok} -> :ok
-        {:error, _} -> Logger.warning("Could not prune expired alert evaluation receipts")
-      end
+  defp recovery_failed(caller, reason) do
+    RuntimeMetrics.store_failure()
+    RuntimeMetrics.retry()
 
-      result
+    :telemetry.execute(
+      [:serviceradar, :stateful_alert_engine, :recovery_failed],
+      %{count: 1},
+      %{caller: caller, reason: reason}
+    )
+
+    Logger.warning(
+      "Alert evaluation recovery scan failed (#{inspect(caller)}): " <>
+        inspect(reason, limit: 10, printable_limit: 500),
+      caller: inspect(caller)
+    )
+  end
+
+  defp maybe_set_process_label(caller) do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, []} -> Process.set_label(caller)
+      _ -> :ok
     end
   end
 end

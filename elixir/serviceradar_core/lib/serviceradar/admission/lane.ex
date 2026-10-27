@@ -714,6 +714,7 @@ defmodule ServiceRadar.Admission.Lane do
     # the eventual GenServer.reply/2 and monitors the coordinator, so a lane
     # restart cannot strand a caller whose admission was already accepted.
     case Task.Supervisor.start_child(state.lease_supervisor, fn ->
+           Process.set_label({__MODULE__, :lease, state.lane})
            lease(coordinator, reply_to)
          end) do
       {:ok, pid} -> {:ok, pid}
@@ -901,6 +902,8 @@ defmodule ServiceRadar.Admission.Lane do
     lane = state.lane
 
     case Task.Supervisor.start_child(state.task_supervisor, fn ->
+           Process.set_label({__MODULE__, :worker, lane})
+
            receive do
              {:start, id} when id == job.id ->
                result =

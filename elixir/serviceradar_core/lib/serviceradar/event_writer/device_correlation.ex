@@ -14,6 +14,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   alias ServiceRadar.EventWriter.DeviceCorrelationCache
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.Identity.Resolver
   alias ServiceRadar.Repo
@@ -22,6 +23,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   require Logger
 
   @lookup_timeout_ms 1_500
+  @lookup_aborted_key {__MODULE__, :lookup_aborted}
 
   @type candidate :: %{
           optional(:device_uid) => String.t() | nil,
@@ -42,7 +44,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
     # events for the same device costs one DB lookup per device (cache miss)
     # rather than one set of DB round-trips per event. The cache is fail-open:
     # on any cache error it runs `resolve_uncached/1` directly.
-    DeviceCorrelationCache.fetch(candidate, fn -> resolve_uncached(candidate) end)
+    resolve_cached(candidate, fn -> resolve_uncached(candidate) end)
   end
 
   def resolve(_), do: nil
@@ -76,7 +78,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
         nil
 
       normalized ->
-        DeviceCorrelationCache.fetch(normalized, fn ->
+        resolve_cached(normalized, fn ->
           resolve_snmp_interface_metric_uncached(normalized)
         end)
     end
@@ -99,13 +101,15 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   def resolve_uncached(candidate) when is_map(candidate) do
     actor = SystemActor.system(:event_writer_device_correlation)
 
-    with nil <- explicit_device_uid(candidate, actor),
-         nil <- device_uid_for_agent(candidate[:agent_id], actor),
-         nil <- device_uid_for_workload(candidate, actor),
-         nil <- device_uid_for_ip(candidate[:ip], candidate[:partition], actor),
-         nil <- device_uid_for_hostname(candidate[:hostname], actor) do
-      device_uid_for_hostname(candidate[:name], actor)
-    end
+    with_lookup_budget(fn ->
+      with nil <- explicit_device_uid(candidate, actor),
+           nil <- device_uid_for_agent(candidate[:agent_id], actor),
+           nil <- device_uid_for_workload(candidate, actor),
+           nil <- device_uid_for_ip(candidate[:ip], candidate[:partition], actor),
+           nil <- device_uid_for_hostname(candidate[:hostname], actor) do
+        device_uid_for_hostname(candidate[:name], actor)
+      end
+    end)
   rescue
     error ->
       Logger.debug("Device correlation lookup failed: #{Exception.message(error)}")
@@ -138,19 +142,21 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   end
 
   defp resolve_snmp_interface_metric_uncached(candidate) do
-    canonical_hint = snmp_metric_canonical_hint(candidate)
+    with_lookup_budget(fn ->
+      canonical_hint = snmp_metric_canonical_hint(candidate)
 
-    cond do
-      is_binary(canonical_hint) ->
-        query_snmp_metric_by_device(candidate, canonical_hint) ||
-          query_snmp_metric_hourly_by_device(candidate, canonical_hint)
+      cond do
+        is_binary(canonical_hint) ->
+          query_snmp_metric_by_device(candidate, canonical_hint) ||
+            query_snmp_metric_hourly_by_device(candidate, canonical_hint)
 
-      is_binary(candidate.target_device_ip) ->
-        query_snmp_metric_hourly_by_target(candidate)
+        is_binary(candidate.target_device_ip) ->
+          query_snmp_metric_hourly_by_target(candidate)
 
-      true ->
-        nil
-    end
+        true ->
+          nil
+      end
+    end)
   rescue
     error ->
       Logger.debug("SNMP metric tuple correlation lookup failed: #{Exception.message(error)}")
@@ -223,7 +229,14 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   end
 
   defp query_snmp_metric_device_uid(sql, params) do
-    case bounded_lookup(fn -> Repo.query(sql, params) end) do
+    caller = {__MODULE__, :snmp_metric_device_uid}
+
+    case bounded_lookup(:snmp_metric_device_uid, fn ->
+           Repo.query(sql, params,
+             timeout: @lookup_timeout_ms,
+             telemetry_options: [caller: caller, timeout_ms: @lookup_timeout_ms]
+           )
+         end) do
       {:ok, %{rows: [[device_uid] | _]}} -> normalize(device_uid)
       _ -> nil
     end
@@ -249,10 +262,14 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
       # Cheap on the common path: the follow returns its input unchanged unless
       # the row is actually tombstoned, and DeviceCorrelationCache fronts this.
       "sr:" <> _ = uid ->
-        bounded_lookup(fn -> Resolver.follow_canonical_device_id(uid, actor) end) || uid
+        bounded_lookup(:follow_canonical_device_id, fn ->
+          Resolver.follow_canonical_device_id(uid, actor)
+        end) || uid
 
       uid ->
-        case bounded_lookup(fn -> Device.get_by_uid(uid, false, actor: actor) end) do
+        case bounded_lookup(:device_get_by_uid, fn ->
+               Device.get_by_uid(uid, false, actor: actor)
+             end) do
           {:ok, %Device{uid: resolved}} -> resolved
           _ -> nil
         end
@@ -267,7 +284,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
     if is_nil(agent_id) do
       nil
     else
-      case bounded_lookup(fn -> Agent.get_by_uid(agent_id, actor: actor) end) do
+      case bounded_lookup(:agent_get_by_uid, fn -> Agent.get_by_uid(agent_id, actor: actor) end) do
         {:ok, %Agent{device_uid: uid}} when is_binary(uid) and uid != "" -> uid
         _ -> nil
       end
@@ -291,7 +308,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
           [%{kind: :ip, value: ip}]
         end
 
-      case bounded_lookup(fn ->
+      case bounded_lookup(:ip_canonical_device, fn ->
              DeviceLookup.get_canonical_device(keys,
                actor: actor,
                ip_hint: ip,
@@ -374,7 +391,14 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   end
 
   defp query_workload_device_uid(sql, params) do
-    case bounded_lookup(fn -> Repo.query(sql, params) end) do
+    caller = {__MODULE__, :workload_device_uid}
+
+    case bounded_lookup(:workload_device_uid, fn ->
+           Repo.query(sql, params,
+             timeout: @lookup_timeout_ms,
+             telemetry_options: [caller: caller, timeout_ms: @lookup_timeout_ms]
+           )
+         end) do
       {:ok, %{rows: [[device_uid] | _]}} -> normalize(device_uid)
       _ -> nil
     end
@@ -393,7 +417,9 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
         explicit_device_uid(%{device_uid: hostname}, actor)
 
       true ->
-        case bounded_lookup(fn -> Device.get_by_uid(hostname, false, actor: actor) end) do
+        case bounded_lookup(:hostname_device_get_by_uid, fn ->
+               Device.get_by_uid(hostname, false, actor: actor)
+             end) do
           {:ok, %Device{uid: uid}} ->
             uid
 
@@ -409,20 +435,136 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
     |> Ash.Query.filter(expr(hostname == ^hostname or name == ^hostname))
     |> Ash.Query.sort(is_active: :desc, last_seen_time: :desc, modified_time: :desc, uid: :asc)
     |> Ash.Query.limit(1)
-    |> then(fn query -> bounded_lookup(fn -> Ash.read(query, actor: actor) end) end)
+    |> then(fn query ->
+      bounded_lookup(:lookup_device_by_hostname, fn -> Ash.read(query, actor: actor) end)
+    end)
     |> case do
       {:ok, [%Device{uid: uid} | _]} -> uid
       _ -> nil
     end
   end
 
-  defp bounded_lookup(fun) when is_function(fun, 0) do
-    task = Task.async(fun)
+  defp resolve_cached(candidate, resolver) do
+    key = DeviceCorrelationCache.cache_key(candidate)
 
-    case Task.yield(task, @lookup_timeout_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, result} -> result
-      _ -> nil
+    case DeviceCorrelationCache.lookup(key) do
+      {:hit, uid} ->
+        :telemetry.execute(
+          [:serviceradar, :event_writer, :device_correlation, :cache],
+          %{count: 1},
+          %{result: :hit}
+        )
+
+        uid
+
+      :negative ->
+        :telemetry.execute(
+          [:serviceradar, :event_writer, :device_correlation, :cache],
+          %{count: 1},
+          %{result: :negative_hit}
+        )
+
+        nil
+
+      :miss ->
+        :telemetry.execute(
+          [:serviceradar, :event_writer, :device_correlation, :cache],
+          %{count: 1},
+          %{result: :miss}
+        )
+
+        Process.delete(@lookup_aborted_key)
+        uid = resolver.()
+
+        if Process.delete(@lookup_aborted_key) != true do
+          DeviceCorrelationCache.put(key, uid)
+        end
+
+        uid
     end
+  end
+
+  defp with_lookup_budget(fun) when is_function(fun, 0) do
+    outer = Process.get(@lookup_aborted_key)
+
+    if outer == nil do
+      try do
+        fun.()
+      after
+        if outer == nil and Process.get(@lookup_aborted_key) != true do
+          Process.delete(@lookup_aborted_key)
+        end
+      end
+    else
+      fun.()
+    end
+  end
+
+  defp bounded_lookup(operation, fun) when is_atom(operation) and is_function(fun, 0) do
+    if Process.get(@lookup_aborted_key) == true do
+      nil
+    else
+      caller = {__MODULE__, operation}
+
+      task =
+        Task.async(fn ->
+          Process.set_label(caller)
+          fun.()
+        end)
+
+      case Task.yield(task, @lookup_timeout_ms) || Task.shutdown(task, :brutal_kill) do
+        {:ok, {:error, %DBConnection.ConnectionError{} = error}} ->
+          lookup_timed_out(caller, operation, error)
+
+        {:ok, {:error, %{errors: errors} = ash_error}} ->
+          if Enum.any?(List.wrap(errors), &connection_error?/1) do
+            lookup_timed_out(caller, operation, ash_error)
+          else
+            {:error, ash_error}
+          end
+
+        {:ok, result} ->
+          result
+
+        {:exit, reason} ->
+          lookup_timed_out(caller, operation, {:exit, reason})
+
+        nil ->
+          lookup_timed_out(caller, operation, :timeout)
+      end
+    end
+  end
+
+  defp connection_error?(%DBConnection.ConnectionError{}), do: true
+
+  defp connection_error?(%{error: error}) when is_binary(error) do
+    String.contains?(error, "DBConnection.ConnectionError") or
+      String.contains?(error, "timed out")
+  end
+
+  defp connection_error?(%{errors: errors}) when is_list(errors),
+    do: Enum.any?(errors, &connection_error?/1)
+
+  defp connection_error?(_), do: false
+
+  defp lookup_timed_out(caller, operation, reason) do
+    Process.put(@lookup_aborted_key, true)
+    RuntimeMetrics.record(:other_results, :timeout, %{count: 1})
+
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :device_correlation, :lookup_timeout],
+      %{count: 1},
+      %{caller: caller, operation: operation, reason: reason}
+    )
+
+    Logger.warning(
+      "Device correlation lookup timed out (#{inspect(caller)}): " <>
+        inspect(reason, limit: 10, printable_limit: 500),
+      caller: inspect(caller),
+      operation: operation
+    )
+
+    nil
   end
 
   defp normalize(value) when is_binary(value) do

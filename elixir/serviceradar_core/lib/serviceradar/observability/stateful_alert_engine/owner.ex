@@ -31,13 +31,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
     started = System.monotonic_time(:millisecond)
 
     result =
-      Inbox.transact(@owner_timeout_ms, fn ->
-        case AdvisoryLocks.try_acquire_ordered([Inbox.evaluation_key(rule_id)]) do
-          :ok -> advance_owned(rule_id)
-          {:error, {:advisory_locks_busy, _}} -> :busy
-          {:error, reason} -> Repo.rollback(reason)
-        end
-      end)
+      Inbox.transact(
+        @owner_timeout_ms,
+        fn ->
+          case AdvisoryLocks.try_acquire_ordered([Inbox.evaluation_key(rule_id)]) do
+            :ok -> advance_owned(rule_id)
+            {:error, {:advisory_locks_busy, _}} -> :busy
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end,
+        caller: {__MODULE__, :advance}
+      )
 
     case result do
       {:ok, {:processed, disposition, measurements}} ->
@@ -58,55 +62,63 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Owner do
   end
 
   def defer(rule_id, work_id, reason) do
-    Inbox.transact(2_000, fn ->
-      case AdvisoryLocks.try_acquire_ordered([Inbox.evaluation_key(rule_id)]) do
-        :ok ->
-          case Ash.get(Work, work_id, actor: Inbox.actor()) do
-            {:ok, %{rule_id: ^rule_id} = work} ->
-              seconds = min(Integer.pow(2, min(work.attempts + 1, 8)), 300)
+    Inbox.transact(
+      2_000,
+      fn ->
+        case AdvisoryLocks.try_acquire_ordered([Inbox.evaluation_key(rule_id)]) do
+          :ok ->
+            case Ash.get(Work, work_id, actor: Inbox.actor()) do
+              {:ok, %{rule_id: ^rule_id} = work} ->
+                seconds = min(Integer.pow(2, min(work.attempts + 1, 8)), 300)
 
-              {_work, notifications} =
-                work
-                |> Ash.Changeset.for_update(
-                  :retry,
-                  %{
-                    attempts: work.attempts + 1,
-                    available_at: DateTime.shift(DateTime.utc_now(), second: seconds),
-                    last_error: String.slice(inspect(reason), 0, 2_048)
-                  },
-                  actor: Inbox.actor()
-                )
-                |> Ash.update!(return_notifications?: true)
+                {_work, notifications} =
+                  work
+                  |> Ash.Changeset.for_update(
+                    :retry,
+                    %{
+                      attempts: work.attempts + 1,
+                      available_at: DateTime.shift(DateTime.utc_now(), second: seconds),
+                      last_error: String.slice(inspect(reason), 0, 2_048)
+                    },
+                    actor: Inbox.actor()
+                  )
+                  |> Ash.update!(return_notifications?: true)
 
-              Inbox.notify_after_commit(notifications)
+                Inbox.notify_after_commit(notifications)
 
-            _ ->
-              :ok
-          end
+              _ ->
+                :ok
+            end
 
-        {:error, {:advisory_locks_busy, _}} ->
-          :busy
+          {:error, {:advisory_locks_busy, _}} ->
+            :busy
 
-        {:error, error} ->
-          Repo.rollback(error)
-      end
-    end)
+          {:error, error} ->
+            Repo.rollback(error)
+        end
+      end,
+      caller: {__MODULE__, :defer}
+    )
   end
 
   @doc "Removes an expired snapshot only after rechecking it under the evaluator fence."
   def cleanup_snapshot(rule_id, snapshot_id, cutoff) do
-    Inbox.transact(2_000, fn ->
-      # Admission can otherwise insert new work between our empty-inbox read
-      # and deleting the snapshot that input needs. Match the relation/mutex
-      # ordering used by admission and the raw replay trigger.
-      Inbox.lock_admission()
+    Inbox.transact(
+      2_000,
+      fn ->
+        # Admission can otherwise insert new work between our empty-inbox read
+        # and deleting the snapshot that input needs. Match the relation/mutex
+        # ordering used by admission and the raw replay trigger.
+        Inbox.lock_admission()
 
-      case AdvisoryLocks.try_acquire_ordered([Inbox.evaluation_key(rule_id)]) do
-        :ok -> cleanup_owned(rule_id, snapshot_id, cutoff)
-        {:error, {:advisory_locks_busy, _}} -> :kept
-        {:error, reason} -> Repo.rollback(reason)
-      end
-    end)
+        case AdvisoryLocks.try_acquire_ordered([Inbox.evaluation_key(rule_id)]) do
+          :ok -> cleanup_owned(rule_id, snapshot_id, cutoff)
+          {:error, {:advisory_locks_busy, _}} -> :kept
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end,
+      caller: {__MODULE__, :cleanup_snapshot}
+    )
   end
 
   defp cleanup_owned(rule_id, snapshot_id, cutoff) do

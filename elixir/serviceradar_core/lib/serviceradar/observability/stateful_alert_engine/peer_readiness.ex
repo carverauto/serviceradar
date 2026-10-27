@@ -45,6 +45,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.PeerReadiness do
   """
   @spec readiness() :: :not_evaluator | {:evaluator, term()} | :invalid_roles
   def readiness do
+    maybe_set_process_label({__MODULE__, :readiness})
+
     roles = [
       Application.get_env(:serviceradar_core, :status_handler_enabled, false),
       Application.get_env(:serviceradar_core, :event_writer_enabled, false),
@@ -179,4 +181,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.PeerReadiness do
   end
 
   defp now_ms, do: System.monotonic_time(:millisecond)
+
+  defp maybe_set_process_label(caller) do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, []} -> Process.set_label(caller)
+      _ -> :ok
+    end
+  end
 end

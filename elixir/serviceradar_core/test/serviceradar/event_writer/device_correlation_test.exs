@@ -3,9 +3,11 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.DeviceCorrelation
+  alias ServiceRadar.EventWriter.DeviceCorrelationCache
   alias ServiceRadar.EventWriter.Processors.FalcoEvents
   alias ServiceRadar.EventWriter.Processors.TrivyReports
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -135,6 +137,91 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
 
     assert row.metadata["service_radar"]["device_uid"] == device.uid
     assert row.device[:uid] == device.uid
+  end
+
+  test "lookup timeout names caller, logs one warning and counter, skips negative cache, and fails open",
+       %{
+         partition: partition,
+         device: device,
+         agent_id: agent_id,
+         unique: unique
+       } do
+    if !Process.whereis(RuntimeMetrics) do
+      start_supervised!(
+        {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
+      )
+    end
+
+    DeviceCorrelationCache.clear()
+    parent = self()
+    handler_id = "device-correlation-timeout-#{unique}"
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :event_writer, :device_correlation, :lookup_timeout],
+      fn _event, _measurements, metadata, _config ->
+        send(parent, {:device_correlation_timeout, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    candidate = %{
+      partition: partition,
+      agent_id: agent_id,
+      pod_uid: "timeout-pod-#{unique}",
+      ip: "192.0.2.44",
+      hostname: "security-host-#{unique}.local"
+    }
+
+    holder =
+      Task.async(fn ->
+        Repo.checkout(fn ->
+          send(parent, :sandbox_checked_out)
+
+          receive do
+            :release_sandbox -> :ok
+          after
+            10_000 -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :sandbox_checked_out, 1_000
+    before_timeouts = other_results_timeout_counter()
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        assert DeviceCorrelation.resolve(candidate) == nil
+      end)
+
+    send(holder.pid, :release_sandbox)
+    assert :ok = Task.await(holder, 5_000)
+
+    assert_receive {:device_correlation_timeout,
+                    %{
+                      caller: {DeviceCorrelation, :agent_get_by_uid},
+                      operation: :agent_get_by_uid
+                    }},
+                   1_000
+
+    refute_receive {:device_correlation_timeout, _}, 100
+    assert other_results_timeout_counter() == before_timeouts + 1
+
+    assert log =~
+             "Device correlation lookup timed out ({ServiceRadar.EventWriter.DeviceCorrelation, :agent_get_by_uid})"
+
+    # Timed-out resolution must not be negative-cached; once the DB connection
+    # is available again, the same candidate resolves to the canonical device.
+    assert DeviceCorrelation.resolve(candidate) == device.uid
+  end
+
+  defp other_results_timeout_counter do
+    case :ets.lookup(RuntimeMetrics, {:events, :other_results, :timeout}) do
+      [{_key, count}] -> count
+      [] -> 0
+    end
   end
 
   defp insert_workload_identity!(partition, attrs) do
