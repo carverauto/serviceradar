@@ -890,7 +890,8 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
 
     delete = fn sql ->
       protected =
-        Regex.scan(~r/\(id = '([^']+)' AND time = '([^']+)'\)/, sql)
+        ~r/\(id = '([^']+)' AND time = '([^']+)'\)/
+        |> Regex.scan(sql)
         |> Enum.map(fn [_, id, time] -> {id, NaiveDateTime.from_iso8601!(time)} end)
 
       for {{id, time} = key, _row} <- :ets.tab2list(warehouse),
