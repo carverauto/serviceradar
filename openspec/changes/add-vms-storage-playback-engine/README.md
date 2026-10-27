@@ -3,11 +3,9 @@
 ## Current pickup
 
 [Archive player #6096](https://github.com/carverauto/serviceradar/pull/6096)
-merged at `465e98505c68069abcb47d99fd06ba570a648629`. Its final head
-`2ce5100c` passed all 20 checks. Core executed 12 guarded targets and Web seven,
-uncached, with numeric zero suite, observer, teardown and generation-release
-statuses. The [published-head evidence](validation.md#published-head-archive-player-validation)
-records the corrected first-run failure and execution of the changed owners.
+is merged. The [published-head evidence](validation.md#published-head-archive-player-validation)
+owns the final validation results, executor commits, corrected first-run failure
+and approved prepublication database deferral.
 
 The [separate recordings page and single-block HLS player](archive-player.md)
 uses the merged [publication inventory](archive-discovery.md). Client fragment
@@ -75,7 +73,7 @@ identifiers and failure injections are independently invented synthetic data.
 | Authorized archive bytes | #6060 merged at `9a68975d`; head `cf918169` passed 19 checks. Core `fc501f97` and Web `88ddf619` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-fragment-read-validation) | [Player status](archive-player.md#validation-boundaries); timeline and hosted acceptance |
 | Bounded archive playlists | #6071 merged at `80af80b6`; head `240e6ff7` passed 19 checks. Core `44a5a8ab` and Web `89379230` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Real HTTP HLS consumer passed with 30 selected-window frames and 90 full-stream frames | [Discovery](archive-discovery.md) and [player status](archive-player.md#validation-boundaries); provisional local delivery and hosted acceptance |
 | Bounded publication inventory | #6089 merged at `e0635e06`; head `76d4c063` passed 19 checks. Core `90e51d24` and Web `f755112a` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Core owner 324 tests and Web owner 836 tests plus two properties passed | [Player status](archive-player.md#validation-boundaries); capture-time timeline and hosted acceptance |
-| Per-camera archive player | #6096 merged at `465e9850`; head `2ce5100c` passed 20 checks. Core `b310e044` and Web `ed1fc8e8` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Web owner 839 tests plus two properties passed; seven synthetic Chromium cases passed | Authenticated-route browser acceptance, broader browser/codec support, capture-time timeline and hosted acceptance |
+| Per-camera archive player | #6096 merged; [final validation](validation.md#published-head-archive-player-validation) | [Remaining acceptance boundaries](archive-player.md#validation-boundaries), broader browser/codec support, capture-time timeline and hosted acceptance |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -93,10 +91,8 @@ Product #6096's final database gate is complete; its approved prepublication
 deferral and first failed run remain in the validation history.
 
 After Cloud #188 merges, implement bounded reservation visibility in the existing
-operator environment console. Read persisted intent and preservation status;
-label ownership as unestablished. Keep read permission separate from reservation
-mutation. Do not infer provider state or clear preservation from a successful
-list read. The [Cloud checkpoint](cloud-control-plane.md#next-bounded-cloud-checkpoint)
+operator environment console, following the
+[Cloud checkpoint](cloud-control-plane.md#next-bounded-cloud-checkpoint), which
 owns the scope and acceptance boundaries.
 
 The [archive reader](archive-reads.md) owns isolated credentials, byte selectors
