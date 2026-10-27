@@ -403,6 +403,75 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
     end
   end
 
+  describe "archive metadata authorization" do
+    test "requires authentication before exposing recording metadata" do
+      path = "/api/cameras/#{Ecto.UUID.generate()}/recordings/#{Ecto.UUID.generate()}"
+      conn = get(build_conn(), path)
+      assert conn.status == 401
+    end
+
+    test "live video permission does not grant historical metadata" do
+      user = viewer_user_fixture()
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+      path = "/api/cameras/#{Ecto.UUID.generate()}/recordings/#{Ecto.UUID.generate()}"
+
+      conn = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
+
+      assert conn.status == 403
+      assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+    end
+
+    test "recording permission still requires inventory access" do
+      user = grant_permissions(AshTestHelpers.user_fixture(), ["devices.cameras.recordings.view"])
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+      path = "/api/cameras/#{Ecto.UUID.generate()}/recordings/#{Ecto.UUID.generate()}"
+
+      conn = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
+
+      assert conn.status == 403
+      assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+    end
+
+    test "rereads persisted permission when an authenticated token retains stale cached authority" do
+      permissions = ["devices.view", "devices.cameras.recordings.view"]
+      user = grant_permissions(AshTestHelpers.user_fixture(), permissions)
+      {:ok, token, _claims} = Guardian.create_access_token(user)
+      path = "/api/cameras/#{Ecto.UUID.generate()}/recordings/#{Ecto.UUID.generate()}"
+
+      allowed = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
+      assert json_response(allowed, 404)["error"] == "recording_not_found"
+      assert get_resp_header(allowed, "cache-control") == ["private, no-store"]
+
+      actor = AshTestHelpers.system_actor()
+      profile = Ash.get!(RoleProfile, user.role_profile_id, actor: actor)
+
+      profile
+      |> Ash.Changeset.for_update(:update, %{permissions: ["devices.view"]},
+        actor: actor,
+        context: %{privilege_boundary_owned: true}
+      )
+      |> Ash.update!()
+
+      RBAC.clear_process_cache()
+      RBAC.Cache.put(user.id, MapSet.new(permissions))
+
+      revoked = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
+      assert revoked.status == 403
+      assert get_resp_header(revoked, "cache-control") == ["private, no-store"]
+    end
+
+    for {source_id, block_id} <- [{"not-a-uuid", "valid"}, {"valid", "not-a-uuid"}] do
+      test "rejects malformed archive identity #{source_id}/#{block_id}", %{conn: conn} do
+        source_id = if unquote(source_id) == "valid", do: Ecto.UUID.generate(), else: unquote(source_id)
+        block_id = if unquote(block_id) == "valid", do: Ecto.UUID.generate(), else: unquote(block_id)
+        conn = get(conn, "/api/cameras/#{source_id}/recordings/#{block_id}")
+
+        assert json_response(conn, 400)["error"] == "invalid_request"
+        assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+      end
+    end
+  end
+
   defp grant_permissions(user, permissions) do
     actor = AshTestHelpers.system_actor()
 
