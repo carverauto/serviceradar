@@ -583,6 +583,113 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
   end
 
+  @tag publication: true, archive_reads: true
+  test "closing a public read cannot bypass the occupied provider slot", context do
+    token = recording_reader_token()
+    assert {:ok, _} = MediaUpload.upload_once(context.block.id)
+    assert {:ok, _} = ArchivePublication.complete_once(context.block.id)
+    remove_local_inputs(context)
+    stop_recording(context)
+    assert {:ok, published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    server = start_supervised!({Bandit, plug: @endpoint, ip: {127, 0, 0, 1}, port: 0})
+    {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+    path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
+    first_path = path <> "/fragments/0"
+    parent = self()
+    handler = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:phoenix, :endpoint, :start],
+        fn _, _, %{conn: conn}, {parent, first_path} ->
+          if conn.request_path == first_path, do: send(parent, {:archive_request_started, self()})
+        end,
+        {parent, first_path}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    Agent.update(context.store, fn state ->
+      Map.put(state, :read_effect, fn ->
+        send(parent, {:archive_provider_waiting, self()})
+        assert_receive :release_archive_read, 8_000
+      end)
+    end)
+
+    requests = Agent.get(context.store, & &1.requests)
+    {:ok, socket} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false], 2_000)
+    on_exit(fn -> :gen_tcp.close(socket) end)
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "GET ",
+        first_path,
+        " HTTP/1.1\r\nHost: localhost\r\n",
+        "Authorization: Bearer ",
+        token,
+        "\r\nAccept: video/mp4\r\nConnection: close\r\n\r\n"
+      ])
+
+    assert_receive {:archive_request_started, owner}, 2_000
+    monitor = Process.monitor(owner)
+    assert_receive {:archive_provider_waiting, provider}, 5_000
+    on_exit(fn -> send(provider, :release_archive_read) end)
+    assert [held | ^requests] = Agent.get(context.store, & &1.requests)
+    assert held.method == "GET"
+    assert held.headers["range"] == "bytes=0-#{byte_size(@bytes) - 1}"
+    assert :ok = :gen_tcp.close(socket)
+
+    request = fn suffix ->
+      Req.get!(
+        url: "http://127.0.0.1:#{port}" <> path <> suffix,
+        headers: [{"authorization", "Bearer " <> token}, {"accept", "video/mp4"}],
+        retry: false,
+        redirect: false,
+        decode_body: false,
+        receive_timeout: 2_000,
+        connect_options: [timeout: 2_000]
+      )
+    end
+
+    for suffix <- ["/init", "/fragments/1"] do
+      response = request.(suffix)
+      assert response.status == 503
+      assert Jason.decode!(response.body) == %{"error" => "archive_read_unavailable"}
+      assert response.headers["cache-control"] == ["private, no-store"]
+      assert Agent.get(context.store, & &1.requests) == [held | requests]
+    end
+
+    send(provider, :release_archive_read)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, _}, 5_000
+
+    # Public completion and isolated admission release occur in different processes.
+    response =
+      Enum.reduce_while(1..10, nil, fn _, _ ->
+        response = request.("/fragments/1")
+
+        if response.status == 503 do
+          assert Jason.decode!(response.body) == %{"error" => "archive_read_unavailable"}
+          assert response.headers["cache-control"] == ["private, no-store"]
+          assert Agent.get(context.store, & &1.requests) == [held | requests]
+          {:cont, nil}
+        else
+          {:halt, response}
+        end
+      end)
+
+    assert response, "the isolated reader did not release admission after the held response completed"
+    assert response.status == 200
+    assert response.body == @second_bytes
+    assert response.headers["content-type"] == ["video/mp4"]
+    assert response.headers["cache-control"] == ["private, no-store"]
+    assert [next, ^held | ^requests] = Agent.get(context.store, & &1.requests)
+    assert next.method == "GET"
+    assert next.headers["range"] == "bytes=#{byte_size(@bytes)}-#{byte_size(@bytes) + byte_size(@second_bytes) - 1}"
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+  end
+
   @tag publication: true, archive_reads: true, hls_media: true
   test "an independent HLS consumer follows the authenticated server playlist and decodes the published colors",
        context do
