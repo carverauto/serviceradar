@@ -23,12 +23,10 @@ an outer rollback. `RecordingBlocks.with_current_upload/4` owns the additional
 deadline cap; existing `/3` callers retain their lease behavior.
 
 This marker is local bookkeeping. It is not permission to send to an unqualified
-destination. No provider adapter, credential acquisition, network operation,
-scheduler, retry, cancellation, cleanup or availability transition is connected.
-A future adapter must establish current provider qualification and credential
-and policy authority before sending, outside a database transaction. It must
-also retain the actual wire contract; this logical digest is not an HTTP signing
-digest. Losing a response after marking leaves unresolved work and never grants
+destination. The [init](init-authority.md), [media](media-upload.md) and
+[manifest](archive-publication.md) protocols own provider authorization and
+verification outside database transactions. Each retains the actual wire
+contract; this logical digest is not an HTTP signing digest. Losing a response after marking leaves unresolved work and never grants
 another send. In particular, an unknown multipart creation cannot recover or
 invent its remote upload ID.
 

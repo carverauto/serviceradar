@@ -75,14 +75,10 @@ playback endpoint. All command and transport receipts continue to report
 
 ## Installed purposes and private routes
 
-One isolated workload holds one provider credential identity and one global
-admission slot. Its configuration accepts the existing version-one `desired`
-document or a version-two nonempty `purposes` map with fixed keys `init`,
-`media` and `manifest`. Each key must match its desired operation. All purposes
-must agree on the binding, local storage lifetime, destination, provider
-resource, endpoint type and complete credential identity. Configuration remains
-bounded to 32 KiB. Purpose revisions, digests, challenges, nonces and original
-deadlines remain independent.
+The [installation runbook](../../../docs/archive-init-storage.md#installed-files)
+owns the version-one and version-two mounted configuration contract, shared
+credential identity and independent purpose windows. One isolated workload
+shares one global admission slot across its installed purposes.
 
 Manifest authority has its own resource and retained grant/verification fields;
 it shares the existing authority coordinator. The private storage listener adds
@@ -107,12 +103,17 @@ the same slot before reading a request body, including init. A slow partial
 init request therefore cannot bypass admission while media or manifest work is
 active. Oversize inputs are refused rather than split.
 
-Media and manifest share one exclusive staging root and create it only when
-that path is absent. Every startup, including preserved schema-v1 desired
-config and a version-two init-only map, refuses an existing path or an
+Media and manifest share one exclusive private `vms-media-staging` root under
+the temporary directory, with one registered child directory per admitted raw
+request. They create the root only when that path is absent. Every startup,
+including preserved schema-v1 desired config and a version-two init-only map, refuses an existing path or an
 unreadable inspection and does not delete it. Init-only does not create the
 root when the path is absent. Restart cannot bypass abandoned raw staging by
-installing a different purpose. Failed scratch cleanup disables all purposes.
+installing a different purpose. Cancellation waits for actual ingress and
+socket owners to exit before removing scratch files and reusing admission.
+Failed scratch cleanup disables all purposes. Normal supervisor shutdown cleans
+its owned root; a hard kill can leave it behind and requires operator
+reconciliation, never automatic scanning, adoption or deletion.
 One workload also means a process restart interrupts every purpose; independent
 authorities do not imply independent failure domains. HTTP remains one request
 per connection, with bounded ingress, task/socket ownership and no unread-body

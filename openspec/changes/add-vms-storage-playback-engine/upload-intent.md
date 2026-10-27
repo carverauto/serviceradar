@@ -16,15 +16,17 @@ is a trusted persistence primitive; application callers use the coordinator for
 fencing and derivation. Internal actor policy does not replace that contract.
 
 Preparation rejects an ambient database transaction so a successful return names
-a committed intent. This is still not permission to send a request. There is no
-transport, scheduler, credential reference, verification, archive index or
-availability transition. The subsequent [dispatch checkpoint](upload-dispatch.md)
+a committed intent. This is still not permission to send a request. Preparation
+itself performs no provider I/O or availability transition.
+The separate [publication contract](archive-publication.md) owns proof-derived
+manifest preparation and fenced index publication. The
+[dispatch checkpoint](upload-dispatch.md)
 adds bounded marker and response observations beside this immutable identity.
 Provider qualification and current credential/policy checks remain separate.
 
 `RecordingDescriptor.object_key/2` owns the key spelling used by both preparation
-and `Manifest`. Existing independently calculated manifest hashes and keys remain
-unchanged. Init bytes are bounded at 1 MiB and media at 512 MiB by the descriptor;
+and `RecordingManifest`. Existing independently calculated manifest hashes and
+keys remain unchanged. Init bytes are bounded at 1 MiB and media at 512 MiB by the descriptor;
 the new table also constrains role, size and digest shape. These are format bounds,
 not deployment capacity or admission targets.
 
