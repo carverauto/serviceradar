@@ -27,6 +27,10 @@ import (
 	"syscall"
 )
 
+const reasonWorkspaceExists = "workspace exists"
+
+var errInvalidServerPID = errors.New("invalid server PID")
+
 // Base is one Bazel output base and the workspace it serves.
 type Base struct {
 	Path      string
@@ -134,7 +138,7 @@ func classify(b Base, p probe) (Verdict, string) {
 
 	gitInfo, err := os.Stat(gitPath)
 	if err != nil || gitInfo.IsDir() {
-		return VerdictKeep, "workspace exists"
+		return VerdictKeep, reasonWorkspaceExists
 	}
 
 	missing, ok := gitdirMissing(gitPath)
@@ -159,7 +163,7 @@ func classify(b Base, p probe) (Verdict, string) {
 		return VerdictStale, "worktree no longer registered with its backing repo"
 	}
 
-	return VerdictKeep, "workspace exists"
+	return VerdictKeep, reasonWorkspaceExists
 }
 
 func gitdirTarget(gitFile string) (string, bool) {
@@ -284,7 +288,7 @@ func serverPID(basePath string) (int, error) {
 
 	pid, err := strconv.Atoi(strings.TrimSpace(string(raw)))
 	if err != nil || pid <= 0 {
-		return 0, errors.New("invalid server PID")
+		return 0, errInvalidServerPID
 	}
 
 	return pid, nil

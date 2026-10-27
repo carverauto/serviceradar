@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"os"
@@ -459,7 +460,7 @@ func TestApplyIgnoresInheritedGitRepoEnv(t *testing.T) {
 			empty := makeBase(t, root, "empty", emptyWS)
 
 			got, reason := classify(live, defaultProbe())
-			if got != VerdictKeep || reason != "workspace exists" {
+			if got != VerdictKeep || reason != reasonWorkspaceExists {
 				t.Fatalf("live classify = %s (%s), want keep (workspace exists)", got, reason)
 			}
 
@@ -506,7 +507,7 @@ func realLinkedWorktree(t *testing.T) (repo string, worktree string) {
 func gitRun(t *testing.T, args ...string) {
 	t.Helper()
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(context.Background(), "git", args...)
 	cmd.Env = append(gitFixtureEnv(),
 		"GIT_CONFIG_COUNT=1",
 		"GIT_CONFIG_KEY_0=safe.directory",
@@ -717,6 +718,8 @@ func TestApplyKeepsRegistrationWhenGitSaysNotARepo(t *testing.T) {
 		{
 			name: "gitdir without search permission",
 			target: func(t *testing.T, _, worktree string) string {
+				t.Helper()
+
 				return worktreeGitdir(t, worktree)
 			},
 			mode: 0o444,
@@ -724,6 +727,8 @@ func TestApplyKeepsRegistrationWhenGitSaysNotARepo(t *testing.T) {
 		{
 			name: "gitdir HEAD",
 			target: func(t *testing.T, _, worktree string) string {
+				t.Helper()
+
 				return filepath.Join(worktreeGitdir(t, worktree), "HEAD")
 			},
 		},
@@ -780,7 +785,7 @@ func denyPath(t *testing.T, path string) {
 }
 
 func gitReportsNotARepository(workspace string) bool {
-	cmd := exec.Command("git", "-C", workspace, "worktree", "list", "--porcelain")
+	cmd := exec.CommandContext(context.Background(), "git", "-C", workspace, "worktree", "list", "--porcelain")
 	cmd.Env = withoutEnv(os.Environ(), "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_OBJECT_DIRECTORY")
 	out, err := cmd.CombinedOutput()
 	if err == nil {
