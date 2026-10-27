@@ -1,13 +1,25 @@
-load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@aspect_bazel_lib//lib:transitions.bzl", "platform_transition_filegroup")
+load("@bazel_skylib//rules:build_test.bzl", "build_test")
 load("@io_bazel_rules_go//go:def.bzl", "go_test")
 load("@rules_rs//rs:cargo_build_script.bzl", "cargo_build_script")
 load("@rules_rs//rs:rust_binary.bzl", "rust_binary")
 load("@rules_rs//rs:rust_library.bzl", "rust_library")
-load("//build:benchmarks.bzl", "rust_benchmark")
 load("@rules_rs//rs:rust_test.bzl", "rust_test")
+load("//build:benchmarks.bzl", "rust_benchmark")
 
 package(default_visibility = ["//visibility:public"])
+
+go_test(
+    name = "banner_xml_live_test",
+    srcs = ["banner_xml_live_test.go"],
+    data = [":netprobe"],
+    env = {"NETPROBE_BINARY": "$(rootpath :netprobe)"},
+    target_compatible_with = ["@platforms//os:linux"],
+    deps = [
+        "//proto/agent/netprobe/v1:netprobepb",
+        "@org_golang_google_protobuf//proto",
+    ],
+)
 
 NETPROBE_FEATURES = select({
     "//build/platforms:target_linux_aarch64_musl": [],
@@ -84,7 +96,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.71"
+NETPROBE_VERSION = "0.2.72"
 
 cargo_build_script(
     name = "build_script",
@@ -127,7 +139,6 @@ cargo_build_script(
 
 rust_binary(
     name = "netprobe",
-    proc_macro_deps = NETPROBE_PROC_MACROS,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "//third_party/netprobe_corpora:p0f/p0f.fp",
@@ -149,6 +160,7 @@ rust_binary(
     ],
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     rustc_flags = NETPROBE_RUSTC_FLAGS,
     version = NETPROBE_VERSION,
     deps = NETPROBE_DEPS,
@@ -158,9 +170,9 @@ rust_binary(
 # so they cannot drift from //rust/netprobe:netprobe. Only test-only extras are here.
 rust_test(
     name = "netprobe_test",
-    proc_macro_deps = NETPROBE_PROC_MACROS,
     crate = ":netprobe",
     data = ["//third_party/netprobe_corpora:satori_xml"],
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     deps = ["@crates//:tempfile"],
 )
 
@@ -180,7 +192,6 @@ rust_test(
     ],
     crate = ":netprobe",
     data = ["//rust/netprobe/ebpf:netprobe_ebpf_object"],
-    deps = ["@crates//:tempfile"],
     env = {
         "NETPROBE_TEST_EBPF_OBJECT": "$(rootpath //rust/netprobe/ebpf:netprobe_ebpf_object)",
     },
@@ -192,6 +203,7 @@ rust_test(
         "requires_cap_perfmon",
     ],
     target_compatible_with = ["@platforms//os:linux"],
+    deps = ["@crates//:tempfile"],
 )
 
 # Static BPF stack-depth gate over the shipped eBPF object.
@@ -205,6 +217,7 @@ rust_test(
 # lane must run this, since it is the only pre-release check of the limit.
 rust_test(
     name = "ebpf_stack_depth_test",
+    srcs = ["tests/ebpf_stack_depth.rs"],
     # The gate is #[ignore] so a plain `cargo test` without the object stays
     # green; this target is the one runner. `--include-ignored` rather than a
     # test name: libtest exits 0 with "running 0 tests" when a name filter
@@ -214,7 +227,6 @@ rust_test(
         "--include-ignored",
         "--nocapture",
     ],
-    srcs = ["tests/ebpf_stack_depth.rs"],
     data = ["//rust/netprobe/ebpf:netprobe_ebpf_object"],
     env = {
         "NETPROBE_TEST_EBPF_OBJECT": "$(rootpath //rust/netprobe/ebpf:netprobe_ebpf_object)",
@@ -232,24 +244,24 @@ rust_test(
 rust_test(
     name = "live_capture_ipc_test",
     srcs = ["tests/live_capture_ipc.rs"],
-    proc_macro_deps = NETPROBE_PROC_MACROS,
     crate_features = NETPROBE_FEATURES,
-    deps = NETPROBE_DEPS + [
-        ":netprobe_lib",
-        "@crates//:tempfile",
-    ],
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     tags = [
         "integration_test",
         "manual",
         "requires_cap_net_raw",
     ],
     target_compatible_with = ["@platforms//os:linux"],
+    deps = NETPROBE_DEPS + [
+        ":netprobe_lib",
+        "@crates//:tempfile",
+    ],
 )
 
 build_test(
     name = "live_capture_ipc_build_test",
-    targets = [":live_capture_ipc_test"],
     target_compatible_with = ["@platforms//os:linux"],
+    targets = [":live_capture_ipc_test"],
 )
 
 ###############################################################################
@@ -321,7 +333,6 @@ go_test(
 # the cost is compiling the sources twice.
 rust_library(
     name = "netprobe_lib",
-    proc_macro_deps = NETPROBE_PROC_MACROS,
     srcs = glob(["src/**/*.rs"]),
     compile_data = [
         "//third_party/netprobe_corpora:p0f/p0f.fp",
@@ -332,6 +343,7 @@ rust_library(
     crate_features = NETPROBE_FEATURES,
     crate_name = "serviceradar_netprobe",
     crate_root = "src/lib.rs",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     rustc_flags = NETPROBE_RUSTC_FLAGS,
     version = NETPROBE_VERSION,
     deps = NETPROBE_DEPS,
@@ -341,20 +353,20 @@ rust_library(
 # criterion harness, so it is a rust_binary here and the runner just executes it.
 rust_binary(
     name = "af_xdp_cpu_bench_bin",
-    proc_macro_deps = NETPROBE_PROC_MACROS,
     srcs = ["benches/af_xdp_cpu.rs"],
     crate_features = NETPROBE_FEATURES,
     crate_root = "benches/af_xdp_cpu.rs",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     rustc_flags = NETPROBE_RUSTC_FLAGS,
     deps = NETPROBE_DEPS + [":netprobe_lib"],
 )
 
 rust_binary(
     name = "census_decode_cpu_bench_bin",
-    proc_macro_deps = NETPROBE_PROC_MACROS,
     srcs = ["benches/census_decode_cpu.rs"],
     crate_features = NETPROBE_FEATURES,
     crate_root = "benches/census_decode_cpu.rs",
+    proc_macro_deps = NETPROBE_PROC_MACROS,
     rustc_flags = NETPROBE_RUSTC_FLAGS,
     deps = NETPROBE_DEPS + [":netprobe_lib"],
 )
