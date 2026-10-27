@@ -9,6 +9,18 @@ load("@rules_rs//rs:rust_test.bzl", "rust_test")
 
 package(default_visibility = ["//visibility:public"])
 
+go_test(
+    name = "banner_xml_live_test",
+    srcs = ["banner_xml_live_test.go"],
+    data = [":netprobe"],
+    env = {"NETPROBE_BINARY": "$(rootpath :netprobe)"},
+    deps = [
+        "//proto/agent/netprobe/v1:netprobepb",
+        "@org_golang_google_protobuf//proto",
+    ],
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
 NETPROBE_FEATURES = select({
     "//build/platforms:target_linux_aarch64_musl": [],
     "//build/platforms:target_linux_x86_64_musl": [],
