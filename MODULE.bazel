@@ -8,7 +8,7 @@ ubuntu_git = use_extension("//third_party/ubuntu_git:repositories.bzl", "ubuntu_
 use_repo(ubuntu_git, "ubuntu_git_runtime_amd64", "ubuntu_git_runtime_arm64")
 
 # --- Bazel dependencies  ----------------------------------
-bazel_dep(name = "rules_go", version = "0.62.0", repo_name = "io_bazel_rules_go")
+bazel_dep(name = "rules_go", version = "0.65.0", repo_name = "io_bazel_rules_go")
 bazel_dep(name = "gazelle", version = "0.51.3", repo_name = "bazel_gazelle")
 bazel_dep(name = "rules_rs", version = "0.0.99")
 
@@ -772,6 +772,42 @@ go_deps.gazelle_override(
     path = "github.com/spiffe/spire-api-sdk",
 )
 go_deps.from_file(go_mod = "//:go.mod")
+
+# rules_go now embeds dependency build info, exposing wazero v1.12.0's
+# unsynchronized version cache when runtimes are created concurrently.
+go_deps.module_override(
+    patch_cmds = ["""patch -p1 <<'PATCH'
+--- a/internal/version/version.go
++++ b/internal/version/version.go
+@@ -3,6 +3,7 @@
+ import (
+ \t"runtime/debug"
+ \t"strings"
++\t"sync"
+ )
+
+ // Default is the default version value used when none was found.
+@@ -10,6 +11,7 @@
+
+ // version holds the current version from the go.mod of downstream users or set by ldflag for wazero CLI.
+ var version string
++var versionMu sync.Mutex
+
+ // GetWazeroVersion returns the current version of wazero either in the go.mod or set by ldflag for wazero CLI.
+ //
+@@ -20,6 +22,8 @@
+ //
+ // Note: this is tested in ./testdata/main_test.go with a separate go.mod to pretend as the wazero user.
+ func GetWazeroVersion() (ret string) {
++\tversionMu.Lock()
++\tdefer versionMu.Unlock()
+ \tif len(version) != 0 {
+ \t\treturn version
+ \t}
+PATCH
+"""],
+    path = "github.com/tetratelabs/wazero",
+)
 
 # NOTE: `bazel mod tidy` populates the list of repositories below based on the
 # contents of go.mod. Keep the list sorted for readability.
