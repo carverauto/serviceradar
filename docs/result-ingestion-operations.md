@@ -39,8 +39,9 @@ deletes the row.
 Admission timeouts do not count. They mean the lane could not start the result,
 which says the lane is congested, not that this result is too expensive.
 
-An empty table therefore means no retained result is pending or quarantined.
-To tell that apart from a store that cannot be written, read the
+An empty table means no attempt history or quarantine is currently stored; it
+does not prove that agents have no pending results, because expired rows are
+pruned. To monitor pruning and distinguish it from store failures, read the
 `retained_plugin_result` lane counters `result_ingestion_events_attempt_recorded`,
 `_quarantined`, `_quarantine_acknowledged`, `_attempt_pruned` and
 `_attempt_store_failed`. A store failure is also logged, and the lane then fails
@@ -64,6 +65,10 @@ retries one from its stored status.
   `SERVICERADAR_PLUGIN_RESULT_QUARANTINE_RETENTION_DAYS`) are deleted.
 - Pruned row counts are reported on the `retained_plugin_result` lane under
   `result_ingestion_events_attempt_pruned`.
+
+Pruning removes the stored status used for operator retries along with the
+attempt history. If an agent redelivers that result afterward, ingestion runs
+again without the expired timeout count or quarantine decision.
 
 A gateway first reserves a small metadata descriptor, then transfers the full
 payload directly to that lane. Failed capability discovery or reservation never
