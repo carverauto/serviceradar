@@ -94,11 +94,11 @@ The entity-to-permission mapping and scope authorization contract are owned by
 
 ### Recording metadata and footage
 
-Inspecting historical camera recording metadata, requesting an archive playlist,
+Listing historical camera recordings, inspecting their metadata, requesting an archive playlist,
 or reading recorded footage requires both
 `devices.cameras.recordings.view` and `devices.view`. The recording permission
 defaults to administrators and can be granted through custom role profiles;
-live-video permission does not grant it. Each metadata, playlist or footage request reloads the
+live-video permission does not grant it. Each inventory, metadata, playlist or footage request reloads the
 user's persisted active account and current permissions, so cached authority
 does not preserve revoked access. Fragment responses repeat authorization before
 releasing bytes. Recording access does not grant export or storage administration.
