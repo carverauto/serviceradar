@@ -773,6 +773,42 @@ go_deps.gazelle_override(
 )
 go_deps.from_file(go_mod = "//:go.mod")
 
+# rules_go now embeds dependency build info, exposing wazero v1.12.0's
+# unsynchronized version cache when runtimes are created concurrently.
+go_deps.module_override(
+    path = "github.com/tetratelabs/wazero",
+    patch_cmds = ["""patch -p1 <<'PATCH'
+--- a/internal/version/version.go
++++ b/internal/version/version.go
+@@ -3,6 +3,7 @@
+ import (
+ \t"runtime/debug"
+ \t"strings"
++\t"sync"
+ )
+
+ // Default is the default version value used when none was found.
+@@ -10,6 +11,7 @@
+
+ // version holds the current version from the go.mod of downstream users or set by ldflag for wazero CLI.
+ var version string
++var versionMu sync.Mutex
+
+ // GetWazeroVersion returns the current version of wazero either in the go.mod or set by ldflag for wazero CLI.
+ //
+@@ -20,6 +22,8 @@
+ //
+ // Note: this is tested in ./testdata/main_test.go with a separate go.mod to pretend as the wazero user.
+ func GetWazeroVersion() (ret string) {
++\tversionMu.Lock()
++\tdefer versionMu.Unlock()
+ \tif len(version) != 0 {
+ \t\treturn version
+ \t}
+PATCH
+"""],
+)
+
 # NOTE: `bazel mod tidy` populates the list of repositories below based on the
 # contents of go.mod. Keep the list sorted for readability.
 use_repo(
