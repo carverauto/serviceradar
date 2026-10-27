@@ -2304,6 +2304,8 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
       assert {:ok, %Device{deleted_reason: "merged"}} =
                Device.get_by_uid(merged.uid, true, actor: actor)
+
+      assert_no_revival(merged.uid)
     end
 
     test "an Armis id whose own uid was merged into the record it resolves to follows the merge",
@@ -2332,6 +2334,41 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
       assert device_for_armis_id(armis_id, actor) == survivor.uid
       assert live_with_hostname("armis-#{armis_id}") == 1
+      assert_no_revival(merged.uid)
+    end
+
+    test "a reseeded uid claimed by another Armis id in the batch is skipped", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      armis_a = "#{n}01"
+      armis_b = "#{n}02"
+      update_a = armis_update(armis_a, net_ip(n, 1), doc_mac(n, 0))
+      tombstone = create_device_at(actor, sync_uid(update_a), net_ip(n, 2), doc_mac(n, 0))
+      source_retire!(tombstone.uid)
+      known_mac = doc_mac(n, 1)
+
+      other =
+        create_device_at(actor, Ids.reseeded_device_id(tombstone.uid), net_ip(n, 3), known_mac)
+
+      register_identifier(actor, other.uid, :mac, mac_value(known_mac))
+      update_b = armis_update(armis_b, net_ip(n, 3), known_mac)
+
+      assert :ok = SyncIngestor.ingest_updates([update_b, update_a], actor: actor)
+
+      assert device_for_armis_id(armis_b, actor) == other.uid
+      resolved = device_for_armis_id(armis_a, actor)
+      assert is_binary(resolved) and resolved not in [tombstone.uid, other.uid]
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+
+      assert Repo.aggregate(
+               from(identifier in DeviceIdentifier,
+                 where:
+                   identifier.device_id == ^other.uid and
+                     identifier.identifier_type == :armis_device_id
+               ),
+               :count
+             ) == 1
+
+      assert_retired_tombstone(tombstone.uid, actor)
     end
 
     test "a reseeded uid a live record with another Armis id holds is skipped", %{actor: actor} do
@@ -2386,6 +2423,10 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "source_retired"}} =
              Device.get_by_uid(uid, true, actor: actor)
 
+    assert_no_revival(uid)
+  end
+
+  defp assert_no_revival(uid) do
     assert %{rows: [[0]]} =
              Repo.query!(
                "SELECT count(*) FROM platform.device_revival_audit WHERE device_uid = $1",

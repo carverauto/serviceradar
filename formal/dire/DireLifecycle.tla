@@ -168,10 +168,11 @@ StartWork(u) ==
 
 \* BatchResolver.resolve_final_id/6: a source-authoritative update whose resolved target
 \* Follow(u) is an unrevivable tombstone, and that returns none of its retired ids, is moved to a
-\* reseeded uid d of its own (reseed_source_uid/5, step_reseeded_uid/5), where it would otherwise
+\* reseeded uid d of its own (reseed_source_uid/6, step_reseeded_uid/7), where it would otherwise
 \* reach CommitWork and be dropped on every sync. The chain skips a uid a merge redirects, a
 \* purged merged-away uid (both FollowsFrom) and an unrevivable tombstone; the skip of a uid a
-\* record holding another source id has is the resolution model's typing. Which updates carry a
+\* record holding another source id has, or an earlier update in the batch claimed for another
+\* source id, is resolution-model typing, not modeled here. Which updates carry a
 \* source id is the resolution model's: StartWork stays enabled for the same u, so an evidence
 \* sighting and a returning retired id still reach the tombstone. With its guard, the step reaches
 \* only work StartWork(d) reaches; it names the uid choice the code makes.

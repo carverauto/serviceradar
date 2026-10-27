@@ -264,13 +264,13 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     if SourceAuthorityGuard.carries_source_id?(ids) and
          (MapSet.member?(unrevivable, target) or
             (target != device_id and source_mismatch?(ids, target, preloads))) do
-      reseed_source_uid(ids, device_id, canonical, unrevivable, actor)
+      reseed_source_uid(ids, device_id, canonical, unrevivable, preloads.source_ids, actor)
     else
       target
     end
   end
 
-  defp reseed_source_uid(ids, device_id, canonical, unrevivable, actor) do
+  defp reseed_source_uid(ids, device_id, canonical, unrevivable, claimed_source_ids, actor) do
     derived = Ids.generate_deterministic_device_id(ids)
 
     start =
@@ -281,19 +281,22 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
         Ids.reseeded_device_id(derived)
       end
 
-    step_reseeded_uid(start, ids, canonical, unrevivable, actor, 5)
+    step_reseeded_uid(start, ids, canonical, unrevivable, claimed_source_ids, actor, 5)
   end
 
-  defp step_reseeded_uid(uid, _ids, _canonical, _unrevivable, _actor, 0), do: uid
+  defp step_reseeded_uid(uid, _ids, _canonical, _unrevivable, _claimed_source_ids, _actor, 0),
+    do: uid
 
-  defp step_reseeded_uid(uid, ids, canonical, unrevivable, actor, depth) do
+  defp step_reseeded_uid(uid, ids, canonical, unrevivable, claimed_source_ids, actor, depth) do
     if Map.has_key?(canonical, uid) or MapSet.member?(unrevivable, uid) or
-         unrevivable_or_purged_merged?(uid, actor) or held_by_other_source?(ids, uid, actor) do
+         unrevivable_or_purged_merged?(uid, actor) or
+         held_by_other_source?(ids, uid, claimed_source_ids, actor) do
       step_reseeded_uid(
         Ids.reseeded_device_id(uid),
         ids,
         canonical,
         unrevivable,
+        claimed_source_ids,
         actor,
         depth - 1
       )
@@ -302,11 +305,15 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     end
   end
 
-  defp held_by_other_source?(ids, uid, actor) do
+  defp held_by_other_source?(ids, uid, claimed_source_ids, actor) do
     SourceAuthorityGuard.source_mismatch?(
       ids,
       uid,
-      SourceAuthorityGuard.held_source_ids([uid], actor)
+      Map.merge(
+        SourceAuthorityGuard.held_source_ids([uid], actor),
+        Map.take(claimed_source_ids, [uid]),
+        fn _uid, held, claimed -> MapSet.union(held, claimed) end
+      )
     )
   end
 

@@ -583,6 +583,9 @@ still describes the code. The switches today's code has are listed once, in `Cur
   (a `Spare` record). The code also reaches it through a record that lost its identifier rows
   without a retirement, which the model cannot express; `BatchResolver.resolve_final_id/6`
   reseeds that update, and the integration tests pin it.
+- Reseed candidates already claimed by an earlier update in the batch for another source id.
+  The code skips these alongside persisted source ownership; this is resolution-model typing,
+  not modeled in the lifecycle model.
 - The reconciler's duplicate pass (`DuplicateSweep` merges with reason `identifier_backfill`).
   D2 requires it to refuse a pair whose records each hold or held a source id; the model checks
   that refusal on the resolver's conflict merge only.
