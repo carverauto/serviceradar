@@ -21,7 +21,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   ## Output Format
 
-  The compiled config follows the proto SNMPConfig structure:
+  The compiled config contains the SNMP payload below plus a deterministic
+  `config_hash` computed by `config_hash/1`, including for disabled configs.
+  The hash is internal cache/version metadata and is not a proto SNMPConfig field.
 
       %{
         "enabled" => true,

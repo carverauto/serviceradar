@@ -15,9 +15,18 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   ## Config Versioning
 
-  The config version is a SHA256 hash of the serialized configuration.
-  This allows agents to cache their config and only fetch updates when
-  the hash changes.
+  The config version is a SHA256 hash of stable configuration components.
+  Sweep and SNMP reuse their non-empty compiled `config_hash` values; sweep
+  also includes its format. Without those hashes, their stable content is
+  hashed instead. Sweep, mapper, bumblebee, and endpoint inventory are supplied
+  separately and excluded from the sync fragment to avoid counting them twice.
+  Volatile timestamps and artifact download credentials do not change the version.
+  This allows agents to cache their config and only fetch updates when the
+  configuration changes.
+
+  Plugin assignments and engine limits are delivered through
+  `AgentConfigResponse.plugin_config`; the generic `config_json` payload omits
+  the `plugins` key. Plugins still participate in config versioning.
 
   ## Usage
 
@@ -3057,14 +3066,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     stable_config_fragment(snmp_config)
   end
 
-  # Task 3.3 (refactor-device-identity-reconciliation): artifact download
-  # tokens are HMAC-signed with a bounded TTL and minted fresh on every config
-  # generation, but agents only *apply* them when the config version changes —
-  # `not_modified` polls never refresh the token an agent is holding. Folding a
-  # coarse time epoch into the version hash whenever any assignment carries a
-  # signed download request guarantees the config re-versions (and the agent
-  # receives a freshly minted token) well before the previous token's TTL
-  # elapses. The epoch is half the token TTL, floored at 5 minutes.
+  # Legacy epoch helper; config versioning no longer uses it. See the
+  # download_token_epoch note in compute_version_hash/1.
   @doc false
   @spec download_token_epoch([map()], [map()], non_neg_integer() | nil) :: non_neg_integer()
   def download_token_epoch(plugin_assignments, addon_assignments, now_seconds \\ nil) do

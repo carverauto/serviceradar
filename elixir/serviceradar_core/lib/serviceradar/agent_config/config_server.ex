@@ -48,6 +48,9 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   Gets a compiled config for the specified parameters.
 
   Returns cached config if available, otherwise compiles and caches.
+  The returned entry's `hash` reuses a non-empty compiled `config_hash`,
+  prefixed with `format:` when a non-empty format is present. Configs without
+  a compiled hash use `Compiler.content_hash/1` over the complete config.
   """
   @spec get_config(atom(), String.t(), String.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
