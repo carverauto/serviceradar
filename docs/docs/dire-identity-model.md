@@ -95,7 +95,7 @@ evidence. Each override is recorded as a `source_override` identity decision
 naming both records, and as an open `source_authoritative_override`
 source-identity conflict on the incoming record, naming the overridden
 records and the identifiers they share, so it can be reviewed. A record
-holding no source-authoritative identifier of that type is still a match:
+holding no source-authoritative identifier of that type can still be a match:
 that is how an Armis id attaches to the discovered record of the same device,
 and how the Armis and NetBox records of one device converge through a shared
 MAC. An automatic merge of two records holding different values of one type
@@ -197,7 +197,15 @@ blank partition on the check-in is `default`, for the device and the lookup.
 Merged-away device IDs are never resurrected: resolution follows the
 `merge_audit` canonical mapping to the survivor (`Identity.Resolver` /
 `Identity.BatchResolver`), including after the tombstone row has been purged,
-unless an unmerge reversed that merge. Sweep seeding follows the same mapping:
+unless an unmerge reversed that merge. In batch ingestion, a source-authoritative
+update cannot follow a redirect onto a survivor holding a conflicting source
+identifier. It also cannot attach through a non-source identifier to a retained
+tombstone (`source_retired` or `seed_released`). If its final target is an
+unrevivable tombstone or a conflicting redirect, resolution uses its own
+deterministic UID or a reseeded UID, preserving the old record. The reseed
+skips a UID held by a record with a conflicting source identifier or claimed
+for one by an earlier update in the same batch.
+Sweep seeding follows the same mapping:
 before it creates a batch of seeds, `SweepResultsIngestor` reads the merge rows
 of the uids their addresses derive. A seed whose uid redirects to a survivor
 takes the first uid of a bounded chain (`Ids.reseeded_device_id/1`) that

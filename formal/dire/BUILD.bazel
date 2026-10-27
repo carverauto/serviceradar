@@ -96,6 +96,20 @@ tlc_test(
     ],
 )
 
+# A source update whose target is an unrevivable tombstone is moved to a reseeded uid.
+tlc_test(
+    name = "lifecycle_vacuity_reseed_test",
+    size = "medium",
+    cfg = "lifecycle_vacuity_reseed.cfg",
+    expect = "violation:NeverReseeds",
+    spec = "MCDireLifecycle.tla",
+    workers = 8,
+    deps = [
+        "CurrentBugs.tla",
+        "DireLifecycle.tla",
+    ],
+)
+
 tlc_test(
     name = "lifecycle_goal_test",
     size = "medium",

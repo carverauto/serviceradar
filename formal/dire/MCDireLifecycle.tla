@@ -26,6 +26,9 @@ NeverReactivatesRetired ==
     [][~\E u \in Devices :
           /\ status[u] = "tomb" /\ reason[u] = "source_retired" /\ status'[u] = "live"
           /\ act'.name = "Reactivate"]_vars
+\* Vacuity: a source update whose target is an unrevivable tombstone is moved to a reseeded uid,
+\* the step NoPurgedResurrection and RetiredTombstoneStaysDeleted judge (lifecycle_vacuity_reseed).
+NeverReseeds == [][act'.name # "ReseedWork"]_vars
 \* Vacuity: a sweep restores an expired sweep-only tombstone, the case ExpiredDeviceReturns is
 \* about (lifecycle_vacuity_expired_returns).
 NeverRestoresExpired ==

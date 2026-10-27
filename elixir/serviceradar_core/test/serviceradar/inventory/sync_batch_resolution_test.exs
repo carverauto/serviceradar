@@ -20,9 +20,11 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   alias ServiceRadar.Inventory.DeduplicationTask
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityConflict
+  alias ServiceRadar.Inventory.Sync.Normalize
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -2145,6 +2147,316 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       assert_observed_at(swept, seen)
     end
   end
+
+  # Armis reports a device's MACs as `macAddress` plus `mac_addresses`; the sync source sends the
+  # first as "mac" and every one, in order, as metadata "mac_addresses". Nothing says the later
+  # ones are historical, so a new Armis id attaches through any of them.
+  describe "an Armis id reporting several MACs" do
+    test "attaches to the discovered record holding its second MAC", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      [primary, known] = [doc_mac(n, 0), doc_mac(n, 1)]
+      discovered = create_device(actor, net_ip(n, 1), known)
+      register_identifier(actor, discovered.uid, :mac, mac_value(known))
+      armis_id = "#{n}01"
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [armis_macs_update(armis_id, net_ip(n, 1), [primary, known])],
+                 actor: actor
+               )
+
+      assert device_for_armis_id(armis_id, actor) == discovered.uid
+      assert device_for_mac(mac_value(primary), actor) == discovered.uid
+      assert live_with_hostname("armis-#{armis_id}") == 1
+    end
+
+    test "attaches to an agent's record through a hardware MAC listed after a randomized one",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      randomized = laa(doc_mac(n, 0))
+      hardware = doc_mac(n, 1)
+      agent = create_device(actor, net_ip(n, 1), hardware)
+      register_identifier(actor, agent.uid, :mac, mac_value(hardware))
+      register_identifier(actor, agent.uid, :agent_id, "agent-#{n}")
+      armis_id = "#{n}01"
+
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [armis_macs_update(armis_id, net_ip(n, 1), [randomized, hardware])],
+                 actor: actor
+               )
+
+      assert device_for_armis_id(armis_id, actor) == agent.uid
+      assert live_with_hostname("armis-#{armis_id}") == 1
+    end
+
+    test "stays on its record when the order of its MACs changes", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      [first, second] = [doc_mac(n, 0), doc_mac(n, 1)]
+      armis_id = "#{n}01"
+
+      for macs <- [[first, second], [second, first]] do
+        assert :ok =
+                 SyncIngestor.ingest_updates([armis_macs_update(armis_id, net_ip(n, 1), macs)],
+                   actor: actor
+                 )
+      end
+
+      record = device_for_armis_id(armis_id, actor)
+      assert is_binary(record)
+      assert device_for_mac(mac_value(first), actor) == record
+      assert device_for_mac(mac_value(second), actor) == record
+      assert live_with_hostname("armis-#{armis_id}") == 1
+    end
+  end
+
+  # BatchResolver never lands a source-authoritative update on a tombstone the write cannot
+  # revive (`deleted_reason` "merged" or retained), nor follows a merge onto a survivor holding a
+  # different source id: the identity fence would withhold the write on every sync, or two
+  # source ids would share one record. The update gets a record of its own, and the tombstone
+  # stays deleted.
+  describe "a source-authoritative update and an unrevivable tombstone" do
+    test "an Armis id whose own uid is a source_retired tombstone gets a record of its own, every sync",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      armis_id = "#{n}01"
+      update = armis_update(armis_id, net_ip(n, 1), doc_mac(n, 0))
+      tombstone = create_device_at(actor, sync_uid(update), net_ip(n, 2), doc_mac(n, 0))
+      source_retire!(tombstone.uid)
+
+      resolved =
+        for _sync <- 1..2 do
+          assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+          device_for_armis_id(armis_id, actor)
+        end
+
+      assert [uid, uid] = resolved
+      assert is_binary(uid) and uid != tombstone.uid
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(uid, false, actor: actor)
+      assert live_with_hostname("armis-#{armis_id}") == 1
+      assert_retired_tombstone(tombstone.uid, actor)
+    end
+
+    test "an Armis id sharing a MAC with a source_retired tombstone gets a record of its own",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = doc_mac(n, 0)
+      retired = create_device(actor, net_ip(n, 1), mac)
+      register_identifier(actor, retired.uid, :mac, mac_value(mac))
+      source_retire!(retired.uid)
+      armis_id = "#{n}01"
+
+      assert :ok =
+               SyncIngestor.ingest_updates([armis_update(armis_id, net_ip(n, 2), mac)],
+                 actor: actor
+               )
+
+      resolved = device_for_armis_id(armis_id, actor)
+      assert is_binary(resolved) and resolved != retired.uid
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+      assert device_for_mac(mac_value(mac), actor) == retired.uid
+      assert_retired_tombstone(retired.uid, actor)
+    end
+
+    test "a NetBox id sharing a MAC with an Armis record's source_retired tombstone gets a record of its own",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = doc_mac(n, 0)
+      retired = create_device(actor, net_ip(n, 1), mac)
+      register_identifier(actor, retired.uid, :mac, mac_value(mac))
+      register_identifier(actor, retired.uid, :armis_device_id, "#{n}01")
+      IdentifierArchiveFixtures.archive!(:armis_device_id, "#{n}01")
+      source_retire!(retired.uid)
+      netbox = netbox_id(n, 1)
+
+      assert :ok =
+               SyncIngestor.ingest_updates([netbox_update(netbox, net_ip(n, 2), mac)],
+                 actor: actor
+               )
+
+      resolved = device_for_netbox_id(netbox, actor)
+      assert is_binary(resolved) and resolved != retired.uid
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+      assert_retired_tombstone(retired.uid, actor)
+    end
+
+    test "an Armis id whose own uid was merged into a record holding another Armis id gets a record of its own",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      survivor = create_device(actor, net_ip(n, 1), doc_mac(n, 0))
+      register_identifier(actor, survivor.uid, :armis_device_id, "#{n}01")
+      armis_id = "#{n}02"
+      update = armis_update(armis_id, net_ip(n, 2), doc_mac(n, 1))
+      merged = create_device_at(actor, sync_uid(update), net_ip(n, 3), doc_mac(n, 1))
+
+      assert :ok =
+               IdentityReconciler.merge_devices(merged.uid, survivor.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      resolved = device_for_armis_id(armis_id, actor)
+      assert is_binary(resolved) and resolved not in [survivor.uid, merged.uid]
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+      assert device_for_armis_id("#{n}01", actor) == survivor.uid
+
+      assert {:ok, %Device{deleted_reason: "merged"}} =
+               Device.get_by_uid(merged.uid, true, actor: actor)
+
+      assert_no_revival(merged.uid)
+    end
+
+    test "an Armis id whose own uid was merged into the record it resolves to follows the merge",
+         %{actor: actor} do
+      n = System.unique_integer([:positive])
+      mac = doc_mac(n, 0)
+      survivor = create_device(actor, net_ip(n, 1), mac)
+      register_identifier(actor, survivor.uid, :mac, mac_value(mac))
+      armis_id = "#{n}01"
+      without_mac = armis_ip_update(armis_id, net_ip(n, 1))
+      merged = create_device_at(actor, sync_uid(without_mac), net_ip(n, 2), nil)
+
+      assert :ok =
+               IdentityReconciler.merge_devices(merged.uid, survivor.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      # The first update attaches the id to the survivor through its MAC; the second, carrying
+      # no MAC, resolves to its own uid, whose merge leads to that same survivor.
+      assert :ok =
+               SyncIngestor.ingest_updates(
+                 [armis_update(armis_id, net_ip(n, 1), mac), without_mac],
+                 actor: actor
+               )
+
+      assert device_for_armis_id(armis_id, actor) == survivor.uid
+      assert live_with_hostname("armis-#{armis_id}") == 1
+      assert_no_revival(merged.uid)
+    end
+
+    test "a reseeded uid claimed by another Armis id in the batch is skipped", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      armis_a = "#{n}01"
+      armis_b = "#{n}02"
+      update_a = armis_update(armis_a, net_ip(n, 1), doc_mac(n, 0))
+      tombstone = create_device_at(actor, sync_uid(update_a), net_ip(n, 2), doc_mac(n, 0))
+      source_retire!(tombstone.uid)
+      known_mac = doc_mac(n, 1)
+
+      other =
+        create_device_at(actor, Ids.reseeded_device_id(tombstone.uid), net_ip(n, 3), known_mac)
+
+      register_identifier(actor, other.uid, :mac, mac_value(known_mac))
+      update_b = armis_update(armis_b, net_ip(n, 3), known_mac)
+
+      assert :ok = SyncIngestor.ingest_updates([update_b, update_a], actor: actor)
+
+      assert device_for_armis_id(armis_b, actor) == other.uid
+      resolved = device_for_armis_id(armis_a, actor)
+      assert is_binary(resolved) and resolved not in [tombstone.uid, other.uid]
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+
+      assert Repo.aggregate(
+               from(identifier in DeviceIdentifier,
+                 where:
+                   identifier.device_id == ^other.uid and
+                     identifier.identifier_type == :armis_device_id
+               ),
+               :count
+             ) == 1
+
+      assert_retired_tombstone(tombstone.uid, actor)
+    end
+
+    test "a reseeded uid a live record with another Armis id holds is skipped", %{actor: actor} do
+      n = System.unique_integer([:positive])
+      armis_id = "#{n}01"
+      update = armis_update(armis_id, net_ip(n, 1), doc_mac(n, 0))
+      own_uid = sync_uid(update)
+      tombstone = create_device_at(actor, own_uid, net_ip(n, 2), doc_mac(n, 0))
+      source_retire!(tombstone.uid)
+      other = create_device_at(actor, Ids.reseeded_device_id(own_uid), net_ip(n, 3), nil)
+      register_identifier(actor, other.uid, :armis_device_id, "#{n}02")
+
+      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+      resolved = device_for_armis_id(armis_id, actor)
+      assert is_binary(resolved) and resolved not in [tombstone.uid, other.uid]
+      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+      assert device_for_armis_id("#{n}02", actor) == other.uid
+      assert_retired_tombstone(tombstone.uid, actor)
+    end
+  end
+
+  # The uid SyncIngestor derives for an update that matches no record.
+  defp sync_uid(update) do
+    update
+    |> Normalize.normalize_update()
+    |> IdentityReconciler.extract_strong_identifiers()
+    |> IdentityReconciler.generate_deterministic_device_id()
+  end
+
+  defp create_device_at(actor, uid, ip, mac) do
+    {:ok, device} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: uid, ip: ip, mac: mac})
+      |> Ash.create(actor: actor)
+
+    device
+  end
+
+  # The grace delete of a record whose source ids all retired (SourceRetiredExpiry).
+  defp source_retire!(uid) do
+    now = DateTime.to_naive(DateTime.utc_now())
+
+    %{num_rows: 1} =
+      Repo.query!(
+        "UPDATE platform.ocsf_devices SET deleted_at = $2, deleted_reason = 'source_retired', source_retired_at = $2 WHERE uid = $1",
+        [uid, now]
+      )
+  end
+
+  defp assert_retired_tombstone(uid, actor) do
+    assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "source_retired"}} =
+             Device.get_by_uid(uid, true, actor: actor)
+
+    assert_no_revival(uid)
+  end
+
+  defp assert_no_revival(uid) do
+    assert %{rows: [[0]]} =
+             Repo.query!(
+               "SELECT count(*) FROM platform.device_revival_audit WHERE device_uid = $1",
+               [uid]
+             )
+  end
+
+  defp armis_macs_update(armis_id, ip, [first | _] = macs) do
+    armis_id
+    |> armis_update(ip, first)
+    |> put_in(["metadata", "mac_addresses"], Enum.map_join(macs, ",", &mac_value/1))
+  end
+
+  defp live_with_hostname(hostname) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT count(*) FROM platform.ocsf_devices WHERE hostname = $1 AND deleted_at IS NULL",
+        [hostname]
+      )
+
+    count
+  end
+
+  # Distinct documentation-range MACs (00-00-5E-00-53-00/24) for k in 0..3.
+  defp doc_mac(n, k), do: "00:00:5E:00:53:#{hex2(rem(n * 4 + k, 240) + 16)}"
+
+  # The same MAC with the locally administered bit set.
+  defp laa("00" <> rest), do: "02" <> rest
+
+  defp net_ip(n, i), do: "192.0.2.#{rem(n * 3 + i, 250) + 1}"
 
   # A live record holding `ip`, last seen at `last_seen_time` and last observed with an
   # identity at `identity_observed_at`, which :create does not accept.
