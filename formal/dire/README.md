@@ -99,6 +99,12 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
     archive rows back and bumps the record, live or not. This step, `Reactivate`, is the only
     write that restores a `source_retired` tombstone. Any other sighting of a `source_retired`
     or `seed_released` tombstone is dropped, as the write to a merged-away row is.
+  - `ReseedWork` is `BatchResolver`'s Phase-2 reseed (`resolve_final_id/6`): a source update
+    whose target is a tombstone no write revives (merged away, or retained) goes to a reseeded
+    uid instead of being dropped on every sync. The chain skips a uid a merge redirects, a purged
+    merged-away uid and an unrevivable tombstone, so it reaches only work `StartWork` reaches on
+    that uid; `NoPurgedResurrection` fails if the chain may take a purged merged-away uid, and
+    `lifecycle_vacuity_reseed` expects `NeverReseeds` to fail.
   - `Sweep` matches the live holder of the address, or else a tombstone. It restores an expired
     tombstone whatever its sources, never a merged-away or retained one, and any other by
     `restore_eligible?/1`'s rule (`SweepRestore`). Otherwise it writes the sighting to a live
@@ -122,7 +128,7 @@ configuration sets it.
 | `*_goal*` | none | pass | The goal requirements hold for the intended design. |
 | `*_witness_<switch>` | one (or a named pair) | `violation:<Property>` | The defect is still present in the model. |
 | `lifecycle_current` | all lifecycle switches | pass | The lifecycle invariants that hold even for today's code. |
-| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, leaves an address a census reports with a record the census does not identify, expires, grace-deletes (a record still holding a MAC among them), lets another record claim a MAC a sole-source retirement released, reactivates a retired id and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
+| `resolution_vacuity_*`, `lifecycle_vacuity_*` | none | `violation:<Never...>` | The goal still does each thing a property is about: it merges, converges, records decisions, merges a re-keyed pair, merges one on its hostname alone, leaves an address a census reports with a record the census does not identify, expires, grace-deletes (a record still holding a MAC among them), lets another record claim a MAC a sole-source retirement released, reactivates a retired id, moves a source update off an unrevivable tombstone and restores an expired sweep-only device. A goal model that never did one of them would pass that property vacuously. |
 | `resolution_unsafe_<alternative>` | none; one `Unsafe` alternative | `violation:NoFalseMerge` | The rejected alternative still merges two physical devices. If TLC finds no violation, or a different one, the target fails. |
 
 The lifecycle goal is split so that each check stays inside its budget. `lifecycle_goal` (three
@@ -560,6 +566,23 @@ still describes the code. The switches today's code has are listed once, in `Cur
   assertion that two records are different devices, and no de-duplication task. The code skips
   an asserted pair, an administrative unmerge of a succession asserts the pair, and a succession
   merge marks the task opened for exactly that pair merged; the tests pin each.
+- Which updates carry a source id, in the lifecycle model. `StartWork` and `ReseedWork` are both
+  enabled for the same uid: the code sends an evidence sighting, or a source update returning a
+  retired id, to the tombstone, and every other source update to the reseed. The model allows
+  both for any write, which only adds behaviors.
+- Batch matching against a retained tombstone. `BatchResolver.strong_match/2` refuses a
+  source-authoritative update a `source_retired` or `seed_released` tombstone reached through a
+  non-source identifier (a MAC, an integration id), so the update gets a record of its own instead
+  of being withheld at the fence. The resolution model has no retained tombstone to match: the
+  grace delete is the lifecycle model's, and a released seed is a record that no longer exists.
+  The lifecycle model resolves by uid, not by identifier, so the refusal is the uid choice
+  `ReseedWork` makes. The integration tests in `sync_batch_resolution_test.exs` pin it.
+- A source update's own uid redirecting to a survivor holding another source id. The resolution
+  model names a record by the identifier its uid derives from, and the record holds it until it
+  retires, so the redirect arises only through a retired id, which the model resolves by reissue
+  (a `Spare` record). The code also reaches it through a record that lost its identifier rows
+  without a retirement, which the model cannot express; `BatchResolver.resolve_final_id/6`
+  reseeds that update, and the integration tests pin it.
 - The reconciler's duplicate pass (`DuplicateSweep` merges with reason `identifier_backfill`).
   D2 requires it to refuse a pair whose records each hold or held a source id; the model checks
   that refusal on the resolver's conflict merge only.

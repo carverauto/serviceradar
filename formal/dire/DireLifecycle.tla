@@ -57,7 +57,7 @@ Reasons  == {"none", "merged", "other", "expired", "source_retired", "seed_relea
 \* Every kind also records the source's own identifiers (details.source_identifiers,
 \* srcIds), written by do_merge_devices/5 itself.
 MergeKinds == {"conflict", "auto", "manual"}
-ActNames == {"Init", "StartWork", "Commit", "CommitDropped", "Reactivate", "Merge", "Unmerge",
+ActNames == {"Init", "StartWork", "ReseedWork", "Commit", "CommitDropped", "Reactivate", "Merge", "Unmerge",
              "SoftDelete", "Expire", "SweepCreate", "SweepRestore", "SweepRefresh", "SweepSkip",
              "GatewaySync", "Purge", "Tick", "Retire", "RetireSole", "GraceDelete"}
 \* The steps of a sweep that matched an existing row.
@@ -140,6 +140,11 @@ RECURSIVE FollowN(_, _)
 FollowN(u, n) == IF n = 0 \/ ~FollowsFrom(u) THEN u ELSE FollowN(LatestMergeTarget(u), n - 1)
 Follow(u) == FollowN(u, FollowDepth)
 
+\* A tombstone no write brings back: a merged-away one, which the write follows instead, and a
+\* retained one, which only the return of a retired id restores. BatchResolver.unrevivable_ids/2
+\* reads the same deleted_reason set.
+Unrevivable(u) == status[u] = "tomb" /\ reason[u] \in {"merged"} \cup Retained
+
 ---------------------------------------------------------------------------
 Init ==
     /\ status = [d \in Devices |-> "absent"]
@@ -159,6 +164,25 @@ StartWork(u) ==
     /\ Cardinality(work) < MaxWork
     /\ work' = work \cup {[target |-> Follow(u), stale |-> FALSE]}
     /\ act' = MkAct("StartWork", u, Follow(u), 0, FALSE, {})
+    /\ UNCHANGED <<status, reason, owner, ipOf, audit, marked, arch, sweepOnly>>
+
+\* BatchResolver.resolve_final_id/6: a source-authoritative update whose resolved target
+\* Follow(u) is an unrevivable tombstone, and that returns none of its retired ids, is moved to a
+\* reseeded uid d of its own (reseed_source_uid/5, step_reseeded_uid/5), where it would otherwise
+\* reach CommitWork and be dropped on every sync. The chain skips a uid a merge redirects, a
+\* purged merged-away uid (both FollowsFrom) and an unrevivable tombstone; the skip of a uid a
+\* record holding another source id has is the resolution model's typing. Which updates carry a
+\* source id is the resolution model's: StartWork stays enabled for the same u, so an evidence
+\* sighting and a returning retired id still reach the tombstone. With its guard, the step reaches
+\* only work StartWork(d) reaches; it names the uid choice the code makes.
+\* NoPurgedResurrection and RetiredTombstoneStaysDeleted check that the chain revives nothing.
+ReseedWork(u, d) ==
+    /\ Cardinality(work) < MaxWork
+    /\ Unrevivable(Follow(u))
+    /\ ~FollowsFrom(d)
+    /\ ~Unrevivable(d)
+    /\ work' = work \cup {[target |-> d, stale |-> FALSE]}
+    /\ act' = MkAct("ReseedWork", u, d, 0, FALSE, {})
     /\ UNCHANGED <<status, reason, owner, ipOf, audit, marked, arch, sweepOnly>>
 
 \* DeviceWrites insert_all(on_conflict: device_upsert_update_query(), conflict_target: [:uid])
@@ -477,6 +501,7 @@ Next ==
     \/ \E u \in Devices :
          StartWork(u) \/ Unmerge(u) \/ SoftDelete(u) \/ Expire(u) \/ GatewaySync(u) \/ Purge(u)
          \/ GraceDelete(u) \/ RetireSole(u) \/ \E R \in SUBSET Ids : Retire(u, R)
+         \/ \E d \in Devices : ReseedWork(u, d)
     \/ \E w \in work, S \in SUBSET Ids, p \in Ips \cup {NoIp} : CommitWork(w, S, p)
     \/ \E f, t \in Devices, kind \in MergeKinds, S \in SUBSET Ids : Merge(f, t, kind, S)
     \/ \E p \in Ips, d \in Devices : Sweep(p, d) \/ SweepCreate(p, d)
