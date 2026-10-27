@@ -439,35 +439,18 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @doc false
   def map_srql_row(row), do: row_from_srql(row)
 
+  # Flows are served only from the warehouse, whose rows carry the attribution
+  # as columns; there is no ocsf_payload to fall back to.
   defp row_from_srql(%{} = row) do
-    payload = as_map(map_value(row, "ocsf_payload"))
-    attribution = as_map(map_value(payload, "attribution"))
-
-    workload =
-      as_map(
-        first_value([
-          map_value(row, "workload_identity"),
-          map_value(attribution, "workload_identity")
-        ])
-      )
-
-    public_endpoint = as_map(map_value(attribution, "public_endpoint"))
-
-    pid =
-      [map_value(row, "pid"), map_value(attribution, "pid")]
-      |> first_value()
-      |> parse_int()
-
-    uid =
-      [map_value(row, "uid"), map_value(attribution, "uid")]
-      |> first_value()
-      |> parse_int()
-
+    workload = as_map(map_value(row, "workload_identity"))
+    public_endpoint = as_map(map_value(row, "public_endpoint"))
+    pid = row |> map_value("pid") |> parse_int()
+    agent_id = row |> map_value("agent_id") |> clean_string()
     protocol_num = row |> map_value("protocol_num") |> parse_int()
     status = row |> map_value("attribution_status") |> clean_string()
 
     %{
-      id: flow_id(row, attribution, pid),
+      id: flow_id(row, agent_id, pid),
       timestamp: map_value(row, "time"),
       source: row |> map_value("src_endpoint_ip") |> clean_string(),
       source_port: row |> map_value("src_endpoint_port") |> parse_int(),
@@ -478,25 +461,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       protocol_num: protocol_num,
       protocol: protocol_name(map_value(row, "protocol_name"), protocol_num),
       pid: pid,
-      comm:
-        [map_value(row, "comm"), map_value(attribution, "comm")]
-        |> first_value()
-        |> clean_string(),
-      cmdline:
-        [
-          map_value(row, "cmdline"),
-          map_value(attribution, "redacted_cmdline"),
-          map_value(attribution, "cmdline")
-        ]
-        |> first_value()
-        |> clean_string(),
-      uid: uid,
-      container_id:
-        [map_value(row, "container_id"), map_value(attribution, "container_id")]
-        |> first_value()
-        |> clean_string(),
-      agent_id: [map_value(row, "agent_id"), attribution_agent_id(payload)] |> first_value() |> clean_string(),
-      partition: clean_string(map_value(row, "partition") || map_value(payload, "partition")),
+      comm: row |> map_value("comm") |> clean_string(),
+      cmdline: row |> map_value("cmdline") |> clean_string(),
+      uid: row |> map_value("uid") |> parse_int(),
+      container_id: row |> map_value("container_id") |> clean_string(),
+      agent_id: agent_id,
+      partition: row |> map_value("partition") |> clean_string(),
       attributed?: not is_nil(pid) or status == "attributed",
       source_hostname: nil,
       destination_hostname: nil,
@@ -514,8 +484,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       public_endpoint_gateway: public_endpoint |> map_value("gateway_name") |> clean_string(),
       public_endpoint_class: public_endpoint |> map_value("exposure_class") |> clean_string(),
       public_endpoint_route: public_endpoint_route_label(public_endpoint),
-      public_endpoint_namespace: public_endpoint |> map_value("namespace") |> clean_string(),
-      raw_payload: payload
+      public_endpoint_namespace: public_endpoint |> map_value("namespace") |> clean_string()
     }
   end
 
@@ -1279,7 +1248,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp map_value(_value, _key), do: nil
 
   defp known_atom_key("agent_id"), do: :agent_id
-  defp known_atom_key("attribution"), do: :attribution
   defp known_atom_key("attribution_status"), do: :attribution_status
   defp known_atom_key("bytes_total"), do: :bytes_total
   defp known_atom_key("cmdline"), do: :cmdline
@@ -1291,8 +1259,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp known_atom_key("dst_endpoint_port"), do: :dst_endpoint_port
   defp known_atom_key("image"), do: :image
   defp known_atom_key("image_ref"), do: :image_ref
-  defp known_atom_key("metadata"), do: :metadata
-  defp known_atom_key("ocsf_payload"), do: :ocsf_payload
   defp known_atom_key("packets_total"), do: :packets_total
   defp known_atom_key("partition"), do: :partition
   defp known_atom_key("pid"), do: :pid
@@ -1301,7 +1267,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp known_atom_key("pod_uid"), do: :pod_uid
   defp known_atom_key("protocol_name"), do: :protocol_name
   defp known_atom_key("protocol_num"), do: :protocol_num
-  defp known_atom_key("redacted_cmdline"), do: :redacted_cmdline
+  defp known_atom_key("public_endpoint"), do: :public_endpoint
   defp known_atom_key("runtime_source"), do: :runtime_source
   defp known_atom_key("src_endpoint_ip"), do: :src_endpoint_ip
   defp known_atom_key("src_endpoint_port"), do: :src_endpoint_port
@@ -1310,11 +1276,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp known_atom_key("workload_identity"), do: :workload_identity
   defp known_atom_key(_), do: nil
 
-  defp attribution_agent_id(payload) do
-    clean_string(map_value(payload, "agent_id") || map_value(map_value(payload, "metadata"), "agent_id"))
-  end
-
-  defp flow_id(row, attribution, pid) do
+  defp flow_id(row, agent_id, pid) do
     [
       map_value(row, "time"),
       map_value(row, "src_endpoint_ip"),
@@ -1322,8 +1284,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       map_value(row, "dst_endpoint_ip"),
       map_value(row, "dst_endpoint_port"),
       map_value(row, "protocol_num"),
-      attribution_agent_id(as_map(map_value(row, "ocsf_payload"))),
-      pid || map_value(attribution, "pid")
+      agent_id,
+      pid
     ]
     |> Enum.map_join("|", &to_string(&1 || ""))
     |> then(&:crypto.hash(:md5, &1))
@@ -1340,14 +1302,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   defp as_map(_), do: %{}
-
-  defp first_value(values) when is_list(values) do
-    Enum.find_value(values, fn
-      nil -> nil
-      "" -> nil
-      value -> value
-    end)
-  end
 
   defp clean_string(nil), do: nil
 

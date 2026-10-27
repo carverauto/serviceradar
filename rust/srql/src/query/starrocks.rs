@@ -236,10 +236,15 @@ const FLOW_ROW_FIELDS: &[&str] = &[
     "output_snmp",
     "start_time",
     "end_time",
+    "partition",
+    "agent_id",
     "pid",
+    "uid",
     "comm",
     "cmdline",
+    "container_id",
     "workload_identity",
+    "public_endpoint",
     "attribution_status",
 ];
 
@@ -249,10 +254,16 @@ fn flow_row_select(plan: &QueryPlan) -> Result<String> {
     let mut parts = Vec::with_capacity(FLOW_ROW_FIELDS.len());
     for field in FLOW_ROW_FIELDS {
         let expr = field_sql(plan, field)?;
-        if expr == *field {
+        // `partition` is reserved in StarRocks and is only accepted quoted.
+        let alias = if *field == "partition" {
+            "`partition`"
+        } else {
+            field
+        };
+        if expr == alias {
             parts.push(expr);
         } else {
-            parts.push(format!("{expr} AS {field}"));
+            parts.push(format!("{expr} AS {alias}"));
         }
     }
     Ok(parts.join(", "))
@@ -4499,18 +4510,29 @@ mod tests {
     }
 
     #[test]
-    fn flow_rows_project_stored_workload_identity() {
+    fn flow_rows_project_the_stored_attribution_columns() {
+        // The warehouse row has no ocsf_payload: the flow details read the
+        // agent, partition, process, container, workload and public endpoint
+        // from these columns or not at all.
         for query in [
             "in:flows time:last_1h limit:5",
             "in:attributed_flows time:last_1h limit:5",
         ] {
             let compiled = translate(&plan(query), "serviceradar").expect("compile");
             let projection = compiled.sql.split(" FROM ").next().unwrap();
-            assert!(
-                projection
-                    .split(", ")
-                    .any(|field| field == "workload_identity")
-            );
+            for column in [
+                "`partition`",
+                "agent_id",
+                "uid",
+                "container_id",
+                "workload_identity",
+                "public_endpoint",
+            ] {
+                assert!(
+                    projection.split(", ").any(|field| field == column),
+                    "{query}: {column} missing from {projection}"
+                );
+            }
         }
     }
 
