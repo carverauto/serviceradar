@@ -203,7 +203,8 @@ identifier. It also cannot attach through a non-source identifier to a retained
 tombstone (`source_retired` or `seed_released`). If its final target is an
 unrevivable tombstone or a conflicting redirect, resolution uses its own
 deterministic UID or a reseeded UID, preserving the old record. The reseed
-skips a UID that a record holding a different source identifier already has.
+skips a UID held by a record with a conflicting source identifier or claimed
+for one by an earlier update in the same batch.
 Sweep seeding follows the same mapping:
 before it creates a batch of seeds, `SweepResultsIngestor` reads the merge rows
 of the uids their addresses derive. A seed whose uid redirects to a survivor

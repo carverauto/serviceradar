@@ -246,15 +246,9 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     end)
   end
 
-  # A source-authoritative update never lands on an unrevivable tombstone
-  # (`deleted_reason in ["merged" | Device.retained_reasons()]`) or a canonical
-  # merge redirect whose survivor holds a different source-authoritative
-  # identifier in the same scope: landing there either withholds the update at
-  # the identity fence or collapses two source-authoritative devices onto one
-  # survivor. Step to `Ids.reseeded_device_id/1` instead so the active source
-  # record gets its own deterministic UID. The chain skips a uid a merge
-  # redirects, an unrevivable or purged merged-away one, and one a live record
-  # holding a different source-authoritative identifier already has.
+  # Reseeding prevents repeated withholding at the fence or collapse onto another
+  # source's record. Ownership must include in-batch claims before they are persisted.
+  # The batch tombstone and redirect contract lives in docs/docs/dire-identity-model.md.
   defp resolve_final_id(device_id, ids, canonical, preloads, unrevivable, actor) do
     target =
       canonical
