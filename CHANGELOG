@@ -66,8 +66,9 @@ plugin-result ingestion more reliable, and ships security updates.
   #6022).
 - AWX hosts match their Proxmox VM by address and hostname (#5998,
   #6009).
-- PLACEHOLDER: batch identity fixes for deleted records (#6059, not
-  yet merged).
+- An inventory update for a device whose old record was deleted or
+  merged away now lands on a fresh record instead of being held back,
+  and never brings a deleted record back (#6074).
 - Container-bridge and overlay addresses no longer become a device's
   primary IP (#5838, #5883, #5947, #6024).
 - External systems can set a device's switch port and VLAN through
@@ -119,9 +120,8 @@ plugin-result ingestion more reliable, and ships security updates.
   report rejected or expiring API tokens (#5875, #6023),
   proxmox-inventory 0.1.12 skips container-bridge addresses (#5883),
   and dusk-checker 1.0.1 caps its check at 8 seconds (#5938).
-- anomaly 0.3.16, otel-collector 0.1.17, powerdns 0.1.13, rdp 0.1.14,
-  workload-identity 0.1.12 and rust-sample 0.1.2 carry dependency
-  security updates.
+- anomaly 0.3.16, otel-collector 0.1.17, powerdns 0.1.13, rdp 0.1.14
+  and workload-identity 0.1.12 carry dependency security updates.
 
 ## Security and Dependencies
 
