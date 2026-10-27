@@ -253,6 +253,89 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
     end
   end
 
+  describe "materialize_config_json/1" do
+    test "encodes config_json from deferred payload and logs sweep format and encoded byte sizes" do
+      previous_level = Logger.level()
+      Logger.configure(level: :info)
+      on_exit(fn -> Logger.configure(level: previous_level) end)
+
+      shared_sweep = %{
+        "format" => "shared-targets/v1",
+        "config_hash" => "0123456789abcdef",
+        "device_table" => [
+          %{"ref" => "sr:dev-0001", "ip" => "192.0.2.10", "device_uid" => "sr:dev-0001"}
+        ],
+        "target_sets" => [
+          %{
+            "key" => "q-1111111111111111",
+            "target_query" => "in:devices",
+            "refs" => ["sr:dev-0001"]
+          }
+        ],
+        "groups" => [
+          %{"id" => "g-1", "sweep_group_id" => "g-1", "device_target_set" => "q-1111111111111111"}
+        ]
+      }
+
+      payload = %{
+        "sweep" => shared_sweep,
+        "mapper" => %{"scheduled_jobs" => []},
+        "plugins" => %{"assignments" => [], "engine_limits" => %{}}
+      }
+
+      log =
+        capture_log([level: :info], fn ->
+          materialized =
+            AgentConfigGenerator.materialize_config_json(%{
+              agent_id: "agent-shared-log",
+              config_version: "v-shared-1",
+              config_json_payload: payload
+            })
+
+          refute Map.has_key?(materialized, :config_json_payload)
+          assert Jason.decode!(materialized.config_json) == payload
+        end)
+
+      expected_sweep_bytes = byte_size(Jason.encode!(shared_sweep))
+      assert log =~ "agent_id=agent-shared-log"
+      assert log =~ "version=v-shared-1"
+      assert log =~ "sweep_format=shared-targets/v1"
+      assert log =~ "sweep_groups=1"
+      assert log =~ "sweep_bytes=#{expected_sweep_bytes}"
+
+      legacy_sweep = %{
+        "config_hash" => "fedcba9876543210",
+        "groups" => [
+          %{
+            "id" => "g-1",
+            "sweep_group_id" => "g-1",
+            "device_targets" => [
+              %{"network" => "192.0.2.10", "metadata" => %{"device_uid" => "sr:dev-0001"}}
+            ]
+          }
+        ]
+      }
+
+      legacy_payload = Map.put(payload, "sweep", legacy_sweep)
+
+      legacy_log =
+        capture_log([level: :info], fn ->
+          materialized =
+            AgentConfigGenerator.materialize_config_json(%{
+              agent_id: "agent-legacy-log",
+              config_version: "v-legacy-1",
+              config_json_payload: legacy_payload
+            })
+
+          assert Jason.decode!(materialized.config_json) == legacy_payload
+        end)
+
+      assert legacy_log =~ "agent_id=agent-legacy-log"
+      assert legacy_log =~ "sweep_format=legacy"
+      assert legacy_log =~ "sweep_bytes=#{byte_size(Jason.encode!(legacy_sweep))}"
+    end
+  end
+
   defp render_addons(addons, agent_id) do
     @base_config
     |> Map.merge(%{agent_id: agent_id, addons: addons})

@@ -58,6 +58,15 @@
 - `AgentConfigGenerator.load_sweep_config!/2` fetches the compiled sweep
   config through `ConfigServer.get_config/4`, passing the format from
   Decision 4, and embeds it as `config_json["sweep"]`.
+- Core defers delivery JSON encoding until after the poll's version comparison;
+  `:not_modified` polls still generate the config and compute its version, but
+  skip encoding the delivery payload. Full-config generation still encodes it.
+  When encoding, core logs `sweep_format`, `sweep_groups`, `sweep_bytes`, and
+  `config_json_bytes` per agent. The format label is `legacy` when no format
+  is declared; byte counts measure the encoded sweep section and full payload.
+  The gateway logs payload byte size and mapper/plugin counts from
+  `config_json`, `mapper_jobs_count`, and the typed `plugins` list without
+  decoding JSON. Missing summary fields count as zero.
 - The poll path streams `config_json` in 1 MiB chunks, with a 2 MiB per-chunk
   cap and a 64 MiB window (`agent_gateway_server.ex:74-76`). The push path
   sent it as one message until `fix/agent-config-push-chunks`. Both paths
@@ -368,16 +377,19 @@ persisted, only the legacy shape may be written.
 
 1. Core: per-compile and cross-agent query sharing (Decision 2), sorted group
    emission (Decision 6), and metadata trimming (Decision 1). Legacy format
-   only. Ship after chunked config pushes.
-2. Agent release: dual-format parser and the capability (Decisions 4, 5).
-3. Core: overlap-view arm (Decision 7), then enable format selection. Agents
-   move to the new format as they upgrade.
+   only. Ship after chunked config pushes (`fix/agent-config-push-chunks`).
+2. Agent release: dual-format parser and the `sweep-config-shared-targets:v1`
+   capability advertisement (Decisions 4, 5).
+3. Core: with declared targets persisted per group in
+   `platform.sweep_group_declared_targets` (Decision 7), enable capability-gated
+   format selection in `AgentConfigGenerator`. Agents move to
+   `shared-targets/v1` as they upgrade and report
+   `sweep-config-shared-targets:v1`. See [Delivery](#delivery) for the
+   per-agent format and size diagnostics.
 4. Rollback: removing format selection returns every agent to the legacy
    format, which upgraded agents accept.
 
 ## Open Questions
 
-- Should core log the per-agent sweep section size and format at generation,
-  so the reduction can be verified without decoding `config_json`?
-- Should the operator UI show which format an agent receives, or is a
-  diagnostics field enough?
+- Should the operator UI show which format an agent receives, or is the
+  generation log and capability list enough?

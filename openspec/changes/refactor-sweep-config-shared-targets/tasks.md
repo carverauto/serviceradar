@@ -101,29 +101,38 @@
 
 ## 6. Generation cost (measure first, fix only what shows up)
 
-- [ ] 6.1 Measure where sweep config generation time goes for a synthetic
+- [x] 6.1 Measure where sweep config generation time goes for a synthetic
       config with many overlapping groups: SRQL paging, target building,
       `stable_config_fragment` hashing in `agent_config_generator.ex`, and the
-      `Jason.encode!` of `config_json`, which currently runs before the
-      version comparison, so a `not_modified` poll still pays for the full
-      encode.
-- [ ] 6.2 Check whether the gateway decodes the full `config_json` only to log
+      `Jason.encode!` of `config_json`, which previously ran before the
+      version comparison, so a `not_modified` poll still paid for the full
+      encode. (Measured on a synthetic 20-group / 4-query / 8,000-device
+      config with 40,000 group-device memberships and moved `Jason.encode!`
+      after the `config_version == current_version` check via
+      `AgentConfigGenerator.materialize_config_json/1`.)
+- [x] 6.2 Check whether the gateway decodes the full `config_json` only to log
       its size (`agent_gateway_server.ex`, config summary logging), and if so
-      compute the size without decoding.
-- [ ] 6.3 File follow-ups for anything that 6.1 shows and this change does not
+      compute the size without decoding. (Confirmed `config_payload_summary/1`
+      decoded the full `config_json` on every config delivery just to count
+      `mapper_jobs` and `plugins`; updated `AgentGatewayServer` to compute
+      counts and byte size directly from `config` without `Jason.decode/1`.)
+- [x] 6.3 File follow-ups for anything that 6.1 shows and this change does not
       remove, including SNMP targets repeating OID lists per device and plugin
-      params sent twice.
+      params sent twice. (Filed #6031 for SNMP per-target OID deduplication,
+      #6032 for duplicate plugin assignment params in `config_json` vs
+      `AgentConfigResponse.plugins`, and #6033 for reusing `sweep_config["config_hash"]`
+      in `AgentConfigGenerator.compute_version_hash/10`.)
 
 ## 7. Rollout and verification
 
-- [ ] 7.1 Release order: section 2 after chunked config pushes have shipped;
+- [x] 7.1 Release order: section 2 after chunked config pushes have shipped;
       then the agent release (section 4); then sections 3.4 and 5. Document
       the order in the release notes.
-- [ ] 7.2 Log the sweep section format and encoded size per agent at config
+- [x] 7.2 Log the sweep section format and encoded size per agent at config
       generation, so the reduction can be checked against a deployment.
 - [ ] 7.3 Verify on a staging deployment with synthetic groups. Confirm that
       the legacy sweep section shrinks after section 2, that a capable
       agent's section shrinks further after section 5, that compile time
       drops for overlapping groups, and that sweep results are unchanged.
       Gate each check on data produced after the rollout finished.
-- [ ] 7.4 Run `openspec validate refactor-sweep-config-shared-targets --strict`.
+- [x] 7.4 Run `openspec validate refactor-sweep-config-shared-targets --strict`.
