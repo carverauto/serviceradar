@@ -1,17 +1,14 @@
 defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
   @moduledoc """
-  Settings UI for SRQL-scoped canonical availability source profiles, and the merged
-  availability rollout control (`AvailabilityRolloutComponents`).
+  Settings UI for SRQL-scoped canonical availability source profiles.
   """
 
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Infrastructure.Agent
-  alias ServiceRadar.Inventory.Availability.ModeControl
   alias ServiceRadar.Inventory.AvailabilitySourceProfile
   alias ServiceRadar.Inventory.AvailabilitySourceProfileMaterializer
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.Settings.AvailabilityRolloutComponents
   alias ServiceRadarWebNGWeb.Settings.Shell
 
   require Ash.Query
@@ -39,8 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
        |> assign(:profile_params, profile_params)
        |> assign(:profile_form, to_profile_form(profile_params))
        |> assign(:preview, nil)
-       |> assign(:materialize_summary, nil)
-       |> assign(:rollout, if(connected?(socket), do: load_rollout(scope)))}
+       |> assign(:materialize_summary, nil)}
     else
       {:ok,
        socket
@@ -162,25 +158,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
     end
   end
 
-  def handle_event("set_mode_control", %{"mode" => control}, socket) do
-    scope = socket.assigns.current_scope
-
-    if can_manage?(scope) do
-      case ModeControl.set(control, scope: scope) do
-        {:ok, _setting} ->
-          {:noreply,
-           socket
-           |> put_flash(:info, "Merged availability control set")
-           |> assign(:rollout, load_rollout(scope))}
-
-        {:error, reason} ->
-          {:noreply, put_flash(socket, :error, "Update failed: #{format_error(reason)}")}
-      end
-    else
-      {:noreply, put_flash(socket, :error, "Not authorized to manage availability")}
-    end
-  end
-
   def handle_event("materialize_profiles", _params, socket) do
     scope = socket.assigns.current_scope
 
@@ -228,11 +205,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
               </.ui_button>
             </div>
           </div>
-
-          <AvailabilityRolloutComponents.rollout_panel
-            setting={@rollout}
-            can_edit={can_manage?(@current_scope)}
-          />
 
           <div
             :if={@materialize_summary}
@@ -446,13 +418,6 @@ defmodule ServiceRadarWebNGWeb.Settings.AvailabilitySourceProfilesLive do
     |> Ash.Query.sort(priority: :desc, name: :asc)
     |> Ash.read(scope: scope)
     |> unwrap_results()
-  end
-
-  defp load_rollout(scope) do
-    case ModeControl.read(scope: scope) do
-      {:ok, setting} -> setting
-      {:error, _reason} -> nil
-    end
   end
 
   defp load_agents(scope) do

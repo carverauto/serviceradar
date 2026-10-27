@@ -1,12 +1,13 @@
 defmodule ServiceRadar.Inventory.Availability.LegacyValue do
   @moduledoc """
   The availability value the legacy writers computed (`device_availability_legacy`,
-  design Decision 13), kept so canonical Armis northbound sources in `legacy` semantics
-  and a rollback to `legacy` mode can read it after cutover.
+  design Decision 13), kept so canonical Armis northbound sources with `legacy`
+  semantics push exactly what they pushed before merged availability.
 
-  While the mode is `legacy` or `shadow` the legacy writers still own
-  `ocsf_devices.is_available`, and a trigger copies each change of it here. The table is
-  seeded for every device under the drained cutover boundary (stage c).
+  Every device has a row: a trigger copies a new device's initial `is_available`, the
+  legacy writers record every later value (`ServiceRadar.Inventory.Availability.LegacyWrites`),
+  and migration `20261026220000_converge_merged_availability` seeded the devices of a
+  deployment that upgraded before its legacy writers had recorded them.
   """
 
   use Ash.Resource,

@@ -23,8 +23,8 @@ defmodule ServiceRadar.Inventory.Availability.ExpiryWorker do
   expiry past the slice and is not selected. A sweep group's interval change or deletion
   moves its rows' windows, possibly behind the watermark, so it is not handled here: a
   trigger on `sweep_groups` appends the group's devices to the invalidation log instead.
-  In `legacy`, or with no watermark (the deployment never entered `shadow`), it does
-  nothing.
+  Without a watermark (set by the migration that converged the deployment on merged
+  availability) it does nothing.
   """
 
   use Oban.Worker,
@@ -39,7 +39,7 @@ defmodule ServiceRadar.Inventory.Availability.ExpiryWorker do
   @budget_ms 30_000
 
   @window """
-  SELECT mode, expiry_watermark, clock_timestamp() AT TIME ZONE 'utc'
+  SELECT expiry_watermark, clock_timestamp() AT TIME ZONE 'utc'
   FROM platform.availability_settings
   WHERE singleton
   """
@@ -70,8 +70,7 @@ defmodule ServiceRadar.Inventory.Availability.ExpiryWorker do
   @advance """
   UPDATE platform.availability_settings
   SET expiry_watermark = $2::timestamp
-  WHERE singleton AND mode IN ('shadow', 'cutover', 'authoritative')
-    AND expiry_watermark = $1::timestamp
+  WHERE singleton AND expiry_watermark = $1::timestamp
   """
 
   @impl Oban.Worker
@@ -108,8 +107,7 @@ defmodule ServiceRadar.Inventory.Availability.ExpiryWorker do
 
   defp next_slice do
     case Repo.query!(@window) do
-      %{rows: [[mode, %NaiveDateTime{} = watermark, now]]}
-      when mode in ["shadow", "cutover", "authoritative"] ->
+      %{rows: [[%NaiveDateTime{} = watermark, now]]} ->
         to = NaiveDateTime.add(watermark, @slice_seconds)
 
         cond do

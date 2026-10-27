@@ -552,12 +552,12 @@ defmodule ServiceRadar.Camera.InventoryIngestor do
         |> Ash.transact(fn ->
           with {:ok, locked} <- lock_camera_device(device.uid, actor),
                held = held_device_address(locked),
-               # From cutover the descriptor's availability goes to the compatibility
-               # table, not the device row (merged availability, LegacyWrites).
+               # The descriptor's availability goes to the compatibility table, not the
+               # device row (merged availability, LegacyWrites).
                update_attrs =
                  locked
                  |> camera_device_update_attrs(attrs)
-                 |> LegacyWrites.route_attrs(locked.uid, LegacyWrites.admit()),
+                 |> LegacyWrites.route_attrs(locked.uid),
                {:ok, _device} <-
                  locked
                  |> Ash.Changeset.for_update(:update, update_attrs, actor: actor)

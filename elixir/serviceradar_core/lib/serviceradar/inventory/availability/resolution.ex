@@ -7,45 +7,30 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
 
   1. The device rows are locked `FOR NO KEY UPDATE` in uid order, the order every device
      writer locks in. Tombstoned devices are neither locked nor resolved.
-  2. Their stored shadow rows, per-agent ledger rows, evidence and vantage expectations
-     are read under that lock, by later statements, so a write that committed before the
-     lock (another resolution's shadow row included) is seen.
+  2. Their per-agent ledger rows, evidence and vantage expectations are read under that
+     lock, by later statements, so a write that committed before the lock is seen.
   3. `ServiceRadar.Inventory.Availability.Resolver.resolve/3` decides each device.
   4. The decision is written only for a device whose state, provenance, conflict flag
-     or agent counters differ from the stored ones:
-     * in `shadow`, to `device_availability_shadow`; nothing on `ocsf_devices` is
-       written;
-     * in `cutover` and `authoritative`, to the device row: `availability_state`, its
-       provenance, conflict flag, agent counters and change time, and `is_available`
-       as the projection of the state (true, false, or for `unknown` the last decided
-       value, false when the device never had one; Decision 6). A NULL or drifted
-       `is_available` is also rewritten.
-  5. In `authoritative` the changed devices go to the transition outbox
-     (`ServiceRadar.Inventory.Availability.Transitions`) in the same transaction. In
-     `cutover` every side effect is suppressed: no event, no state feed, no UI
-     broadcast.
+     or agent counters differ from the stored ones: `availability_state`, its
+     provenance, conflict flag, agent counters and change time, and `is_available` as
+     the projection of the state (true, false, or for `unknown` the last decided
+     value, false when the device never had one; Decision 6). A NULL or drifted
+     `is_available` is also rewritten.
+  5. The changed devices go to the transition outbox
+     (`ServiceRadar.Inventory.Availability.Transitions`) in the same transaction. A
+     device's first merged decision after an upgrade (its stored provenance is the
+     `legacy_mirror` the pre-merge releases wrote) is a reconciliation, not a
+     transition: it gets a UI invalidation but no transition, and
+     `ServiceRadar.Inventory.Availability.ReconcileWorker` announces those devices once.
 
   Resolution never reads, locks or waits on the invalidation log. The only rows it
-  locks are device rows (uid order) and then their shadow rows, which no other writer
-  touches, so it adds no lock-order edge beyond the device-row order the legacy status
-  writers already use.
+  locks are device rows, in uid order, so it adds no lock-order edge beyond the
+  device-row order the status writers already use.
 
-  Every resolving transaction first takes the mode-switch advisory lock shared
-  (`Mode.admit/1`), then reads the mode, so the mode check and the shadow
-  write are one unit that `Mode.enter_legacy/1` cannot interleave: the switch takes the
-  same key exclusively and only commits its TRUNCATE once no admitted resolver is left.
-  The switch only ever *tries* that lock and never queues for it, so a resolver that
-  already holds device locks (an inline merge) waits at most for a switch that holds no
-  device lock, and no resolver waits behind a queued switch.
-
-  `legacy` writes nothing. `resolve_devices/1` is the inline entry point for write
-  paths; in `legacy` it returns before issuing any query (`Mode.cached/0`).
+  `resolve_devices/1` is the inline entry point for write paths.
   """
 
-  import Ecto.Query
-
   alias ServiceRadar.Inventory.Availability.AuthorityClass
-  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Availability.Resolver
   alias ServiceRadar.Inventory.Availability.Transitions
   alias ServiceRadar.Repo
@@ -56,18 +41,12 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
 
   @lock_devices """
   SELECT uid, availability_source_agent_id, availability_state, availability_changed_at,
-         availability_decided_by, availability_conflict, availability_agents, is_available
+         availability_decided_by, availability_conflict, availability_agents, is_available,
+         clock_timestamp() AT TIME ZONE 'utc'
   FROM platform.ocsf_devices
   WHERE uid = ANY($1::text[]) AND deleted_at IS NULL
   ORDER BY uid
   FOR NO KEY UPDATE
-  """
-
-  @stored """
-  SELECT u.uid, s.device_uid IS NOT NULL, s.availability_state, s.decided_by, s.conflict,
-         s.agents, s.changed_at, clock_timestamp() AT TIME ZONE 'utc'
-  FROM unnest($1::text[]) AS u(uid)
-  LEFT JOIN platform.device_availability_shadow AS s ON s.device_uid = u.uid
   """
 
   @ledger """
@@ -116,19 +95,12 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   @doc """
   Resolves `device_uids` for a write path, inline. Never fails the caller's write.
 
-  In `legacy` (per `Mode.cached/0`) it returns `{:ok, :legacy}` without a query. Otherwise
-  each batch runs in its own transaction, or inside the caller's transaction when there
+  Each batch runs in its own transaction, or inside the caller's transaction when there
   is one, with every statement in a savepoint. A failure is logged and the devices are
   appended to the invalidation log, so the resolver worker resolves them later.
   """
-  @spec resolve_devices([String.t()]) :: {:ok, result() | :legacy} | {:error, term()}
-  def resolve_devices(device_uids) do
-    if Mode.resolving?() do
-      device_uids |> normalize_uids() |> resolve_inline()
-    else
-      {:ok, :legacy}
-    end
-  end
+  @spec resolve_devices([String.t()]) :: {:ok, result()} | {:error, term()}
+  def resolve_devices(device_uids), do: device_uids |> normalize_uids() |> resolve_inline()
 
   defp resolve_inline([]), do: {:ok, %{resolved: 0, written: 0}}
 
@@ -158,23 +130,31 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
   Resolves `device_uids` inside the current transaction (the caller opened it), in
   batches of at most #{@batch_size} in uid order. Raises on failure, so the caller's
   transaction rolls back; used by the resolver worker, the expiry job and the full pass.
-
-  The mode is read inside the transaction, after the shared mode-switch lock is taken:
-  `legacy` resolves nothing, and a switch cannot commit between that read and the
-  write.
   """
   @spec resolve_locked([String.t()], keyword()) :: result()
-  def resolve_locked(device_uids, query_opts \\ []) do
-    uids = normalize_uids(device_uids)
-    mode = if uids == [], do: :legacy, else: Mode.admit(query_opts)
+  def resolve_locked(device_uids, query_opts \\ []),
+    do: resolve_batches(device_uids, query_opts, false)
 
-    if Mode.resolving?(mode) do
-      uids
-      |> Enum.chunk_every(@batch_size)
-      |> Enum.reduce(%{resolved: 0, written: 0}, &add(&2, resolve_batch(&1, mode, query_opts)))
-    else
-      %{resolved: 0, written: 0}
-    end
+  @doc """
+  `resolve_locked/2` for the one-time reconciliation of a deployment that was not yet on
+  merged availability (`ServiceRadar.Inventory.Availability.ReconcileWorker`). A device
+  that neither the resolver nor the legacy mirror ever decided (it predates availability
+  capture) is read as the mirror would have shown it: the projection of its
+  `is_available`, with `legacy_mirror` provenance. Its first merged decision is then a
+  reconciliation like every other device's, emitting no transition, and an `unknown`
+  decision keeps its last boolean.
+  """
+  @spec reconcile_locked([String.t()]) :: result()
+  def reconcile_locked(device_uids), do: resolve_batches(device_uids, [], true)
+
+  defp resolve_batches(device_uids, query_opts, reconcile?) do
+    device_uids
+    |> normalize_uids()
+    |> Enum.chunk_every(@batch_size)
+    |> Enum.reduce(
+      %{resolved: 0, written: 0},
+      &add(&2, resolve_batch(&1, query_opts, reconcile?))
+    )
   end
 
   @doc """
@@ -232,7 +212,7 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
       :ok
   end
 
-  defp resolve_batch(uids, mode, query_opts) do
+  defp resolve_batch(uids, query_opts, reconcile?) do
     %{rows: device_rows} = Repo.query!(@lock_devices, [uids], query_opts)
 
     case device_rows do
@@ -241,14 +221,12 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
 
       rows ->
         locked = Enum.map(rows, &hd/1)
-        %{rows: stored_rows} = Repo.query!(@stored, [locked], query_opts)
-        stored = Map.new(stored_rows, fn [uid | rest] -> {uid, rest} end)
-        now = stored_rows |> Enum.map(&List.last/1) |> Enum.max(NaiveDateTime) |> to_datetime()
+        now = rows |> Enum.map(&List.last/1) |> Enum.max(NaiveDateTime) |> to_datetime()
         inputs = load_inputs(locked, query_opts)
 
         changed =
-          Enum.flat_map(rows, fn [uid | _] = row ->
-            {device, stored} = read_device(mode, row, Map.fetch!(stored, uid))
+          Enum.flat_map(rows, fn row ->
+            {device, stored} = read_device(row, reconcile?)
             decision = Resolver.resolve(device, Map.get(inputs, device.uid, empty_inputs()), now)
 
             if changed?(stored, decision),
@@ -256,7 +234,7 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
               else: []
           end)
 
-        write(mode, changed, now, query_opts)
+        write(changed, query_opts)
 
         :telemetry.execute(
           [:serviceradar, :availability, :resolution],
@@ -268,11 +246,12 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
     end
   end
 
-  # In `cutover` and `authoritative` the device row is both the previous decision and
-  # what a change is compared with.
-  defp read_device(mode, row, _shadow) when mode in [:cutover, :authoritative] do
-    [uid, pin, state, changed_at, decided_by, conflict, agents, available?] = row
-    state = state_atom(state)
+  # The device row is both the previous decision and what a change is compared with.
+  defp read_device(
+         [uid, pin, state, changed_at, decided_by, conflict, agents, available?, _now],
+         reconcile?
+       ) do
+    {state, decided_by} = previous_decision(state, decided_by, available?, reconcile?)
 
     stored = %{
       state: state,
@@ -286,51 +265,10 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
     {%{uid: uid, pin: pin, previous: previous}, stored}
   end
 
-  defp read_device(:shadow, [uid, pin, mirror_state, mirror_changed_at | _device], shadow),
-    do: device_and_stored([uid, pin, mirror_state, mirror_changed_at | shadow])
-
-  defp device_and_stored([
-         uid,
-         pin,
-         mirror_state,
-         mirror_changed_at,
-         shadowed?,
-         state,
-         decided_by,
-         conflict,
-         agents,
-         changed_at,
-         _now
-       ]) do
-    stored =
-      if shadowed? do
-        %{state: state_atom(state), decided_by: decided_by, conflict: conflict, agents: agents}
-      end
-
-    # Before the first shadow decision, the previous state is what the device shows: the
-    # legacy mirror. That is also the previous state the resolver will see at cutover.
-    previous =
-      if shadowed? do
-        %{state: state_atom(state), decided_by: decided_by, changed_at: to_datetime(changed_at)}
-      else
-        %{
-          state: state_atom(mirror_state),
-          decided_by: nil,
-          changed_at: to_datetime(mirror_changed_at)
-        }
-      end
-
-    {%{uid: uid, pin: pin, previous: previous}, stored}
-  end
-
-  defp changed?(nil, _decision), do: true
-
   defp changed?(%{is_available: available?} = stored, decision) do
     decided_changed?(stored, decision) or
       available? != projection(decision.state, available?, stored.decided_by)
   end
-
-  defp changed?(stored, decision), do: decided_changed?(stored, decision)
 
   defp decided_changed?(stored, decision) do
     stored.state != decision.state or stored.decided_by != decision.decided_by or
@@ -424,50 +362,9 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
     }
   end
 
-  defp write(_mode, [], _now, _query_opts), do: :ok
+  defp write([], _query_opts), do: :ok
 
-  defp write(:shadow, changed, now, query_opts) do
-    computed_at = to_naive(now)
-
-    rows =
-      changed
-      |> Enum.sort_by(&elem(&1, 0))
-      |> Enum.map(fn {uid, decision, _stored} ->
-        %{
-          device_uid: uid,
-          availability_state: Atom.to_string(decision.state),
-          decided_by: decision.decided_by,
-          conflict: decision.conflict,
-          agents: decision.agents,
-          changed_at: to_naive(decision.changed_at),
-          computed_at: computed_at
-        }
-      end)
-
-    replace =
-      from(s in "device_availability_shadow",
-        update: [
-          set: [
-            availability_state: fragment("EXCLUDED.availability_state"),
-            decided_by: fragment("EXCLUDED.decided_by"),
-            conflict: fragment("EXCLUDED.conflict"),
-            agents: fragment("EXCLUDED.agents"),
-            changed_at: fragment("EXCLUDED.changed_at"),
-            computed_at: fragment("EXCLUDED.computed_at")
-          ]
-        ]
-      )
-
-    Repo.insert_all(
-      "device_availability_shadow",
-      rows,
-      [prefix: "platform", on_conflict: replace, conflict_target: [:device_uid]] ++ query_opts
-    )
-
-    :ok
-  end
-
-  defp write(mode, changed, _now, query_opts) when mode in [:cutover, :authoritative] do
+  defp write(changed, query_opts) do
     changed = Enum.sort_by(changed, &elem(&1, 0))
 
     rows =
@@ -486,25 +383,38 @@ defmodule ServiceRadar.Inventory.Availability.Resolution do
     # The rows are already locked, in uid order, by this transaction.
     Repo.query!(@write_devices, [rows], query_opts)
 
-    if mode == :authoritative do
-      transitions =
-        for {uid, decision, stored} <- changed, stored.state != decision.state do
-          %{
-            uid: uid,
-            from: Atom.to_string(stored.state),
-            to: Atom.to_string(decision.state),
-            available_from: stored.is_available,
-            available_to: projection(decision.state, stored.is_available, stored.decided_by),
-            decided_by: Map.delete(decision.decided_by, "previous"),
-            conflict: decision.conflict
-          }
-        end
+    transitions =
+      for {uid, decision, stored} <- changed,
+          stored.state != decision.state,
+          not reconciling?(stored) do
+        %{
+          uid: uid,
+          from: Atom.to_string(stored.state),
+          to: Atom.to_string(decision.state),
+          available_from: stored.is_available,
+          available_to: projection(decision.state, stored.is_available, stored.decided_by),
+          decided_by: Map.delete(decision.decided_by, "previous"),
+          conflict: decision.conflict
+        }
+      end
 
-      Transitions.enqueue(transitions, Enum.map(changed, &elem(&1, 0)), query_opts)
-    end
-
-    :ok
+    Transitions.enqueue(transitions, Enum.map(changed, &elem(&1, 0)), query_opts)
   end
+
+  defp previous_decision(_state, nil, available?, true),
+    do: {mirror_state(available?), %{"rule" => "legacy_mirror"}}
+
+  defp previous_decision(state, decided_by, _available?, _reconcile?),
+    do: {state_atom(state), decided_by}
+
+  defp mirror_state(true), do: :available
+  defp mirror_state(false), do: :unavailable
+  defp mirror_state(_available?), do: :unknown
+
+  # A device the pre-merge releases last wrote (`legacy_mirror` provenance) gets its
+  # first merged decision here: a reconciliation, announced once by `ReconcileWorker`.
+  defp reconciling?(%{decided_by: %{"rule" => "legacy_mirror"}}), do: true
+  defp reconciling?(_stored), do: false
 
   defp normalize_uids(uids) do
     uids

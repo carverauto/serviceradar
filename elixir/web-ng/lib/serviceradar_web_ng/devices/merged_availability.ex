@@ -8,9 +8,8 @@ defmodule ServiceRadarWebNG.Devices.MergedAvailability do
   the "up from N of M agents" summary and the negative-control indicators are read
   from those columns, the same value SRQL sorts and counts by.
 
-  `availability_agents` is written only by the resolver, so it is `nil` while the
-  deployment's availability mode is `legacy` or `shadow`; callers render no agent
-  summary then.
+  `availability_agents` is written only by the resolver, so it is `nil` for a device the
+  resolver has not decided yet; callers render no agent summary then.
   """
 
   import Ecto.Query
@@ -77,7 +76,7 @@ defmodule ServiceRadarWebNG.Devices.MergedAvailability do
 
   @doc """
   The per-agent reachability shown next to the badge, or `nil` when the resolver has
-  not summarized the device's agents (legacy or shadow mode) or no agent probes it and
+  not summarized the device's agents (not decided yet) or no agent probes it and
   no negative control is expected.
 
   `partial?` is set whenever a fresh non-control agent cannot reach the device, so the

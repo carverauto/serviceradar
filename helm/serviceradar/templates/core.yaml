@@ -364,15 +364,6 @@ spec:
           value: "true"
         - name: SERVICERADAR_CORE_VAULT_ENABLED
           value: "true"
-        {{- $availabilityModeControl := (default (dict) $coreVals.availability).modeControl | default "" | toString | trim }}
-        {{- if $availabilityModeControl }}
-        {{- if not (has $availabilityModeControl (list "auto" "hold_legacy" "hold_shadow")) }}
-        {{- fail (printf "core.availability.modeControl must be auto, hold_legacy or hold_shadow, got %q" $availabilityModeControl) }}
-        {{- end }}
-        # Pins the merged availability mode control; the settings UI shows it read-only.
-        - name: SERVICERADAR_AVAILABILITY_MODE_CONTROL
-          value: {{ $availabilityModeControl | quote }}
-        {{- end }}
         {{- if not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_LOCAL_MAILER") }}
         - name: SERVICERADAR_LOCAL_MAILER
           value: "false"

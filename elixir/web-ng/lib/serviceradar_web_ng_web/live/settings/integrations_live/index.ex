@@ -2621,14 +2621,10 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
     |> Map.delete("fact_authority")
   end
 
-  # Connected render only. A canonical legacy Armis source gets the preview when a
-  # forecast exists, and :not_forecast while the deployment is still in legacy mode.
+  # Connected render only. A canonical legacy Armis source gets the preview.
   defp availability_preview(socket, %{source_type: :armis} = source) do
-    if connected?(socket) and canonical_legacy_source?(source) do
-      if ArmisAvailabilityPreview.forecast_available?(),
-        do: ArmisAvailabilityPreview.build(source),
-        else: :not_forecast
-    end
+    if connected?(socket) and canonical_legacy_source?(source),
+      do: ArmisAvailabilityPreview.build(source)
   end
 
   defp availability_preview(_socket, _source), do: nil
@@ -2654,9 +2650,8 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
           </div>
         <% @source.northbound_availability_semantics == :merged -> %>
           <div class="text-sm">
-            Pushes the merged availability state. Until the deployment cuts over merged
-            availability that state equals the legacy value; devices whose availability is
-            unknown are withheld.
+            Pushes the merged availability state; devices whose availability is unknown are
+            withheld.
           </div>
         <% true -> %>
           <div class="text-sm">
@@ -2664,8 +2659,7 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
             merged availability below.
           </div>
           <p :if={is_map(@preview)} class="text-xs text-sr-muted">
-            What this source would push with merged availability: the shadow decision before
-            cutover, the merged state after it.
+            What this source would push with merged availability.
           </p>
           <div
             :if={is_map(@preview)}
@@ -2693,19 +2687,12 @@ defmodule ServiceRadarWebNGWeb.Settings.IntegrationsLive.Index do
               {direction.count}: {direction.legacy_push} to {direction.merged_push}
             </li>
           </ul>
-          <p
-            :if={@preview == :not_forecast}
-            id="integration-source-availability-preview-unavailable"
-            class="text-sm"
-          >
-            A preview is available once the deployment runs merged availability in shadow mode.
-          </p>
           <.ui_button
             id="integration-source-adopt-merged-availability"
             size="sm"
             phx-click="adopt_merged_availability"
             phx-value-id={@source.id}
-            data-confirm="Use merged availability for this source? Its pushes will follow the merged availability state, which equals the legacy value until the deployment cuts over merged availability, and devices whose availability is unknown are withheld."
+            data-confirm="Use merged availability for this source? Its pushes will follow the merged availability state, and devices whose availability is unknown are withheld."
           >
             Adopt merged availability
           </.ui_button>

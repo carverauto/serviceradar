@@ -221,7 +221,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
       DevicePubSub.invalidation_topic()
     )
 
-    jobs_before = Repo.aggregate(Oban.Job, :count)
+    jobs_before = non_outbox_jobs()
 
     assert {:ok, _stats} =
              SweepResultsIngestor.ingest_results(
@@ -242,7 +242,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
                authenticated_partition_id: "default"
              )
 
-    assert Repo.aggregate(Oban.Job, :count) == jobs_before
+    assert non_outbox_jobs() == jobs_before
 
     %{rows: [[updated_at, database_now]]} =
       Repo.query!(
@@ -256,7 +256,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
 
     assert updated_at == database_now
 
-    # The availability transition is still published.
+    # The availability transition is still published, through the resolver's outbox.
     uid = device.uid
     assert_receive {:devices_invalidated, invalidated}
     assert uid in invalidated
@@ -627,7 +627,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     {:ok, after_first_failure} = Device.get_by_ip(ip, false, actor: actor)
     after_first_failure = single_result(after_first_failure)
 
-    assert after_first_failure.is_available
+    # One failure is below the confirmation threshold: the merged state is not unavailable.
+    refute device_availability_state(device_uid) == "unavailable"
     assert after_first_failure.metadata["sweep_consecutive_failures"] == 1
 
     assert {:ok, _stats} =
@@ -644,6 +645,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     after_second_failure = single_result(after_second_failure)
 
     refute after_second_failure.is_available
+    assert device_availability_state(device_uid) == "unavailable"
     assert after_second_failure.metadata["sweep_consecutive_failures"] == 2
 
     {:ok, agent_row} =
@@ -5042,5 +5044,20 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
              |> Ash.create(actor: actor)
 
     execution
+  end
+
+  # Every job but the merged availability resolver's transition outbox, which a decision
+  # that changes a device writes in the resolving transaction.
+  defp non_outbox_jobs do
+    outbox = inspect(ServiceRadar.Inventory.Availability.Transitions)
+
+    Repo.aggregate(from(job in Oban.Job, where: job.worker != ^outbox), :count)
+  end
+
+  defp device_availability_state(uid) do
+    %{rows: [[state]]} =
+      Repo.query!("SELECT availability_state FROM platform.ocsf_devices WHERE uid = $1", [uid])
+
+    state
   end
 end

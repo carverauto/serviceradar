@@ -61,7 +61,6 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   alias ServiceRadar.Inventory.Availability.VantageExpectations
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
-  alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Repo
 
   require Logger
@@ -482,25 +481,22 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
     |> Map.new(fn {uid, metadata} -> {uid, metadata || %{}} end)
   end
 
-  # The bulk form of Device.set_availability: is_available (and the
-  # modified_time that action stamps), one statement per direction, and only
-  # where the bit actually changes. :degraded and :unknown leave it alone. This
-  # is deliberately not the sweep ingestor's reporter-scoped update, which would
-  # match nothing here and would rewrite last_seen_time and sweep metadata.
+  # The verdict goes to the compatibility table (the legacy value canonical Armis
+  # sources with `legacy` semantics push) and is `operator_policy` evidence, from which
+  # the merged resolver decides the device. :degraded and :unknown leave both alone.
   defp persist_canonical_availability(%{write_canonical_availability: true} = check, rows) do
     healthy = for %{status: :healthy, device_uid: uid} <- rows, do: uid
     down = for %{status: :down, device_uid: uid} <- rows, do: uid
 
-    DevicePubSub.broadcast_invalidated(
-      set_canonical_availability(healthy, true) ++ set_canonical_availability(down, false)
-    )
+    _written =
+      LegacyWrites.record(Enum.map(healthy, &{&1, true}) ++ Enum.map(down, &{&1, false}))
 
     capture_operator_policy(check, healthy, down)
   end
 
   defp persist_canonical_availability(_check, _rows), do: :ok
 
-  # The verdict that the legacy write above applies is also `operator_policy` evidence,
+  # The verdict is also `operator_policy` evidence,
   # recorded on every pass (write-on-change coalesces repeats) and leased for two
   # evaluation intervals.
   defp capture_operator_policy(check, healthy, down) do
@@ -540,38 +536,6 @@ defmodule ServiceRadar.CompositeChecks.Evaluation do
   end
 
   defp maintain_vantage_expectations(_check, _write), do: :ok
-
-  defp set_canonical_availability([], _available?), do: []
-
-  # While the legacy writers own is_available (modes legacy and shadow) the verdict is
-  # written to it; from cutover only to the compatibility table, and the merged resolver
-  # decides the device from the operator_policy evidence (LegacyWrites). The mode is read
-  # under the shared mode-switch lock in the writing transaction.
-  defp set_canonical_availability(uids, available?) do
-    {:ok, changed} =
-      Repo.transaction(fn ->
-        if Availability.Mode.legacy_column?(LegacyWrites.admit()) do
-          {_count, changed} =
-            Device
-            |> where([d], d.uid in ^uids and is_nil(d.deleted_at))
-            |> where([d], d.is_available != ^available? or is_nil(d.is_available))
-            |> select([d], d.uid)
-            |> Repo.update_all(
-              set: [
-                is_available: available?,
-                modified_time: DateTime.truncate(DateTime.utc_now(), :second)
-              ]
-            )
-
-          changed
-        else
-          _written = LegacyWrites.record(Enum.map(uids, &{&1, available?}))
-          []
-        end
-      end)
-
-    changed
-  end
 
   # Transitions are computed in memory against the prior rows exactly as
   # before; only the write is set-based: one multi-row upsert per page.

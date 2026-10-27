@@ -10,9 +10,8 @@ defmodule ServiceRadar.Inventory.Availability do
 
   ## Capture
 
-  Evidence is recorded alongside the legacy writes. Those writes own
-  `ocsf_devices.is_available` in `legacy` and `shadow`; from `cutover` the resolver owns
-  the column and the legacy writers record only the compatibility table
+  The resolver owns `ocsf_devices.is_available`; the legacy writers record their value
+  only in the compatibility table
   (`ServiceRadar.Inventory.Availability.LegacyWrites`). Writers call `capture/2`, which
   never fails the write it accompanies: it is skipped when capture is switched off,
   isolates its statements in a savepoint inside a caller's transaction, and logs instead
@@ -20,12 +19,10 @@ defmodule ServiceRadar.Inventory.Availability do
 
   ## Resolution
 
-  Outside `legacy`, `record_evidence/2` resolves the devices whose evidence it wrote in
-  the same transaction (`resolve_devices/1`), so generic evidence never waits for the
-  invalidation log. In `shadow` the decision goes only to `device_availability_shadow`;
-  in `cutover` and `authoritative` it is the device's `availability_state` (see
-  `ServiceRadar.Inventory.Availability.Resolution`). In `legacy` the mode check is a
-  cached read and nothing else runs.
+  `record_evidence/2` resolves the devices whose evidence it wrote in the same
+  transaction (`resolve_devices/1`), so generic evidence never waits for the
+  invalidation log. The decision is the device's `availability_state` (see
+  `ServiceRadar.Inventory.Availability.Resolution`).
 
   Capture is on by default. Set `config :serviceradar_core, #{inspect(__MODULE__)},
   evidence_capture: false` (`SERVICERADAR_AVAILABILITY_EVIDENCE_CAPTURE=false`) to turn
@@ -36,7 +33,6 @@ defmodule ServiceRadar.Inventory.Availability do
 
   alias ServiceRadar.Inventory.Availability.DeviceEvidence
   alias ServiceRadar.Inventory.Availability.EvidencePlan
-  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Availability.Resolution
   alias ServiceRadar.Inventory.Availability.Sources
   alias ServiceRadar.Inventory.Device
@@ -69,9 +65,9 @@ defmodule ServiceRadar.Inventory.Availability do
   skipped. Rows are written in key order, so concurrent writers lock in one order.
 
   Planning and writing run in one transaction that locks the existing rows, so
-  concurrent submissions for one key are serialized. Outside `legacy` the devices' rows
-  are locked first, in uid order, and the devices whose evidence was written are
-  resolved before the transaction ends.
+  concurrent submissions for one key are serialized. The devices' rows are locked first,
+  in uid order, and the devices whose evidence was written are resolved before the
+  transaction ends.
 
   Options: `:now` (defaults to the current time).
   """
@@ -95,18 +91,11 @@ defmodule ServiceRadar.Inventory.Availability do
   end
 
   defp plan_and_write(rows, now, query_opts) do
-    resolving? = Mode.resolving?()
-
     # Device rows before evidence rows, the order a merge (which moves evidence while
     # holding both devices) and every resolution lock in. Under the lock, a device a merge
     # tombstoned meanwhile is dropped, so its evidence is not written after the move.
-    rows =
-      if resolving? do
-        live = Resolution.lock_devices(Enum.map(rows, & &1.device_uid), query_opts)
-        Enum.filter(rows, &MapSet.member?(live, &1.device_uid))
-      else
-        rows
-      end
+    live = Resolution.lock_devices(Enum.map(rows, & &1.device_uid), query_opts)
+    rows = Enum.filter(rows, &MapSet.member?(live, &1.device_uid))
 
     existing = load_existing(rows, query_opts)
 
@@ -121,16 +110,16 @@ defmodule ServiceRadar.Inventory.Availability do
       |> Enum.sort_by(&key/1)
 
     written = write(planned, query_opts)
-    if resolving?, do: Resolution.resolve_devices(Enum.map(planned, & &1.device_uid))
+    Resolution.resolve_devices(Enum.map(planned, & &1.device_uid))
     written
   end
 
   @doc """
   Resolves `device_uids` inline for a write path, under the device locks in the caller's
-  transaction (or its own), writing on change: the shadow table in `shadow`, the device
-  row from `cutover`. A no-op in `legacy`. Never fails the caller; see `Resolution.resolve_devices/1`.
+  transaction (or its own), writing the device row on change. Never fails the caller;
+  see `Resolution.resolve_devices/1`.
   """
-  @spec resolve_devices([String.t()]) :: {:ok, Resolution.result() | :legacy} | {:error, term()}
+  @spec resolve_devices([String.t()]) :: {:ok, Resolution.result()} | {:error, term()}
   defdelegate resolve_devices(device_uids), to: Resolution
 
   @move_evidence """

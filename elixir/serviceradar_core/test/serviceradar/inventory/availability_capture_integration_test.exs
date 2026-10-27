@@ -1,8 +1,9 @@
 defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
   @moduledoc """
-  Stage a of `add-merged-device-availability` against the real schema: evidence is
-  captured, the ledger counter and the mirror follow the legacy writers, and nothing a
-  legacy reader sees changes.
+  Availability capture against the real schema (`add-merged-device-availability`):
+  evidence is recorded, the per-agent ledger counter follows every writer, the legacy
+  writers keep their value in the compatibility table, and the invalidation log and
+  vantage expectations follow the inputs a decision depends on.
 
   Every fixture is invented (192.0.2.0/24, SITE01-style names, generated ids).
   """
@@ -14,7 +15,7 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
   alias ServiceRadar.CompositeChecks.CompositeCheckInput
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
   alias ServiceRadar.Inventory.Availability
-  alias ServiceRadar.Inventory.Availability.CaptureBackfillWorker
+  alias ServiceRadar.Inventory.Availability.ResolverWorker
   alias ServiceRadar.Inventory.Availability.VantageExpectations
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
@@ -36,33 +37,30 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
   end
 
   describe "legacy writers" do
-    test "sweeps keep is_available as before while the mirror, the compatibility row and the ledger counter follow",
+    test "sweeps keep the legacy hysteresis in the compatibility table and the ledger counter",
          %{actor: actor} do
       device = create_device!(actor, "192.0.2.10")
       {group, agent_id} = sweep_group!(actor)
 
-      assert device_state(device.uid) == {true, "available", "legacy_mirror"}
       assert legacy_value(device.uid) == true
 
       sweep!(actor, group, agent_id, "192.0.2.10", false, minutes_ago(50))
       assert ledger(device.uid, agent_id) == {false, 1}
-      assert device_state(device.uid) == {true, "available", "legacy_mirror"}
+      assert legacy_value(device.uid) == true
 
       sweep!(actor, group, agent_id, "192.0.2.10", false, minutes_ago(40))
       assert ledger(device.uid, agent_id) == {false, 2}
-      assert device_state(device.uid) == {false, "unavailable", "legacy_mirror"}
       assert legacy_value(device.uid) == false
+      assert {false, "unavailable", rule} = device_state(device.uid)
+      assert rule != "legacy_mirror"
 
       sweep!(actor, group, agent_id, "192.0.2.10", false, minutes_ago(30))
       assert ledger(device.uid, agent_id) == {false, 2}
 
       sweep!(actor, group, agent_id, "192.0.2.10", true, minutes_ago(20))
       assert ledger(device.uid, agent_id) == {true, 0}
-      assert device_state(device.uid) == {true, "available", "legacy_mirror"}
       assert legacy_value(device.uid) == true
-
-      # Nothing consumes the invalidation log before stage b, so legacy mode appends none.
-      assert invalidations(device.uid) == 0
+      assert {true, "available", _rule} = device_state(device.uid)
     end
 
     test "a sweep result that changes within the same second recounts and a replay does not",
@@ -124,12 +122,11 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
   end
 
   describe "invalidation log" do
-    test "outside legacy mode a steady sweep appends nothing and real changes append once",
-         %{actor: actor} do
-      # Created first: a device created outside legacy is itself an invalidation.
+    test "a steady sweep appends nothing and real changes append once", %{actor: actor} do
       steady = create_device!(actor, "192.0.2.20")
       renewed = create_device!(actor, "192.0.2.21")
-      set_mode!("shadow")
+      # A created device is itself an invalidation; consume those first.
+      drain!()
       {group, agent_id} = sweep_group!(actor)
 
       sweep!(actor, group, agent_id, "192.0.2.20", true, minutes_ago(10))
@@ -173,8 +170,12 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
       ap1 = device_by_hostname("SITE01-AP001")
       ap2 = device_by_hostname("SITE01-AP002")
 
+      # The controller's down decides the first; the second, with no evidence, is unknown.
       assert {false, "unavailable", _} = device_state(ap1)
-      assert {true, "available", _} = device_state(ap2)
+      {:ok, _} = Availability.resolve_devices([ap2])
+      assert {false, "unknown", "no_evidence"} = device_state(ap2)
+      assert legacy_value(ap1) == false
+      assert legacy_value(ap2) == true
 
       assert [
                %{
@@ -213,8 +214,8 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
       ap4 = device_by_hostname("SITE03-AP002")
 
       assert evidence(ap3) == []
-      assert legacy_columns(ap3) == legacy_columns(ap1)
-      assert legacy_columns(ap4) == legacy_columns(ap2)
+      assert legacy_value(ap3) == legacy_value(ap1)
+      assert legacy_value(ap4) == legacy_value(ap2)
     end
 
     test "sources keep separate records and a resubmission inside the lease writes nothing",
@@ -250,7 +251,7 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
          %{actor: actor} do
       d1 = create_device!(actor, "192.0.2.40")
       d2 = create_device!(actor, "192.0.2.41")
-      set_mode!("shadow")
+      drain!()
       check = enabled_check!(actor)
 
       witness = vantage_input("agent-witness", "available")
@@ -284,42 +285,6 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
         |> Ash.update(actor: actor)
 
       assert expectations(check) == []
-    end
-  end
-
-  describe "capture backfill" do
-    test "projects existing devices and seeds the ledger counter once", %{actor: actor} do
-      # Rows written while the mirror is off stand in for rows that predate the migration.
-      set_mode!("cutover")
-      device = create_device!(actor, "192.0.2.50")
-      ledger_row = ledger_row!(actor, device, "agent-backfill", false)
-
-      Repo.query!(
-        "UPDATE platform.device_agent_availability SET consecutive_down = 0 WHERE id = $1",
-        [Ecto.UUID.dump!(ledger_row.id)]
-      )
-
-      Repo.query!(
-        """
-        UPDATE platform.ocsf_devices
-        SET metadata = metadata || '{"sweep_consecutive_failures": "7"}'::jsonb
-        WHERE uid = $1
-        """,
-        [device.uid]
-      )
-
-      assert {true, "unknown", nil} = device_state(device.uid)
-      assert ledger(device.uid, "agent-backfill") == {false, 0}
-
-      set_mode!("legacy")
-      assert :ok = perform_job(CaptureBackfillWorker, %{"trigger" => "migration"})
-
-      assert {true, "available", "legacy_mirror"} = device_state(device.uid)
-      assert ledger(device.uid, "agent-backfill") == {false, 2}
-
-      version = device_xmin(device.uid)
-      assert :ok = perform_job(CaptureBackfillWorker, %{"trigger" => "migration"})
-      assert device_xmin(device.uid) == version
     end
   end
 
@@ -380,24 +345,6 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
       row
       |> Ash.Changeset.for_update(:update, attrs, actor: actor)
       |> Ash.update()
-
-    row
-  end
-
-  defp ledger_row!(actor, device, agent_id, available?) do
-    {:ok, row} =
-      DeviceAgentAvailability
-      |> Ash.Changeset.for_create(
-        :create,
-        %{
-          device_uid: device.uid,
-          agent_id: agent_id,
-          is_available: available?,
-          checked_at: minutes_ago(1)
-        },
-        actor: actor
-      )
-      |> Ash.create()
 
     row
   end
@@ -488,8 +435,8 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
     end
   end
 
-  defp set_mode!(mode) do
-    Repo.query!("UPDATE platform.availability_settings SET mode = $1", [mode])
+  defp drain! do
+    if ResolverWorker.pass().claimed > 0, do: drain!(), else: :ok
   end
 
   defp minutes_ago(minutes) do
@@ -509,23 +456,6 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
       )
 
     {available, state, rule}
-  end
-
-  defp legacy_columns(uid) do
-    %{rows: [row]} =
-      Repo.query!(
-        "SELECT is_available, availability_state, type, type_id FROM platform.ocsf_devices WHERE uid = $1",
-        [uid]
-      )
-
-    row
-  end
-
-  defp device_xmin(uid) do
-    %{rows: [[xmin]]} =
-      Repo.query!("SELECT xmin::text FROM platform.ocsf_devices WHERE uid = $1", [uid])
-
-    xmin
   end
 
   defp device_by_hostname(hostname) do
@@ -612,6 +542,4 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
 
     rows |> Enum.map(&List.to_tuple/1) |> Enum.sort()
   end
-
-  defp perform_job(worker, args), do: worker.perform(%Oban.Job{args: args})
 end

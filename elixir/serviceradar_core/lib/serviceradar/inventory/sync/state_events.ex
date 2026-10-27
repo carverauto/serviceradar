@@ -5,16 +5,15 @@ defmodule ServiceRadar.Inventory.Sync.StateEvents do
 
   alias ServiceRadar.EventWriter.StateChangePublisher
   alias ServiceRadar.Identity.IdentityCache
-  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Repo
 
   require Logger
 
-  # add-causal-engine (Decision 1): capture prior device availability/managed
-  # state BEFORE the bulk upsert so transitions can be published to
-  # signals.state.ocsf_devices afterward. Gated behind the feed flag so disabled
-  # deployments incur no extra read; best-effort (never affects ingestion).
+  # add-causal-engine (Decision 1): capture prior device managed state BEFORE the bulk
+  # upsert so transitions can be published to signals.state.ocsf_devices afterward.
+  # Gated behind the feed flag so disabled deployments incur no extra read; best-effort
+  # (never affects ingestion).
   def previous_device_states(device_records) do
     if StateChangePublisher.enabled?() do
       uids =
@@ -30,12 +29,10 @@ defmodule ServiceRadar.Inventory.Sync.StateEvents do
         uids ->
           from(d in Device,
             where: d.uid in ^uids,
-            select: {d.uid, d.is_available, d.is_managed}
+            select: {d.uid, d.is_managed}
           )
           |> Repo.all()
-          |> Map.new(fn {uid, available, managed} ->
-            {uid, %{is_available: available, is_managed: managed}}
-          end)
+          |> Map.new(fn {uid, managed} -> {uid, %{is_managed: managed}} end)
       end
     else
       %{}
@@ -48,25 +45,14 @@ defmodule ServiceRadar.Inventory.Sync.StateEvents do
     do: :ok
 
   def publish_device_state_transitions(device_records, previous, remap) do
-    # is_available transitions come from the legacy writers only while they own the
-    # column (modes legacy and shadow); from cutover the merged resolver publishes them.
-    legacy_column? = Mode.legacy_column?(Mode.current())
-
+    # The merged resolver publishes availability transitions; the sync path publishes
+    # only is_managed.
     Enum.each(device_records, fn record ->
       original_uid = Map.get(record, :uid)
       final_uid = Map.get(remap, original_uid, original_uid)
       prior = Map.get(previous, original_uid)
 
       if is_map(prior) and is_binary(final_uid) do
-        if legacy_column? do
-          maybe_publish_device_field(
-            final_uid,
-            "is_available",
-            prior.is_available,
-            Map.get(record, :is_available)
-          )
-        end
-
         maybe_publish_device_field(
           final_uid,
           "is_managed",

@@ -2,13 +2,9 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
   @moduledoc """
   The resolver's transition outbox (`add-merged-device-availability`, design Decision 8).
 
-  In `authoritative` mode `Resolution` inserts one job of this worker, in the resolving
-  transaction, for each batch that changed a device row: it commits with the decision
-  and a rollback discards it, so nothing is announced for a decision that did not
-  commit. The job publishes only while the mode is still `authoritative`.
-  `Mode.enter_legacy/1` deletes a job that has not started, and one that runs after the
-  mode has left publishes nothing. While the mode is `authoritative` the job, after
-  commit:
+  `Resolution` inserts one job of this worker, in the resolving transaction, for each
+  batch that changed a device row: it commits with the decision and a rollback discards
+  it, so nothing is announced for a decision that did not commit. After commit the job:
 
     * broadcasts a UI invalidation for every changed device (`DevicePubSub`);
     * publishes `signals.state.ocsf_devices` transitions of `availability_state`, and of
@@ -22,24 +18,17 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
       device event.
 
   Display-only changes (provenance, conflict, agent counters) are carried only for the
-  UI invalidation. The legacy publishers (`Inventory.Sync.StateEvents` and
-  `SweepJobs.AvailabilityEvents`) emit only in `legacy` and `shadow`, and nothing emits
-  per device in `cutover`, so each transition has exactly one emitter.
+  UI invalidation. The resolver is the only emitter of availability transitions.
   """
 
   use Oban.Worker, queue: :events, max_attempts: 10
 
-  import Ecto.Query
-
   alias ServiceRadar.Events.InternalLogPublisher
   alias ServiceRadar.EventWriter.StateChangePublisher
-  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Repo
 
   require Logger
-
-  @waiting_states ["available", "scheduled", "retryable"]
 
   @ledger_kind "agent_probe"
   @subject "sweep"
@@ -70,18 +59,6 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
     :ok
   end
 
-  @doc "Deletes waiting transition jobs inside the caller's transaction (a rollback)."
-  @spec cancel_waiting() :: :ok
-  def cancel_waiting do
-    worker = inspect(__MODULE__)
-
-    Oban.Job
-    |> where([j], j.worker == ^worker and j.state in ^@waiting_states)
-    |> Repo.delete_all(prefix: "platform")
-
-    :ok
-  end
-
   @doc "Whether the deployment emits `device.*` availability events (opt-in)."
   @spec enabled?() :: boolean()
   def enabled? do
@@ -95,25 +72,24 @@ defmodule ServiceRadar.Inventory.Availability.Transitions do
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
-    if Mode.current() == :authoritative do
-      transitions = Map.get(args, "transitions", [])
-      DevicePubSub.broadcast_invalidated(Map.get(args, "invalidated", []))
-      Enum.each(transitions, &publish_state_feed/1)
+    transitions = Map.get(args, "transitions", [])
+    DevicePubSub.broadcast_invalidated(Map.get(args, "invalidated", []))
+    Enum.each(transitions, &publish_state_feed/1)
 
-      if transitions != [] and enabled?() do
-        transitions
-        |> Enum.filter(&(&1["to"] in ["available", "unavailable"]))
-        |> filter_by_sweep_group()
-        |> publish_device_events()
-      end
+    if transitions != [] and enabled?() do
+      transitions
+      |> Enum.filter(&(&1["to"] in ["available", "unavailable"]))
+      |> filter_by_sweep_group()
+      |> publish_device_events()
     end
 
     :ok
   end
 
   @doc """
-  Publishes the one summary event of a cutover: the number of live devices whose
-  merged state differs from their legacy value, per resulting state.
+  Publishes the one summary event of the upgrade reconciliation
+  (`ServiceRadar.Inventory.Availability.ReconcileWorker`): the number of live devices
+  whose merged state differs from their legacy value, per resulting state.
   """
   @spec publish_summary(%{String.t() => non_neg_integer()}) :: :ok
   def publish_summary(counts) do

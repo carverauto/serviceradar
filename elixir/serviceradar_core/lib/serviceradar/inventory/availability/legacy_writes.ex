@@ -1,32 +1,21 @@
 defmodule ServiceRadar.Inventory.Availability.LegacyWrites do
   @moduledoc """
-  How the legacy availability writers behave in each mode (`add-merged-device-availability`,
-  design Decisions 10 and 13), until stage d removes them.
+  Where the legacy availability writers put their value (`add-merged-device-availability`,
+  design Decision 13).
 
   A legacy writer computes the value it always computed: the sweep's recovery and
   hysteresis, the sync path's non-nil `is_available`, a camera descriptor's status, an
-  agent check-in, a composite check's verdict. Where that value goes depends on the mode.
-  Sweep, sync, camera and composite writers read it with `admit/1` inside their own
-  transaction, holding the mode-switch lock shared, so they cannot straddle a switch.
-  An agent check-in reads `Mode.current/0` without that lock. In `cutover` or
-  `authoritative` its compatibility write commits only with a device update that
-  succeeds, so a failed check-in records nothing. A check-in that straddles a switch
-  can still write the device column once; the device's next resolution rewrites it.
+  agent check-in, a composite check's verdict. It never writes
+  `ocsf_devices.is_available`, which the merged resolver owns; it writes its value only
+  to `device_availability_legacy` (`record/2`), computing against that table's previous
+  value, not against the device column. Canonical Armis northbound sources with `legacy`
+  semantics push that table's value, so it is kept for every device while such a source
+  can exist.
 
-    * `legacy` and `shadow` (`Mode.legacy_column?/1`): the writer writes
-      `ocsf_devices.is_available` exactly as before; a trigger copies each change into
-      `device_availability_legacy`.
-    * `cutover` and `authoritative`: the writer leaves `is_available` to the resolver and
-      writes its value only to `device_availability_legacy` (`record/2`), computing
-      against that table's previous value, not against the device column. Canonical
-      Armis northbound sources in `legacy` semantics, and a rollback to `legacy`, read
-      that table.
-
-  A device insert copies its initial `is_available` into the table in every mode (a
-  trigger), so a device created after cutover has a legacy value too.
+  A device insert copies its initial `is_available` into the table (a trigger), so every
+  device has a legacy value.
   """
 
-  alias ServiceRadar.Inventory.Availability.Mode
   alias ServiceRadar.Repo
 
   @record """
@@ -41,28 +30,16 @@ defmodule ServiceRadar.Inventory.Availability.LegacyWrites do
   """
 
   @doc """
-  Takes the mode-switch lock shared for the caller's transaction and returns the mode.
-  Must run inside the writer's transaction, before it writes.
+  Moves the `is_available` of one device write's attributes to the compatibility table,
+  in the caller's transaction, and removes it from the attributes. Attributes without a
+  boolean `is_available` are returned unchanged.
   """
-  @spec admit(keyword()) :: Mode.t()
-  def admit(query_opts \\ []), do: Mode.admit(query_opts)
-
-  @doc """
-  Routes the `is_available` of one device write's attributes by `mode`: unchanged while
-  the legacy writers own the column; otherwise the value is recorded in the
-  compatibility table and removed from the attributes. Attributes without a boolean
-  `is_available` are returned unchanged.
-  """
-  @spec route_attrs(map(), String.t(), Mode.t(), keyword()) :: map()
-  def route_attrs(attrs, device_uid, mode, query_opts \\ []) do
+  @spec route_attrs(map(), String.t(), keyword()) :: map()
+  def route_attrs(attrs, device_uid, query_opts \\ []) do
     case Map.fetch(attrs, :is_available) do
       {:ok, available?} when is_boolean(available?) ->
-        if Mode.legacy_column?(mode) do
-          attrs
-        else
-          record([{device_uid, available?}], query_opts)
-          Map.delete(attrs, :is_available)
-        end
+        record([{device_uid, available?}], query_opts)
+        Map.delete(attrs, :is_available)
 
       _ ->
         attrs

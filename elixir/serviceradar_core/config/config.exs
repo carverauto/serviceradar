@@ -91,14 +91,11 @@ config :serviceradar_core, Oban,
         queue: :maintenance},
        {"* * * * *", ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker,
         queue: :alert_recovery},
-       # Merged device availability (stage b): drains the invalidation log and re-resolves
-       # devices whose evidence aged out. Neither resolves outside `shadow` mode. Kept
-       # in step with serviceradar_core's runtime.exs and serviceradar_core_elx's runtime.exs.
+       # Merged device availability: drains the invalidation log and re-resolves
+       # devices whose evidence aged out. Kept in step with
+       # serviceradar_core's runtime.exs and serviceradar_core_elx's runtime.exs.
        {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
-       # Moves the availability mode on by itself (legacy -> shadow -> cutover) as the
-       # deployment's mode control says. Kept in step with the two entries above.
-       {"* * * * *", ServiceRadar.Inventory.Availability.ProgressionWorker, queue: :maintenance},
        {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
         queue: :maintenance}
      ]}
