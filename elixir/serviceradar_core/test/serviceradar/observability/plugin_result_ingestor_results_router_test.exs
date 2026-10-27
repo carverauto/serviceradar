@@ -481,8 +481,12 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
 
       assert store_failed_metric_counter() == before_failed + 1
 
-      assert log =~
-               "Plugin result attempt store lookup ({ServiceRadar.Observability.PluginResultQuarantine, :lookup}) failed"
+      assert length(
+               String.split(
+                 log,
+                 "Plugin result attempt store lookup ({ServiceRadar.Observability.PluginResultQuarantine, :lookup}) failed"
+               )
+             ) == 2
     end
   end
 

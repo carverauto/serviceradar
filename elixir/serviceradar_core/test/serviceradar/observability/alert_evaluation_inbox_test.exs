@@ -349,8 +349,12 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
 
       assert alert_maintenance_store_failures() == before_store_failures + 1
 
-      assert prune_log =~
-               "Could not prune expired alert evaluation receipts ({ServiceRadar.Observability.AlertEvaluationReceipt, :prune})"
+      assert length(
+               String.split(
+                 prune_log,
+                 "Could not prune expired alert evaluation receipts ({ServiceRadar.Observability.AlertEvaluationReceipt, :prune})"
+               )
+             ) == 2
 
       assert %{rows: [[^backend]]} = Repo.query!("SELECT pg_backend_pid()")
     after
@@ -1345,14 +1349,26 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     assert alert_maintenance_store_failures() == before_store_failures + 3
     assert alert_maintenance_retries() == before_retries + 1
 
-    assert log =~
-             "Alert evaluation capability query failed ({ServiceRadar.Observability.StatefulAlertEngine.Rollout, :capability})"
+    assert length(
+             String.split(
+               log,
+               "Alert evaluation capability query failed ({ServiceRadar.Observability.StatefulAlertEngine.Rollout, :capability})"
+             )
+           ) == 2
 
-    assert log =~
-             "Could not sample alert evaluation health ({ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics, :sample_health})"
+    assert length(
+             String.split(
+               log,
+               "Could not sample alert evaluation health ({ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics, :sample_health})"
+             )
+           ) == 2
 
-    assert log =~
-             "Alert evaluation recovery scan failed ({ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker, :recover_ready_rules})"
+    assert length(
+             String.split(
+               log,
+               "Alert evaluation recovery scan failed ({ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker, :recover_ready_rules})"
+             )
+           ) == 2
 
     # Accepted work remains intact and the next recovery scan enqueues its wake-up.
     assert [%{position: 1}] = work(rule, actor)

@@ -323,14 +323,11 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   end
 
   defp do_prune(active_cutoff, quarantine_cutoff, batch_size, total_deleted, batches) do
-    caller = {__MODULE__, :prune}
-    maybe_set_process_label(caller)
-
-    case Repo.query(
+    case query(
+           :prune,
            @prune_batch_sql,
            [active_cutoff, quarantine_cutoff, batch_size],
-           timeout: @prune_timeout_ms,
-           telemetry_options: [caller: caller, timeout_ms: @prune_timeout_ms]
+           @prune_timeout_ms
          ) do
       {:ok, %{num_rows: deleted}} when deleted > 0 ->
         RuntimeMetrics.record(@lane, :attempt_pruned, %{count: deleted})
@@ -346,7 +343,8 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
       {:ok, %{num_rows: 0}} ->
         {:ok, %{deleted: total_deleted, batches: batches}}
 
-      {:error, _reason} = error ->
+      {:error, reason} = error ->
+        store_failed(:prune, reason)
         error
     end
   end
@@ -406,13 +404,13 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     """
   end
 
-  defp query(operation, sql, params) when is_atom(operation) do
+  defp query(operation, sql, params, timeout \\ @store_timeout_ms) when is_atom(operation) do
     caller = {__MODULE__, operation}
     maybe_set_process_label(caller)
 
     Repo.query(sql, params,
-      timeout: @store_timeout_ms,
-      telemetry_options: [caller: caller, timeout_ms: @store_timeout_ms]
+      timeout: timeout,
+      telemetry_options: [caller: caller, timeout_ms: timeout]
     )
   rescue
     error -> {:error, error}

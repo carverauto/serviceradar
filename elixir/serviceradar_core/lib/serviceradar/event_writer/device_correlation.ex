@@ -101,15 +101,13 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   def resolve_uncached(candidate) when is_map(candidate) do
     actor = SystemActor.system(:event_writer_device_correlation)
 
-    with_lookup_budget(fn ->
-      with nil <- explicit_device_uid(candidate, actor),
-           nil <- device_uid_for_agent(candidate[:agent_id], actor),
-           nil <- device_uid_for_workload(candidate, actor),
-           nil <- device_uid_for_ip(candidate[:ip], candidate[:partition], actor),
-           nil <- device_uid_for_hostname(candidate[:hostname], actor) do
-        device_uid_for_hostname(candidate[:name], actor)
-      end
-    end)
+    with nil <- explicit_device_uid(candidate, actor),
+         nil <- device_uid_for_agent(candidate[:agent_id], actor),
+         nil <- device_uid_for_workload(candidate, actor),
+         nil <- device_uid_for_ip(candidate[:ip], candidate[:partition], actor),
+         nil <- device_uid_for_hostname(candidate[:hostname], actor) do
+      device_uid_for_hostname(candidate[:name], actor)
+    end
   rescue
     error ->
       Logger.debug("Device correlation lookup failed: #{Exception.message(error)}")
@@ -142,21 +140,19 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   end
 
   defp resolve_snmp_interface_metric_uncached(candidate) do
-    with_lookup_budget(fn ->
-      canonical_hint = snmp_metric_canonical_hint(candidate)
+    canonical_hint = snmp_metric_canonical_hint(candidate)
 
-      cond do
-        is_binary(canonical_hint) ->
-          query_snmp_metric_by_device(candidate, canonical_hint) ||
-            query_snmp_metric_hourly_by_device(candidate, canonical_hint)
+    cond do
+      is_binary(canonical_hint) ->
+        query_snmp_metric_by_device(candidate, canonical_hint) ||
+          query_snmp_metric_hourly_by_device(candidate, canonical_hint)
 
-        is_binary(candidate.target_device_ip) ->
-          query_snmp_metric_hourly_by_target(candidate)
+      is_binary(candidate.target_device_ip) ->
+        query_snmp_metric_hourly_by_target(candidate)
 
-        true ->
-          nil
-      end
-    end)
+      true ->
+        nil
+    end
   rescue
     error ->
       Logger.debug("SNMP metric tuple correlation lookup failed: #{Exception.message(error)}")
@@ -253,7 +249,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
       # production: a producer holding a pre-merge uid wrote against the dead
       # identity and nothing noticed.
       #
-      # follow_canonical_device_id/2 rather than an existence check. An existence
+      # resolve_canonical_device_id/2 rather than an existence check. An existence
       # check answers nil for a tombstoned device, and the correlation chain below
       # can only rescue candidates that also carry an agent id or an IP -- one
       # anchored solely on the uid would resolve to nothing. Following the merge
@@ -262,9 +258,12 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
       # Cheap on the common path: the follow returns its input unchanged unless
       # the row is actually tombstoned, and DeviceCorrelationCache fronts this.
       "sr:" <> _ = uid ->
-        bounded_lookup(:follow_canonical_device_id, fn ->
-          Resolver.follow_canonical_device_id(uid, actor)
-        end) || uid
+        case bounded_lookup(:follow_canonical_device_id, fn ->
+               Resolver.resolve_canonical_device_id(uid, actor)
+             end) do
+          {:ok, canonical_id} -> canonical_id
+          _ -> nil
+        end
 
       uid ->
         case bounded_lookup(:device_get_by_uid, fn ->
@@ -476,27 +475,12 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
         Process.delete(@lookup_aborted_key)
         uid = resolver.()
 
-        if Process.delete(@lookup_aborted_key) != true do
+        if Process.delete(@lookup_aborted_key) == true do
+          nil
+        else
           DeviceCorrelationCache.put(key, uid)
+          uid
         end
-
-        uid
-    end
-  end
-
-  defp with_lookup_budget(fun) when is_function(fun, 0) do
-    outer = Process.get(@lookup_aborted_key)
-
-    if outer == nil do
-      try do
-        fun.()
-      after
-        if outer == nil and Process.get(@lookup_aborted_key) != true do
-          Process.delete(@lookup_aborted_key)
-        end
-      end
-    else
-      fun.()
     end
   end
 
@@ -509,18 +493,20 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
       task =
         Task.async(fn ->
           Process.set_label(caller)
-          fun.()
+
+          try do
+            fun.()
+          rescue
+            error in DBConnection.ConnectionError -> {:error, error}
+          end
         end)
 
       case Task.yield(task, @lookup_timeout_ms) || Task.shutdown(task, :brutal_kill) do
-        {:ok, {:error, %DBConnection.ConnectionError{} = error}} ->
-          lookup_timed_out(caller, operation, error)
-
-        {:ok, {:error, %{errors: errors} = ash_error}} ->
-          if Enum.any?(List.wrap(errors), &connection_error?/1) do
-            lookup_timed_out(caller, operation, ash_error)
+        {:ok, {:error, error}} ->
+          if connection_error?(error) do
+            lookup_timed_out(caller, operation, error)
           else
-            {:error, ash_error}
+            {:error, error}
           end
 
         {:ok, result} ->
@@ -541,6 +527,8 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
     String.contains?(error, "DBConnection.ConnectionError") or
       String.contains?(error, "timed out")
   end
+
+  defp connection_error?(%{error: error}), do: connection_error?(error)
 
   defp connection_error?(%{errors: errors}) when is_list(errors),
     do: Enum.any?(errors, &connection_error?/1)

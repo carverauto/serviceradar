@@ -39,11 +39,7 @@ defmodule ServiceRadar.Observability.PluginResultAttemptPruneWorker do
 
         :ok
 
-      {:error, reason} = error ->
-        Logger.warning("Failed to prune plugin result ingestion attempts",
-          reason: inspect(reason)
-        )
-
+      {:error, _reason} = error ->
         error
     end
   end

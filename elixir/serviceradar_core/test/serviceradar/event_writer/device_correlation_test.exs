@@ -139,82 +139,103 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
     assert row.device[:uid] == device.uid
   end
 
-  test "lookup timeout names caller, logs one warning and counter, skips negative cache, and fails open",
-       %{
-         partition: partition,
-         device: device,
-         agent_id: agent_id,
-         unique: unique
-       } do
-    if !Process.whereis(RuntimeMetrics) do
-      start_supervised!(
-        {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
+  for {input, operation} <- [
+        agent_id: :agent_get_by_uid,
+        device_uid: :follow_canonical_device_id,
+        hostname: :follow_canonical_device_id,
+        name: :follow_canonical_device_id
+      ] do
+    test "#{input} timeout names caller, logs one warning and counter, skips cache, and fails open",
+         %{
+           partition: partition,
+           device: device,
+           agent_id: agent_id,
+           unique: unique
+         } do
+      if !Process.whereis(RuntimeMetrics) do
+        start_supervised!(
+          {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
+        )
+      end
+
+      DeviceCorrelationCache.clear()
+      parent = self()
+      handler_id = "device-correlation-timeout-#{unique}"
+
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :event_writer, :device_correlation, :lookup_timeout],
+        fn _event, _measurements, metadata, _config ->
+          send(parent, {:device_correlation_timeout, metadata})
+        end,
+        nil
       )
-    end
 
-    DeviceCorrelationCache.clear()
-    parent = self()
-    handler_id = "device-correlation-timeout-#{unique}"
+      on_exit(fn -> :telemetry.detach(handler_id) end)
 
-    :telemetry.attach(
-      handler_id,
-      [:serviceradar, :event_writer, :device_correlation, :lookup_timeout],
-      fn _event, _measurements, metadata, _config ->
-        send(parent, {:device_correlation_timeout, metadata})
-      end,
-      nil
-    )
+      candidate = %{
+        partition: partition,
+        agent_id: agent_id,
+        pod_uid: "timeout-pod-#{unique}",
+        ip: "192.0.2.44",
+        hostname: "security-host-#{unique}.local"
+      }
 
-    on_exit(fn -> :telemetry.detach(handler_id) end)
+      operation = unquote(operation)
 
-    candidate = %{
-      partition: partition,
-      agent_id: agent_id,
-      pod_uid: "timeout-pod-#{unique}",
-      ip: "192.0.2.44",
-      hostname: "security-host-#{unique}.local"
-    }
+      candidate =
+        case unquote(input) do
+          :agent_id -> candidate
+          key -> %{key => device.uid}
+        end
 
-    holder =
-      Task.async(fn ->
-        Repo.checkout(fn ->
-          send(parent, :sandbox_checked_out)
+      holder =
+        Task.async(fn ->
+          Repo.checkout(fn ->
+            send(parent, :sandbox_checked_out)
 
-          receive do
-            :release_sandbox -> :ok
-          after
-            10_000 -> :ok
-          end
+            receive do
+              :release_sandbox -> :ok
+            after
+              10_000 -> :ok
+            end
+          end)
         end)
-      end)
 
-    assert_receive :sandbox_checked_out, 1_000
-    before_timeouts = other_results_timeout_counter()
+      assert_receive :sandbox_checked_out, 1_000
+      before_timeouts = other_results_timeout_counter()
 
-    log =
-      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
-        assert DeviceCorrelation.resolve(candidate) == nil
-      end)
+      log =
+        ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+          assert DeviceCorrelation.resolve(candidate) == nil
+        end)
 
-    send(holder.pid, :release_sandbox)
-    assert :ok = Task.await(holder, 5_000)
+      send(holder.pid, :release_sandbox)
+      assert :ok = Task.await(holder, 5_000)
 
-    assert_receive {:device_correlation_timeout,
-                    %{
-                      caller: {DeviceCorrelation, :agent_get_by_uid},
-                      operation: :agent_get_by_uid
-                    }},
-                   1_000
+      assert_receive {:device_correlation_timeout,
+                      %{
+                        caller: {DeviceCorrelation, ^operation},
+                        operation: ^operation
+                      }},
+                     1_000
 
-    refute_receive {:device_correlation_timeout, _}, 100
-    assert other_results_timeout_counter() == before_timeouts + 1
+      refute_receive {:device_correlation_timeout, _}, 100
+      assert other_results_timeout_counter() == before_timeouts + 1
 
-    assert log =~
-             "Device correlation lookup timed out ({ServiceRadar.EventWriter.DeviceCorrelation, :agent_get_by_uid})"
+      assert length(
+               String.split(
+                 log,
+                 "Device correlation lookup timed out ({ServiceRadar.EventWriter.DeviceCorrelation, :#{operation}})"
+               )
+             ) == 2
 
-    # Timed-out resolution must not be negative-cached; once the DB connection
-    # is available again, the same candidate resolves to the canonical device.
-    assert DeviceCorrelation.resolve(candidate) == device.uid
+      assert DeviceCorrelationCache.lookup(DeviceCorrelationCache.cache_key(candidate)) == :miss
+
+      # Timed-out resolution must not be negative-cached; once the DB connection
+      # is available again, the same candidate resolves to the canonical device.
+      assert DeviceCorrelation.resolve(candidate) == device.uid
+    end
   end
 
   defp other_results_timeout_counter do
