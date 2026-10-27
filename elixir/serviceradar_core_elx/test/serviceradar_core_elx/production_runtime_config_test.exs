@@ -36,6 +36,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
     ServiceRadar.Observability.AnomalyIngestSilenceWorker,
     Worker,
     ServiceRadar.Observability.DataRetentionWorker,
+    ServiceRadar.Observability.PluginResultAttemptPruneWorker,
     ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
     RecoveryWorker,
     ServiceRadar.Observability.SeasonalBaselineFreshnessWorker,

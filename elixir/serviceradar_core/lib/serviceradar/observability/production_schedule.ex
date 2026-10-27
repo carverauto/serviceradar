@@ -20,6 +20,7 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
   alias ServiceRadar.Observability.AnomalyEpisodeStaleCloseWorker
   alias ServiceRadar.Observability.AnomalyIngestSilenceWorker
   alias ServiceRadar.Observability.OtelServiceCatalogPruneWorker
+  alias ServiceRadar.Observability.PluginResultAttemptPruneWorker
   alias ServiceRadar.Observability.ResolveStaleAnomaliesWorker
   alias ServiceRadar.Observability.SeasonalBaselineFreshnessWorker
   alias ServiceRadar.Observability.SeasonalDisposition
@@ -46,7 +47,8 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
       anomaly_alert_liveness_entries(fetch),
       anomaly_ingest_silence_entries(fetch),
       seasonal_baseline_freshness_entries(fetch),
-      otel_service_catalog_prune_entries(fetch)
+      otel_service_catalog_prune_entries(fetch),
+      plugin_result_attempt_prune_entries(fetch)
     ])
   end
 
@@ -93,7 +95,11 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
         seasonal_baseline_freshness_hours:
           positive_int(fetch, "SERVICERADAR_SEASONAL_BASELINE_FRESHNESS_HOURS"),
         otel_service_catalog_retention_days:
-          positive_int(fetch, "SERVICERADAR_OTEL_SERVICE_CATALOG_RETENTION_DAYS")
+          positive_int(fetch, "SERVICERADAR_OTEL_SERVICE_CATALOG_RETENTION_DAYS"),
+        plugin_result_attempt_active_retention_days:
+          positive_int(fetch, "SERVICERADAR_PLUGIN_RESULT_ATTEMPT_ACTIVE_RETENTION_DAYS"),
+        plugin_result_quarantine_retention_days:
+          positive_int(fetch, "SERVICERADAR_PLUGIN_RESULT_QUARANTINE_RETENTION_DAYS")
       ],
       fn {_key, value} -> is_nil(value) end
     )
@@ -202,6 +208,15 @@ defmodule ServiceRadar.Observability.ProductionSchedule do
     [
       {fetch.("SERVICERADAR_OTEL_SERVICE_CATALOG_PRUNE_CRON", "29 3 * * *"),
        OtelServiceCatalogPruneWorker, queue: :maintenance}
+    ]
+  end
+
+  # Daily retention for platform.plugin_result_ingestion_attempts; offset from
+  # the 03:29 OTel service catalog prune.
+  defp plugin_result_attempt_prune_entries(fetch) do
+    [
+      {fetch.("SERVICERADAR_PLUGIN_RESULT_ATTEMPT_PRUNE_CRON", "33 3 * * *"),
+       PluginResultAttemptPruneWorker, queue: :maintenance}
     ]
   end
 

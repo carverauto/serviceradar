@@ -18,6 +18,10 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     queue drains. That acknowledgement leaves the row in place.
   - `clear/1` deletes the row after a success or a committed handler-domain
     failure. The quarantine acknowledgement does not.
+  - `prune/1` deletes expired attempt rows in primary-key batches: active,
+    non-quarantined rows older than `active_retention_days/0` (default 7 days)
+    and quarantined rows older than `quarantine_retention_days/0` (default 30
+    days).
 
   Only execution timeouts count. An admission timeout means the lane could not
   start the result at all; it says the lane is congested, not that this result is
@@ -26,9 +30,9 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
 
   Every outcome is counted on the `:retained_plugin_result` ingestion lane
   (`result_ingestion_events_attempt_recorded`, `_quarantined`,
-  `_quarantine_acknowledged` and `_attempt_store_failed`). A store failure is
-  logged and fails open: the result is ingested, or redelivered, as if no
-  attempt had been recorded.
+  `_quarantine_acknowledged`, `_attempt_pruned` and `_attempt_store_failed`). A
+  store failure is logged and fails open: the result is ingested, or redelivered,
+  as if no attempt had been recorded.
   """
 
   alias ServiceRadar.EventWriter.FieldParser
@@ -39,9 +43,28 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   require Logger
 
   @default_max_consecutive_timeouts 3
+  @default_active_retention_days 7
+  @default_quarantine_retention_days 30
+  @default_prune_batch_size 1_000
   @quarantine_reason "execution_timeout_budget_exceeded"
   @store_timeout_ms 2_000
+  @prune_timeout_ms 30_000
   @lane :retained_plugin_result
+
+  @prune_batch_sql """
+  WITH doomed AS (
+    SELECT id
+    FROM platform.plugin_result_ingestion_attempts
+    WHERE (state = 'active' AND last_attempt_at < $1)
+       OR (state = 'quarantined' AND COALESCE(quarantined_at, last_attempt_at) < $2)
+    ORDER BY id
+    LIMIT $3
+    FOR UPDATE
+  )
+  DELETE FROM platform.plugin_result_ingestion_attempts AS attempt
+  USING doomed
+  WHERE attempt.id = doomed.id
+  """
 
   # The retained status fields an operator retry needs to re-run ingestion.
   @retained_keys ~w(source agent_id gateway_id partition authenticated_partition service_type
@@ -65,6 +88,57 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     case Application.get_env(:serviceradar_core, :plugin_result_quarantine_max_timeouts) do
       configured when is_integer(configured) and configured > 0 -> configured
       _ -> @default_max_consecutive_timeouts
+    end
+  end
+
+  @doc """
+  Retention window in days for active, non-quarantined attempt rows (default
+  #{@default_active_retention_days}; `:plugin_result_attempt_active_retention_days`
+  in `:serviceradar_core`, `SERVICERADAR_PLUGIN_RESULT_ATTEMPT_ACTIVE_RETENTION_DAYS`).
+  """
+  @spec active_retention_days() :: pos_integer()
+  def active_retention_days do
+    case Application.get_env(
+           :serviceradar_core,
+           :plugin_result_attempt_active_retention_days,
+           @default_active_retention_days
+         ) do
+      days when is_integer(days) and days > 0 -> days
+      _ -> @default_active_retention_days
+    end
+  end
+
+  @doc """
+  Retention window in days for quarantined attempt rows (default
+  #{@default_quarantine_retention_days}; `:plugin_result_quarantine_retention_days`
+  in `:serviceradar_core`, `SERVICERADAR_PLUGIN_RESULT_QUARANTINE_RETENTION_DAYS`).
+  """
+  @spec quarantine_retention_days() :: pos_integer()
+  def quarantine_retention_days do
+    case Application.get_env(
+           :serviceradar_core,
+           :plugin_result_quarantine_retention_days,
+           @default_quarantine_retention_days
+         ) do
+      days when is_integer(days) and days > 0 -> days
+      _ -> @default_quarantine_retention_days
+    end
+  end
+
+  @doc """
+  Batch size for primary-key attempt row pruning (default
+  #{@default_prune_batch_size}; `:plugin_result_attempt_prune_batch_size` in
+  `:serviceradar_core`).
+  """
+  @spec prune_batch_size() :: pos_integer()
+  def prune_batch_size do
+    case Application.get_env(
+           :serviceradar_core,
+           :plugin_result_attempt_prune_batch_size,
+           @default_prune_batch_size
+         ) do
+      size when is_integer(size) and size > 0 -> min(size, 10_000)
+      _ -> @default_prune_batch_size
     end
   end
 
@@ -219,6 +293,62 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
 
       [] ->
         {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Deletes expired rows from `platform.plugin_result_ingestion_attempts` in
+  primary-key batches:
+
+  - Active, non-quarantined rows (`state = 'active'`) whose `last_attempt_at`
+    is older than `active_retention_days/0`.
+  - Quarantined rows (`state = 'quarantined'`) whose `quarantined_at` (falling
+    back to `last_attempt_at`) is older than `quarantine_retention_days/0`.
+
+  Each deleted batch is counted on the `:retained_plugin_result` ingestion lane
+  under `:attempt_pruned` (`result_ingestion_events_attempt_pruned`).
+  """
+  @spec prune(keyword()) ::
+          {:ok, %{deleted: non_neg_integer(), batches: non_neg_integer()}} | {:error, term()}
+  def prune(opts \\ []) do
+    now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
+    batch_size = min(positive_opt(opts, :batch_size, prune_batch_size()), 10_000)
+
+    active_cutoff = DateTime.shift(now, day: -active_retention_days())
+    quarantine_cutoff = DateTime.shift(now, day: -quarantine_retention_days())
+
+    do_prune(active_cutoff, quarantine_cutoff, batch_size, 0, 0)
+  end
+
+  defp do_prune(active_cutoff, quarantine_cutoff, batch_size, total_deleted, batches) do
+    case Repo.query(
+           @prune_batch_sql,
+           [active_cutoff, quarantine_cutoff, batch_size],
+           timeout: @prune_timeout_ms
+         ) do
+      {:ok, %{num_rows: deleted}} when deleted > 0 ->
+        RuntimeMetrics.record(@lane, :attempt_pruned, %{count: deleted})
+        total_deleted = total_deleted + deleted
+        batches = batches + 1
+
+        if deleted < batch_size do
+          {:ok, %{deleted: total_deleted, batches: batches}}
+        else
+          do_prune(active_cutoff, quarantine_cutoff, batch_size, total_deleted, batches)
+        end
+
+      {:ok, %{num_rows: 0}} ->
+        {:ok, %{deleted: total_deleted, batches: batches}}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp positive_opt(opts, key, default) do
+    case Keyword.get(opts, key) do
+      value when is_integer(value) and value > 0 -> value
+      _ -> default
     end
   end
 

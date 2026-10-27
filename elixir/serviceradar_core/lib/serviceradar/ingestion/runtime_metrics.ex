@@ -79,6 +79,7 @@ defmodule ServiceRadar.Ingestion.RuntimeMetrics do
     :attempt_recorded,
     :quarantined,
     :quarantine_acknowledged,
+    :attempt_pruned,
     :attempt_store_failed,
     :other
   ]
