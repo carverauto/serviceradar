@@ -172,7 +172,7 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
   defp acl_subject(@plugin_registry_host), do: "the plugin registry host"
   defp acl_subject(host), do: host
 
-  # The proxy's phrase is operator-controlled proxy text; keep it but bounded.
+  # Preserve the proxy's status phrase when it is text.
   defp proxy_phrase(phrase) when is_list(phrase) or is_binary(phrase), do: ": #{phrase}"
 
   defp proxy_phrase(_), do: ""
