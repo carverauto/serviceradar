@@ -301,7 +301,7 @@ core EventWriter  →  platform.public_endpoints_current
     ├─► SRQL / web-ng  in:public_endpoints
     │                  UI: /inventory/public-endpoints
     └─► FlowAttribution.Correlation  (VIP → backend → process)
-                       attribution.public_endpoint on attributed_flows
+                       public endpoint ownership attached to flows
 ```
 
 You can:
@@ -504,7 +504,8 @@ do set it, it must be `v<chart-version>`.
 
    Open **Observability → Attributed Flows**. Rows show process (e.g. `envoy`,
    `sshd`) and public endpoint owner (`Gateway: git-ssh`, route, namespace).
-   The payload field is `attribution.public_endpoint`.
+   See the [SRQL attribution contract](./srql-language-reference.md#attributed_flows)
+   for the returned fields and Flow Details data source.
 
    Inventory (`in:public_endpoints`) remains the control-plane source of truth
    and drill-down surface; you should not need a second ad-hoc query for the

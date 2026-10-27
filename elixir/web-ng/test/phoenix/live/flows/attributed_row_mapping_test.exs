@@ -5,7 +5,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedRowMappingTest do
 
   @moduletag :db_free
 
-  test "StarRocks top-level pid/comm mark the row attributed without ocsf_payload" do
+  test "StarRocks attribution columns fill the flow details without ocsf_payload" do
     row =
       AttributedLive.map_srql_row(%{
         "time" => ~U[2026-01-15 12:00:00Z],
@@ -17,11 +17,17 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedRowMappingTest do
         "protocol_name" => "tcp",
         "bytes_total" => 1536,
         "packets_total" => 12,
+        "partition" => "edge-a",
+        "agent_id" => "agent-example-01",
         "pid" => 1234,
+        "uid" => 101,
         "comm" => "nginx",
         "cmdline" => "/usr/sbin/nginx args:sha256:31f0e4c8",
+        "container_id" => "c0ffee0123456789",
         "attribution_status" => "attributed",
-        "workload_identity" => ~s({"pod_namespace":"default","pod_name":"nginx-pod","context_name":"demo-context"})
+        "workload_identity" => ~s({"pod_namespace":"default","pod_name":"nginx-pod","context_name":"demo-context"}),
+        "public_endpoint" =>
+          ~s({"namespace":"web","service_name":"storefront","exposure_class":"LoadBalancer","route_name":"storefront-route"})
       })
 
     assert row.attributed?
@@ -33,29 +39,14 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedRowMappingTest do
     assert row.pod_namespace == "default"
     assert row.pod_name == "nginx-pod"
     assert row.context_name == "demo-context"
-  end
-
-  test "CNPG ocsf_payload attribution remains the fallback" do
-    row =
-      AttributedLive.map_srql_row(%{
-        "time" => ~U[2026-01-15 12:00:00Z],
-        "src_endpoint_ip" => "192.0.2.11",
-        "dst_endpoint_ip" => "198.51.100.21",
-        "protocol_num" => 17,
-        "bytes_total" => 2048,
-        "ocsf_payload" => %{
-          "attribution" => %{
-            "pid" => "2222",
-            "comm" => "dns-client",
-            "redacted_cmdline" => "/usr/bin/dig args:sha256:765d0bcf"
-          }
-        }
-      })
-
-    assert row.attributed?
-    assert row.pid == 2222
-    assert row.comm == "dns-client"
-    assert row.cmdline == "/usr/bin/dig args:sha256:765d0bcf"
+    assert row.agent_id == "agent-example-01"
+    assert row.partition == "edge-a"
+    assert row.uid == 101
+    assert row.container_id == "c0ffee0123456789"
+    assert row.public_endpoint_service == "storefront"
+    assert row.public_endpoint_class == "LoadBalancer"
+    assert row.public_endpoint_namespace == "web"
+    assert row.public_endpoint_route == "storefront-route"
   end
 
   test "rows without pid stay unmatched" do
