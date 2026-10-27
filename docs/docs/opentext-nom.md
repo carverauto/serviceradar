@@ -14,7 +14,7 @@ plugin as the `opentext-nom` discovery source.
 
 OpenText Network Automation and NNMi authenticate with a **service-account
 username and password**. They do not issue API keys. That password belongs on
-**Settings -> Networks -> Credential Rules**, not on plugin-package approval
+**Settings -> System -> Security -> Credentials and Rules**, not on plugin-package approval
 and not on **Assign to Agent**.
 
 The general credential model is in [Credential Management](./credentials.md).
@@ -27,7 +27,7 @@ This is the step operators miss.
 | --- | --- |
 | **Admin -> Plugin Packages** | Import and **approve** the signed package. That only publishes the credential profile and the form schema. It never takes a password. |
 | **Admin -> Plugin Packages -> Assign to Agent** | **Do not use this** for OpenText NOM. The form still exists for other plugins. For this package it is the wrong path: there is nowhere to put the service account, and a hand-made assignment is not what the daily schedule binds to. |
-| **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`) | Create the service-account **credential**, then a **rule**. The rule's **Scope Value** is the agent that runs the Wasm module. Saving the rule creates the assignment and the producer schedule. |
+| **Settings -> System -> Security -> Credentials and Rules** (`/settings/networks/credentials`) | Create the service-account **credential**, then a **rule**. The rule's **Scope Value** is the agent that runs the Wasm module. Saving the rule creates the assignment and the producer schedule. |
 
 After the rule saves, open **Consumers** on that row. You should see a
 policy-owned assignment for `opentext-nom-inventory` on the agent you picked.
@@ -135,7 +135,7 @@ it.
 You need `settings.credentials.manage`.
 
 1. Import and approve `opentext-nom-inventory` under **Admin -> Plugin Packages**.
-2. Open **Settings -> Networks -> Credential Rules**
+2. Open **Settings -> System -> Security -> Credentials and Rules**
    (`/settings/networks/credentials`).
 3. **New Credential -> OpenText NOM · Username and password**.
 4. Name it for the environment (`nom-prod-svc`, not `opentext`).

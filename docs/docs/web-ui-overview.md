@@ -95,35 +95,56 @@ platform. Use **Search views** in the sidebar or **Ctrl+K** to find a page or
 tab. Both searches include descriptions and require every typed word to match,
 in any order.
 
-Common sections include:
+Settings has three categories, shown as tabs at the top. Each one is a tree of
+groups:
 
-- **Auth / Users** — manage users (`/settings/auth/users`), authentication
-  providers (`/settings/authentication`), and RBAC policy profiles
-  (`/settings/auth/rbac`). See [Authentication](./auth-configuration.md) and
-  [Roles & Permissions](./rbac-and-roles.md).
-- **Networks** — sweep profiles (`/settings/networks`), visibility profiles
-  (`/settings/networks/visibility-profiles`), discovery jobs, device
-  enrichment, inventory cleanup (`/settings/networks/inventory-cleanup`),
-  credential rules, remote-access host keys and desktop targets,
-  BMP, MTR profiles, field surveys, integrations, prefix tags, and threat
-  intel. See [Network Sweeps](./network-sweeps.md) and
-  [Visibility Profiles](./visibility-profiles.md).
-- **Flows** — NetFlow directionality plus GeoIP / ipinfo enrichment
-  (`/settings/flows`).
-- **SNMP / Host Health** — SNMP profiles (`/settings/snmp`) and Sysmon host
-  metrics (`/settings/sysmon`).
-- **Mail** — deployment-wide outbound email (`/settings/mail`). SMTP relay,
-  From address, credentials. See [Outbound Mail](./outbound-mail.md).
-- **Rules** — Zen log normalization, event promotion, and alerts
-  (`/settings/rules`). See the [Rule Builder](./rule-builder.md).
-- **Notifications** — channels, routes, escalation, and the Delivery Log
-  (`/settings/notifications`). Start with the
-  [Notifications Quickstart](./notification-quickstart.md).
-- **Agents** — deploy (`/settings/agents/deploy`), releases, plugins manager,
-  and native add-ons catalog/fleet.
-- **API credentials & CLI sessions** — API keys for programmatic access and
-  management of `srctl` device sessions.
-- **Audit** — version history, the security-event stream, and auth lockouts.
+- **System**
+  - **Platform**: Cluster Status, Jobs, Data retention, Endpoint Inventory, and
+    Mail (`/settings/mail`), the deployment-wide outbound email. See
+    [Outbound Mail](./outbound-mail.md).
+  - **Security**, split into four sections:
+    - **Users & Access**: users (`/settings/auth/users`), user groups,
+      authentication (`/settings/authentication`), authorization mappings, the
+      RBAC policy editor (`/settings/auth/rbac`), CLI sessions and CLI auth
+      policy, and the audit trail, lockouts and change history. See
+      [Authentication](./auth-configuration.md) and
+      [Roles & Permissions](./rbac-and-roles.md).
+    - **Credentials**: API credentials, MCP sessions, and Credentials and
+      Rules (`/settings/networks/credentials`). See
+      [Credentials](./credentials.md).
+    - **Remote Access**: Session Recordings, Host Keys and Desktop Targets.
+      See [Remote Access](./remote-access.md).
+    - **Threat Intelligence**: Threat Intel
+      (`/settings/networks/threat-intel`) and Vulnerability Feeds
+      (`/settings/security/vulnerability-feeds`).
+  - **Alerts**: Rules (`/settings/rules`; see the
+    [Rule Builder](./rule-builder.md)), Anomaly Detection, and Notifications
+    (`/settings/notifications`; start with the
+    [Notifications Quickstart](./notification-quickstart.md)).
+  - **Dashboards**: Dashboard Packages and the FieldSurvey dashboard playlist.
+  - **Personal**: your Profile (`/settings/profile`). It opens from the
+    account menu rather than the tree.
+- **Network Services**
+  - **Discovery**: sweep, visibility and SNMP profiles (`/settings/networks`,
+    `/settings/networks/visibility-profiles`, `/settings/snmp`), Discovery
+    Jobs, Device Enrichment, Device Hostnames, Availability Sources, Composite
+    Checks, and Inventory Cleanup (`/settings/networks/inventory-cleanup`). See
+    [Network Sweeps](./network-sweeps.md) and
+    [Visibility Profiles](./visibility-profiles.md).
+  - **Services**: Network Flows (`/settings/flows`; NetFlow directionality
+    plus GeoIP / ipinfo enrichment), BGP / BMP, MTR, Integrations, and Prefix
+    Tags.
+- **Edge Ops**
+  - **Agents**: Agent Releases, Agent Deploy (`/settings/agents/deploy`), and
+    Edge Onboarding.
+  - **Add-ons**: the native add-ons catalog and fleet, and the plugins manager.
+  - **Fleet Health**: Host Health (`/settings/sysmon`).
+  - **Sites & Collectors**: Edge Sites, Data Collectors, and Telemetry
+    Onboarding.
+  - **Automation**: Ansible.
+
+Moving a page between groups never changes its URL, so bookmarks and links keep
+working.
 
 For a full hosted SaaS path (control plane + product UI), see the
 [Cloud Quickstart](./cloud-quickstart.md). For agent install only, see

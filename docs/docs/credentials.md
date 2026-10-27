@@ -6,8 +6,8 @@ title: Credential Management
 
 Every integration credential ServiceRadar holds lives in the database, encrypted,
 and reaches a plugin only as a short-lived scoped grant. There is one place to
-put it: **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`),
-under the Settings **Discovery** group. Managing anything on that page requires the
+put it: **Settings -> System -> Security -> Credentials and Rules** (`/settings/networks/credentials`),
+under **System -> Security -> Credentials**. Managing anything on that page requires the
 `settings.credentials.manage` permission.
 
 No integration credential is read from an environment variable, a Kubernetes

@@ -10,7 +10,7 @@ ServiceRadar talks to UniFi Protect through two first-party Wasm plugins:
 - `unifi-protect-camera-stream` - live media relay
 
 Credentials never go on the plugin assignment form. Create a credential and a
-credential rule under **Settings -> Networks -> Credential Rules**
+credential rule under **Settings -> System -> Security -> Credentials and Rules**
 (`/settings/networks/credentials`), then assign the plugin to an agent that rule
 covers. The general model -- credentials, rules, scopes, TLS policy, and how a
 rule reaches a plugin -- is in [Credential Management](./credentials.md).
@@ -52,7 +52,7 @@ matches `allowed_domains: ["*"]`. First release containing the declaration:
 
 1. In UniFi OS open **Settings -> Control Plane -> Integrations** and create an
    API key. API key is preferred over a local admin password.
-2. In ServiceRadar open **Settings -> Networks -> Credential Rules**
+2. In ServiceRadar open **Settings -> System -> Security -> Credentials and Rules**
    (`/settings/networks/credentials`).
 3. **New Credential -> UniFi Protect - API key**. Name it and paste the key. The
    provider and auth method are fixed by the menu entry you pick.

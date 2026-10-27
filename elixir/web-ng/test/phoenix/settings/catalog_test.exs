@@ -563,6 +563,21 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       end
     end
 
+    test "each subgroup renders as one section of its parent-group" do
+      # nav_tree/2 chunks a group's views by subgroup in :order, so a view whose
+      # order falls inside another subgroup's range splits that subgroup in two.
+      for {group, views} <- Enum.group_by(Catalog.views(), & &1.parent_group) do
+        runs =
+          views
+          |> Enum.sort_by(& &1.order)
+          |> Enum.chunk_by(& &1.subgroup)
+          |> Enum.map(fn [view | _] -> view.subgroup end)
+
+        assert runs == Enum.uniq(runs),
+               "parent_group #{inspect(group)} splits a subgroup into several sections: #{inspect(runs)}"
+      end
+    end
+
     test "siblings/2 returns the active view's parent-group peers" do
       scope = %Scope{permissions: MapSet.new(["settings.audit.view"])}
       sibling_ids = scope |> Catalog.siblings(Catalog.view(:audit_trail)) |> Enum.map(& &1.id)

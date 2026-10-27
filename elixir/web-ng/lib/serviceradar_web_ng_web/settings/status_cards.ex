@@ -56,9 +56,25 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   def for_view(%{} = view, scope), do: view |> context_for() |> cards() |> filter_cards(scope)
   def for_view(_, _scope), do: []
 
+  # Pages the navigation regroup moved to another parent-group keep the strip
+  # they showed before the move: the regroup changed where a page is listed, not
+  # what its page shows.
+  @moved_view_contexts %{
+    credential_rules: :network,
+    threat_intel: :network,
+    vulnerability_feeds: :network,
+    desktop_targets: :network,
+    field_survey: :network,
+    mail: :alerts,
+    endpoint_inventory: :edge,
+    profile: :users
+  }
+
   # Resolve a card-set context from the view. Audit-flavoured views get an audit
-  # set; otherwise resolve by parent-group, then by category.
+  # set, moved views keep their pre-regroup set; otherwise resolve by
+  # parent-group, then by category.
   defp context_for(%{id: id}) when id in [:audit_trail, :lockouts, :history], do: :audit
+  defp context_for(%{id: id}) when is_map_key(@moved_view_contexts, id), do: Map.fetch!(@moved_view_contexts, id)
   defp context_for(%{parent_group: :sys_cluster}), do: :cluster
   defp context_for(%{parent_group: :sys_security}), do: :users
   defp context_for(%{parent_group: :sys_alerts}), do: :alerts

@@ -50,7 +50,7 @@ profiles, discovery jobs, plugins) is delivered by the gateway, not stored here.
 `remote_access_known_hosts_file` is **deprecated**. It is still accepted for
 compatibility with older rendered ConfigMaps but no longer has any effect.
 Remote-access host keys are managed in the Web UI under
-**Settings → Networks → Host Keys**.
+**Settings → System → Security → Host Keys**.
 :::
 
 ## Agent check types

@@ -462,7 +462,7 @@ The plugin lifecycle is operator-facing and gated by an approval step:
 declares `producer_schedules` and a credential profile with
 `provisioning.mode: producer_schedule` (OpenText NOM today) is **not** enabled
 from **Assign to Agent**. Import and approve it, then create the service-account
-credential and rule under **Settings -> Networks -> Credential Rules**. The
+credential and rule under **Settings -> System -> Security -> Credentials and Rules**. The
 rule's Scope Value is the agent that runs the Wasm module; saving the rule
 creates the assignment. See [OpenText NOM Inventory](./opentext-nom.md).
 
@@ -754,7 +754,7 @@ The bucket is discard-new: once it reaches `PLUGIN_STORAGE_JS_MAX_BUCKET_BYTES` 
 
 ### AlienVault OTX Threat Intel
 
-ServiceRadar ships a first-party `alienvault-otx-threat-intel` Wasm plugin for edge-side OTX collection. Use **Settings -> Networks -> Threat Intel** to assign the approved package to an agent, set the OTX base URL, page size, timeout, and a secret reference for the API key. The key is used by the plugin through the normal secret-ref flow and is not displayed back in the UI. The edge plugin needs outbound HTTPS egress to the configured OTX host, normally `otx.alienvault.com:443`.
+ServiceRadar ships a first-party `alienvault-otx-threat-intel` Wasm plugin for edge-side OTX collection. Use **Settings -> System -> Security -> Threat Intel** to assign the approved package to an agent, set the OTX base URL, page size, timeout, and a secret reference for the API key. The key is used by the plugin through the normal secret-ref flow and is not displayed back in the UI. The edge plugin needs outbound HTTPS egress to the configured OTX host, normally `otx.alienvault.com:443`.
 
 The collector emits each accepted OTX page immediately as a separate plugin-result chunk. Submission waits for admission to the agent's bounded result queue before the plugin advances, while the gateway can forward admitted chunks as the Wasm invocation fetches later pages. The collector therefore does not assemble the full subscribed corpus in memory or silently drop a page under queue pressure. Core upserts each accepted page in transactional batches and advances the edge cursor only after persistence succeeds; a failed batch leaves the contiguous cursor safe for an idempotent retry.
 
@@ -762,7 +762,7 @@ Page size, pages per invocation, request timeout, retry attempts, the pull-wide 
 
 There is no separate `Max IOCs` completeness cap. Legacy `max_iocs`, `max_indicators`, and `otx_max_indicators` values are accepted and ignored. Assignment edits preserve unrelated configuration while removing the obsolete keys. The legacy database column remains inert for rollback compatibility during this release window and can be removed by a later cleanup migration after older supported releases no longer read it.
 
-Core-hosted OTX sync polls from the control plane when **Settings -> Networks -> Threat Intel** has OTX enabled, **Execution Mode** set to **Core Worker**, and a **Core OTX credential** selected. Create or rotate an **AlienVault OTX (core)** API token in **Settings -> Networks -> Credentials**. The singleton feed supplies the scope; this core-owned descriptor does not provision device-query rules or edge assignments. The saved reference has a restrictive foreign key, appears in credential usage with a link back to Threat Intel settings, and prevents deletion while selected.
+Core-hosted OTX sync polls from the control plane when **Settings -> System -> Security -> Threat Intel** has OTX enabled, **Execution Mode** set to **Core Worker**, and a **Core OTX credential** selected. Create or rotate an **AlienVault OTX (core)** API token in **Settings -> System -> Security -> Credentials and Rules**. The singleton feed supplies the scope; this core-owned descriptor does not provision device-query rules or edge assignments. The saved reference has a restrictive foreign key, appears in credential usage with a link back to Threat Intel settings, and prevents deletion while selected.
 
 Upgrades move a previously saved OTX key into the canonical CNPG credential inventory without key re-entry. The migration copies encrypted scalar material inside CNPG and clears the legacy settings copy; it never prints or decrypts the key. The worker resolves its token through a persisted, audited broker grant restricted to GET requests to `otx.alienvault.com:443`. OTX API-key environment and file secrets are no longer consumed. The core endpoint is `https://otx.alienvault.com`; runtime settings can tune page size, timeout, retries, backoff, partition and the initial modified-since cursor without carrying authentication.
 

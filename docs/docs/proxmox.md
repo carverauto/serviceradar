@@ -15,7 +15,7 @@ Use one of these credential modes per deployment.
 This is the default mode for centrally managed deployments.
 
 1. Create a Proxmox API token in PVE for a read-only service account.
-2. In ServiceRadar, open **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`).
+2. In ServiceRadar, open **Settings -> System -> Security -> Credentials and Rules** (`/settings/networks/credentials`).
 3. **New Credential -> Proxmox VE - API token**, with the token user, realm, token ID, and token secret.
 4. Create a credential rule with:
    - Provider: `proxmox`
@@ -423,7 +423,7 @@ Use this mode when storing the console key in the ServiceRadar control plane is 
 1. Create an encrypted credential for the console key with **New Credential -> Proxmox VE - SSH private key**:
    - Username: the PVE shell account, for example `serviceradar-console`
    - Private key and optional passphrase
-2. Create a credential rule in **Settings -> Networks -> Credential Rules**:
+2. Create a credential rule in **Settings -> System -> Security -> Credentials and Rules**:
    - Provider: `proxmox`
    - Auth method: `ssh_private_key`
    - Purpose: `console_access`

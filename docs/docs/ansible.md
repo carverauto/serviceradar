@@ -152,7 +152,7 @@ credential rule. AWX will not appear in the **New Rule** dropdown, and the AWX
 bridge does not read one. See
 [Credential Management](./credentials.md) for the general model.
 
-In the ServiceRadar web UI, go to **Settings -> Networks -> Credential Rules**
+In the ServiceRadar web UI, go to **Settings -> System -> Security -> Credentials and Rules**
 (`/settings/networks/credentials`), click **New Credential**, pick
 `AWX / AAP - API token`, and create:
 
@@ -408,7 +408,7 @@ Services page keeps the last failed card are in
 
 ### Status flips to `:auth_failed`
 
-`awx.ping` reads the version from the unauthenticated `GET /api/v2/ping/`, then makes an authenticated `GET /api/v2/me/` with the sync credential. HTTP 401 or 403 from AWX sets `:auth_failed`; network errors and 5xx responses set `:unreachable`. The token is wrong, expired, revoked, or missing scope. Check `Controller.last_health_summary`; it surfaces the operator-safe 401/403 message from the plugin. Save a new value for that credential under **Settings -> Networks -> Credential Rules** and re-trigger health by editing any field on the controller (re-save trips the health check).
+`awx.ping` reads the version from the unauthenticated `GET /api/v2/ping/`, then makes an authenticated `GET /api/v2/me/` with the sync credential. HTTP 401 or 403 from AWX sets `:auth_failed`; network errors and 5xx responses set `:unreachable`. The token is wrong, expired, revoked, or missing scope. Check `Controller.last_health_summary`; it surfaces the operator-safe 401/403 message from the plugin. Save a new value for that credential under **Settings -> System -> Security -> Credentials and Rules** and re-trigger health by editing any field on the controller (re-save trips the health check).
 
 ### No playbooks appear in `/ansible/catalog`
 

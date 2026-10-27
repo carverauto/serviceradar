@@ -10,15 +10,15 @@ https://docs.serviceradar.cloud/docs/opentext-nom
 
 ## Do not assign this plugin from Plugin Packages
 
-OpenText NOM is provisioned from **Settings -> Networks -> Credential Rules**
-(`/settings/networks/credentials`), not from **Admin -> Plugin Packages ->
+OpenText NOM is provisioned from [Credential Management](../../../../../docs/docs/credentials.md),
+not from **Admin -> Plugin Packages ->
 Assign to Agent**.
 
 | Page | Use it for |
 | --- | --- |
 | Plugin Packages | Import and approve the signed package. Approval does not take a password. |
 | Plugin Packages -> Assign to Agent | Do not use this for OpenText NOM. The agent is selected on the credential rule. |
-| Settings -> Networks -> Credential Rules | Create the service-account credential, then a rule. The rule Scope Value is the agent that runs this Wasm plugin. Saving the rule creates the assignment and the daily schedule. |
+| Credentials and Rules | Create the service-account credential, then a rule. The rule Scope Value is the agent that runs this Wasm plugin. Saving the rule creates the assignment and the daily schedule. |
 
 NA and NNMi authenticate with a service-account username and password. They do
 not issue API keys. Put that password in **New Credential -> OpenText NOM ·
@@ -258,7 +258,7 @@ and evaluates your checks against it. It never opens a session to a switch.
 ### Set it up
 
 Create a credential rule with the **OpenText NOM interface config check**
-provider (Settings -> Networks -> Credential Rules), using the same NA service
+provider in Credential Management, using the same NA service
 account and `api_url` as inventory. The rule's cadence is how often endpoints
 are checked (default hourly). Then set these advanced fields:
 

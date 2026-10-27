@@ -32,7 +32,7 @@ Each bundle contains the canonical import shape:
 ## Config
 
 Do not put passwords or API keys in the plugin assignment form. Create a UniFi
-Protect credential rule (Settings → Networks → Credentials). The rule
+Protect credential rule in [Credential Management](../../../../docs/docs/credentials.md). The rule
 materializes host and auth into the plugin. See `docs/docs/unifi-protect.md`.
 
 Runtime config after materialization looks like:

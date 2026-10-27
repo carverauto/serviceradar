@@ -25,7 +25,7 @@ security findings.
 | Flows for a live match | `in:flows threat_matched:true time:last_24h` |
 | Flows for one indicator | `in:flows threat_indicator:"198.51.100.0/24" time:last_24h` |
 | Attributed threat flows | `in:attributed_flows threat_source:alienvault_otx time:last_24h` |
-| Feed configuration | **Settings -> Networks -> Threat Intel** |
+| Feed configuration | **Settings -> System -> Security -> Threat Intel** |
 
 Dashboard **Matched IPs** is distinct live cache endpoints.
 **Indicator matches** is endpoint-to-indicator memberships, not flow
@@ -70,7 +70,7 @@ synchronous browser query.
 A retrohunt matches every active OTX IP/CIDR indicator against the flow
 endpoints retained for the **Retrohunt Window** and stores what it finds as
 historical evidence. It does not run on its own by default: press
-**Retrohunt Now** in **Settings -> Networks -> Threat Intel**, or set
+**Retrohunt Now** in **Settings -> System -> Security -> Threat Intel**, or set
 **Retrohunt Schedule** to daily or weekly. A scheduled run is queued one
 interval after the latest run started, and never while another retrohunt job
 is still pending. Each run re-reads the whole window, so prefer the weekly

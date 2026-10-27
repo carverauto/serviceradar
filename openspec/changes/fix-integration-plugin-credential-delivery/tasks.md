@@ -37,7 +37,7 @@
 - [ ] 6.1 Add `docs/docs/credentials.md`: secrets vs rules, purposes, scope types, priority, runtime (Auto vs SRQL), TLS policy, CA trust material, and how a rule reaches a plugin through the broker.
 - [ ] 6.2 Add per-provider setup sections: Proxmox (including obtaining and pinning the node CA), UniFi Protect, Axis, AWX/AAP, NetBox, VulnCheck, SNMP.
 - [ ] 6.3 Correct `netbox.md` (token no longer in assignment params), `unifi-protect.md` (TLS policy now renders; controller reachability requires `allowed_networks`), and `ansible.md` (AWX is `credential_only`, not a rule).
-- [ ] 6.4 Normalise the page name and route across all pages to "Settings -> Networks -> Credential Rules" at `/settings/networks/credentials`.
+- [ ] 6.4 Replace stale credential navigation paths with pointers to [Credential Management](../../../docs/docs/credentials.md), which owns the page name and route.
 - [ ] 6.5 Add a troubleshooting section mapping each observed symptom to its cause: `0 cameras, 0 streams`, `Invalid TLS policy`, `api_token is required`, `has no sources configured`, `proxmox_tls_verification_required`.
 - [ ] 6.6 Add the new page to the docs sidebar.
 
