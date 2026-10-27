@@ -311,9 +311,9 @@ defmodule ServiceRadarWebNGWeb.Api.ApiEndpointIntegrationTest do
 
     @tag :web_ng_shared_fixture_db
     test "status filter narrows by canonical availability state, unknown included", ctx do
-      seed_devices(2, %{is_available: true})
-      seed_devices(3, %{is_available: false})
-      seed_devices(1, %{is_available: nil})
+      seed_devices(2, %{is_available: true, availability_state: "available"})
+      seed_devices(3, %{is_available: false, availability_state: "unavailable"})
+      seed_devices(1, %{is_available: nil, availability_state: "unknown"})
 
       body = json_response(get(authed(ctx), ~p"/api/devices?#{[status: "offline"]}"), 200)
       assert length(body["data"]) == 3
