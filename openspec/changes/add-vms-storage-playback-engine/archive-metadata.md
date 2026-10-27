@@ -69,6 +69,7 @@ must be deleted and re-queried by teardown.
 Run remote unit/quality/registration checks, then require published-head guarded
 Core and Web suites including connection observation, teardown and generation
 lease release. Compilation alone does not complete this contract. This slice
-does not close task 1.5: [archive ranges](archive-reads.md) have their own
-checkpoint; provisional local playback, bounded HLS/timeline windows and the
+does not close task 1.5: [archive bytes](archive-reads.md) and
+[bounded HLS playlists](archive-playlists.md) have their own contracts and
+validation owners. Provisional local playback, timeline discovery and the
 player remain separate work.
