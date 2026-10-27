@@ -1751,6 +1751,8 @@ if config_env() == :prod do
            {"* * * * *", ServiceRadar.Inventory.ExposureDeviceRefreshWorker, queue: :maintenance},
            {"* * * * *", ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker,
             queue: :maintenance},
+           {"17 5 * * *", ServiceRadar.EventWriter.ExposureTerminalCompactionWorker,
+            queue: :maintenance},
            {"17 * * * *", ServiceRadar.Inventory.ExposurePublicationPrepareWorker,
             queue: :maintenance},
            {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker,

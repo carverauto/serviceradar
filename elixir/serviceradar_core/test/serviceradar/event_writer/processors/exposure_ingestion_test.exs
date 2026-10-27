@@ -112,6 +112,7 @@ defmodule ServiceRadar.EventWriter.Processors.ExposureIngestionTest do
              "pkg_ord" => 7,
              "pkgver_ord" => 103,
              "state" => 1,
+             "payload_compacted" => false,
              "source_scope" => "host",
              "severity_rank" => 4,
              "cvss_score" => 9.4,

@@ -25,7 +25,7 @@ and labels are unique within a database. Fresh CNPG runs can repeat source
 sequences and deterministic load labels, so empty tables do not establish fresh
 isolation. The coordinator must provision a new unique database for each run.
 Provision the exposure tables using the actual
-0032, 0033 and 0034 warehouse migrations with the scratch database qualifier.
+0032 through 0035 warehouse migrations with the scratch database qualifier.
 The test does not create databases or run migrations. All five exposure tables
 must initially be empty. Standard SERVICERADAR_STARROCKS_* startup variables
 must remain unset/disabled: the test starts its own MySQL pool and temporarily
@@ -79,6 +79,21 @@ It asserts:
    retained JetStream messages and real Stream Load in both orders. MySQL must
    retain resolved sequence 41 before finalization, and accept sequence 42 after
    completion without reopening the generation.
+10. Daily terminal compaction excludes recent resolutions and the exact cutoff,
+    clears eligible resolved and retired payloads, and retains permanent markers.
+    The durable cutoff advances to simulate age without waiting seven days.
+    Repair verification accepts canonical compaction and rejects altered
+    transaction markers or noncanonical payload. An older active delivery loses;
+    a snapshot replays the same terminal publication without creating a repair.
+    A delayed compaction load loses to a newer active transition.
+11. A legacy repair obligation defers compaction of 501 synthetic facts. After
+    removing that test-owned obligation, the first 500-row page succeeds. Invalid
+    synthetic HTTP credentials cause the warehouse to return an actual HTTP 401
+    for the next page. The successful-page cursor and original cutoff remain
+    durable, and restoring the credentials lets retry clear the final row.
+
+The separate controlled-response test covers filtered-load cursor recovery;
+the live HTTP 401 case does not establish real warehouse filtered-row behavior.
 
 The finite paging fixture is a functional boundary check, not fleet throughput
 proof. Task 1.6 and the <=15-minute fleet-scale gate remain open. These assertions

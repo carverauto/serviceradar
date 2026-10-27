@@ -130,32 +130,10 @@ Alternatives considered:
 
 ### Decision 2: A Primary Key fact table keyed on the assessment identity
 
-```sql
-CREATE TABLE IF NOT EXISTS serviceradar.exposure_facts (
-  device_ord          BIGINT    NOT NULL,
-  cve_ord             BIGINT    NOT NULL,
-  pkg_ord             BIGINT    NOT NULL,   -- version-independent package identity
-  pkgver_ord          BIGINT    NOT NULL,   -- identity + installed version
-  state               TINYINT   NOT NULL,   -- 1 active (actionable), 0 resolved, 2 retired
-  source_scope        VARCHAR(32),
-  severity_rank       TINYINT,              -- 0 none, 1 low, 2 medium, 3 high, 4 critical
-  cvss_score          DECIMAL(3,1),
-  kev                 BOOLEAN,
-  exploit_available   BOOLEAN,
-  fix_available       BOOLEAN,
-  first_exposed_at    DATETIME,
-  resolved_at         DATETIME,
-  updated_at          DATETIME  NOT NULL,
-  transition_seq      BIGINT    NOT NULL,
-  transition_xid      BIGINT    NOT NULL,   -- CNPG xact id of the producing transaction
-  snapshot_generation BIGINT    NOT NULL DEFAULT "0",
-  device_lifecycle_seq BIGINT   NOT NULL DEFAULT "0"  -- appended by migration 0034; Decision 23
-)
-PRIMARY KEY (device_ord, cve_ord, pkg_ord)
-DISTRIBUTED BY HASH(device_ord) BUCKETS 16
-ORDER BY (cve_ord, device_ord)
-PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
-```
+The authoritative schema is defined by warehouse migrations
+[0032](../../../elixir/serviceradar_core/priv/starrocks/0032_exposure_facts.sql),
+[0034](../../../elixir/serviceradar_core/priv/starrocks/0034_exposure_device_lifecycle.sql)
+and [0035](../../../elixir/serviceradar_core/priv/starrocks/0035_exposure_terminal_compaction.sql).
 
 - **The key follows the assessment identity.** The CNPG unique index is `(device_uid,
   package_identity_key, cve_id)`, and the package identity is version-independent. The
@@ -172,9 +150,10 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
   too: each draws a **new** `transition_seq`, greater than the key's last one, and carries
   an explicit terminal state (`resolved` or `retired`). A terminal transition never reuses
   the key's last sequence.
-  - Every transition carries the complete after-image of every fact column except
-    `snapshot_generation`, never only the changed fields. A greater `transition_seq`
-    applies the after-image; an equal sequence may replay the identical after-image.
+  - Every transition carries the complete after-image of every producer-owned fact
+    column, never only the changed fields. Warehouse-owned `snapshot_generation`
+    and `payload_compacted` are not part of the producer after-image. A greater
+    `transition_seq` applies the after-image; an equal sequence may replay the identical after-image.
     Changed content requires a new sequence at the producer, serialized on the full fact
     key (Decision 20), with the assessment row locked when present.
     An older sequence is rejected. Live Stream Load uses row-mode partial updates with
@@ -186,11 +165,8 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
   - A resolution is written as `state = 0` and the row stays as a tombstone carrying its
     `transition_seq`.
   - **The row is the fact's sequence watermark, and it is kept permanently.** A daily
-    compaction clears only the payload columns of tombstones resolved more than 7 days ago,
-    leaving the key, `state = 0`, `transition_seq`, `transition_xid` and
-    `snapshot_generation`. An identical terminal replay may restore cleared payload,
-    which the next compaction can clear again; it cannot reactivate the fact. Correctness
-    therefore does not depend on any delivery horizon: an older active transition delivered
+    compaction follows the terminal payload contract in Decision 25 below.
+    Correctness does not depend on any delivery horizon: an older active transition delivered
     at any later time still loses to the watermark. Watermark rows cost about 24 bytes each
     before compression, and their number is bounded by the fact keys ever seen, because the
     package identity is version-independent.
@@ -1880,8 +1856,40 @@ seven days, or status cannot be established. A subsequent valid sample within
 both bounds records recovery. Events are emitted on health state changes, not
 on every poll. This monitoring does not shorten existing retention or discard
 stored messages. It does not establish consumer delivery completeness; snapshot
-and reconciliation readiness retain their separate proof requirements. Payload
-compaction and the fleet-scale completion gates remain open.
+and reconciliation readiness retain their separate proof requirements.
+
+**Terminal payload compaction (task 1.7).** The daily EventWriter maintenance job
+uses a fixed seven-day cutoff and a durable keyset cursor in its Oban control
+record. Each invocation handles at most twenty pages of 500 facts, then resumes.
+Only resolved or retired rows strictly older than the cutoff qualify. Migration
+0035 adds a warehouse-only `payload_compacted` flag. Compaction clears package
+version, source scope, severity, score, flags and first-exposure time; package
+version uses zero because its column is non-null. It retains the fact key,
+terminal state, transition sequence and xid, device lifecycle sequence,
+resolution/update times and snapshot generation. It never deletes tombstones.
+
+Compaction uses conditional partial Stream Load with the original sequence and
+omits `snapshot_generation`. Its labels include the maintenance job and page
+content, so a later daily job can clear payload restored by identical replay.
+This is storage maintenance of already-ingested facts, not a new source
+publication. It does not create transition history or a source sequence. A load
+finishing after its worker loses the response can only clear the same terminal
+publication; a newer source transition wins in either order. Equal terminal
+replay may restore the payload. These operations commute at the logical-state
+boundary, so compaction does not add a retained delivery envelope or block live
+traffic behind a new recovery journal. A failed or filtered load does not advance
+the maintenance cursor.
+
+Snapshots recognize only the canonical cleared payload with matching permanent
+markers. New repair obligations retain both the original full-row digest and,
+for a terminal publication, the digest of its canonical compacted representation.
+This permits confirmation of the assigned target even if newer source content
+is queued. Compaction defers while any legacy fact obligation lacks that second
+proof field, preserving its full-row evidence until it settles. Legacy
+verification can also recheck the retained current source publication. Malformed
+cleared payload and mismatched markers remain repair obligations. A successful snapshot can
+restore terminal payload and set its generation without allocating a new source
+sequence. The fleet-scale completion gates remain open pending measurement.
 
 This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequence,
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and

@@ -18,6 +18,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
           | :flow_attribution_observations
           | :exposure_facts
           | :exposure_snapshot_facts
+          | :exposure_compacted_facts
           | :exposure_transitions_log
           | :exposure_cve_dim
           | :exposure_package_dim
@@ -139,15 +140,23 @@ defmodule ServiceRadar.Analytics.StarRocks.Rows do
   @doc "Columns supplied by a live assessment transition, excluding the snapshot marker."
   def exposure_fact_columns, do: @exposure_fact_columns
 
+  @doc "Fact load columns, including the warehouse-only compaction marker."
+  def exposure_fact_load_columns, do: @exposure_fact_columns ++ ["payload_compacted"]
+
   @spec encode(dataset(), [map()]) :: [map()]
   def encode(dataset, rows) when is_list(rows) do
     Enum.map(rows, &encode_row(dataset, &1))
   end
 
-  defp encode_row(:exposure_facts, row), do: Map.take(row, @exposure_fact_columns)
+  defp encode_row(dataset, row) when dataset in [:exposure_facts, :exposure_compacted_facts] do
+    row |> Map.take(exposure_fact_load_columns()) |> Map.put_new("payload_compacted", false)
+  end
 
-  defp encode_row(:exposure_snapshot_facts, row),
-    do: Map.take(row, @exposure_fact_columns ++ ["snapshot_generation"])
+  defp encode_row(:exposure_snapshot_facts, row) do
+    row
+    |> Map.take(exposure_fact_load_columns() ++ ["snapshot_generation"])
+    |> Map.put_new("payload_compacted", false)
+  end
 
   defp encode_row(dataset, row)
        when dataset in [

@@ -67,7 +67,7 @@ defmodule ServiceRadar.EventWriter.ExposureLifecycle do
   defp retire_page(_state, _locked, 0, _opts), do: {:error, :exposure_retirement_incomplete}
 
   defp retire_page(state, locked, pages, opts) do
-    columns = Enum.join(Rows.exposure_fact_columns(), ",")
+    columns = Enum.join(Rows.exposure_fact_load_columns(), ",")
 
     sql = """
     SELECT #{columns} FROM #{Env.table("exposure_facts")}

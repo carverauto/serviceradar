@@ -1289,6 +1289,7 @@ if config_env() == :prod do
       # runtime.exs and config.exs.
       {"* * * * *", ServiceRadar.Inventory.ExposureDeviceRefreshWorker, queue: :maintenance},
       {"* * * * *", ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker, queue: :maintenance},
+      {"17 5 * * *", ServiceRadar.EventWriter.ExposureTerminalCompactionWorker, queue: :maintenance},
       {"17 * * * *", ServiceRadar.Inventory.ExposurePublicationPrepareWorker, queue: :maintenance},
       {"7 4 * * *", ServiceRadar.Inventory.ExposureDimensionRefreshWorker, queue: :maintenance},
       {"23 3 * * *", SecurityEventsRetentionWorker, queue: :maintenance},

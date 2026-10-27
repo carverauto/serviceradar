@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   import Ecto.Query
 
   alias ServiceRadar.Analytics.StarRocks
+  alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.Analytics.StarRocks.MySQL
   alias ServiceRadar.EventWriter.ExposureDelivery
@@ -19,6 +20,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Snapshot
   alias ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker
   alias ServiceRadar.EventWriter.ExposureSnapshotWarehouse, as: SnapshotWarehouse
+  alias ServiceRadar.EventWriter.ExposureTerminalCompactionWorker
   alias ServiceRadar.EventWriter.Processors.ExposureDimensions
   alias ServiceRadar.EventWriter.Processors.ExposureSnapshots
   alias ServiceRadar.EventWriter.Processors.ExposureTransitions
@@ -105,7 +107,6 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
         args = %{"device_ord" => scope}
 
         ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
-          {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
           first = live_snapshot!(conn, args)
           assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
           assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
@@ -258,6 +259,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           live_global_readiness!(conn, ctx, scope, cve)
           live_union_paging!(conn, ctx)
           live_delivery_orders!(conn, ctx)
+          live_terminal_compaction!(conn, ctx)
+          live_compaction_checkpoint!(ctx)
 
           Repo.query!(
             "UPDATE platform.exposure_reconciliation_checks SET checked_at = now() - interval '2 days' WHERE device_ord = $1",
@@ -315,15 +318,21 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   end
 
   defp live_snapshot!(conn, args) do
-    publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+    {:ok, subscription} = Gnat.sub(conn, self(), "exposure.snapshots.>")
 
     try do
-      generation = live_snapshot_messages!(conn)
-      assert :ok = Task.await(publisher, 30_000)
-      live_finalize!(generation, 20)
-      generation
+      publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+
+      try do
+        generation = live_snapshot_messages!(conn)
+        assert :ok = Task.await(publisher, 30_000)
+        live_finalize!(generation, 20)
+        generation
+      after
+        Task.shutdown(publisher, :brutal_kill)
+      end
     after
-      Task.shutdown(publisher, :brutal_kill)
+      :ok = Gnat.unsub(conn, subscription)
     end
   end
 
@@ -660,6 +669,365 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     end
   end
 
+  defp live_terminal_compaction!(conn, ctx) do
+    unique = System.unique_integer([:positive])
+    ctx = %{ctx | unique: unique, device_uid: "sr:exposure-compaction-#{unique}"}
+    cve = "EXAMPLE-TERMINAL-COMPACTION"
+    {ordinal, active, _dimensions} = reconciliation_source!(ctx, cve, false)
+    args = %{"device_ord" => ordinal}
+    first = live_snapshot!(conn, args)
+
+    update_assessment!(ctx.device_uid, cve, status: "resolved")
+    terminal = publication(ctx.device_uid, cve)
+
+    assert {:ok, {:ok, [repair]}} =
+             Repo.transaction(fn ->
+               ExposureSnapshotRepairs.publish([
+                 %{
+                   "key" => [ordinal, terminal["cve_ord"], terminal["pkg_ord"]],
+                   "source" => [ctx.device_uid, terminal["package_identity_key"], cve],
+                   "observed" => terminal["transition_seq"]
+                 }
+               ])
+             end)
+
+    terminal = publication(ctx.device_uid, cve)
+    live_transition!(conn, terminal)
+    key = repair["key"]
+    before = live_fact!(key)
+    assert before["snapshot_generation"] == first
+
+    # The normal daily cutoff leaves a recent terminal publication intact.
+    assert :ok = ExposureTerminalCompactionWorker.perform(compaction_job!(%{}))
+    assert live_fact!(key) == before
+
+    # Advance the durable cutoff as if this cycle started seven days later.
+    # Exactly seven days is excluded; one second older is eligible.
+    cutoff = NaiveDateTime.from_iso8601!(before["resolved_at"])
+    assert :ok = ExposureTerminalCompactionWorker.perform(compaction_job!(%{"cutoff" => cutoff}))
+    assert live_fact!(key) == before
+    aged = %{"cutoff" => NaiveDateTime.add(cutoff, 1, :second)}
+    assert :ok = ExposureTerminalCompactionWorker.perform(compaction_job!(aged))
+    compacted = live_fact!(key)
+
+    assert compacted["payload_compacted"] in [true, 1]
+    assert compacted["pkgver_ord"] == 0
+
+    for column <-
+          ~w(source_scope severity_rank cvss_score kev exploit_available fix_available first_exposed_at) do
+      assert is_nil(compacted[column]), column
+    end
+
+    permanent =
+      ~w(device_ord cve_ord pkg_ord state transition_seq transition_xid device_lifecycle_seq snapshot_generation resolved_at updated_at)
+
+    assert Map.take(compacted, permanent) == Map.take(before, permanent)
+    assert {:ok, []} = ExposureSnapshotRepairs.verify([repair])
+
+    # Intentional payload clearing must not conceal corrupt markers or payload.
+    assert {:ok, _} =
+             MySQL.query(
+               "UPDATE exposure_facts SET transition_xid = transition_xid + 1 WHERE device_ord = #{ordinal}"
+             )
+
+    assert {:ok, [^repair]} = ExposureSnapshotRepairs.verify([repair])
+
+    assert {:ok, _} =
+             MySQL.query(
+               "UPDATE exposure_facts SET transition_xid = #{before["transition_xid"]}, source_scope = 'synthetic-corruption' WHERE device_ord = #{ordinal}"
+             )
+
+    assert {:ok, [^repair]} = ExposureSnapshotRepairs.verify([repair])
+
+    assert {:ok, _} =
+             MySQL.query(
+               "UPDATE exposure_facts SET source_scope = NULL WHERE device_ord = #{ordinal}"
+             )
+
+    assert {:ok, []} = ExposureSnapshotRepairs.verify([repair])
+
+    # The initial active row arrived via snapshot, so this is its first live
+    # load label: a deduplicated HTTP label cannot hide a missing sequence guard.
+    live_transition!(conn, active)
+    assert live_fact!(key) == compacted
+
+    # A complete snapshot recognizes the compacted row and replays the exact
+    # terminal publication without manufacturing a fresh source sequence.
+    second = live_snapshot!(conn, args)
+    assert second > first
+    assert publication(ctx.device_uid, cve) == terminal
+    restored = live_fact!(key)
+    assert restored["state"] == 0
+    assert restored["pkgver_ord"] == terminal["pkgver_ord"]
+    assert restored["transition_seq"] == terminal["transition_seq"]
+    assert restored["snapshot_generation"] == second
+    assert restored["payload_compacted"] in [false, 0]
+
+    assert :ok = ExposureTerminalCompactionWorker.perform(compaction_job!(aged))
+    delayed = live_fact!(key)
+    assert delayed["payload_compacted"] in [true, 1]
+    assert delayed["snapshot_generation"] == second
+
+    update_assessment!(ctx.device_uid, cve, status: "active")
+    newer = publication(ctx.device_uid, cve)
+    assert newer["transition_seq"] > terminal["transition_seq"]
+    # The already-confirmed repair does not chase ordinary queued live traffic.
+    assert {:ok, []} = ExposureSnapshotRepairs.verify([repair])
+    live_transition!(conn, newer)
+    current = live_fact!(key)
+    assert current["state"] == 1
+    assert current["pkgver_ord"] == newer["pkgver_ord"]
+    assert current["snapshot_generation"] == second
+    assert current["payload_compacted"] in [false, 0]
+
+    # Finish an old compaction load after the newer live publication. The real
+    # warehouse must reject it, independently of worker cursor or HTTP labels.
+    assert {:ok, _} =
+             Destination.persist_warehouse(:exposure_compacted_facts, [delayed],
+               label: "synthetic-delayed-compaction-" <> Ecto.UUID.generate()
+             )
+
+    assert live_fact!(key) == current
+    assert :ok = ExposureTerminalCompactionWorker.perform(compaction_job!(aged))
+    assert live_fact!(key) == current
+
+    Repo.query!("UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = $1", [
+      ctx.device_uid
+    ])
+
+    [[retirement]] =
+      Repo.query!("SELECT platform.exposure_lifecycle_publication($1)", [ordinal]).rows
+
+    live_transition!(conn, retirement, 0)
+    retired = live_fact!(key)
+    assert retired["state"] == 2
+    assert retired["transition_seq"] == retirement["retired_seq"]
+
+    retired_cutoff =
+      retired["resolved_at"] |> NaiveDateTime.from_iso8601!() |> NaiveDateTime.add(1, :second)
+
+    assert :ok =
+             ExposureTerminalCompactionWorker.perform(
+               compaction_job!(%{"cutoff" => retired_cutoff})
+             )
+
+    cleared_retirement = live_fact!(key)
+    assert cleared_retirement["payload_compacted"] in [true, 1]
+    assert cleared_retirement["pkgver_ord"] == 0
+    assert Map.take(cleared_retirement, permanent) == Map.take(retired, permanent)
+  end
+
+  defp live_compaction_checkpoint!(ctx) do
+    ordinal = 4_294_967_294
+    cutoff = "2026-11-10T00:00:00"
+    initial = %{"cutoff" => cutoff, "cursor" => [ordinal, 0, 0]}
+
+    facts =
+      for cve <- 1..501 do
+        payload =
+          ctx
+          |> inflight_transition(ordinal, 41, "resolved", 1)
+          |> Map.put("cve_ord", cve)
+
+        assert {:ok, [%{fact: fact}]} =
+                 ExposureTransitions.decode([%{data: Jason.encode!(payload)}])
+
+        fact
+      end
+
+    assert {:ok, %{rows: [[0]]}} =
+             MySQL.query("SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal}")
+
+    assert {:ok, _} =
+             Destination.persist_warehouse(:exposure_facts, facts,
+               label: "synthetic-checkpoint-seed-" <> Ecto.UUID.generate()
+             )
+
+    last = live_fact!([ordinal, 501, 40])
+    job = compaction_job!(initial)
+
+    control = %{
+      "repairs" => [%{"kind" => "fact", "required" => 41, "expected" => "legacy-digest"}]
+    }
+
+    Repo.query!(
+      "INSERT INTO platform.exposure_reconciliation_checks (device_ord, status, control, inserted_at, updated_at) VALUES ($1, 'mismatch', $2, now(), now())",
+      [ordinal, control]
+    )
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+        ordinal
+      ])
+    end)
+
+    assert {:snooze, 30} = ExposureTerminalCompactionWorker.perform(job)
+    assert Repo.get!(Oban.Job, job.id).args == initial
+
+    assert {:ok, %{rows: [[501]]}} =
+             MySQL.query(
+               "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND payload_compacted = false AND pkgver_ord = 41"
+             )
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+               [ordinal]
+             )
+
+    config = Application.fetch_env!(:serviceradar_core, StarRocks)
+    handler = {__MODULE__, :compaction_checkpoint, make_ref()}
+    parent = self()
+
+    # The stop event runs synchronously after the first real load. Only the
+    # next request gets invalid credentials; the production HTTP client and
+    # the warehouse supply the actual failure response, without a mock server.
+    assert :ok =
+             :telemetry.attach(
+               handler,
+               [:serviceradar, :starrocks, :stream_load, :request, :stop],
+               fn _event, measurements, metadata, _config ->
+                 if self() == parent and metadata.dataset == :exposure_compacted_facts and
+                      measurements.rows == 500 and measurements.failures == 0 do
+                   Application.put_env(
+                     :serviceradar_core,
+                     StarRocks,
+                     Keyword.merge(config,
+                       user: "synthetic_compaction_denied",
+                       password: "synthetic-invalid-password"
+                     )
+                   )
+
+                   send(parent, {:compaction_first_page, handler})
+                 end
+               end,
+               nil
+             )
+
+    try do
+      assert {:error, {:warehouse_load, :exposure_compacted_facts, {:http_status, 401, _}}} =
+               ExposureTerminalCompactionWorker.perform(job)
+
+      assert_received {:compaction_first_page, ^handler}
+    after
+      :telemetry.detach(handler)
+      Application.put_env(:serviceradar_core, StarRocks, config)
+    end
+
+    assert Repo.get!(Oban.Job, job.id).args == %{
+             "cutoff" => cutoff,
+             "cursor" => [ordinal, 500, 40]
+           }
+
+    assert {:ok, %{rows: [[500]]}} =
+             MySQL.query(
+               "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND cve_ord <= 500 AND payload_compacted = true AND pkgver_ord = 0"
+             )
+
+    assert live_fact!([ordinal, 501, 40]) == last
+
+    # Passing the original job proves that retry reloads the durable checkpoint.
+    assert :ok = ExposureTerminalCompactionWorker.perform(job)
+
+    assert Repo.get!(Oban.Job, job.id).args == %{
+             "cutoff" => cutoff,
+             "cursor" => [ordinal, 501, 40]
+           }
+
+    assert {:ok, %{rows: [[501]]}} =
+             MySQL.query(
+               "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND payload_compacted = true AND pkgver_ord = 0"
+             )
+  end
+
+  defp live_fact!(key) do
+    assert {:ok, facts} = SnapshotWarehouse.read("fact", [key])
+    assert is_map(facts[key])
+    facts[key]
+  end
+
+  defp compaction_job!(args) do
+    args =
+      Map.new(args, fn
+        {key, %NaiveDateTime{} = value} -> {key, NaiveDateTime.to_iso8601(value)}
+        entry -> entry
+      end)
+
+    job = Repo.insert!(ExposureTerminalCompactionWorker.new(args))
+    on_exit(fn -> Repo.delete_all(from(j in Oban.Job, where: j.id == ^job.id)) end)
+    job
+  end
+
+  @tag sandbox: :unboxed
+  test "terminal compaction resumes after a filtered load without advancing the failed page",
+       ctx do
+    snapshot_http!()
+
+    facts =
+      for ordinal <- [4_294_964_001, 4_294_964_002] do
+        payload = inflight_transition(ctx, ordinal, 41, "resolved", 1)
+
+        assert {:ok, [%{fact: fact}]} =
+                 ExposureTransitions.decode([%{data: Jason.encode!(payload)}])
+
+        fact
+      end
+
+    [first, second] = facts
+    {:ok, pages} = Agent.start_link(fn -> [[first], [second], [second], []] end)
+    on_exit(fn -> if Process.alive?(pages), do: Agent.stop(pages) end)
+
+    snapshot_query!(fn _sql ->
+      rows = Agent.get_and_update(pages, fn [page | rest] -> {page, rest} end)
+      warehouse_rows(rows)
+    end)
+
+    job = compaction_job!(%{"cutoff" => ~N[2026-11-10 00:00:00]})
+
+    # An upgrade may inherit an unfinished proof that predates compaction.
+    ordinal = 4_294_964_001
+
+    control = %{
+      "repairs" => [%{"kind" => "fact", "required" => 41, "expected" => "legacy-digest"}]
+    }
+
+    Repo.query!(
+      "INSERT INTO platform.exposure_reconciliation_checks (device_ord, status, control, inserted_at, updated_at) VALUES ($1, 'mismatch', $2, now(), now())",
+      [ordinal, control]
+    )
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+        ordinal
+      ])
+    end)
+
+    assert {:snooze, 30} = ExposureTerminalCompactionWorker.perform(job)
+    assert Repo.get!(Oban.Job, job.id).args["cursor"] == nil
+    refute_received {:load, _, _, _, _}
+
+    Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+      ordinal
+    ])
+
+    task = Task.async(fn -> ExposureTerminalCompactionWorker.perform(job) end)
+    assert_receive {:load, http, _, first_headers, [_]}, 5_000
+    send(http, :commit)
+    assert_receive {:load, http, _, failed_headers, [_]}, 5_000
+    send(http, :filtered)
+    assert {:error, {:warehouse_load, :exposure_compacted_facts, _}} = Task.await(task, 10_000)
+    assert Repo.get!(Oban.Job, job.id).args["cursor"] == [4_294_964_001, 20_240_000_040, 40]
+
+    retry = Task.async(fn -> ExposureTerminalCompactionWorker.perform(job) end)
+    assert_receive {:load, http, _, retry_headers, [_]}, 5_000
+    assert retry_headers["label"] == failed_headers["label"]
+    refute retry_headers["label"] == first_headers["label"]
+    send(http, :commit)
+    assert :ok = Task.await(retry, 10_000)
+    assert Repo.get!(Oban.Job, job.id).args["cursor"] == [4_294_964_002, 20_240_000_040, 40]
+    assert Agent.get(pages, & &1) == []
+  end
+
   defp live_snapshot_input!([message], conn) do
     position = message.metadata.jetstream_ack.stream_sequence
 
@@ -671,7 +1039,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     ExposureSnapshots.process_batch([%{message | data: Base.decode64!(encoded)}])
   end
 
-  defp live_transition!(conn, payload) do
+  defp live_transition!(conn, payload, expected_fact_count \\ 1) do
     subject = ExposureTransitionRelay.subject(payload["device_uid"])
     assert %{"seq" => position} = ExposureBroker.request(conn, subject, payload)
 
@@ -680,7 +1048,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                seq: position
              })
 
-    assert {:ok, 1} =
+    assert {:ok, ^expected_fact_count} =
              ExposureTransitions.process_batch([
                %{
                  data: Base.decode64!(encoded),
