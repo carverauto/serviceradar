@@ -1,8 +1,10 @@
 defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest do
   use ServiceRadar.DataCase, async: false
 
+  alias Broadway.Message
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.AnomalyEpisodeGuardTables
+  alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
   alias ServiceRadar.EventWriter.Processors.AnomalyEpisodeRegistry
   alias ServiceRadar.Observability.AlertEvaluationWork
@@ -49,6 +51,18 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     @moduledoc false
 
     def handle_event(_event), do: raise("northbound runner unavailable")
+  end
+
+  defmodule PeerReadinessGatedAlertEngine do
+    @moduledoc false
+
+    def evaluate_events(events) do
+      if Application.get_env(:serviceradar_core, :analytics_signals_peer_ready, false) do
+        StatefulAlertEngine.evaluate_events(events)
+      else
+        {:error, :alert_evaluation_peer_not_ready}
+      end
+    end
   end
 
   setup_all do
@@ -377,6 +391,155 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              |> Ash.read!(actor: actor)
 
     assert event_count(row) == 1
+  end
+
+  test "alert_evaluation_peer_not_ready nacks analytics predictions without error and processes once ready (#6062)" do
+    mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
+    peer_ready = Application.get_env(:serviceradar_core, :analytics_signals_peer_ready)
+    Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.PeerReadinessGatedAlertEngine
+    )
+
+    Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, false)
+
+    series_key = "synthetic:peer-not-ready:#{System.unique_integer([:positive])}"
+    event_id = "prediction-peer-not-ready-#{System.unique_integer([:positive])}"
+    raw_message = anomaly_message(series_key, event_id)
+
+    delete_episode_fixture!(series_key)
+
+    on_exit(fn ->
+      restore_env(:alert_evaluation_mode, mode)
+      restore_env(:analytics_signals_peer_ready, peer_ready)
+      delete_episode_fixture!(series_key)
+    end)
+
+    Repo.query!("UPDATE platform.stateful_alert_rules SET enabled = FALSE")
+    actor = SystemActor.system(:alert_engine)
+
+    rule =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "synthetic-peer-readiness-#{Ash.UUID.generate()}",
+          signal: :event,
+          match: %{"always" => true},
+          group_by: [],
+          threshold: 100,
+          window_seconds: 120,
+          bucket_seconds: 60
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    parent = self()
+
+    broadway_message = %Message{
+      data: raw_message.data,
+      metadata:
+        Map.merge(raw_message.metadata, %{
+          reply_to: "$JS.ACK.analytics_predictions.consumer.1.1.1.0.0",
+          jetstream_ack: %{
+            stream: "analytics_predictions",
+            consumer: "consumer",
+            delivery_count: 1
+          },
+          max_deliver: 5
+        }),
+      acknowledger:
+        {Pipeline, :ack_ref,
+         %{
+           ack_fun: fn action ->
+             send(parent, {:jetstream_ack, action})
+             :ok
+           end
+         }}
+    }
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        assert [%Message{status: {:failed, :alert_evaluation_peer_not_ready}} = failed_msg] =
+                 Pipeline.handle_batch(
+                   :analytics_predictions,
+                   [broadway_message],
+                   %{batch_key: :default},
+                   %{}
+                 )
+
+        assert ^failed_msg = hd(Pipeline.handle_failed([failed_msg], %{}))
+        assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
+      end)
+
+    assert_receive {:jetstream_ack, :nack}
+    refute_receive {:jetstream_ack, :ack}, 50
+    refute_receive {:jetstream_ack, :term}, 50
+
+    assert log =~ "Deferring causal signals batch until alert evaluation is ready"
+    assert log =~ "Batch deferred until alert evaluation is ready"
+    refute log =~ "[error]"
+    refute log =~ "MatchError"
+    refute log =~ "Causal signals batch insert failed"
+
+    assert [[0]] =
+             Repo.query!(
+               "SELECT count(*) FROM platform.anomaly_episodes WHERE series_key = $1",
+               [series_key]
+             ).rows
+
+    assert [[0]] =
+             Repo.query!(
+               """
+               SELECT count(*)
+               FROM platform.ocsf_events
+               WHERE metadata->'service_radar'->>'series_key' = $1
+               """,
+               [series_key]
+             ).rows
+
+    assert [] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
+
+    Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, true)
+
+    assert [%Message{status: :ok} = ok_msg] =
+             Pipeline.handle_batch(
+               :analytics_predictions,
+               [broadway_message],
+               %{batch_key: :default},
+               %{}
+             )
+
+    assert :ok = Pipeline.ack(:ack_ref, [ok_msg], [])
+    assert_receive {:jetstream_ack, :ack}
+
+    assert [[1]] =
+             Repo.query!(
+               "SELECT count(*) FROM platform.anomaly_episodes WHERE series_key = $1",
+               [series_key]
+             ).rows
+
+    assert [[1]] =
+             Repo.query!(
+               """
+               SELECT count(*)
+               FROM platform.ocsf_events
+               WHERE metadata->'service_radar'->>'series_key' = $1
+               """,
+               [series_key]
+             ).rows
+
+    assert [%{position: 1}] =
+             AlertEvaluationWork
+             |> Ash.Query.filter(rule_id == ^rule.id)
+             |> Ash.read!(actor: actor)
   end
 
   # Prepared mode admits nothing, by design. A transition commits together with

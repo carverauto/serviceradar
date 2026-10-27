@@ -301,14 +301,22 @@ defmodule ServiceRadar.EventWriter.Pipeline do
           %{stream: batcher, processor: processor, reason: inspect(reason)}
         )
 
-        Logger.error("Batch processing failed",
-          batcher: batcher,
-          reason: inspect(reason),
-          message_count: length(messages)
-        )
+        if retryable_alert_evaluation_reason?(reason) do
+          Logger.warning("Batch deferred until alert evaluation is ready",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: length(messages)
+          )
+        else
+          Logger.error("Batch processing failed",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: length(messages)
+          )
 
-        # No-op when no batch span is active (telemetry subjects).
-        Otel.set_error(reason)
+          # No-op when no batch span is active (telemetry subjects).
+          Otel.set_error(reason)
+        end
 
         Enum.map(messages, &Message.failed(&1, reason))
     end
@@ -317,14 +325,31 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   @impl true
   def handle_failed(messages, _context) do
     Enum.each(messages, fn message ->
-      Logger.warning("Message failed",
-        subject: message.metadata[:subject],
-        reason: inspect(message.status)
-      )
+      if retryable_alert_evaluation_status?(message.status) do
+        Logger.debug("Message deferred until alert evaluation is ready",
+          subject: message.metadata[:subject],
+          reason: inspect(message.status)
+        )
+      else
+        Logger.warning("Message failed",
+          subject: message.metadata[:subject],
+          reason: inspect(message.status)
+        )
+      end
     end)
 
     messages
   end
+
+  defp retryable_alert_evaluation_status?({:failed, reason}),
+    do: retryable_alert_evaluation_reason?(reason)
+
+  defp retryable_alert_evaluation_status?(_status), do: false
+
+  defp retryable_alert_evaluation_reason?(:alert_evaluation_peer_not_ready), do: true
+  defp retryable_alert_evaluation_reason?(:alert_evaluation_draining), do: true
+  defp retryable_alert_evaluation_reason?(:alert_evaluation_capability_unavailable), do: true
+  defp retryable_alert_evaluation_reason?(_reason), do: false
 
   # Private functions
 
