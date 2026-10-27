@@ -611,6 +611,12 @@ NetFlow rows that have been joined with host process attribution (netprobe) and,
 when applicable, Kubernetes public VIP / Gateway ownership. Prefer this entity
 when you need process, pod, or public-endpoint owner fields in the UI.
 
+Row queries for both `in:flows` and `in:attributed_flows` return attribution
+directly from StarRocks `ocsf_network_activity` columns, including `partition`,
+`agent_id`, `uid`, `container_id`, and `public_endpoint`. Flow Details reads
+these columns; there is no `ocsf_payload.attribution` fallback. Existing rows
+with stored attribution need no backfill to display it.
+
 | Field | Aliases | Description |
 |-------|---------|-------------|
 | *(all core `flows` endpoint fields)* | | `src_ip`, `dst_ip`, `ip`, `port`, `src_port`, `dst_port`, `protocol_*`, … |
@@ -645,7 +651,7 @@ in:attributed_flows time:last_1h attribution_status:attributed process:sshd
 **Raw vs attributed:** `in:flows port:22` can return hundreds of SSH 5-tuples
 while `in:attributed_flows port:22` is empty if no host process join landed on
 those sockets. Public VIP ownership (`service_name:`, `exposure_class:`) only
-appears after the central correlator stamps `attribution.public_endpoint`.
+appears after the central correlator populates the `public_endpoint` column.
 
 ### public_endpoints
 

@@ -451,8 +451,8 @@ in:attributed_flows time:last_24h service_name:harbor-http sort:time:desc limit:
 in:attributed_flows time:last_24h exposure_class:Gateway sort:time:desc limit:50
 ```
 
-`service_name:` / `exposure_class:` / `gateway_name:` / `route_name:` filter
-`attribution.public_endpoint` fields — only present after VIP join.
+See the [attributed flow field reference](./srql-language-reference.md#attributed_flows)
+for owner filters and when public endpoint attribution is available.
 
 ### SSH: raw vs attributed
 

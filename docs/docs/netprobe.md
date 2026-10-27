@@ -201,8 +201,9 @@ metadata, optional container ID, and workload identity metadata. When a flow
 endpoint is a Kubernetes public VIP (LoadBalancer / Gateway / ExternalIP), core
 also consults [public endpoint inventory](./k8s-public-endpoint-inventory.md)
 to map `VIP:port → podIP:targetPort` and match netprobe on the **post-DNAT**
-backend socket, then stamps `attribution.public_endpoint` (Service, Gateway,
-route, namespace) onto the attributed flow. TCP, UDP, and ICMP rows may appear
+backend socket, then attaches public endpoint ownership to the attributed flow
+(see the [SRQL attribution contract](./srql-language-reference.md#attributed_flows)).
+TCP, UDP, and ICMP rows may appear
 in attributed flows; ICMP uses protocol-specific matching because it does not
 have TCP/UDP ports.
 
