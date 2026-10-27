@@ -2343,11 +2343,14 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              ArchiveUploads.observe_response(
                ctx.lease,
                dispatch.id,
-               %{
-                 "status" => 200,
-                 "etag" => verification["etag"],
-                 "version_id" => verification["version_id"]
-               },
+               Map.reject(
+                 %{
+                   "status" => 200,
+                   "etag" => verification["etag"],
+                   "version_id" => verification["version_id"]
+                 },
+                 fn {_key, value} -> is_nil(value) end
+               ),
                ctx.opts
              )
 

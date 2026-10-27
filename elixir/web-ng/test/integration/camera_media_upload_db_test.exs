@@ -437,7 +437,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert json_response(ranged, 400)["error"] == "invalid_request"
     assert Agent.get(context.store, & &1.requests) == requests
 
-    {:ok, %{"sub" => user_id}} = Guardian.decode_and_verify(token)
+    {:ok, %{"sub" => "user:" <> user_id}} = Guardian.decode_and_verify(token)
     user_uuid = Ecto.UUID.dump!(user_id)
 
     Agent.update(context.store, fn state ->
