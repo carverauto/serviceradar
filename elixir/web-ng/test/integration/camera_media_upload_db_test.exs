@@ -627,6 +627,10 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     # The checkpoint exposes complete authorized fragments, not caller byte
     # ranges or parallel prefetch. This proves a sequential HLS consumer with
     # partial requests disabled, not default FFmpeg or browser compatibility.
+    # FFmpeg 7.0.2 counts the first segment open against max_reload, even for
+    # VOD, so zero returns EOF before fetching media. Allow one per read_data
+    # call. Its initially zero last_seq_no also counts sequence zero as a hold;
+    # a limit of two permits that first read and resets on sequence advancement.
     [
       "-v",
       "error",
@@ -647,9 +651,9 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
       "-seg_max_retry",
       "0",
       "-max_reload",
-      "0",
-      "-m3u8_hold_counters",
       "1",
+      "-m3u8_hold_counters",
+      "2",
       "-headers",
       "Authorization: Bearer " <> token <> "\r\n"
     ]
