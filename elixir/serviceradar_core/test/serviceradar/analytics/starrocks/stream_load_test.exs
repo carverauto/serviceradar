@@ -817,26 +817,25 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("ocsf_network_activity", @rows, http: http, label: label)
   end
 
-  # A producer that replaces a row by id (a Trivy report's event across
-  # rescans) keeps the id and moves the time. The replacement is not a
-  # redelivery: reconciling it against the first load's label drops the new
-  # row, and the replace delete that ran before the load has already removed
-  # the old one, so the warehouse ends up with neither.
-  test "a replaced row (same id, new content) loads instead of reconciling to the old load" do
+  test "replacement and redelivery retain the latest event in the warehouse" do
     first = %{
-      "id" => "event-alpha-0001",
+      "id" => "00000000-0000-4000-8000-000000000001",
       "time" => "2026-01-15T10:00:00Z",
+      "log_provider" => "trivy",
       "message" => "first"
     }
 
     second = %{
-      "id" => "event-alpha-0001",
+      "id" => "00000000-0000-4000-8000-000000000001",
       "time" => "2026-01-15T11:00:00Z",
+      "log_provider" => "trivy",
       "message" => "rescan"
     }
 
     parent = self()
     loaded_labels = :ets.new(:loaded_labels, [:set, :public])
+
+    warehouse = :ets.new(:warehouse, [:set, :public])
 
     http = fn
       %{method: :put, headers: headers, body: body} ->
@@ -854,7 +853,13 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
            }}
         else
           :ets.insert(loaded_labels, {label})
-          send(parent, {:loaded, label, Jason.decode!(body)})
+          rows = Jason.decode!(body)
+
+          for row <- rows do
+            :ets.insert(warehouse, {{row["id"], row["time"]}, row})
+          end
+
+          send(parent, {:loaded, label, rows})
 
           {:ok,
            %{
@@ -872,13 +877,48 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
         {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
     end
 
-    assert {:ok, %{loaded: 1}} = StreamLoad.persist("events", [first], http: http)
-    assert_received {:loaded, first_label, [^first]}
+    delete = fn sql ->
+      protected =
+        Regex.scan(~r/\(id = '([^']+)' AND time = '([^']+)'\)/, sql)
+        |> Enum.map(fn [_, id, time] -> {id, NaiveDateTime.from_iso8601!(time)} end)
 
-    assert {:ok, %{loaded: 1} = result} = StreamLoad.persist("events", [second], http: http)
-    refute Map.get(result, :reconciled, false)
-    assert_received {:loaded, second_label, [^second]}
+      for {{id, time} = key, _row} <- :ets.tab2list(warehouse),
+          {id, NaiveDateTime.from_iso8601!(time)} not in protected do
+        :ets.delete(warehouse, key)
+      end
+
+      {:ok, %{}}
+    end
+
+    opts = [
+      http: http,
+      delete: delete,
+      replace: %{ids: [first["id"]], log_provider: "trivy"},
+      completed: [:cnpg],
+      require_all: true
+    ]
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [first], opts)
+    assert_received {:loaded, first_label, [_]}
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [second], opts)
+    assert_received {:loaded, second_label, [replacement]}
     refute first_label == second_label
+    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replacement}]
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [second], opts)
+    refute_received {:loaded, _, _}
+    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replacement}]
+
+    updated = Map.put(second, "message", "resolved")
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [updated], opts)
+    assert_received {:loaded, updated_label, [latest]}
+    refute updated_label == second_label
+    assert latest["message"] == "resolved"
+
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [updated], opts)
+    refute_received {:loaded, _, _}
+    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, latest}]
   end
 
   test "redelivery of an already-loaded batch reconciles instead of failing the ACK" do

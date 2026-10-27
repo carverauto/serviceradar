@@ -328,7 +328,8 @@ defmodule ServiceRadar.Analytics.StarRocks.DestinationTest do
 
       assert sql ==
                "DELETE FROM serviceradar.events WHERE log_provider = 'trivy' " <>
-                 "AND id IN ('#{@report_id}', '#{@other_report_id}')"
+                 "AND id IN ('#{@report_id}', '#{@other_report_id}')" <>
+                 " AND NOT ((id = '#{@report_id}' AND time = '2026-01-15 10:00:00'))"
 
       assert {:statement, {:load, "events", 1}} = next_message()
     end
