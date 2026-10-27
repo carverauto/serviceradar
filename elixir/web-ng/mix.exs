@@ -166,7 +166,7 @@ defmodule ServiceRadarWebNG.MixProject do
       {:elixlsx, "~> 0.6"},
       {:mdex, "~> 0.13"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.13"},
+      {:bandit, "~> 1.14"},
       {:datasvc, path: "../datasvc"},
       {:protobuf, "~> 0.17.1", override: true},
       {:permit, "~> 0.4.1"},

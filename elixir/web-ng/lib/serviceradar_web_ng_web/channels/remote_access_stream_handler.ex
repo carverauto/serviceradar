@@ -264,9 +264,10 @@ defmodule ServiceRadarWebNGWeb.Channels.RemoteAccessStreamHandler do
 
   # `start_broker/3` links the broker to the Bandit/ThousandIsland connection,
   # which traps exits and forwards unmatched messages to this handler. An agent
-  # close notice arrives before the broker's exit signal. Bandit's stop reply
-  # begins the WebSocket close handshake without ending the connection process,
-  # so `closing_action` must suppress a second close when that signal arrives.
+  # close notice arrives before the broker's exit signal. Since Bandit 1.14 a
+  # stop reply also stops message delivery to this handler, so that exit
+  # signal normally never arrives here; if it does, `closing_action` suppresses
+  # a second close.
   # Without a prior notice, the exit must close or fail the stream instead of
   # leaving it open until the idle timeout. The broker-exit cases in
   # remote_access_stream_handler_test.exs cover both paths.
