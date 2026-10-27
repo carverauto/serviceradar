@@ -46,23 +46,34 @@ defmodule ServiceRadar.Inventory.ExposureReadiness do
       Repo.query!(
         """
         SELECT 1 FROM platform.exposure_snapshot_generations
-        WHERE status = 'aborted' AND id > $2
+        WHERE status = 'aborted'
+          AND id > COALESCE((
+            SELECT id FROM platform.exposure_snapshot_generations completed
+            WHERE completed.status = 'complete' AND
+              (completed.control->>'scope' IS NULL OR
+               (completed.control->>'scope')::bigint =
+                 COALESCE($1, (exposure_snapshot_generations.control->>'scope')::bigint))
+            ORDER BY id DESC LIMIT 1
+          ), 0)
           AND ($1::bigint IS NULL OR control->>'scope' IS NULL OR (control->>'scope')::bigint = $1)
         LIMIT 1
         """,
-        [scope, generation]
+        [scope]
       ).rows != []
   end
 
   defp readiness(reader, scope) do
-    [[generation, age, completed_at]] =
+    [[generation, age]] =
       Postgrex.query!(
         reader,
         """
         SELECT COALESCE(max(id), 0),
-          COALESCE(EXTRACT(EPOCH FROM now() - max(updated_at))::bigint, 0), max(updated_at)
-        FROM platform.exposure_snapshot_generations WHERE status = 'complete'
-          AND (control->>'scope' IS NULL OR (control->>'scope')::bigint = $1)
+          COALESCE(EXTRACT(EPOCH FROM now() - max(updated_at))::bigint, 0)
+        FROM (
+          SELECT id, updated_at FROM platform.exposure_snapshot_generations WHERE status = 'complete'
+            AND (control->>'scope' IS NULL OR (control->>'scope')::bigint = $1)
+          ORDER BY id DESC LIMIT 1
+        ) generation
         """,
         [scope]
       ).rows
@@ -76,15 +87,22 @@ defmodule ServiceRadar.Inventory.ExposureReadiness do
             SELECT ordinal AS device_ord FROM platform.device_fleet_ordinals
             UNION SELECT device_ord FROM platform.exposure_reconciliation_checks WHERE device_ord > 0
           ) devices LEFT JOIN platform.exposure_reconciliation_checks c USING (device_ord)
+          LEFT JOIN LATERAL (
+            SELECT id, updated_at FROM platform.exposure_snapshot_generations
+            WHERE status = 'complete' AND
+              (control->>'scope' IS NULL OR (control->>'scope')::bigint = devices.device_ord)
+            ORDER BY id DESC LIMIT 1
+          ) covering ON true
           WHERE ($1::bigint IS NULL OR devices.device_ord = $1) AND
-            (c.device_ord IS NULL OR c.status <> 'matched' OR c.checked_at IS NULL
+            (covering.id IS NULL OR c.device_ord IS NULL OR c.status <> 'matched' OR c.checked_at IS NULL
              OR c.checked_at < now() - interval '1 day'
-           OR (c.control->>'started_at')::timestamp < $3
-             OR COALESCE((c.control->>'generation_floor')::bigint, 0) >= $2)
+             OR c.control->>'started_at' IS NULL
+             OR (c.control->>'started_at')::timestamp < covering.updated_at
+             OR COALESCE((c.control->>'generation_floor')::bigint, 0) >= covering.id)
         ) OR ($1::bigint IS NOT NULL AND NOT EXISTS (
           SELECT 1 FROM platform.exposure_reconciliation_checks WHERE device_ord = $1))
         """,
-        [scope, generation, completed_at]
+        [scope]
       ).rows
 
     [[fleet_pending]] =
@@ -122,9 +140,16 @@ defmodule ServiceRadar.Inventory.ExposureReadiness do
         WHERE ($1::bigint IS NULL OR control->>'scope' IS NULL OR (control->>'scope')::bigint = $1)
           AND (control->'pending' <> '{}'::jsonb OR
             jsonb_array_length(control->'repairs') > 0 OR
-            (id > $2 AND status <> 'complete'))
+            (status <> 'complete' AND id > COALESCE((
+              SELECT id FROM platform.exposure_snapshot_generations completed
+              WHERE completed.status = 'complete' AND
+                (completed.control->>'scope' IS NULL OR
+                 (completed.control->>'scope')::bigint =
+                   COALESCE($1, (exposure_snapshot_generations.control->>'scope')::bigint))
+              ORDER BY id DESC LIMIT 1
+            ), 0)))
         """,
-        [scope, generation]
+        [scope]
       ).rows
 
     [[comparison_repairs]] =

@@ -130,7 +130,13 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
     with :ok <- recover_snapshot(ordinal),
          {:ok, remaining} <- Repairs.verify(repairs) do
       record(ordinal, "deferred", Map.put(control, "repairs", remaining), false)
-      if remaining == [], do: :ok, else: {:snooze, 30}
+
+      if remaining == [] do
+        :ok
+      else
+        Oban.insert!(Publisher.new(%{"device_ord" => ordinal}))
+        {:snooze, 30}
+      end
     end
   end
 

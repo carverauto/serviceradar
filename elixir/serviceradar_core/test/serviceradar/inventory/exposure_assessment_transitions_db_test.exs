@@ -256,6 +256,22 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert obligation["required"] == repaired["transition_seq"]
 
+    completed = finalizing_generation!(scope)
+
+    assert {:ok, :ok} =
+             ExposureSnapshotState.change(completed, fn current ->
+               {:ok, Map.put(current, "status", "complete"), :ok}
+             end)
+
+    Repo.query!(
+      """
+      UPDATE oban_jobs SET state = 'completed'
+      WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker'
+        AND args->>'device_ord' = $1
+      """,
+      [to_string(scope)]
+    )
+
     # Source publication and PubAck do not discharge a retained obligation.
     Repo.query!("DELETE FROM platform.exposure_transition_outbox WHERE device_uid = $1", [
       ctx.device_uid
@@ -264,11 +280,26 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     snapshot_query!(fn _ -> warehouse_rows([stored]) end)
     assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
     assert publication(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT") == repaired
-    assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
+    assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} = ExposureReadiness.status(scope)
+
+    assert Repo.exists?(
+             from(j in Oban.Job,
+               where:
+                 j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
+                   j.state == "available" and
+                   fragment("?->>'device_ord'", j.args) == ^to_string(scope)
+             )
+           )
+
+    assert [[%{"repairs" => [^obligation]}]] =
+             Repo.query!(
+               "SELECT control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+               [scope]
+             ).rows
 
     {:ok, [%{fact: confirmed}]} = ExposureTransitions.decode([%{data: Jason.encode!(repaired)}])
     reconciliation_queries!([confirmed], dimensions, [confirmed])
-    assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+    assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
 
     assert [["matched", %{"repairs" => []}]] =
              Repo.query!(
@@ -278,8 +309,138 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                ]
              ).rows
 
-    assert {:ok, %{ready: false, reasons: reasons}} = ExposureReadiness.status(scope)
-    assert :snapshot_missing in reasons
+    assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
+  end
+
+  @tag sandbox: :unboxed
+  test "deployment readiness uses each device's covering generation without losing baseline or fleet gates",
+       ctx do
+    {scope, _payload, _dimensions} = reconciliation_source!(ctx, "EXAMPLE-READINESS-SCOPED")
+
+    [[saved]] =
+      Repo.query!(
+        "SELECT COALESCE(jsonb_agg(to_jsonb(c)), '[]'::jsonb) FROM platform.exposure_reconciliation_checks c"
+      ).rows
+
+    {prior_generation, _} = ExposureReadiness.latest_generation(nil)
+    baseline = finalizing_generation!(nil)
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.exposure_snapshot_generations WHERE id = $1", [baseline])
+
+      Repo.transaction(fn ->
+        Repo.query!(
+          """
+          INSERT INTO platform.exposure_reconciliation_checks
+          SELECT * FROM jsonb_populate_recordset(NULL::platform.exposure_reconciliation_checks, $1)
+          ON CONFLICT (device_ord) DO UPDATE SET
+            status = EXCLUDED.status, control = EXCLUDED.control,
+            checked_at = EXCLUDED.checked_at, updated_at = EXCLUDED.updated_at
+          """,
+          [saved]
+        )
+      end)
+    end)
+
+    assert {:ok, :ok} =
+             ExposureSnapshotState.change(baseline, fn current ->
+               {:ok, Map.put(current, "status", "complete"), :ok}
+             end)
+
+    inserted =
+      Repo.query!("""
+      INSERT INTO platform.exposure_reconciliation_checks (device_ord, inserted_at, updated_at)
+      SELECT ordinal, now(), now() FROM platform.device_fleet_ordinals
+      UNION SELECT 0, now(), now()
+      ON CONFLICT DO NOTHING
+      RETURNING device_ord
+      """).rows
+
+    on_exit(fn ->
+      Repo.query!(
+        "DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = ANY($1::bigint[])",
+        [List.flatten(inserted)]
+      )
+    end)
+
+    Repo.query!("""
+    UPDATE platform.exposure_reconciliation_checks
+    SET status = 'matched', checked_at = now(),
+      control = jsonb_build_object('started_at', now() AT TIME ZONE 'utc')
+    """)
+
+    aborted = finalizing_generation!(scope)
+    retire_generation!(aborted)
+    successor = finalizing_generation!(scope)
+
+    assert {:ok, :ok} =
+             ExposureSnapshotState.change(successor, fn current ->
+               {:ok, Map.put(current, "status", "complete"), :ok}
+             end)
+
+    Repo.query!(
+      """
+      UPDATE platform.exposure_reconciliation_checks
+      SET control = control || jsonb_build_object('generation_floor', $2::bigint)
+      WHERE device_ord = $1
+      """,
+      [scope, baseline]
+    )
+
+    assert {:ok, %{reasons: reasons}} = ExposureReadiness.status()
+    assert :comparison_pending in reasons
+
+    Repo.query!(
+      """
+      UPDATE platform.exposure_reconciliation_checks
+      SET checked_at = now(), control = control || jsonb_build_object('started_at', now() AT TIME ZONE 'utc')
+      WHERE device_ord = $1
+      """,
+      [scope]
+    )
+
+    assert {:ok, %{reasons: reasons, generation: ^baseline}} = ExposureReadiness.status()
+    refute :comparison_pending in reasons
+    refute :snapshot_recovery in reasons
+    refute ExposureReadiness.replacement_required?(nil)
+    assert {:ok, %{ready: true, generation: ^successor}} = ExposureReadiness.status(scope)
+
+    other_scope = 4_200_000_124
+
+    Repo.query!(
+      """
+      INSERT INTO platform.exposure_reconciliation_checks
+        (device_ord, status, checked_at, control, inserted_at, updated_at)
+      VALUES ($1, 'matched', now(), jsonb_build_object(
+        'started_at', now() AT TIME ZONE 'utc', 'generation_floor', $2::bigint), now(), now())
+      """,
+      [other_scope, baseline]
+    )
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+        other_scope
+      ])
+    end)
+
+    assert {:ok, %{reasons: reasons}} = ExposureReadiness.status()
+    assert :comparison_pending in reasons
+    assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
+
+    Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+      other_scope
+    ])
+
+    Repo.query!(
+      "UPDATE platform.exposure_reconciliation_checks SET status = 'deferred' WHERE device_ord = 0"
+    )
+
+    assert {:ok, %{reasons: reasons}} = ExposureReadiness.status()
+    assert :comparison_pending in reasons
+
+    retire_generation!(baseline)
+    assert {:ok, %{reasons: reasons, generation: ^prior_generation}} = ExposureReadiness.status()
+    assert :snapshot_missing in reasons == (prior_generation == 0)
   end
 
   @tag sandbox: :unboxed
