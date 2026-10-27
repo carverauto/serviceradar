@@ -12,9 +12,8 @@ defmodule ServiceRadar.Inventory.Availability.EvidencePlan do
 
   Coalescing means a stored `up` can be older than the source's latest `up`. A `down`
   observed within half a lease of the stored `up` may therefore be older than an `up`
-  that was coalesced away (review finding R5, accepted for stage b). Such a flip is
-  written as usual and marked in its `detail` under `"coalesced_flip"`, so the
-  divergence report can count how often it happens.
+  that was coalesced away. Such a flip is written as usual and marked in its `detail`
+  under `"coalesced_flip"` so it remains identifiable.
   """
 
   alias ServiceRadar.Inventory.Availability.AuthorityClass

@@ -994,7 +994,7 @@ defmodule ServiceRadar.Inventory.Device do
       default true
       public? true
 
-      description "Last decided availability as a boolean. Once merged availability is authoritative it is the projection of availability_state and keeps its last decided value while the state is unknown; read availability_state to tell unknown apart."
+      description "Last decided availability as a boolean. It is the projection of availability_state and keeps its last decided value while the state is unknown; read availability_state to tell unknown apart."
     end
 
     attribute :availability_source_agent_id, :string do

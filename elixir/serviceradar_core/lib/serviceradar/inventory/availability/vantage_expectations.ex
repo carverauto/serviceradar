@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.Availability.VantageExpectations do
   (`available`, a liveness witness) or be blocked from it (`blocked`, a negative
   control). For every in-scope device of an enabled check, each such input becomes one
   `device_vantage_expectations` row. The composite evaluator never reads these rows; the
-  merged availability summary will (stage b).
+  merged availability resolver reads them.
 
   The full evaluation pass calls `materialize/3` per page and `prune/1` after it has
   swept out-of-scope verdicts. Both write on change only. Disabling a check removes its

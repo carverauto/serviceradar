@@ -28,18 +28,20 @@ Armis sources with `merged` semantics all read that one value.
 Nothing to do. The release that removed the staged rollout converges every install on
 merged availability by itself, whatever stage it had reached:
 
-1. The migration `20261026220000_converge_merged_availability` records each device's
-   pre-merge value in `device_availability_legacy` where the install had not yet done
-   so, then removes the rollout objects.
+1. For legacy or shadow installs, the migration
+   `20261026220000_converge_merged_availability` seeds missing
+   `device_availability_legacy` rows from `is_available`, leaving existing rows intact.
+   It then removes the rollout objects.
 2. Shortly after start-up, core resolves every device once, rebuilds the inventory
    counts, and, for an install that was not yet on merged availability, publishes one
    `availability.reconciliation` summary event whenever live devices exist, even if
-   all difference counts are zero. A device's first merged decision emits no per-device
-   event. An existing unhealthy readiness warning is recorded as healthy, retaining
-   its history.
-3. When `transition_events` is on, devices that the old value held down and the merged
-   value holds available get one `device.available` recovery event, so alerts opened by
-   the old flapping close through the normal recovery path.
+   all difference counts are zero. The first decision for a device with legacy-mirror
+   provenance emits no per-device event. An existing unhealthy readiness warning is
+   recorded as healthy, retaining its history.
+3. For those non-authoritative upgrades, when `transition_events` is on, devices that
+   the old value held down and the merged value holds available get one
+   `device.available` recovery event, so alerts opened by the old flapping close through
+   the normal recovery path.
 
 The internal `availability_settings.converged_at` timestamp is a one-time upgrade
 convergence marker, not an operator mode; nothing user-facing sets or reads it. The
@@ -91,7 +93,7 @@ kubectl -n <namespace> exec deploy/serviceradar-core -c core-elx -- \
 
 ## Armis northbound: a per-source choice
 
-What an Armis source pushes is chosen per source and never changes on its own:
+What an Armis source pushes is chosen per source:
 
 | Source setting | Pushes |
 |---|---|
@@ -103,10 +105,12 @@ A `legacy` source moves to `merged` only when an operator clicks **Adopt merged
 availability** on its settings page, which first shows how many linked Armis IDs would
 change and how many would be withheld.
 
-Upgrading never changes what a source pushes. On an install that had not cut over to
-merged availability before this release, a source created with `merged` semantics and no
-agent was in fact pushing the legacy value, so the upgrade sets it to `legacy` semantics
-to keep pushing that value. Each such change is recorded:
+The upgrade preserves pushes on the production population path, subject to the
+[accepted incomplete-rollout exceptions](../openspec/changes/simplify-merged-availability-rollout/design.md#decision-1a-merged-armis-sources-on-an-install-that-never-cut-over).
+On an install that had not cut over to merged availability before this release, a source
+created with `merged` semantics and no agent was in fact pushing the legacy value, so
+the upgrade sets it to `legacy` semantics to keep pushing that value. Each such change
+is recorded:
 
 ```sql
 SELECT integration_source_id, from_semantics, to_semantics, reason, changed_at
