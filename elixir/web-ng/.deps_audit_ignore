@@ -36,8 +36,8 @@ EEF-CVE-2026-86696
 # :xmerl_scan interns every name it reads; it no longer interns any name from a
 # received response: SAMLXml.parse_response/1
 # (lib/serviceradar_web_ng_web/auth/saml_xml.ex) scans the document with
-# :xmerl_sax_parser first and rejects any name it does not already hold as an
-# atom. Covered by "interns no atom from the names in a response" in
+# :xmerl_sax_parser first and requires names to be existing atoms in its
+# compile-time allowlists. Covered by "interns no atom from the names in a response" in
 # test/phoenix/auth/saml_response_test.exs.
 EEF-CVE-2026-105270
 

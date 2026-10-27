@@ -131,6 +131,22 @@ cannot be tied to a login the user started. They can be allowed with
 `config :serviceradar_web_ng, :saml_allow_idp_initiated, true`; replay
 protection and every other check still apply.
 
+Responses must use UTF-8 XML, contain at most 1 MiB of decoded XML and
+10,000 elements, and contain no DTD, processing instruction, or non-whitespace
+content after the root. Before signature verification, web-ng checks XML names
+and namespace URIs against a fixed allowlist so unauthenticated input cannot
+create permanent Erlang atoms. Unlisted namespace prefixes or vendor elements
+are rejected even when the response is signed. Ordinary attribute values
+(such as claim names in `Name`) are not XML names; namespace declarations
+are checked separately against the allowed namespace URIs.
+
+If an IdP response is rejected, inspect the web-ng warning beginning
+`Rejected SAML response XML:` for the unsupported name or limit, then adjust
+the IdP's response format. The exact allowlists are maintained in
+[`SAMLXml`](https://github.com/carverauto/serviceradar/blob/staging/elixir/web-ng/lib/serviceradar_web_ng_web/auth/saml_xml.ex).
+Operator-supplied IdP metadata retains its general XML parser to support
+vendor metadata extensions; response restrictions do not apply to metadata.
+
 ## Gateway Proxy (JWT)
 
 Use this when an upstream gateway authenticates users and injects a JWT on requests to web-ng.

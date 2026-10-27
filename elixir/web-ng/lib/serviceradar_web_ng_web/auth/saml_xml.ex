@@ -10,8 +10,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLXml do
   `:xmerl_dsig` over documents parsed here, never for its own decoding.
 
   Parsing is namespace-conformant so XPath queries built with
-  `SweetXml.add_namespace/3` match on namespace URI, whatever prefix the IdP
-  used.
+  `SweetXml.add_namespace/3` match on namespace URI. Responses additionally
+  restrict prefixes as described below.
 
   ## Responses are untrusted
 
