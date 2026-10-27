@@ -51,9 +51,10 @@ Reads acquire no upload lease, renew no authority, modify no recording row and
 make no provider request or local spool access. Database locks last only for the
 bounded metadata read. One block per request and the existing API rate limit
 bound this checkpoint's surface; measured fleet query/capacity objectives remain
-open. A returned snapshot can become stale immediately. Future byte requests
-must independently authorize the caller, requested interval and current proof
-state; this response is never a bearer capability.
+open. A returned snapshot can become stale immediately. The
+[archive byte routes](archive-reads.md) independently authorize the caller,
+requested interval and current proof state; this response is never a bearer
+capability.
 
 ## Validation ownership
 
@@ -68,5 +69,6 @@ must be deleted and re-queried by teardown.
 Run remote unit/quality/registration checks, then require published-head guarded
 Core and Web suites including connection observation, teardown and generation
 lease release. Compilation alone does not complete this contract. This slice
-does not close task 1.5: authorized ranges, provisional local playback, bounded
-HLS/timeline windows and the player remain separate work.
+does not close task 1.5: [archive ranges](archive-reads.md) have their own
+checkpoint; provisional local playback, bounded HLS/timeline windows and the
+player remain separate work.

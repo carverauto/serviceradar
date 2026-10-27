@@ -13,6 +13,8 @@ own their byte paths; [archive publication](../openspec/changes/add-vms-storage-
 owns manifest transfer and index publication. This page owns the Helm and
 mounted-file contract for all three purposes. Existing qualification
 receipts are diagnostics; they cannot substitute for applying fresh authority.
+The separate [archive reader](../openspec/changes/add-vms-storage-playback-engine/archive-reads.md#isolated-installation)
+has its own runtime configuration; this chart does not install it.
 Cloud provisioning and preservation remain tracked in
 [control issue #182](https://github.com/carverauto/serviceradar-control/issues/182)
 and [control issue #183](https://github.com/carverauto/serviceradar-control/issues/183).

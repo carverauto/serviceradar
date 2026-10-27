@@ -20,10 +20,10 @@ than expose a packed object. Initialization bytes are limited to 1 MiB and each
 fragment to 4 MiB. Larger valid descriptor fragments are unsupported by this
 checkpoint and fail before network I/O.
 
-Both routes require fresh `devices.view` and
-`devices.cameras.recordings.view` permission and a Source read under that user's
-scope. Live-video access alone is insufficient. The same checks run immediately
-before delivery. Successful responses contain only `video/mp4` bytes and use
+The [recording access policy](../../../docs/docs/rbac-and-roles.md#recording-metadata-and-footage)
+owns required permissions, role defaults and authority refresh. Both routes read
+the Source under the refreshed user's scope and repeat that check before delivery.
+Successful responses contain only `video/mp4` bytes and use
 `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff`.
 
 Malformed identifiers, noncanonical indices and supplied ranges return 400;
