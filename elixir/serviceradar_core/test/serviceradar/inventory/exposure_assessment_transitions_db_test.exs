@@ -260,6 +260,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           live_union_paging!(conn, ctx)
           live_delivery_orders!(conn, ctx)
           live_terminal_compaction!(conn, ctx)
+          live_compaction_checkpoint!(ctx)
 
           Repo.query!(
             "UPDATE platform.exposure_reconciliation_checks SET checked_at = now() - interval '2 days' WHERE device_ord = $1",
@@ -814,6 +815,126 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert cleared_retirement["payload_compacted"] in [true, 1]
     assert cleared_retirement["pkgver_ord"] == 0
     assert Map.take(cleared_retirement, permanent) == Map.take(retired, permanent)
+  end
+
+  defp live_compaction_checkpoint!(ctx) do
+    ordinal = 4_294_967_294
+    cutoff = "2026-11-10T00:00:00"
+    initial = %{"cutoff" => cutoff, "cursor" => [ordinal, 0, 0]}
+
+    facts =
+      for cve <- 1..501 do
+        payload =
+          ctx
+          |> inflight_transition(ordinal, 41, "resolved", 1)
+          |> Map.put("cve_ord", cve)
+
+        assert {:ok, [%{fact: fact}]} =
+                 ExposureTransitions.decode([%{data: Jason.encode!(payload)}])
+
+        fact
+      end
+
+    assert {:ok, %{rows: [[0]]}} =
+             MySQL.query("SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal}")
+
+    assert {:ok, _} =
+             Destination.persist_warehouse(:exposure_facts, facts,
+               label: "synthetic-checkpoint-seed-" <> Ecto.UUID.generate()
+             )
+
+    last = live_fact!([ordinal, 501, 40])
+    job = compaction_job!(initial)
+    control = %{
+      "repairs" => [%{"kind" => "fact", "required" => 41, "expected" => "legacy-digest"}]
+    }
+
+    Repo.query!(
+      "INSERT INTO platform.exposure_reconciliation_checks (device_ord, status, control, inserted_at, updated_at) VALUES ($1, 'mismatch', $2, now(), now())",
+      [ordinal, control]
+    )
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+        ordinal
+      ])
+    end)
+
+    assert {:snooze, 30} = ExposureTerminalCompactionWorker.perform(job)
+    assert Repo.get!(Oban.Job, job.id).args == initial
+    assert {:ok, %{rows: [[501]]}} =
+             MySQL.query(
+               "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND payload_compacted = false AND pkgver_ord = 41"
+             )
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+               [ordinal]
+             )
+
+    config = Application.fetch_env!(:serviceradar_core, StarRocks)
+    handler = {__MODULE__, :compaction_checkpoint, make_ref()}
+    parent = self()
+
+    # The stop event runs synchronously after the first real load. Only the
+    # next request gets invalid credentials; the production HTTP client and
+    # the warehouse supply the actual failure response, without a mock server.
+    assert :ok =
+             :telemetry.attach(
+               handler,
+               [:serviceradar, :starrocks, :stream_load, :request, :stop],
+               fn _event, measurements, metadata, _config ->
+                 if self() == parent and metadata.dataset == :exposure_compacted_facts and
+                      measurements.rows == 500 and measurements.failures == 0 do
+                   Application.put_env(
+                     :serviceradar_core,
+                     StarRocks,
+                     Keyword.merge(config,
+                       user: "synthetic_compaction_denied",
+                       password: "synthetic-invalid-password"
+                     )
+                   )
+
+                   send(parent, {:compaction_first_page, handler})
+                 end
+               end,
+               nil
+             )
+
+    try do
+      assert {:error, {:warehouse_load, :exposure_compacted_facts, {:http_status, 401, _}}} =
+               ExposureTerminalCompactionWorker.perform(job)
+
+      assert_received {:compaction_first_page, ^handler}
+    after
+      :telemetry.detach(handler)
+      Application.put_env(:serviceradar_core, StarRocks, config)
+    end
+
+    assert Repo.get!(Oban.Job, job.id).args == %{
+             "cutoff" => cutoff,
+             "cursor" => [ordinal, 500, 40]
+           }
+
+    assert {:ok, %{rows: [[500]]}} =
+             MySQL.query(
+               "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND cve_ord <= 500 AND payload_compacted = true AND pkgver_ord = 0"
+             )
+
+    assert live_fact!([ordinal, 501, 40]) == last
+
+    # Passing the original job proves that retry reloads the durable checkpoint.
+    assert :ok = ExposureTerminalCompactionWorker.perform(job)
+    assert Repo.get!(Oban.Job, job.id).args == %{
+             "cutoff" => cutoff,
+             "cursor" => [ordinal, 501, 40]
+           }
+
+    assert {:ok, %{rows: [[501]]}} =
+             MySQL.query(
+               "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND payload_compacted = true AND pkgver_ord = 0"
+             )
   end
 
   defp live_fact!(key) do
