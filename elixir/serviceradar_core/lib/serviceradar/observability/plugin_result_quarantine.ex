@@ -28,11 +28,8 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   too expensive, and counting it would quarantine results that were only queued
   behind a slow one.
 
-  Every outcome is counted on the `:retained_plugin_result` ingestion lane
-  (`result_ingestion_events_attempt_recorded`, `_quarantined`,
-  `_quarantine_acknowledged`, `_attempt_pruned` and `_attempt_store_failed`). A
-  store failure is logged and fails open: the result is ingested, or redelivered,
-  as if no attempt had been recorded.
+  See `docs/result-ingestion-operations.md` for ingestion lane counters,
+  store-failure telemetry, query budgets, and fail-open/retry behavior.
   """
 
   alias ServiceRadar.EventWriter.FieldParser

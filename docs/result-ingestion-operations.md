@@ -44,8 +44,14 @@ does not prove that agents have no pending results, because expired rows are
 pruned. To monitor pruning and distinguish it from store failures, read the
 `retained_plugin_result` lane counters `result_ingestion_events_attempt_recorded`,
 `_quarantined`, `_quarantine_acknowledged`, `_attempt_pruned` and
-`_attempt_store_failed`. A store failure is also logged, and the lane then fails
-open: it ingests or retries the result as if nothing had been counted.
+`_attempt_store_failed`. Lookup, clear, timeout-recording, and prune store
+failures increment `_attempt_store_failed`, emit
+`[:serviceradar, :plugin_result_quarantine, :store_failed]` with caller,
+operation, and reason metadata, and log one warning naming the caller. The lane
+fails open: it ingests or retries the result as if nothing had been counted.
+Pruning returns an error for the maintenance job to retry. Query telemetry
+includes `caller` and `timeout_ms`: lookup, clear, and timeout-recording use
+2,000 ms, while pruning retains its 30,000 ms budget.
 `ServiceRadar.Observability.PluginResultQuarantine` lists quarantined results and
 retries one from its stored status.
 

@@ -120,7 +120,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   Resolve identity keys to a canonical device record.
 
   Tries each key in order until a match is found. Returns the first match
-  with information about which key was used.
+  with information about which key was used. A database read error stops the
+  lookup and returns `{:error, reason}` without trying later keys or IP
+  fallbacks; only a successful read with no match advances to another key.
 
   ## Options
 

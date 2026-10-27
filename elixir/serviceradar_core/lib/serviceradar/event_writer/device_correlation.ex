@@ -6,6 +6,13 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   they know the canonical `ocsf_devices.uid`. This helper keeps OCSF event
   metadata stable by preferring explicit device UIDs, then agent mappings, then
   inventory IP/hostname lookups.
+
+  Each database lookup has a 1,500 ms task budget. A lookup timeout or database
+  connection failure stops remaining database fallbacks for that candidate and
+  returns `nil` without caching the result, so a later event can retry. It
+  increments the `:other_results` lane's `:timeout` counter and emits
+  `[:serviceradar, :event_writer, :device_correlation, :lookup_timeout]` with
+  caller, operation, and reason metadata, plus one caller-naming warning.
   """
 
   import Ash.Expr
