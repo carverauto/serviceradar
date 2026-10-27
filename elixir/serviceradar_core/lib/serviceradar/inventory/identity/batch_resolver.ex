@@ -416,7 +416,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
     Enum.find_value(Ids.identifier_priority(), fn id_type ->
       id_type
-      |> Ids.get_identifier_values(ids)
+      |> matching_identifier_values(ids)
       |> Enum.find_value(fn value ->
         case Map.get(identifier_map, {id_type, value, ids.partition}) do
           nil when id_type == :mac ->
@@ -477,6 +477,12 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
       end)
     end)
   end
+
+  defp matching_identifier_values(:mac, %{armis_id: armis_id} = ids)
+       when armis_id not in [nil, ""],
+       do: List.wrap(ids.mac)
+
+  defp matching_identifier_values(id_type, ids), do: Ids.get_identifier_values(id_type, ids)
 
   defp retained_non_source_match?(id_type, ids, device_id, preloads) do
     SourceAuthorityGuard.carries_source_id?(ids) and
@@ -629,7 +635,7 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
 
   defp maybe_merge_hardware_mac_sibling(device_id, ids, preloads, actor) do
     :mac
-    |> Ids.get_identifier_values(ids)
+    |> matching_identifier_values(ids)
     |> Enum.reduce(device_id, fn mac, acc ->
       merge_loaded_hardware_mac_sibling(acc, mac, ids, preloads, actor)
     end)

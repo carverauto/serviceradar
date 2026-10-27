@@ -2148,37 +2148,66 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
   end
 
   describe "unregistered Armis IDs against historical MACs and tombstones" do
-    test "an incoming Armis update's historical MAC does not attach to another device's primary MAC",
-         %{actor: actor} do
-      n = System.unique_integer([:positive])
-      holder_mac = universal_mac()
-      incoming_primary_mac = universal_mac()
-      refute holder_mac == incoming_primary_mac
+    test "Armis MAC history cannot attach or merge a device", %{actor: actor} do
+      cases = [
+        {:universal, :direct, :primary, :new, :blob},
+        {:local, :direct, :historical, :new, :metadata},
+        {:local, :direct, :primary, :new, :blob},
+        {:universal, :uaa_to_laa, :primary, :new, :metadata},
+        {:local, :laa_to_uaa, :primary, :new, :blob},
+        {:universal, :uaa_to_laa, :primary, :registered, :blob},
+        {:local, :laa_to_uaa, :primary, :registered, :metadata}
+      ]
 
-      holder = create_device(actor, doc_ip(n, 1), holder_mac)
-      register_identifier(actor, holder.uid, :mac, holder_mac)
+      for {primary_kind, match, holder_kind, registration, representation} <- cases do
+        n = System.unique_integer([:positive])
+        "00" <> incoming_suffix = universal_mac()
 
-      armis_id = "armis-hist-incoming-#{n}"
+        incoming_primary =
+          if primary_kind == :local, do: "02" <> incoming_suffix, else: "00" <> incoming_suffix
 
-      update = %{
-        "ip" => doc_ip(n, 2),
-        "hostname" => "armis-#{armis_id}",
-        "source" => "armis",
-        "mac" => "#{incoming_primary_mac},#{holder_mac}",
-        "metadata" => %{
-          "integration_type" => "armis",
-          "armis_device_id" => armis_id,
-          "mac_addresses" => "#{incoming_primary_mac},#{holder_mac}"
-        }
-      }
+        "00" <> history_suffix = universal_mac()
 
-      assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+        historical =
+          if match == :laa_to_uaa, do: "02" <> history_suffix, else: "00" <> history_suffix
 
-      resolved = device_for_armis_id(armis_id, actor)
-      assert is_binary(resolved)
-      assert resolved != holder.uid
+        owned = if match == :uaa_to_laa, do: "02" <> history_suffix, else: "00" <> history_suffix
+        holder_primary = if holder_kind == :historical, do: universal_mac(), else: owned
+        holder = create_device(actor, doc_ip(n, 1), holder_primary)
+        register_identifier(actor, holder.uid, :mac, owned)
+        armis_id = "armis-history-#{n}"
 
-      assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+        existing =
+          if registration == :registered do
+            device = create_device(actor, doc_ip(n, 2), incoming_primary)
+            register_identifier(actor, device.uid, :armis_device_id, armis_id)
+            register_identifier(actor, device.uid, :mac, incoming_primary)
+            device.uid
+          end
+
+        update = armis_update(armis_id, doc_ip(n, 2), incoming_primary)
+
+        update =
+          case representation do
+            :blob ->
+              Map.put(update, "mac", "#{incoming_primary},#{historical}")
+
+            :metadata ->
+              put_in(update, ["metadata", "mac_addresses"], "#{incoming_primary},#{historical}")
+          end
+
+        assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+        resolved = device_for_armis_id(armis_id, actor)
+        assert is_binary(resolved)
+        assert resolved != holder.uid
+        if existing, do: assert(resolved == existing)
+        assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(resolved, false, actor: actor)
+
+        assert {:ok, %Device{deleted_at: nil, mac: ^holder_primary}} =
+                 Device.get_by_uid(holder.uid, false, actor: actor)
+
+        assert device_for_typed_id(:mac, owned, actor) == holder.uid
+      end
     end
 
     test "an unregistered Armis ID whose deterministic UID is a source_retired tombstone reseeds to a live record",
