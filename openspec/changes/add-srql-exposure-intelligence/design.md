@@ -1582,13 +1582,21 @@ content. Current assessment columns are compared independently of retained
 replay. Detected source drift uses the existing source-locked publication repair;
 its required sequence and digest stay durable until warehouse confirmation.
 Dimension and lifecycle comparison also uses the existing sequenced repair path.
+Retained dimension keys can be republished even after an assessment upgrades away
+from that version. Replay preserves an assigned repair's sequence and digest;
+an ordinary live update cannot move an already-confirmed repair target. A newer
+warehouse row can discharge it only when that row matches the current source.
 
 `exposure_reconciliation_checks` contains control metadata per device and a fleet
 enumeration checkpoint, with no fact payload or exposure query fallback.
 `ExposureReadiness.status/1` requires completed generation coverage followed by a
 successful comparison, prepared sources, lifecycle restoration and dimension
 coverage, and no unresolved scoped journals or comparison/repair work. A mismatch
-requires a newer verified generation. Young ordinary outbox rows are allowed;
+requires a newer verified generation. Deployment readiness evaluates each
+device's latest covering generation, including completed scoped recovery, while
+retaining the full baseline and fleet-enumeration gates. Older aborted-generation
+repairs remain blocking until verified, and pending repairs continue requesting
+recovery publication. Young ordinary outbox rows are allowed;
 the ten-minute outbox age and daily comparison age remain visible gates.
 Metrics export inspected, mismatched and deferred devices, pending repairs,
 generation age and delivery recovery. Missing ordinal dictionaries fail closed.

@@ -48,7 +48,11 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotRepairs do
         repair["observed"]
       ]).rows
 
-    assign(repair, kind, publication)
+    with {:ok, next} <- assign(repair, kind, publication) do
+      # Replay current content without moving an assigned proof target: its
+      # warehouse row may already be confirmed while a live update is in flight.
+      {:ok, if(is_integer(repair["required"]), do: repair, else: next)}
+    end
   end
 
   defp publish_one(%{"required" => required} = repair) when is_integer(required),

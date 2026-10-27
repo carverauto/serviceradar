@@ -16,6 +16,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Snapshot
   alias ServiceRadar.EventWriter.ExposureSnapshotMaintenanceWorker
   alias ServiceRadar.EventWriter.ExposureSnapshotWarehouse, as: SnapshotWarehouse
+  alias ServiceRadar.EventWriter.Processors.ExposureDimensions
   alias ServiceRadar.EventWriter.Processors.ExposureSnapshots
   alias ServiceRadar.EventWriter.Processors.ExposureTransitions
   alias ServiceRadar.Inventory.ExposureDeviceRefreshWorker
@@ -642,9 +643,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   # SQL cursor semantics are also exercised against scratch StarRocks before publication.
   defp reconciliation_queries!(facts, dimensions, repair_rows \\ [], before_scan \\ fn -> :ok end) do
     {:ok, decoded} =
-      ServiceRadar.EventWriter.Processors.ExposureDimensions.decode(
-        Enum.map(dimensions, &%{data: Jason.encode!(&1)})
-      )
+      ExposureDimensions.decode(Enum.map(dimensions, &%{data: Jason.encode!(&1)}))
 
     {:ok, queue} =
       Agent.start_link(fn ->
@@ -935,6 +934,41 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                  "SELECT payload FROM platform.exposure_dimension_outbox WHERE kind = $1 AND ordinal = $2",
                  [kind, ordinal]
                ).rows
+
+      if kind == "cve" do
+        content =
+          after_repair
+          |> Map.take(["cve_ord", "cve_id", "epss_score"])
+          |> Map.put("epss_score", 0.25)
+
+        [[live_sequence]] =
+          Repo.query!("SELECT platform.exposure_publish_dimension($1,$2,$3,false)", [
+            kind,
+            ordinal,
+            content
+          ]).rows
+
+        assert live_sequence > assigned["required"]
+
+        {:ok, [{_, _, confirmed}]} =
+          ExposureDimensions.decode([%{data: Jason.encode!(after_repair)}])
+
+        snapshot_query!(fn _sql -> warehouse_rows([confirmed]) end)
+
+        assert {:ok, {:ok, [replayed]}} =
+                 Repo.transaction(fn -> ExposureSnapshotRepairs.publish([assigned]) end)
+
+        assert {:ok, []} = ExposureSnapshotRepairs.verify([replayed])
+
+        assert [[true]] =
+                 Repo.query!(
+                   """
+                   SELECT EXISTS (SELECT 1 FROM platform.exposure_dimension_outbox
+                     WHERE kind = $1 AND ordinal = $2 AND transition_seq = $3)
+                   """,
+                   [kind, ordinal, live_sequence]
+                 ).rows
+      end
     end
 
     Repo.query!("UPDATE platform.device_fleet_ordinals SET tombstoned = true WHERE uid = $1", [
