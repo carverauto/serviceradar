@@ -645,8 +645,8 @@ Two dispositions cover almost everything:
   no Starlark change is needed, and a missing entry only fails BazelCI, not
   `mix test`.
 
-Verify locally before pushing (no Bazel/Docker required):
-`python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` from the repo root.
+Verify on RBE before pushing:
+`bazel test --config=remote //build/contracts:ci_heavy_gate_contract_test` from the repo root.
 The no-mistakes `test-registration` gate runs this same command automatically.
 
 ## SRQL Fixture Integration Tests
