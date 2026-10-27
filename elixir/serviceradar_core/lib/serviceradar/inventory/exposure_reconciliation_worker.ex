@@ -128,7 +128,18 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
     repairs = control["repairs"] || []
 
     with :ok <- recover_snapshot(ordinal),
-         {:ok, remaining} <- Repairs.verify(repairs) do
+         {:ok, assigned} <-
+           Repo.transaction(fn ->
+             case Repairs.publish(repairs) do
+               {:ok, assigned} ->
+                 record(ordinal, "deferred", Map.put(control, "repairs", assigned), false)
+                 assigned
+
+               {:error, reason} ->
+                 Repo.rollback(reason)
+             end
+           end),
+         {:ok, remaining} <- Repairs.verify(assigned) do
       record(ordinal, "deferred", Map.put(control, "repairs", remaining), false)
 
       if remaining == [] do

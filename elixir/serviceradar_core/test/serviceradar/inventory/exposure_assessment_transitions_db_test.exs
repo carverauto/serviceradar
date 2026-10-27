@@ -310,6 +310,86 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
              ).rows
 
     assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
+
+    old_package = Enum.find(dimensions, &(&1["dimension"] == "package"))
+    old_key = old_package["pkgver_ord"]
+    cve_dimensions = Enum.reject(dimensions, &(&1["dimension"] == "package"))
+    reconciliation_queries!([confirmed], cve_dimensions)
+    assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+
+    [[%{"repairs" => [dimension_repair]}]] =
+      Repo.query!(
+        "SELECT control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+        [scope]
+      ).rows
+
+    assert dimension_repair["kind"] == "package"
+    assert dimension_repair["key"] == old_key
+    assert dimension_repair["required"] == old_package["transition_seq"]
+
+    Repo.query!(
+      "DELETE FROM platform.exposure_dimension_outbox WHERE kind = 'package' AND ordinal = $1",
+      [old_key]
+    )
+
+    update_assessment!(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT", installed_version: "2.0.0")
+    upgraded = publication(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT")
+    refute upgraded["pkgver_ord"] == old_key
+
+    assert {:ok, current_dimensions} =
+             DirectSession.run(fn reader ->
+               ExposureSnapshotWorker.source_page(reader, "dimensions", scope, nil)
+             end)
+
+    refute Enum.any?(current_dimensions, fn [key, _] -> key == ["package", old_key] end)
+    current_dimensions = Enum.map(current_dimensions, fn [_, payload] -> payload end)
+
+    assert Repo.query!(
+             """
+             SELECT 1 FROM platform.exposure_fact_watermarks
+             WHERE device_uid = $1 AND (payload->>'pkgver_ord')::bigint = $2
+             """,
+             [ctx.device_uid, old_key]
+           ).rows == []
+
+    for _ <- 1..2 do
+      reconciliation_queries!([], current_dimensions)
+      assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+
+      assert [[^old_package]] =
+               Repo.query!(
+                 "SELECT payload FROM platform.exposure_dimension_outbox WHERE kind = 'package' AND ordinal = $1",
+                 [old_key]
+               ).rows
+
+      assert [[%{"repairs" => [^dimension_repair]}]] =
+               Repo.query!(
+                 "SELECT control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+                 [scope]
+               ).rows
+
+      assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} =
+               ExposureReadiness.status(scope)
+
+      Repo.query!(
+        "DELETE FROM platform.exposure_dimension_outbox WHERE kind = 'package' AND ordinal = $1",
+        [old_key]
+      )
+    end
+
+    {:ok, [%{fact: upgraded_fact}]} =
+      ExposureTransitions.decode([%{data: Jason.encode!(upgraded)}])
+
+    reconciliation_queries!([upgraded_fact], [old_package | current_dimensions])
+    assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+
+    assert [[%{"repairs" => []}]] =
+             Repo.query!(
+               "SELECT control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1",
+               [scope]
+             ).rows
+
+    assert {:ok, %{metrics: %{repair_pending: 0}}} = ExposureReadiness.status(scope)
   end
 
   @tag sandbox: :unboxed
@@ -841,6 +921,20 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       assert Map.drop(before, ["transition_seq", "updated_at"]) ==
                Map.drop(after_repair, ["transition_seq", "updated_at"])
+
+      Repo.query!(
+        "DELETE FROM platform.exposure_dimension_outbox WHERE kind = $1 AND ordinal = $2",
+        [kind, ordinal]
+      )
+
+      assert {:ok, {:ok, [^assigned]}} =
+               Repo.transaction(fn -> ExposureSnapshotRepairs.publish([assigned]) end)
+
+      assert [[^after_repair]] =
+               Repo.query!(
+                 "SELECT payload FROM platform.exposure_dimension_outbox WHERE kind = $1 AND ordinal = $2",
+                 [kind, ordinal]
+               ).rows
     end
 
     Repo.query!("UPDATE platform.device_fleet_ordinals SET tombstoned = true WHERE uid = $1", [

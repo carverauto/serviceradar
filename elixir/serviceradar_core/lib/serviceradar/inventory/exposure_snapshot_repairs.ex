@@ -40,32 +40,28 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotRepairs do
     end)
   end
 
+  defp publish_one(%{"kind" => kind, "key" => key} = repair) when kind in ["cve", "package"] do
+    [[publication]] =
+      Repo.query!("SELECT platform.exposure_repair_dimension($1,$2,$3)", [
+        kind,
+        key,
+        repair["observed"]
+      ]).rows
+
+    assign(repair, kind, publication)
+  end
+
   defp publish_one(%{"required" => required} = repair) when is_integer(required),
     do: {:ok, repair}
 
-  defp publish_one(%{"kind" => kind, "key" => key} = repair)
-       when kind in ["cve", "package", "lifecycle"] do
-    publication =
-      if kind == "lifecycle" do
-        [[body]] =
-          Repo.query!("SELECT platform.exposure_repair_lifecycle($1,$2)", [
-            key,
-            repair["observed"]
-          ]).rows
+  defp publish_one(%{"kind" => "lifecycle", "key" => key} = repair) do
+    [[publication]] =
+      Repo.query!("SELECT platform.exposure_repair_lifecycle($1,$2)", [
+        key,
+        repair["observed"]
+      ]).rows
 
-        body
-      else
-        [[body]] =
-          Repo.query!("SELECT platform.exposure_repair_dimension($1,$2,$3)", [
-            kind,
-            key,
-            repair["observed"]
-          ]).rows
-
-        body
-      end
-
-    assign(repair, kind, publication)
+    assign(repair, "lifecycle", publication)
   end
 
   defp publish_one(%{"source" => [uid, package, cve]} = repair) do
