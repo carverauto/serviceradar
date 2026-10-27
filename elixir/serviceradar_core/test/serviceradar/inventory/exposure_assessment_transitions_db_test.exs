@@ -228,7 +228,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                    end)
 
           live_dimensions!(conn, true)
-          assert {:ok, []} = ExposureSnapshotRepairs.verify([target])
+          live_confirm_repair!(target, System.monotonic_time(:millisecond) + 5_000)
           content = before |> Map.take(["cve_ord", "cve_id"]) |> Map.put("epss_score", 0.25)
 
           [[newer]] =
@@ -689,6 +689,26 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       end)
 
     assert retained == sequences
+  end
+
+  defp live_confirm_repair!(target, deadline) do
+    assert {:ok, pending} = ExposureSnapshotRepairs.verify([target])
+
+    cond do
+      pending == [] ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        stored = SnapshotWarehouse.read(target["kind"], [target["key"]])
+
+        flunk(
+          "repair confirmation visibility deadline: target=#{inspect(target)} warehouse=#{inspect(stored)}"
+        )
+
+      true ->
+        Process.sleep(20)
+        live_confirm_repair!(target, deadline)
+    end
   end
 
   defp live_empty_table!(table, deadline) do

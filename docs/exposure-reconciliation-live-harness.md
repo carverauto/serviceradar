@@ -42,7 +42,13 @@ Dimension ingestion reads the selected outbox sequences from retained JetStream
 messages and requires every selected sequence to be present. Core subscription
 delivery counts are not used as evidence of retention: failed publishes can
 reach subscribers, and deduplicated PubAcks need not produce another delivery.
-The assigned CVE repair is verified before publishing newer queued content.
+The assigned CVE repair is verified before publishing newer queued content,
+allowing up to five seconds for warehouse confirmation. Each attempt calls the
+production repair verifier without relaying or ingesting more publications.
+An unresolved repair fails at the deadline with its target and a fresh warehouse
+read; the repair's `observed` field is its original comparison input, not the
+latest warehouse sequence. This checks eventual confirmation without assuming
+that a successful load implies immediate visibility to every subsequent query.
 
 It asserts:
 
