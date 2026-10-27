@@ -14,8 +14,6 @@ GHSA-rhv4-8758-jx7v
 # Cowlib waiver rationale and removal criteria:
 # ../serviceradar_core/.deps_audit_ignore (EEF-CVE-2026-43966 block).
 EEF-CVE-2026-43966
-EEF-CVE-2026-43969
-GHSA-g2wm-735q-3f56
 
 # mix hex.audit and mix deps.audit report the cowlib response-splitting defect
 # under different ids, and the mix_audit ignore file matches on the advisory id

@@ -31,9 +31,7 @@ defmodule ServiceRadarCore.MixProject do
       hex: [
         ignore_advisories: [
           "EEF-CVE-2026-43966",
-          "EEF-CVE-2026-43969",
           "EEF-CVE-2026-95105",
-          "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
       ]
@@ -89,12 +87,12 @@ defmodule ServiceRadarCore.MixProject do
       # CVE-2026-94201: filtering on an atom created atoms; fixed in 3.34.3.
       # EEF-CVE-2026-101028: Ash.count/exists/aggregate skipping related
       # resources' read policies in filters and sorts; fixed in 3.34.6.
-      {:ash, "~> 3.34.6"},
+      {:ash, "~> 3.37.2"},
       # The floors below are the first releases carrying the fixes for the Hex
       # advisories open against the previously locked versions
-      # (`mix hex.audit`); do not lower them. ash_postgres 2.14 is the
-      # temporal release that matches Ash 3.34; its advisory floor was 2.13.
-      {:ash_postgres, "~> 2.14"},
+      # (`mix hex.audit`); do not lower them. The ash_postgres floor covers
+      # EEF-CVE-2026-115627 and EEF-CVE-2026-115635.
+      {:ash_postgres, "~> 2.15 and >= 2.15.2"},
       {:ash_oban, "~> 0.8.14"},
       {:ash_state_machine, "~> 0.2"},
       {:ash_json_api, "~> 1.4"},

@@ -1,10 +1,8 @@
 # Cowlib waiver rationale and removal criteria:
 # ../serviceradar_core/.deps_audit_ignore (EEF-CVE-2026-43966 block).
-# core_elx does not call the affected structured-header, cookie, or Link
-# encoders; its Gun 2.6.0 transport also rejects CR/LF request headers.
+# core_elx does not call the affected structured-header or Link encoders;
+# its Gun 2.6.0 transport also rejects CR/LF request headers.
 EEF-CVE-2026-43966
-EEF-CVE-2026-43969
-GHSA-g2wm-735q-3f56
 
 # mix hex.audit and mix deps.audit report the cowlib response-splitting defect
 # under different ids, and the mix_audit ignore file matches on the advisory id
