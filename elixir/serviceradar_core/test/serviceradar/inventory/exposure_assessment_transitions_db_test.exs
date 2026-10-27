@@ -82,123 +82,138 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert {:ok, %{rows: [[0]]}} = MySQL.query("SELECT count(*) FROM #{table}")
     end
 
-    try do
-      cve = "EXAMPLE-LIVE-RECONCILE"
-      {scope, original, _dimensions} = reconciliation_source!(ctx, cve, false)
-      args = %{"device_ord" => scope}
+    errors =
+      try do
+        cve = "EXAMPLE-LIVE-RECONCILE"
+        {scope, original, _dimensions} = reconciliation_source!(ctx, cve, false)
+        args = %{"device_ord" => scope}
 
-      ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
-        {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
-        {:ok, _} = Gnat.sub(conn, self(), "exposure.dimensions.>")
-        first = live_snapshot!(conn, args)
-        assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
-        assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
-        assert {:ok, %{ready: true, generation: ^first}} = ExposureReadiness.status(scope)
-        assert {:ok, %{rows: [[1]]}} =
-                 MySQL.query("SELECT count(*) FROM exposure_facts WHERE device_ord = #{scope}")
+        ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
+          {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
+          {:ok, _} = Gnat.sub(conn, self(), "exposure.dimensions.>")
+          first = live_snapshot!(conn, args)
+          assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
+          assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+          assert {:ok, %{ready: true, generation: ^first}} = ExposureReadiness.status(scope)
+          assert {:ok, %{rows: [[1]]}} =
+                   MySQL.query("SELECT count(*) FROM exposure_facts WHERE device_ord = #{scope}")
 
-        # Real storage loss must admit replacement work before readiness returns.
-        assert {:ok, _} = MySQL.query("DELETE FROM exposure_facts WHERE device_ord = #{scope}")
-        assert {:ok, %{rows: [[0]]}} =
-                 MySQL.query("SELECT count(*) FROM exposure_facts WHERE device_ord = #{scope}")
-        assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
-        assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
-        assert Repo.exists?(
-                 from(j in Oban.Job,
-                   where: j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
-                     j.state == "available" and
-                     fragment("?->>'device_ord'", j.args) == ^to_string(scope)
+          # Real storage loss must admit replacement work before readiness returns.
+          assert {:ok, _} = MySQL.query("DELETE FROM exposure_facts WHERE device_ord = #{scope}")
+          assert {:ok, %{rows: [[0]]}} =
+                   MySQL.query("SELECT count(*) FROM exposure_facts WHERE device_ord = #{scope}")
+          assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+          assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
+          assert Repo.exists?(
+                   from(j in Oban.Job,
+                     where: j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
+                       j.state == "available" and
+                       fragment("?->>'device_ord'", j.args) == ^to_string(scope)
+                   )
                  )
-               )
-        replacement = live_snapshot!(conn, args)
-        assert replacement > first
-        assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
-        assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
+          replacement = live_snapshot!(conn, args)
+          assert replacement > first
+          assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+          assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
 
-        # Current columns, not retained replay, are the comparison oracle.
-        assert {:ok, _} = Repo.transaction(fn ->
-          Repo.query!("""
-          ALTER TABLE platform.endpoint_vulnerability_assessments
-            DISABLE TRIGGER trg_exposure_assessment_sequence,
-            DISABLE TRIGGER trg_exposure_assessment_publish_update
-          """)
-          update_assessment!(ctx.device_uid, cve, kev: true, severity: "critical")
-          Repo.query!("""
-          ALTER TABLE platform.endpoint_vulnerability_assessments
-            ENABLE TRIGGER trg_exposure_assessment_sequence,
-            ENABLE TRIGGER trg_exposure_assessment_publish_update
-          """)
+          # Current columns, not retained replay, are the comparison oracle.
+          assert {:ok, _} = Repo.transaction(fn ->
+            Repo.query!("""
+            ALTER TABLE platform.endpoint_vulnerability_assessments
+              DISABLE TRIGGER trg_exposure_assessment_sequence,
+              DISABLE TRIGGER trg_exposure_assessment_publish_update
+            """)
+            update_assessment!(ctx.device_uid, cve, kev: true, severity: "critical")
+            Repo.query!("""
+            ALTER TABLE platform.endpoint_vulnerability_assessments
+              ENABLE TRIGGER trg_exposure_assessment_sequence,
+              ENABLE TRIGGER trg_exposure_assessment_publish_update
+            """)
+          end)
+          assert publication(ctx.device_uid, cve) == original
+          assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+          repaired = publication(ctx.device_uid, cve)
+          assert repaired["kev"] == true
+          assert repaired["severity"] == "critical"
+          assert repaired["transition_seq"] > original["transition_seq"]
+          assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} = ExposureReadiness.status(scope)
+          live_snapshot!(conn, args)
+          assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+
+          old_key = repaired["pkgver_ord"]
+          assert {:ok, _} = MySQL.query("DELETE FROM exposure_package_dim WHERE pkgver_ord = #{old_key}")
+          assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+          [[%{"repairs" => [assigned]}]] = Repo.query!(
+            "SELECT control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [scope]
+          ).rows
+          assert assigned["kind"] == "package"
+          assert assigned["key"] == old_key
+
+          # PubAck without ingestion, then upgrade away from V1 before its repair settles.
+          live_dimensions!(false)
+          update_assessment!(ctx.device_uid, cve, installed_version: "2.0.0")
+          upgraded = publication(ctx.device_uid, cve)
+          refute upgraded["pkgver_ord"] == old_key
+          assert {:ok, current} = DirectSession.run(fn reader ->
+            ExposureSnapshotWorker.source_page(reader, "dimensions", scope, nil)
+          end)
+          refute Enum.any?(current, fn [key, _] -> key == ["package", old_key] end)
+          assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+          assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} = ExposureReadiness.status(scope)
+          live_dimensions!(true)
+          assert {:ok, []} = ExposureSnapshotRepairs.verify([assigned])
+          live_snapshot!(conn, args)
+          assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+          assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
+
+          # A confirmed assigned CVE repair must not chase a newer queued EPSS update.
+          ordinal = original["cve_ord"]
+          [[before]] = Repo.query!(
+            "SELECT payload FROM platform.exposure_dimension_state WHERE kind = 'cve' AND ordinal = $1", [ordinal]
+          ).rows
+          assert {:ok, {:ok, [target]}} = Repo.transaction(fn ->
+            ExposureSnapshotRepairs.publish([
+              %{"kind" => "cve", "key" => ordinal, "observed" => before["transition_seq"]}
+            ])
+          end)
+          live_dimensions!(true)
+          content = before |> Map.take(["cve_ord", "cve_id"]) |> Map.put("epss_score", 0.25)
+          [[newer]] = Repo.query!("SELECT platform.exposure_publish_dimension('cve',$1,$2,false)", [ordinal, content]).rows
+          assert newer > target["required"]
+          assert {:ok, {:ok, [replayed]}} = Repo.transaction(fn -> ExposureSnapshotRepairs.publish([target]) end)
+          assert {:ok, []} = ExposureSnapshotRepairs.verify([replayed])
+          assert [[1]] = Repo.query!(
+            "SELECT 1 FROM platform.exposure_dimension_outbox WHERE kind = 'cve' AND ordinal = $1 AND transition_seq = $2",
+            [ordinal, newer]
+          ).rows
+
+          Repo.query!("UPDATE platform.exposure_reconciliation_checks SET checked_at = now() - interval '2 days' WHERE device_ord = $1", [scope])
+          assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
+          Application.put_env(:serviceradar_core, StarRocks, Keyword.put(config, :enabled, false))
+          assert {:error, :starrocks_required} = ExposureReadiness.status(scope)
+          assert [["active"]] = Repo.query!(
+            "SELECT status FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1", [ctx.device_uid]
+          ).rows
         end)
-        assert publication(ctx.device_uid, cve) == original
-        assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
-        repaired = publication(ctx.device_uid, cve)
-        assert repaired["kev"] == true
-        assert repaired["severity"] == "critical"
-        assert repaired["transition_seq"] > original["transition_seq"]
-        assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} = ExposureReadiness.status(scope)
-        live_snapshot!(conn, args)
-        assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
-
-        old_key = repaired["pkgver_ord"]
-        assert {:ok, _} = MySQL.query("DELETE FROM exposure_package_dim WHERE pkgver_ord = #{old_key}")
-        assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
-        [[%{"repairs" => [assigned]}]] = Repo.query!(
-          "SELECT control FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [scope]
-        ).rows
-        assert assigned["kind"] == "package"
-        assert assigned["key"] == old_key
-
-        # PubAck without ingestion, then upgrade away from V1 before its repair settles.
-        live_dimensions!(false)
-        update_assessment!(ctx.device_uid, cve, installed_version: "2.0.0")
-        upgraded = publication(ctx.device_uid, cve)
-        refute upgraded["pkgver_ord"] == old_key
-        assert {:ok, current} = DirectSession.run(fn reader ->
-          ExposureSnapshotWorker.source_page(reader, "dimensions", scope, nil)
-        end)
-        refute Enum.any?(current, fn [key, _] -> key == ["package", old_key] end)
-        assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
-        assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} = ExposureReadiness.status(scope)
-        live_dimensions!(true)
-        assert {:ok, []} = ExposureSnapshotRepairs.verify([assigned])
-        live_snapshot!(conn, args)
-        assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
-        assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
-
-        # A confirmed assigned CVE repair must not chase a newer queued EPSS update.
-        ordinal = original["cve_ord"]
-        [[before]] = Repo.query!(
-          "SELECT payload FROM platform.exposure_dimension_state WHERE kind = 'cve' AND ordinal = $1", [ordinal]
-        ).rows
-        assert {:ok, {:ok, [target]}} = Repo.transaction(fn ->
-          ExposureSnapshotRepairs.publish([
-            %{"kind" => "cve", "key" => ordinal, "observed" => before["transition_seq"]}
-          ])
-        end)
-        live_dimensions!(true)
-        content = before |> Map.take(["cve_ord", "cve_id"]) |> Map.put("epss_score", 0.25)
-        [[newer]] = Repo.query!("SELECT platform.exposure_publish_dimension('cve',$1,$2,false)", [ordinal, content]).rows
-        assert newer > target["required"]
-        assert {:ok, {:ok, [replayed]}} = Repo.transaction(fn -> ExposureSnapshotRepairs.publish([target]) end)
-        assert {:ok, []} = ExposureSnapshotRepairs.verify([replayed])
-        assert [[1]] = Repo.query!(
-          "SELECT 1 FROM platform.exposure_dimension_outbox WHERE kind = 'cve' AND ordinal = $1 AND transition_seq = $2",
-          [ordinal, newer]
-        ).rows
-
-        Repo.query!("UPDATE platform.exposure_reconciliation_checks SET checked_at = now() - interval '2 days' WHERE device_ord = $1", [scope])
-        assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
-        Application.put_env(:serviceradar_core, StarRocks, Keyword.put(config, :enabled, false))
-        assert {:error, :starrocks_required} = ExposureReadiness.status(scope)
-        assert [["active"]] = Repo.query!(
-          "SELECT status FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1", [ctx.device_uid]
-        ).rows
-      end)
-    after
-      for table <- tables do
-        assert {:ok, _} = MySQL.query("DELETE FROM #{table} WHERE 1 = 1")
-        assert {:ok, %{rows: [[0]]}} = MySQL.query("SELECT count(*) FROM #{table}")
+      else
+        _ -> []
+      catch
+        kind, reason -> [{kind, reason, __STACKTRACE__}]
       end
+
+    cleanup_errors =
+      Enum.flat_map(tables, fn table ->
+        try do
+          assert {:ok, _} = MySQL.query("TRUNCATE TABLE #{table}")
+          assert {:ok, %{rows: [[0]]}} = MySQL.query("SELECT count(*) FROM #{table}")
+          []
+        catch
+          kind, reason -> [{kind, reason, __STACKTRACE__}]
+        end
+      end)
+
+    if errors ++ cleanup_errors != [] do
+      raise ExUnit.MultiError, errors: errors ++ cleanup_errors
     end
   end
 

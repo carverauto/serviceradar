@@ -1,9 +1,7 @@
 # Hosted exposure interoperability check
 
-Status: implemented, NOT EXECUTED. No new hosted lifecycle was dispatched in
-this phase. The coordinator owns provisioning, exact-tree hosted execution,
-observer, teardown, release and final schema-drop verification. Existing
-ccc725 regression evidence does not validate this new scenario.
+The coordinator owns provisioning, exact-tree hosted execution, observer,
+teardown, release and final schema-drop verification.
 
 ## Activation
 
@@ -70,14 +68,13 @@ The existing broker helper awaits nats-server exit. The publisher task is shut
 down even on assertion failure. The supervised MySQL pool and load supervisor
 are owned by ExUnit. Existing unboxed source cleanup removes assessment,
 dictionary, outbox, reconciliation, scoped generation and job rows. The live
-scenario deletes and re-queries all five initially empty, exclusively owned
-warehouse tables in an after block. The coordinator must still drop and verify
-absence of the scratch schema, including when preflight or cleanup fails.
+scenario truncates and re-queries all five initially empty, exclusively owned
+warehouse tables. The restricted test identity therefore needs TRUNCATE
+permission on these scratch tables. Each table cleanup is attempted even if
+another fails. Scenario and cleanup errors are collected separately and raised
+together through ExUnit.MultiError, preserving their original stacktraces.
+The coordinator must still drop and verify absence of the scratch schema, including when preflight or cleanup fails.
 
 Collect the actual named test result and canonical suite/observer/teardown/
 release statuses. A compile/setup failure is not behavioral proof. Fresh hosted
-execution is required before claiming this gap closed. No tests, formatters,
-linters or static analysis were run in this implementation phase: local
-execution is forbidden and hosted lifecycle dispatch belongs to the outer
-coordinator. The contract is in the worktree rather than /private/tmp to honor
-the current workspace boundary.
+execution is required before claiming this gap closed.
