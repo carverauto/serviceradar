@@ -71,6 +71,9 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
   end
 
   setup do
+    previous_logger_level = Logger.level()
+    Logger.configure(level: :info)
+
     previous_queue = Application.get_env(:serviceradar_core, :stateful_alert_engine)
 
     previous_northbound_runner =
@@ -115,6 +118,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     AnomalyEpisodeRegistry.reset_tripwire!()
 
     on_exit(fn ->
+      Logger.configure(level: previous_logger_level)
       restore_env(:stateful_alert_engine, previous_queue)
       restore_env(:northbound_event_handler_runner, previous_northbound_runner)
       restore_env(:analytics_signals_process_batch_test_pid, previous_test_pid)
@@ -393,7 +397,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     assert event_count(row) == 1
   end
 
-  test "alert_evaluation_peer_not_ready nacks analytics predictions without error and processes once ready (#6062)" do
+  test "alert_evaluation_peer_not_ready nacks analytics predictions with delayed backoff and processes once ready (#6062)" do
     mode = Application.get_env(:serviceradar_core, :alert_evaluation_mode)
     peer_ready = Application.get_env(:serviceradar_core, :analytics_signals_peer_ready)
     Application.put_env(:serviceradar_core, :alert_evaluation_mode, :active)
@@ -513,39 +517,25 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
                |> Ash.read!(actor: actor)
     end
 
-    for reason <- [
-          :alert_evaluation_peer_not_ready,
-          :alert_evaluation_draining,
-          :alert_evaluation_capability_unavailable,
-          :db_unavailable
-        ],
-        delivery_count <- if(reason == :alert_evaluation_peer_not_ready, do: [5], else: 1..5) do
-      Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, {:error, reason})
-      message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, delivery_count)
+    message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 5)
 
-      log =
-        ExUnit.CaptureLog.capture_log([level: :info], fn ->
-          assert [%Message{status: {:failed, ^reason}} = failed_msg] =
-                   Pipeline.handle_batch(
-                     :analytics_predictions,
-                     [message],
-                     %{batch_key: :default},
-                     %{}
-                   )
+    log =
+      ExUnit.CaptureLog.capture_log([level: :info], fn ->
+        assert [%Message{status: {:failed, :alert_evaluation_peer_not_ready}} = failed_msg] =
+                 Pipeline.handle_batch(
+                   :analytics_predictions,
+                   [message],
+                   %{batch_key: :default},
+                   %{}
+                 )
 
-          Pipeline.handle_failed([failed_msg], %{})
-          assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
-        end)
+        Pipeline.handle_failed([failed_msg], %{})
+        assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
+      end)
 
-      action = if delivery_count == 5, do: :term, else: :nack
-      assert_receive {:jetstream_ack, ^action}
-      assert log =~ "[error]"
-
-      if reason != :alert_evaluation_peer_not_ready do
-        assert log =~ "Batch processing failed"
-        refute log =~ "Batch deferred"
-      end
-    end
+    assert_receive {:jetstream_ack, :term}
+    assert log =~ "[error]"
+    assert log =~ "EventWriter message reached terminal JetStream delivery"
 
     Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, true)
     broadway_message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 4)
@@ -581,6 +571,79 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
              AlertEvaluationWork
              |> Ash.Query.filter(rule_id == ^rule.id)
              |> Ash.read!(actor: actor)
+  end
+
+  test "non-readiness errors in analytics predictions still log error and use immediate nack (#6062)" do
+    peer_ready = Application.get_env(:serviceradar_core, :analytics_signals_peer_ready)
+
+    Application.put_env(
+      :serviceradar_core,
+      :stateful_alert_engine,
+      __MODULE__.PeerReadinessGatedAlertEngine
+    )
+
+    series_key = "synthetic:non-readiness:#{System.unique_integer([:positive])}"
+    event_id = "prediction-non-readiness-#{System.unique_integer([:positive])}"
+    raw_message = anomaly_message(series_key, event_id)
+
+    on_exit(fn ->
+      restore_env(:analytics_signals_peer_ready, peer_ready)
+      delete_episode_fixture!(series_key)
+    end)
+
+    parent = self()
+
+    broadway_message = %Message{
+      data: raw_message.data,
+      metadata:
+        Map.merge(raw_message.metadata, %{
+          reply_to: "$JS.ACK.analytics_predictions.consumer.1.1.1.0.0",
+          jetstream_ack: %{
+            stream: "analytics_predictions",
+            consumer: "consumer",
+            delivery_count: 1
+          },
+          max_deliver: 5
+        }),
+      acknowledger:
+        {Pipeline, :ack_ref,
+         %{
+           ack_fun: fn action ->
+             send(parent, {:jetstream_ack, action})
+             :ok
+           end
+         }}
+    }
+
+    for reason <- [
+          :alert_evaluation_draining,
+          :alert_evaluation_capability_unavailable,
+          :db_unavailable
+        ],
+        delivery_count <- 1..5 do
+      Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, {:error, reason})
+      message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, delivery_count)
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :info], fn ->
+          assert [%Message{status: {:failed, ^reason}} = failed_msg] =
+                   Pipeline.handle_batch(
+                     :analytics_predictions,
+                     [message],
+                     %{batch_key: :default},
+                     %{}
+                   )
+
+          Pipeline.handle_failed([failed_msg], %{})
+          assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
+        end)
+
+      action = if delivery_count == 5, do: :term, else: :nack
+      assert_receive {:jetstream_ack, ^action}
+      assert log =~ "[error]"
+      assert log =~ "Batch processing failed"
+      refute log =~ "Batch deferred"
+    end
   end
 
   # Prepared mode admits nothing, by design. A transition commits together with
