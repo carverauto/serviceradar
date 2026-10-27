@@ -1880,8 +1880,37 @@ seven days, or status cannot be established. A subsequent valid sample within
 both bounds records recovery. Events are emitted on health state changes, not
 on every poll. This monitoring does not shorten existing retention or discard
 stored messages. It does not establish consumer delivery completeness; snapshot
-and reconciliation readiness retain their separate proof requirements. Payload
-compaction and the fleet-scale completion gates remain open.
+and reconciliation readiness retain their separate proof requirements.
+
+**Terminal payload compaction (task 1.7).** The daily EventWriter maintenance job
+uses a fixed seven-day cutoff and a durable keyset cursor in its Oban control
+record. Each invocation handles at most twenty pages of 500 facts, then resumes.
+Only resolved or retired rows strictly older than the cutoff qualify. Migration
+0035 adds a warehouse-only `payload_compacted` flag. Compaction clears package
+version, source scope, severity, score, flags and first-exposure time; package
+version uses zero because its column is non-null. It retains the fact key,
+terminal state, transition sequence and xid, device lifecycle sequence,
+resolution/update times and snapshot generation. It never deletes tombstones.
+
+Compaction uses conditional partial Stream Load with the original sequence and
+omits `snapshot_generation`. Its labels include the maintenance job and page
+content, so a later daily job can clear payload restored by identical replay.
+This is storage maintenance of already-ingested facts, not a new source
+publication. It does not create transition history or a source sequence. A load
+finishing after its worker loses the response can only clear the same terminal
+publication; a newer source transition wins in either order. Equal terminal
+replay may restore the payload. These operations commute at the logical-state
+boundary, so compaction does not add a retained delivery envelope or block live
+traffic behind a new recovery journal. A failed or filtered load does not advance
+the maintenance cursor.
+
+Snapshots recognize only the canonical cleared payload with matching permanent
+markers. Repair verification still accepts the original full-row digest; when
+the stored payload was compacted, it rechecks the retained source publication
+and compares its canonical compacted representation. Malformed cleared payload
+and mismatched markers remain repair obligations. A successful snapshot can
+restore terminal payload and set its generation without allocating a new source
+sequence. The fleet-scale completion gates remain open pending measurement.
 
 This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequence,
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and

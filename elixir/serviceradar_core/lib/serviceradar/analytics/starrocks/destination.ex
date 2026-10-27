@@ -75,6 +75,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
           | :flow_attribution_observations
           | :exposure_facts
           | :exposure_snapshot_facts
+          | :exposure_compacted_facts
           | :exposure_transitions_log
           | :exposure_cve_dim
           | :exposure_package_dim
@@ -96,6 +97,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
     flow_attribution_observations: "flow_process_attribution_observations",
     exposure_facts: "exposure_facts",
     exposure_snapshot_facts: "exposure_facts",
+    exposure_compacted_facts: "exposure_facts",
     exposure_transitions_log: "exposure_transitions_log",
     exposure_cve_dim: "exposure_cve_dim",
     exposure_package_dim: "exposure_package_dim",
@@ -392,6 +394,7 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
              :flow_attribution,
              :exposure_facts,
              :exposure_snapshot_facts,
+             :exposure_compacted_facts,
              :exposure_transitions_log,
              :exposure_cve_dim,
              :exposure_package_dim,
@@ -625,18 +628,19 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
 
   defp exposure_load_label(opts, _dataset, _table, _rows), do: opts
 
-  defp dataset_load_opts(opts, :exposure_facts) do
+  defp dataset_load_opts(opts, dataset)
+       when dataset in [:exposure_facts, :exposure_compacted_facts] do
     opts
     |> Keyword.put(:partial_update, true)
     |> Keyword.put(:merge_condition, "transition_seq")
-    |> Keyword.put(:columns, Rows.exposure_fact_columns())
+    |> Keyword.put(:columns, Rows.exposure_fact_load_columns())
   end
 
   defp dataset_load_opts(opts, :exposure_snapshot_facts) do
     opts
     |> Keyword.put(:partial_update, true)
     |> Keyword.put(:merge_condition, "transition_seq")
-    |> Keyword.put(:columns, Rows.exposure_fact_columns() ++ ["snapshot_generation"])
+    |> Keyword.put(:columns, Rows.exposure_fact_load_columns() ++ ["snapshot_generation"])
   end
 
   defp dataset_load_opts(opts, dataset)

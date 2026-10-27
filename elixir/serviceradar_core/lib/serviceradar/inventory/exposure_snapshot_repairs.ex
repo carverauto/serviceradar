@@ -1,5 +1,6 @@
 defmodule ServiceRadar.Inventory.ExposureSnapshotRepairs do
   @moduledoc "Source-locked repair obligations; only warehouse evidence discharges them."
+  alias ServiceRadar.EventWriter.ExposureFactPayload
   alias ServiceRadar.EventWriter.ExposureSnapshotWarehouse, as: Warehouse
   alias ServiceRadar.EventWriter.Processors.ExposureDimensions
   alias ServiceRadar.EventWriter.Processors.ExposureTransitions
@@ -164,7 +165,9 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotRepairs do
 
     cond do
       row["transition_seq"] == required ->
-        Warehouse.row_digest(kind, row) == expected
+        Warehouse.row_digest(kind, row) == expected or
+          (kind == "fact" and ExposureFactPayload.compacted?(row) and
+             current_publication_matches?(repair, row))
 
       row["transition_seq"] > required ->
         current_publication_matches?(repair, row) or
@@ -267,7 +270,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotRepairs do
     Enum.any?(publications, fn
       [publication] when is_map(publication) ->
         case ExposureTransitions.decode([%{data: Jason.encode!(publication)}]) do
-          {:ok, [%{fact: fact}]} -> Warehouse.fact_digest(fact) == Warehouse.fact_digest(row)
+          {:ok, [%{fact: fact}]} -> Warehouse.identical_fact?(fact, row)
           _ -> false
         end
 

@@ -5,6 +5,7 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
   alias ServiceRadar.Analytics.StarRocks.Query
   alias ServiceRadar.Analytics.StarRocks.Rows
   alias ServiceRadar.EventWriter.ExposureDelivery
+  alias ServiceRadar.EventWriter.ExposureFactPayload
   alias ServiceRadar.EventWriter.ExposureLifecycle
   alias ServiceRadar.EventWriter.ExposureSnapshotEnvelope, as: Envelope
   alias ServiceRadar.EventWriter.Processors.ExposureDimensions
@@ -115,7 +116,7 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
             is_nil(stored) or stored["transition_seq"] < fact["transition_seq"] ->
               {[Map.put(fact, "snapshot_generation", generation["id"]) | writes], repairs, post}
 
-            stored["transition_seq"] == fact["transition_seq"] and identical?(fact, stored) ->
+            stored["transition_seq"] == fact["transition_seq"] and identical_fact?(fact, stored) ->
               {[Map.put(fact, "snapshot_generation", generation["id"]) | writes], repairs, post}
 
             stored["transition_seq"] > fact["transition_seq"] and
@@ -239,6 +240,16 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
     )
   end
 
+  def compactable_facts([device, cve, package], %NaiveDateTime{} = cutoff) do
+    rows("""
+    SELECT * FROM #{Env.table("exposure_facts")}
+    WHERE #{cursor_predicate(device, cve, package)}
+      AND state IN (0, 2) AND resolved_at < '#{NaiveDateTime.to_string(cutoff)}'
+      AND (payload_compacted = false OR pkgver_ord <> 0)
+    ORDER BY device_ord, cve_ord, pkg_ord LIMIT 500
+    """)
+  end
+
   defp fact_predicate(keys) do
     groups =
       Enum.map_join(keys, " OR ", fn [device, cve, package] ->
@@ -316,6 +327,13 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
       end)
 
     if valid, do: :ok, else: {:error, :exposure_snapshot_lane_conflict}
+  end
+
+  @doc "A terminal source may match its canonical compacted representation."
+  def identical_fact?(source, stored) do
+    identical?(source, stored) or
+      (source["state"] in [0, 2] and ExposureFactPayload.compacted?(stored) and
+         identical?(ExposureFactPayload.compact(source), stored))
   end
 
   defp identical?(left, right) do
