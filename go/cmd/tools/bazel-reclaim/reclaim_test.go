@@ -666,7 +666,15 @@ func TestApplyKeepsRegistrationWhenGitSaysNotARepo(t *testing.T) {
 	cases := []struct {
 		name   string
 		target func(t *testing.T, repo, worktree string) string
+		mode   os.FileMode
 	}{
+		{
+			name: "gitdir without search permission",
+			target: func(t *testing.T, _, worktree string) string {
+				return worktreeGitdir(t, worktree)
+			},
+			mode: 0o444,
+		},
 		{
 			name: "gitdir HEAD",
 			target: func(t *testing.T, _, worktree string) string {
@@ -692,6 +700,11 @@ func TestApplyKeepsRegistrationWhenGitSaysNotARepo(t *testing.T) {
 			repo, worktree := realLinkedWorktree(t)
 			path := tc.target(t, repo, worktree)
 			denyPath(t, path)
+			if tc.mode != 0 {
+				if err := os.Chmod(path, tc.mode); err != nil {
+					t.Fatal(err)
+				}
+			}
 
 			if !gitReportsNotARepository(worktree) {
 				t.Skip("git did not report not a git repository for " + path)

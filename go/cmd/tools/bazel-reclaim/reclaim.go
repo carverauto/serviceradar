@@ -148,7 +148,7 @@ func classify(b Base, p probe) (Verdict, string) {
 
 	registered, listErr := p.worktreePaths(b.Workspace)
 	if listErr != nil {
-		if worktreeRegistrationGone(listErr) && !gitdirRegistrationPresent(gitPath) {
+		if worktreeRegistrationGone(listErr) && gitdirRegistrationMissing(gitPath) {
 			return VerdictStale, "worktree registration no longer exists: " + errText(listErr)
 		}
 
@@ -221,19 +221,19 @@ func gitdirMissing(gitFile string) (missing bool, ok bool) {
 	return false, true
 }
 
-func gitdirRegistrationPresent(gitFile string) bool {
+func gitdirRegistrationMissing(gitFile string) bool {
 	target, ok := gitdirTarget(gitFile)
 	if !ok {
 		return false
 	}
 
 	for _, name := range []string{"HEAD", "commondir"} {
-		if _, err := os.Stat(filepath.Join(target, name)); err == nil {
-			return true
+		if _, err := os.Stat(filepath.Join(target, name)); !os.IsNotExist(err) {
+			return false
 		}
 	}
 
-	return false
+	return true
 }
 
 // worktreeRegistrationGone is true only when git reports that the path is
