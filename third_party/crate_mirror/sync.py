@@ -7,7 +7,14 @@ Run it as a Bazel target on Linux:
 On macOS the remote-built Linux interpreter cannot execute locally. From the
 repository root, use the system Python without a local Bazel build:
 
-    BUILD_WORKSPACE_DIRECTORY="$PWD" python3 third_party/crate_mirror/sync.py
+    BUILD_WORKSPACE_DIRECTORY="$PWD" /usr/bin/python3 third_party/crate_mirror/sync.py
+
+`/usr/bin/python3` is spelled out because a bare `python3` on PATH is often a
+python.org build, which ships an empty CA store: every fetch from
+static.crates.io then fails TLS verification. The system interpreter uses the
+macOS keychain roots instead. To use a python.org build, first run its
+"Install Certificates.command" (in /Applications/Python <version>/) or point
+SSL_CERT_FILE at a CA bundle.
 
 This is the vendoring step. It is a `bazel run` tool rather than a build action on
 purpose: it fetches over the network and writes into the source tree, so it belongs in
