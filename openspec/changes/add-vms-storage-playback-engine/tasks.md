@@ -32,7 +32,8 @@ or live acceptance task below.
   - [ ] Reconcile multipart and unknown outcomes without retargeting objects or rearming an unresolved operation.
 - [ ] 1.4 Reconcile restart at every local/upload/manifest/index boundary; handle disk loss, stale owners, orphan/multipart state and explicit gaps. [Spool lifetime](spool-lifetime.md) fences local block recovery by the provisioned marker. Abandoned media scratch currently refuses restart pending operator reconciliation. Upload, manifest and index reconciliation remain open.
 - [ ] 1.5 Add authorized local/archive range gateway and bounded HLS windows; deny unauthorized ranges and whole-object leakage.
-  - [ ] Expose [authorized single-block archive metadata](archive-metadata.md), with separate recording permission, fresh authorization and canonical conflict exclusion. This branch awaits its own remote and guarded HTTP/database proof. Metadata never grants media access.
+  - [x] Expose [authorized single-block archive metadata](archive-metadata.md), with separate recording permission, fresh authorization and canonical conflict exclusion. Final #6055 passed all 19 checks and uncached Core/Web database lifecycle gates. Metadata never grants media access.
+  - [ ] Serve [authorized archive initialization and fragment bytes](archive-reads.md) through a separate bounded reader, with independent authorization before and after provider I/O. Runtime implementation and guarded validation are in progress; HLS/timeline and provisional local delivery remain separate.
 - [ ] 1.6 Integrate timeline/player and spatial links; preserve viewer cleanup and live-view behavior.
 - [ ] 1.7 Ship disabled by default with storage/capability validation, admission budgets and observability through JetStream/EventWriter. Local marker verification and the explicit upload's single-slot byte/deadline limits are implemented; coordinated admission, observability and hosted enablement remain open, and recording stays disabled.
 

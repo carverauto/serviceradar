@@ -9,8 +9,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   response text. See build/media/provider-probe.md for invocation and recovery.
   """
 
+  alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
   alias ServiceRadar.HTTP.EgressProxy
-  alias ServiceRadarCoreElx.CameraStorage.HTTP
 
   @run_ms 900_000
   @cleanup_ms 180_000

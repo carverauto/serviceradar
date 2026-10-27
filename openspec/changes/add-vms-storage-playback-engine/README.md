@@ -2,58 +2,39 @@
 
 ## Current pickup
 
-[Sealed-media upload #6007](https://github.com/carverauto/serviceradar/pull/6007)
-is merged at `575dfc1f6b2d1efa2934487d934b1f3d9460b10d`. Its published head
-`4c965ee8` passed all 19 checks. Core executed all 12 guarded targets and Web
-all seven, uncached, with successful connection observation, teardown and
-fixture-generation lease release. This includes all eight spool worker cases,
-two media authority cases and both joined media-upload cases. Detailed evidence
-and the accepted review decision are in [validation](validation.md#published-head-media-validation).
+[Authorized archive metadata #6055](https://github.com/carverauto/serviceradar/pull/6055)
+is merged at `ca8ad4e2b106c120824ebf35fcd256ce8a69f387`. Its final head
+`a586219c` passed all 19 checks. Core executed 12 guarded targets and Web seven,
+uncached, with successful observer, teardown and generation release. The
+[validation ledger](validation.md#published-head-archive-metadata-validation)
+retains the approved prepublication exception and the actual execution evidence.
 
-The [archive-publication checkpoint](archive-publication.md) consumes independent verified init and media
-receipts, derives and verifies the recovery manifest, and publishes the archive
-index under current ownership. Media verification alone is not archive
-availability. Keep the existing one-shot media command; completion is a separate
-bounded command and never rearms an attempted object operation.
+The current checkpoint is [authorized archive fragment reads](archive-reads.md).
+It builds on canonical publication and separate recording-read permission, with
+fresh checks before provider I/O and before byte delivery. Its runtime and
+joined synthetic validation are in progress; compilation does not complete the
+required published-head Core/Web database gates.
 
-[Archive publication #6047](https://github.com/carverauto/serviceradar/pull/6047)
-is merged at `35078ce5b0e4233b30da59edec994ddd258ade87`. Its final head
-`3bd7402a` passed all 20 checks. Core executed all 12 guarded targets and Web all
-seven, uncached; suite, observer, teardown and lease-release statuses were zero.
-The manifest-verification and index-publication subtasks are complete. See
-[final validation](validation.md#published-head-archive-publication-validation).
+[Archive publication](archive-publication.md), [media upload](media-upload.md),
+[registration](archive-registration.md) and [spool identity](spool-lifetime.md)
+are merged prerequisites. Their detailed evidence remains below. None enables
+recording or qualifies a live provider.
 
-The next bounded checkpoint is [authorized archive metadata](archive-metadata.md):
-a fresh, camera-scoped inspection of one retained block. It reuses canonical
-availability and exposes the frozen descriptor only while its proof chain remains
-valid. Historical recording access has a separate permission approved by the
-operator; live-video permission does not grant it. The implementation in this
-branch still requires remote checks and published-head guarded Web execution.
+[Cloud reservation #188](https://github.com/carverauto/serviceradar-control/pull/188)
+remains an open draft at `9caedaa8`, with five passing checks. Allocation
+ownership is unresolved. Synthetic product work can proceed independently;
+Cloud must resolve ownership and preservation before provisioning or readiness.
 
-[Registration #6000](https://github.com/carverauto/serviceradar/pull/6000) and
-[spool identity #6004](https://github.com/carverauto/serviceradar/pull/6004) are
-merged prerequisites. Registration returns an immutable unqualified binding;
-the spool marker identifies a local storage lifetime. Neither provisions storage
-or installs upload authority. The final media run also supplies the previously
-missing handoff record for the eight guarded worker cases.
-
-[Cloud media reservation #188](https://github.com/carverauto/serviceradar-control/pull/188)
-retains allocation intent and a teardown fence; its last recorded state is an
-open draft with five passing checks. Its provider ownership contract remains a
-separate dependency. Synthetic product transport development can proceed without
-claiming Cloud provisioning or live provider qualification.
-
-Production recording stays disabled. Preserve the operator-confirmed live RTSP
-path and every ownership, manifest, archive, intent and dispatch assertion.
-All new endpoints, media and failure injections use invented synthetic data.
+Production recording stays disabled. Preserve the confirmed live RTSP path and
+every ownership, manifest, archive, intent and dispatch assertion. New media,
+identifiers and failure injections are independently invented synthetic data.
 
 ## Priority order
 
-1. Finish the authorized single-block metadata read and its real HTTP/database
-   checks. Then implement independently authorized byte-range delivery and
-   bounded HLS/timeline windows. A metadata snapshot is never a byte-read grant;
-   canonical proof conflicts must also deny future media reads. Preserve unknown
-   clock mappings instead of inventing capture times.
+1. Complete the isolated archive fragment reader and its real HTTP/database
+   gates. Then implement bounded HLS/timeline windows and provisional local
+   delivery. Every request reauthorizes independently; neither metadata nor a
+   previously fetched plan grants later access. Preserve unknown clock mappings.
 2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
    before provider creation. A matching name or successful create response does
    not prove ownership. [Issue #182](https://github.com/carverauto/serviceradar-control/issues/182)
@@ -84,7 +65,8 @@ All new endpoints, media and failure injections use invented synthetic data.
 | Cloud media reservation | #188 remains an open draft; all five checks passed, including 3,241 tests with zero failures and 10 skips; local Dialyzer fails with 11 warnings also present on its exact base | Merge, allocation inventory and preservation-release workflow |
 | Provisioned spool identity | #6004 merged at `0ba042ba` from head `30566cec`; [local marker contract](spool-lifetime.md) and [validation](validation.md#provisioned-spool-identity) | All eight worker cases passed in final media Core `773fd2dc`; Cloud volume/UUID association and full restart acceptance remain open |
 | Sealed-media upload | #6007 merged at `575dfc1f`; head `4c965ee8` passed 19 checks. Core `773fd2dc` and Web `7fd98129` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. [Byte-path contract](media-upload.md) | Publication is complete below; hosted qualification and deployment acceptance remain open |
-| Archive publication | #6047 merged at `35078ce5`; final head `3bd7402a` passed 20 checks. Core `cb53539e` and Web `78dee076` executed all 12/seven guarded targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-publication-validation) | Authorized metadata and byte access; reconciliation, hosted qualification and deployment acceptance |
+| Archive publication | #6047 merged at `35078ce5`; final head `3bd7402a` passed 20 checks. Core `cb53539e` and Web `78dee076` executed all 12/seven guarded targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-publication-validation) | Byte access; reconciliation, hosted qualification and deployment acceptance |
+| Authorized archive metadata | #6055 merged at `ca8ad4e2`; head `a586219c` passed 19 checks. Core `5c6abc7a` and Web `a05a66e9` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-metadata-validation) | Byte delivery, timeline and hosted acceptance |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 
@@ -95,26 +77,22 @@ runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Start with [tasks.md](tasks.md), [archive metadata](archive-metadata.md),
-[archive publication](archive-publication.md) and [Cloud ownership](cloud-control-plane.md).
-The publication prerequisite is merged and its final database gates passed.
-Finish this branch's metadata endpoint through no-mistakes, then require the
-published-head Web owner to execute the real publication/read/conflict sequence
-and permission controls. Core's existing proof and fencing suite remains required.
-Keep every prior assertion and clean/re-query all committed fixture rows.
+Start with [tasks](tasks.md), [archive reads](archive-reads.md) and
+[Cloud ownership](cloud-control-plane.md). Finish the current fragment-read
+checkpoint through remote validation and no-mistakes, preserving every existing
+assertion. Require the actual published-head Core proof owner and Web joined
+publication/read tests to execute with successful fixture cleanup.
 
-The metadata response is bounded to one source-matched block. Reload the user's
-current authority, require recording-read plus inventory permission and use the
-canonical proof owner. Only available blocks expose their immutable descriptor.
-No provider I/O, local spool access, lease renewal or new readiness claim belongs
-in a metadata read. Future playback must authorize every byte request separately.
+Read credentials stay in a separate, nondistributed process. Browser input is
+only camera UUID, block UUID and init/fragment selector. Compare a freshly
+rederived canonical plan and current human authority before releasing bounded,
+digest-verified bytes. Reads must work independently of recording stop and
+expired upload grants. No arbitrary object-range or URL endpoint is permitted.
 
-Keep the isolated credential workload, original dispatch identities/deadlines,
-late-conflict exclusion and post-stop DB-only publication unchanged. Cloud #188
-remains unmerged and allocation ownership unresolved; product synthetic work
-can proceed independently. Do not add a bucket allocator based on name or create
-success. Inventory/preservation classification and an explicit adoption contract
-are the next Cloud design work.
+Next add bounded HLS/timeline windows; keep local provisional reads, retention,
+provider qualification and hosted enablement distinct. Cloud #188 remains
+unmerged: inventory/preservation classification can proceed, but matching names
+or create success cannot authorize bucket adoption or cleanup.
 
 Use Treehouse with linked Bazel rc files, remote Bazel and no-mistakes. Do not
 merge, deploy, enable recording, provision live storage or run live probes in

@@ -1,11 +1,13 @@
-defmodule ServiceRadarCoreElx.CameraStorage.Config do
+defmodule ServiceRadar.Camera.ArchiveStorageConfig do
   @moduledoc """
   Loads one infrastructure-installed storage configuration and its secret files.
 
-  Secret references are checked against the complete desired document. No
-  request selects a credential file, provider endpoint or installed identity.
+  Write credentials are checked against the desired authority; read credentials
+  are fixed by the installation. No request selects a credential file, provider
+  endpoint or installed identity.
   """
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
+  alias ServiceRadar.Camera.ArchiveDestination
   alias ServiceRadar.HTTP.EgressProxy
   alias ServiceRadar.JSONDocument
 
@@ -14,10 +16,62 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
   @runtime_fields ~w(base_url certfile keyfile cacertfile token_file)
   @credential_fields ~w(reference generation access_key_id secret_access_key)
 
+  @doc "Loads a reader's fixed binding and private connection, never provider credentials."
+  def load_reader(path) do
+    with {:ok, document} <- read_json(path, 4096),
+         true <-
+           exact?(document, ~w(schema_version binding_id destination_sha256 storage)) and
+             document["schema_version"] === 1,
+         {:ok, id} <- Ecto.UUID.cast(document["binding_id"]),
+         true <- sha?(document["destination_sha256"]),
+         {:ok, client} <- runtime(document["storage"]) do
+      {:ok, %{binding_id: id, destination_sha256: document["destination_sha256"], client: client}}
+    else
+      _ -> {:error, :invalid_archive_reader_configuration}
+    end
+  rescue
+    _ -> {:error, :invalid_archive_reader_configuration}
+  end
+
+  @doc "Loads a read-only isolated listener; it has no write authority or runtime callback."
+  def load_read_storage(path) do
+    with {:ok, document} <- read_json(path, 8192),
+         true <-
+           exact?(
+             document,
+             ~w(schema_version binding_id destination provider_credentials_file listener)
+           ) and
+             document["schema_version"] === 1,
+         {:ok, id} <- Ecto.UUID.cast(document["binding_id"]),
+         {:ok, destination} <- ArchiveDestination.attributes(document["destination"]),
+         {:ok, listener} <- listener(document["listener"], "reader_certificate_sha256"),
+         {:ok, credential} <- read_json(document["provider_credentials_file"], 4096),
+         true <- read_credential?(credential) do
+      {:ok,
+       %{
+         binding_id: id,
+         destination_sha256: destination.destination_sha256,
+         listener: listener,
+         provider: %{
+           proxy: EgressProxy.from_env(),
+           cacerts: :public_key.cacerts_get(),
+           credential: credential,
+           destination: document["destination"]
+         }
+       }}
+    else
+      _ -> {:error, :invalid_archive_read_storage_configuration}
+    end
+  rescue
+    _ -> {:error, :invalid_archive_read_storage_configuration}
+  end
+
   @doc "Loads only the recorder's installed spool/binding and private service connection."
   def load_recorder(path) do
     with {:ok, document} <- read_json(path, 4096),
-         true <- exact?(document, ~w(schema_version spool_root binding_id storage)) and document["schema_version"] === 1,
+         true <-
+           exact?(document, ~w(schema_version spool_root binding_id storage)) and
+             document["schema_version"] === 1,
          true <- path?(document["spool_root"]),
          {:ok, id} <- Ecto.UUID.cast(document["binding_id"]),
          {:ok, client} <- runtime(document["storage"]) do
@@ -38,7 +92,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
          true <- Enum.all?(rest, &(shared_identity(&1) == shared_identity(desired))),
          {:ok, listener} <- listener(document["listener"]),
          {:ok, runtime} <- runtime(document["runtime"]),
-         false <- Plug.Crypto.secure_compare(listener.token_sha256, :crypto.hash(:sha256, runtime.token)),
+         false <-
+           Plug.Crypto.secure_compare(listener.token_sha256, :crypto.hash(:sha256, runtime.token)),
          {:ok, credential} <- read_json(document["provider_credentials_file"], 4096),
          true <- credential?(credential, desired.report["credential"]) do
       {:ok,
@@ -84,7 +139,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
 
   defp parse_purposes(purposes, installation) do
     Enum.reduce_while(purposes, {:ok, %{}}, fn {name, value}, {:ok, parsed} ->
-      with {:ok, kind} <- Map.fetch(%{"init" => :init, "media" => :media, "manifest" => :manifest}, name),
+      with {:ok, kind} <-
+             Map.fetch(%{"init" => :init, "media" => :media, "manifest" => :manifest}, name),
            {:ok, ^kind} <- ArchiveAuthorityConfig.kind(value),
            {:ok, desired} <- ArchiveAuthorityConfig.parse(kind, installation, value) do
         {:cont, {:ok, Map.put(parsed, kind, desired)}}
@@ -103,11 +159,13 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
     }
   end
 
-  defp listener(value) do
-    with true <- exact?(value, @listener_fields),
+  defp listener(value, pin_field \\ "recorder_certificate_sha256") do
+    fields = [pin_field | List.delete(@listener_fields, "recorder_certificate_sha256")]
+
+    with true <- exact?(value, fields),
          port when is_integer(port) and port in 1..65_535 <- value["port"],
-         pin when is_binary(pin) <- value["recorder_certificate_sha256"],
-         true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, pin),
+         pin when is_binary(pin) <- value[pin_field],
+         true <- sha?(pin),
          {:ok, tls} <- tls(value),
          {:ok, token} <- token(value["token_file"]) do
       {:ok, %{port: port, tls: tls, pin: pin, token_sha256: :crypto.hash(:sha256, token)}}
@@ -119,7 +177,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
   defp runtime(value) do
     with true <- exact?(value, @runtime_fields),
          url when is_binary(url) and byte_size(url) <= 512 <- value["base_url"],
-         %URI{scheme: "https", host: host, userinfo: nil, query: nil, fragment: nil, path: path} <- URI.parse(url),
+         %URI{scheme: "https", host: host, userinfo: nil, query: nil, fragment: nil, path: path} <-
+           URI.parse(url),
          true <- is_binary(host) and host != "" and path in [nil, ""],
          {:ok, tls} <- tls(value),
          {:ok, cacerts} <- ca_certificates(value["cacertfile"]),
@@ -152,6 +211,14 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
       value["generation"] === expected["generation"] and
       secret?(value["access_key_id"], 1, 256) and secret?(value["secret_access_key"], 1, 512)
   end
+
+  defp read_credential?(value) do
+    exact?(value, @credential_fields) and secret?(value["reference"], 1, 256) and
+      is_integer(value["generation"]) and value["generation"] in 1..9_223_372_036_854_775_807 and
+      secret?(value["access_key_id"], 1, 256) and secret?(value["secret_access_key"], 1, 512)
+  end
+
+  defp sha?(value), do: is_binary(value) and Regex.match?(~r/\A[0-9a-f]{64}\z/, value)
 
   defp token(path) do
     with {:ok, bytes} <- read_file(path, 512), true <- secret?(bytes, 32, 512) do
@@ -209,7 +276,9 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
   defp decimal(value) when is_binary(value) and byte_size(value) in 1..19 do
     case Integer.parse(value) do
       {integer, ""} when integer in 1..9_223_372_036_854_775_807 ->
-        if Integer.to_string(integer) == value, do: {:ok, integer}, else: {:error, :invalid_generation}
+        if Integer.to_string(integer) == value,
+          do: {:ok, integer},
+          else: {:error, :invalid_generation}
 
       _ ->
         {:error, :invalid_generation}

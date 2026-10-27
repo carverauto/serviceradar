@@ -6,8 +6,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
   timeout, conflicting object or replacement lease can rearm this operation.
   Provider credentials never leave this isolated workload.
   """
+  alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
   alias ServiceRadarCoreElx.CameraStorage.CoreClient
-  alias ServiceRadarCoreElx.CameraStorage.HTTP
 
   def run_init(config, boot, lease, bytes, deadline) do
     envelope = %{"schema_version" => 1, "lease" => lease}
@@ -96,7 +96,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
       {"x-amz-checksum-sha256", object_sha |> Base.decode16!(case: :lower) |> Base.encode64()}
     ]
 
-    signed = sign(provider, :put, url, headers, bytes, object_sha)
+    signed = HTTP.sign(provider, :put, url, headers, bytes, object_sha)
     pairs = signed |> Enum.sort() |> Enum.map(fn {key, value} -> [key, value] end)
     wire_sha = sha256(Jason.encode!(["#{kind}-put-wire-v1", "PUT", url, pairs, object_sha]))
 
@@ -148,7 +148,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
     headers = [{"if-match", identity.etag}]
 
     with {:ok, %{status: 200} = head} <-
-           provider_request(provider, :head, url, sign(provider, :head, url, headers, nil), nil, deadline, 0),
+           provider_request(provider, :head, url, HTTP.sign(provider, :head, url, headers, nil), nil, deadline, 0),
          {:ok, ^identity} <- identity(head),
          true <- header(head, "content-length") == Integer.to_string(grant["byte_length"]),
          "AES256" <- header(head, "x-amz-server-side-encryption"),
@@ -175,7 +175,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
   defp readback(provider, url, identity, size, first, hash, deadline) do
     last = min(size - 1, first + 4_194_304 - 1)
     headers = [{"range", "bytes=#{first}-#{last}"}, {"if-match", identity.etag}]
-    signed = sign(provider, :get, url, headers, nil)
+    signed = HTTP.sign(provider, :get, url, headers, nil)
     range = {first, last, size, identity.etag, identity.version}
 
     with {:ok, response} <- provider_request(provider, :get, url, signed, nil, deadline, last - first + 1, range),
@@ -191,38 +191,6 @@ defmodule ServiceRadarCoreElx.CameraStorage.Upload do
       remaining when remaining > 0 -> HTTP.request(provider, method, url, headers, body, remaining, limit, range)
       _ -> {:error, :storage_deadline_expired}
     end
-  end
-
-  defp sign(provider, method, url, headers, body, digest \\ nil) do
-    uri = URI.parse(url)
-    # Supply transport defaults before hashing; Mint otherwise adds User-Agent after signing.
-    headers = [
-      {"host", uri.authority},
-      {"user-agent", "serviceradar-init-storage/1"},
-      {"accept-encoding", "identity"} | headers
-    ]
-
-    length =
-      case body do
-        {:file, _, size} -> size
-        bytes when is_binary(bytes) -> byte_size(bytes)
-        nil -> nil
-      end
-
-    headers = if length, do: [{"content-length", Integer.to_string(length)} | headers], else: headers
-
-    Req.Utils.aws_sigv4_headers(
-      access_key_id: provider.credential["access_key_id"],
-      secret_access_key: provider.credential["secret_access_key"],
-      region: provider.destination["region"],
-      service: "s3",
-      datetime: DateTime.utc_now(),
-      method: method,
-      url: url,
-      headers: headers,
-      body: "",
-      body_digest: digest || sha256(body || "")
-    )
   end
 
   defp object_key?(:init, key), do: Regex.match?(~r/\Arecordings\/v1\/[0-9a-f]{64}\/init\.mp4\z/, key)

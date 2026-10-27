@@ -253,7 +253,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           action: "view",
           label: "View camera recordings",
           description:
-            "Inspect historical camera recording metadata. Live camera access is separate.",
+            "Inspect historical recording metadata and read recorded camera footage. Live camera access is separate.",
           default_roles: @admin_roles
         },
         %{

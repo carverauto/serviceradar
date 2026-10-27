@@ -201,6 +201,87 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
     end
   end
 
+  @doc """
+  Derive one exact immutable init or fragment range for an authorized reader.
+
+  The caller authorizes the current user before entering with its internal actor,
+  and rechecks this snapshot before delivering bytes. The plan is not a bearer
+  grant. It contains no credential or endpoint and never acquires an upload lease
+  or performs I/O. Complete init is bounded to 1 MiB and a fragment to 4 MiB.
+  """
+  def archive_range(camera_source_id, block_id, selector, opts \\ []) do
+    with :ok <- outside_transaction(),
+         {:ok, _} <- dispatcher(opts),
+         :ok <- valid_range_selector(selector) do
+      transaction(fn ->
+        with {:ok, block} <- lock_block(block_id, opts),
+             true <-
+               block.camera_source_id == camera_source_id || {:error, :recording_block_not_found},
+             {:ok, binding, evidence} <- available_archive(block, opts),
+             {:ok, role, first, length, sha} <- archive_interval(block.descriptor, selector) do
+          object = Map.fetch!(evidence, role)
+          verification = value(object.dispatch, role, :init_verification)
+
+          {:ok,
+           %{
+             "schema_version" => 1,
+             "binding_id" => binding.id,
+             "destination_sha256" => binding.destination_sha256,
+             "descriptor_sha256" => block.descriptor_sha256,
+             "manifest_verification_sha256" => block.archive_manifest_verification_sha256,
+             "block_id" => block.id,
+             "object_key" => object.intent.object_key,
+             "first" => first,
+             "last" => first + length - 1,
+             "size" => object.intent.byte_length,
+             "etag" => verification["etag"],
+             "version_id" => verification["version_id"],
+             "sha256" => sha
+           }}
+        end
+      end)
+    end
+  end
+
+  defp valid_range_selector(:init), do: :ok
+
+  defp valid_range_selector({:fragment, index}) when is_integer(index) and index in 0..4095,
+    do: :ok
+
+  defp valid_range_selector(_), do: {:error, :invalid_recording_range}
+
+  defp available_archive(%{state: :open_local}, _opts), do: {:error, :archive_unavailable}
+  defp available_archive(%{archive_binding_id: nil}, _opts), do: {:error, :archive_unavailable}
+
+  defp available_archive(block, opts) do
+    with {:ok, binding, evidence} <- publication_evidence(block, opts) do
+      if publication_phase(block, evidence) == :available,
+        do: {:ok, binding, evidence},
+        else: {:error, :archive_unavailable}
+    end
+  end
+
+  defp archive_interval(descriptor, :init) do
+    descriptor["init"] |> Map.put("offset", 0) |> bounded_archive_interval(:init, 1_048_576)
+  end
+
+  defp archive_interval(descriptor, {:fragment, index}) do
+    case Enum.fetch(descriptor["fragments"], index) do
+      {:ok, fragment} -> bounded_archive_interval(fragment, :media, 4_194_304)
+      :error -> {:error, :invalid_recording_range}
+    end
+  end
+
+  defp bounded_archive_interval(
+         %{"offset" => first, "length" => length, "sha256" => sha},
+         role,
+         limit
+       ) do
+    if length <= limit,
+      do: {:ok, role, first, length, sha},
+      else: {:error, :recording_range_too_large}
+  end
+
   @doc "Freeze canonical manifest identity and bytes; preparation grants no provider I/O."
   def prepare_manifest(lease, opts \\ []) do
     with :ok <- outside_transaction(), {:ok, _} <- dispatcher(opts) do

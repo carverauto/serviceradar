@@ -33,7 +33,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   @moduletag sandbox: :unboxed
   @installation %{deployment_ref: "79a7a564-aa29-40ca-8c2b-8cacb9664b6c", generation: 1}
 
-  setup do
+  setup tags do
     control_owned? = Fixtures.preserve_recording_control(@installation.deployment_ref)
     ctx = Fixtures.context()
     {:ok, relay} = Fixtures.open(ctx)
@@ -51,7 +51,11 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       )
 
     {:ok, block} = RecorderOwnership.reserve_block(owner, claim, @clock, ctx.opts)
-    {:ok, block} = RecordingBlocks.freeze(owner, claim, block, descriptor(block), ctx.opts)
+
+    {description, media_bytes} =
+      if tags[:archive_ranges], do: range_descriptor(block), else: {descriptor(block), "abc"}
+
+    {:ok, block} = RecordingBlocks.freeze(owner, claim, block, description, ctx.opts)
 
     {:ok, lease} =
       RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), 30_000, ctx.opts)
@@ -176,6 +180,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       owner: owner,
       claim: claim,
       relay: relay,
+      media_bytes: media_bytes,
       control_owned?: control_owned?
     })
   end
@@ -2149,12 +2154,114 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     end
   end
 
+  @tag archive_ranges: true
+  test "archive reads derive exact bounded ranges from current published proofs without renewing ownership",
+       ctx do
+    ctx = Map.put(ctx, :object_versions, %{init: nil})
+
+    assert {:error, :archive_unavailable} =
+             ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, :init, ctx.opts)
+
+    bind(ctx)
+    verified_object(ctx, :media)
+    verified_object(ctx, :init)
+    manifest = verified_object(ctx, :manifest)
+
+    assert {:error, :archive_unavailable} =
+             ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, {:fragment, 0}, ctx.opts)
+
+    assert {:ok, receipt} = ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+    assert {:ok, _} = RecordingControl.stop(@installation, stop_document(), ctx.opts)
+    assert {:ok, retained} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    retained_dispatches = Enum.sort_by(dispatches(ctx), & &1.id)
+
+    common = %{
+      "schema_version" => 1,
+      "binding_id" => ctx.binding.id,
+      "destination_sha256" => ctx.binding.destination_sha256,
+      "descriptor_sha256" => ctx.block.descriptor_sha256,
+      "manifest_verification_sha256" => manifest.dispatch.manifest_verification_sha256,
+      "block_id" => ctx.block.id
+    }
+
+    assert {:ok, init} =
+             ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, :init, ctx.opts)
+
+    assert init ==
+             Map.merge(common, %{
+               "object_key" => "recordings/v1/#{ctx.block.block_key}/init.mp4",
+               "first" => 0,
+               "last" => 0,
+               "size" => 1,
+               "etag" => ~s("synthetic-init-etag"),
+               "version_id" => nil,
+               "sha256" => digest("i")
+             })
+
+    assert {:ok, fragment} =
+             ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, {:fragment, 1}, ctx.opts)
+
+    assert fragment ==
+             Map.merge(common, %{
+               "object_key" => "recordings/v1/#{ctx.block.block_key}/media.m4s",
+               "first" => 2,
+               "last" => 4_194_305,
+               "size" => 8_388_611,
+               "etag" => ~s("synthetic-media-etag"),
+               "version_id" => "synthetic-media-version",
+               "sha256" => digest(:binary.copy("c", 4_194_304))
+             })
+
+    assert {:error, :recording_range_too_large} =
+             ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, {:fragment, 2}, ctx.opts)
+
+    for selector <- [
+          :media,
+          :manifest,
+          {:fragment, -1},
+          {:fragment, "1"},
+          {:fragment, 3},
+          {:fragment, 4096}
+        ] do
+      assert {:error, :invalid_recording_range} =
+               ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, selector, ctx.opts)
+    end
+
+    assert {:error, :recording_block_not_found} =
+             ArchiveUploads.archive_range(Ecto.UUID.generate(), ctx.block.id, :init, ctx.opts)
+
+    assert {:error, :recording_block_not_found} =
+             ArchiveUploads.archive_range(ctx.source.id, Ecto.UUID.generate(), :init, ctx.opts)
+
+    assert {:ok, ^retained} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert Enum.sort_by(dispatches(ctx), & &1.id) == retained_dispatches
+
+    assert {:error, :archive_upload_response_conflict} =
+             ArchiveUploads.observe_response(
+               ctx.lease,
+               manifest.dispatch.id,
+               %{"status" => 503},
+               ctx.opts
+             )
+
+    assert {:error, :archive_unavailable} =
+             ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, {:fragment, 1}, ctx.opts)
+
+    assert {:ok, %{status: :reconciliation_required, result: ^receipt}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+  end
+
   test "publication owners reject ambient transactions and invalid actors without creating evidence",
        ctx do
     bind(ctx)
 
     for opts <- [[], [actor: %{role: :viewer, id: "synthetic-viewer"}]] do
       assert {:error, :invalid_dispatcher} = ArchiveUploads.publication_status(ctx.block.id, opts)
+
+      assert {:error, :invalid_dispatcher} =
+               ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, :init, opts)
+
       assert {:error, :invalid_dispatcher} = ArchiveUploads.prepare_manifest(ctx.lease, opts)
 
       assert {:error, :invalid_dispatcher} =
@@ -2167,6 +2274,9 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              Repo.transaction(fn ->
                assert {:error, :ambient_transaction} =
                         ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, :init, ctx.opts)
 
                assert {:error, :ambient_transaction} =
                         ArchiveUploads.prepare_manifest(ctx.lease, ctx.opts)
@@ -2198,7 +2308,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
           "i"
 
         :media ->
-          "abc"
+          ctx.media_bytes
 
         :manifest ->
           assert {:ok, %{bytes: bytes}} = ArchiveUploads.prepare_manifest(ctx.lease, ctx.opts)
@@ -2220,7 +2330,8 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       "schema_version" => 1,
       "put_request_sha256" => digest("synthetic signed #{role} request"),
       "etag" => ~s("synthetic-#{role}-etag"),
-      "version_id" => "synthetic-#{role}-version",
+      "version_id" =>
+        Map.get(Map.get(ctx, :object_versions, %{}), role, "synthetic-#{role}-version"),
       "byte_length" => byte_size(bytes),
       "object_sha256" => digest(bytes),
       "encryption" => "AES256"
@@ -2232,11 +2343,14 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              ArchiveUploads.observe_response(
                ctx.lease,
                dispatch.id,
-               %{
-                 "status" => 200,
-                 "etag" => verification["etag"],
-                 "version_id" => verification["version_id"]
-               },
+               Map.reject(
+                 %{
+                   "status" => 200,
+                   "etag" => verification["etag"],
+                   "version_id" => verification["version_id"]
+                 },
+                 fn {_key, value} -> is_nil(value) end
+               ),
                ctx.opts
              )
 
@@ -2576,6 +2690,35 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   end
 
   # Invented bytes describe this authority test; existing media keepers own decoding.
+  defp range_descriptor(block) do
+    parts = ["ab", :binary.copy("c", 4_194_304), :binary.copy("d", 4_194_305)]
+    bytes = IO.iodata_to_binary(parts)
+    original = descriptor(block)
+    [template] = original["fragments"]
+
+    {fragments, _size} =
+      parts
+      |> Enum.with_index()
+      |> Enum.map_reduce(0, fn {part, index}, offset ->
+        fragment = %{
+          template
+          | "sequence" => index,
+            "offset" => offset,
+            "length" => byte_size(part),
+            "start_ns" => index * 1_000_000_000,
+            "sha256" => digest(part)
+        }
+
+        {fragment, offset + byte_size(part)}
+      end)
+
+    {%{
+       original
+       | "media" => %{"length" => byte_size(bytes), "sha256" => digest(bytes)},
+         "fragments" => fragments
+     }, bytes}
+  end
+
   defp descriptor(block) do
     %{
       "version" => 1,

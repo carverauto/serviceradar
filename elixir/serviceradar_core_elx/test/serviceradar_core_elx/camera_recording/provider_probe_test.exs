@@ -3,8 +3,8 @@ ExUnit.start()
 defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
   alias ServiceRadarCoreElx.CameraRecording.ProviderProbe
-  alias ServiceRadarCoreElx.CameraStorage.HTTP
 
   @moduletag :tmp_dir
   @run String.duplicate("a", 32)

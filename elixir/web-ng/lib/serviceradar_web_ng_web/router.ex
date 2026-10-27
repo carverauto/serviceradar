@@ -175,6 +175,17 @@ defmodule ServiceRadarWebNGWeb.Router do
     plug(:require_authenticated_user_api)
   end
 
+  pipeline :archive_media_api do
+    plug(:accepts, ["mp4", "json"])
+    plug(SecurityHeaders)
+    plug(:fetch_session)
+    plug(:skip_csrf_protection_for_bearer_auth)
+    plug(:protect_from_forgery)
+    plug(:fetch_current_scope_for_user)
+    plug(:set_ash_actor)
+    plug(:require_authenticated_user_api)
+  end
+
   # API authentication for CLI/external tools (API key or bearer token)
   pipeline :api_key_auth do
     plug(:accepts, ["json"])
@@ -565,6 +576,13 @@ defmodule ServiceRadarWebNGWeb.Router do
       tool_argument_transformer: &Mcp.wrap_tool_arguments/3,
       instructions: Mcp.instructions()
     )
+  end
+
+  scope "/api", ServiceRadarWebNGWeb.Api do
+    pipe_through([:archive_media_api, :rate_limit_api_default])
+
+    get("/cameras/:camera_source_id/recordings/:id/init", CameraRecordingController, :init_object)
+    get("/cameras/:camera_source_id/recordings/:id/fragments/:index", CameraRecordingController, :fragment)
   end
 
   # Other scopes may use custom stacks.

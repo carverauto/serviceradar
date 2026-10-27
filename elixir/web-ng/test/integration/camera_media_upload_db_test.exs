@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveBinding
+  alias ServiceRadar.Camera.ArchiveStorageConfig, as: Config
   alias ServiceRadar.Camera.ArchiveUploadDispatch
   alias ServiceRadar.Camera.ArchiveUploadIntent
   alias ServiceRadar.Camera.ArchiveUploads
@@ -16,12 +17,12 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingDescriptor
   alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
   alias ServiceRadarCoreElx.CameraRecording.ArchivePublication
   alias ServiceRadarCoreElx.CameraRecording.MediaUpload
   alias ServiceRadarCoreElx.CameraRecording.Spool
   alias ServiceRadarCoreElx.CameraRecording.Storage
-  alias ServiceRadarCoreElx.CameraStorage.Config
   alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Provider
   alias ServiceRadarWebNG.ArchiveStorageHTTP
   alias ServiceRadarWebNG.AshTestHelpers
@@ -36,6 +37,8 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   @moduletag timeout: 120_000
 
   @bytes :binary.copy("invented joined media;", 7000)
+  @second_bytes "independent synthetic second fragment"
+  @reader_token "synthetic-joined-web-to-reader-token"
   @endpoint ServiceRadarWebNGWeb.Endpoint
   @admin_token "synthetic-joined-media-administration-token"
   @account_token "synthetic-joined-account-administration-token"
@@ -63,7 +66,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     spool = Path.join(directory, "spool")
     File.mkdir!(spool)
     File.chmod!(spool, 0o700)
-    {block, block_directory} = frozen_block(context, spool)
+    {block, block_directory} = frozen_block(context, spool, test[:archive_reads])
     Application.put_env(:serviceradar_core_elx, :camera_recording_storage_id, block.storage_id)
 
     runtime = ArchiveStorageHTTP.start!(installation)
@@ -77,7 +80,14 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
         role = request_role(request)
         grant = committed_grant(block.id, role)
         request = Map.merge(request, %{grant: grant, role: role})
-        Agent.get_and_update(store, &provider(&1, request))
+        response = Agent.get_and_update(store, &provider(&1, request))
+
+        if request.method == "GET" do
+          effect = Agent.get_and_update(store, &{Map.get(&1, :read_effect), Map.delete(&1, :read_effect)})
+          if effect, do: effect.()
+        end
+
+        response
       end)
 
     desired = desired(binding, block, destination, installation.document)
@@ -126,6 +136,8 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     }
 
     System.put_env("VMS_MEDIA_UPLOAD_CONFIG", write_file(directory, "recorder.json", Jason.encode!(recorder)))
+
+    if test[:archive_reads], do: start_reader(directory, binding, destination, provider_port, certificates)
 
     Map.merge(context, %{
       block: block,
@@ -217,7 +229,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     token = recording_reader_token()
     path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
 
-    assert token |> recording_metadata(path) |> json_response(200) == %{
+    assert token |> recording_response(path) |> json_response(200) == %{
              "data" => %{
                "schema_version" => 1,
                "block_id" => context.block.id,
@@ -248,7 +260,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert_publication(context, receipt)
     assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
 
-    response = recording_metadata(token, path)
+    response = recording_response(token, path)
 
     assert json_response(response, 200) == %{
              "data" => %{
@@ -266,7 +278,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
 
     other_source = other_recording_source(context)
-    wrong_source = recording_metadata(token, "/api/cameras/#{other_source.id}/recordings/#{context.block.id}")
+    wrong_source = recording_response(token, "/api/cameras/#{other_source.id}/recordings/#{context.block.id}")
     assert json_response(wrong_source, 404)["error"] == "recording_not_found"
 
     manifest = dispatch(context, :manifest)
@@ -279,7 +291,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
                actor: SystemActor.system(:camera_archive_storage)
              )
 
-    conflicted = recording_metadata(token, path)
+    conflicted = recording_response(token, path)
 
     assert json_response(conflicted, 200) == %{
              "data" => %{
@@ -378,8 +390,98 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert {:ok, %{status: :manifest_required}} = ArchiveUploads.publication_status(context.block.id, context.opts)
   end
 
-  defp recording_metadata(token, path) do
-    response = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
+  @tag publication: true, archive_reads: true
+  test "archived fragments require current permission and proofs after isolated provider reads", context do
+    token = recording_reader_token()
+    path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
+    assert {:ok, _} = MediaUpload.upload_once(context.block.id)
+    assert {:ok, _} = ArchivePublication.complete_once(context.block.id)
+    remove_local_inputs(context)
+    stop_recording(context)
+    assert {:ok, published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    initial = recording_response(token, path <> "/init", "video/mp4")
+    assert initial.status == 200
+    assert initial.resp_body == "i"
+    assert get_resp_header(initial, "content-type") == ["video/mp4"]
+    assert get_resp_header(initial, "x-content-type-options") == ["nosniff"]
+
+    first = recording_response(token, path <> "/fragments/0", "video/mp4")
+    second = recording_response(token, path <> "/fragments/1", "video/mp4")
+    assert first.status == 200
+    assert first.resp_body == @bytes
+    assert second.status == 200
+    assert second.resp_body == @second_bytes
+    [request | _] = requests = Agent.get(context.store, & &1.requests)
+    total = byte_size(@bytes) + byte_size(@second_bytes)
+    assert request.method == "GET"
+    assert request.headers["range"] == "bytes=#{byte_size(@bytes)}-#{total - 1}"
+    assert request.headers["if-match"] == ~s("joined-media-etag")
+    assert request.target =~ "?versionId=joined-version-1"
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    for suffix <- ["/fragments/2", "/fragments/4095"] do
+      assert recording_response(token, path <> suffix).status == 416
+    end
+
+    for suffix <- ["/fragments/-1", "/fragments/01", "/fragments/4096"] do
+      assert recording_response(token, path <> suffix).status == 400
+    end
+
+    ranged =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> put_req_header("range", "bytes=0-")
+      |> get(path <> "/fragments/0")
+
+    assert json_response(ranged, 400)["error"] == "invalid_request"
+    assert Agent.get(context.store, & &1.requests) == requests
+
+    {:ok, %{"sub" => "user:" <> user_id}} = Guardian.decode_and_verify(token)
+    user_uuid = Ecto.UUID.dump!(user_id)
+
+    Agent.update(context.store, fn state ->
+      Map.put(state, :read_effect, fn ->
+        assert %{num_rows: 1} =
+                 ServiceRadar.Repo.query!("UPDATE platform.ng_users SET role = 'viewer' WHERE id = $1", [user_uuid])
+      end)
+    end)
+
+    revoked = recording_response(token, path <> "/fragments/1")
+    assert json_response(revoked, 403)["error"] == "forbidden"
+    assert length(Agent.get(context.store, & &1.requests)) == length(requests) + 1
+    requests = Agent.get(context.store, & &1.requests)
+    assert recording_response(token, path <> "/init").status == 403
+    assert Agent.get(context.store, & &1.requests) == requests
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!("UPDATE platform.ng_users SET role = 'admin' WHERE id = $1", [user_uuid])
+
+    Cache.invalidate(user_id)
+    manifest = dispatch(context, :manifest)
+
+    Agent.update(context.store, fn state ->
+      Map.put(state, :read_effect, fn ->
+        assert {:error, :archive_upload_response_conflict} =
+                 ArchiveUploads.observe_response(published, manifest.id, %{"status" => 503},
+                   actor: SystemActor.system(:camera_archive_storage)
+                 )
+      end)
+    end)
+
+    conflicted = recording_response(token, path <> "/fragments/0")
+    assert json_response(conflicted, 409)["error"] == "recording_unavailable"
+    assert length(Agent.get(context.store, & &1.requests)) == length(requests) + 1
+    requests = Agent.get(context.store, & &1.requests)
+    assert recording_response(token, path <> "/init").status == 409
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+  end
+
+  defp recording_response(token, path, accept \\ "application/json") do
+    response =
+      build_conn() |> put_req_header("authorization", "Bearer " <> token) |> put_req_header("accept", accept) |> get(path)
+
     assert get_resp_header(response, "cache-control") == ["private, no-store"]
     response
   end
@@ -389,7 +491,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
     on_exit(fn ->
       id = Ecto.UUID.dump!(user.id)
-      ServiceRadar.Identity.RBAC.Cache.invalidate(user.id)
+      Cache.invalidate(user.id)
       ServiceRadar.Repo.query!("DELETE FROM platform.api_tokens WHERE user_id = $1", [id])
       ServiceRadar.Repo.query!("DELETE FROM platform.ng_users WHERE id = $1", [id])
 
@@ -600,7 +702,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     ])
   end
 
-  defp start_storage_peer(config, directory) do
+  defp start_storage_peer(config, directory, mode \\ :upload) do
     {:ok, peer, _} = :peer.start_link(%{connection: :standard_io, args: [~c"+S", ~c"2:2"]})
     Process.unlink(peer)
 
@@ -612,7 +714,8 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
         Code,
         :eval_string,
         [
-          "if pid = Process.whereis(ServiceRadarCoreElx.CameraStorage.Service), do: Supervisor.stop(pid, :normal, 5000)"
+          "name = if mode == :read, do: ServiceRadarCoreElx.CameraStorage.ReadService, else: ServiceRadarCoreElx.CameraStorage.Service; if pid = Process.whereis(name), do: Supervisor.stop(pid, :normal, 5000)",
+          [mode: mode]
         ],
         10_000
       )
@@ -634,13 +737,17 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
         :eval_string,
         [
           """
-          {:ok, supervisor} = ServiceRadarCoreElx.CameraStorage.Service.start_link(config)
+          {:ok, supervisor} =
+            if mode == :read,
+              do: ServiceRadarCoreElx.CameraStorage.Service.start_read_link(config),
+              else: ServiceRadarCoreElx.CameraStorage.Service.start_link(config)
           Process.unlink(supervisor)
-          _ = :sys.get_state(ServiceRadarCoreElx.CameraStorage.Session)
+          session = if mode == :read, do: ServiceRadarCoreElx.CameraStorage.ReadSession, else: ServiceRadarCoreElx.CameraStorage.Session
+          _ = :sys.get_state(session)
           %{distributed: Node.alive?(), repo: Process.whereis(ServiceRadar.Repo),
             applications: Enum.map(Application.started_applications(), &elem(&1, 0))}
           """,
-          [config: config]
+          [config: config, mode: mode]
         ],
         15_000
       )
@@ -652,7 +759,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     peer
   end
 
-  defp frozen_block(context, root) do
+  defp frozen_block(context, root, archive_reads?) do
     {:ok, relay} = Fixtures.open(context)
     {:ok, relay} = Fixtures.activate(context, relay)
     owner = Fixtures.owner(context)
@@ -679,6 +786,15 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     {:ok, storage} = Storage.initialize(root, block.storage_id)
     {:ok, spool} = Spool.create(storage, RecordingBlock.identity(block), "i")
     {:ok, spool, _} = Spool.append(spool, @bytes, %{start_ns: 0, duration_ns: 1_000_000_000})
+
+    spool =
+      if archive_reads? do
+        {:ok, spool, _} = Spool.append(spool, @second_bytes, %{start_ns: 1_000_000_000, duration_ns: 1_000_000_000})
+        spool
+      else
+        spool
+      end
+
     {:ok, spool} = Spool.seal(spool)
     format = %{sha256: digest("i"), timescale: 90_000, codecs: %{avc1: %{profile: 66, compatibility: 192, level: 10}}}
     {:ok, descriptor} = RecordingDescriptor.from_snapshot(Spool.snapshot(spool), format)
@@ -735,6 +851,62 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     desired
     |> Map.put("operation", "#{role}_put_verified_v1")
     |> Map.put("limits", %{limit => bytes, "max_operation_ms" => milliseconds, "max_in_flight" => 1})
+  end
+
+  defp start_reader(directory, binding, destination, provider_port, provider_certificates) do
+    certificates = certificates()
+    port = free_port()
+
+    credential = %{
+      "reference" => "synthetic-archive-reader",
+      "generation" => 1,
+      "access_key_id" => "synthetic-read-only-key",
+      "secret_access_key" => "invented-read-only-key-material"
+    }
+
+    reader_token = write_file(directory, "reader-token", @reader_token)
+
+    document = %{
+      "schema_version" => 1,
+      "binding_id" => binding.id,
+      "destination" => destination,
+      "provider_credentials_file" => write_file(directory, "reader-provider.json", Jason.encode!(credential)),
+      "listener" =>
+        directory
+        |> tls_files("reader-server", certificates.server_config)
+        |> Map.merge(%{
+          "port" => port,
+          "token_file" => reader_token,
+          "reader_certificate_sha256" => digest(certificates.client_config[:cert])
+        })
+    }
+
+    assert {:ok, config} = Config.load_read_storage(write_file(directory, "reader-storage.json", Jason.encode!(document)))
+
+    config =
+      put_in(
+        config.provider,
+        Map.merge(config.provider, %{
+          proxy: Provider.proxy(provider_port),
+          cacerts: provider_certificates.client_config[:cacerts]
+        })
+      )
+
+    peer_directory = Path.join(directory, "isolated-reader")
+    File.mkdir!(peer_directory)
+    start_storage_peer(config, peer_directory, :read)
+
+    client = %{
+      "schema_version" => 1,
+      "binding_id" => binding.id,
+      "destination_sha256" => binding.destination_sha256,
+      "storage" =>
+        directory
+        |> tls_files("reader-client", certificates.client_config)
+        |> Map.merge(%{"base_url" => "https://localhost:#{port}", "token_file" => reader_token})
+    }
+
+    System.put_env("VMS_ARCHIVE_READER_CONFIG", write_file(directory, "reader-client.json", Jason.encode!(client)))
   end
 
   defp storage_config(directory, runtime, certificates, desired, port, publication?) do
@@ -833,7 +1005,11 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
       "GET" ->
         object = Map.fetch!(state.objects, path)
-        {{206, Map.put(headers, "content-range", "bytes 0-#{byte_size(object) - 1}/#{byte_size(object)}"), object}, state}
+        [_, first, last] = Regex.run(~r/\Abytes=(\d+)-(\d+)\z/, request.headers["range"])
+        first = String.to_integer(first)
+        last = String.to_integer(last)
+        bytes = binary_part(object, first, last - first + 1)
+        {{206, Map.put(headers, "content-range", "bytes #{first}-#{last}/#{byte_size(object)}"), bytes}, state}
     end
   end
 
@@ -981,6 +1157,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     runtime = Application.get_env(:serviceradar_web_ng, :control_plane_runtime)
     storage_id = Application.get_env(:serviceradar_core_elx, :camera_recording_storage_id)
     recorder = System.get_env("VMS_MEDIA_UPLOAD_CONFIG")
+    reader = System.get_env("VMS_ARCHIVE_READER_CONFIG")
 
     on_exit(fn ->
       restore_application(:serviceradar_web_ng, :control_plane_runtime, runtime)
@@ -989,6 +1166,10 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
       if recorder,
         do: System.put_env("VMS_MEDIA_UPLOAD_CONFIG", recorder),
         else: System.delete_env("VMS_MEDIA_UPLOAD_CONFIG")
+
+      if reader,
+        do: System.put_env("VMS_ARCHIVE_READER_CONFIG", reader),
+        else: System.delete_env("VMS_ARCHIVE_READER_CONFIG")
     end)
   end
 
