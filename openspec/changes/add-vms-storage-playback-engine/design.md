@@ -124,8 +124,10 @@ central index delivery retries separately.
 
 ## 5. Playback, access boundaries and cache
 
-Produce bounded HLS windows with correct init maps, explicit byte offsets,
-durations, sequences and discontinuity/clock information. Each object/init
+The current [single-block playlist contract](archive-playlists.md) exposes
+complete protected resources; byte offsets remain internal to the reader.
+Broader timeline playback must preserve init maps, durations, sequences and
+discontinuity/clock information. Each object/init
 boundary resolves the correct initialization range. Offline time is represented
 in the API timeline; a discontinuity tag alone does not encode wall-clock gaps
 or prove a player will recover. Test seek/reconnect across real generated outputs.

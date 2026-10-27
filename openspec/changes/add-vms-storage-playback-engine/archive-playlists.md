@@ -24,8 +24,10 @@ ceilings for this checkpoint, not measured production capacity objectives.
 Success is always `application/vnd.apple.mpegurl`, with private/no-store and
 nosniff headers. This fixed-representation download does not negotiate a Phoenix
 rendering format; errors remain JSON. Its authentication, session, CSRF and
-security plugs match the existing media API. It requires the separate recording
-permission and fresh Source access on every request. Unavailable publication
+security plugs match the existing media API. The
+[recording access policy](../../../docs/docs/rbac-and-roles.md#recording-metadata-and-footage)
+owns required permissions and authority refresh; each request also checks fresh
+Source access. Unavailable publication
 returns 409; missing or wrong-camera blocks return 404; unexpected proof/database
 failures return 503. Issuing a playlist performs no provider I/O or archive writes.
 

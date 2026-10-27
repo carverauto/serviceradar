@@ -84,11 +84,9 @@ through remote validation and no-mistakes, preserving every existing assertion.
 Require independent HLS consumption through the real endpoint, plus actual
 published-head Core/Web database execution with successful fixture cleanup.
 
-Read credentials stay in a separate, nondistributed process. Browser input is
-only camera UUID, block UUID and init/fragment selector. Compare a freshly
-rederived canonical plan and current human authority before releasing bounded,
-digest-verified bytes. Reads must work independently of recording stop and
-expired upload grants. No arbitrary object-range or URL endpoint is permitted.
+The [archive reader](archive-reads.md) owns isolated credentials, byte selectors
+and authorization before byte release. The [playlist contract](archive-playlists.md)
+owns the additional bounded window parameters and relative resource URLs.
 
 Next add timeline discovery and player; keep local provisional reads, retention,
 provider qualification and hosted enablement distinct. Cloud #188 remains
