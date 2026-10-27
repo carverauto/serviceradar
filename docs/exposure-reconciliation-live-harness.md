@@ -98,6 +98,11 @@ become visible, with a failing assertion at the deadline. The restricted test id
 permission on these scratch tables. Each table cleanup is attempted even if
 another fails. Scenario and cleanup errors are collected separately and raised
 together through ExUnit.MultiError, preserving their original stacktraces.
+Pending finalizer repairs still fail the scenario. Before cleanup, that failure
+reports up to five synthetic fact obligations, their current severity/KEV,
+decoded retained publications, actual warehouse rows and up to twenty queued
+transition sequences per fact. Connection configuration and raw query errors
+are excluded; diagnostic failure does not replace the finalization failure.
 The coordinator must still drop and verify absence of the scratch schema, including when preflight or cleanup fails.
 
 Collect the actual named test result and canonical suite/observer/teardown/

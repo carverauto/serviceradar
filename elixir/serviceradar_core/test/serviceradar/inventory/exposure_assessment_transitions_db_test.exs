@@ -333,9 +333,67 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       {:error, :exposure_snapshot_finalization_pending} ->
         live_finalize!(generation, attempts - 1)
 
+      {:error, :exposure_snapshot_repairs_pending} ->
+        flunk(
+          "live snapshot repairs pending: #{inspect(live_repair_diagnostics(generation), limit: :infinity)}"
+        )
+
       other ->
         flunk("live snapshot finalization failed: #{inspect(other)}")
     end
+  end
+
+  # Failure-only evidence from this generation's synthetic facts, before cleanup.
+  # Never print connection errors or configuration, and never hide the primary failure.
+  defp live_repair_diagnostics(generation) do
+    {:ok, state} = ExposureSnapshotState.get(generation)
+
+    repairs =
+      state["repairs"]
+      |> Enum.take(5)
+      |> Enum.map(fn repair ->
+        [uid, package, cve] = repair["source"]
+        key = repair["key"]
+        {:ok, warehouse} = SnapshotWarehouse.read("fact", [key])
+
+        source =
+          Repo.query!(
+            """
+            SELECT kev, severity, last_exposure_publication
+            FROM platform.endpoint_vulnerability_assessments
+            WHERE device_uid = $1 AND package_identity_key = $2 AND cve_id = $3
+            """,
+            [uid, package, cve]
+          ).rows
+
+        retained =
+          Enum.map(source, fn [kev, severity, payload] ->
+            {:ok, [%{fact: fact}]} = ExposureTransitions.decode([%{data: Jason.encode!(payload)}])
+            %{current_kev: kev, current_severity: severity, retained: fact}
+          end)
+
+        queued =
+          Repo.query!(
+            """
+            SELECT transition_seq FROM platform.exposure_transition_outbox
+            WHERE device_uid = $1 AND payload->>'cve_id' = $2
+              AND payload->>'package_identity_key' = $3
+            ORDER BY id LIMIT 20
+            """,
+            [uid, cve, package]
+          ).rows
+
+        %{
+          repair: Map.take(repair, ~w(kind key observed required expected)),
+          source: retained,
+          warehouse: warehouse[key],
+          queued_sequences: List.flatten(queued)
+        }
+      end)
+
+    %{generation: generation, repair_count: length(state["repairs"]), repairs: repairs}
+  rescue
+    _ -> :repair_diagnostics_unavailable
   end
 
   defp live_global_readiness!(conn, ctx, scope, cve) do
