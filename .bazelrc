@@ -201,13 +201,9 @@ build:remote --disk_cache=~/.cache/serviceradar-bazel/disk
 build:remote --repository_cache=~/.cache/serviceradar-bazel/repo
 build:remote --repo_contents_cache=~/.cache/serviceradar-bazel/repo-contents
 build:remote --experimental_disk_cache_gc_max_size=50G
-# The 50G cap above bounds disk/ ONLY. Bazel 9.2 has no size cap for the repo
-# contents cache or the repository cache; the only repo-contents bound is age
-# GC, so set it explicitly instead of relying on the 14d default (measured
-# 78G in repo-contents/ on a workstation, issue #4520). Output bases are a
-# third, unbounded tree: one per workspace path under the output user root,
-# left behind by `git worktree remove`. Reclaim stale ones with
-# //go/cmd/tools/bazel-reclaim (see docs/agent-runbooks.md).
+# Bound repo-contents retention separately from the disk cache's size cap.
+# Cache layout and stale output-base reclamation: docs/agent-runbooks.md,
+# "Workstation Bazel disk usage".
 build:remote --repo_contents_cache_gc_max_age=7d
 
 build:darwin_pkg --platforms=//build/platforms:darwin_exec

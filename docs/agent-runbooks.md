@@ -819,11 +819,15 @@ gitdir is gone, git reports "not a git repository" and that readable gitdir
 has neither HEAD nor commondir, or a successful `git worktree list
 --porcelain` of the backing repo omits that worktree. Git's "not a git
 repository" is not enough while HEAD or commondir is still present, including
-when HEAD, objects, or refs cannot be read. An unreadable workspace or
-gitdir, and any other stat or git failure, keeps the base. A live workspace
-or a running Bazel server is never deleted, and `--apply` classifies again
-immediately before the delete, so it stays safe while other sessions share
-the root. Deleting a stale base removes that output base. A later checkout
+when HEAD, objects, or refs cannot be read. The registration directory's
+parent must be readable, and an unreadable `gitdir` backlink keeps the base
+even when Git would silently omit the worktree. An unreadable workspace or
+gitdir, and any other stat or git failure, keeps the base. An unreadable or
+invalid `server/server.pid.txt` also keeps the base; an absent PID file allows
+the workspace checks to proceed. A live workspace or a running Bazel server
+is kept, and `--apply` classifies again immediately before deletion. This
+recheck does not lock out concurrent workspace or server changes. Deleting
+a stale base removes that output base. A later checkout
 at the same path builds a new one.
 
 The caches under `~/.cache/serviceradar-bazel` rebuild on next use; remove

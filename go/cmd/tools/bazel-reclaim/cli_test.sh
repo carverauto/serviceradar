@@ -196,50 +196,6 @@ grep -F 'worktree registration unreadable' "$WORKDIR/uncertain.out" >/dev/null \
   || fail "uncertain git reason: $(cat "$WORKDIR/uncertain.out")"
 pass "--apply keeps a base when git fails without proving the worktree is gone"
 
-# --- successful worktree list that omits the path: stale ---
-omit_root="$WORKDIR/omit-root"
-mkdir -p "$omit_root"
-omit_ws="$WORKDIR/omit-ws"
-omit_gitdir="$WORKDIR/omit-gitdir"
-mkdir -p "$omit_ws" "$omit_gitdir"
-printf 'gitdir: %s\n' "$omit_gitdir" >"$omit_ws/.git"
-omit_base="$(write_base "$omit_root" "hashomit" "$omit_ws")"
-fake_omit="$WORKDIR/fake-omit-bin"
-mkdir -p "$fake_omit"
-cat >"$fake_omit/git" <<'EOF'
-#!/bin/sh
-printf '%s\n' 'worktree /somewhere/else' 'HEAD abc' 'branch refs/heads/main'
-exit 0
-EOF
-chmod +x "$fake_omit/git"
-PATH="$fake_omit:$PATH" tool --output-user-root "$omit_root" --apply >"$WORKDIR/omit.out"
-assert_gone "$omit_base" "apply omitted worktree"
-grep -F 'worktree no longer registered' "$WORKDIR/omit.out" >/dev/null \
-  || fail "omitted list reason: $(cat "$WORKDIR/omit.out")"
-pass "--apply deletes a base when a successful worktree list omits its path"
-
-# --- successful list that includes the path: keep ---
-listed_root="$WORKDIR/listed-root"
-mkdir -p "$listed_root"
-listed_ws="$WORKDIR/listed-ws"
-listed_gitdir="$WORKDIR/listed-gitdir"
-mkdir -p "$listed_ws" "$listed_gitdir"
-printf 'gitdir: %s\n' "$listed_gitdir" >"$listed_ws/.git"
-listed_base="$(write_base "$listed_root" "hashlisted" "$listed_ws")"
-fake_list="$WORKDIR/fake-list-bin"
-mkdir -p "$fake_list"
-cat >"$fake_list/git" <<EOF
-#!/bin/sh
-printf '%s\n' 'worktree $listed_ws' 'HEAD abc'
-exit 0
-EOF
-chmod +x "$fake_list/git"
-PATH="$fake_list:$PATH" tool --output-user-root "$listed_root" --apply >"$WORKDIR/listed.out"
-assert_exists "$listed_base" "apply listed worktree"
-grep -F 'workspace exists' "$WORKDIR/listed.out" >/dev/null \
-  || fail "listed worktree reason: $(cat "$WORKDIR/listed.out")"
-pass "--apply keeps a base when the worktree list includes its path"
-
 # --- real git: empty gitdir is not a repository, so the base is stale ---
 if ! command -v git >/dev/null 2>&1; then
   fail "git is not on PATH; cannot drive the real-git scenarios"
@@ -480,7 +436,7 @@ else
 
   restore_perm() {
     chmod 755 "$perm_gitdir" "$(dirname "$perm_gitdir")" 2>/dev/null || true
-    chmod 644 "$perm_gitdir/HEAD" 2>/dev/null || true
+    chmod 644 "$perm_gitdir/HEAD" "$perm_gitdir/gitdir" 2>/dev/null || true
     chmod 755 "$perm_repo/.git/objects" "$perm_repo/.git/refs" 2>/dev/null || true
   }
 
@@ -553,7 +509,87 @@ else
   deny_registration "mode-000-objects" "$perm_repo/.git/objects"
   deny_registration "mode-000-refs" "$perm_repo/.git/refs"
   restore_perm
+
+  # Listable but unsearchable registration must not turn EACCES into absence.
+  chmod 444 "$perm_gitdir"
+  if as_tool_user stat "$perm_gitdir/HEAD" >/dev/null 2>&1; then
+    restore_perm
+    fail "mode-444-gitdir: permission denial was not established"
+  fi
+  expect_keep_when_denied "mode-444-gitdir"
+
+  # Git can exit successfully while silently skipping unreadable registrations.
+  # Establish that exact failure mode before asking the product to preserve it.
+  for denial in backlink enumeration; do
+    if [[ "$denial" == backlink ]]; then
+      chmod 000 "$perm_gitdir/gitdir"
+    else
+      chmod 111 "$(dirname "$perm_gitdir")"
+    fi
+    omission_out="$WORKDIR/permission-omission-$denial.out"
+    as_tool_user env GIT_CONFIG_GLOBAL="$GIT_CONFIG_GLOBAL" \
+      git -C "$perm_wt" worktree list --porcelain >"$omission_out" \
+      || fail "$denial: expected successful Git enumeration"
+    if grep -Fx "worktree $perm_wt" "$omission_out" >/dev/null; then
+      restore_perm
+      fail "$denial: Git did not omit the restricted worktree"
+    fi
+    expect_keep_when_denied "unreadable-$denial"
+    cat "$WORKDIR/perm-unreadable-$denial.out"
+  done
+
+  # Unreadable PID metadata cannot establish that the server is absent.
+  pid_root="$WORKDIR/pid-permission-root"
+  pid_base="$(write_base "$pid_root" hashpid "$WORKDIR/pid-workspace-gone")"
+  mkdir -p "$pid_base/server"
+  printf '%s\n' "$$" >"$pid_base/server/server.pid.txt"
+  chmod -R a+rX "$pid_root"
+  chmod 777 "$pid_root" "$pid_base" "$pid_base/server"
+  chmod 000 "$pid_base/server/server.pid.txt"
+  if as_tool_user cat "$pid_base/server/server.pid.txt" >/dev/null 2>&1; then
+    fail "PID permission denial was not established"
+  fi
+  apply_as_tool_user "$pid_root" "$WORKDIR/pid-permission.out"
+  assert_exists "$pid_base" "unreadable PID"
+  grep -F 'bazel server pid uncertain' "$WORKDIR/pid-permission.out" >/dev/null \
+    || fail "unreadable PID did not preserve uncertainty"
+  chmod 644 "$pid_base/server/server.pid.txt"
+  cat "$WORKDIR/pid-permission.out"
+  pass "--apply keeps a missing-workspace base with unreadable server PID metadata"
 fi
 
+# Invalid PID text is uncertainty, even when the workspace is positively gone.
+invalid_root="$WORKDIR/invalid-pid-root"
+invalid_base="$(write_base "$invalid_root" hashinvalid "$WORKDIR/invalid-workspace-gone")"
+mkdir -p "$invalid_base/server"
+for invalid in '' not-a-pid 0 -1 999999999999999999999999; do
+  printf '%s\n' "$invalid" >"$invalid_base/server/server.pid.txt"
+  tool --output-user-root "$invalid_root" --apply >"$WORKDIR/invalid-pid.out"
+  assert_exists "$invalid_base" "invalid PID '$invalid'"
+  grep -F 'bazel server pid uncertain' "$WORKDIR/invalid-pid.out" >/dev/null \
+    || fail "invalid PID did not preserve uncertainty: $(cat "$WORKDIR/invalid-pid.out")"
+done
+cat "$WORKDIR/invalid-pid.out"
+pass "--apply keeps bases with empty, malformed, zero, negative, and overflowing PIDs"
+
+# A copied linked checkout still resolves its backing repository, but is not
+# itself registered. Use real Git to prove omission without a process stub.
+real_omit_ws="$WORKDIR/real-omit-ws"
+mkdir -p "$real_omit_ws"
+cp "$real_wt/.git" "$real_omit_ws/.git"
+git -C "$real_omit_ws" worktree list --porcelain >"$WORKDIR/real-omit-list.out"
+if grep -Fx "worktree $real_omit_ws" "$WORKDIR/real-omit-list.out" >/dev/null; then
+  fail "copied checkout unexpectedly registered"
+fi
+real_omit_root="$WORKDIR/real-omit-root"
+real_omit_base="$(write_base "$real_omit_root" hashrealomit "$real_omit_ws")"
+tool --output-user-root "$real_omit_root" --apply >"$WORKDIR/real-omit.out"
+assert_gone "$real_omit_base" "real Git successful omission"
+assert_exists "$real_omit_ws" "omitted workspace itself"
+cat "$WORKDIR/real-omit.out"
+pass "--apply deletes an unregistered base after a successful real Git list"
+
+# Retain actual product reports alongside the filesystem assertions.
+cat "$pair_out" "$WORKDIR/pair-apply.out" "$WORKDIR/live-server.out"
 echo "BIN=$BIN"
 echo "ALL_DRIVEN_SCENARIOS_COMPLETE"
