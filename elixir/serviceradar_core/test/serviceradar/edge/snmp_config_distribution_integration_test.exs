@@ -20,6 +20,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   alias ServiceRadar.TestSupport
 
   defmodule LegacySNMPv3Auth do
+    @moduledoc false
     use Protobuf, syntax: :proto3
 
     field :username, 1, type: :string
@@ -45,6 +46,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   end
 
   defmodule LegacySNMPOIDConfig do
+    @moduledoc false
     use Protobuf, syntax: :proto3
 
     field :oid, 1, type: :string
@@ -58,6 +60,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   end
 
   defmodule LegacySNMPTargetConfig do
+    @moduledoc false
     use Protobuf, syntax: :proto3
 
     field :id, 1, type: :string
@@ -74,6 +77,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   end
 
   defmodule LegacySNMPConfig do
+    @moduledoc false
     use Protobuf, syntax: :proto3
 
     field :enabled, 1, type: :bool
