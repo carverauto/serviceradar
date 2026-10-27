@@ -104,8 +104,8 @@
 - [x] 6.1 Measure where sweep config generation time goes for a synthetic
       config with many overlapping groups: SRQL paging, target building,
       `stable_config_fragment` hashing in `agent_config_generator.ex`, and the
-      `Jason.encode!` of `config_json`, which currently runs before the
-      version comparison, so a `not_modified` poll still pays for the full
+      `Jason.encode!` of `config_json`, which previously ran before the
+      version comparison, so a `not_modified` poll still paid for the full
       encode. (Measured on a synthetic 20-group / 4-query / 8,000-device
       config with 40,000 group-device memberships and moved `Jason.encode!`
       after the `config_version == current_version` check via

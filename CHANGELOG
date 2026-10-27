@@ -37,9 +37,9 @@
      advertising `sweep-config-shared-targets:v1` receive
      `shared-targets/v1` (`device_table`, `target_sets`, and per-group
      `device_target_set`), while un-upgraded agents stay on the legacy
-     format. Core logs `sweep_format`, `sweep_groups`, `sweep_bytes`,
-     and `config_json_bytes` whenever an agent config is encoded for
-     delivery.
+     format. For per-agent format and size diagnostics, see the Delivery
+     section of
+     `openspec/changes/refactor-sweep-config-shared-targets/design.md`.
 
 # ServiceRadar v1.4.97
 
