@@ -1704,6 +1704,48 @@ the scratch database was removed after the warehouse benchmark. This verifies th
 allocation needed by the future address publisher without changing the shared identity
 implementation. The existing Elixir integration module was not re-run locally.
 
+### Decision 26: Define the maintenance capacity workload
+
+Approved by the product owner on 2026-10-27. This workload definition does not
+close a capacity gate or authorize a rollout.
+
+The capacity model fixes 20,000 hosts, 50 million active facts and 50,000 exposed
+CVEs, but does not size the additional permanent terminal watermarks or the
+backlog eligible for daily payload compaction. A timing result without those
+counts cannot establish the maintenance capacity gate.
+
+The first maintenance profile keeps all 50 million active facts and
+adds one million resolved or retired facts whose payloads are older than seven
+days. Distribute the additional facts across the same 20,000 hosts. One million
+is a synthetic workload choice, anchored to the already specified transition
+burst; it is not a measurement or estimate of any deployment's churn. Record
+that choice with every result. Larger historical terminal populations remain
+unmeasured; passing this profile must not be reported as an arbitrary-backlog
+guarantee.
+
+Measure compaction first, through the production worker and Stream Load path,
+on the documented reference warehouse profile. Include its durable job
+checkpoints, requested snoozes and queue scheduling in elapsed completion time.
+Exclude fixture construction from that interval and report its duration
+separately. Start with a bounded smaller run to catch harness defects before
+loading the full profile. Neither that run nor an extrapolation passes the
+fleet-scale gate. Stop a timed run at the 15-minute deadline and report the
+remaining eligible rows as a failure.
+
+Verify the stored result independently: all active rows remain active and
+unchanged; every eligible terminal payload is canonical and compacted; keys,
+states, transition sequences, transaction markers, lifecycle markers and
+snapshot markers remain intact. Include ineligible recent terminal rows as
+controls. Use only newly generated synthetic data in a never-used scratch
+schema, and verify schema and grant removal after the run.
+
+Daily reconciliation remains a separate gate. Its run must pair warehouse facts
+with the corresponding synthetic CNPG source and exercise the production fleet
+enumerator and per-device workers. Compaction results do not establish
+reconciliation throughput, source publication throughput or snapshot throughput.
+The existing 15-minute maintenance limit and all other capacity targets remain
+unchanged.
+
 ## Capacity model
 
 | Quantity | Target | Basis |
