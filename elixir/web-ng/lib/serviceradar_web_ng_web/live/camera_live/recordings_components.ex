@@ -120,8 +120,7 @@ defmodule ServiceRadarWebNGWeb.CameraLive.RecordingsComponents do
                   Window {@selected.window.index + 1} of {@selected.window.total}
                 </h2>
                 <p id="camera-recording-window" class="text-sm text-sr-muted">
-                  Fragments {@selected.window.first + 1}-{@selected.window.first +
-                    @selected.window.count} &middot; {Float.round(
+                  {Float.round(
                     @selected.window.duration_ns / 1_000_000_000,
                     3
                   )} seconds

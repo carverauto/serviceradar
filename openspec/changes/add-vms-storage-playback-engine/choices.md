@@ -1627,3 +1627,76 @@ change its camera filter or grant byte access. No list item includes provider
 locations or full fragment descriptors. Verdict: sound because discovery reuses
 the existing proof and access boundaries without adding token authority or a
 second descriptor representation. Confidence: medium.
+
+## Archive player checkpoint
+
+### Sound: use a pinned HLS client with explicit retry (medium confidence)
+
+- **When:** per-camera archive player.
+- **Choice:** when an operator selects a recording, hls.js 1.7.3 light reads the
+  finite playlist and feeds the browser's media decoder. We reuse its seeking
+  logic instead of maintaining another playlist parser and seek engine. If a
+  read fails, the player clears old video and offers Retry. It does not keep
+  issuing requests while the one server reader may still be occupied. Retry
+  starts playback again; the operator must repeat an interrupted seek.
+- **Gap:** the plan required measured browser playback but selected neither a
+  client nor its retry policy. Native HLS would delegate retries and Range
+  behavior to an unqualified browser implementation.
+- **Reach:** this adds one pinned JavaScript dependency. Main-thread parsing,
+  eight-second buffer targets and 12-second request deadlines are starting
+  points, not hard memory caps or validated capacity/latency objectives. Whole
+  fragments can exceed the duration target; server resource bounds still apply.
+  Additional browser/codec support must be measured before it is claimed.
+- **Verdict:** sound. A maintained client owns parsing/seeking; explicit retry
+  makes current single-reader refusal visible without changing server capacity.
+- **Confidence:** medium; the engineering bounds remain subject to measurement.
+
+### Sound: replace inventory pages and clear playback on refresh (medium confidence)
+
+- **When:** per-camera archive page.
+- **Choice:** each page replaces at most ten candidate rows. Next moves forward; Refresh
+  starts at the newest page, without a saved back stack. Refresh, paging or a
+  failed read clears the selected player; the user selects again after recovery.
+  Selection and window navigation recheck persisted permission. Window controls
+  group up to 64 fragments within 300 seconds and retain the serializer's byte
+  limits. Publication time stays separate from unknown capture time.
+- **Gap:** the plan set bounded discovery and independent authorization but did
+  not choose page size or whether a refresh preserves an earlier selection.
+- **Reach:** this avoids presenting a stale selection after a failed or changed
+  inventory read, but refreshing interrupts playback. Archive-only camera rows
+  remain navigable even without a currently relay-eligible live profile.
+- **Verdict:** sound as an initial explicit browsing flow. A later usability
+  change may preserve playback if it retains the same authorization guarantees.
+- **Confidence:** medium; the refresh behavior needs operator feedback.
+
+### Sound: qualify browser and actual reader boundaries separately (high confidence)
+
+- **When:** per-camera archive player.
+- **Choice:** a browser test decodes invented colors through the shipped hook
+  while a controlled server delays and denies requests. A separate database
+  test publishes real synthetic blocks through the product, closes an actual
+  public HTTP request and observes the isolated reader's admission and recovery.
+  Neither result is described as a browser-to-hosted-provider end-to-end pass.
+- **Gap:** local database/application builds are prohibited, while actual
+  database fixtures belong to published-head CI.
+- **Reach:** both proofs remain required. Product-route browser and live provider
+  acceptance remain explicit follow-ups rather than being inferred from mocks.
+- **Verdict:** sound. Each test executes the owner it claims, with the missing
+  joined deployment proof stated plainly.
+- **Confidence:** high.
+
+### Sound: serialize fragment loads within each player (high confidence)
+
+- **When:** per-camera archive player.
+- **Choice:** initialization data and video fragments take turns using HTTP. The
+  HLS client normally requests them together, which exceeds the existing single
+  reader limit when initialization is slow. A per-player loader queue preserves
+  the library's HTTP implementation and drops cancelled work before it starts.
+- **Gap:** the plan required measuring the client against the existing reader
+  but did not prescribe request scheduling.
+- **Reach:** this keeps server capacity unchanged. A new player may still meet
+  old provider work after cancellation and receive a busy response; explicit
+  retry remains necessary. Request deadlines begin when queued HTTP starts.
+- **Verdict:** sound. Client scheduling fixes a reproduced playback failure
+  without treating browser cancellation as server retirement.
+- **Confidence:** high for this measured path; parallel audio is unqualified.

@@ -452,9 +452,9 @@ vitest_bin.vitest_test(
 )
 
 js_binary(
-    name = "god_view_elk_scene_bundler",
+    name = "browser_fixture_bundler",
     data = [":node_modules/esbuild"],
-    entry_point = "god_view_elk_scene_bundle.mjs",
+    entry_point = "browser_fixture_bundle.mjs",
 )
 
 js_run_binary(
@@ -471,7 +471,7 @@ js_run_binary(
         "god_view_elk_scene.bundle.js",
     ],
     chdir = package_name(),
-    tool = ":god_view_elk_scene_bundler",
+    tool = ":browser_fixture_bundler",
 )
 
 js_library(
@@ -517,6 +517,29 @@ js_library(
     name = "camera_codec_capability_test_lib",
     testonly = True,
     srcs = ["camera_codec_capability.playwright.js"],
+    deps = [":node_modules/@playwright/test"],
+)
+
+js_run_binary(
+    name = "camera_archive_player_bundle",
+    srcs = [
+        "camera_archive_player_harness.js",
+        "js/hooks/CameraArchivePlayer.js",
+        ":node_modules/hls.js",
+    ],
+    outs = ["camera_archive_player.bundle.js"],
+    args = [
+        "camera_archive_player_harness.js",
+        "camera_archive_player.bundle.js",
+    ],
+    chdir = package_name(),
+    tool = ":browser_fixture_bundler",
+)
+
+js_library(
+    name = "camera_archive_player_test_lib",
+    testonly = True,
+    srcs = ["camera_archive_player.playwright.js"],
     deps = [":node_modules/@playwright/test"],
 )
 

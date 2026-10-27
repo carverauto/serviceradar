@@ -9,10 +9,11 @@ uncached, with successful observer, teardown and generation release. The
 [discovery contract](archive-discovery.md) preserves fresh authority, canonical
 availability and bounded continuation in publication order.
 
-The current checkpoint is a separate per-camera recordings page and single-block
-HLS player. Measure forward/backward seeking, interrupted requests, recording
-switches and teardown with the existing single-reader admission limit before
-changing that limit. Unknown capture UTC remains unknown; publication order is
+The current checkpoint implements a [separate recordings page and single-block
+HLS player](archive-player.md). Author validation passed 467 targets plus seven
+real Chromium cases. Complete no-mistakes publication and published-head database
+CI next. Client fragment requests are serialized; interrupted seeks and switches
+may require explicit retry while the existing single reader retires old work. Unknown capture UTC remains unknown; publication order is
 not a wall-clock timeline.
 
 [Archive publication](archive-publication.md), [media upload](media-upload.md),
@@ -31,8 +32,8 @@ identifiers and failure injections are independently invented synthetic data.
 
 ## Priority order
 
-1. Add a separate recording player with measured HLS seek/cancellation
-   behavior; retain capture-time timeline and provisional local delivery as
+1. Complete archive-player proxy review and published-head database validation;
+   retain capture-time timeline and provisional local delivery as
    distinct work. Every request reauthorizes independently; neither metadata nor a
    previously fetched plan grants later access. Preserve unknown clock mappings.
 2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
@@ -81,8 +82,8 @@ runtime or live acceptance tasks.
 ## Next agent prompt
 
 Start with [tasks](tasks.md), [archive discovery](archive-discovery.md) and
-[Cloud ownership](cloud-control-plane.md). Implement the archive player through
-remote validation and no-mistakes, preserving every existing assertion. Require
+[Cloud ownership](cloud-control-plane.md). Finish the archive-player no-mistakes
+run, preserving every existing assertion. Require
 actual published-head Core/Web database execution with successful fixture
 cleanup; draft publication may precede these CI-only gates.
 
@@ -91,10 +92,10 @@ and authorization before byte release. The [playlist contract](archive-playlists
 owns bounded windows and relative resource URLs. Inventory is a discovery
 snapshot, never a future-access grant or capture-time claim.
 
-Next add a separate recordings page/player without opening a live relay. The
-existing live Annex-B player cannot consume HLS. Measure a pinned HLS consumer's
-seeking, cancellation and single-reader admission behavior before changing
-server limits. Keep local provisional reads, retention, provider qualification
+The recordings page/player is implemented without acquiring a live relay. Its
+pinned HLS client passed seeking, cancellation and explicit-retry browser checks;
+server admission remains unchanged. Actual publication/authentication and public
+HTTP cancellation bodies must still execute on the final published head. Keep local provisional reads, retention, provider qualification
 and hosted enablement distinct. Cloud #188 remains unmerged; matching names or
 create success cannot authorize bucket adoption or cleanup.
 

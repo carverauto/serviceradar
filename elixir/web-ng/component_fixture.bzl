@@ -16,6 +16,7 @@ def _impl(ctx):
             transitive = [erlang_files.files, elixir_files.files],
         ),
         outputs = [output],
+        env = {"ELIXIR_ERL_OPTIONS": "+fnu"},
         command = erlang_preamble(ctx) + """
 export PATH="$ABS_ERLANG_HOME/bin:$PWD/{elixir}/bin:$PATH"
 export ERL_LIBS="$PWD/{libs}"

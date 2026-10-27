@@ -1,5 +1,6 @@
 import AllMetadataCard from "./AllMetadataCard"
 import BulkEditTagsToggle from "./BulkEditTagsToggle"
+import CameraArchivePlayer from "./CameraArchivePlayer"
 import CameraRelayStatusStream from "./CameraRelayStatusStream"
 import CommandPalette from "./CommandPalette"
 import CredentialDeepLinkFocus from "./CredentialDeepLinkFocus"
@@ -53,6 +54,7 @@ import ChartRangeSelection from "./charts/ChartRangeSelection"
 export default {
   AllMetadataCard,
   BulkEditTagsToggle,
+  CameraArchivePlayer,
   CameraRelayStatusStream,
   CommandPalette,
   CredentialDeepLinkFocus,
