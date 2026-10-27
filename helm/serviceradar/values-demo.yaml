@@ -593,6 +593,14 @@ webNg:
     # plugins. Only this values file trusts it; its private key is held outside
     # the repository.
     PLUGIN_TRUSTED_UPLOAD_SIGNING_KEYS: "serviceradar-first-party-v1=L+H5fG0eEraBsWAd2aKMzK7I+AMhbnSxlOKny5/+dLo=,serviceradar-first-party-v2=2KMsaqvof357MV3RQl4/0DNXfF6+eIMQ+qjDJfL/N8I=,serviceradar-demo-v1=KVPgZ+sTeTgFjsyNtMqoL3awEf0OcL0NDqsODepLaPM="
+  extraEnvValueFrom:
+    # Authenticates GitHub API calls for the built-in plugin source and agent
+    # release imports, which otherwise share the 60/hour anonymous limit.
+    GITHUB_TOKEN:
+      secretKeyRef:
+        name: serviceradar-github-token
+        key: token
+        optional: true
   resources:
     limits:
       cpu: "2"
