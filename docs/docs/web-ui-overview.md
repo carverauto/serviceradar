@@ -91,7 +91,11 @@ for the full workflow.
 ## Settings
 
 The **Settings** tree is where administrators and operators configure the
-platform. Common sections include:
+platform. Use **Search views** in the sidebar or **Ctrl+K** to find a page or
+tab. Both searches include descriptions and require every typed word to match,
+in any order.
+
+Common sections include:
 
 - **Auth / Users** — manage users (`/settings/auth/users`), authentication
   providers (`/settings/authentication`), and RBAC policy profiles
