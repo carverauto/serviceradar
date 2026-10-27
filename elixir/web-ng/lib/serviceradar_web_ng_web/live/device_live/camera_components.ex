@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
   alias ServiceRadar.Camera.RelayTermination
 
   attr(:camera_sources, :list, default: [])
+  attr(:can_view_recordings, :boolean, default: false)
   attr(:inventory_error, :string, default: nil)
   attr(:active_session, :any, default: nil)
   attr(:last_session, :any, default: nil)
@@ -71,6 +72,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
               </div>
             </div>
             <div class="flex items-center gap-2">
+              <.link
+                :if={@can_view_recordings}
+                id={"camera-recordings-link-#{source.id}"}
+                navigate={~p"/cameras/#{source.id}/recordings"}
+                class="sr-ops-button"
+              >Recordings</.link>
               <.ui_badge size="sm" variant={camera_source_status_variant(source)}>
                 {camera_source_status_label(source)}
               </.ui_badge>
@@ -295,7 +302,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.CameraComponents do
           end)
       }
     end)
-    |> Enum.reject(&Enum.empty?(&1.stream_profiles))
     |> Enum.sort_by(fn source ->
       {
         String.downcase(source.display_name),

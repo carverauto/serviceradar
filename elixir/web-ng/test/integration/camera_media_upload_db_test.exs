@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   use ServiceRadarWebNG.DataCase, async: false
 
   import Phoenix.ConnTest, only: [build_conn: 0, get: 2, json_response: 2]
+  import Phoenix.LiveViewTest
   import Plug.Conn
   import Plug.Test
 
@@ -246,6 +247,12 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
              }
            }
 
+    page_conn = Phoenix.ConnTest.init_test_session(build_conn(), %{"user_token" => token})
+    {:ok, view, _html} = live(page_conn, "/cameras/#{context.source.id}/recordings")
+    assert has_element?(view, "#camera-recordings-empty")
+    refute has_element?(view, "#camera-archive-player")
+    assert_no_camera_relay(context.source.id)
+
     assert Agent.get(context.store, & &1.requests) == []
     assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
     media = dispatch(context)
@@ -303,6 +310,39 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert get_resp_header(inventory, "x-content-type-options") == ["nosniff"]
     assert recording_response(token, inventory_path <> "?limit=20").resp_body == inventory.resp_body
 
+    view |> element("#refresh-recordings") |> render_click()
+    assert has_element?(view, "#recording-#{context.block.id}")
+    refute has_element?(view, "#camera-archive-player")
+    view |> element("#select-recording-#{context.block.id}") |> render_click()
+    assert has_element?(view, "#camera-archive-player[data-playlist-path='#{path}/playlist.m3u8?first=0&count=1']")
+    assert has_element?(view, "video[data-role='archive-video'][controls][playsinline]")
+    refute has_element?(view, "video[autoplay]")
+    assert has_element?(view, "#previous-recording-window[disabled]")
+    assert has_element?(view, "#next-recording-window[disabled]")
+    assert has_element?(view, "#camera-recording-time-note", "No capture-time timeline")
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert_no_camera_relay(context.source.id)
+
+    {:ok, %{"sub" => "user:" <> page_user_id}} = Guardian.decode_and_verify(token)
+    page_user_uuid = Ecto.UUID.dump!(page_user_id)
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!("UPDATE platform.ng_users SET role = 'viewer' WHERE id = $1", [page_user_uuid])
+
+    Cache.put(page_user_id, MapSet.new(["devices.view", "devices.cameras.recordings.view"]))
+    render_click(view, "select_recording", %{"id" => context.block.id})
+    assert has_element?(view, "#camera-recordings-error", "permission")
+    refute has_element?(view, "#camera-archive-player")
+    assert Agent.get(context.store, & &1.requests) == requests
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!("UPDATE platform.ng_users SET role = 'admin' WHERE id = $1", [page_user_uuid])
+
+    Cache.invalidate(page_user_id)
+    view |> element("#refresh-recordings") |> render_click()
+    view |> element("#select-recording-#{context.block.id}") |> render_click()
+    assert has_element?(view, "#camera-archive-player")
+
     for query <- [
           "limit=0",
           "limit=21",
@@ -338,6 +378,13 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
                %{"status" => 503},
                actor: SystemActor.system(:camera_archive_storage)
              )
+
+    render_click(view, "select_recording", %{"id" => context.block.id})
+    assert has_element?(view, "#camera-recordings-error", "no longer available")
+    refute has_element?(view, "#camera-archive-player")
+    view |> element("#refresh-recordings") |> render_click()
+    assert has_element?(view, "#camera-recordings-empty")
+    assert_no_camera_relay(context.source.id)
 
     conflicted = recording_response(token, path)
 
@@ -822,6 +869,14 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
   defp runfile(relative) do
     Path.join([System.fetch_env!("TEST_SRCDIR"), System.fetch_env!("TEST_WORKSPACE"), relative])
+  end
+
+  defp assert_no_camera_relay(source_id) do
+    assert %{rows: [[0]]} =
+             ServiceRadar.Repo.query!(
+               "SELECT count(*) FROM platform.camera_relay_sessions WHERE camera_source_id = $1",
+               [Ecto.UUID.dump!(source_id)]
+             )
   end
 
   defp recording_response(token, path, accept \\ "application/json") do

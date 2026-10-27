@@ -580,6 +580,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
   defp operations_page_title(path) when is_binary(path) do
     cond do
+      String.starts_with?(path, "/cameras/") and String.ends_with?(path, "/recordings") -> "Camera Recordings"
       String.starts_with?(path, "/cameras/") -> "Camera Feed"
       String.starts_with?(path, "/dashboards") -> "Dashboards"
       String.starts_with?(path, "/devices") -> "Devices"

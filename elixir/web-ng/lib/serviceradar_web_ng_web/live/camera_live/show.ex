@@ -39,6 +39,14 @@ defmodule ServiceRadarWebNGWeb.CameraLive.Show do
             <h2>{(@camera_tile && @camera_tile.label) || "Camera Feed"}</h2>
             <p>{(@camera_tile && @camera_tile.detail) || "Opening live camera relay."}</p>
           </div>
+          <.link
+            :if={
+              RBAC.can?(@current_scope, "devices.view") &&
+                RBAC.can?(@current_scope, "devices.cameras.recordings.view")
+            }
+            navigate={~p"/cameras/#{@camera_source_id}/recordings"}
+            class="sr-ops-button"
+          >Recordings</.link>
           <.link href={~p"/cameras"} class="sr-ops-button">Back to Multiview</.link>
         </header>
 

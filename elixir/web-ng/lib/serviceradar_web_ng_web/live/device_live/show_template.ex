@@ -258,6 +258,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                     @last_camera_relay_session
                   )
                 }
+                can_view_recordings={
+                  RBAC.can?(@current_scope, "devices.view") &&
+                    RBAC.can?(@current_scope, "devices.cameras.recordings.view")
+                }
                 camera_sources={@camera_sources}
                 inventory_error={@camera_inventory_error}
                 active_session={@active_camera_relay_session}
