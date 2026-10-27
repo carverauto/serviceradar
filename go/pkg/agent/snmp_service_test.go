@@ -873,7 +873,7 @@ func TestParseProtoSNMPConfig_SharedOIDsParity(t *testing.T) {
 
 	// Mutating one target's rehydrated OID slice must not affect another target sharing the set.
 	sharedCfg.Targets[0].OIDs[0].Scale = 42.0
-	require.Equal(t, 1.0, sharedCfg.Targets[1].OIDs[0].Scale)
+	require.InDelta(t, 1.0, sharedCfg.Targets[1].OIDs[0].Scale, 1e-9)
 }
 
 func TestParseProtoSNMPConfig_ErrorCases(t *testing.T) {
