@@ -17,8 +17,6 @@ defmodule Datasvc.MixProject do
       hex: [
         ignore_advisories: [
           "EEF-CVE-2026-43966",
-          "EEF-CVE-2026-43969",
-          "GHSA-g2wm-735q-3f56",
           "GHSA-w4f7-4cxr-rv3c"
         ]
       ]
