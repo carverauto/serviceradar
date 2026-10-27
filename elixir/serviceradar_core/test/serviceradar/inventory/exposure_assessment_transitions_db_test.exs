@@ -106,12 +106,36 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} =
                ExposureReadiness.status(scope)
 
+      Repo.query!(
+        """
+        UPDATE oban_jobs SET state = 'discarded'
+        WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker'
+          AND args->>'device_ord' = $1
+        """,
+        [to_string(scope)]
+      )
+
+      Repo.query!(
+        "DELETE FROM platform.exposure_transition_outbox WHERE device_uid = $1 AND transition_seq = $2",
+        [ctx.device_uid, seq]
+      )
+
       snapshot_query!(fn _ -> warehouse_rows([]) end)
 
-      assert {:error, :exposure_snapshot_repairs_pending} =
+      assert {:snooze, 30} =
                ExposureReconciliationWorker.perform(%Oban.Job{args: args})
 
       assert {:ok, %{"repairs" => [_]}} = ExposureSnapshotState.get(predecessor)
+
+      assert Repo.exists?(
+               from(j in Oban.Job,
+                 where:
+                   j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
+                     j.state == "available" and
+                     fragment("?->>'device_ord'", j.args) == ^to_string(scope)
+               )
+             )
+
       reconciliation_queries!(restored, dimensions, restored)
       assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
       assert {:ok, %{"repairs" => []}} = ExposureSnapshotState.get(predecessor)

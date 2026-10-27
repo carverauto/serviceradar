@@ -66,7 +66,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
         ).rows
       )
 
-    with :ok <- ExposureSnapshotFinalizer.recover(nil),
+    with :ok <- recover_snapshot(nil),
          {:ok, stored} <- Warehouse.device_ordinals(cursor) do
       ordinals =
         (source ++ Enum.map(stored, & &1["device_ord"]))
@@ -127,10 +127,24 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
     control = control(ordinal)
     repairs = control["repairs"] || []
 
-    with :ok <- ExposureSnapshotFinalizer.recover(ordinal),
+    with :ok <- recover_snapshot(ordinal),
          {:ok, remaining} <- Repairs.verify(repairs) do
       record(ordinal, "deferred", Map.put(control, "repairs", remaining), false)
       if remaining == [], do: :ok, else: {:snooze, 30}
+    end
+  end
+
+  defp recover_snapshot(scope) do
+    case ExposureSnapshotFinalizer.recover(scope) do
+      {:error, :exposure_snapshot_repairs_pending} ->
+        # An assigned repair can outlive its acknowledged outbox row. Retain
+        # the obligation while a new snapshot republishes current source state.
+        args = if is_nil(scope), do: %{}, else: %{"device_ord" => scope}
+        Oban.insert!(Publisher.new(args))
+        {:snooze, 30}
+
+      result ->
+        result
     end
   end
 
