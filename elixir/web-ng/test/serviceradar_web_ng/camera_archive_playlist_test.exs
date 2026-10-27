@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.CameraArchivePlaylistTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadarWebNG.CameraArchivePlaylist
+  alias ServiceRadarWebNG.CameraArchiveWindow
 
   @moduletag :db_free
 
@@ -83,6 +84,34 @@ defmodule ServiceRadarWebNG.CameraArchivePlaylistTest do
       metadata = %{available | archive_status: status, descriptor: nil}
       assert CameraArchivePlaylist.render(metadata, 0, 1) == {:error, :archive_unavailable}
     end
+  end
+
+  test "player windows advance without overlap across count and duration boundaries" do
+    recording = metadata(List.duplicate({1_000_000_000, 1}, 65))
+
+    assert {:ok, %{first: 0, count: 64, duration_ns: 64_000_000_000, index: 0, total: 2}} =
+             CameraArchiveWindow.select(recording, 0)
+
+    assert {:ok, %{first: 64, count: 1, duration_ns: 1_000_000_000, index: 1, total: 2}} =
+             CameraArchiveWindow.select(recording, 1)
+
+    assert CameraArchiveWindow.select(recording, 2) == {:error, :invalid_recording_window}
+
+    recording = metadata([{150_000_000_000, 1}, {150_000_000_000, 1}, {1, 1}])
+
+    assert {:ok, %{first: 0, count: 2, duration_ns: 300_000_000_000, total: 2}} =
+             CameraArchiveWindow.select(recording, 0)
+
+    assert {:ok, %{first: 2, count: 1, duration_ns: 1, total: 2}} = CameraArchiveWindow.select(recording, 1)
+
+    assert CameraArchiveWindow.select(metadata([{300_000_000_001, 1}]), 0) ==
+             {:error, :recording_window_too_large}
+
+    assert CameraArchiveWindow.select(metadata([{1, 4_194_305}]), 0) ==
+             {:error, :recording_window_too_large}
+
+    assert CameraArchiveWindow.select(%{archive_status: "reconciliation_required", descriptor: nil}, 0) ==
+             {:error, :archive_unavailable}
   end
 
   defp metadata(parts, init_length \\ 1) do

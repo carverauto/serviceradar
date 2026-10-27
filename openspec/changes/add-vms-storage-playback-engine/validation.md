@@ -1259,7 +1259,95 @@ No existing assertion was removed.
   with retries disabled executed once and passed in 114.2 seconds. No assertion,
   timeout or production code was changed to obtain that pass.
 
-Actual published-head Core/Web database execution remains mandatory and pending.
-These prepublication results do not prove the new database pagination or HTTP
-publication behavior. Recording, browser playback and hosted readiness remain
-outside this checkpoint.
+The prepublication no-mistakes Test phase reported 0/6 runtime scenarios and
+used the approved draft-publication exception to reach CI-only database gates.
+The following final execution supplies that evidence; it does not turn the
+prepublication phase into a runtime pass.
+
+## Published-head archive discovery validation
+
+[PR #6089](https://github.com/carverauto/serviceradar/pull/6089) merged at
+`e0635e06eed27d741d3e7308214d0d962b624ea9`. Its published and actual executor head
+`76d4c063ca41fd10e31798bff4fb2fce2c26b8ca` passed all 19 checks.
+
+- [Core suite](https://carverauto.buildbuddy.io/invocation/90e51d24-6779-44dc-b917-038410334ef2)
+  executed 12/12 guarded targets uncached, once each. Suite, observer, teardown
+  and generation-release statuses were all zero. The publication owner lane
+  executed 324 tests with no failures, skips or exclusions. Normal Core output
+  has no individual case traces; source selection and the complete owner run
+  establish coverage of the two new database cases.
+- [Web suite](https://carverauto.buildbuddy.io/invocation/f755112a-ee64-450c-aa93-9b736f4b63ab)
+  executed 7/7 targets uncached with all four lifecycle statuses zero. Shard 0
+  ran 836 tests and two properties with zero failures, including completed
+  traces for inventory/publication, authenticated HLS consumption, byte proof
+  and authorization cases, including stale cached authority.
+- [Migration replay](https://carverauto.buildbuddy.io/invocation/05c26767-ea97-4196-9917-5d6893d16c2a)
+  passed; generation preflight reported ready with the migrator started. Both
+  migration ledgers matched the manifest including `20261027160000`. This is
+  migration replay evidence, not a separate catalog-index inspection.
+
+Recording, browser playback and hosted readiness remain outside that checkpoint.
+
+## Archive player checkpoint validation
+
+The browser checkpoint uses the production HEEx component, stylesheet and hook
+with generated synthetic CMAF and a controlled HTTP service. It does not launch
+the authenticated product route or qualify a hosted provider.
+
+- The pinned HLS client initially issued init and media reads concurrently.
+  A delayed-init [negative control](https://carverauto.buildbuddy.io/invocation/07736038-cf5f-4235-8080-30d45058a062)
+  reproduced 503 with the single reader occupied. A per-player fragment-loader
+  queue fixed that boundary; its [focused regression](https://carverauto.buildbuddy.io/invocation/760f999b-685c-4239-98a3-fe4f2085e37e)
+  passed without increasing server capacity.
+- The first [rendered-page run](https://carverauto.buildbuddy.io/invocation/c797f016-092c-4dd3-b2f2-f096165776fa)
+  exposed a timing race in the delayed-seek scenario. Its trace showed a seek
+  cancelled the held fragment, then received 503 for the next resource before
+  the provider hold released. The original test released immediately after
+  triggering the seek and did not guarantee that ordering. The replacement
+  holds through busy refusal, checks no automatic retry, releases, explicitly
+  retries and preserves the same forward/backward decoded-frame assertions.
+  It qualifies recovery, not transparent seek completion or position restoration.
+- The [integrated browser suite](https://carverauto.buildbuddy.io/invocation/43d25be3-24ed-4968-bdf2-fb225e0074f3)
+  executed seven cases uncached with retries disabled: all passed. Decoded RGB
+  frames, complete authenticated resources, paused startup, active switches,
+  interrupted-seek recovery, denied bytes, 12-second deadlines and active/queued
+  teardown were exercised. Desktop 1440px and mobile 390px captures used actual
+  production markup/CSS. Both fit without horizontal overflow; they are
+  component evidence, not an authenticated-route browser acceptance.
+- The page delegate's [focused validation](https://carverauto.buildbuddy.io/invocation/e7bb3284-99ea-4c47-b4c3-ce55f2e003db)
+  built the production component fixture and passed Web quality plus 121 unit
+  tests with zero failures and 14 excluded database tests. Exclusions are not
+  runtime evidence. Actual new LiveView/publication and public HTTP cancellation
+  bodies remain mandatory in final published-head guarded CI.
+
+The final author [full remote make test](https://carverauto.buildbuddy.io/invocation/b45a5ea3-a100-4689-b64a-7d3dea8c6a6f)
+passed 467 targets, with 29 executed and two existing Swift platform skips.
+Automatic retries were disabled. This included Web quality/routing, all unit
+shards and the live relay asset tests. The archive browser target ran all seven
+cases again, including the added exact seek-resource negative control. Final
+captures show paused video after brief real playback, with readyState 4 and
+seeking false. The measured media duration 5.999999 seconds explains the native
+controls' 0:05 display beside the rounded 6.0-second window label.
+
+Strict OpenSpec, ASCII/local links, formatting and diff checks passed. Independent
+owner review found no concrete defect. Ripwire reported no gating regressions;
+its remaining rows were the framework-called disconnected hook and small lockfile
+map growth. These do not constitute a claim of zero new maintenance cost.
+
+[Draft PR #6096](https://github.com/carverauto/serviceradar/pull/6096) used the
+approved prepublication deferral to reach CI-only database validation. The first
+[Web invocation](https://carverauto.buildbuddy.io/invocation/9ff1904f-b9c4-41ce-89f9-5b1d6fd96624)
+failed: owning suite `d1e69075-ca5c-45af-a82a-1d11c8057fd3` reported 839 tests
+plus two properties and three failures. Six of seven Web targets passed;
+lifecycle exit statuses were suite 3, observer 0, teardown 0 and generation
+release 0. The public HTTP cancellation case passed in 4981.2 ms and the
+independent authenticated HLS consumer passed in 5756.7 ms. These are first-run
+results, not a clean pass.
+
+The correction uses the canonical Identity RBAC cache API and compares relay
+identities against one snapshot taken after fixture setup, preserving the
+fixture's recording relay and all behavior assertions. Final readiness still
+requires new published-head uncached Core12/Web7 execution, completed changed
+owning cases and numeric zero suite, observer, teardown and generation-release
+statuses. The prepublication deferral is not a waiver of that gate.
+Recording remains disabled; no live deployment or provider mutation was performed.

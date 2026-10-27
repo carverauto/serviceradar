@@ -17,6 +17,7 @@ load(
     "WEB_NG_PLUGIN_CONFIG_CLI_LANE",
     "WEB_NG_TOPOLOGY_ATLAS_LANES",
 )
+load(":component_fixture.bzl", "component_browser_fixture")
 load(":lane_scope.bzl", "web_ng_lane_scope")
 load(":world_fixture.bzl", "world_browser_fixture")
 
@@ -47,6 +48,19 @@ load(":world_fixture.bzl", "world_browser_fixture")
 # worth a separate workflow before re-adding either reference.
 
 package(default_visibility = ["//visibility:public"])
+
+component_browser_fixture(
+    name = "camera_recordings_browser_fixture",
+    app = ":erlang_app",
+    renderer = "test/fixtures/camera_recordings_component.exs",
+)
+
+write_source_files(
+    name = "camera_recordings_browser_fixture_export",
+    diff_test = False,
+    files = {"camera_recordings_browser_fixture.html": ":camera_recordings_browser_fixture"},
+    tags = ["manual"],
+)
 
 world_browser_fixture(
     name = "million_world_browser_fixture",
@@ -106,6 +120,7 @@ filegroup(
         exclude = [
             "bazel-*",
             "million_world_browser_fixture.json",
+            "camera_recordings_browser_fixture.html",
             "_build/**",
             "assets/**",
             "deps/**",
@@ -144,6 +159,7 @@ filegroup(
         exclude = [
             "bazel-*",
             "million_world_browser_fixture.json",
+            "camera_recordings_browser_fixture.html",
             "_build/**",
             "assets/**",
             "deps/**",
@@ -533,6 +549,7 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
         "test/phoenix/live/ansible_catalog_live_test.exs",
         "test/phoenix/live/ansible_launch_live_test.exs",
         "test/phoenix/live/ansible_operations_live_test.exs",
+        "test/phoenix/live/camera_recordings_live_test.exs",
         "test/phoenix/live/camera_relay_live_test.exs",
         "test/phoenix/live/cli_device_authorize_live_test.exs",
         "test/phoenix/live/deduplication_live_test.exs",

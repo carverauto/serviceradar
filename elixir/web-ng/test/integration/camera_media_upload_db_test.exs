@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   use ServiceRadarWebNG.DataCase, async: false
 
   import Phoenix.ConnTest, only: [build_conn: 0, get: 2, json_response: 2]
+  import Phoenix.LiveViewTest
   import Plug.Conn
   import Plug.Test
 
@@ -229,6 +230,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     token = recording_reader_token()
     path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
     inventory_path = "/api/cameras/#{context.source.id}/recordings"
+    relay_ids = camera_relay_ids(context.source.id)
 
     assert token |> recording_response(inventory_path) |> json_response(200) == %{
              "data" => %{"schema_version" => 1, "items" => [], "next_cursor" => nil}
@@ -245,6 +247,12 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
                "descriptor" => nil
              }
            }
+
+    page_conn = Phoenix.ConnTest.init_test_session(build_conn(), %{"user_token" => token})
+    {:ok, view, _html} = live(page_conn, "/cameras/#{context.source.id}/recordings")
+    assert has_element?(view, "#camera-recordings-empty")
+    refute has_element?(view, "#camera-archive-player")
+    assert camera_relay_ids(context.source.id) == relay_ids
 
     assert Agent.get(context.store, & &1.requests) == []
     assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
@@ -303,6 +311,39 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert get_resp_header(inventory, "x-content-type-options") == ["nosniff"]
     assert recording_response(token, inventory_path <> "?limit=20").resp_body == inventory.resp_body
 
+    view |> element("#refresh-recordings") |> render_click()
+    assert has_element?(view, "#recording-#{context.block.id}")
+    refute has_element?(view, "#camera-archive-player")
+    view |> element("#select-recording-#{context.block.id}") |> render_click()
+    assert has_element?(view, "#camera-archive-player[data-playlist-path='#{path}/playlist.m3u8?first=0&count=1']")
+    assert has_element?(view, "video[data-role='archive-video'][controls][playsinline]")
+    refute has_element?(view, "video[autoplay]")
+    assert has_element?(view, "#previous-recording-window[disabled]")
+    assert has_element?(view, "#next-recording-window[disabled]")
+    assert has_element?(view, "#camera-recording-time-note", "No capture-time timeline")
+    assert Agent.get(context.store, & &1.requests) == requests
+    assert camera_relay_ids(context.source.id) == relay_ids
+
+    {:ok, %{"sub" => "user:" <> page_user_id}} = Guardian.decode_and_verify(token)
+    page_user_uuid = Ecto.UUID.dump!(page_user_id)
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!("UPDATE platform.ng_users SET role = 'viewer' WHERE id = $1", [page_user_uuid])
+
+    Cache.put(page_user_id, MapSet.new(["devices.view", "devices.cameras.recordings.view"]))
+    render_click(view, "select_recording", %{"id" => context.block.id})
+    assert has_element?(view, "#camera-recordings-error", "permission")
+    refute has_element?(view, "#camera-archive-player")
+    assert Agent.get(context.store, & &1.requests) == requests
+
+    assert %{num_rows: 1} =
+             ServiceRadar.Repo.query!("UPDATE platform.ng_users SET role = 'admin' WHERE id = $1", [page_user_uuid])
+
+    Cache.invalidate(page_user_id)
+    view |> element("#refresh-recordings") |> render_click()
+    view |> element("#select-recording-#{context.block.id}") |> render_click()
+    assert has_element?(view, "#camera-archive-player")
+
     for query <- [
           "limit=0",
           "limit=21",
@@ -338,6 +379,13 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
                %{"status" => 503},
                actor: SystemActor.system(:camera_archive_storage)
              )
+
+    render_click(view, "select_recording", %{"id" => context.block.id})
+    assert has_element?(view, "#camera-recordings-error", "no longer available")
+    refute has_element?(view, "#camera-archive-player")
+    view |> element("#refresh-recordings") |> render_click()
+    assert has_element?(view, "#camera-recordings-empty")
+    assert camera_relay_ids(context.source.id) == relay_ids
 
     conflicted = recording_response(token, path)
 
@@ -583,6 +631,113 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
   end
 
+  @tag publication: true, archive_reads: true
+  test "closing a public read cannot bypass the occupied provider slot", context do
+    token = recording_reader_token()
+    assert {:ok, _} = MediaUpload.upload_once(context.block.id)
+    assert {:ok, _} = ArchivePublication.complete_once(context.block.id)
+    remove_local_inputs(context)
+    stop_recording(context)
+    assert {:ok, published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    server = start_supervised!({Bandit, plug: @endpoint, ip: {127, 0, 0, 1}, port: 0})
+    {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+    path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
+    first_path = path <> "/fragments/0"
+    parent = self()
+    handler = make_ref()
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        [:phoenix, :endpoint, :start],
+        fn _, _, %{conn: conn}, {parent, first_path} ->
+          if conn.request_path == first_path, do: send(parent, {:archive_request_started, self()})
+        end,
+        {parent, first_path}
+      )
+
+    on_exit(fn -> :telemetry.detach(handler) end)
+
+    Agent.update(context.store, fn state ->
+      Map.put(state, :read_effect, fn ->
+        send(parent, {:archive_provider_waiting, self()})
+        assert_receive :release_archive_read, 8_000
+      end)
+    end)
+
+    requests = Agent.get(context.store, & &1.requests)
+    {:ok, socket} = :gen_tcp.connect({127, 0, 0, 1}, port, [:binary, active: false], 2_000)
+    on_exit(fn -> :gen_tcp.close(socket) end)
+
+    :ok =
+      :gen_tcp.send(socket, [
+        "GET ",
+        first_path,
+        " HTTP/1.1\r\nHost: localhost\r\n",
+        "Authorization: Bearer ",
+        token,
+        "\r\nAccept: video/mp4\r\nConnection: close\r\n\r\n"
+      ])
+
+    assert_receive {:archive_request_started, owner}, 2_000
+    monitor = Process.monitor(owner)
+    assert_receive {:archive_provider_waiting, provider}, 5_000
+    on_exit(fn -> send(provider, :release_archive_read) end)
+    assert [held | ^requests] = Agent.get(context.store, & &1.requests)
+    assert held.method == "GET"
+    assert held.headers["range"] == "bytes=0-#{byte_size(@bytes) - 1}"
+    assert :ok = :gen_tcp.close(socket)
+
+    request = fn suffix ->
+      Req.get!(
+        url: "http://127.0.0.1:#{port}" <> path <> suffix,
+        headers: [{"authorization", "Bearer " <> token}, {"accept", "video/mp4"}],
+        retry: false,
+        redirect: false,
+        decode_body: false,
+        receive_timeout: 2_000,
+        connect_options: [timeout: 2_000]
+      )
+    end
+
+    for suffix <- ["/init", "/fragments/1"] do
+      response = request.(suffix)
+      assert response.status == 503
+      assert Jason.decode!(response.body) == %{"error" => "archive_read_unavailable"}
+      assert response.headers["cache-control"] == ["private, no-store"]
+      assert Agent.get(context.store, & &1.requests) == [held | requests]
+    end
+
+    send(provider, :release_archive_read)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, _}, 5_000
+
+    # Public completion and isolated admission release occur in different processes.
+    response =
+      Enum.reduce_while(1..10, nil, fn _, _ ->
+        response = request.("/fragments/1")
+
+        if response.status == 503 do
+          assert Jason.decode!(response.body) == %{"error" => "archive_read_unavailable"}
+          assert response.headers["cache-control"] == ["private, no-store"]
+          assert Agent.get(context.store, & &1.requests) == [held | requests]
+          {:cont, nil}
+        else
+          {:halt, response}
+        end
+      end)
+
+    assert response, "the isolated reader did not release admission after the held response completed"
+    assert response.status == 200
+    assert response.body == @second_bytes
+    assert response.headers["content-type"] == ["video/mp4"]
+    assert response.headers["cache-control"] == ["private, no-store"]
+    assert [next, ^held | ^requests] = Agent.get(context.store, & &1.requests)
+    assert next.method == "GET"
+    assert next.headers["range"] == "bytes=#{byte_size(@bytes)}-#{byte_size(@bytes) + byte_size(@second_bytes) - 1}"
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+  end
+
   @tag publication: true, archive_reads: true, hls_media: true
   test "an independent HLS consumer follows the authenticated server playlist and decodes the published colors",
        context do
@@ -715,6 +870,14 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
   defp runfile(relative) do
     Path.join([System.fetch_env!("TEST_SRCDIR"), System.fetch_env!("TEST_WORKSPACE"), relative])
+  end
+
+  defp camera_relay_ids(source_id) do
+    List.flatten(
+      ServiceRadar.Repo.query!("SELECT id FROM platform.camera_relay_sessions WHERE camera_source_id = $1 ORDER BY id", [
+        Ecto.UUID.dump!(source_id)
+      ]).rows
+    )
   end
 
   defp recording_response(token, path, accept \\ "application/json") do

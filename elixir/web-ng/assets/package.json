@@ -41,6 +41,7 @@
     "elkjs": "^0.11.1",
     "events": "^3.3.0",
     "gridstack": "^12.6.0",
+    "hls.js": "1.7.3",
     "jmuxer": "^2.1.0",
     "mapbox-gl": "^3.18.1",
     "monaco-editor": "^0.52.2",

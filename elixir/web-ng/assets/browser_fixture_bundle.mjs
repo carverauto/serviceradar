@@ -2,7 +2,7 @@ import {build} from "esbuild"
 import {resolve} from "node:path"
 
 const [entryPoint, outputFile] = process.argv.slice(2)
-if (!entryPoint || !outputFile) throw new Error("usage: god_view_elk_scene_bundle.mjs <entry> <output>")
+if (!entryPoint || !outputFile) throw new Error("usage: browser_fixture_bundle.mjs <entry> <output>")
 
 await build({
   entryPoints: [resolve(entryPoint)],

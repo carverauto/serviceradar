@@ -331,3 +331,5 @@ __pycache__/
 .local-fixture-certs/
 .local-secrets/
 *.beam
+
+/elixir/web-ng/camera_recordings_browser_fixture.html

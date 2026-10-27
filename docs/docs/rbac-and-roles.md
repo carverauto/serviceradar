@@ -94,7 +94,8 @@ The entity-to-permission mapping and scope authorization contract are owned by
 
 ### Recording metadata and footage
 
-Listing historical camera recordings, inspecting their metadata, requesting an archive playlist,
+Opening a camera's Recordings page,
+listing historical camera recordings, inspecting their metadata, requesting an archive playlist,
 or reading recorded footage requires both
 `devices.cameras.recordings.view` and `devices.view`. The recording permission
 defaults to administrators and can be granted through custom role profiles;

@@ -6,21 +6,17 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
   alias Ash.Error.Forbidden
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Camera.ArchiveUploads
-  alias ServiceRadar.Camera.Source
-  alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.CameraArchivePlaylist
   alias ServiceRadarWebNG.CameraArchiveReader
-  alias ServiceRadarWebNG.RBAC
-
-  @read_permissions ["devices.view", "devices.cameras.recordings.view"]
+  alias ServiceRadarWebNGWeb.CameraArchiveAccess
 
   def index(conn, %{"camera_source_id" => source_id} = params) do
     conn = private_media(conn)
 
-    with {:ok, source_id} <- authorize_inventory(conn.assigns[:current_scope], source_id),
+    with {:ok, _scope, source} <- CameraArchiveAccess.source(conn.assigns[:current_scope], source_id),
          {:ok, limit} <- decimal(Map.get(params, "limit", "10"), 1, 20),
          {:ok, inventory} <-
-           ArchiveUploads.archive_inventory(source_id, [limit: limit, cursor: params["cursor"]],
+           ArchiveUploads.archive_inventory(source.id, [limit: limit, cursor: params["cursor"]],
              actor: SystemActor.system(:camera_archive_metadata)
            ) do
       json(conn, %{data: inventory})
@@ -33,7 +29,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
   def show(conn, %{"camera_source_id" => source_id, "id" => block_id}) do
     conn = put_resp_header(conn, "cache-control", "private, no-store")
 
-    with {:ok, _scope, source_id, block_id} <- authorize_read(conn.assigns[:current_scope], source_id, block_id),
+    with {:ok, _scope, source_id, block_id} <-
+           CameraArchiveAccess.recording(conn.assigns[:current_scope], source_id, block_id),
          {:ok, metadata} <-
            ArchiveUploads.archive_metadata(source_id, block_id, actor: SystemActor.system(:camera_archive_metadata)) do
       json(conn, %{data: metadata})
@@ -50,7 +47,8 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
   def playlist(conn, %{"camera_source_id" => source_id, "id" => block_id} = params) do
     conn = private_media(conn)
 
-    with {:ok, _scope, source_id, block_id} <- authorize_read(conn.assigns[:current_scope], source_id, block_id),
+    with {:ok, _scope, source_id, block_id} <-
+           CameraArchiveAccess.recording(conn.assigns[:current_scope], source_id, block_id),
          true <- get_req_header(conn, "range") == [] || {:error, :invalid_id},
          {:ok, first} <- decimal(Map.get(params, "first", "0"), 0, 4095),
          {:ok, count} <- decimal(Map.get(params, "count", "64"), 1, 64),
@@ -81,11 +79,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
     deadline = System.monotonic_time(:millisecond) + 10_000
     opts = [actor: SystemActor.system(:camera_archive_reader)]
 
-    with {:ok, scope, source_id, block_id} <- authorize_read(conn.assigns[:current_scope], source_id, block_id),
+    with {:ok, scope, source_id, block_id} <-
+           CameraArchiveAccess.recording(conn.assigns[:current_scope], source_id, block_id),
          true <- (selector != :invalid and get_req_header(conn, "range") == []) || {:error, :invalid_id},
          {:ok, plan} <- ArchiveUploads.archive_range(source_id, block_id, selector, opts),
          {:ok, bytes} <- CameraArchiveReader.fetch(plan, deadline),
-         {:ok, _, ^source_id, ^block_id} <- authorize_read(scope, source_id, block_id),
+         {:ok, _, ^source_id, ^block_id} <- CameraArchiveAccess.recording(scope, source_id, block_id),
          {:ok, current} <- ArchiveUploads.archive_range(source_id, block_id, selector, opts),
          true <- current == plan and System.monotonic_time(:millisecond) < deadline do
       conn |> put_resp_content_type("video/mp4", nil) |> send_resp(200, bytes)
@@ -127,40 +126,6 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
     do: error(conn, 416, "recording_window_not_satisfiable")
 
   defp archive_error(conn, _), do: error(conn, :service_unavailable, "archive_read_unavailable")
-
-  defp authorize_read(%Scope{user: user} = scope, source_id, block_id) when not is_nil(user) do
-    with {:ok, scope} <- RBAC.authorize_current(scope, @read_permissions),
-         {:ok, source_id} <- cast_id(source_id),
-         {:ok, block_id} <- cast_id(block_id),
-         :ok <- source_exists(scope, source_id) do
-      {:ok, scope, source_id, block_id}
-    end
-  end
-
-  defp authorize_read(_, _, _), do: {:error, :unauthorized}
-
-  defp authorize_inventory(%Scope{user: user} = scope, source_id) when not is_nil(user) do
-    with {:ok, scope} <- RBAC.authorize_current(scope, @read_permissions),
-         {:ok, source_id} <- cast_id(source_id),
-         :ok <- source_exists(scope, source_id) do
-      {:ok, source_id}
-    end
-  end
-
-  defp authorize_inventory(_, _), do: {:error, :unauthorized}
-
-  defp source_exists(scope, source_id) do
-    with {:ok, source} <- Source |> Ash.Query.for_read(:by_id, %{id: source_id}) |> Ash.read_one(scope: scope) do
-      if source, do: :ok, else: {:error, :recording_block_not_found}
-    end
-  end
-
-  defp cast_id(value) do
-    case Ecto.UUID.cast(value) do
-      {:ok, id} -> {:ok, id}
-      :error -> {:error, :invalid_id}
-    end
-  end
 
   defp error(conn, status, code), do: conn |> put_status(status) |> json(%{error: code})
 end

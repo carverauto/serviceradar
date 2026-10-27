@@ -1295,6 +1295,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/observability/camera-analysis-workers", CameraAnalysisWorkerLive.Index, :legacy)
       live("/cameras", CameraLive.Index, :index)
       live("/cameras/:camera_source_id", CameraLive.Show, :show)
+      live("/cameras/:camera_source_id/recordings", CameraLive.Recordings, :index)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
       live("/observability/traces/:trace_id", TraceLive.Show, :show)
       # Legacy alias — same LiveView as /observability/logs

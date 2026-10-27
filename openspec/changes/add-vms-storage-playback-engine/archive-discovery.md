@@ -4,7 +4,8 @@
 published blocks for one camera, newest publication first. This is a publication
 inventory, not a capture-time timeline. Publication time never becomes capture
 time; the recorder's unknown UTC mapping remains unknown. Recording stays
-disabled, and this checkpoint adds no player or live relay work.
+disabled. The [archive player](archive-player.md) owns inventory browsing and
+playback without opening a live relay.
 
 ## Request and response
 
@@ -58,8 +59,9 @@ snapshot and grants no future access.
 Reads do not touch a provider, local spool or upload lease. The 10/20 candidate
 bounds are engineering limits, not measured production query-capacity claims.
 True capture-time filtering awaits trusted clock mappings and uncertainty
-semantics. Browser HLS seeking and cancellation, provisional local delivery,
-retention, provider qualification and hosted enablement remain separate gates.
+semantics. Browser HLS seeking and cancellation belong to the
+[archive player](archive-player.md); provisional local delivery, retention,
+provider qualification and hosted enablement remain separate gates.
 
 ## Validation ownership
 
