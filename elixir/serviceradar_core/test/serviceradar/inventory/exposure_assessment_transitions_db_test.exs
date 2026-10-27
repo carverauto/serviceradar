@@ -656,39 +656,39 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       |> MapSet.new()
 
     assert MapSet.size(sequences) > 0
-    # PubAck includes deduplicated retries. Core subscriptions also see failed
-    # publishes, so only retained messages can prove what the relay delivered.
-    assert {:ok, first} = ExposureDimensionRelay.relay_once()
+    # Multiple outbox rows can replay the same sequence, and PubAck includes
+    # deduplicated retries. Prove logical publication coverage from retention.
+    assert {:ok, _first} = ExposureDimensionRelay.relay_once()
     assert {:ok, second} = ExposureDimensionRelay.relay_once()
     assert second.failed == 0
-    assert first.relayed + second.relayed == MapSet.size(sequences)
 
-    if ingest? do
-      assert %{"state" => %{"first_seq" => first_seq, "last_seq" => last_seq}} =
-               ExposureBroker.request(conn, "$JS.API.STREAM.INFO.EXPOSURE_DIMENSIONS", %{})
+    assert %{"state" => %{"first_seq" => first_seq, "last_seq" => last_seq}} =
+             ExposureBroker.request(conn, "$JS.API.STREAM.INFO.EXPOSURE_DIMENSIONS", %{})
 
-      assert last_seq >= first_seq and last_seq - first_seq < 2_000
+    assert last_seq >= first_seq and last_seq - first_seq < 2_000
 
-      consumed =
-        Enum.reduce(first_seq..last_seq, MapSet.new(), fn position, consumed ->
-          assert %{"message" => %{"data" => encoded}} =
-                   ExposureBroker.request(conn, "$JS.API.STREAM.MSG.GET.EXPOSURE_DIMENSIONS", %{
-                     seq: position
-                   })
+    retained =
+      Enum.reduce(first_seq..last_seq, MapSet.new(), fn position, retained ->
+        assert %{"message" => %{"data" => encoded}} =
+                 ExposureBroker.request(conn, "$JS.API.STREAM.MSG.GET.EXPOSURE_DIMENSIONS", %{
+                   seq: position
+                 })
 
-          body = Base.decode64!(encoded)
-          sequence = Jason.decode!(body)["transition_seq"]
+        body = Base.decode64!(encoded)
+        sequence = Jason.decode!(body)["transition_seq"]
 
-          if MapSet.member?(sequences, sequence) do
+        if MapSet.member?(sequences, sequence) do
+          if ingest? do
             assert {:ok, 1} = ExposureDimensions.process_batch([%{data: body}])
-            MapSet.put(consumed, sequence)
-          else
-            consumed
           end
-        end)
 
-      assert consumed == sequences
-    end
+          MapSet.put(retained, sequence)
+        else
+          retained
+        end
+      end)
+
+    assert retained == sequences
   end
 
   defp live_empty_table!(table, deadline) do
