@@ -580,7 +580,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
          first_seen, last_seen)
       SELECT $1, 'armis_device_id', 'other-' || n, $2, 'strong', 'armis',
              timezone('utc', now()), timezone('utc', now())
-      FROM generate_series(1, 200) AS n
+      FROM generate_series(1, 1000) AS n
       """,
       [by_mac, partition]
     )
@@ -592,7 +592,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
          collection_id, content_hash, first_observed_at, last_observed_at, mac)
       SELECT $1, 'default', 'armis', $2, 'other-' || n, $2, $2, md5(n::text),
              timezone('utc', now()), timezone('utc', now()), '00:00:5E:00:53:FF'
-      FROM generate_series(1, 200) AS n
+      FROM generate_series(1, 1000) AS n
       """,
       [by_mac, instance]
     )
@@ -675,15 +675,24 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
     end
   end
 
-  # The observation rows the statement reads, replayed under EXPLAIN ANALYZE. The tables are
-  # analyzed so the planner knows the test's rows, and sequential scans are disfavored: the
-  # test's tables are a few pages each, where reading one in full looks cheaper than an index
-  # lookup, which is not true of a deployment's. Rolling the savepoint back undoes both.
+  # The observation rows the statement reads, replayed under EXPLAIN ANALYZE. Every way to
+  # read the observations but a bitmap scan on the statement's own conditions is disabled, and
+  # joins are hashed, so no plan can reach the observations from the identifiers instead: a
+  # nested loop over the identifiers reads every observation however the index serves the MAC
+  # condition. The tables are analyzed, so the planner knows how few rows carry the MAC and
+  # chooses the MAC index over the source index when it exists. With the index the statement
+  # reads the observations carrying the MAC, without it every Armis observation. Rolling the
+  # savepoint back undoes the settings and the statistics.
   defp observations_read(sql, params) do
     {:error, {:read, read}} =
       Repo.transaction(fn ->
         Repo.query!("ANALYZE platform.device_source_observations, platform.device_identifiers")
-        Repo.query!("SET LOCAL enable_seqscan = off")
+
+        for setting <- ~w(enable_seqscan enable_indexscan enable_indexonlyscan enable_nestloop
+                          enable_mergejoin) do
+          Repo.query!("SET LOCAL #{setting} = off")
+        end
+
         Repo.query!("SET LOCAL plan_cache_mode = force_custom_plan")
 
         %{rows: [[[plan]]]} =
