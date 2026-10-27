@@ -57,6 +57,7 @@ plugin-result ingestion more reliable, and ships security updates.
 
 **Proxmox and identity**
 
+- Agents have an editable display name and description (#5931).
 - Proxmox VM consoles open again; they had been failing since July
   (#5872, #5908, #6039).
 - Duplicate Proxmox node records now converge into one (#6046).
@@ -74,6 +75,8 @@ plugin-result ingestion more reliable, and ships security updates.
 
 **Flows and observability**
 
+- Dashboard traffic charts keep outbound counters when a chart hits its
+  series limit (#5936).
 - IOC and threat filters and the proximity (`near`) filters work on
   StarRocks again (#6035, #6049).
 - Flow charts spread each flow's traffic across its interval instead
@@ -91,7 +94,8 @@ plugin-result ingestion more reliable, and ships security updates.
 
 **Platform**
 
-- EventWriter runs on every core replica and shares the load (#6008).
+- Telemetry ingestion now runs on every core replica and shares the
+  load (#6008).
 - The plugins page is split into Installed, Updates and Catalog, and
   one plugin can run several assignments on an agent when they come
   from different rules (#5874, #6011, #6027).
