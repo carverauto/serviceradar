@@ -57,17 +57,30 @@ It asserts:
 6. An old comparison blocks scoped readiness. Disabled StarRocks returns
    starrocks_required while the CNPG assessment remains readable.
 
-The test does not establish full-fleet enumeration/paging, deployment-wide
-coverage, both sequence40/41 delivery orders, or fleet throughput. Existing
-head-bound evidence for those paths must be reported separately; task 1.6 and
-the <=15-minute gate remain open.
+7. A real full snapshot and comparisons establish deployment readiness. A later
+   scoped repair requires a comparison after its completion and restores global
+   readiness without replacing the baseline. Another device's mismatch remains
+   blocking; stale fleet enumeration also remains blocking.
+8. Alternating CNPG-only and warehouse-only scopes fill a 500-item union page.
+   A resumed job reaches the remaining fact-only u32 maximum ordinal, then
+   terminates. Lifecycle-only warehouse scopes and exact job counts are checked.
+9. Synthetic sequence-40 snapshot pages and sequence-41 live resolutions traverse
+   retained JetStream messages and real Stream Load in both orders. MySQL must
+   retain resolved sequence 41 before finalization, and accept sequence 42 after
+   completion without reopening the generation.
+
+The finite paging fixture is a functional boundary check, not fleet throughput
+proof. Task 1.6 and the <=15-minute fleet-scale gate remain open. These assertions
+require a fresh coordinator-owned hosted run; their presence is not pass evidence.
 
 ## Cleanup and result collection
 
 The existing broker helper awaits nats-server exit. The publisher task is shut
 down even on assertion failure. The supervised MySQL pool and load supervisor
 are owned by ExUnit. Existing unboxed source cleanup removes assessment,
-dictionary, outbox, reconciliation, scoped generation and job rows. The live
+dictionary, outbox, reconciliation, generation, delivery-journal and job rows.
+The global-readiness fixture restores pre-existing comparison metadata and
+removes its newly created generations and jobs in the exclusive serial owner lane. The live
 scenario truncates and re-queries all five initially empty, exclusively owned
 warehouse tables. The restricted test identity therefore needs TRUNCATE
 permission on these scratch tables. Each table cleanup is attempted even if
