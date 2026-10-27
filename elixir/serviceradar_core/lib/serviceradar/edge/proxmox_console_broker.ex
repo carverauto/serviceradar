@@ -210,8 +210,17 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
     end
   end
 
+  # The partition comes from the credential-rule binding that
+  # ProxmoxConsoleSessions records at request_open and re-verifies against the
+  # current rule and assignment at attach. The session has no top-level copy.
   defp assignment_partition_id(session) do
-    case metadata_string(metadata_map(session), "assignment_partition_id") do
+    rule_binding =
+      case Map.get(metadata_map(session), "credential_rule") do
+        %{} = binding -> binding
+        _binding -> %{}
+      end
+
+    case metadata_string(rule_binding, "assignment_partition_id") do
       partition_id when is_binary(partition_id) and partition_id != "" -> {:ok, partition_id}
       _partition_id -> {:error, :console_assignment_partition_binding_missing}
     end
@@ -330,7 +339,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   end
 
   defp metadata_string(metadata, key) when is_map(metadata) do
+    # nil is an atom: without this clause a missing key reads back as "nil",
+    # which once routed every console open to an agent in partition "nil".
     case Map.get(metadata, key) do
+      nil -> nil
       value when is_binary(value) -> String.trim(value)
       value when is_atom(value) -> Atom.to_string(value)
       value when is_integer(value) -> Integer.to_string(value)
