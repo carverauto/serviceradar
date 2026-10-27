@@ -31,12 +31,32 @@ still `prepared`.
    web-ng, which uses it only as a fallback before it reaches the coordinator;
    an override in `core.extraEnv` also belongs in `webNg.extraEnv`.
    Observe accepted inputs, committed receipts, and persisted alert effects.
-   Rejected upstream deliveries must remain eligible for retry.
+   Monitor rejected upstream deliveries against the bounded retry policy below.
 5. Before rollback, set `draining` everywhere and stop upstream admission. Wait
    for the work table to empty and verify receipts and outbox work. Fence and
    stop consumers before changing to an older image. The migration refuses to
    drop an inbox that still contains accepted work; this is an additional guard,
    not proof that all application processes have stopped.
+
+During a rolling restart, `:alert_evaluation_peer_not_ready` fails the
+AnalyticsSignals transaction cleanly: episode and event transitions and their
+evaluation admission roll back together. EventWriter delays NAKs for this reason
+by 10, 20, 40, and 80 seconds on deliveries 1 through 4. With the default
+`max_deliver: 5`, these delays total 150 seconds before the final attempt;
+recovery before that attempt allows normal processing. Continued failure on
+delivery 5 logs an error and sends a terminal acknowledgement, ending automatic
+redelivery. This is a bounded recovery window, not an indefinite retry guarantee.
+Consumer delivery limits are unchanged.
+
+Readiness deferrals log at info in AnalyticsSignals and the batch pipeline, and
+at debug in the failed-message callback; terminal delivery still logs at error.
+Delayed acknowledgements retain the `nack` telemetry action. Other failures,
+including draining, unavailable capability, and database errors, retain error
+batch logs and immediate NAKs until the delivery limit. The acknowledgement
+policy is implemented in `ServiceRadar.EventWriter.Pipeline`; regression coverage
+is in `pipeline_ack_test.exs` and `analytics_signals_process_batch_db_test.exs`
+under `elixir/serviceradar_core/test/serviceradar/event_writer/` (the latter in
+`processors/`).
 
 Admission bounds use `SERVICERADAR_ALERT_EVALUATION_` followed by
 `ADMISSION_TIMEOUT_MS`, `BATCH_RECORDS`, `BATCH_WORK`, `PENDING_COUNT`,

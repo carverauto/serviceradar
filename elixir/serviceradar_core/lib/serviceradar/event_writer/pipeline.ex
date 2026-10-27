@@ -301,14 +301,22 @@ defmodule ServiceRadar.EventWriter.Pipeline do
           %{stream: batcher, processor: processor, reason: inspect(reason)}
         )
 
-        Logger.error("Batch processing failed",
-          batcher: batcher,
-          reason: inspect(reason),
-          message_count: length(messages)
-        )
+        if retryable_alert_evaluation_reason?(reason) do
+          Logger.info("Batch deferred until alert evaluation is ready",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: length(messages)
+          )
+        else
+          Logger.error("Batch processing failed",
+            batcher: batcher,
+            reason: inspect(reason),
+            message_count: length(messages)
+          )
 
-        # No-op when no batch span is active (telemetry subjects).
-        Otel.set_error(reason)
+          # No-op when no batch span is active (telemetry subjects).
+          Otel.set_error(reason)
+        end
 
         Enum.map(messages, &Message.failed(&1, reason))
     end
@@ -317,23 +325,45 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   @impl true
   def handle_failed(messages, _context) do
     Enum.each(messages, fn message ->
-      Logger.warning("Message failed",
-        subject: message.metadata[:subject],
-        reason: inspect(message.status)
-      )
+      if retryable_alert_evaluation_status?(message.status) do
+        Logger.debug("Message deferred until alert evaluation is ready",
+          subject: message.metadata[:subject],
+          reason: inspect(message.status)
+        )
+      else
+        Logger.warning("Message failed",
+          subject: message.metadata[:subject],
+          reason: inspect(message.status)
+        )
+      end
     end)
 
     messages
   end
 
+  defp retryable_alert_evaluation_status?({:failed, reason}),
+    do: retryable_alert_evaluation_reason?(reason)
+
+  defp retryable_alert_evaluation_status?(_status), do: false
+
+  defp retryable_alert_evaluation_reason?(:alert_evaluation_peer_not_ready), do: true
+  defp retryable_alert_evaluation_reason?(_reason), do: false
+
   # Private functions
 
   defp ack_failed_message(message) do
-    if terminal_delivery?(message) do
-      emit_dead_letter(message)
-      ack_message(message, :term)
-    else
-      ack_message(message, :nack)
+    cond do
+      terminal_delivery?(message) ->
+        emit_dead_letter(message)
+        ack_message(message, :term)
+
+      retryable_alert_evaluation_status?(message.status) ->
+        delivery_count = get_in(message.metadata, [:jetstream_ack, :delivery_count]) || 1
+        delay_ms = 10_000 * Bitwise.bsl(1, min(max(delivery_count, 1), 4) - 1)
+        ack_message(message, {:nack, delay_ms})
+
+      true ->
+        ack_message(message, :nack)
     end
   end
 
@@ -512,6 +542,12 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp determine_batcher(_), do: :default
 
   defp ack_message(%{acknowledger: {_, _, ack_data}} = message, action) do
+    telemetry_action =
+      case action do
+        {:nack, _delay_ms} -> :nack
+        action -> action
+      end
+
     case ack_data[:ack_fun] do
       ack_fun when is_function(ack_fun, 1) ->
         ack_started = System.monotonic_time()
@@ -519,7 +555,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         case safe_invoke_ack(ack_fun, action) do
           :ok ->
             EventWriterTelemetry.emit_ack(
-              action,
+              telemetry_action,
               :ok,
               ack_latency(message, ack_started),
               message.metadata[:subject]
@@ -529,7 +565,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
           {:error, reason} ->
             EventWriterTelemetry.emit_ack(
-              action,
+              telemetry_action,
               :error,
               ack_latency(message, ack_started),
               message.metadata[:subject]

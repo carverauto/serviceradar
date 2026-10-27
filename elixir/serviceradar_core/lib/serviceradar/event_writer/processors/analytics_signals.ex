@@ -145,46 +145,46 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
 
       routing_store = store_routing_events(routing_rows)
 
-      {:ok, {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events}} =
-        AnomalyEpisodeRegistry.transaction(fn ->
-          {ash_rows, bulk_rows} =
-            all_ocsf_rows
-            |> AnomalyEpisodeRegistry.transition_rows()
-            |> Enum.split_with(&ash_recorded_row?/1)
+      with {:ok, {bulk_ocsf_rows, bulk_ocsf_count, persisted_ocsf_rows, recorded_ocsf_events}} <-
+             AnomalyEpisodeRegistry.transaction(fn ->
+               {ash_rows, bulk_rows} =
+                 all_ocsf_rows
+                 |> AnomalyEpisodeRegistry.transition_rows()
+                 |> Enum.split_with(&ash_recorded_row?/1)
 
-          bulk_rows = dedupe_rows_by_conflict_key(bulk_rows, &ocsf_event_conflict_key/1)
-          count = insert_rows(table_name(), bulk_rows)
-          {persisted, transitions} = record_ocsf_events(ash_rows)
+               bulk_rows = dedupe_rows_by_conflict_key(bulk_rows, &ocsf_event_conflict_key/1)
+               count = insert_rows(table_name(), bulk_rows)
+               {persisted, transitions} = record_ocsf_events(ash_rows)
 
-          # Commit the transition and its accepted evaluation together. A
-          # rejected inbox must leave the prior state available to redelivery.
-          case evaluate_transitions(transitions) do
-            :ok -> {bulk_rows, count, persisted, transitions}
-            {:error, reason} -> ServiceRadar.Repo.rollback(reason)
-          end
-        end)
+               # Commit the transition and its accepted evaluation together. A
+               # rejected inbox must leave the prior state available to redelivery.
+               case evaluate_transitions(transitions) do
+                 :ok -> {bulk_rows, count, persisted, transitions}
+                 {:error, reason} -> ServiceRadar.Repo.rollback(reason)
+               end
+             end) do
+        warehouse = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
 
-      warehouse = Destination.persist_after_cnpg(:events, bulk_ocsf_rows ++ persisted_ocsf_rows)
+        dispatch_northbound_inventory_transitions(recorded_ocsf_events)
 
-      dispatch_northbound_inventory_transitions(recorded_ocsf_events)
+        # Insert-only rows use the source ledger. Lifecycle transitions were
+        # durably admitted in the same transaction as their prior-state update;
+        # their reused event identity is not an occurrence identity.
+        evaluation =
+          bulk_ocsf_rows
+          |> alert_evaluation_rows()
+          |> StatefulEvaluationLedger.evaluate_once()
 
-      # Insert-only rows use the source ledger. Lifecycle transitions were
-      # durably admitted in the same transaction as their prior-state update;
-      # their reused event identity is not an occurrence identity.
-      evaluation =
-        bulk_ocsf_rows
-        |> alert_evaluation_rows()
-        |> StatefulEvaluationLedger.evaluate_once()
+        report_anomaly_dispositions(recorded_ocsf_events)
 
-      report_anomaly_dispositions(recorded_ocsf_events)
+        ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
+        CausalPubSub.broadcast_ingest(%{count: ocsf_count})
 
-      ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
-      CausalPubSub.broadcast_ingest(%{count: ocsf_count})
-
-      with {:ok, _} <- routing_store,
-           {:ok, _} <- warehouse,
-           :ok <- evaluation do
-        {:ok, length(parsed_rows)}
+        with {:ok, _} <- routing_store,
+             {:ok, _} <- warehouse,
+             :ok <- evaluation do
+          {:ok, length(parsed_rows)}
+        end
       end
     end
   end
@@ -763,7 +763,15 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     )
 
     try do
-      fun.()
+      case fun.() do
+        {:error, reason} ->
+          root_error = resolve_logged_error(reason)
+          log_returned_batch_failure(root_error)
+          {:error, root_error}
+
+        other ->
+          other
+      end
     rescue
       e ->
         root_error = resolve_logged_error(e)
@@ -772,6 +780,16 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     after
       :telemetry.detach(handler_id)
       Process.delete(@first_statement_error_key)
+    end
+  end
+
+  defp log_returned_batch_failure(reason) do
+    if reason == :alert_evaluation_peer_not_ready do
+      Logger.info("Deferring causal signals batch until alert evaluation is ready",
+        reason: inspect(reason)
+      )
+    else
+      log_batch_insert_failure(reason)
     end
   end
 
