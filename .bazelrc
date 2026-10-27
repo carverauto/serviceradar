@@ -201,6 +201,10 @@ build:remote --disk_cache=~/.cache/serviceradar-bazel/disk
 build:remote --repository_cache=~/.cache/serviceradar-bazel/repo
 build:remote --repo_contents_cache=~/.cache/serviceradar-bazel/repo-contents
 build:remote --experimental_disk_cache_gc_max_size=50G
+# Bound repo-contents retention separately from the disk cache's size cap.
+# Cache layout and stale output-base reclamation: docs/agent-runbooks.md,
+# "Workstation Bazel disk usage".
+build:remote --repo_contents_cache_gc_max_age=7d
 
 build:darwin_pkg --platforms=//build/platforms:darwin_exec
 build:darwin_pkg --host_platform=//build/platforms:darwin_exec
