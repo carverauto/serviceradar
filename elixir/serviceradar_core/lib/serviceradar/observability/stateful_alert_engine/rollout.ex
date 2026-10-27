@@ -12,11 +12,15 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
   alias ServiceRadar.Observability.AlertEvaluationReceipt
   alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
   alias ServiceRadar.Observability.StatefulAlertEngine.PeerReadiness
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
 
+  require Logger
+
   @capability "durable-alert-evaluation-v1"
+  @capability_timeout_ms 1_000
 
   def mode, do: Application.get_env(:serviceradar_core, :alert_evaluation_mode, :prepared)
   def consumers_enabled?, do: mode() in [:active, :draining]
@@ -121,18 +125,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
          true <- AlertEvaluationReceipt.retention_valid?(),
          true <- Code.ensure_loaded?(EvaluationWorker),
          true <- consumer_ready?(),
-         {:ok, %{rows: [[true]]}} <-
-           Repo.query(
-             """
-             SELECT to_regclass('platform.alert_evaluation_work') IS NOT NULL
-                AND to_regclass('platform.alert_evaluation_receipts') IS NOT NULL
-                AND to_regclass('platform.alert_evaluation_lanes') IS NOT NULL
-                AND EXISTS (SELECT 1 FROM pg_trigger
-                            WHERE tgname = 'fence_alert_rule_admission' AND NOT tgisinternal)
-             """,
-             [],
-             timeout: 1_000
-           ) do
+         {:ok, %{rows: [[true]]}} <- query_capability_schema() do
       {:ok, @capability}
     else
       _ -> {:error, :alert_evaluation_capability_unavailable}
@@ -141,6 +134,64 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Rollout do
     _ -> {:error, :alert_evaluation_capability_unavailable}
   catch
     :exit, _ -> {:error, :alert_evaluation_capability_unavailable}
+  end
+
+  defp query_capability_schema do
+    caller = {__MODULE__, :capability}
+    maybe_set_process_label(caller)
+
+    try do
+      case Repo.query(
+             """
+             SELECT to_regclass('platform.alert_evaluation_work') IS NOT NULL
+                AND to_regclass('platform.alert_evaluation_receipts') IS NOT NULL
+                AND to_regclass('platform.alert_evaluation_lanes') IS NOT NULL
+                AND EXISTS (SELECT 1 FROM pg_trigger
+                            WHERE tgname = 'fence_alert_rule_admission' AND NOT tgisinternal)
+             """,
+             [],
+             timeout: @capability_timeout_ms,
+             telemetry_options: [caller: caller, timeout_ms: @capability_timeout_ms]
+           ) do
+        {:ok, _} = ok ->
+          ok
+
+        {:error, reason} = error ->
+          capability_query_failed(caller, reason)
+          error
+      end
+    rescue
+      error ->
+        capability_query_failed(caller, error)
+        {:error, error}
+    catch
+      :exit, reason ->
+        capability_query_failed(caller, {:exit, reason})
+        {:error, {:exit, reason}}
+    end
+  end
+
+  defp capability_query_failed(caller, reason) do
+    RuntimeMetrics.store_failure()
+
+    :telemetry.execute(
+      [:serviceradar, :stateful_alert_engine, :capability_query_failed],
+      %{count: 1},
+      %{caller: caller, reason: reason}
+    )
+
+    Logger.warning(
+      "Alert evaluation capability query failed (#{inspect(caller)}): " <>
+        inspect(reason, limit: 10, printable_limit: 500),
+      caller: inspect(caller)
+    )
+  end
+
+  defp maybe_set_process_label(caller) do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, []} -> Process.set_label(caller)
+      _ -> :ok
+    end
   end
 
   defp consumer_ready? do

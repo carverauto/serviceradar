@@ -14,9 +14,13 @@ defmodule ServiceRadar.Observability.AlertEvaluationReceipt do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics
   alias ServiceRadar.Repo
 
   require Ash.Query
+  require Logger
+
+  @prune_timeout_ms 2_000
 
   postgres do
     table "alert_evaluation_receipts"
@@ -69,14 +73,42 @@ defmodule ServiceRadar.Observability.AlertEvaluationReceipt do
 
     if retention_valid?() do
       cutoff = DateTime.shift(now, day: -retention_days)
+      caller = {__MODULE__, :prune}
 
-      Inbox.transact(2_000, fn ->
-        Inbox.lock_admission()
-        prune_owned(cutoff)
-      end)
+      case Inbox.transact(
+             @prune_timeout_ms,
+             fn ->
+               Inbox.lock_admission()
+               prune_owned(cutoff)
+             end,
+             caller: caller
+           ) do
+        {:ok, :ok} = ok ->
+          ok
+
+        {:error, reason} = error ->
+          prune_failed(caller, reason)
+          error
+      end
     else
       {:error, :invalid_alert_receipt_retention}
     end
+  end
+
+  defp prune_failed(caller, reason) do
+    RuntimeMetrics.store_failure()
+
+    :telemetry.execute(
+      [:serviceradar, :stateful_alert_engine, :receipt_prune_failed],
+      %{count: 1},
+      %{caller: caller, reason: reason}
+    )
+
+    Logger.warning(
+      "Could not prune expired alert evaluation receipts (#{inspect(caller)}): " <>
+        inspect(reason, limit: 10, printable_limit: 500),
+      caller: inspect(caller)
+    )
   end
 
   @doc "Whether receipt retention covers the configured source replay horizon."
