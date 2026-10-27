@@ -12,7 +12,7 @@ arrow-array = { workspace = true }
 arrow-ipc = { workspace = true }
 arrow-schema = { workspace = true }
 deep_causality = { workspace = true }
-deep_causality_sparse = { workspace = true }
+deep_causality_linear = { workspace = true }
 deep_causality_tensor = { workspace = true }
 deep_causality_topology = { workspace = true }
 roaring = { workspace = true }
