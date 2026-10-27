@@ -17,6 +17,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
   alias ServiceRadar.Inventory.ExposurePublicationPrepareWorker
   alias ServiceRadar.Inventory.ExposureReadiness
   alias ServiceRadar.Inventory.ExposureReconciliationComparison, as: Comparison
+  alias ServiceRadar.Inventory.ExposureSnapshotFinalizer
   alias ServiceRadar.Inventory.ExposureSnapshotRepairs, as: Repairs
   alias ServiceRadar.Inventory.ExposureSnapshotWorker, as: Publisher
   alias ServiceRadar.Repo
@@ -65,7 +66,8 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
         ).rows
       )
 
-    with {:ok, stored} <- Warehouse.device_ordinals(cursor) do
+    with :ok <- ExposureSnapshotFinalizer.recover(nil),
+         {:ok, stored} <- Warehouse.device_ordinals(cursor) do
       ordinals =
         (source ++ Enum.map(stored, & &1["device_ord"]))
         |> Enum.uniq()
@@ -93,7 +95,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
                "cursor" => next
              })
 
-             if ExposureReadiness.latest_generation(nil) == {0, nil},
+             if ExposureReadiness.replacement_required?(nil),
                do: Oban.insert!(Publisher.new(%{}))
 
              if ordinals == [], do: :ok, else: {:snooze, 1}
@@ -125,7 +127,8 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
     control = control(ordinal)
     repairs = control["repairs"] || []
 
-    with {:ok, remaining} <- Repairs.verify(repairs) do
+    with :ok <- ExposureSnapshotFinalizer.recover(ordinal),
+         {:ok, remaining} <- Repairs.verify(repairs) do
       record(ordinal, "deferred", Map.put(control, "repairs", remaining), false)
       if remaining == [], do: :ok, else: {:snooze, 30}
     end
@@ -144,7 +147,7 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
           :ok
 
         {:ok, %{reasons: reasons}} ->
-          if :snapshot_missing in reasons or :comparison_pending in reasons,
+          if ExposureReadiness.replacement_required?(ordinal) or :comparison_pending in reasons,
             do: Oban.insert!(Publisher.new(%{"device_ord" => ordinal}))
 
           emit(:deferred)

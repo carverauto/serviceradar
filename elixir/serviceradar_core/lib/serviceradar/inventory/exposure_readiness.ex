@@ -39,6 +39,21 @@ defmodule ServiceRadar.Inventory.ExposureReadiness do
     end
   end
 
+  def replacement_required?(scope) do
+    {generation, _} = latest_generation(scope)
+
+    generation == 0 or
+      Repo.query!(
+        """
+        SELECT 1 FROM platform.exposure_snapshot_generations
+        WHERE status = 'aborted' AND id > $2
+          AND ($1::bigint IS NULL OR control->>'scope' IS NULL OR (control->>'scope')::bigint = $1)
+        LIMIT 1
+        """,
+        [scope, generation]
+      ).rows != []
+  end
+
   defp readiness(reader, scope) do
     [[generation, age, completed_at]] =
       Postgrex.query!(
@@ -106,7 +121,8 @@ defmodule ServiceRadar.Inventory.ExposureReadiness do
         FROM platform.exposure_snapshot_generations
         WHERE ($1::bigint IS NULL OR control->>'scope' IS NULL OR (control->>'scope')::bigint = $1)
           AND (control->'pending' <> '{}'::jsonb OR
-            (id > $2 AND (status <> 'complete' OR jsonb_array_length(control->'repairs') > 0)))
+            jsonb_array_length(control->'repairs') > 0 OR
+            (id > $2 AND status <> 'complete'))
         """,
         [scope, generation]
       ).rows

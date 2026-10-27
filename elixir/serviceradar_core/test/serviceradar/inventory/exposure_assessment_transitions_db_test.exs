@@ -75,6 +75,19 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
              )
            )
 
+    predecessor = finalizing_generation!(scope)
+    {:ok, [%{fact: fact}]} = ExposureTransitions.decode([%{data: Jason.encode!(payload)}])
+    {:ok, repair} = ExposureSnapshotRepairs.for_fact(fact)
+
+    assert {:ok, :ok} =
+             ExposureSnapshotState.change(predecessor, fn current ->
+               {:ok, repairs} = ExposureSnapshotRepairs.publish([repair])
+               {:ok, Map.put(current, "repairs", repairs), :ok}
+             end)
+
+    retire_generation!(predecessor)
+    payload = publication(ctx.device_uid, "EXAMPLE-RECONCILE-DELETE")
+
     ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
       {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
       snapshot_query!(fn _ -> warehouse_rows([]) end)
@@ -89,8 +102,19 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       assert [%{"transition_seq" => seq}] = restored
       assert seq == payload["transition_seq"]
-      reconciliation_queries!(restored, dimensions)
+
+      assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} =
+               ExposureReadiness.status(scope)
+
+      snapshot_query!(fn _ -> warehouse_rows([]) end)
+
+      assert {:error, :exposure_snapshot_repairs_pending} =
+               ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+
+      assert {:ok, %{"repairs" => [_]}} = ExposureSnapshotState.get(predecessor)
+      reconciliation_queries!(restored, dimensions, restored)
       assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+      assert {:ok, %{"repairs" => []}} = ExposureSnapshotState.get(predecessor)
       assert {:ok, %{ready: true, generation: ^id}} = ExposureReadiness.status(scope)
 
       # Ordinary young outbox rows remain present; readiness is not an empty-outbox test.
@@ -129,6 +153,32 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
       assert {:ok, %{ready: true}} = ExposureReadiness.status(scope)
 
+      aborted = finalizing_generation!(scope)
+      retire_generation!(aborted)
+
+      Repo.query!(
+        """
+        UPDATE oban_jobs SET state = 'discarded'
+        WHERE worker = 'ServiceRadar.Inventory.ExposureSnapshotWorker'
+          AND args->>'device_ord' = $1
+        """,
+        [to_string(scope)]
+      )
+
+      reconciliation_queries!(restored, dimensions)
+      assert {:snooze, 30} = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
+      assert {:ok, %{ready: false, reasons: reasons}} = ExposureReadiness.status(scope)
+      assert :snapshot_recovery in reasons
+
+      assert Repo.exists?(
+               from(j in Oban.Job,
+                 where:
+                   j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
+                     j.state == "available" and
+                     fragment("?->>'device_ord'", j.args) == ^to_string(scope)
+               )
+             )
+
       Repo.query!(
         "UPDATE platform.exposure_transition_outbox SET inserted_at = now() - interval '11 minutes' WHERE device_uid = $1",
         [ctx.device_uid]
@@ -147,12 +197,22 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     # An out-of-band source change bypasses the publication trigger. Replaying
     # the retained after-image would conceal it, so compare the current columns.
     Repo.transaction(fn ->
-      Repo.query!("SET LOCAL session_replication_role = replica")
+      Repo.query!("""
+      ALTER TABLE platform.endpoint_vulnerability_assessments
+        DISABLE TRIGGER trg_exposure_assessment_sequence,
+        DISABLE TRIGGER trg_exposure_assessment_publish_update
+      """)
 
       update_assessment!(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT",
         kev: true,
         severity: "critical"
       )
+
+      Repo.query!("""
+      ALTER TABLE platform.endpoint_vulnerability_assessments
+        ENABLE TRIGGER trg_exposure_assessment_sequence,
+        ENABLE TRIGGER trg_exposure_assessment_publish_update
+      """)
     end)
 
     assert publication(ctx.device_uid, "EXAMPLE-RECONCILE-CONTENT") == original
@@ -226,6 +286,15 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   test "fleet enumeration includes warehouse-only ordinals and resumes after a bounded page",
        _ctx do
     snapshot_http!()
+    completed = finalizing_generation!(nil)
+
+    assert {:ok, :ok} =
+             ExposureSnapshotState.change(completed, fn current ->
+               {:ok, Map.put(current, "status", "complete"), :ok}
+             end)
+
+    aborted = finalizing_generation!(nil)
+    retire_generation!(aborted)
     warehouse_only = 4_200_000_123
     snapshot_query!(fn _ -> warehouse_rows([%{"device_ord" => warehouse_only}]) end)
 
@@ -234,6 +303,14 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert {:snooze, 1} = ExposureReconciliationWorker.perform(job)
     assert %{"cursor" => ^warehouse_only} = Repo.get!(Oban.Job, job.id).args
+
+    assert Repo.exists?(
+             from(j in Oban.Job,
+               where:
+                 j.worker == "ServiceRadar.Inventory.ExposureSnapshotWorker" and
+                   j.state == "available" and j.args == ^%{}
+             )
+           )
 
     assert Repo.exists?(
              from(j in Oban.Job,
