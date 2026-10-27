@@ -38,6 +38,11 @@ The scenario uses synthetic assessment helpers, real CNPG source functions,
 the existing disposable JetStream broker, production snapshot workers and
 processors, real Stream Load and the production MySQL query client. There are
 no substituted warehouse queries, HTTP responses or production exports.
+Dimension ingestion reads the selected outbox sequences from retained JetStream
+messages and requires every selected sequence to be present. Core subscription
+delivery counts are not used as evidence of retention: failed publishes can
+reach subscribers, and deduplicated PubAcks need not produce another delivery.
+The assigned CVE repair is verified before publishing newer queued content.
 
 It asserts:
 
@@ -82,7 +87,8 @@ dictionary, outbox, reconciliation, generation, delivery-journal and job rows.
 The global-readiness fixture restores pre-existing comparison metadata and
 removes its newly created generations and jobs in the exclusive serial owner lane. The live
 scenario truncates and re-queries all five initially empty, exclusively owned
-warehouse tables. The restricted test identity therefore needs TRUNCATE
+warehouse tables, allowing up to five seconds for each zero-row result to
+become visible, with a failing assertion at the deadline. The restricted test identity therefore needs TRUNCATE
 permission on these scratch tables. Each table cleanup is attempted even if
 another fails. Scenario and cleanup errors are collected separately and raised
 together through ExUnit.MultiError, preserving their original stacktraces.

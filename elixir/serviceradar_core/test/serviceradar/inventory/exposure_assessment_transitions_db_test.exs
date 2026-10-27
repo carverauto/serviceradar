@@ -106,7 +106,6 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
         ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
           {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
-          {:ok, _} = Gnat.sub(conn, self(), "exposure.dimensions.>")
           first = live_snapshot!(conn, args)
           assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
           assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
@@ -186,7 +185,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           assert assigned["key"] == old_key
 
           # PubAck without ingestion, then upgrade away from V1 before its repair settles.
-          live_dimensions!(false)
+          live_dimensions!(conn, false)
           update_assessment!(ctx.device_uid, cve, installed_version: "2.0.0")
           upgraded = publication(ctx.device_uid, cve)
           refute upgraded["pkgver_ord"] == old_key
@@ -202,7 +201,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           assert {:ok, %{ready: false, metrics: %{repair_pending: 1}}} =
                    ExposureReadiness.status(scope)
 
-          live_dimensions!(true)
+          live_dimensions!(conn, true)
           assert {:ok, []} = ExposureSnapshotRepairs.verify([assigned])
           live_snapshot!(conn, args)
           assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
@@ -228,7 +227,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                      ])
                    end)
 
-          live_dimensions!(true)
+          live_dimensions!(conn, true)
+          assert {:ok, []} = ExposureSnapshotRepairs.verify([target])
           content = before |> Map.take(["cve_ord", "cve_id"]) |> Map.put("epss_score", 0.25)
 
           [[newer]] =
@@ -279,7 +279,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       Enum.flat_map(tables, fn table ->
         try do
           assert {:ok, _} = MySQL.query("TRUNCATE TABLE #{table}")
-          assert {:ok, %{rows: [[0]]}} = MySQL.query("SELECT count(*) FROM #{table}")
+          live_empty_table!(table, System.monotonic_time(:millisecond) + 5_000)
           []
         catch
           kind, reason -> [{kind, reason, __STACKTRACE__}]
@@ -647,21 +647,63 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     end
   end
 
-  defp live_dimensions!(ingest?) do
-    # First pass creates the disposable stream if necessary; no injected transport.
+  defp live_dimensions!(conn, ingest?) do
+    sequences =
+      Repo.query!("""
+      SELECT transition_seq FROM platform.exposure_dimension_outbox ORDER BY id LIMIT 1000
+      """).rows
+      |> List.flatten()
+      |> MapSet.new()
+
+    assert MapSet.size(sequences) > 0
+    # PubAck includes deduplicated retries. Core subscriptions also see failed
+    # publishes, so only retained messages can prove what the relay delivered.
     assert {:ok, first} = ExposureDimensionRelay.relay_once()
     assert {:ok, second} = ExposureDimensionRelay.relay_once()
     assert second.failed == 0
-    count = first.relayed + second.relayed
-    assert count > 0
+    assert first.relayed + second.relayed == MapSet.size(sequences)
 
-    for _ <- 1..count do
-      receive do
-        {:msg, %{topic: "exposure.dimensions." <> _, body: body}} ->
-          if ingest?, do: assert({:ok, 1} = ExposureDimensions.process_batch([%{data: body}]))
-      after
-        5_000 -> flunk("dimension PubAck had no broker delivery")
-      end
+    if ingest? do
+      assert %{"state" => %{"first_seq" => first_seq, "last_seq" => last_seq}} =
+               ExposureBroker.request(conn, "$JS.API.STREAM.INFO.EXPOSURE_DIMENSIONS", %{})
+
+      assert last_seq >= first_seq and last_seq - first_seq < 2_000
+
+      consumed =
+        Enum.reduce(first_seq..last_seq, MapSet.new(), fn position, consumed ->
+          assert %{"message" => %{"data" => encoded}} =
+                   ExposureBroker.request(conn, "$JS.API.STREAM.MSG.GET.EXPOSURE_DIMENSIONS", %{
+                     seq: position
+                   })
+
+          body = Base.decode64!(encoded)
+          sequence = Jason.decode!(body)["transition_seq"]
+
+          if MapSet.member?(sequences, sequence) do
+            assert {:ok, 1} = ExposureDimensions.process_batch([%{data: body}])
+            MapSet.put(consumed, sequence)
+          else
+            consumed
+          end
+        end)
+
+      assert consumed == sequences
+    end
+  end
+
+  defp live_empty_table!(table, deadline) do
+    assert {:ok, %{rows: [[count]]}} = MySQL.query("SELECT count(*) FROM #{table}")
+
+    cond do
+      count == 0 ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        flunk("#{table} still contains #{count} rows after TRUNCATE visibility deadline")
+
+      true ->
+        Process.sleep(20)
+        live_empty_table!(table, deadline)
     end
   end
 
