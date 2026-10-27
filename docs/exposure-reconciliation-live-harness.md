@@ -18,8 +18,13 @@ action; never put their values in committed configuration:
 - `EXPOSURE_LIVE_MYSQL_HOST` and `EXPOSURE_LIVE_MYSQL_PORT`
 - `EXPOSURE_LIVE_USER` and `EXPOSURE_LIVE_PASSWORD`
 
-Use the coordinator's uniquely owned scratch schema and restricted identity,
-never the shared parity schema. Provision the exposure tables using the actual
+Use a never-used, uniquely owned scratch database and restricted identity for
+every hosted execution, including retries; never reuse an earlier run's database
+or the shared parity schema. StarRocks retains Stream Load labels across TRUNCATE,
+and labels are unique within a database. Fresh CNPG runs can repeat source
+sequences and deterministic load labels, so empty tables do not establish fresh
+isolation. The coordinator must provision a new unique database for each run.
+Provision the exposure tables using the actual
 0032, 0033 and 0034 warehouse migrations with the scratch database qualifier.
 The test does not create databases or run migrations. All five exposure tables
 must initially be empty. Standard SERVICERADAR_STARROCKS_* startup variables
@@ -42,13 +47,8 @@ Dimension ingestion reads the selected outbox sequences from retained JetStream
 messages and requires every selected sequence to be present. Core subscription
 delivery counts are not used as evidence of retention: failed publishes can
 reach subscribers, and deduplicated PubAcks need not produce another delivery.
-The assigned CVE repair is verified before publishing newer queued content,
-allowing up to five seconds for warehouse confirmation. Each attempt calls the
-production repair verifier without relaying or ingesting more publications.
-An unresolved repair fails at the deadline with its target and a fresh warehouse
-read; the repair's `observed` field is its original comparison input, not the
-latest warehouse sequence. This checks eventual confirmation without assuming
-that a successful load implies immediate visibility to every subsequent query.
+The assigned CVE repair is verified immediately after ingestion and before
+publishing newer queued content.
 
 It asserts:
 
