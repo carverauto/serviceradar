@@ -580,6 +580,52 @@ func TestApplyKeepsUnreadableGitdir(t *testing.T) {
 	})
 }
 
+func TestApplyKeepsWorktreeOmittedByUnreadableRegistration(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+
+	for _, enumeration := range []bool{false, true} {
+		name := "backlink"
+		if enumeration {
+			name = "enumeration directory"
+		}
+		t.Run(name, func(t *testing.T) {
+			_, worktree := realLinkedWorktree(t)
+			gitdir := worktreeGitdir(t, worktree)
+			path := filepath.Join(gitdir, "gitdir")
+			mode := os.FileMode(0)
+			if enumeration {
+				path = filepath.Dir(gitdir)
+				mode = 0o111
+			}
+			denyPath(t, path)
+			if err := os.Chmod(path, mode); err != nil {
+				t.Fatal(err)
+			}
+			var readErr error
+			if enumeration {
+				_, readErr = os.ReadDir(path)
+			} else {
+				_, readErr = os.ReadFile(path)
+			}
+			if readErr == nil {
+				t.Skip("process can still read restricted registration")
+			}
+			paths, err := gitWorktreePaths(worktree)
+			if err != nil {
+				t.Fatalf("expected successful incomplete enumeration: %v", err)
+			}
+			if containsPath(paths, worktree) {
+				t.Fatal("expected Git to omit unreadable registration")
+			}
+			root := t.TempDir()
+			base := makeBase(t, root, "base", worktree)
+			assertApplyKeeps(t, root, base)
+		})
+	}
+}
+
 func worktreeGitdir(t *testing.T, workspace string) string {
 	t.Helper()
 

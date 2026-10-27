@@ -218,6 +218,14 @@ func gitdirMissing(gitFile string) (missing bool, ok bool) {
 		return false, false
 	}
 
+	if _, err = os.ReadDir(filepath.Dir(target)); err != nil {
+		return false, false
+	}
+
+	if _, err = os.ReadFile(filepath.Join(target, "gitdir")); err != nil && !os.IsNotExist(err) {
+		return false, false
+	}
+
 	return false, true
 }
 
