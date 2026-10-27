@@ -1,45 +1,139 @@
-# Unreleased
+# ServiceRadar v1.4.98
+
+This release gives every device a single availability value, fixes
+Proxmox consoles and several device identity problems, makes
+plugin-result ingestion more reliable, and ships security updates.
 
 ## Upgrade Notes
 
-- Merged device availability now rolls out by itself. Core moves
-  from `legacy` to `shadow` within a minute of the release running,
-  and runs the cutover once its readiness checks pass: the capture
-  backfill is done, every device has been resolved in shadow, the
-  resolution backlog is drained, every active sweep group has run
-  since entering shadow, and no negative-control policy violation is
-  reported. No operator command is needed. A fresh install cuts over
-  within minutes. If the checks still fail 24 hours after entering
-  shadow, core stays in shadow and the core health check
-  `availability_cutover_readiness` names the failing checks.
-- After the cutover, devices with no availability evidence from any
-  source show **Unknown** instead of Offline.
-- To hold or roll back, set the mode control on Settings > Network
-  Services > Availability Sources: `hold_shadow` stays in (or returns
-  to) shadow and never cuts over, and `hold_legacy` stays in (or rolls
-  back to) legacy availability, restoring the previous values. GitOps
-  installs can pin the control with the Helm value
-  `core.availability.modeControl`, which the settings page then shows
-  read-only. Armis northbound sources keep pushing the legacy value
-  until you adopt merged availability for each one. See
-  `docs/availability-cutover-runbook.md`.
-- Shared sweep targets (`shared-targets/v1`) roll out in three steps so
-  mixed-version fleets never lose sweep coverage:
-  1. Ship chunked config pushes and the core legacy-format trimming and
-     shared SRQL query compilation changes first; each agent's legacy
-     sweep `config_hash` changes once and receives the trimmed legacy
-     payload over chunked delivery.
-  2. Roll out the Go agent release that parses both the legacy format
-     and `shared-targets/v1` and advertises
-     `sweep-config-shared-targets:v1` (while keeping its running sweep
-     config if it ever sees an unknown format).
-  3. Roll out core capability-gated format selection (`#5434`); agents
-     advertising `sweep-config-shared-targets:v1` receive
-     `shared-targets/v1` (`device_table`, `target_sets`, and per-group
-     `device_target_set`), while un-upgraded agents stay on the legacy
-     format. For per-agent format and size diagnostics, see the Delivery
-     section of
-     `openspec/changes/refactor-sweep-config-shared-targets/design.md`.
+- **Device availability.** Devices with no availability evidence from
+  any source now show Unknown instead of Offline (#5984, #6058).
+- **Armis northbound.** Each source keeps pushing what it pushes
+  today. Adopting merged availability is a per-source choice on the
+  integration source page. A source set to merged on an install that
+  never finished the switch to merged availability keeps its current
+  value, and the change is recorded (#5980, #6058).
+- **SAML.** Responses are now strictly validated. A response that uses
+  a non-standard XML prefix or element, or a DTD, is rejected, and the
+  warning log names it. IdP metadata is not affected (#6054).
+- **Alert evaluation.** Fresh installs evaluate alert rules by
+  default. Upgraded installs keep their current mode until you set
+  `core.alertEvaluation.mode: active`; GitOps installs such as Argo CD
+  should set it explicitly (#5972).
+- **Wasm plugin updates.** A first-party plugin release that needs no
+  new permissions is approved and rolled out automatically, and
+  existing first-party assignments follow the latest approved
+  release. Set `webNg.firstPartyPluginImport.autoApproveWithinGrant`
+  or `core.wasmPluginAutomaticRollouts` to `false` to keep either step
+  manual (#5843, #5845, #5877, #6005).
+- **Telemetry retention.** CNPG retention set in Helm now takes effect
+  instead of being reset to defaults each night. The optional
+  `core.observabilityRetention.defaultDays` caps every telemetry
+  dataset (#5913, #5963).
+- **Exposure intelligence** requires StarRocks. Its JetStream streams
+  are included in the chart's NATS budget; if you size JetStream
+  yourself, leave room for them (#5976, #5991).
+- **Settings.** Inventory Cleanup moved to its own page under Network
+  Services > Discovery, and the old Sweep Profiles tab link redirects
+  there. Several pages moved groups and keep their URLs (#6040,
+  #6053).
+- **Agents.** Upgraded agents get a smaller sweep configuration, and
+  older agents keep the previous format, so mixed-version fleets keep
+  sweeping during the upgrade (#5986, #5988, #6057).
+
+## Whats New
+
+**Device availability**
+
+- One merged up/down value now drives the device badge, sorting and
+  counts, with no operator steps or modes (#5981, #5984, #5997,
+  #6001, #6058).
+
+**Plugin results**
+
+- Proxmox and AWX plugin results no longer time out during ingestion,
+  and a result that keeps timing out is quarantined after three
+  attempts (#5923, #5999, #6028, #6030).
+
+**Proxmox and identity**
+
+- Agents have an editable display name and description (#5931).
+- Proxmox VM consoles open again; they had been failing since July
+  (#5872, #5908, #6039).
+- Duplicate Proxmox node records now converge into one (#6046).
+- Stale AWX hosts retire after the usual absence window, 24 hours by
+  default, and a failed or partial sync retires nothing (#6010,
+  #6022).
+- AWX hosts match their Proxmox VM by address and hostname (#5998,
+  #6009).
+- PLACEHOLDER: batch identity fixes for deleted records (#6059, not
+  yet merged).
+- Container-bridge and overlay addresses no longer become a device's
+  primary IP (#5838, #5883, #5947, #6024).
+- External systems can set a device's switch port and VLAN through
+  the source-facts API (#5878, #5953).
+
+**Flows and observability**
+
+- Dashboard traffic charts keep outbound counters when a chart hits its
+  series limit (#5936).
+- IOC and threat filters and the proximity (`near`) filters work on
+  StarRocks again (#6035, #6049).
+- Flow charts spread each flow's traffic across its interval instead
+  of booking it at the end time. The NetFlow traffic chart stays
+  readable when one bucket is an outlier (#5974, #5992, #5915).
+- Threat Intel metrics open investigation views, Attributed Flows show
+  IOC matches, and OTX retrohunt can run on a schedule (#5907, #5909,
+  #5927, #5985).
+- Events and other observability pages load faster. Syslog lines that
+  start with a timestamp no longer show the timestamp as a service or
+  host name (#5906, #6038, #5898).
+
+**Settings**
+
+- Inventory Cleanup has its own page, search covers every Settings
+  page, and the navigation is regrouped, with "Cluster" renamed
+  "Platform" (#6040, #6053).
+
+**Platform**
+
+- Telemetry ingestion now runs on every core replica and shares the
+  load (#6008).
+- The plugins page is split into Installed, Updates and Catalog, and
+  one plugin can run several assignments on an agent when they come
+  from different rules. Action-only plugins are no longer reported as
+  stale or unavailable in the plugin fleet (#5874, #6011, #6027, #5899).
+- Groundwork for exposure intelligence and camera archive recording
+  continues. Camera recording stays off by default (#5964, #6041,
+  #6047, #6060).
+- Atlas filtered topology stays visible while panning, RDP viewers
+  connect more reliably, and StarRocks loading recovers from
+  compute-node restarts (#5830, #5831, #5867, #5869, #5876, #5880).
+
+**Native add-ons and Wasm plugins**
+
+- The add-on fleet flags scans from outdated scanner versions (#6026).
+- netprobe 0.2.71 reports the package that owns each process
+  executable (#5914), bumblebee 0.1.8 reports its own build as the
+  scanner version (#5944), awx 0.1.22 and awx-inventory-sync 0.1.17
+  report rejected or expiring API tokens (#5875, #6023),
+  proxmox-inventory 0.1.12 skips container-bridge addresses (#5883),
+  and dusk-checker 1.0.1 caps its check at 8 seconds (#5938).
+- anomaly 0.3.16, otel-collector 0.1.17, powerdns 0.1.13, rdp 0.1.14,
+  workload-identity 0.1.12 and rust-sample 0.1.2 carry dependency
+  security updates.
+
+## Security and Dependencies
+
+- Bandit 1.14 fixes HTTP/2, HTTP/1 and WebSocket advisories (#6045).
+- Ash, AshPostgres, cowlib, jose and plug_crypto advisories are fixed
+  (#5961, #6050).
+- SAML response parsing is hardened against malicious XML (#6054).
+- zstd is patched through tonic, along with other Rust advisories
+  (#5864, #5885, #5982, #5990, #6043).
+- Also updated: NATS, OpenTelemetry Go 1.47, Arrow 60, other Go and
+  Rust libraries, and JavaScript lockfiles (#4884, #6018, #6056,
+  #6070).
 
 # ServiceRadar v1.4.97
 
