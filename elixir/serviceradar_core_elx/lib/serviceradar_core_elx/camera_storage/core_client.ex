@@ -12,7 +12,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.CoreClient do
     verify: "/v1/init-uploads/verify"
   }
 
-  def request(config, operation, document, timeout) when is_integer(timeout) and timeout > 0 do
+  def request(config, kind, operation, document, timeout)
+      when kind in [:init, :media, :manifest] and is_integer(timeout) and timeout > 0 do
     body = Jason.encode!(document)
 
     headers = [
@@ -25,7 +26,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.CoreClient do
            HTTP.request(
              config,
              :post,
-             config.base_url <> path(Map.get(config, :kind, :init), operation),
+             config.base_url <> path(kind, operation),
              headers,
              body,
              timeout,
@@ -38,8 +39,9 @@ defmodule ServiceRadarCoreElx.CameraStorage.CoreClient do
     end
   end
 
-  def request(_, _, _, _), do: {:error, :storage_deadline_expired}
+  def request(_, _, _, _, _), do: {:error, :storage_deadline_expired}
 
   defp path(:init, operation), do: Map.fetch!(@paths, operation)
   defp path(:media, operation), do: String.replace(Map.fetch!(@paths, operation), "/init-", "/media-")
+  defp path(:manifest, operation), do: String.replace(Map.fetch!(@paths, operation), "/init-", "/manifest-")
 end

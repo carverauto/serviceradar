@@ -24,7 +24,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.MediaUpload do
   alias ServiceRadarCoreElx.CameraStorage.Config
   alias ServiceRadarCoreElx.CameraStorage.HTTP
 
-  @maximum 16_777_216
   @operation_ms 30_000
 
   def upload_once(block_id) do
@@ -36,13 +35,13 @@ defmodule ServiceRadarCoreElx.CameraRecording.MediaUpload do
          {:ok, storage} <-
            Storage.open(config.root, Application.get_env(:serviceradar_core_elx, :camera_recording_storage_id)),
          {:ok, %RecordingBlock{} = block} <- Ash.get(RecordingBlock, block_id, opts),
-         {:ok, path, length} <- local_media(storage, block),
+         {:ok, path, length} <- Storage.sealed_object(storage, block, :media),
          {:ok, %ArchiveBinding{} = binding} <- Ash.get(ArchiveBinding, config.binding_id, opts),
          {:ok, lease} <- RecordingBlocks.acquire_upload(block.id, Ecto.UUID.generate(), @operation_ms, opts) do
       try do
         with {:ok, _} <- RecordingBlocks.bind_archive(lease, binding.id, binding.destination_sha256, opts),
              :ok <- Storage.verify(storage),
-             {:ok, ^path, ^length} <- local_media(storage, block),
+             {:ok, ^path, ^length} <- Storage.sealed_object(storage, block, :media),
              {:ok, result} <- transfer(config.client, path, length, lease, deadline),
              :ok <- Storage.verify(storage) do
           {:ok, result}
@@ -55,23 +54,6 @@ defmodule ServiceRadarCoreElx.CameraRecording.MediaUpload do
       _ -> {:error, :media_upload_unavailable}
     end
   end
-
-  defp local_media(storage, %{storage_id: id, block_key: key, descriptor: %{"media" => %{"length" => length}}})
-       when id == storage.id and is_binary(key) and is_integer(length) and length in 1..@maximum do
-    directory = Path.join(storage.root, key)
-    path = Path.join(directory, "media.m4s")
-
-    with true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, key),
-         {:ok, %File.Stat{type: :directory}} <- File.lstat(directory),
-         {:ok, %File.Stat{type: :regular, links: 1, size: ^length}} <- File.lstat(path),
-         :ok <- Storage.verify(storage) do
-      {:ok, path, length}
-    else
-      _ -> {:error, :local_media_unavailable}
-    end
-  end
-
-  defp local_media(_, _), do: {:error, :local_media_unavailable}
 
   defp transfer(client, path, length, lease, deadline) do
     wire_lease = %{

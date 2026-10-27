@@ -175,6 +175,9 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
           {:put, "/v1/media/configuration"},
           {:put, "/v1/media/init-authorities/not-a-uuid"},
           {:put, "/v1/media/init-authorities/not-a-uuid/revoke"},
+          {:put, "/v1/media/manifest-authorities/not-a-uuid"},
+          {:post, "/v1/media/manifest-authorities/not-a-uuid/revoke"},
+          {:put, "/v%31/%6dedia/%6danifest-authorities/not-a-uuid"},
           {:put, "/v1/archive-bindings/not-a-uuid/qualification"}
         ] do
       conn =
@@ -192,6 +195,7 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
         {method, path} <- [
           {:get, "/v1/media/installation"},
           {:get, "/v1/media/configuration"},
+          {:get, "/v1/media/manifest-authorities/not-a-uuid"},
           {:post, "/v1/media/archive-bindings"},
           {:post, "/v1/%6dedia/archive-bindings"}
         ] do
@@ -490,7 +494,8 @@ defmodule ServiceRadarWebNGWeb.ControlPlaneRuntimeRouterTest do
 
     for {collection, status} <- [
           {"init-authorities", "invalid_init_authority"},
-          {"media-authorities", "invalid_media_authority"}
+          {"media-authorities", "invalid_media_authority"},
+          {"manifest-authorities", "invalid_manifest_authority"}
         ],
         document <- documents,
         {method, suffix} <- [{:put, ""}, {:post, "/revoke"}] do

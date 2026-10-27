@@ -274,6 +274,42 @@ defmodule ServiceRadar.Camera.ArchiveQualificationReportTest do
     end
   end
 
+  test "manifest configuration has its own purpose and bounded document budget" do
+    origin = %{deployment_ref: "33333333-3333-4333-8333-333333333333", generation: 1}
+
+    document =
+      init_configuration()
+      |> Map.put("operation", "manifest_put_verified_v1")
+      |> Map.put("limits", %{
+        "max_manifest_bytes" => 2_097_152,
+        "max_operation_ms" => 30_000,
+        "max_in_flight" => 1
+      })
+
+    assert {:ok, parsed} = ArchiveAuthorityConfig.parse(:manifest, origin, document)
+    assert {:ok, :manifest} = ArchiveAuthorityConfig.kind(parsed.document)
+    assert ArchiveAuthorityConfig.byte_limit(:manifest, parsed.limits) == 2_097_152
+
+    assert {:error, :invalid_init_configuration} =
+             ArchiveAuthorityConfig.parse(:init, origin, document)
+
+    assert {:error, :invalid_media_configuration} =
+             ArchiveAuthorityConfig.parse(:media, origin, document)
+
+    for invalid <- [
+          init_configuration(),
+          Map.put(document, "operation", "media_put_verified_v1"),
+          put_in(document, ["limits", "max_manifest_bytes"], 2_097_153),
+          put_in(document, ["limits", "max_manifest_bytes"], 1.0),
+          put_in(document, ["limits", "max_operation_ms"], 30_001),
+          put_in(document, ["limits", "max_in_flight"], 2),
+          update_in(document, ["limits"], &Map.put(&1, "max_init_bytes", 1))
+        ] do
+      assert {:error, :invalid_manifest_configuration} =
+               ArchiveAuthorityConfig.parse(:manifest, origin, invalid)
+    end
+  end
+
   test "a deadline admits a write only when a whole millisecond remains" do
     now = DateTime.from_unix!(1_700_000_000_000_000, :microsecond)
 

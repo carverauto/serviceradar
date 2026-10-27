@@ -5,6 +5,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
   alias ServiceRadar.Camera.ArchiveBinding
   alias ServiceRadar.Camera.ArchiveInitAuthority
+  alias ServiceRadar.Camera.ArchiveManifestAuthority
   alias ServiceRadar.Camera.ArchiveMediaAuthority
   alias ServiceRadar.Camera.ArchiveQualificationReceipt
   alias ServiceRadar.Camera.ArchiveQualifications
@@ -16,6 +17,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.Camera.RecordingControlState
+  alias ServiceRadar.Camera.RecordingManifest
   alias ServiceRadar.Repo
   alias ServiceRadar.Test.CameraRelayFixtures, as: Fixtures
 
@@ -62,6 +64,17 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
 
     on_exit(fn ->
       Repo.query!(
+        "DELETE FROM platform.camera_archive_manifest_authorities WHERE archive_binding_id = $1",
+        [binding_id]
+      )
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_archive_manifest_authorities WHERE archive_binding_id = $1",
+                 [binding_id]
+               )
+
+      Repo.query!(
         "DELETE FROM platform.camera_archive_media_authorities WHERE archive_binding_id = $1",
         [binding_id]
       )
@@ -92,6 +105,38 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
                Repo.query!(
                  "SELECT count(*) FROM platform.camera_archive_qualification_receipts WHERE archive_binding_id = $1",
                  [binding_id]
+               )
+
+      Repo.query!(
+        "UPDATE platform.camera_recording_blocks SET archive_manifest_dispatch_id = NULL, " <>
+          "archive_manifest_verification_sha256 = NULL, archive_published_at = NULL WHERE id = $1",
+        [block_id]
+      )
+
+      %{rows: manifest_dispatch_ids} =
+        Repo.query!(
+          "DELETE FROM platform.camera_archive_upload_dispatches WHERE archive_upload_intent_id IN " <>
+            "(SELECT id FROM platform.camera_archive_upload_intents " <>
+            "WHERE recording_block_id = $1 AND object_role = 'manifest') RETURNING id",
+          [block_id]
+        )
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_archive_upload_dispatches WHERE id = ANY($1::uuid[])",
+                 [List.flatten(manifest_dispatch_ids)]
+               )
+
+      Repo.query!(
+        "DELETE FROM platform.camera_archive_upload_intents WHERE recording_block_id = $1 AND object_role = 'manifest'",
+        [block_id]
+      )
+
+      assert %{rows: [[0]]} =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.camera_archive_upload_intents " <>
+                   "WHERE recording_block_id = $1 AND object_role = 'manifest'",
+                 [block_id]
                )
 
       %{rows: dispatch_ids} =
@@ -325,6 +370,12 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert [retained] = dispatches(ctx)
     assert dispatch_identity(retained) == dispatch_identity(dispatch)
     assert is_nil(retained.marked_at)
+
+    assert {:ok, %{status: :reconciliation_required, roles: %{media: :prepared}, result: nil}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert {:error, :archive_dependencies_unverified} =
+             ArchiveUploads.prepare_manifest(replacement, ctx.opts)
   end
 
   test "concurrent preparation and marking commit one attempt and one fresh marker", ctx do
@@ -1783,6 +1834,449 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert conflicted.media_verification_conflict_at
     assert {:ok, block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
     assert block.descriptor == ctx.block.descriptor and block.state == :uploading
+  end
+
+  test "manifest identity consumes independent verified epochs without changing the frozen descriptor",
+       ctx do
+    bind(ctx)
+
+    assert {:ok,
+            %{
+              status: :media_required,
+              roles: %{init: :missing, media: :missing, manifest: :missing},
+              result: nil
+            }} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert {:error, :archive_dependencies_unverified} =
+             ArchiveUploads.prepare_manifest(ctx.lease, ctx.opts)
+
+    assert [] = intents(ctx)
+    media = verified_object(ctx, :media)
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+
+    assert {:ok, lease} =
+             RecordingBlocks.acquire_upload(ctx.block.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    next = %{ctx | lease: lease}
+    init = verified_object(next, :init)
+    assert init.dispatch.upload_epoch != media.dispatch.upload_epoch
+
+    assert {:ok,
+            %{
+              status: :manifest_required,
+              roles: %{init: :verified, media: :verified, manifest: :missing}
+            }} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert {:ok, %{intent: intent, bytes: bytes}} =
+             ArchiveUploads.prepare_manifest(lease, ctx.opts)
+
+    assert intent.init_dispatch_id == init.dispatch.id
+    assert intent.init_verification_sha256 == init.dispatch.init_verification_sha256
+    assert intent.media_dispatch_id == media.dispatch.id
+    assert intent.media_verification_sha256 == media.dispatch.media_verification_sha256
+    assert intent.object_key == "recordings/v1/#{ctx.block.block_key}/manifest.json"
+    assert intent.byte_length == byte_size(bytes) and intent.object_sha256 == digest(bytes)
+    assert {:ok, decoded} = RecordingManifest.decode(bytes, ctx.block.descriptor["identity"])
+    assert decoded["init"]["etag"] == ~s("synthetic-init-etag")
+    assert decoded["media"]["etag"] == ~s("synthetic-media-etag")
+    assert decoded["fragments"] == ctx.block.descriptor["fragments"]
+
+    assert {:ok, %{intent: retry, bytes: ^bytes}} =
+             ArchiveUploads.prepare_manifest(lease, ctx.opts)
+
+    assert retry.id == intent.id and retry.inserted_at == intent.inserted_at
+    assert {:ok, retained} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert retained.descriptor == ctx.block.descriptor
+    assert retained.descriptor_sha256 == ctx.block.descriptor_sha256
+    assert retained.archive_published_at == nil
+  end
+
+  test "an unmarked manifest remains tied to its original lease and unavailable after replacement",
+       ctx do
+    bind(ctx)
+    verified_object(ctx, :media)
+    verified_object(ctx, :init)
+    assert {:ok, dispatch} = ArchiveUploads.prepare_manifest_dispatch(ctx.lease, 30_000, ctx.opts)
+    assert dispatch.marked_at == nil
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+
+    assert {:ok, next} =
+             RecordingBlocks.acquire_upload(ctx.block.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    assert {:error, :archive_upload_dispatch_conflict} =
+             ArchiveUploads.prepare_manifest_dispatch(next, 30_000, ctx.opts)
+
+    assert {:error, :upload_lease_lost} = ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+
+    assert {:error, :archive_publication_unverified} =
+             ArchiveUploads.publish_archive(next, ctx.opts)
+
+    assert {:ok, %{status: :reconciliation_required, roles: %{manifest: :prepared}, result: nil}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert {:ok, retained} = Ash.get(ArchiveUploadDispatch, dispatch.id, ctx.opts)
+    assert dispatch_identity(retained) == dispatch_identity(dispatch)
+    assert retained.marked_at == nil and retained.manifest_authority_revision == nil
+  end
+
+  test "manifest grant rechecks its source evidence and preserves a prepared attempt on conflict",
+       ctx do
+    bind(ctx)
+    verified_object(ctx, :media)
+    init = verified_object(ctx, :init)
+    assert {:ok, manifest} = ArchiveUploads.prepare_manifest_dispatch(ctx.lease, 30_000, ctx.opts)
+    {principal, context} = install_manifest(ctx)
+    assert {:ok, authority} = Ash.get(ArchiveManifestAuthority, ctx.binding.id, ctx.opts)
+    assert authority.desired_sha256 == context.desired_sha256
+
+    assert {:error, :archive_upload_response_conflict} =
+             ArchiveUploads.observe_response(
+               ctx.lease,
+               init.dispatch.id,
+               %{"status" => 503},
+               ctx.opts
+             )
+
+    assert {:error, :archive_upload_intent_conflict} =
+             ArchiveUploads.authorize(
+               :manifest,
+               ctx.lease,
+               manifest.id,
+               principal,
+               context,
+               ctx.opts
+             )
+
+    assert {:ok, unchanged} = Ash.get(ArchiveUploadDispatch, manifest.id, ctx.opts)
+    assert unchanged.marked_at == nil and unchanged.manifest_authority_revision == nil
+
+    assert {:ok,
+            %{
+              status: :reconciliation_required,
+              roles: %{init: :conflicted, manifest: :conflicted}
+            }} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+  end
+
+  test "stop refuses a new init dispatch and leaves the retained media attempt unchanged", ctx do
+    bind(ctx)
+    media = verified_object(ctx, :media)
+
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :init, :put_object, 30_000, ctx.opts)
+
+    assert [retained] = dispatches(ctx)
+    assert dispatch_identity(retained) == dispatch_identity(media.dispatch)
+    assert retained.deadline_at == media.dispatch.deadline_at
+    assert Enum.filter(intents(ctx), &(&1.object_role == :init)) == []
+
+    assert {:ok, retried} =
+             ArchiveUploads.prepare_dispatch(ctx.lease, :media, :put_object, 30_000, ctx.opts)
+
+    assert retried.id == media.dispatch.id
+    assert retried.deadline_at == media.dispatch.deadline_at
+    assert [unchanged] = dispatches(ctx)
+    assert dispatch_identity(unchanged) == dispatch_identity(media.dispatch)
+  end
+
+  test "stop refuses a new manifest dispatch without changing verified init or media attempts",
+       ctx do
+    bind(ctx)
+    media = verified_object(ctx, :media)
+    init = verified_object(ctx, :init)
+
+    assert {:ok, %{status: :manifest_required}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:error, :recording_stopped} =
+             ArchiveUploads.prepare_manifest_dispatch(ctx.lease, 30_000, ctx.opts)
+
+    assert Enum.filter(intents(ctx), &(&1.object_role == :manifest)) == []
+    retained = Map.new(dispatches(ctx), &{&1.id, dispatch_identity(&1)})
+    assert retained[media.dispatch.id] == dispatch_identity(media.dispatch)
+    assert retained[init.dispatch.id] == dispatch_identity(init.dispatch)
+    assert {:ok, media_row} = Ash.get(ArchiveUploadDispatch, media.dispatch.id, ctx.opts)
+    assert {:ok, init_row} = Ash.get(ArchiveUploadDispatch, init.dispatch.id, ctx.opts)
+    assert media_row.deadline_at == media.dispatch.deadline_at
+    assert init_row.deadline_at == init.dispatch.deadline_at
+  end
+
+  test "verified manifest publishes once under a new lease after stop and authority revocation",
+       ctx do
+    bind(ctx)
+    verified_object(ctx, :media)
+    verified_object(ctx, :init)
+    manifest = verified_object(ctx, :manifest, 5000)
+    Process.sleep(5_100)
+
+    assert %{rows: [[true]]} =
+             Repo.query!(
+               "SELECT manifest_deadline_at < clock_timestamp() FROM platform.camera_archive_upload_dispatches WHERE id = $1",
+               [Ecto.UUID.dump!(manifest.dispatch.id)]
+             )
+
+    assert {:ok, _} =
+             ArchiveAuthorities.revoke(
+               :manifest,
+               @installation,
+               revoke_document(ctx, "2"),
+               ctx.opts
+             )
+
+    assert {:ok, %{"stop_enforced" => true}} =
+             RecordingControl.stop(@installation, stop_document(), ctx.opts)
+
+    assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+
+    assert {:ok, lease} =
+             RecordingBlocks.acquire_upload(ctx.block.id, Ecto.UUID.generate(), 30_000, ctx.opts)
+
+    assert {:ok, %{status: :archive_verified, result: nil}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert {:error, :upload_lease_lost} = ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+
+    results = race(fn -> ArchiveUploads.publish_archive(lease, ctx.opts) end)
+    assert Enum.all?(results, &match?({:ok, _}, &1))
+    assert [{:ok, receipt}] = Enum.uniq(results)
+    assert receipt["schema_version"] == 1 and receipt["status"] == "archive_published"
+    assert receipt["block_id"] == ctx.block.id
+    assert receipt["manifest_dispatch_id"] == manifest.dispatch.id
+
+    assert receipt["manifest_verification_sha256"] ==
+             manifest.dispatch.manifest_verification_sha256
+
+    assert receipt["recording_readiness"] == "unavailable" and
+             receipt["archive_readiness"] == "unavailable"
+
+    assert map_size(receipt) == 8
+    assert {:ok, published} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+    assert receipt["published_at"] == DateTime.to_iso8601(published.archive_published_at)
+    assert published.state == :uploading and published.descriptor == ctx.block.descriptor
+    assert {:ok, :released} = RecordingBlocks.release_upload(lease, ctx.opts)
+
+    assert {:ok, %{status: :available, result: ^receipt}} =
+             ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+    assert {:ok, retained} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+
+    assert retained.state == :sealed and
+             retained.archive_published_at == published.archive_published_at
+
+    assert {:ok, dispatch} = Ash.get(ArchiveUploadDispatch, manifest.dispatch.id, ctx.opts)
+    assert dispatch_identity(dispatch) == dispatch_identity(manifest.dispatch)
+    assert dispatch.manifest_verified_at == manifest.dispatch.manifest_verified_at
+  end
+
+  for role <- [:init, :media, :manifest], conflict <- [:response, :verification] do
+    test "late #{conflict} conflict for #{role} excludes availability while keeping publication history",
+         ctx do
+      bind(ctx)
+      media = verified_object(ctx, :media)
+      init = verified_object(ctx, :init)
+      manifest = verified_object(ctx, :manifest)
+      assert {:ok, receipt} = ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+      assert {:ok, :released} = RecordingBlocks.release_upload(ctx.lease, ctx.opts)
+      role = unquote(role)
+      original = %{init: init, media: media, manifest: manifest}[role]
+      conflict = unquote(conflict)
+
+      case conflict do
+        :response ->
+          assert {:error, :archive_upload_response_conflict} =
+                   ArchiveUploads.observe_response(
+                     ctx.lease,
+                     original.dispatch.id,
+                     %{"status" => 503},
+                     ctx.opts
+                   )
+
+        :verification ->
+          reason =
+            %{
+              init: :init_verification_conflict,
+              media: :media_verification_conflict,
+              manifest: :manifest_verification_conflict
+            }[role]
+
+          assert {:error, ^reason} =
+                   ArchiveUploads.observe_verification(
+                     role,
+                     ctx.lease,
+                     original.dispatch.id,
+                     original.principal,
+                     original.context,
+                     %{original.verification | "etag" => ~s("synthetic-conflicting-etag")},
+                     ctx.opts
+                   )
+      end
+
+      assert {:ok, status} = ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+      assert status.status == :reconciliation_required
+      assert status.roles[role] == :conflicted
+      assert status.result == receipt
+
+      assert {:ok, fresh} =
+               RecordingBlocks.acquire_upload(
+                 ctx.block.id,
+                 Ecto.UUID.generate(),
+                 30_000,
+                 ctx.opts
+               )
+
+      assert {:error, :archive_publication_unverified} =
+               ArchiveUploads.publish_archive(fresh, ctx.opts)
+
+      assert {:ok, retained} = Ash.get(ArchiveUploadDispatch, original.dispatch.id, ctx.opts)
+
+      field =
+        %{init: :init_verification, media: :media_verification, manifest: :manifest_verification}[
+          role
+        ]
+
+      assert Map.fetch!(retained, field) == original.verification
+      assert {:ok, block} = Ash.get(RecordingBlock, ctx.block.id, ctx.opts)
+      assert DateTime.to_iso8601(block.archive_published_at) == receipt["published_at"]
+      assert block.archive_manifest_dispatch_id == manifest.dispatch.id
+    end
+  end
+
+  test "publication owners reject ambient transactions and invalid actors without creating evidence",
+       ctx do
+    bind(ctx)
+
+    for opts <- [[], [actor: %{role: :viewer, id: "synthetic-viewer"}]] do
+      assert {:error, :invalid_dispatcher} = ArchiveUploads.publication_status(ctx.block.id, opts)
+      assert {:error, :invalid_dispatcher} = ArchiveUploads.prepare_manifest(ctx.lease, opts)
+
+      assert {:error, :invalid_dispatcher} =
+               ArchiveUploads.prepare_manifest_dispatch(ctx.lease, 30_000, opts)
+
+      assert {:error, :invalid_dispatcher} = ArchiveUploads.publish_archive(ctx.lease, opts)
+    end
+
+    assert {:ok, :checked} =
+             Repo.transaction(fn ->
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.prepare_manifest(ctx.lease, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.prepare_manifest_dispatch(ctx.lease, 30_000, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+
+               :checked
+             end)
+
+    assert [] = intents(ctx)
+    assert [] = dispatches(ctx)
+  end
+
+  defp verified_object(ctx, role, manifest_budget \\ 30_000) do
+    {principal, context} =
+      case role do
+        :init -> install_init(ctx)
+        :media -> install_media(ctx)
+        :manifest -> install_manifest(ctx, manifest_budget)
+      end
+
+    bytes =
+      case role do
+        :init ->
+          "i"
+
+        :media ->
+          "abc"
+
+        :manifest ->
+          assert {:ok, %{bytes: bytes}} = ArchiveUploads.prepare_manifest(ctx.lease, ctx.opts)
+          bytes
+      end
+
+    {:ok, dispatch} =
+      case role do
+        :manifest -> ArchiveUploads.prepare_manifest_dispatch(ctx.lease, 30_000, ctx.opts)
+        _ -> ArchiveUploads.prepare_dispatch(ctx.lease, role, :put_object, 30_000, ctx.opts)
+      end
+
+    assert {:ok, grant} =
+             ArchiveUploads.authorize(role, ctx.lease, dispatch.id, principal, context, ctx.opts)
+
+    assert grant["object_sha256"] == digest(bytes) and grant["byte_length"] == byte_size(bytes)
+
+    verification = %{
+      "schema_version" => 1,
+      "put_request_sha256" => digest("synthetic signed #{role} request"),
+      "etag" => ~s("synthetic-#{role}-etag"),
+      "version_id" => "synthetic-#{role}-version",
+      "byte_length" => byte_size(bytes),
+      "object_sha256" => digest(bytes),
+      "encryption" => "AES256"
+    }
+
+    assert {:ok, _} = ArchiveUploads.observe_unknown(ctx.lease, dispatch.id, ctx.opts)
+
+    assert {:ok, _} =
+             ArchiveUploads.observe_response(
+               ctx.lease,
+               dispatch.id,
+               %{
+                 "status" => 200,
+                 "etag" => verification["etag"],
+                 "version_id" => verification["version_id"]
+               },
+               ctx.opts
+             )
+
+    assert {:ok, verified} =
+             ArchiveUploads.observe_verification(
+               role,
+               ctx.lease,
+               dispatch.id,
+               principal,
+               context,
+               verification,
+               ctx.opts
+             )
+
+    %{dispatch: verified, principal: principal, context: context, verification: verification}
+  end
+
+  defp install_manifest(ctx, max_operation_ms \\ 30_000) do
+    {principal, desired, challenge, context} =
+      init_documents(ctx, "1", fn desired ->
+        desired
+        |> Map.put("operation", "manifest_put_verified_v1")
+        |> Map.put("limits", %{
+          "max_manifest_bytes" => 2_097_152,
+          "max_operation_ms" => max_operation_ms,
+          "max_in_flight" => 1
+        })
+      end)
+
+    assert {:ok, _} = ArchiveAuthorities.challenge(:manifest, principal, challenge, ctx.opts)
+
+    assert {:ok, %{"state" => "applied"}} =
+             ArchiveAuthorities.apply(
+               :manifest,
+               @installation,
+               %{"schema_version" => 1, "desired" => desired, "nonce" => challenge["nonce"]},
+               ctx.opts
+             )
+
+    {principal, context}
   end
 
   defp install_media(ctx) do

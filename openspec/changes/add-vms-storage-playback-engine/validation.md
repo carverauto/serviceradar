@@ -764,6 +764,10 @@ Cloud CI's existing `--skip-dialyzer` remains a limitation of its green result.
 
 ## Provisioned spool identity
 
+The following paragraphs retain prepublication evidence and pending gates as
+recorded then. [Final media validation](#published-head-media-validation) below
+records the completed guarded worker and media execution.
+
 This checkpoint binds the recorder to a marker written by
 `Storage.initialize/2` on an existing private empty root. The recorder verifies
 that marker and does not create or repair it. [Spool lifetime](spool-lifetime.md)
@@ -870,3 +874,161 @@ six-case execution does not prove the two marker-replacement cases. No local
 product database or alternate forwarding path substitutes for this final-head
 gate. Recovery manifests, index publication, multipart reconciliation and live
 deployment acceptance remain open.
+
+
+### Published-head media validation
+
+[PR #6007](https://github.com/carverauto/serviceradar/pull/6007) merged at
+`575dfc1f6b2d1efa2934487d934b1f3d9460b10d` on 2026-10-26. Its exact published
+head `4c965ee8454fa84d821812317d3d93e1830cb56c` passed all 19 checks through
+no-mistakes. GitHub reported it clean and mergeable before the user merged it.
+
+The conflict repair merged staging and retained the expanded HTTP fixture,
+media generation targets, incoming NATS wiring and all existing assertions.
+The worker marker-change test now drives the existing lease-renewal event;
+it no longer floods the bounded queue before reaching the storage guard.
+ExUnit supervises the synthetic HTTP fixture's tasks and owns their teardown.
+These repairs changed stimulus and fixture lifecycle, not the required result.
+
+[Uncached storage validation](https://carverauto.buildbuddy.io/invocation/5b402833-e1ef-4996-b548-5f5443949aed)
+on parent `c0bf4c77` executed all 33 cases with zero failures. Bazel passed;
+the surrounding shell wrapper subsequently rejected assignment to zsh's
+reserved `status` variable. A separate [remote execution](https://carverauto.buildbuddy.io/invocation/7df321f0-f91b-4f0f-a05d-59bfcb59863a)
+also passed. The final commit changes only three OpenSpec documents, with
+runtime and test blobs unchanged.
+
+| Final-head owner | Actual result |
+| --- | --- |
+| [Main CI](https://carverauto.buildbuddy.io/invocation/a4a43a25-3054-463c-8eda-f201bc90d7aa) | 444 targets passed: 47 executed and 397 cached. Only the two Swift platform targets were skipped. The storage target was cached in this invocation. |
+| [Core database CI](https://carverauto.buildbuddy.io/invocation/773fd2dc-54e2-4122-a9c3-a91f8a15fd5f) | All 12 targets executed uncached and passed. `integration_tests_serial_4` owns all eight worker cases; `integration_tests_serial_6` owns both media authority cases. |
+| [Web database CI](https://carverauto.buildbuddy.io/invocation/7fd98129-557e-46c7-920d-4c069cce36e4) | All seven targets executed uncached and passed. `networks_live_db_test_0` owns both joined media-upload cases. |
+
+[Core teardown](https://carverauto.buildbuddy.io/invocation/9c0277a3-b969-40e8-b5c3-b928d3da3dae)
+and [Web teardown](https://carverauto.buildbuddy.io/invocation/970779c4-5085-4d2b-8f37-4dc253b5d442)
+executed and passed. Both final lifecycle reports have zero suite, connection
+observer, teardown and fixture-generation lease-release statuses. Exact-head
+source routing establishes inclusion; successful individual database case names
+were not printed. Earlier checkout-conflict failures ran no tests or database
+lifecycle and are not failure evidence for this final head.
+
+The owner approved accepting two earlier review findings after source inspection
+and independent review disproved their freeze and response-timeout claims. That
+decision accepted only the Review gate; no assertions or final CI obligations
+were removed. The repaired head then passed a fresh Review with no findings.
+
+This closes the bounded sealed-media and local spool-worker database gates.
+It is synthetic transport and persistence evidence, not deployed-camera or live
+provider qualification. Recovery manifests, archive-index publication, playback,
+multipart reconciliation, full restart acceptance and hosted enablement remain
+open. Recording remains disabled and no local files were reclaimed.
+
+## Archive publication prepublication validation
+
+### Reviewed source
+
+After rebase, source `3ecbffe666c7ac51e30db969e1dd912a0c801e25` passed
+[`make test` on RBE](https://carverauto.buildbuddy.io/invocation/9151e194-f804-4e22-abfb-58979e75dedc)
+with exit zero: 462 targets passed, 56 executed and 406 cached, with the same
+two Swift platform skips listed below. The storage owner executed successfully.
+All 45 feature paths remained byte-identical through rebase; the proxy restored
+unrelated lockfile metadata to the new base and completed a clean re-review.
+Normal stdout and independently retrieved BuildBuddy output agree on this
+result. The checkout remained clean at that full SHA.
+
+Dependency queries after rebase still assign the guarded Core archive cases to
+`integration_tests_serial_6` and the joined Web cases to
+`networks_live_db_test_0`. Those guarded database cases have not executed for
+this checkpoint. A subsequent daemon failure stopped publication; supported
+custody recovery retained every reviewed commit. Fresh proxy validation and
+actual published-head Core/Web execution with all lifecycle statuses successful
+remain required before closing the manifest/index tasks.
+
+Reviewed source `0e5cbe6fe8da0eb9b6fa5b99080f96c1a51486d3` passed
+[`make test` on RBE](https://carverauto.buildbuddy.io/invocation/4160e1df-6198-40ed-8702-d3fce80975c2)
+with exit zero: 462 targets passed, five executed and 457 cached. Only
+`//build/arrow_swift:ios_compile_test` and
+`//build/arrow_swift:swift_regression_test` were skipped. This suite excludes
+guarded database execution.
+
+Review closed two gaps without removing assertions:
+
+- Every installed purpose rejects an existing or ambiguous staging root before
+  startup challenges, including init-only restarts after abandoned raw staging.
+- New init/manifest preparation takes the short recording-control admission
+  fence before configuration, spool or provider work. Stopped recordings cannot
+  prepare a new dispatch; original observations and verified DB-only publication
+  after stop remain valid.
+
+The [storage owner](https://carverauto.buildbuddy.io/invocation/2ca3fe9c-514d-45dd-9f55-3a8b22f5308e)
+executed 45 cases with zero failures. Its runtime and test source are unchanged
+at the reviewed head. A later formatting-only commit wrapped the new Core stop
+assertions without altering them. The
+[focused retry](https://carverauto.buildbuddy.io/invocation/e9168e97-d59d-4e4f-899e-806d9fe66cf3)
+passed Core quality and provider-probe release startup by execution, plus two
+cached native-addon checks.
+
+The earlier [full attempt](https://carverauto.buildbuddy.io/invocation/aa57543d-9fce-4408-93e5-c74a9513338c)
+failed with a Core formatting difference and exhausted workstation disk space;
+it was not a complete pass. The successful full run above supersedes that
+attempt. Results here were checked against normal command output and retrieved
+BuildBuddy output. Unresolvable invocation IDs from an earlier automated report
+are not evidence. The first proxy run ended in a report-worker failure before
+publication; its reviewed commits were preserved and recovered for resubmission.
+
+Declared Bazel dependency queries at the reviewed head assign the Core archive
+file to `integration_tests_serial_6` and the joined Web file to
+`networks_live_db_test_0`. Neither guarded owner has executed for this checkpoint
+yet. Recompute those owners after rebase and require actual published-head
+Core/Web execution, connection observation, teardown and fixture-generation
+lease release before closing manifest/index tasks.
+
+### Original author validation
+
+Combined source head `eac6fbea8753cd93a1fdfc55e8b7667dace5d6a2` passed
+[`make test` on RBE](https://carverauto.buildbuddy.io/invocation/518cd02a-7fd9-4ed5-af6f-4e9ccf0956d7):
+462 targets passed, with 64 executed and 398 cached; only the two Swift platform
+targets were skipped. This includes the storage owner, recording/RTSP tests,
+Web unit route matrices, quality, test registration, Helm migration version
+and multiarchitecture image checks. It excludes guarded database execution.
+
+The [focused Core pass](https://carverauto.buildbuddy.io/invocation/ac5741f3-90b9-4480-8387-3be00d62e745)
+executed five targets successfully: the owning Core/CoreElx unit targets,
+both quality targets and the heavy-gate registration contract. Core reported
+1046 tests, zero failures and one skipped, with 569 excluded; registration
+executed 65 cases. CoreElx passed, but its detailed stdout exceeded Bazel's
+display cap, so no per-case count is claimed for that target. The migration
+and four source snapshots were produced by the declared remote Ash generator.
+
+The [focused storage pass](https://carverauto.buildbuddy.io/invocation/4eeed566-7b54-42d2-83df-d3a66c0a1161)
+executed all 42 cases with zero failures and passed quality. Every original
+33-case assertion remains. Two explicit negative checks preceded that result:
+
+- [Removing the shared storage-identity comparison](https://carverauto.buildbuddy.io/invocation/5d94eb02-3ff9-44f6-b80b-29ce1b3ff766)
+  made exactly the intended configuration rejection case fail. The original
+  source was restored byte-for-byte before the final run.
+- [Queued ingress exceeded its configured budget](https://carverauto.buildbuddy.io/invocation/f60ba7e5-a317-457c-bd11-b4f706495bfa)
+  reproduced a real failure: Core preparation/grant could begin after the
+  one-second installed limit. Starting that limit at ingress entry fixed the
+  defect; the final 42-case run passed without relaxing its assertion or limit.
+
+Independent review of the completion command, private routes, proof joins,
+locking and immutable schema found no remaining production defect. The joined
+Web owner retains both original media cases and adds real publication plus
+post-stop recovery without configuration or spool. Its expected manifest bytes
+are independent literal canonical JSON, and its provider checks committed
+grants through another database connection. These cases are not recorded as
+executed yet.
+
+The declared Core serial-6 and Web shard-0 executables also built successfully
+with `bazel build -c opt --config=remote --//build:enable_integration_tests`.
+The initial command omitted that flag and correctly refused both incompatible
+targets before building them. The corrected build exited zero; it did not
+execute a database test, create a fixture or establish a lifecycle result.
+
+At this source head, the Core archive integration module remains one module
+and routes to `integration_tests_serial_6`; the joined Web cases route to
+`networks_live_db_test_0`. Recompute routing after any rebase. Published-head
+Core and Web execution, connection observation, teardown and fixture-generation
+lease release remain mandatory. Until those gates pass, keep the manifest/index
+tasks open. No live provider, camera deployment, hosted readiness, playback,
+multipart reconciliation or local reclamation is established by these checks.

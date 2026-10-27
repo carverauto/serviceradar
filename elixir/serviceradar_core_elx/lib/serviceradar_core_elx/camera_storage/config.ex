@@ -9,7 +9,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
   alias ServiceRadar.HTTP.EgressProxy
   alias ServiceRadar.JSONDocument
 
-  @fields ~w(schema_version deployment_ref generation desired provider_credentials_file listener runtime)
+  @fields ~w(schema_version deployment_ref generation provider_credentials_file listener runtime)
   @listener_fields ~w(port certfile keyfile cacertfile recorder_certificate_sha256 token_file)
   @runtime_fields ~w(base_url certfile keyfile cacertfile token_file)
   @credential_fields ~w(reference generation access_key_id secret_access_key)
@@ -31,11 +31,11 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
 
   def load(path) do
     with {:ok, document} <- read_json(path, 32_768),
-         true <- exact?(document, @fields) and document["schema_version"] === 1,
          {:ok, generation} <- decimal(document["generation"]),
          installation = %{deployment_ref: document["deployment_ref"], generation: generation},
-         {:ok, kind} <- ArchiveAuthorityConfig.kind(document["desired"]),
-         {:ok, desired} <- ArchiveAuthorityConfig.parse(kind, installation, document["desired"]),
+         {:ok, purposes} <- purposes(document, installation),
+         [desired | rest] = Map.values(purposes),
+         true <- Enum.all?(rest, &(shared_identity(&1) == shared_identity(desired))),
          {:ok, listener} <- listener(document["listener"]),
          {:ok, runtime} <- runtime(document["runtime"]),
          false <- Plug.Crypto.secure_compare(listener.token_sha256, :crypto.hash(:sha256, runtime.token)),
@@ -43,11 +43,10 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
          true <- credential?(credential, desired.report["credential"]) do
       {:ok,
        %{
-         kind: kind,
          installation: installation,
-         desired: desired,
+         purposes: purposes,
          listener: listener,
-         runtime: Map.put(runtime, :kind, kind),
+         runtime: runtime,
          provider: %{
            proxy: EgressProxy.from_env(),
            cacerts: :public_key.cacerts_get(),
@@ -60,6 +59,48 @@ defmodule ServiceRadarCoreElx.CameraStorage.Config do
     end
   rescue
     _ -> {:error, :invalid_storage_configuration}
+  end
+
+  defp purposes(%{"schema_version" => 1} = document, installation) do
+    with true <- exact?(document, ["desired" | @fields]),
+         {:ok, kind} <- ArchiveAuthorityConfig.kind(document["desired"]),
+         {:ok, desired} <- ArchiveAuthorityConfig.parse(kind, installation, document["desired"]) do
+      {:ok, %{kind => desired}}
+    else
+      _ -> {:error, :invalid_storage_configuration}
+    end
+  end
+
+  defp purposes(%{"schema_version" => 2, "purposes" => purposes} = document, installation)
+       when is_map(purposes) and map_size(purposes) in 1..3 do
+    if exact?(document, ["purposes" | @fields]) do
+      parse_purposes(purposes, installation)
+    else
+      {:error, :invalid_storage_configuration}
+    end
+  end
+
+  defp purposes(_, _), do: {:error, :invalid_storage_configuration}
+
+  defp parse_purposes(purposes, installation) do
+    Enum.reduce_while(purposes, {:ok, %{}}, fn {name, value}, {:ok, parsed} ->
+      with {:ok, kind} <- Map.fetch(%{"init" => :init, "media" => :media, "manifest" => :manifest}, name),
+           {:ok, ^kind} <- ArchiveAuthorityConfig.kind(value),
+           {:ok, desired} <- ArchiveAuthorityConfig.parse(kind, installation, value) do
+        {:cont, {:ok, Map.put(parsed, kind, desired)}}
+      else
+        _ -> {:halt, {:error, :invalid_storage_configuration}}
+      end
+    end)
+  end
+
+  defp shared_identity(desired) do
+    {
+      desired.binding_id,
+      desired.local_storage_id,
+      desired.destination_sha256,
+      Map.take(desired.report, ~w(provider_resource_id endpoint_type credential))
+    }
   end
 
   defp listener(value) do

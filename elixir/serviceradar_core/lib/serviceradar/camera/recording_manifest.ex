@@ -1,4 +1,4 @@
-defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
+defmodule ServiceRadar.Camera.RecordingManifest do
   @moduledoc """
   Versioned recovery metadata for one sealed recording block.
 
@@ -59,7 +59,8 @@ defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
   def encode_descriptor(_, _), do: {:error, :invalid_manifest}
 
   @doc "Decode a bounded manifest and require the caller's exact persisted identity."
-  def decode(bytes, expected_identity) when is_binary(bytes) and byte_size(bytes) <= @max_json_bytes do
+  def decode(bytes, expected_identity)
+      when is_binary(bytes) and byte_size(bytes) <= @max_json_bytes do
     with {:ok, %{"version" => 1} = manifest} <- Jason.decode(bytes),
          true <- manifest["identity"] == expected_identity,
          :ok <- validate(manifest),
@@ -87,7 +88,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
   defp validate(_), do: {:error, :invalid_manifest}
 
   defp object(metadata, receipt) when is_map(receipt) do
-    Map.merge(metadata, %{"key" => nil, "etag" => Map.get(receipt, :etag), "version_id" => Map.get(receipt, :version_id)})
+    Map.merge(metadata, %{
+      "key" => nil,
+      "etag" => Map.get(receipt, :etag),
+      "version_id" => Map.get(receipt, :version_id)
+    })
   end
 
   defp object(_, _), do: nil
@@ -98,7 +103,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
     |> put_in(["media", "key"], RecordingDescriptor.object_key(manifest["identity"], :media))
   end
 
-  defp valid_object?(%{"key" => key, "length" => _, "sha256" => _, "etag" => etag, "version_id" => version} = object) do
+  defp valid_object?(
+         %{"key" => key, "length" => _, "sha256" => _, "etag" => etag, "version_id" => version} =
+           object
+       ) do
     map_size(object) == 5 and (is_nil(key) or text?(key, 128)) and valid_receipt?(etag, version)
   end
 
@@ -111,7 +119,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
   end
 
   defp strong_etag?(value),
-    do: is_binary(value) and byte_size(value) <= 258 and Regex.match?(~r/\A"[\x21\x23-\x7e]+"\z/, value)
+    do:
+      is_binary(value) and byte_size(value) <= 258 and
+        Regex.match?(~r/\A"[\x21\x23-\x7e]+"\z/, value)
 
   defp text?(value, max) when is_binary(value),
     do: byte_size(value) in 1..max and String.valid?(value) and String.printable?(value)
@@ -119,7 +129,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.Manifest do
   defp text?(_, _), do: false
 
   defp canonical(value) when is_map(value) do
-    value |> Enum.sort() |> Enum.map(fn {key, value} -> {key, canonical(value)} end) |> Jason.OrderedObject.new()
+    value
+    |> Enum.sort()
+    |> Enum.map(fn {key, value} -> {key, canonical(value)} end)
+    |> Jason.OrderedObject.new()
   end
 
   defp canonical(value) when is_list(value), do: Enum.map(value, &canonical/1)

@@ -83,8 +83,8 @@ defmodule ServiceRadar.Camera.RecordingDescriptor do
   end
 
   @doc "Object key from a validated identity; shared by upload intent and recovery manifests."
-  def object_key(identity, role) when role in [:init, :media] do
-    filename = if role == :init, do: "init.mp4", else: "media.m4s"
+  def object_key(identity, role) when role in [:init, :media, :manifest] do
+    filename = %{init: "init.mp4", media: "media.m4s", manifest: "manifest.json"}[role]
     "recordings/v1/" <> block_key(identity) <> "/" <> filename
   end
 

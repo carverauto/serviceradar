@@ -13,18 +13,43 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
   plug(:dispatch)
 
   post "/v1/init-uploads" do
-    deadline = System.monotonic_time(:millisecond) + conn.private.storage_listener.operation_ms
+    deadline = ingress_deadline(conn, :init)
 
     with [content_type] <- get_req_header(conn, "content-type"),
          ["application/json" | _] <- String.split(content_type, ";"),
-         {:ok, body, conn} <- read(conn, "", deadline),
+         {:ok, slot} <- Session.reserve(:init, deadline) do
+      try do
+        receive_init(conn, slot)
+      after
+        Session.release(slot.token)
+      end
+    else
+      {:error, reason} when is_atom(reason) -> respond(conn, 503, %{"error" => Atom.to_string(reason)})
+      _ -> respond(conn, 400, %{"error" => "invalid_request"})
+    end
+  end
+
+  post "/v1/media-uploads" do
+    receive_staged(conn, :media)
+  end
+
+  post "/v1/manifest-uploads" do
+    receive_staged(conn, :manifest)
+  end
+
+  match _ do
+    respond(conn, 404, %{"error" => "not_found"})
+  end
+
+  defp receive_init(conn, slot) do
+    with {:ok, body, conn} <- read(conn, "", slot.deadline),
          {:ok, %{"schema_version" => 1, "lease" => lease, "init_base64" => encoded} = document} <-
            JSONDocument.decode_object(body, @body_limit),
          true <- map_size(document) == 3 and valid_lease?(lease),
          true <- is_binary(encoded) and byte_size(encoded) <= 1_398_104,
          {:ok, bytes} <- Base.decode64(encoded),
          true <- byte_size(bytes) in 1..1_048_576 and Base.encode64(bytes) == encoded,
-         {:ok, result} <- Session.upload(lease, bytes, deadline) do
+         {:ok, result} <- Session.upload_init(slot.token, lease, bytes) do
       respond(conn, 200, result)
     else
       {:error, :request_too_large, conn} -> respond(conn, 413, %{"error" => "request_too_large"})
@@ -35,33 +60,33 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
     end
   end
 
-  post "/v1/media-uploads" do
-    deadline = System.monotonic_time(:millisecond) + min(30_000, conn.private.storage_listener.operation_ms)
+  defp receive_staged(conn, kind) do
+    deadline = ingress_deadline(conn, kind)
 
     with ["application/octet-stream"] <- get_req_header(conn, "content-type"),
          [] <- get_req_header(conn, "transfer-encoding"),
          [length] <- get_req_header(conn, "content-length"),
-         {:ok, length} <- media_length(length),
+         {:ok, length} <- staged_length(length, kind),
          [lease_header] <- get_req_header(conn, "x-serviceradar-upload-lease"),
          {:ok, lease} <- JSONDocument.decode_object(lease_header, 1024),
          true <- valid_lease?(lease),
-         {:ok, stage} <- Session.reserve_media(lease, length, deadline) do
+         {:ok, stage} <- Session.reserve(kind, lease, length, deadline) do
       try do
-        case stage_media(conn, stage) do
+        case stage_body(conn, Map.put(stage, :kind, kind)) do
           {:ok, sha, conn} ->
-            case Session.finish_media(stage.token, sha) do
+            case Session.finish(stage.token, sha) do
               {:ok, result} -> respond(conn, 200, result)
-              _ -> respond(conn, 503, %{"error" => "media_upload_unavailable"})
+              _ -> respond(conn, 503, %{"error" => "#{kind}_upload_unavailable"})
             end
 
           {:error, status, reason, conn} ->
             respond(conn, status, %{"error" => reason})
         end
       after
-        Session.release_media(stage.token)
+        Session.release(stage.token)
       end
     else
-      {:error, :media_too_large} ->
+      {:error, :request_too_large} ->
         respond(conn, 413, %{"error" => "request_too_large"})
 
       {:error, :storage_busy} ->
@@ -79,10 +104,6 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
       _ ->
         respond(conn, 400, %{"error" => "invalid_request"})
     end
-  end
-
-  match _ do
-    respond(conn, 404, %{"error" => "not_found"})
   end
 
   def child_spec(config) do
@@ -155,10 +176,16 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
 
   defp valid_lease?(lease), do: is_map(lease) and Enum.sort(Map.keys(lease)) == Enum.sort(@lease_fields)
 
-  defp media_length(value) when byte_size(value) in 1..8 do
+  defp ingress_deadline(conn, kind) do
+    System.monotonic_time(:millisecond) + Map.get(conn.private.storage_listener.operation_limits, kind, 0)
+  end
+
+  defp staged_length(value, kind) when byte_size(value) in 1..8 do
+    maximum = if kind == :media, do: 16_777_216, else: 2_097_152
+
     case Integer.parse(value) do
-      {length, ""} when length > 16_777_216 ->
-        {:error, :media_too_large}
+      {length, ""} when length > maximum ->
+        {:error, :request_too_large}
 
       {length, ""} when length > 0 ->
         if Integer.to_string(length) == value, do: {:ok, length}, else: {:error, :invalid_request}
@@ -168,13 +195,13 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
     end
   end
 
-  defp media_length(_), do: {:error, :media_too_large}
+  defp staged_length(_, _), do: {:error, :request_too_large}
 
-  defp stage_media(conn, stage) do
+  defp stage_body(conn, stage) do
     case File.open(stage.path, [:write, :binary, :raw, :exclusive]) do
       {:ok, file} ->
         try do
-          receive_media(conn, stage, file, 0, :crypto.hash_init(:sha256))
+          receive_staged_body(conn, stage, file, 0, :crypto.hash_init(:sha256))
         after
           File.close(file)
         end
@@ -184,7 +211,7 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
     end
   end
 
-  defp receive_media(conn, stage, file, received, hash) do
+  defp receive_staged_body(conn, stage, file, received, hash) do
     remaining = stage.deadline - System.monotonic_time(:millisecond)
 
     if remaining > 0 do
@@ -212,13 +239,13 @@ defmodule ServiceRadarCoreElx.CameraStorage.Router do
           {:ok, hash |> :crypto.hash_final() |> Base.encode16(case: :lower), conn}
 
         {:more, length} when length < stage.length ->
-          receive_media(conn, stage, file, total, hash)
+          receive_staged_body(conn, stage, file, total, hash)
 
         _ ->
-          {:error, 400, "media_length_mismatch", conn}
+          {:error, 400, "#{stage.kind}_length_mismatch", conn}
       end
     else
-      _ -> {:error, 400, "media_staging_refused", conn}
+      _ -> {:error, 400, "#{stage.kind}_staging_refused", conn}
     end
   end
 

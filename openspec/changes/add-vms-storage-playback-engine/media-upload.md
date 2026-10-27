@@ -3,8 +3,8 @@
 This pass uploads one already frozen media block through the isolated storage
 workload and retains exact remote-byte verification. It does not schedule
 recording or uploads, publish an archive index, reclaim spool files, or enable
-hosted recording. Verified recovery-manifest publication and then fenced index
-publication remain the next two steps.
+hosted recording. The separate [archive-publication command](archive-publication.md)
+owns recovery-manifest verification and fenced index publication.
 
 ## Entry point and local ownership
 
@@ -102,16 +102,9 @@ reads, each at most 4 MiB. Exact framing, length, identity and cumulative SHA
 must match the frozen intent; redirects, whole-object fallbacks and encryption
 mismatches fail. A 412 or unknown outcome never permits another PUT.
 
-The Session owns a media-only exclusive private `vms-media-staging` root under
-its temporary directory and one registered child directory per admitted
-request. It monitors the ingress process and registers each supervised HTTP
-socket owner before I/O. Cancellation waits for actual file/socket owners to
-exit before removing the registered scratch path and reusing admission. A
-failed unlink or directory removal keeps the service unavailable. Normal
-supervisor shutdown cleans its owned root; a hard kill can leave it behind.
-Startup refuses an existing root and requires operator reconciliation rather
-than scanning, adopting or deleting uncertain data. Whole-pod recovery and
-automatic cleanup remain separate acceptance work.
+Media and manifest share staging, admission and cleanup ownership. The
+[shared storage contract](archive-publication.md#installed-purposes-and-private-routes)
+owns startup refusal, ingress/socket cleanup and restart behavior.
 
 Original spool media and durable unknown/late-response evidence are preserved.
 If cancellation prevents the outcome callback, the committed dispatch marker

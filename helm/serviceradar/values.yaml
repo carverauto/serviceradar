@@ -371,7 +371,7 @@ observability:
       annotations: {}
       folder: ServiceRadar
 
-# Init-only storage executor. This is not recording activation or a qualified
+# Isolated executor for installed storage purposes, not recording activation or a qualified
 # archive. Infrastructure custody creates the named Secrets before enabling it.
 mediaStorage:
   enabled: false

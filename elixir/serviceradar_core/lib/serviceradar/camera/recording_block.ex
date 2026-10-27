@@ -20,9 +20,22 @@ defmodule ServiceRadar.Camera.RecordingBlock do
 
     references do
       reference :archive_binding, on_delete: :restrict
+
+      reference :archive_manifest_dispatch,
+        on_delete: :restrict,
+        name: "camera_block_manifest_dispatch_fkey"
     end
 
     check_constraints do
+      check_constraint :archive_manifest_dispatch_id, "camera_block_publication_identity",
+        check: """
+        (archive_manifest_dispatch_id IS NULL AND archive_manifest_verification_sha256 IS NULL AND
+         archive_published_at IS NULL) OR
+        (archive_manifest_dispatch_id IS NOT NULL AND archive_manifest_verification_sha256 IS NOT NULL AND
+         archive_manifest_verification_sha256 ~ '^[0-9a-f]{64}$' AND archive_published_at IS NOT NULL AND
+         archive_binding_id IS NOT NULL AND state IN ('sealed', 'uploading'))
+        """
+
       check_constraint :recorder_epoch, "camera_block_counters_valid",
         check:
           "ingest_epoch > 0 AND recorder_epoch > 0 AND block_sequence >= 0 AND upload_epoch >= 0"
@@ -82,6 +95,25 @@ defmodule ServiceRadar.Camera.RecordingBlock do
       validate changing(:archive_binding_id, from: nil)
       validate attribute_equals(:state, :uploading)
     end
+
+    update :publish_archive do
+      accept [
+        :archive_manifest_dispatch_id,
+        :archive_manifest_verification_sha256,
+        :archive_published_at
+      ]
+
+      validate present([
+                 :archive_manifest_dispatch_id,
+                 :archive_manifest_verification_sha256,
+                 :archive_published_at
+               ])
+
+      validate changing(:archive_manifest_dispatch_id, from: nil)
+      validate changing(:archive_manifest_verification_sha256, from: nil)
+      validate changing(:archive_published_at, from: nil)
+      validate attribute_equals(:state, :uploading)
+    end
   end
 
   policies do
@@ -108,6 +140,12 @@ defmodule ServiceRadar.Camera.RecordingBlock do
     attribute :media_ingest_id, :string, allow_nil?: false, constraints: [max_length: 128]
     attribute :storage_id, :uuid, allow_nil?: false
     attribute :archive_binding_id, :uuid
+    attribute :archive_manifest_dispatch_id, :uuid
+
+    attribute :archive_manifest_verification_sha256, :string,
+      constraints: [match: ~r/\A[0-9a-f]{64}\z/]
+
+    attribute :archive_published_at, :utc_datetime_usec
     attribute :clock, :map, allow_nil?: false
     attribute :descriptor, :map
     attribute :descriptor_sha256, :string, constraints: [min_length: 64, max_length: 64]
@@ -125,6 +163,9 @@ defmodule ServiceRadar.Camera.RecordingBlock do
   end
 
   relationships do
+    belongs_to :archive_manifest_dispatch, ServiceRadar.Camera.ArchiveUploadDispatch,
+      define_attribute?: false
+
     belongs_to :archive_binding, ServiceRadar.Camera.ArchiveBinding, define_attribute?: false
 
     belongs_to :camera_source, ServiceRadar.Camera.Source,

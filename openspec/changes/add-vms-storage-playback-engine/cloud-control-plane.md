@@ -124,6 +124,18 @@ is not evidence of storage credential installation. The merged
 still requires completion of the desired/applied handshake and lifecycle
 gates before hosted enablement.
 
+The product's [archive-publication checkpoint](archive-publication.md) adds a
+fixed installed-purpose map for init, media and manifest operations in one
+isolated storage workload. Cloud orchestration must retain the shared binding,
+local storage lifetime and credential identity while installing each purpose's
+independent desired revision and original challenge window. A workload restart
+replaces its boot identity for every purpose; it cannot renew or resend an old
+prepared operation. Installation must budget the bounded sequential challenges
+and keep the complete configuration within 32 KiB. The existing C1/C2 work must
+validate this handshake alongside provider ownership, qualification, egress and
+spool provisioning before hosted enablement. Per-block archive publication does
+not satisfy that deployment readiness contract.
+
 Budgets cover admitted cameras and aggregate bitrate, spool bytes/time, cache
 bytes, pending archive age, archive/evidence/export storage, read/egress
 concurrency, GPU jobs/streams/memory and inference rate. A full budget rejects or

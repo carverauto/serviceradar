@@ -63,6 +63,30 @@ defmodule ServiceRadarCoreElx.CameraRecording.Storage do
     end
   end
 
+  @doc "Locate a bounded sealed init or media file without recovering or mutating its spool."
+  def sealed_object(%__MODULE__{id: id} = storage, %{storage_id: id, block_key: key, descriptor: descriptor}, kind)
+      when kind in [:init, :media] and is_binary(key) and is_map(descriptor) do
+    {filename, maximum} = if kind == :init, do: {"init.mp4", 1_048_576}, else: {"media.m4s", 16_777_216}
+    directory = Path.join(storage.root, key)
+    path = Path.join(directory, filename)
+
+    with %{"length" => length} <- descriptor[Atom.to_string(kind)],
+         true <- is_integer(length) and length in 1..maximum,
+         true <- Regex.match?(~r/\A[0-9a-f]{64}\z/, key),
+         {:ok, %File.Stat{type: :directory}} <- File.lstat(directory),
+         {:ok, %File.Stat{type: :regular, links: 1, size: ^length}} <- File.lstat(path),
+         :ok <- verify(storage) do
+      {:ok, path, length}
+    else
+      _ -> unavailable_object(kind)
+    end
+  end
+
+  def sealed_object(_, _, kind), do: unavailable_object(kind)
+
+  defp unavailable_object(:init), do: {:error, :local_init_unavailable}
+  defp unavailable_object(_), do: {:error, :local_media_unavailable}
+
   defp initialize_empty(root, id) do
     with {:ok, []} <- File.ls(root),
          :ok <- create_marker(root, id) do

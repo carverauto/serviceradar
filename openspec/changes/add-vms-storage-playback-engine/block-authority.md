@@ -12,7 +12,7 @@ its spool state. After a local seal, it creates a receipt-free
 `Camera.RecordingDescriptor` from the exact committed snapshot and freezes it
 through `Camera.RecordingBlocks.freeze/5` before releasing the recorder claim.
 The descriptor owns the same finite format limits as the archive manifest;
-`CameraRecording.Manifest` adds object receipts to that shared semantic format.
+`Camera.RecordingManifest` adds object receipts to that shared semantic format.
 Neither description verifies remote bytes or grants playback access.
 
 Freeze locks ingest owner, recorder claim and then block. It compares descriptor
