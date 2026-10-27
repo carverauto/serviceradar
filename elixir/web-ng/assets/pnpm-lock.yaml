@@ -159,14 +159,14 @@ importers:
         specifier: ^9.39.3
         version: 9.39.5(jiti@2.7.0)
       happy-dom:
-        specifier: ^20.14.0
-        version: 20.14.3
+        specifier: ^21.0.4
+        version: 21.0.4
       tailwindcss:
         specifier: 4.1.12
         version: 4.1.12
       vitest:
         specifier: ^4.1.12
-        version: 4.1.12(@types/node@25.9.6)(happy-dom@20.14.3)(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))
+        version: 4.1.12(@types/node@25.9.6)(happy-dom@21.0.4)(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))
       wgsl_reflect:
         specifier: 1.2.3
         version: 1.2.3
@@ -2079,8 +2079,8 @@ packages:
     resolution: {integrity: sha512-uKmdPc+DuarnR+XqZxEuWOMw7KzzKROrx3MLeJpFnMOs78S9M5eZ+X5RieS9UcSFQqbeXzbfWuX/W9Pyajinqw==}
     engines: {node: '>=4', npm: '>=3', yarn: '>=1.3.0'}
 
-  happy-dom@20.14.3:
-    resolution: {integrity: sha512-0KMb/Eh8rsd+aMNkOk5h8LkAjo9Na1aksnEGmsuZf+GXl6UkAdIi0VbUHU7d59lXhNmawODgwwuCMiZpCxwwCw==}
+  happy-dom@21.0.4:
+    resolution: {integrity: sha512-tFm+GaLBgo6o0awHnvHaNoraVo27qJ+2tZEtZ+cIa08hXbeitrxAJajLI05hsUy/2/YTKcUjQYzHe5mCcraLBw==}
     engines: {node: '>=20.0.0'}
 
   has-flag@4.0.0:
@@ -5618,7 +5618,7 @@ snapshots:
 
   h3-js@4.5.0: {}
 
-  happy-dom@20.14.3:
+  happy-dom@21.0.4:
     dependencies:
       '@types/node': 22.20.2
       '@types/whatwg-mimetype': 3.0.2
@@ -6718,7 +6718,7 @@ snapshots:
       fsevents: 2.3.3
       jiti: 2.7.0
 
-  vitest@4.1.12(@types/node@25.9.6)(happy-dom@20.14.3)(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)):
+  vitest@4.1.12(@types/node@25.9.6)(happy-dom@21.0.4)(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0)):
     dependencies:
       '@vitest/expect': 4.1.12
       '@vitest/mocker': 4.1.12(vite@8.2.4(@types/node@25.9.6)(esbuild@0.25.4)(jiti@2.7.0))
@@ -6742,7 +6742,7 @@ snapshots:
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@types/node': 25.9.6
-      happy-dom: 20.14.3
+      happy-dom: 21.0.4
     transitivePeerDependencies:
       - msw
 
