@@ -775,7 +775,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     rescue
       e ->
         root_error = resolve_logged_error(e)
-        log_batch_insert_failure(root_error)
+        # Keep the frames of the exception itself; a substituted first SQL
+        # error was raised elsewhere, so this stacktrace does not belong to it.
+        stacktrace = if root_error == e, do: __STACKTRACE__
+        log_batch_insert_failure(root_error, stacktrace)
         {:error, root_error}
     after
       :telemetry.detach(handler_id)
@@ -815,18 +818,24 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
     end
   end
 
-  defp log_batch_insert_failure(error) do
+  defp log_batch_insert_failure(error, stacktrace \\ nil) do
+    detail = describe_batch_failure(error, stacktrace)
+
     case extract_sqlstate(error) do
       nil ->
-        Logger.error("Causal signals batch insert failed: #{inspect(error)}")
+        Logger.error("Causal signals batch insert failed: #{detail}")
 
       sqlstate ->
         Logger.error(
-          "Causal signals batch insert failed (sqlstate=#{sqlstate}): #{inspect(error)}",
+          "Causal signals batch insert failed (sqlstate=#{sqlstate}): #{detail}",
           sqlstate: sqlstate
         )
     end
   end
+
+  defp describe_batch_failure(error, nil), do: inspect(error)
+
+  defp describe_batch_failure(error, stacktrace), do: Exception.format(:error, error, stacktrace)
 
   defp in_failed_sql_transaction?(error) do
     case extract_postgres_fields(error) do

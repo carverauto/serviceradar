@@ -563,6 +563,11 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoad do
     |> String.slice(0, 16)
   end
 
+  # A struct is a value, not a document. An encoded row can still carry one
+  # inside a JSON column (a BMP routing event's metadata holds its DateTime
+  # `event_time`), and structs need not implement Enumerable.
+  defp canonical_term(%_{} = struct), do: struct
+
   defp canonical_term(%{} = map) do
     map
     |> Enum.map(fn {key, value} -> {to_string(key), canonical_term(value)} end)

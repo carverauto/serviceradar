@@ -832,6 +832,23 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              label
   end
 
+  # Rows.encode(:bmp_routing_events, ...) passes the metadata document through
+  # as a map, and AnalyticsSignals puts the event's DateTime in it.
+  test "load labels name rows whose JSON documents hold struct values" do
+    row = %{
+      "id" => "00000000-0000-4000-8000-0000000000b1",
+      "metadata" => %{"event_time" => ~U[2026-01-15 10:00:00Z], "signal_type" => "bmp"}
+    }
+
+    label = StreamLoad.load_label("bmp_routing_events", [row])
+
+    assert StreamLoad.load_label("bmp_routing_events", [row]) == label
+
+    refute StreamLoad.load_label("bmp_routing_events", [
+             put_in(row, ["metadata", "event_time"], ~U[2026-01-15 11:00:00Z])
+           ]) == label
+  end
+
   test "interleaved replacement redelivery restores the delivered event" do
     first = %{
       "id" => "00000000-0000-4000-8000-000000000001",
