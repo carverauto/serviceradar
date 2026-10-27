@@ -50,7 +50,12 @@ defmodule ServiceRadarWebNG.Plugins.EgressConnectivityCheck do
             %{host: host, purpose: purpose, reachable: true, detail: nil}
 
           {:error, reason} ->
-            %{host: host, purpose: purpose, reachable: false, detail: ImportFailureMessages.reason_to_text(reason)}
+            detail =
+              reason
+              |> ImportFailureMessages.with_refused_host(host)
+              |> ImportFailureMessages.reason_to_text()
+
+            %{host: host, purpose: purpose, reachable: false, detail: detail}
         end
       end)
 

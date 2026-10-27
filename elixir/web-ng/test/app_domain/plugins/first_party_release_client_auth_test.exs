@@ -7,11 +7,15 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
   token that stops being sent turns a private repository into "the release list
   is empty", and a token that is sent one hop too far is disclosed to a host
   that never needed it while the download still succeeds.
+
+  The same hop-by-hop download also decides which host an egress proxy refusal
+  is reported against, so that is guarded here too.
   """
 
   use ExUnit.Case, async: false
 
   alias ServiceRadarWebNG.Plugins.FirstPartyReleaseClient, as: Client
+  alias ServiceRadarWebNG.Plugins.ImportFailureMessages
 
   @moduletag :db_free
 
@@ -145,6 +149,39 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClientAuthTest do
 
       [{first_url, _} | _] = collect_requests()
       assert first_url == "https://github.com/acme/sr-plugins/releases/download/v1/bundle.zip"
+    end
+  end
+
+  defmodule RefusingRedirectClient do
+    @moduledoc false
+
+    # The release download 302s to the pre-signed asset host, and the egress
+    # proxy refuses the CONNECT for that host only.
+    def get(url, _opts) do
+      if String.contains?(url, "github-releases.githubusercontent.com") do
+        {:error, {:could_not_establish_ssl_tunnel, {~c"HTTP/1.1", 407, ~c"Request rejected by proxy"}}}
+      else
+        {:ok,
+         %Req.Response{
+           status: 302,
+           body: "",
+           headers: %{"location" => ["https://github-releases.githubusercontent.com/signed/abc?sig=synthetic"]}
+         }}
+      end
+    end
+  end
+
+  describe "egress proxy refusal" do
+    test "names the redirect host the proxy refused, without its query", %{repo: repo} do
+      Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, RefusingRedirectClient)
+      asset = %{"browser_download_url" => "https://github.com/acme/sr-plugins/releases/download/v1/b.zip"}
+
+      assert {:error, reason} = Client.fetch_binary_asset(repo, asset)
+
+      text = ImportFailureMessages.reason_to_text(reason)
+      assert text =~ "egress proxy rejected the connection to github-releases.githubusercontent.com (HTTP 407)"
+      refute text =~ "registry.carverauto.dev"
+      refute text =~ "synthetic"
     end
   end
 

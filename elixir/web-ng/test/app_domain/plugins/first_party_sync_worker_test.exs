@@ -12,9 +12,19 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
 
   alias Oban.Job
   alias ServiceRadarWebNG.Plugins.FirstPartySyncWorker
+  alias ServiceRadarWebNG.Plugins.ImportFailureMessages
   alias ServiceRadarWebNG.Plugins.NativeAddonSyncWorker
 
   @moduletag :db_free
+
+  # The shape the release client returns once it knows which host the egress
+  # proxy refused.
+  defp refused_407(host) do
+    ImportFailureMessages.with_refused_host(
+      {:could_not_establish_ssl_tunnel, {~c"HTTP/1.1", 407, ~c"Request rejected by proxy"}},
+      host
+    )
+  end
 
   test "all successful repositories succeed the job" do
     assert :ok = FirstPartySyncWorker.aggregate_results([:ok, :ok])
@@ -80,7 +90,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
             plugin_id: "example-plugin",
             version: "1.2.3",
             release_tag: "v9.9.9",
-            error: {:could_not_establish_ssl_tunnel, {'HTTP/1.1', 407, 'Request rejected by proxy'}}
+            error: refused_407("github-releases.githubusercontent.com")
           },
           %{plugin_id: "other-plugin", version: "0.1.0", release_tag: "v9.9.9", error: :timeout}
         ]
@@ -92,7 +102,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
       assert result["status"] == "partial"
       assert result["failed_count"] == 2
       assert result["first_error"]["plugin_id"] == "example-plugin"
-      assert result["first_error"]["reason"] =~ "egress proxy rejected"
+
+      assert result["first_error"]["reason"] =~
+               "egress proxy rejected the connection to github-releases.githubusercontent.com"
     end
   end
 
@@ -100,7 +112,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartySyncWorkerTest do
     test "maps the failure reason for a run that never imported" do
       result =
         FirstPartySyncWorker.error_summary(
-          {:could_not_establish_ssl_tunnel, {~c"HTTP/1.1", 407, ~c"Request rejected by proxy"}},
+          refused_407("registry.carverauto.dev"),
           "v9.9.9",
           %{repo_url: "https://github.com/example/serviceradar"}
         )
