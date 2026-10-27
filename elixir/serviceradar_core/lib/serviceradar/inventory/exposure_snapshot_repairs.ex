@@ -104,11 +104,16 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotRepairs do
 
   defp assign(repair, kind, publication) when is_map(publication) do
     with {:ok, row} <- decode(kind, publication) do
+      compacted =
+        if kind == "fact" and row["state"] in [0, 2],
+          do: row |> ExposureFactPayload.compact() |> Warehouse.fact_digest()
+
       {:ok,
        repair
        |> Map.put("kind", kind)
        |> Map.put("required", publication["transition_seq"])
-       |> Map.put("expected", Warehouse.row_digest(kind, row))}
+       |> Map.put("expected", Warehouse.row_digest(kind, row))
+       |> Map.put("expected_compacted", compacted)}
     end
   end
 
@@ -167,7 +172,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotRepairs do
       row["transition_seq"] == required ->
         Warehouse.row_digest(kind, row) == expected or
           (kind == "fact" and ExposureFactPayload.compacted?(row) and
-             current_publication_matches?(repair, row))
+             compacted_publication_matches?(repair, row))
 
       row["transition_seq"] > required ->
         current_publication_matches?(repair, row) or
@@ -179,6 +184,12 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotRepairs do
   end
 
   defp verified?(_repair, _row), do: false
+
+  defp compacted_publication_matches?(%{"expected_compacted" => expected}, row)
+       when is_binary(expected),
+       do: Warehouse.fact_digest(row) == expected
+
+  defp compacted_publication_matches?(repair, row), do: current_publication_matches?(repair, row)
 
   defp retirement_matches?(%{"key" => [ordinal, _, _], "required" => required}, row) do
     [[publication]] =

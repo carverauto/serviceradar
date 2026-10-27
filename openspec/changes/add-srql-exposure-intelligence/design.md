@@ -1905,10 +1905,13 @@ traffic behind a new recovery journal. A failed or filtered load does not advanc
 the maintenance cursor.
 
 Snapshots recognize only the canonical cleared payload with matching permanent
-markers. Repair verification still accepts the original full-row digest; when
-the stored payload was compacted, it rechecks the retained source publication
-and compares its canonical compacted representation. Malformed cleared payload
-and mismatched markers remain repair obligations. A successful snapshot can
+markers. New repair obligations retain both the original full-row digest and,
+for a terminal publication, the digest of its canonical compacted representation.
+This permits confirmation of the assigned target even if newer source content
+is queued. Compaction defers while any legacy fact obligation lacks that second
+proof field, preserving its full-row evidence until it settles. Legacy
+verification can also recheck the retained current source publication. Malformed
+cleared payload and mismatched markers remain repair obligations. A successful snapshot can
 restore terminal payload and set its generation without allocating a new source
 sequence. The fleet-scale completion gates remain open pending measurement.
 

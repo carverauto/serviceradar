@@ -765,6 +765,8 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     update_assessment!(ctx.device_uid, cve, status: "active")
     newer = publication(ctx.device_uid, cve)
     assert newer["transition_seq"] > terminal["transition_seq"]
+    # The already-confirmed repair does not chase ordinary queued live traffic.
+    assert {:ok, []} = ExposureSnapshotRepairs.verify([repair])
     live_transition!(conn, newer)
     current = live_fact!(key)
     assert current["state"] == 1
@@ -852,6 +854,33 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     end)
 
     job = compaction_job!(%{"cutoff" => ~N[2026-11-10 00:00:00]})
+
+    # An upgrade may inherit an unfinished proof that predates compaction.
+    ordinal = 4_294_964_001
+
+    control = %{
+      "repairs" => [%{"kind" => "fact", "required" => 41, "expected" => "legacy-digest"}]
+    }
+
+    Repo.query!(
+      "INSERT INTO platform.exposure_reconciliation_checks (device_ord, status, control, inserted_at, updated_at) VALUES ($1, 'mismatch', $2, now(), now())",
+      [ordinal, control]
+    )
+
+    on_exit(fn ->
+      Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+        ordinal
+      ])
+    end)
+
+    assert {:snooze, 30} = ExposureTerminalCompactionWorker.perform(job)
+    assert Repo.get!(Oban.Job, job.id).args["cursor"] == nil
+    refute_received {:load, _, _, _, _}
+
+    Repo.query!("DELETE FROM platform.exposure_reconciliation_checks WHERE device_ord = $1", [
+      ordinal
+    ])
+
     task = Task.async(fn -> ExposureTerminalCompactionWorker.perform(job) end)
     assert_receive {:load, http, _, first_headers, [_]}, 5_000
     send(http, :commit)

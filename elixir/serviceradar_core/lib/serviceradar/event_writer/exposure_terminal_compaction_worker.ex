@@ -15,20 +15,39 @@ defmodule ServiceRadar.EventWriter.ExposureTerminalCompactionWorker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{id: id}) when is_integer(id) do
-    if Destination.enabled?() do
-      job = Repo.get!(Oban.Job, id)
+    cond do
+      not Destination.enabled?() -> :ok
+      legacy_repairs_pending?() -> {:snooze, 30}
+      true -> compact(Repo.get!(Oban.Job, id))
+    end
+  end
 
-      cutoff =
-        NaiveDateTime.utc_now()
-        |> NaiveDateTime.add(-7 * 86_400, :second)
-        |> NaiveDateTime.truncate(:second)
-        |> NaiveDateTime.to_iso8601()
+  # Existing obligations carry only a digest of the full row. Let them settle
+  # before erasing that evidence. New obligations also retain a compacted digest.
+  defp legacy_repairs_pending? do
+    [[pending]] =
+      Repo.query!("""
+      SELECT EXISTS (
+        SELECT 1 FROM platform.exposure_snapshot_generations
+        WHERE control @? '$.** ? (@.kind == "fact" && exists(@.required) && !exists(@.expected_compacted))'
+        UNION ALL
+        SELECT 1 FROM platform.exposure_reconciliation_checks
+        WHERE control @? '$.** ? (@.kind == "fact" && exists(@.required) && !exists(@.expected_compacted))'
+      )
+      """).rows
 
-      with {:ok, job} <- checkpoint(job, Map.put_new(job.args, "cutoff", cutoff)) do
-        compact_pages(job, 20)
-      end
-    else
-      :ok
+    pending
+  end
+
+  defp compact(job) do
+    cutoff =
+      NaiveDateTime.utc_now()
+      |> NaiveDateTime.add(-7 * 86_400, :second)
+      |> NaiveDateTime.truncate(:second)
+      |> NaiveDateTime.to_iso8601()
+
+    with {:ok, job} <- checkpoint(job, Map.put_new(job.args, "cutoff", cutoff)) do
+      compact_pages(job, 20)
     end
   end
 
