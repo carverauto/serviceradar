@@ -13,6 +13,37 @@
 # upstream publishes a patched package or the dependency is replaced.
 GHSA-4g2h-vm7x-747c
 
+# EEF-CVE-2026-93471 / esaml unbounded SAMLResponse decompression
+#
+# The inflate is in esaml_binding:decode_response/2, which web-ng never calls.
+# The ACS accepts only the HTTP-POST binding and base64-decodes the form value
+# itself (lib/serviceradar_web_ng_web/auth/saml_response.ex); nothing in web-ng
+# inflates a received SAML message. esaml is used only for :xmerl_dsig.
+EEF-CVE-2026-93471
+
+# EEF-CVE-2026-86696 / esaml atom creation from LogoutResponse status codes
+#
+# The atom is minted by esaml:status_code_map/1, reached only through
+# esaml:decode_logout_response/1 and esaml:decode_response/1 from esaml_sp and
+# esaml_cowboy. web-ng calls none of them and has no single-logout endpoint; it
+# reads the response itself with XPath and never maps a StatusCode to an atom.
+EEF-CVE-2026-86696
+
+# EEF-CVE-2026-105270 / esaml atom creation while parsing SAML messages
+#
+# The vulnerable parse is esaml_binding:decode_response/2, which web-ng never
+# calls. web-ng's own response parser had the same exposure, because
+# :xmerl_scan interns every name it reads; it no longer interns any name from a
+# received response: SAMLXml.parse_response/1
+# (lib/serviceradar_web_ng_web/auth/saml_xml.ex) scans the document with
+# :xmerl_sax_parser first and rejects any name it does not already hold as an
+# atom. Covered by "interns no atom from the names in a response" in
+# test/phoenix/auth/saml_response_test.exs.
+EEF-CVE-2026-105270
+
+# No patched esaml release exists for these three either. Remove the waivers
+# when one does, or when esaml is replaced.
+
 # GHSA-rhv4-8758-jx7v / Decimal unbounded exponent DoS
 #
 # web-ng currently receives Decimal through shared Ash, Ecto, Postgrex, ADBC,

@@ -1,10 +1,14 @@
 defmodule ServiceRadarWebNGWeb.Auth.SAMLResponseTest do
-  use ExUnit.Case, async: true
+  # Not async: one test measures the VM-wide atom count, which concurrent
+  # modules would move.
+  use ExUnit.Case, async: false
 
   alias ServiceRadarWebNG.SAMLFixtures
   alias ServiceRadarWebNGWeb.Auth.SAMLResponse
 
   @moduletag :db_free
+
+  @protocol_ns "urn:oasis:names:tc:SAML:2.0:protocol"
 
   setup_all do
     idp = SAMLFixtures.idp()
@@ -39,6 +43,17 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLResponseTest do
       saml_response = SAMLFixtures.response(idp, sign: :response, assertion_id: "_assertion-response")
 
       assert {:ok, %{id: "_assertion-response"}} = SAMLResponse.decode(saml_response, config)
+    end
+
+    test "verifies responses in the prefix dialects IdPs write", %{idp: idp, config: config} do
+      for dialect <- [:saml2, :default_namespace], sign <- [:assertion, :response] do
+        saml_response =
+          SAMLFixtures.response(idp, dialect: dialect, sign: sign, name_id: "saml-dialect@example.com")
+
+        assert {:ok, %{subject_name_id: "saml-dialect@example.com"}} =
+                 SAMLResponse.decode(saml_response, config),
+               "#{dialect} signed on #{sign}"
+      end
     end
 
     test "rejects a response signed by a key the metadata does not list", %{idp: idp, config: config} do
@@ -97,12 +112,59 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLResponseTest do
         <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol">&a;&a;</samlp:Response>
         """)
 
+      # No entities, but xmerl would still intern the declared names and apply
+      # attribute defaults that appear nowhere in the signed bytes.
+      declarations_only =
+        Base.encode64("""
+        <!DOCTYPE samlp:Response [<!ATTLIST samlp:Response InResponseTo CDATA "_req-injected">]>
+        <samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol"></samlp:Response>
+        """)
+
       assert {:error, :invalid_saml_response} = SAMLResponse.decode(external_entity, config)
       assert {:error, :invalid_saml_response} = SAMLResponse.decode(internal_entity, config)
+      assert {:error, :invalid_saml_response} = SAMLResponse.decode(declarations_only, config)
+    end
+
+    # xmerl interns each of these as a permanent atom, so a response naming
+    # thousands of them must leave the atom table as it found it.
+    @tag :capture_log
+    test "interns no atom from the names in a response", %{config: config} do
+      floods = [
+        {"element names", fn tag, n -> [wrap(Enum.map_join(1..n, &"<#{tag}e#{&1}/>"))] end},
+        {"attribute names",
+         fn tag, n -> [wrap("<samlp:Status " <> Enum.map_join(1..n, " ", &~s(#{tag}a#{&1}="x")) <> "/>")] end},
+        {"namespace prefixes",
+         fn tag, n -> [wrap(Enum.map_join(1..n, &~s(<samlp:Status xmlns:#{tag}p#{&1}="#{@protocol_ns}"/>)))] end},
+        {"namespace URIs",
+         fn tag, n -> [wrap(Enum.map_join(1..n, &~s(<samlp:Status xmlns:samlp="urn:#{tag}#{&1}"/>)))] end},
+        {"processing instruction targets", fn tag, n -> [wrap(Enum.map_join(1..n, &"<?#{tag}t#{&1} x?>"))] end},
+        {"encoding names",
+         fn tag, n -> Enum.map(1..n, &(~s(<?xml version="1.0" encoding="#{tag}enc#{&1}"?>) <> wrap(""))) end}
+      ]
+
+      for {category, build} <- floods do
+        # Loads every module the rejection path uses before counting.
+        reject_all(build.(unique_tag(), 1), config)
+
+        before = :erlang.system_info(:atom_count)
+        reject_all(build.(unique_tag(), 2_000), config)
+
+        assert :erlang.system_info(:atom_count) - before < 10, category
+      end
     end
 
     test "rejects input that is not base64", %{config: config} do
       assert {:error, :invalid_base64} = SAMLResponse.decode("not base64!", config)
+    end
+  end
+
+  defp wrap(content), do: ~s(<samlp:Response xmlns:samlp="#{@protocol_ns}">#{content}</samlp:Response>)
+
+  defp unique_tag, do: "atomflood#{System.unique_integer([:positive])}x"
+
+  defp reject_all(documents, config) do
+    for document <- documents do
+      assert {:error, _reason} = SAMLResponse.decode(Base.encode64(document), config)
     end
   end
 

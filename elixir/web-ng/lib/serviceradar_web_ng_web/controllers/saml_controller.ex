@@ -26,7 +26,8 @@ defmodule ServiceRadarWebNGWeb.SAMLController do
   the `:saml_acs` pipeline, without `:protect_from_forgery`, and nothing here
   reads the session. Security rests on four checks instead:
 
-  - **Signature.** The response is parsed with DTDs disabled (`SAMLXml`) and
+  - **Signature.** The response is parsed with DTDs disabled and without
+    interning any name it carries as an atom (`SAMLXml.parse_response/1`), and
     its signature is verified against the signing certificates in the IdP
     metadata, honouring certificate pinning (`SAMLResponse`).
   - **Assertion content.** It must carry an `ID`, an `Issuer` and a bounded

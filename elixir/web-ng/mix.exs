@@ -31,6 +31,9 @@ defmodule ServiceRadarWebNG.MixProject do
       hex: [
         ignore_advisories: [
           "GHSA-4g2h-vm7x-747c",
+          "EEF-CVE-2026-93471",
+          "EEF-CVE-2026-86696",
+          "EEF-CVE-2026-105270",
           "EEF-CVE-2026-43966",
           "EEF-CVE-2026-95105",
           "GHSA-w4f7-4cxr-rv3c"
