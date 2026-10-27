@@ -1866,6 +1866,23 @@ size. It publishes `exposure_transition_outbox_oldest_age_seconds`,
 `exposure_transition_outbox` when the oldest row crosses 10 minutes. The EventWriter
 consumer (task 1.4) attaches to this producer-owned stream; it must not create it.
 
+**Stream freshness (task 1.7).** The existing relay reporting cycle also reads
+JetStream stream status for transitions and dimensions. It publishes
+`exposure_transitions_stream_oldest_age_seconds` and
+`exposure_transitions_stream_max_age_seconds` on the existing metrics subject;
+dimensions use the corresponding `exposure_dimensions` prefix. Empty streams
+report age zero. Missing streams, failed status requests and invalid timestamps
+omit age metrics rather than reporting a fabricated zero.
+
+The `exposure_transitions_stream` and `exposure_dimensions_stream` health entities
+degrade when observed age exceeds seven days, retention is unlimited or exceeds
+seven days, or status cannot be established. A subsequent valid sample within
+both bounds records recovery. Events are emitted on health state changes, not
+on every poll. This monitoring does not shorten existing retention or discard
+stored messages. It does not establish consumer delivery completeness; snapshot
+and reconciliation readiness retain their separate proof requirements. Payload
+compaction and the fleet-scale completion gates remain open.
+
 This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequence,
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and
 package-version dictionaries and the CVE ordinal function) and 1.3 (the transitions subject,
