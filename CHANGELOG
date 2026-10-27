@@ -106,6 +106,9 @@ plugin-result ingestion more reliable, and ships security updates.
 
 - Telemetry ingestion now runs on every core replica and shares the
   load (#6008).
+- During core rolling restarts, alert evaluation waits and retries when
+  a peer is not ready, with bounded backoff instead of immediate retries
+  and misleading error logs (#6088).
 - The plugins page is split into Installed, Updates and Catalog, and
   one plugin can run several assignments on an agent when they come
   from different rules. Action-only plugins are no longer reported as
@@ -115,6 +118,8 @@ plugin-result ingestion more reliable, and ships security updates.
   vulnerability assessments and repairs any drift, and is not reported
   ready until that check passes. Camera recording stays off by default
   (#5964, #6041, #6047, #6060, #6081).
+- Authorized clients can list published camera recordings through a
+  paginated API. Recording remains disabled by default (#6089).
 - Events in StarRocks no longer go missing when a scanner reports the
   same event again with a new time, such as a Trivy rescan (#6073).
 - Atlas filtered topology stays visible while panning, RDP viewers
@@ -144,7 +149,7 @@ plugin-result ingestion more reliable, and ships security updates.
 - Also updated: NATS, OpenTelemetry Go 1.47, Arrow 60, Cap'n Proto
   0.27, quick-xml 0.42, other Go and Rust libraries, and JavaScript
   dependencies (#4884, #6018, #6056, #6065, #6070, #6075, #6079, #6080,
-  #6082, #6083, #6084).
+  #6082, #6083, #6084, #6085).
 
 # ServiceRadar v1.4.97
 
