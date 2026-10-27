@@ -139,7 +139,29 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLResponseTest do
          fn tag, n -> [wrap(Enum.map_join(1..n, &~s(<samlp:Status xmlns:samlp="urn:#{tag}#{&1}"/>)))] end},
         {"processing instruction targets", fn tag, n -> [wrap(Enum.map_join(1..n, &"<?#{tag}t#{&1} x?>"))] end},
         {"encoding names",
-         fn tag, n -> Enum.map(1..n, &(~s(<?xml version="1.0" encoding="#{tag}enc#{&1}"?>) <> wrap(""))) end}
+         fn tag, n -> Enum.map(1..n, &(~s(<?xml version="1.0" encoding="#{tag}enc#{&1}"?>) <> wrap(""))) end},
+        {"empty element local parts",
+         fn _tag, n ->
+           ~w(Response Status StatusCode StatusMessage StatusDetail Extensions Assertion Issuer Subject
+              NameID Conditions Condition Audience Advice Statement AuthnStatement AuthnContext
+              AttributeStatement Attribute AttributeValue Signature SignedInfo)
+           |> Enum.take(n)
+           |> Enum.map(&"<#{&1}: />")
+         end},
+        {"empty attribute local parts",
+         fn _tag, n ->
+           ~w(ID Id Version IssueInstant Destination Consent InResponseTo Format NameQualifier
+              SPNameQualifier SPProvidedID Method NotBefore NotOnOrAfter Recipient Address DNSName
+              Count AuthnInstant SessionIndex Name Value)
+           |> Enum.take(n)
+           |> Enum.map(&~s(<Response #{&1}:="x"/>))
+         end},
+        {"empty namespace prefixes",
+         fn _tag, n ->
+           ["", " ", "\t", "\r", "\n"]
+           |> Enum.take(n)
+           |> Enum.map(&~s(<Response xmlns:#{&1}="#{@protocol_ns}"/>))
+         end}
       ]
 
       for {category, build} <- floods do

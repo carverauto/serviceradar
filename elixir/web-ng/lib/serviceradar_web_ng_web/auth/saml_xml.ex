@@ -162,7 +162,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLXml do
   defp check_response(xml) do
     with :ok <- check_size(xml),
          :ok <- check_encoding(xml),
-         :ok <- check_no_doctype(xml) do
+         :ok <- check_no_doctype(xml),
+         :ok <- check_namespace_declarations(xml) do
       scan_names(xml)
     end
   end
@@ -190,6 +191,10 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLXml do
 
   defp check_no_doctype(xml) do
     if String.contains?(xml, "<!DOCTYPE"), do: {:error, "document declares a DTD"}, else: :ok
+  end
+
+  defp check_namespace_declarations(xml) do
+    if Regex.match?(~r/xmlns:\s*=/, xml), do: {:error, "empty namespace prefix"}, else: :ok
   end
 
   defp scan_names(xml) do
@@ -224,7 +229,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLXml do
   end
 
   defp scan_event({:startPrefixMapping, prefix, uri}, _location, elements) do
-    require_known(@response_namespace_declarations, qualified({~c"xmlns", prefix}), "namespace prefix")
+    declaration = if prefix == [], do: ~c"xmlns", else: qualified({~c"xmlns", prefix})
+    require_known(@response_namespace_declarations, declaration, "namespace prefix")
     require_known(@response_namespace_uris, uri, "namespace")
     elements
   end
@@ -240,7 +246,6 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLXml do
   defp scan_event(_event, _location, elements), do: elements
 
   defp qualified({[], local}), do: local
-  defp qualified({prefix, []}), do: prefix
   defp qualified({prefix, local}), do: prefix ++ [?: | local]
 
   defp require_known(known, name, kind) do
