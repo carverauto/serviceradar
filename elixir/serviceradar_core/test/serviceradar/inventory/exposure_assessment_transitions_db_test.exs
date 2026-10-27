@@ -1998,11 +1998,15 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
       assert row["snapshot_generation"] == stalled.id
       refute_received {:owner, _}
       send(http, :commit)
-      assert_receive {:owner, recovered}
-      assert recovered == retained.data
-      assert_receive {:owner, delivered}
-      assert delivered == successor.data
+      # After the commit the owner settles the plan, replays the retained batch,
+      # then journals, retains and applies the successor: a dozen or more
+      # sequential CNPG and JetStream round trips. Wait for the owner, not a
+      # mailbox deadline; its messages arrive in send order, before its reply.
       assert {:ok, 1} = Task.await(owner, 10_000)
+      assert_received {:owner, recovered}
+      assert recovered == retained.data
+      assert_received {:owner, delivered}
+      assert delivered == successor.data
       assert {:ok, settled} = ExposureSnapshotState.get(stalled.id)
       assert settled["pending"][stalled.lane]["state"] == "settled"
 
