@@ -107,7 +107,6 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
         args = %{"device_ord" => scope}
 
         ExposureBroker.with_broker(ctx.tmp_dir, fn conn, _port ->
-          {:ok, _} = Gnat.sub(conn, self(), "exposure.snapshots.>")
           first = live_snapshot!(conn, args)
           assert {:ok, %{ready: false}} = ExposureReadiness.status(scope)
           assert :ok = ExposureReconciliationWorker.perform(%Oban.Job{args: args})
@@ -318,15 +317,21 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
   end
 
   defp live_snapshot!(conn, args) do
-    publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+    {:ok, subscription} = Gnat.sub(conn, self(), "exposure.snapshots.>")
 
     try do
-      generation = live_snapshot_messages!(conn)
-      assert :ok = Task.await(publisher, 30_000)
-      live_finalize!(generation, 20)
-      generation
+      publisher = Task.async(fn -> ExposureSnapshotWorker.perform(%Oban.Job{args: args}) end)
+
+      try do
+        generation = live_snapshot_messages!(conn)
+        assert :ok = Task.await(publisher, 30_000)
+        live_finalize!(generation, 20)
+        generation
+      after
+        Task.shutdown(publisher, :brutal_kill)
+      end
     after
-      Task.shutdown(publisher, :brutal_kill)
+      :ok = Gnat.unsub(conn, subscription)
     end
   end
 
