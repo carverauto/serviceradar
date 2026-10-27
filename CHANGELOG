@@ -80,11 +80,14 @@ plugin-result ingestion more reliable, and ships security updates.
 - IOC and threat filters and the proximity (`near`) filters work on
   StarRocks again (#6035, #6049).
 - Flow charts spread each flow's traffic across its interval instead
-  of booking it at the end time (#5974, #5992).
+  of booking it at the end time. The NetFlow traffic chart stays
+  readable when one bucket is an outlier (#5974, #5992, #5915).
 - Threat Intel metrics open investigation views, Attributed Flows show
   IOC matches, and OTX retrohunt can run on a schedule (#5907, #5909,
   #5927, #5985).
-- Events and other observability pages load faster (#5906, #6038).
+- Events and other observability pages load faster. Syslog lines that
+  start with a timestamp no longer show the timestamp as a service or
+  host name (#5906, #6038, #5898).
 
 **Settings**
 
@@ -98,7 +101,8 @@ plugin-result ingestion more reliable, and ships security updates.
   load (#6008).
 - The plugins page is split into Installed, Updates and Catalog, and
   one plugin can run several assignments on an agent when they come
-  from different rules (#5874, #6011, #6027).
+  from different rules. Action-only plugins are no longer reported as
+  stale or unavailable in the plugin fleet (#5874, #6011, #6027, #5899).
 - Groundwork for exposure intelligence and camera archive recording
   continues. Camera recording stays off by default (#5964, #6041,
   #6047, #6060).
@@ -108,6 +112,7 @@ plugin-result ingestion more reliable, and ships security updates.
 
 **Native add-ons and Wasm plugins**
 
+- The add-on fleet flags scans from outdated scanner versions (#6026).
 - netprobe 0.2.71 reports the package that owns each process
   executable (#5914), bumblebee 0.1.8 reports its own build as the
   scanner version (#5944), awx 0.1.22 and awx-inventory-sync 0.1.17
