@@ -7,7 +7,7 @@ title: Outbound Mail
 ServiceRadar has one outbound mailer. Alert email, dashboard reports, and
 account email (password reset, confirmation) all go through it.
 
-Configure it in the Web UI. Open **Settings -> Mail** (`/settings/mail`).
+Configure it in the Web UI. Open **Settings -> System -> Platform -> Mail** (`/settings/mail`).
 You need the `settings.mail.manage` permission (built-in `admin` has it).
 
 Turn **Enable outbound mail** on and save. That row overrides whatever the
@@ -18,7 +18,7 @@ to Helm / `SMTP_RELAY_*` env, which in a default install is the Test adapter
 :::warning Do not put SMTP passwords in Helm values
 A password in `values.yaml` is a password in the Helm release, in
 `helm get values`, and in GitOps. Create the mailbox on your mail server,
-then paste the username and password into **Settings -> Mail**. The UI
+then paste the username and password into the **Mail** page. The UI
 stores the password encrypted (or in a credential secret you select).
 :::
 
@@ -84,7 +84,7 @@ in the Save Settings flash.
 ## Configure SMTP in the UI
 
 1. Sign in as an administrator.
-2. Go to **Settings -> Mail**.
+2. Go to the **Mail** page.
 3. Check **Enable outbound mail**.
 4. Set **Adapter** to `SMTP`.
 5. Set **From name** and **From email**. The From address must be an identity

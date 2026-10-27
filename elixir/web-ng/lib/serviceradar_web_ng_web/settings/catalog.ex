@@ -22,8 +22,8 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   a parent-group, views may additionally carry a `:subgroup` string that renders
   as a non-collapsible labelled run (e.g. Security → *Users & Access* /
   *Credentials* / *Remote Access* / *Threat Intelligence*, Discovery →
-  *Profiles*). A subgroup's views must hold consecutive `:order` values within
-  their parent-group, or the run splits into two headed sections. The only
+  *Profiles*). A subgroup's views must remain contiguous when sorted by `:order`
+  within their parent-group, or the run splits into two headed sections. The only
   collapsible level is the parent-group.
 
   ## Why here (web-ng) and not in serviceradar_core
@@ -231,7 +231,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   # duplicate route so the shell highlights the correct view there.
   # ---------------------------------------------------------------------------
   @views [
-    # === System · Cluster ====================================================
+    # === System · Platform ===================================================
     %{
       id: :cluster_status,
       category: :system,
