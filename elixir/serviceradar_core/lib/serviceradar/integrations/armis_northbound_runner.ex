@@ -1017,10 +1017,10 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
   one (the canonical path) it follows the source's `northbound_availability_semantics`
   (`add-merged-device-availability`, design Decision 13):
 
-    * `legacy` (every existing source until an operator chooses): the legacy
-      availability value the legacy writers keep in `device_availability_legacy` in
-      every mode, or the device's `is_available` where that table has no row yet; false
-      when neither has one, as before.
+    * `legacy` (every existing source until an operator runs
+      `:adopt_merged_availability`): the legacy availability value the legacy writers
+      keep in `device_availability_legacy`, or the device's `is_available` where that
+      table has no row; false when neither has one, as before.
     * `merged`: the canonical `availability_state`; `nil` for an `unknown` device, which
       `load_candidates/2` withholds.
   """
@@ -1071,9 +1071,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     end
   end
 
-  # The legacy value is the compatibility table's, or the column's for a device the table
-  # has no row for yet: the table is fully seeded only when shadow is entered or at
-  # cutover, and before that the column is the legacy value.
+  # Per-source `legacy`/`merged` semantics: `legacy` reads the legacy availability table
+  # (`device_availability_legacy`, falling back to `is_available` if a row is absent),
+  # and only `:adopt_merged_availability` switches a source to `merged`.
   defp canonical_base_query(source_id) do
     from(d in Device,
       join: di in DeviceIdentifier,

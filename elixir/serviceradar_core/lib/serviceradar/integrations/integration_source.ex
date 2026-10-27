@@ -188,9 +188,9 @@ defmodule ServiceRadar.Integrations.IntegrationSource do
     update :adopt_merged_availability do
       description """
       Operator choice: canonical northbound pushes (no availability agent selected) send
-      the merged availability state instead of the legacy value, and withhold unknown
-      devices. Never applied automatically. Source settings count how many pushes would
-      change only once the deployment is out of legacy mode.
+      the merged availability state instead of the legacy availability table value, and
+      withhold unknown devices. Only this action changes an existing source from legacy to
+      merged semantics; source settings show how many pushes would change before adopting.
       """
 
       accept []
