@@ -52,7 +52,8 @@ The visual builder in this change composes only row and downsample modes. Stats 
 | `src_country_iso2` / `src_country` | yes | yes | no | Geo - row/stats only |
 | `dst_country_iso2` / `dst_country` | yes | yes | no | Geo - row/stats only |
 | `tag` / `src_tag` / `dst_tag` | yes | yes | no | Prefix tags - row/stats only |
-| `near` / `src_near` / `dst_near` | yes | yes | no | Geo proximity - row/stats only |
+| `near` / `src_near` / `dst_near` | yes | yes | no | Geo proximity - row/stats only. On StarRocks, great-circle distance on a sphere (`st_distance_sphere`) over the geo cache's `latitude`/`longitude`; results within a fraction of a percent of the radius edge can differ from PostGIS `ST_DWithin` on the spheroid |
+| `threat_matched` / `threat_source` / `threat_indicator` / `threat_observed_ip` / `threat_severity` | yes | yes | no | Threat intel - row/stats; read through the `cnpg_platform` catalog (cache, `ip_threat_intel_sources_catalog`, `threat_intel_indicator_members_catalog`) |
 | `as_path` | no | no | no | Removed from the builder catalog until an engine path supports it |
 | `bgp_communities` | no | no | no | Removed from the builder catalog until an engine path supports it |
 | `device_id` | yes | yes | no | Row/stats device scope; advertised by the row builder, rejected by flows downsample |

@@ -231,18 +231,17 @@ in:flows threat_matched:true time:last_24h sort:time:desc limit:100
 Each flow appears once even if several indicators cover an endpoint. Omitting
 `time:` defaults to the last 24 hours.
 
-### Flows for one matched endpoint
+### Flows for one indicator CIDR
 
 ```srql
-in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
-in:flows threat_observed_ip:"198.51.100.10" time:last_24h sort:time:desc limit:100
+in:flows threat_indicator:"198.51.100.0/24" time:last_24h sort:time:desc limit:100
 ```
 
-`threat_indicator:` and `threat_source:` are not available on flows yet. The
-StarRocks 4.1 JDBC catalog cannot read the indicator `cidr` or the cache's
-source list, so SRQL refuses these filters rather than return approximate
-rows. Find the matched endpoints in `in:threat_intel_matches`, then narrow
-flows to one of them with `threat_observed_ip:`.
+### Attributed threat-matched flows
+
+```srql
+in:attributed_flows threat_source:alienvault_otx time:last_24h sort:time:desc limit:100
+```
 
 ## NetFlow traffic queries
 
@@ -358,12 +357,28 @@ IPAM prefix enrichment (see [Prefix Tags](./prefix-tags.md)).
 
 ### Proximity (geo cache)
 
-`near:`, `src_near:` and `dst_near:` are not available on flows yet. They are
-defined as PostGIS `ST_DWithin` on the generated `location` geography of
-`platform.ip_geo_enrichment_cache`, and the StarRocks 4.1 JDBC catalog cannot
-read geography columns. SRQL refuses these filters rather than return rows
-from a different distance model. Country filters (`src_country_iso2:`,
-`dst_country_iso2:`) still work.
+```
+in:flows near:30.2672,-97.7431,50km time:last_6h
+```
+
+```
+in:flows tag:ti:otx near:30.27,-97.74,50km time:last_24h
+```
+
+```
+in:flows dst_near:37.7749,-122.4194,25mi time:last_1h
+```
+
+`near:` matches if **either** endpoint's IP is within the radius of the coordinate
+according to `platform.ip_geo_enrichment_cache`. `src_near:` / `dst_near:` are
+directional. Distances are great-circle distances on a sphere (StarRocks
+`st_distance_sphere`, mean Earth radius 6371.01 km), computed from the cache's
+`latitude`/`longitude`. The radius is not measured on the WGS84 spheroid, so an
+IP within a fraction of a percent of the radius edge can land on the other side
+of it compared with PostGIS `ST_DWithin`. GeoIP positions are far coarser than
+that difference.
+Radius units: `km` (default if omitted), `m`, `mi`. IPs missing from the geo
+cache are excluded from proximity matches without error.
 
 ### Traffic broken down by application
 

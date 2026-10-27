@@ -55,8 +55,20 @@ source/destination threat summaries without duplicating flow rows.
 - **WHEN** a client filters `in:flows` with `threat_indicator` and a bounded time
   range
 - **THEN** SRQL SHALL return flows involving an endpoint matched by that indicator
-- **AND** it SHALL parameterize the indicator value rather than interpolate it
-  into SQL
+- **AND** it SHALL validate the indicator value as an IP or CIDR and re-encode it
+  as fixed-width hex bounds before it reaches SQL, rather than interpolate the
+  caller's text
+
+#### Scenario: StarRocks answers threat filters through the JDBC catalog
+
+- **GIVEN** flows are stored in StarRocks 4.1, whose JDBC catalog has no
+  pass-through query and cannot read PostgreSQL `text[]` or `cidr` columns
+- **WHEN** a client filters flows with `threat_source` or `threat_indicator`
+- **THEN** SRQL SHALL read the scalar `ip_threat_intel_sources_catalog` and
+  `threat_intel_indicator_members_catalog` views, where PostgreSQL itself
+  evaluates indicator containment
+- **AND** the selected endpoints SHALL equal those the PostgreSQL definitions
+  select (`sources && ARRAY[...]`, `indicator = <cidr>`, `indicator >>= <ip>`)
 
 #### Scenario: Query attributed threat-matched flows
 
