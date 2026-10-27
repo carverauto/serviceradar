@@ -30,7 +30,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   call does, so the batch keeps a single ACK decision. A batch within both
   limits is one load, labelled exactly as before; a split load's label is still
   derived from its own rows (or suffixed from a caller-supplied label), so a
-  retry of the same batch reuses the same labels. Primary-key tables upsert
+  retry of the same batch reuses the same labels unless replacing rows by id.
+  Primary-key tables upsert
   retries even when rows regroup into different loads. Exposure history is
   append-only: regrouped retries can append the same transition again.
 
@@ -43,6 +44,8 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
   incoming `(id, time)` keys, which are upserted by the load.
   The delete runs only when the load does, and
   a failed delete fails the call without loading, so a redelivery repeats both.
+  Each replacement call uses a fresh load label, overriding any supplied label;
+  retries within that call reuse it. Split loads suffix that label per chunk.
   Callers serialise concurrent replaces of the same ids themselves.
   """
 
@@ -256,6 +259,11 @@ defmodule ServiceRadar.Analytics.StarRocks.Destination do
       emit_batch_telemetry(dataset, table, chunks)
 
       with :ok <- replace_ids(dataset, table, encoded, persist_opts[:config], opts) do
+        persist_opts =
+          if is_nil(opts[:replace]),
+            do: persist_opts,
+            else: Keyword.put(persist_opts, :label, "sr-replace-#{Ecto.UUID.generate()}")
+
         case chunks do
           [{rows, body, _bytes}] ->
             load_chunk(persist, dataset, table, rows, Keyword.put(persist_opts, :body, body))

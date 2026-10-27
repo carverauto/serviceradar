@@ -817,7 +817,22 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("ocsf_network_activity", @rows, http: http, label: label)
   end
 
-  test "replacement and redelivery retain the latest event in the warehouse" do
+  test "ordinary load labels distinguish content while ignoring encode-time stamps" do
+    row = %{"id" => "synthetic-event", "time" => "2026-01-15T10:00:00Z", "message" => "first"}
+    label = StreamLoad.load_label("events", [row])
+
+    for changed <- [
+          Map.put(row, "time", "2026-01-15T11:00:00Z"),
+          Map.put(row, "message", "resolved")
+        ] do
+      refute StreamLoad.load_label("events", [changed]) == label
+    end
+
+    assert StreamLoad.load_label("events", [Map.put(row, "created_at", "2026-01-16T10:00:00Z")]) ==
+             label
+  end
+
+  test "interleaved replacement redelivery restores the delivered event" do
     first = %{
       "id" => "00000000-0000-4000-8000-000000000001",
       "time" => "2026-01-15T10:00:00Z",
@@ -861,19 +876,15 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
 
           send(parent, {:loaded, label, rows})
 
-          {:ok,
-           %{
-             status: 200,
-             body:
-               Jason.encode!(%{
-                 "Status" => "Success",
-                 "NumberLoadedRows" => 1,
-                 "NumberFilteredRows" => 0
-               })
-           }}
+          {:error, :timeout}
         end
 
-      %{method: :get} ->
+      %{method: :get, url: url} ->
+        label =
+          url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("label")
+
+        assert :ets.member(loaded_labels, label)
+        send(parent, {:reconciled, label})
         {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
     end
 
@@ -900,15 +911,24 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
 
     assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [first], opts)
     assert_received {:loaded, first_label, [_]}
+    assert_received {:reconciled, ^first_label}
 
     assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [second], opts)
     assert_received {:loaded, second_label, [replacement]}
     refute first_label == second_label
     assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replacement}]
 
+    assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [first], opts)
+    assert_received {:loaded, restored_label, [restored]}
+    assert_received {:reconciled, ^restored_label}
+    refute restored_label == first_label
+    assert restored["message"] == "first"
+    assert :ets.tab2list(warehouse) == [{{first["id"], first["time"]}, restored}]
+
     assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [second], opts)
-    refute_received {:loaded, _, _}
-    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replacement}]
+    assert_received {:loaded, replay_label, [replayed]}
+    refute replay_label == second_label
+    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replayed}]
 
     updated = Map.put(second, "message", "resolved")
     assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [updated], opts)
@@ -917,8 +937,9 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
     assert latest["message"] == "resolved"
 
     assert {:ok, %{loaded: 1}} = Destination.persist_shadow(:events, [updated], opts)
-    refute_received {:loaded, _, _}
-    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, latest}]
+    assert_received {:loaded, replay_label, [replayed]}
+    refute replay_label == updated_label
+    assert :ets.tab2list(warehouse) == [{{second["id"], second["time"]}, replayed}]
   end
 
   test "redelivery of an already-loaded batch reconciles instead of failing the ACK" do
