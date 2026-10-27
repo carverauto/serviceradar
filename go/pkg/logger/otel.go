@@ -31,10 +31,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	log "go.opentelemetry.io/otel/log"
-	"go.opentelemetry.io/otel/log/global"
 	sdklog "go.opentelemetry.io/otel/sdk/log"
 	"go.opentelemetry.io/otel/sdk/resource"
 	semconv "go.opentelemetry.io/otel/semconv/v1.31.0"
@@ -148,7 +148,7 @@ func NewOTELWriter(ctx context.Context, config OTelConfig) (*OTelWriter, error) 
 	)
 
 	otelProvider = provider
-	global.SetLoggerProvider(provider)
+	otel.SetLoggerProvider(provider)
 
 	// Return the initialized writer struct, DO NOT create a single logger here.
 	return &OTelWriter{
