@@ -768,7 +768,10 @@ NETWORKS_LIVE_DB_SHARD_SRCS = [
             "//elixir/serviceradar_core:test/db/fixture_config.exs",
             "//elixir/serviceradar_core:test/db/integration_env.exs",
             "//elixir/serviceradar_core:test/db/integration_env_config.exs",
-        ],
+        ] + ([
+            "//elixir/serviceradar_core_elx:recording_browser_fixture",
+            "//third_party/membrane:media_test_tools",
+        ] if "test/integration/camera_media_upload_db_test.exs" in shard_srcs else []),
         elixir_opts = [
             "-r",
             "../serviceradar_core/test/db/integration_env.exs",

@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     spool = Path.join(directory, "spool")
     File.mkdir!(spool)
     File.chmod!(spool, 0o700)
-    {block, block_directory} = frozen_block(context, spool, test[:archive_reads])
+    {block, block_directory} = frozen_block(context, spool, test)
     Application.put_env(:serviceradar_core_elx, :camera_recording_storage_id, block.storage_id)
 
     runtime = ArchiveStorageHTTP.start!(installation)
@@ -394,11 +394,54 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
   test "archived fragments require current permission and proofs after isolated provider reads", context do
     token = recording_reader_token()
     path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
+    playlist = path <> "/playlist.m3u8"
+    requests = Agent.get(context.store, & &1.requests)
+    assert recording_response(token, playlist).status == 409
+    assert Agent.get(context.store, & &1.requests) == requests
     assert {:ok, _} = MediaUpload.upload_once(context.block.id)
     assert {:ok, _} = ArchivePublication.complete_once(context.block.id)
     remove_local_inputs(context)
     stop_recording(context)
     assert {:ok, published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    requests = Agent.get(context.store, & &1.requests)
+    response = recording_response(token, playlist, "application/vnd.apple.mpegurl")
+    assert response.status == 200
+    assert get_resp_header(response, "content-type") == ["application/vnd.apple.mpegurl"]
+    assert get_resp_header(response, "x-content-type-options") == ["nosniff"]
+    assert recording_response(token, playlist <> "?first=0&count=64").resp_body == response.resp_body
+    assert playlist_segments(response.resp_body) == ["fragments/0", "fragments/1"]
+
+    final_window = recording_response(token, playlist <> "?first=1&count=64")
+    assert final_window.status == 200
+    assert playlist_segments(final_window.resp_body) == ["fragments/1"]
+
+    for query <- ["first=2", "first=4095"] do
+      assert recording_response(token, playlist <> "?" <> query).status == 416
+    end
+
+    for query <- [
+          "first=-1",
+          "first=01",
+          "count=01",
+          "count=1.0",
+          "first=",
+          "count=",
+          "first[]=0",
+          "count[]=1",
+          "count=0",
+          "count=65",
+          "first=4096"
+        ] do
+      assert recording_response(token, playlist <> "?" <> query).status == 400
+    end
+
+    unauthorized = build_conn() |> put_req_header("accept", "application/vnd.apple.mpegurl") |> get(playlist)
+    assert unauthorized.status == 401
+    other = other_recording_source(context)
+    foreign = "/api/cameras/#{other.id}/recordings/#{context.block.id}/playlist.m3u8"
+    assert recording_response(token, foreign).status == 404
+    assert Agent.get(context.store, & &1.requests) == requests
 
     initial = recording_response(token, path <> "/init", "video/mp4")
     assert initial.status == 200
@@ -435,6 +478,14 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
       |> get(path <> "/fragments/0")
 
     assert json_response(ranged, 400)["error"] == "invalid_request"
+
+    playlist_ranged =
+      build_conn()
+      |> put_req_header("authorization", "Bearer " <> token)
+      |> put_req_header("range", "bytes=0-")
+      |> get(playlist)
+
+    assert json_response(playlist_ranged, 400)["error"] == "invalid_request"
     assert Agent.get(context.store, & &1.requests) == requests
 
     {:ok, %{"sub" => "user:" <> user_id}} = Guardian.decode_and_verify(token)
@@ -452,6 +503,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert length(Agent.get(context.store, & &1.requests)) == length(requests) + 1
     requests = Agent.get(context.store, & &1.requests)
     assert recording_response(token, path <> "/init").status == 403
+    assert recording_response(token, playlist).status == 403
     assert Agent.get(context.store, & &1.requests) == requests
 
     assert %{num_rows: 1} =
@@ -474,8 +526,139 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert length(Agent.get(context.store, & &1.requests)) == length(requests) + 1
     requests = Agent.get(context.store, & &1.requests)
     assert recording_response(token, path <> "/init").status == 409
+    assert recording_response(token, playlist).status == 409
     assert Agent.get(context.store, & &1.requests) == requests
     assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+  end
+
+  @tag publication: true, archive_reads: true, hls_media: true
+  test "an independent HLS consumer follows the authenticated server playlist and decodes the published colors",
+       context do
+    token = recording_reader_token()
+    assert {:ok, _} = MediaUpload.upload_once(context.block.id)
+    assert {:ok, _} = ArchivePublication.complete_once(context.block.id)
+    remove_local_inputs(context)
+    stop_recording(context)
+    assert {:ok, published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+
+    server = start_supervised!({Bandit, plug: @endpoint, ip: {127, 0, 0, 1}, port: 0})
+    {:ok, {_address, port}} = ThousandIsland.listener_info(server)
+    path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}/playlist.m3u8"
+    url = "http://127.0.0.1:#{port}" <> path
+    requests = Agent.get(context.store, & &1.requests)
+
+    response = recording_response(token, path)
+    assert response.status == 200
+    assert playlist_segments(response.resp_body) == ["fragments/0", "fragments/1", "fragments/2"]
+    assert Agent.get(context.store, & &1.requests) == requests
+
+    # These tools receive only the playlist URL. They resolve EXT-X-MAP and
+    # segment URIs over the real Endpoint; no test code feeds media to a decoder.
+    probe_args =
+      hls_input_options(token) ++
+        [
+          "-select_streams",
+          "v:0",
+          "-show_frames",
+          "-show_entries",
+          "frame=best_effort_timestamp_time,width,height",
+          "-of",
+          "json",
+          url <> "?first=1&count=1"
+        ]
+
+    assert {probe, 0} = System.cmd(media_tool("ffprobe"), probe_args)
+    assert %{"frames" => frames} = Jason.decode!(probe)
+    assert length(frames) == 30
+
+    for {frame, index} <- Enum.with_index(frames) do
+      assert frame["width"] == 64
+      assert frame["height"] == 64
+      assert abs(String.to_float(frame["best_effort_timestamp_time"]) - (2 + index / 15)) < 0.000_002
+    end
+
+    decode_args =
+      ["-nostdin", "-xerror", "-filter_threads", "1"] ++
+        hls_input_options(token) ++
+        [
+          "-i",
+          url,
+          "-map",
+          "0:v:0",
+          "-threads",
+          "1",
+          "-fps_mode",
+          "passthrough",
+          "-f",
+          "rawvideo",
+          "-pix_fmt",
+          "rgb24",
+          "pipe:1"
+        ]
+
+    assert {pixels, 0} = System.cmd(media_tool("ffmpeg"), decode_args)
+    assert byte_size(pixels) == 90 * 64 * 64 * 3
+
+    frames = for <<frame::binary-size(12_288) <- pixels>>, do: frame
+
+    for {frame, index} <- Enum.with_index(frames) do
+      channels = frame |> binary_part((32 * 64 + 32) * 3, 3) |> :binary.bin_to_list()
+      expected = div(index, 30)
+      assert Enum.at(channels, expected) > 220
+
+      assert Enum.all?(Enum.reject(Enum.with_index(channels), fn {_, channel} -> channel == expected end), fn {value, _} ->
+               value < 30
+             end)
+    end
+
+    after_requests = Agent.get(context.store, & &1.requests)
+    reads = Enum.take(after_requests, length(after_requests) - length(requests))
+    assert Enum.all?(reads, &(&1.method == "GET" and &1.role in [:init, :media]))
+    assert Enum.any?(reads, &(&1.role == :init))
+    assert Enum.any?(reads, &(&1.role == :media))
+    assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
+  end
+
+  defp playlist_segments(body) do
+    body |> String.split("\n", trim: true) |> Enum.reject(&String.starts_with?(&1, "#"))
+  end
+
+  defp hls_input_options(token) do
+    # The checkpoint exposes complete authorized fragments, not caller byte
+    # ranges or parallel prefetch. This proves a sequential HLS consumer with
+    # partial requests disabled, not default FFmpeg or browser compatibility.
+    [
+      "-v",
+      "error",
+      "-threads",
+      "1",
+      "-protocol_whitelist",
+      "http,tcp",
+      "-rw_timeout",
+      "5000000",
+      "-seekable",
+      "0",
+      "-http_seekable",
+      "0",
+      "-http_multiple",
+      "0",
+      "-http_persistent",
+      "0",
+      "-seg_max_retry",
+      "0",
+      "-max_reload",
+      "0",
+      "-m3u8_hold_counters",
+      "1",
+      "-headers",
+      "Authorization: Bearer " <> token <> "\r\n"
+    ]
+  end
+
+  defp media_tool(name), do: runfile("third_party/membrane/media_test_tools/" <> name)
+
+  defp runfile(relative) do
+    Path.join([System.fetch_env!("TEST_SRCDIR"), System.fetch_env!("TEST_WORKSPACE"), relative])
   end
 
   defp recording_response(token, path, accept \\ "application/json") do
@@ -759,7 +942,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     peer
   end
 
-  defp frozen_block(context, root, archive_reads?) do
+  defp frozen_block(context, root, test) do
     {:ok, relay} = Fixtures.open(context)
     {:ok, relay} = Fixtures.activate(context, relay)
     owner = Fixtures.owner(context)
@@ -783,24 +966,53 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
     {:ok, block} = RecorderOwnership.reserve_block(owner, claim, clock, context.opts)
 
+    {initial, fragments, format} = recording_media(test)
     {:ok, storage} = Storage.initialize(root, block.storage_id)
-    {:ok, spool} = Spool.create(storage, RecordingBlock.identity(block), "i")
-    {:ok, spool, _} = Spool.append(spool, @bytes, %{start_ns: 0, duration_ns: 1_000_000_000})
+    {:ok, spool} = Spool.create(storage, RecordingBlock.identity(block), initial)
 
     spool =
-      if archive_reads? do
-        {:ok, spool, _} = Spool.append(spool, @second_bytes, %{start_ns: 1_000_000_000, duration_ns: 1_000_000_000})
+      Enum.reduce(fragments, spool, fn {bytes, metadata}, spool ->
+        {:ok, spool, _} = Spool.append(spool, bytes, metadata)
         spool
-      else
-        spool
-      end
+      end)
 
     {:ok, spool} = Spool.seal(spool)
-    format = %{sha256: digest("i"), timescale: 90_000, codecs: %{avc1: %{profile: 66, compatibility: 192, level: 10}}}
     {:ok, descriptor} = RecordingDescriptor.from_snapshot(Spool.snapshot(spool), format)
     {:ok, block} = RecordingBlocks.freeze(owner, claim, block, descriptor, context.opts)
     {:ok, :released} = RecorderOwnership.release(owner, claim, context.opts)
     {block, Spool.snapshot(spool).directory}
+  end
+
+  defp recording_media(%{hls_media: true}) do
+    fixture =
+      "elixir/serviceradar_core_elx/recording_browser_fixture.json" |> runfile() |> File.read!() |> Jason.decode!()
+
+    initial = Base.decode64!(fixture["init"])
+    avc = fixture["codecs"]["avc1"]
+    codecs = %{avc1: %{profile: avc["profile"], compatibility: avc["compatibility"], level: avc["level"]}}
+    format = %{sha256: digest(initial), timescale: 90_000, codecs: codecs}
+
+    fragments =
+      Enum.map(fixture["fragments"], fn fragment ->
+        metadata = %{start_ns: fragment["start_ns"], duration_ns: fragment["duration_ns"]}
+
+        metadata =
+          if Map.has_key?(fragment, "tail_duration_source"),
+            do: Map.put(metadata, :tail_duration_source, fragment["tail_duration_source"]),
+            else: metadata
+
+        {Base.decode64!(fragment["base64"]), metadata}
+      end)
+
+    {initial, fragments, format}
+  end
+
+  defp recording_media(test) do
+    first = {@bytes, %{start_ns: 0, duration_ns: 1_000_000_000}}
+    second = {@second_bytes, %{start_ns: 1_000_000_000, duration_ns: 1_000_000_000}}
+    fragments = if test[:archive_reads], do: [first, second], else: [first]
+    format = %{sha256: digest("i"), timescale: 90_000, codecs: %{avc1: %{profile: 66, compatibility: 192, level: 10}}}
+    {"i", fragments, format}
   end
 
   defp desired(binding, block, destination, installation) do
