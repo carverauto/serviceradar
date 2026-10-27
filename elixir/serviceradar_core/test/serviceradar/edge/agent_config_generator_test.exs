@@ -594,17 +594,20 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert hd(config1.plugins).download_url == hd(config2.plugins).download_url
 
       payload = Jason.decode!(config1.config_json)
-      [json_plugin] = get_in(payload, ["plugins", "assignments"])
+      refute Map.has_key?(payload, "plugins")
 
-      assert json_plugin["assignment_id"] == hd(config1.plugins).assignment_id
-      assert json_plugin["download_url"] == hd(config1.plugins).download_url
-      assert is_binary(json_plugin["download_token"])
+      proto = AgentConfigGenerator.to_proto_response(config1)
+      assert [proto_plugin] = proto.plugin_config.assignments
 
-      assert get_in(payload, ["plugins", "engine_limits"]) == %{
-               "max_concurrent" => nil,
-               "max_cpu_ms" => nil,
-               "max_memory_mb" => nil,
-               "max_open_connections" => nil
+      assert proto_plugin.assignment_id == hd(config1.plugins).assignment_id
+      assert proto_plugin.download_url == hd(config1.plugins).download_url
+      assert is_binary(proto_plugin.download_token) and proto_plugin.download_token != ""
+
+      assert proto.plugin_config.engine_limits == %Monitoring.PluginEngineLimits{
+               max_concurrent: 0,
+               max_cpu_ms: 0,
+               max_memory_mb: 0,
+               max_open_connections: 0
              }
     end
 

@@ -279,8 +279,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
 
       payload = %{
         "sweep" => shared_sweep,
-        "mapper" => %{"scheduled_jobs" => []},
-        "plugins" => %{"assignments" => [], "engine_limits" => %{}}
+        "mapper" => %{"scheduled_jobs" => []}
       }
 
       log =
@@ -333,6 +332,189 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
       assert legacy_log =~ "agent_id=agent-legacy-log"
       assert legacy_log =~ "sweep_format=legacy"
       assert legacy_log =~ "sweep_bytes=#{byte_size(Jason.encode!(legacy_sweep))}"
+    end
+  end
+
+  describe "compute_version_hash/1 (#6033)" do
+    alias ServiceRadar.AgentConfig.Compilers.SNMPCompiler
+    alias ServiceRadar.AgentConfig.Compilers.SweepCompiler
+
+    test "stays identical for identical input and volatile timestamp/token rotation" do
+      base = base_version_components()
+
+      assert AgentConfigGenerator.compute_version_hash(base) ==
+               AgentConfigGenerator.compute_version_hash(base)
+
+      rotated_volatile =
+        base
+        |> put_in([:sweep, "compiled_at"], "2026-10-27T04:00:00Z")
+        |> put_in([:sync, "generated_at"], "2026-10-27T04:00:00Z")
+        |> put_in([:plugins, Access.at(0), :download_token], "rotated-token-2")
+        |> put_in([:plugins, Access.at(0), :download_url], "https://edge.example.test/dl/2")
+        |> put_in([:addons, Access.at(0), :download_token], "rotated-addon-token-2")
+
+      assert AgentConfigGenerator.compute_version_hash(base) ==
+               AgentConfigGenerator.compute_version_hash(rotated_volatile)
+
+      # When config_hash is already computed on sweep and snmp, compute_version_hash/1
+      # reuses it rather than re-traversing their group/target lists.
+      same_precomputed_hashes =
+        base
+        |> put_in([:sweep, "groups"], [%{"id" => "untouched-when-config-hash-present"}])
+        |> put_in([:snmp, "targets"], [%{"id" => "untouched-when-config-hash-present"}])
+
+      assert AgentConfigGenerator.compute_version_hash(base) ==
+               AgentConfigGenerator.compute_version_hash(same_precomputed_hashes)
+    end
+
+    test "changes whenever any config component changes" do
+      base = base_version_components()
+      base_hash = AgentConfigGenerator.compute_version_hash(base)
+
+      changed_sweep_groups = [
+        %{
+          "id" => "group-1",
+          "sweep_group_id" => "group-1",
+          "ports" => [22, 443, 8443],
+          "modes" => ["icmp", "tcp"],
+          "device_targets" => [
+            %{"network" => "192.0.2.10", "metadata" => %{"device_uid" => "sr:dev-0001"}}
+          ]
+        }
+      ]
+
+      changed_snmp_raw = %{
+        "enabled" => true,
+        "profile_id" => "snmp-prof-1",
+        "profile_name" => "Core SNMP",
+        "targets" => [
+          %{
+            "id" => "sr:dev-0001",
+            "host" => "192.0.2.10",
+            "port" => 161,
+            "oids" => [%{"oid" => ".1.3.6.1.2.1.1.5.0", "name" => "sysName"}]
+          }
+        ]
+      }
+
+      component_mutations = [
+        {:checks, put_in(base, [:checks, Access.at(0), :interval_sec], 120)},
+        {:sync, put_in(base, [:sync, "sources", "armis-1", " poll_interval"], 300)},
+        {:sweep_targets,
+         put_in(base, [:sweep], %{
+           "groups" => changed_sweep_groups,
+           "compiled_at" => "2026-10-27T03:00:00Z",
+           "config_hash" => SweepCompiler.config_hash(changed_sweep_groups)
+         })},
+        {:sweep_format, put_in(base, [:sweep, "format"], "shared-targets/v1")},
+        {:mapper,
+         put_in(base, [:mapper, "scheduled_jobs"], [%{"id" => "job-2", "interval" => "10m"}])},
+        {:sysmon, put_in(base, [:sysmon, "sample_interval"], "30s")},
+        {:snmp,
+         put_in(
+           base,
+           [:snmp],
+           Map.put(changed_snmp_raw, "config_hash", SNMPCompiler.config_hash(changed_snmp_raw))
+         )},
+        {:visibility, put_in(base, [:visibility, "enabled"], true)},
+        {:bumblebee, put_in(base, [:bumblebee, "scan_profile"], "servers")},
+        {:endpoint_inventory, put_in(base, [:endpoint_inventory, "cadence"], "24h")},
+        {:plugins, put_in(base, [:plugins, Access.at(0), :interval_sec], 180)},
+        {:plugin_engine_limits, put_in(base, [:plugin_engine_limits, :max_concurrent], 8)},
+        {:addons, put_in(base, [:addons, Access.at(0), :version], "0.1.21")}
+      ]
+
+      for {component, mutated} <- component_mutations do
+        mutated_hash = AgentConfigGenerator.compute_version_hash(mutated)
+
+        assert mutated_hash != base_hash,
+               "expected config_version hash to change when #{inspect(component)} changed"
+      end
+    end
+
+    defp base_version_components do
+      sweep_groups = [
+        %{
+          "id" => "group-1",
+          "sweep_group_id" => "group-1",
+          "ports" => [22, 443],
+          "modes" => ["icmp", "tcp"],
+          "device_targets" => [
+            %{"network" => "192.0.2.10", "metadata" => %{"device_uid" => "sr:dev-0001"}}
+          ]
+        }
+      ]
+
+      snmp_raw = %{
+        "enabled" => true,
+        "profile_id" => "snmp-prof-1",
+        "profile_name" => "Core SNMP",
+        "targets" => [
+          %{
+            "id" => "sr:dev-0001",
+            "host" => "192.0.2.10",
+            "port" => 161,
+            "oids" => [%{"oid" => ".1.3.6.1.2.1.1.3.0", "name" => "sysUpTime"}]
+          }
+        ]
+      }
+
+      %{
+        checks: [
+          %{
+            check_id: "chk-1",
+            check_type: "icmp",
+            name: "Ping 1",
+            enabled: true,
+            interval_sec: 60,
+            timeout_sec: 5,
+            target: "192.0.2.10",
+            port: nil,
+            path: nil,
+            method: nil,
+            settings: %{}
+          }
+        ],
+        sync: %{
+          "agent_id" => "agent-1",
+          "partition" => "default",
+          "generated_at" => "2026-10-27T03:00:00Z",
+          "sources" => %{"armis-1" => %{"endpoint" => "https://armis.example.test"}}
+        },
+        sweep: %{
+          "groups" => sweep_groups,
+          "compiled_at" => "2026-10-27T03:00:00Z",
+          "config_hash" => SweepCompiler.config_hash(sweep_groups)
+        },
+        mapper: %{"scheduled_jobs" => [%{"id" => "job-1", "interval" => "5m"}]},
+        sysmon: %{"enabled" => true, "sample_interval" => "10s"},
+        snmp: Map.put(snmp_raw, "config_hash", SNMPCompiler.config_hash(snmp_raw)),
+        visibility: %{"enabled" => false},
+        bumblebee: %{"enabled" => true, "scan_profile" => "workstations"},
+        endpoint_inventory: %{"enabled" => true, "cadence" => "12h"},
+        plugins: [
+          %{
+            assignment_id: "assign-1",
+            plugin_id: "http-check",
+            interval_sec: 60,
+            timeout_sec: 10,
+            params: %{"url" => "https://example.test"},
+            download_url: "https://edge.example.test/dl/1",
+            download_token: "rotated-token-1"
+          }
+        ],
+        plugin_engine_limits: %{max_concurrent: 4},
+        addons: [
+          %{
+            addon_id: "netprobe",
+            version: "0.1.20",
+            enabled: true,
+            binary_path: "/usr/local/bin/serviceradar-netprobe",
+            params: %{"enabled" => true},
+            download_token: "rotated-addon-token-1"
+          }
+        ]
+      }
     end
   end
 

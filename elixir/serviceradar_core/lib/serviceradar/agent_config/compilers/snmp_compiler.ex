@@ -21,7 +21,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
 
   ## Output Format
 
-  The compiled config follows the proto SNMPConfig structure:
+  The compiled config contains the SNMP payload below plus a deterministic
+  `config_hash` computed by `config_hash/1`, including for disabled configs.
+  The hash is internal cache/version metadata and is not a proto SNMPConfig field.
 
       %{
         "enabled" => true,
@@ -59,6 +61,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   # built rather than discovered at the far end.
   alias Ash.Error.Invalid
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentConfig.Compiler
   alias ServiceRadar.AgentConfig.Compilers.TargetedProfileResolver
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Identity.DeviceAliasState
@@ -319,14 +322,26 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         |> sort_targets()
         |> sanitize_target_names()
 
-      {:ok,
-       %{
-         "enabled" => profile.enabled and compiled_targets != [],
-         "profile_id" => profile.id,
-         "profile_name" => profile.name,
-         "targets" => compiled_targets
-       }}
+      config = %{
+        "enabled" => profile.enabled and compiled_targets != [],
+        "profile_id" => profile.id,
+        "profile_name" => profile.name,
+        "targets" => compiled_targets
+      }
+
+      {:ok, Map.put(config, "config_hash", config_hash(config))}
     end
+  end
+
+  @doc """
+  Computes a deterministic config hash for a compiled SNMP config.
+  """
+  @spec config_hash(map()) :: String.t()
+  def config_hash(config) when is_map(config) do
+    config
+    |> Map.delete("config_hash")
+    |> Map.delete(:config_hash)
+    |> Compiler.content_hash()
   end
 
   # A device whose read failed is not a device to skip: skipping every device
@@ -1270,17 +1285,24 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     }
   end
 
+  @disabled_config_base %{
+    "enabled" => false,
+    "profile_id" => nil,
+    "profile_name" => nil,
+    "targets" => []
+  }
+  @disabled_config Map.put(
+                     @disabled_config_base,
+                     "config_hash",
+                     Compiler.content_hash(@disabled_config_base)
+                   )
+
   @doc """
   Returns disabled SNMP configuration when no profile is assigned.
   """
   @spec disabled_config() :: map()
   def disabled_config do
-    %{
-      "enabled" => false,
-      "profile_id" => nil,
-      "profile_name" => nil,
-      "targets" => []
-    }
+    @disabled_config
   end
 
   @doc """

@@ -48,6 +48,9 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   Gets a compiled config for the specified parameters.
 
   Returns cached config if available, otherwise compiles and caches.
+  The returned entry's `hash` reuses a non-empty compiled `config_hash`,
+  prefixed with `format:` when a non-empty format is present. Configs without
+  a compiled hash use `Compiler.content_hash/1` over the complete config.
   """
   @spec get_config(atom(), String.t(), String.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -206,10 +209,22 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   defp build_cache_entry(compiled_config) do
     %{
       config: compiled_config,
-      hash: Compiler.content_hash(compiled_config),
+      hash: compiled_config_hash(compiled_config),
       version: 1,
       cached_at: DateTime.utc_now()
     }
+  end
+
+  defp compiled_config_hash(%{"config_hash" => hash} = compiled_config)
+       when is_binary(hash) and hash != "" do
+    case Map.get(compiled_config, "format") do
+      format when is_binary(format) and format != "" -> "#{format}:#{hash}"
+      _ -> hash
+    end
+  end
+
+  defp compiled_config_hash(compiled_config) do
+    Compiler.content_hash(compiled_config)
   end
 
   defp load_from_database(config_type, partition, agent_id) do
