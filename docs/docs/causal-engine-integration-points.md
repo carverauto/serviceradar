@@ -281,9 +281,9 @@ limits explains the chokepoint above.
 - **Crate:** `god_view_nif` — `elixir/web-ng/native/god_view_nif/`. A Rustler
   NIF (`cdylib`) compiled into the **web-ng** Elixir server; runs in-process on
   the BEAM. Not WASM, not a standalone service.
-- **Deps:** `deep_causality 0.13.4`, `deep_causality_sparse 0.1.6`,
-  `deep_causality_tensor 0.4.1`, `deep_causality_topology 0.5.0`,
-  `deep_causality_core 0.0.5`, `roaring 0.11.3`, `ultragraph 0.8.14`.
+- **Deps:** see the [NIF manifest](https://github.com/carverauto/serviceradar/blob/staging/elixir/web-ng/native/god_view_nif/Cargo.toml)
+  for direct dependencies, the [workspace manifest](https://github.com/carverauto/serviceradar/blob/staging/Cargo.toml) for version
+  constraints, and [Cargo.lock](https://github.com/carverauto/serviceradar/blob/staging/Cargo.lock) for resolved versions.
 - **What it does** (`god_view_nif/src/core/causality.rs`): builds a
   `CausaloidGraph` from the AGE topology, but the propagation step is a **stub**
   — root cause is picked by a heuristic (`max_by_key` on betweenness centrality,

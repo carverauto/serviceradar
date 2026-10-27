@@ -239,12 +239,13 @@ path_belongs_to_addon() {
       esac
       ;;
     anomaly)
-      # rust/addon-sdk is compiled INTO this binary, so a change there changes
-      # the shipped artifact exactly as a change to the add-on's own crate does.
-      # Without it the gate has a false negative: SDK code that alters several
-      # add-ons at once, under unchanged versions for all of them.
+      # rust/addon-sdk and rust/anomaly-core are compiled INTO this binary, so
+      # a change there changes the shipped artifact exactly as a change to the
+      # add-on's own crate does. Without them the gate has a false negative:
+      # detector or SDK code that alters the shipped verdicts under an
+      # unchanged add-on version.
       case "${path}" in
-        addons/anomaly-addon/*|rust/anomaly-addon/*|rust/addon-sdk/*) return 0 ;;
+        addons/anomaly-addon/*|rust/anomaly-addon/*|rust/anomaly-core/*|rust/addon-sdk/*) return 0 ;;
       esac
       ;;
     otel-collector)
