@@ -17,7 +17,7 @@ These issues make dashboard creation a guessing process instead of an iterative 
 This change has two layers:
 
 1. Stabilize the broken workflows immediately so users can edit SRQL normally, create dashboards safely, and add panels without raw JSON or invalid visual choices.
-2. Establish the query-first dashboard builder model described in `dashboard-builder-redesign.md`: data first, outputs second, layout third.
+2. Establish a query-first dashboard builder model: data first, outputs second, layout third.
 
 - Use normal form inputs for compact SRQL search/filter bars across the product.
 - Keep rich Monaco-backed SRQL editing opt-in for dashboard panel query authoring.
