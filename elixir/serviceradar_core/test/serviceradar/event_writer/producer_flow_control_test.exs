@@ -83,6 +83,35 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
     on_exit(fn -> :telemetry.detach(handler_id) end)
   end
 
+  test "message acknowledger publishes delayed NAKs in nanoseconds" do
+    for {action, payload} <- [
+          {{:nack, 10_000}, ~s(-NAK {"delay":10000000000})},
+          {{:nack, 20_000}, ~s(-NAK {"delay":20000000000})},
+          {{:nack, 40_000}, ~s(-NAK {"delay":40000000000})},
+          {{:nack, 80_000}, ~s(-NAK {"delay":80000000000})},
+          {:nack, "-NAK"},
+          {:term, "+TERM"},
+          {:ack, "+ACK"}
+        ] do
+      conn =
+        Task.async(fn ->
+          receive do
+            {:"$gen_call", from, {:pub, topic, body, _opts}} ->
+              GenServer.reply(from, :ok)
+              {topic, IO.iodata_to_binary(body)}
+          end
+        end)
+
+      state = init_state(build_config([]))
+      {[], state} = push_msg(%{state | conn: conn.pid}, "payload")
+      {:noreply, [message], _state} = Producer.handle_demand(1, state)
+      %{ack_fun: ack_fun} = message.ack_data
+
+      assert :ok = ack_fun.(action)
+      assert {@reply_to, ^payload} = Task.await(conn)
+    end
+  end
+
   describe "max_buffered/1" do
     test "derives the producer buffer ceiling from per-consumer max_ack_pending" do
       assert Producer.max_buffered(build_config(max_ack_pending: 256)) == 512

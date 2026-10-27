@@ -69,6 +69,55 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert is_integer(duration) and duration >= 0
   end
 
+  test "readiness backoff preserves nack telemetry and terminates at the delivery limit" do
+    parent = self()
+
+    for {delivery_count, action} <- [
+          {1, {:nack, 10_000}},
+          {2, {:nack, 20_000}},
+          {3, {:nack, 40_000}},
+          {4, {:nack, 80_000}},
+          {5, :term}
+        ],
+        {publish_result, telemetry_result} <- [{:ok, :ok}, {{:error, :disconnected}, :error}] do
+      message = %Message{
+        data: "",
+        status: {:failed, :alert_evaluation_peer_not_ready},
+        metadata: %{
+          subject: "signals.analytics.predictions.test",
+          jetstream_ack: %{delivery_count: delivery_count},
+          max_deliver: 5
+        },
+        acknowledger:
+          {Pipeline, :ack_ref,
+           %{
+             ack_fun: fn received_action ->
+               send(parent, {:ack_action, received_action})
+               publish_result
+             end
+           }}
+      }
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert :ok = Pipeline.ack(:ack_ref, [], [message])
+        end)
+
+      assert_receive {:ack_action, ^action}
+      telemetry_action = if delivery_count == 5, do: :term, else: :nack
+
+      assert_receive {:telemetry, [:serviceradar, :event_writer, :ack], %{count: 1},
+                      %{action: ^telemetry_action, result: ^telemetry_result}}
+
+      if delivery_count == 5 do
+        assert log =~ "[error]"
+        assert log =~ "terminal JetStream delivery"
+      else
+        refute log =~ "[error]"
+      end
+    end
+  end
+
   test "ack/3 terminally acknowledges final failed JetStream delivery" do
     parent = self()
     handler_id = "pipeline-dead-letter-test-#{System.unique_integer([:positive])}"

@@ -1057,6 +1057,9 @@ defmodule ServiceRadar.EventWriter.Producer do
         # Send -NAK to trigger redelivery
         safe_ack_publish(conn, reply_to, "-NAK")
 
+      {:nack, delay_ms} when is_integer(delay_ms) and delay_ms > 0 ->
+        safe_ack_publish(conn, reply_to, "-NAK #{Jason.encode!(%{delay: delay_ms * 1_000_000})}")
+
       :term ->
         # Terminal ACK prevents JetStream from redelivering a known poison message.
         safe_ack_publish(conn, reply_to, "+TERM")

@@ -57,10 +57,10 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
     @moduledoc false
 
     def evaluate_events(events) do
-      if Application.get_env(:serviceradar_core, :analytics_signals_peer_ready, false) do
-        StatefulAlertEngine.evaluate_events(events)
-      else
-        {:error, :alert_evaluation_peer_not_ready}
+      case Application.get_env(:serviceradar_core, :analytics_signals_peer_ready, false) do
+        true -> StatefulAlertEngine.evaluate_events(events)
+        false -> {:error, :alert_evaluation_peer_not_ready}
+        {:error, _} = error -> error
       end
     end
   end
@@ -462,52 +462,93 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignalsProcessBatchDBTest
          }}
     }
 
-    log =
-      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
-        assert [%Message{status: {:failed, :alert_evaluation_peer_not_ready}} = failed_msg] =
-                 Pipeline.handle_batch(
-                   :analytics_predictions,
-                   [broadway_message],
-                   %{batch_key: :default},
-                   %{}
-                 )
+    for {delivery_count, delay_ms} <- [{1, 10_000}, {2, 20_000}, {3, 40_000}] do
+      message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, delivery_count)
 
-        assert ^failed_msg = hd(Pipeline.handle_failed([failed_msg], %{}))
-        assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
-      end)
+      log =
+        ExUnit.CaptureLog.capture_log([level: :info], fn ->
+          assert [%Message{status: {:failed, :alert_evaluation_peer_not_ready}} = failed_msg] =
+                   Pipeline.handle_batch(
+                     :analytics_predictions,
+                     [message],
+                     %{batch_key: :default},
+                     %{}
+                   )
 
-    assert_receive {:jetstream_ack, :nack}
-    refute_receive {:jetstream_ack, :ack}, 50
-    refute_receive {:jetstream_ack, :term}, 50
+          assert ^failed_msg = hd(Pipeline.handle_failed([failed_msg], %{}))
+          assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
+        end)
 
-    assert log =~ "Deferring causal signals batch until alert evaluation is ready"
-    assert log =~ "Batch deferred until alert evaluation is ready"
-    refute log =~ "[error]"
-    refute log =~ "MatchError"
-    refute log =~ "Causal signals batch insert failed"
+      assert_receive {:jetstream_ack, {:nack, ^delay_ms}}
+      refute_receive {:jetstream_ack, :ack}, 50
+      refute_receive {:jetstream_ack, :term}, 50
 
-    assert [[0]] =
-             Repo.query!(
-               "SELECT count(*) FROM platform.anomaly_episodes WHERE series_key = $1",
-               [series_key]
-             ).rows
+      assert log =~ "Deferring causal signals batch until alert evaluation is ready"
+      assert log =~ "Batch deferred until alert evaluation is ready"
+      assert log =~ "[info]"
+      refute log =~ "[warning]"
+      refute log =~ "[error]"
+      refute log =~ "MatchError"
+      refute log =~ "Causal signals batch insert failed"
 
-    assert [[0]] =
-             Repo.query!(
-               """
-               SELECT count(*)
-               FROM platform.ocsf_events
-               WHERE metadata->'service_radar'->>'series_key' = $1
-               """,
-               [series_key]
-             ).rows
+      assert [[0]] =
+               Repo.query!(
+                 "SELECT count(*) FROM platform.anomaly_episodes WHERE series_key = $1",
+                 [series_key]
+               ).rows
 
-    assert [] =
-             AlertEvaluationWork
-             |> Ash.Query.filter(rule_id == ^rule.id)
-             |> Ash.read!(actor: actor)
+      assert [[0]] =
+               Repo.query!(
+                 """
+                 SELECT count(*)
+                 FROM platform.ocsf_events
+                 WHERE metadata->'service_radar'->>'series_key' = $1
+                 """,
+                 [series_key]
+               ).rows
+
+      assert [] =
+               AlertEvaluationWork
+               |> Ash.Query.filter(rule_id == ^rule.id)
+               |> Ash.read!(actor: actor)
+    end
+
+    for reason <- [
+          :alert_evaluation_peer_not_ready,
+          :alert_evaluation_draining,
+          :alert_evaluation_capability_unavailable,
+          :db_unavailable
+        ],
+        delivery_count <- if(reason == :alert_evaluation_peer_not_ready, do: [5], else: 1..5) do
+      Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, {:error, reason})
+      message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, delivery_count)
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :info], fn ->
+          assert [%Message{status: {:failed, ^reason}} = failed_msg] =
+                   Pipeline.handle_batch(
+                     :analytics_predictions,
+                     [message],
+                     %{batch_key: :default},
+                     %{}
+                   )
+
+          Pipeline.handle_failed([failed_msg], %{})
+          assert :ok = Pipeline.ack(:ack_ref, [], [failed_msg])
+        end)
+
+      action = if delivery_count == 5, do: :term, else: :nack
+      assert_receive {:jetstream_ack, ^action}
+      assert log =~ "[error]"
+
+      if reason != :alert_evaluation_peer_not_ready do
+        assert log =~ "Batch processing failed"
+        refute log =~ "Batch deferred"
+      end
+    end
 
     Application.put_env(:serviceradar_core, :analytics_signals_peer_ready, true)
+    broadway_message = put_in(broadway_message.metadata.jetstream_ack.delivery_count, 4)
 
     assert [%Message{status: :ok} = ok_msg] =
              Pipeline.handle_batch(

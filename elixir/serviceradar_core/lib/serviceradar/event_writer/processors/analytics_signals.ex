@@ -784,24 +784,14 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   end
 
   defp log_returned_batch_failure(reason) do
-    cond do
-      retryable_alert_evaluation_reason?(reason) ->
-        Logger.warning("Deferring causal signals batch until alert evaluation is ready",
-          reason: inspect(reason)
-        )
-
-      not is_nil(extract_sqlstate(reason)) ->
-        log_batch_insert_failure(reason)
-
-      true ->
-        :ok
+    if reason == :alert_evaluation_peer_not_ready do
+      Logger.info("Deferring causal signals batch until alert evaluation is ready",
+        reason: inspect(reason)
+      )
+    else
+      log_batch_insert_failure(reason)
     end
   end
-
-  defp retryable_alert_evaluation_reason?(:alert_evaluation_peer_not_ready), do: true
-  defp retryable_alert_evaluation_reason?(:alert_evaluation_draining), do: true
-  defp retryable_alert_evaluation_reason?(:alert_evaluation_capability_unavailable), do: true
-  defp retryable_alert_evaluation_reason?(_reason), do: false
 
   defp record_statement_error(error, query) do
     if not in_failed_sql_transaction?(error) and is_nil(Process.get(@first_statement_error_key)) do
