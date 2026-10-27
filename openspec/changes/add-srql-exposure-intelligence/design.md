@@ -12,7 +12,7 @@ What exists today:
 | Network flows | StarRocks `serviceradar.ocsf_network_activity` (the only flow store) | flow id; `device_uid` is the **exporter**, not an endpoint | `in:flows` |
 | Process attribution on flows | same table (`pid`, `comm`, `container_id`, `workload_identity`) | flow id | `in:attributed_flows` |
 | Socket ownership and host peer evidence | leases, an in-memory ownership index and per-process connection summaries (`host_connection_summaries`), as specified by the merged change `stream-flow-attribution-via-ownership-index` (#5753); being implemented | `(partition, proto, ip, port)`; summaries per `(agent, owner, local endpoint, peer endpoint, proto, direction)` | none |
-| IOC matches | CNPG `platform.ip_threat_intel_cache`, populated from IPs seen in flows | ip | `in:threat_intel_matches`, `threat_*` filters on flows (StarRocks reads the matched set through `cnpg_platform.native_query`) |
+| IOC matches | CNPG `platform.ip_threat_intel_cache`, populated from IPs seen in flows | ip | `in:threat_intel_matches`, `threat_*` filters on flows (StarRocks reads the matched set from `cnpg_platform.platform.ip_threat_intel_cache`; 4.1 has no `native_query`) |
 | Topology | graph (AGE / Dgraph) | device uid | `in:device_graph`, `in:graph_cypher` |
 | BGP | StarRocks BMP events | peer, prefix | `in:bmp_events` |
 | Small current-state dimensions | CNPG, reachable from StarRocks through the opt-in `cnpg_platform` JDBC catalog, with column-scoped grants to `serviceradar_starrocks_reader` and an allowlist in `CatalogAllowlist` | | used by flow enrichment joins |
@@ -434,9 +434,12 @@ Two new flattened, read-only CNPG views are added. Each gets a column-scoped gra
 
 These existing grants are reused unchanged:
 
-- `ip_threat_intel_cache (ip, matched, expires_at, sources, max_severity)` and
-  `threat_intel_indicators (indicator, expires_at)`, read only through the matched-set
-  `native_query` the flow threat filters already use;
+- `ip_threat_intel_cache (ip, matched, expires_at, max_severity)`, read through the plain
+  catalog relation exactly as the flow threat filters do. StarRocks 4.1 has no JDBC
+  `native_query` (it first ships in 4.2) and cannot read the `sources` `text[]` or the
+  indicator `cidr` columns; the flow `threat_source` and `threat_indicator` filters read
+  the `ip_threat_intel_sources_catalog` and `threat_intel_indicator_members_catalog`
+  views instead;
 - `netflow_local_cidrs_catalog`.
 
 Never catalog-joined per query: `endpoint_vulnerability_assessments`,
@@ -459,7 +462,7 @@ ever be looked up, and `contacted_threat` would be silently empty. Host-summary 
 `peer_scope = internet` are therefore admitted to the same bounded lookup queue
 (`NetflowSecurityRefreshWorker` / `FlowEndpointScan`), deduplicated against flow
 endpoints. SRQL resolves the matched set exactly as the flow threat filters do: through a
-`native_query` of matched, unexpired cache rows. Indicator detail stays in
+plain catalog read of matched, unexpired cache rows. Indicator detail stays in
 `in:threat_intel_matches`.
 
 ### Decision 9: Listening processes resolve to packages
@@ -748,7 +751,7 @@ The StarRocks-required exception is recorded in `AGENTS.md` (task 0.9).
 |---|---|---|
 | 1. Devices exposed to CVE-X | `in:exposure cve:CVE-2024-0001 sort:hostname:asc limit:200` | `exposure_facts` range scan on `cve_ord = 20240000001 AND state = 1`, joined to `exposure_cve_dim` and the device catalog view |
 | 1. Count by site | `in:exposure cve:CVE-2024-0001 stats:"count_distinct(device_id) as hosts by site"` | `exposure_cve_devices_mv` bitmap for the CVE, ANDed with per-site bitmaps built from the address dimension |
-| 2. KEV or high EPSS with IOC contact | `in:exposure kev:true contacted_threat:true time:last_24h limit:100`; `in:exposure epss_score:>=0.5 contacted_threat:true time:last_24h` | KEV device bitmap (or the EPSS filter on the CVE dimension) -> `observed_connections_hourly` with `device_ord` in the set, `hour` in the window, and `peer_ip` in the matched IOC set (`native_query`) |
+| 2. KEV or high EPSS with IOC contact | `in:exposure kev:true contacted_threat:true time:last_24h limit:100`; `in:exposure epss_score:>=0.5 contacted_threat:true time:last_24h` | KEV device bitmap (or the EPSS filter on the CVE dimension) -> `observed_connections_hourly` with `device_ord` in the set, `hour` in the window, and `peer_ip` in the matched IOC set (plain catalog read of the cache) |
 | 2. The contacts behind it | `in:observed_connections exposure_kev:true threat_matched:true time:last_24h sort:last_seen:desc limit:100` | the same, at evidence grain, with provenance |
 | 3. Listening, exposed, reached from the internet | `in:exposure listening:true inbound_internet:true severity:critical time:last_24h sort:cvss_score:desc limit:100` | facts with `state = 1, severity_rank = 4` joined to evidence on `(device_ord, pkg_ord)` with `direction = inbound, peer_scope = internet` |
 | 4. Blast radius | `in:exposure_blast_radius cve:CVE-2024-0001 depth:2 via:(topology,bgp) limit:500` | phase 1 seeds from facts; phase 2 bounded graph traversal plus BMP prefixes -> address dimension |

@@ -47,6 +47,22 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     end
   end
 
+  # SRQL's flow threat filters name these views; the 4.1 JDBC catalog cannot
+  # read the cache's text[] sources or the indicator cidr directly.
+  test "flow threat filters read the flattened threat views, not the indicator table" do
+    for table <- ~w(ip_threat_intel_sources_catalog threat_intel_indicator_members_catalog) do
+      assert :ok ==
+               CatalogAllowlist.assert_sql_allowlisted(
+                 "SELECT c.ip FROM cnpg_platform.platform.#{table} c WHERE c.matched"
+               )
+    end
+
+    assert {:error, {:not_allowlisted, "threat_intel_indicators"}} ==
+             CatalogAllowlist.assert_sql_allowlisted(
+               "SELECT indicator FROM cnpg_platform.platform.threat_intel_indicators"
+             )
+  end
+
   test "exposure joins use narrow views and reject source dictionaries and assessments" do
     for table <- ~w(exposure_device_catalog exposure_device_tags_catalog) do
       assert {:ok, "cnpg_platform.platform.#{table}"} == CatalogAllowlist.qualify(table)
@@ -139,50 +155,6 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlistTest do
     refute sql =~ "password"
     refute sql =~ "repo1.maven.org"
     refute sql =~ "network_credential_secrets"
-  end
-
-  test "native query checks embedded CNPG relations rather than only the outer catalog name" do
-    native = fn inner ->
-      "SELECT ip FROM TABLE(cnpg_platform.native_query('" <>
-        String.replace(inner, "'", "''") <> "'))"
-    end
-
-    for inner <- [
-          "SELECT g.ip FROM platform.ip_geo_enrichment_cache g WHERE g.expires_at > NOW()",
-          "SELECT c.ip FROM platform.ip_threat_intel_cache c " <>
-            "JOIN platform.threat_intel_indicators i ON c.ip::inet <<= i.indicator " <>
-            "WHERE c.sources && ARRAY['example_feed']::text[]",
-          "SELECT c.ip FROM platform.ip_threat_intel_cache c " <>
-            "WHERE c.sources && ARRAY['example FROM platform.users; --']::text[]",
-          "SELECT c.ip FROM platform.ip_threat_intel_cache c " <>
-            "WHERE c.sources && ARRAY['example cnpg_platform.native_query(']::text[]"
-        ] do
-      assert :ok == CatalogAllowlist.assert_sql_allowlisted(native.(inner))
-    end
-
-    assert {:error, {:not_allowlisted, "network_credential_secrets"}} =
-             CatalogAllowlist.assert_sql_allowlisted(
-               native.("SELECT ip FROM platform.network_credential_secrets")
-             )
-
-    assert {:error, {:not_allowlisted, "ip_geo_enrichment_cache"}} =
-             CatalogAllowlist.assert_sql_allowlisted(
-               native.("SELECT ip FROM ip_geo_enrichment_cache")
-             )
-
-    for inner <- [
-          "DELETE FROM platform.ip_geo_enrichment_cache RETURNING ip",
-          "SELECT ip FROM platform.ip_geo_enrichment_cache; SELECT 1",
-          "SELECT ip INTO copied FROM platform.ip_geo_enrichment_cache"
-        ] do
-      assert {:error, :invalid_starrocks_native_query} =
-               CatalogAllowlist.assert_sql_allowlisted(native.(inner))
-    end
-
-    assert {:error, :invalid_starrocks_native_query} =
-             CatalogAllowlist.assert_sql_allowlisted(
-               "SELECT ip FROM TABLE(cnpg_platform.native_query(other_query))"
-             )
   end
 
   test "env config stays off and mint-no atoms from unknown dataset names" do

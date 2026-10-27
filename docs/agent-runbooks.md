@@ -645,8 +645,8 @@ Two dispositions cover almost everything:
   no Starlark change is needed, and a missing entry only fails BazelCI, not
   `mix test`.
 
-Verify locally before pushing (no Bazel/Docker required):
-`python3 -m unittest build/contracts/ci_heavy_gate_contract_test.py` from the repo root.
+Verify on RBE before pushing:
+`bazel test --config=remote //build/contracts:ci_heavy_gate_contract_test` from the repo root.
 The no-mistakes `test-registration` gate runs this same command automatically.
 
 ## SRQL Fixture Integration Tests
@@ -786,6 +786,56 @@ PR's BazelCI and the staging `LargeIngestionGate`.
 The same rules apply to the second workflow release (`buildbuddy-workflows-2`)
 and farm01's workflow replicas: they mount their own instances of the same
 shared-cache layout from `//k8s/buildbuddy/values-workflows.yaml`.
+
+## Workstation Bazel disk usage
+
+A workstation running `--config=remote` keeps three separate Bazel trees, and
+only one of them is size-bounded:
+
+| Tree | Path | Bound |
+| --- | --- | --- |
+| Disk cache | `~/.cache/serviceradar-bazel/disk` | 50G (`--experimental_disk_cache_gc_max_size`) |
+| Repo contents cache | `~/.cache/serviceradar-bazel/repo-contents` | Age GC only: `--repo_contents_cache_gc_max_age=7d`. Bazel 9.2 has no size cap for this cache or for the repository cache (`repo/`). |
+| Output bases | Output user root (`$XDG_CACHE_HOME/bazel/_bazel_$USER` when `XDG_CACHE_HOME` is set, `~/Library/Caches/bazel/_bazel_$USER` on macOS, `~/.cache/bazel/_bazel_$USER` on Linux, or a custom `--output_user_root`) | None. One base per workspace path; `git worktree remove` leaves the matching base behind. |
+
+After `git worktree remove`, the worktree's output base (multi-gigabyte) is
+orphaned. Reclaim stale bases with the `bazel-reclaim` tool:
+
+```
+# Report only (dry-run is the default; nothing is deleted)
+bazel run --config=remote //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root
+
+# Delete the bases the report marked stale
+bazel run --config=remote //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root --apply
+```
+
+Find the output user root as the parent directory of `bazel info --config=remote output_base`;
+a custom root from `~/.bazelrc` must be passed explicitly. With no flag, the
+tool scans a candidate only when that directory exists:
+`$XDG_CACHE_HOME/bazel/_bazel_$USER` when `XDG_CACHE_HOME` is set,
+`~/Library/Caches/bazel/_bazel_$USER`, and `~/.cache/bazel/_bazel_$USER`. A
+base is stale only when the workspace path is gone, the linked worktree's
+gitdir is gone, git reports "not a git repository" and that readable gitdir
+has neither HEAD nor commondir, or a successful `git worktree list
+--porcelain` of the backing repo omits that worktree. Git's "not a git
+repository" is not enough while HEAD or commondir is still present, including
+when HEAD, objects, or refs cannot be read. The registration directory's
+parent must be readable, and an unreadable `gitdir` backlink keeps the base
+even when Git would silently omit the worktree. An unreadable workspace or
+gitdir, and any other stat or git failure, keeps the base. An unreadable or
+invalid `server/server.pid.txt` also keeps the base; an absent PID file allows
+the workspace checks to proceed. A live workspace or a running Bazel server
+is kept, and `--apply` classifies again immediately before deletion. This
+recheck does not lock out concurrent workspace or server changes. Deleting
+a stale base removes that output base. A later checkout
+at the same path builds a new one.
+
+The caches under `~/.cache/serviceradar-bazel` rebuild on next use; remove
+the whole directory when the age GC is not enough:
+
+```
+rm -rf ~/.cache/serviceradar-bazel
+```
 
 ## Ecto migration versions
 

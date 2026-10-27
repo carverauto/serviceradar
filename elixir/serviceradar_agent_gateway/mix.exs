@@ -79,7 +79,7 @@ defmodule ServiceRadarAgentGateway.MixProject do
       # grpc_core 1.0 requests protobuf `~> 0.17`; pin ~> 0.17.1 via override
       # across the Elixir apps for EEF-CVE-2026-104635.
       {:protobuf, "~> 0.17.1", override: true},
-      {:bandit, "~> 1.13"},
+      {:bandit, "~> 1.14"},
       {:plug, "~> 1.18"},
       {:telemetry_metrics, "~> 1.0"},
       {:telemetry_metrics_prometheus_core, "~> 1.2"},

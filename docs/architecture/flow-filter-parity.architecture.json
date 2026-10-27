@@ -53,7 +53,7 @@
       "id": "flow-catalog",
       "type": "backend",
       "label": "JDBC catalog",
-      "sublabel": "Read-only native_query",
+      "sublabel": "Read-only catalog reads",
       "pos": [
         1150,
         140

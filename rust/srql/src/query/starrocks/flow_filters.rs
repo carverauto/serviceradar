@@ -1,10 +1,10 @@
-use super::{field_sql, flow_cidr_filter_sql, sql_literal, text_predicate_on};
+use super::{cidr_hex_bounds, field_sql, flow_cidr_filter_sql, sql_literal, text_predicate_on};
 use crate::{
     error::{Result, ServiceError},
     parser::{Filter, FilterOp},
     query::{
         QueryPlan,
-        flows::literals::{normalize_cidr_literal, normalize_near_literal, normalize_tag_literal},
+        flows::literals::{NearPoint, normalize_near_literal, normalize_tag_literal},
     },
 };
 
@@ -339,33 +339,72 @@ fn tags(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     })
 }
 
-/// PostgreSQL owns geography, inet and array semantics for control-plane
-/// caches. StarRocks 4.1 executes this SELECT through its JDBC native_query
-/// table function; telemetry itself stays exclusively in the warehouse.
-fn catalog_membership(plan: &QueryPlan, source_sql: &str, sides: &[&str]) -> Result<String> {
-    let source = format!(
-        "TABLE(cnpg_platform.native_query({}))",
-        sql_literal(source_sql)
-    );
+/// Flows whose endpoint is in a CNPG current-state IP set, read through the
+/// `cnpg_platform` JDBC catalog. StarRocks 4.1 has no JDBC pass-through
+/// (`native_query` first ships in 4.2) and cannot read PostgreSQL `text[]`,
+/// `inet`/`cidr` or `geography` columns, so `source` selects only scalar
+/// columns: the plain caches, or the `_catalog` views that flatten the rest.
+/// StarRocks pushes those scalar predicates into the remote PostgreSQL query,
+/// so only matching rows cross the catalog; flow telemetry stays in the
+/// warehouse.
+fn catalog_membership(plan: &QueryPlan, source: &str, sides: &[&str]) -> Result<String> {
     let predicates = sides
         .iter()
         .map(|field| {
             let endpoint = field_sql(plan, field)?;
-            Ok(format!(
-                "COALESCE({endpoint} IN (SELECT ip FROM {source}), FALSE)"
-            ))
+            Ok(format!("COALESCE({endpoint} IN ({source}), FALSE)"))
         })
         .collect::<Result<Vec<_>>>()?;
     Ok(format!("({})", predicates.join(" OR ")))
 }
 
+/// The mean-radius sphere StarRocks' `st_distance_sphere` measures on (S2's
+/// 6371.01 km) is larger than the WGS84 polar radius, so an angular radius
+/// computed with the polar radius can only over-cover. The bounding box is a
+/// pushdown prefilter; `st_distance_sphere` makes the decision.
+const POLAR_RADIUS_M: f64 = 6_356_752.0;
+const BOX_SLACK_DEG: f64 = 1e-6;
+
+/// A latitude/longitude box that contains every point within `radius_m` of the
+/// center on the sphere. Longitude is left unbounded when the circle reaches a
+/// pole or crosses the antimeridian.
+fn proximity_box(point: &NearPoint) -> ((f64, f64), (f64, f64)) {
+    let angular = (point.radius_m / POLAR_RADIUS_M).to_degrees() * 1.001 + BOX_SLACK_DEG;
+    let lat = (
+        (point.lat - angular).max(-90.0),
+        (point.lat + angular).min(90.0),
+    );
+    let full_lng = (-180.0, 180.0);
+    if point.lat - angular <= -90.0 || point.lat + angular >= 90.0 {
+        return (lat, full_lng);
+    }
+    let spread = (angular.to_radians().sin() / point.lat.to_radians().cos())
+        .min(1.0)
+        .asin()
+        .to_degrees()
+        * 1.001
+        + BOX_SLACK_DEG;
+    if point.lng - spread < -180.0 || point.lng + spread > 180.0 {
+        return (lat, full_lng);
+    }
+    (lat, (point.lng - spread, point.lng + spread))
+}
+
+/// `near` is "within the radius" of the coordinate on StarRocks' sphere. The
+/// PostgreSQL definition measured the WGS84 spheroid, so the two can disagree
+/// within a fraction of a percent of the radius; that edge difference is
+/// accepted. The box bounds also exclude coordinates PostGIS would not have
+/// turned into a `location`.
 fn proximity(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     require_op(filter, &[FilterOp::Eq, FilterOp::NotEq])?;
     let point = normalize_near_literal(filter.value.as_scalar()?)?;
+    let ((lat_lo, lat_hi), (lng_lo, lng_hi)) = proximity_box(&point);
     let source = format!(
-        "SELECT g.ip FROM platform.ip_geo_enrichment_cache g \
-         WHERE g.location IS NOT NULL AND (g.expires_at IS NULL OR g.expires_at > NOW()) \
-         AND ST_DWithin(g.location, ST_SetSRID(ST_MakePoint({}, {}), 4326)::geography, {})",
+        "SELECT g.ip FROM cnpg_platform.platform.ip_geo_enrichment_cache g \
+         WHERE (g.expires_at IS NULL OR g.expires_at > UTC_TIMESTAMP()) \
+         AND g.latitude BETWEEN {lat_lo:.7} AND {lat_hi:.7} \
+         AND g.longitude BETWEEN {lng_lo:.7} AND {lng_hi:.7} \
+         AND st_distance_sphere(g.longitude, g.latitude, {}, {}) <= {}",
         point.lng, point.lat, point.radius_m
     );
     let sides: &[&str] = match filter.field.as_str() {
@@ -381,16 +420,33 @@ fn proximity(plan: &QueryPlan, filter: &Filter) -> Result<String> {
     })
 }
 
-// This literal is interpreted by PostgreSQL inside the outer StarRocks
-// literal. PostgreSQL standard-conforming strings escape quotes, not slashes;
-// sql_literal supplies the second layer when encoding the native_query call.
-fn pg_literal(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "''"))
+/// Hex bounds of an indicator, as `cidr_hex_bounds` encodes them: 8 digits for
+/// IPv4, 32 for IPv6, so address order is string order within a family.
+fn indicator_condition(raw: &str) -> Result<String> {
+    if raw.contains('/') {
+        let (first, last) = cidr_hex_bounds(raw)?;
+        return Ok(format!(
+            "c.first_ip_hex = {} AND c.last_ip_hex = {}",
+            sql_literal(&first),
+            sql_literal(&last)
+        ));
+    }
+    let ip: std::net::IpAddr = raw.trim().parse().map_err(|_| {
+        ServiceError::InvalidRequest("threat_indicator must be an IP or CIDR".into())
+    })?;
+    let (family, bits) = match ip {
+        std::net::IpAddr::V4(_) => (4, 32),
+        std::net::IpAddr::V6(_) => (6, 128),
+    };
+    let (hex, _) = cidr_hex_bounds(&format!("{ip}/{bits}"))?;
+    let hex = sql_literal(&hex);
+    Ok(format!(
+        "c.indicator_family = {family} AND c.first_ip_hex <= {hex} AND c.last_ip_hex >= {hex}"
+    ))
 }
 
 fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
-    let mut source = "SELECT c.ip FROM platform.ip_threat_intel_cache c".to_string();
-    let live = "c.matched AND c.expires_at > NOW()";
+    let mut relation = "ip_threat_intel_cache";
     let mut invert = false;
     let condition = match filter.field.as_str() {
         "threat_matched" => {
@@ -404,7 +460,7 @@ fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
                     )));
                 }
             };
-            "TRUE".into()
+            None
         }
         "threat_source" => {
             require_op(filter, &[FilterOp::Eq, FilterOp::In])?;
@@ -417,14 +473,15 @@ fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
             if values.is_empty() {
                 return Ok("TRUE".into());
             }
-            format!(
-                "c.sources && ARRAY[{}]::text[]",
+            relation = "ip_threat_intel_sources_catalog";
+            Some(format!(
+                "c.source IN ({})",
                 values
                     .into_iter()
-                    .map(pg_literal)
+                    .map(sql_literal)
                     .collect::<Vec<_>>()
                     .join(", ")
-            )
+            ))
         }
         "threat_observed_ip" => {
             require_op(filter, &[FilterOp::Eq])?;
@@ -432,25 +489,15 @@ fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
             value.parse::<std::net::IpAddr>().map_err(|_| {
                 ServiceError::InvalidRequest("threat_observed_ip must be an IP address".into())
             })?;
-            format!("c.ip = {}", pg_literal(value))
+            Some(format!("c.ip = {}", sql_literal(value)))
         }
         "threat_indicator" => {
             require_op(filter, &[FilterOp::Eq])?;
-            let raw = filter.value.as_scalar()?;
-            let (cast, value, op) = if raw.contains('/') {
-                ("cidr", normalize_cidr_literal(raw)?, "=")
-            } else {
-                let ip: std::net::IpAddr = raw.parse().map_err(|_| {
-                    ServiceError::InvalidRequest("threat_indicator must be an IP or CIDR".into())
-                })?;
-                ("inet", ip.to_string(), ">>=")
-            };
-            source
-                .push_str(" JOIN platform.threat_intel_indicators i ON c.ip::inet <<= i.indicator");
-            format!(
-                "(i.expires_at IS NULL OR i.expires_at > NOW()) AND i.indicator {op} {}::text::{cast}",
-                pg_literal(&value)
-            )
+            relation = "threat_intel_indicator_members_catalog";
+            Some(format!(
+                "(c.indicator_expires_at IS NULL OR c.indicator_expires_at > UTC_TIMESTAMP()) AND {}",
+                indicator_condition(filter.value.as_scalar()?)?
+            ))
         }
         "threat_severity" => {
             let op = match filter.op {
@@ -469,15 +516,96 @@ fn threat(plan: &QueryPlan, filter: &Filter) -> Result<String> {
             let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
                 ServiceError::InvalidRequest("threat_severity must be an integer".into())
             })?;
-            format!("c.max_severity {op} {value}")
+            Some(format!("c.max_severity {op} {value}"))
         }
         _ => unreachable!("threat field checked by predicate"),
     };
-    source.push_str(&format!(" WHERE {live} AND {condition}"));
+    // Every threat relation carries the cache row's `matched` and `expires_at`,
+    // so a current match is the same test whichever relation answers.
+    let mut source = format!(
+        "SELECT c.ip FROM cnpg_platform.platform.{relation} c \
+         WHERE c.matched AND c.expires_at > UTC_TIMESTAMP()"
+    );
+    if let Some(condition) = condition {
+        source.push_str(" AND ");
+        source.push_str(&condition);
+    }
     let predicate = catalog_membership(plan, &source, &["src_endpoint_ip", "dst_endpoint_ip"])?;
     Ok(if invert {
         format!("NOT ({predicate})")
     } else {
         predicate
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{NearPoint, proximity_box};
+
+    /// S2's mean Earth radius, the sphere `st_distance_sphere` measures on.
+    const S2_RADIUS_M: f64 = 6_371_010.0;
+
+    /// The point `distance_m` from `(lat, lng)` along `bearing_deg` on S2's sphere.
+    fn destination(lat: f64, lng: f64, bearing_deg: f64, distance_m: f64) -> (f64, f64) {
+        let (lat, lng, bearing) = (lat.to_radians(), lng.to_radians(), bearing_deg.to_radians());
+        let angular = distance_m / S2_RADIUS_M;
+        let dest_lat =
+            (lat.sin() * angular.cos() + lat.cos() * angular.sin() * bearing.cos()).asin();
+        let dest_lng = lng
+            + (bearing.sin() * angular.sin() * lat.cos())
+                .atan2(angular.cos() - lat.sin() * dest_lat.sin());
+        let dest_lng = (dest_lng.to_degrees() + 540.0) % 360.0 - 180.0;
+        (dest_lat.to_degrees(), dest_lng)
+    }
+
+    // The box is a pushdown prefilter: a point the sphere distance accepts but
+    // the box excludes would silently drop matching flows.
+    #[test]
+    fn proximity_box_contains_every_point_on_the_sphere_circle() {
+        for (lat, lng, radius_m) in [
+            (0.0, 0.0, 5_000.0),
+            (12.34, 56.78, 5_000.0),
+            (-33.9, 151.2, 50_000.0),
+            (70.0, 25.0, 500_000.0),
+            (-89.5, 0.0, 100_000.0),
+            (10.0, 179.9, 50_000.0),
+            (45.0, -120.0, 2_000_000.0),
+        ] {
+            let point = NearPoint { lat, lng, radius_m };
+            let ((lat_lo, lat_hi), (lng_lo, lng_hi)) = proximity_box(&point);
+            for step in 0..720 {
+                let bearing = f64::from(step) * 0.5;
+                let (p_lat, p_lng) = destination(lat, lng, bearing, radius_m);
+                assert!(
+                    (lat_lo..=lat_hi).contains(&p_lat) && (lng_lo..=lng_hi).contains(&p_lng),
+                    "{lat},{lng},{radius_m}m bearing {bearing}: ({p_lat}, {p_lng}) outside \
+                     lat {lat_lo}..{lat_hi} lng {lng_lo}..{lng_hi}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn proximity_box_bounds_longitude_away_from_poles_and_antimeridian() {
+        let ((lat_lo, lat_hi), (lng_lo, lng_hi)) = proximity_box(&NearPoint {
+            lat: 12.34,
+            lng: 56.78,
+            radius_m: 5_000.0,
+        });
+        assert!(lat_hi - lat_lo < 0.1 && lng_hi - lng_lo < 0.1);
+        for point in [
+            NearPoint {
+                lat: -89.5,
+                lng: 0.0,
+                radius_m: 100_000.0,
+            },
+            NearPoint {
+                lat: 10.0,
+                lng: 179.9,
+                radius_m: 50_000.0,
+            },
+        ] {
+            assert_eq!(proximity_box(&point).1, (-180.0, 180.0), "{point:?}");
+        }
+    }
 }

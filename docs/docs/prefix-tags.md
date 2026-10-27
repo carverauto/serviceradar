@@ -235,12 +235,16 @@ Permission: `settings.prefix_tags.manage` (operator+ by default).
 
 ## Proximity queries (geo cache)
 
-Flow proximity does **not** store geometry on the flow hypertable. Instead:
+Flow proximity does **not** store geometry on flow rows. Instead:
 
 1. Migration adds a generated `location geography(Point, 4326)` column on
    `platform.ip_geo_enrichment_cache` (from lat/lng) plus a partial GiST index.
-2. SRQL `near:lat,lng,radius` runs `ST_DWithin` against that cache and filters
-   flows by IP membership (src and/or dst).
+2. SRQL `near:lat,lng,radius` filters flows by IP membership (src and/or dst)
+   in that cache. Flows live in StarRocks, which reads the cache's
+   `latitude`/`longitude` through the `cnpg_platform` JDBC catalog (it cannot
+   read the `location` geography) and measures great-circle distance on a
+   sphere. Results within a fraction of a percent of the radius edge can differ
+   from PostGIS `ST_DWithin` on the spheroid.
 
 Writers of the geo cache continue to set `latitude`/`longitude` only; Postgres
 maintains `location`. See [SRQL Cookbook](./srql-cookbook.md) for examples.

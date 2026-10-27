@@ -17,8 +17,9 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
   carries no device uid: `device_id:` on logs resolves the uid to the addresses
   and names the inventory knows, and CNPG reads those two relations to do it.
   The `_catalog` views carry what JDBC cannot: an interface's address array,
-  the metadata-derived device aliases, and the exposure device attributes and
-  tags, flattened to text rows. The exposure views are the only CNPG relations
+  the metadata-derived device aliases, the exposure device attributes and
+  tags, and the threat cache's feed sources and indicator memberships, flattened
+  to text rows. The exposure views are the only CNPG relations
   exposure queries join; the assessment, package, advisory, dictionary, agent
   and alert tables stay off this list.
   """
@@ -26,7 +27,6 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
   @catalog "cnpg_platform"
   @schema "platform"
   @sql_literal ~r/'(?:\\.|''|[^'\\])*'/
-  @native_call ~r/\b#{@catalog}\.native_query\s*\(/i
 
   @allowed_tables ~w(
     ocsf_devices
@@ -42,7 +42,8 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
     netflow_local_cidrs_catalog
     ip_geo_enrichment_cache
     ip_threat_intel_cache
-    threat_intel_indicators
+    ip_threat_intel_sources_catalog
+    threat_intel_indicator_members_catalog
   )
 
   @forbidden_tables ~w(
@@ -96,73 +97,17 @@ defmodule ServiceRadar.Analytics.StarRocks.CatalogAllowlist do
     end
   end
 
-  @spec native_query?(String.t()) :: boolean()
-  def native_query?(sql) when is_binary(sql) do
-    Regex.match?(@native_call, sql_syntax(sql))
-  end
-
   @spec assert_sql_allowlisted(String.t()) :: :ok | {:error, term()}
   def assert_sql_allowlisted(sql) when is_binary(sql) do
-    with :ok <- assert_native_queries(sql) do
-      ~r/#{@catalog}\.#{@schema}\.([A-Za-z0-9_]+)/i
-      |> Regex.scan(sql_syntax(sql))
-      |> Enum.reduce_while(:ok, fn [_, table], _acc ->
-        check_table(table)
-      end)
-    end
-  end
-
-  # native_query embeds PostgreSQL SQL in a StarRocks string literal, so its
-  # relations cannot be found by the external-catalog qualifier scan above.
-  # Accept only single SELECTs on explicitly qualified current-state relations;
-  # the column-scoped CNPG reader grants remain the database authorization.
-  defp assert_native_queries(sql) do
-    @native_call
-    |> Regex.scan(sql_syntax(sql), return: :index)
-    |> Enum.reduce_while(:ok, fn [{offset, _length}], _acc ->
-      call = binary_part(sql, offset, byte_size(sql) - offset)
-
-      case Regex.run(~r/^#{@catalog}\.native_query\s*\(\s*'((?:\\.|''|[^'\\])*)'\s*\)/i, call) do
-        [_, encoded] ->
-          query = encoded |> String.replace("''", "'") |> String.replace("\\\\", "\\")
-
-          case assert_native_select(query) do
-            :ok -> {:cont, :ok}
-            {:error, _reason} = error -> {:halt, error}
-          end
-
-        _ ->
-          {:halt, {:error, :invalid_starrocks_native_query}}
-      end
+    ~r/#{@catalog}\.#{@schema}\.([A-Za-z0-9_]+)/i
+    |> Regex.scan(sql_syntax(sql))
+    |> Enum.reduce_while(:ok, fn [_, table], _acc ->
+      check_table(table)
     end)
   end
 
   defp sql_syntax(sql) do
     Regex.replace(@sql_literal, sql, fn literal -> String.duplicate(" ", byte_size(literal)) end)
-  end
-
-  defp assert_native_select(query) do
-    # PostgreSQL standard-conforming literals use doubled quotes. Mask values
-    # before inspecting syntax so a feed name cannot become a relation or verb.
-    syntax = Regex.replace(~r/'(?:''|[^'])*'/, query, "''")
-
-    relations =
-      Regex.scan(~r/\b(?:FROM|JOIN)\s+([A-Za-z_][A-Za-z0-9_.]*)/i, syntax)
-
-    if Regex.match?(~r/^\s*SELECT\b/i, syntax) and relations != [] and
-         not Regex.match?(
-           ~r/;|--|\/\*|\b(?:WITH|INSERT|UPDATE|DELETE|MERGE|COPY|CALL|INTO)\b/i,
-           syntax
-         ) do
-      Enum.reduce_while(relations, :ok, fn [_, relation], _acc ->
-        case String.split(String.downcase(relation), ".") do
-          [@schema, table] -> check_table(table)
-          _ -> {:halt, {:error, {:not_allowlisted, relation}}}
-        end
-      end)
-    else
-      {:error, :invalid_starrocks_native_query}
-    end
   end
 
   defp check_table(table) do

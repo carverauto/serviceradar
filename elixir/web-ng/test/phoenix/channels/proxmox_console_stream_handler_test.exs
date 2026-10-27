@@ -208,6 +208,16 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
       assert_receive {:fail_session, ^session_id, reason, _opts}
       assert reason in [:console_assignment_policy_binding_mismatch, :console_broker_unavailable]
 
+      # The browser sends its first resize right behind attach, so it arrives
+      # after the failure; it is dropped instead of crashing the socket.
+      assert {:ok, ^failed} =
+               ProxmoxConsoleStreamHandler.handle_in(
+                 {Jason.encode!(%{type: "resize", cols: 120, rows: 34}), [opcode: :text]},
+                 failed
+               )
+
+      refute_received {:fail_session, ^session_id, _reason, _opts}
+
       ProxmoxConsoleStreamHandler.terminate(:normal, failed)
       refute_received {:request_close, ^session_id, _opts}
     end

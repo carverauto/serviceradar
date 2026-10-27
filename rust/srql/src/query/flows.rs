@@ -222,6 +222,66 @@ mod tests {
 
     #[test]
     fn flow_endpoint_and_catalog_filters_compile_for_starrocks() {
+        // StarRocks 4.1 has no JDBC pass-through table function and cannot
+        // read PostgreSQL text[], cidr or geography columns, so every catalog
+        // filter reads scalar columns of a plain cache or a `_catalog` view.
+        let live = "WHERE c.matched AND c.expires_at > UTC_TIMESTAMP()";
+        let cache = "cnpg_platform.platform.ip_threat_intel_cache c";
+        let sources = "cnpg_platform.platform.ip_threat_intel_sources_catalog c";
+        let members = "cnpg_platform.platform.threat_intel_indicator_members_catalog c";
+        let indicator_live =
+            "AND (c.indicator_expires_at IS NULL OR c.indicator_expires_at > UTC_TIMESTAMP()) AND ";
+        let geo = "IN (SELECT g.ip FROM cnpg_platform.platform.ip_geo_enrichment_cache g \
+                   WHERE (g.expires_at IS NULL OR g.expires_at > UTC_TIMESTAMP()) \
+                   AND g.latitude BETWEEN ";
+        let distance = "st_distance_sphere(g.longitude, g.latitude, 56.78, 12.34) <= 5000)";
+        let threat_cases = [
+            ("threat_matched:true", cache, String::new()),
+            ("threat_matched:false", cache, String::new()),
+            (
+                "threat_source:example_feed",
+                sources,
+                " AND c.source IN ('example_feed')".to_string(),
+            ),
+            (
+                "threat_source:(example_feed,other_feed)",
+                sources,
+                " AND c.source IN ('example_feed', 'other_feed')".to_string(),
+            ),
+            (
+                "threat_observed_ip:192.0.2.10",
+                cache,
+                " AND c.ip = '192.0.2.10'".to_string(),
+            ),
+            (
+                "threat_indicator:198.51.100.0/24",
+                members,
+                format!(
+                    " {indicator_live}c.first_ip_hex = 'c6336400' AND c.last_ip_hex = 'c63364ff'"
+                ),
+            ),
+            (
+                "threat_indicator:198.51.100.20",
+                members,
+                format!(
+                    " {indicator_live}c.indicator_family = 4 \
+                     AND c.first_ip_hex <= 'c6336414' AND c.last_ip_hex >= 'c6336414'"
+                ),
+            ),
+            (
+                "threat_indicator:\"2001:db8::/32\"",
+                members,
+                format!(
+                    " {indicator_live}c.first_ip_hex = '20010db8000000000000000000000000' \
+                     AND c.last_ip_hex = '20010db8ffffffffffffffffffffffff'"
+                ),
+            ),
+            (
+                "threat_severity:>3",
+                cache,
+                " AND c.max_severity > 3".to_string(),
+            ),
+        ];
         for mode in [Some("starrocks"), Some("starrocks_raw")] {
             for (filter, contract) in [
                 ("ip:192.0.2.10", "src_endpoint_ip"),
@@ -232,19 +292,6 @@ mod tests {
                 ("src_tag:site:example", "src_prefix_tags"),
                 ("dst_tag:site:example", "dst_prefix_tags"),
                 ("tag:site:example", "src_prefix_tags"),
-                ("near:12.34,56.78,5km", "ST_DWithin"),
-                ("src_near:12.34,56.78,5km", "ST_DWithin"),
-                ("dst_near:12.34,56.78,5km", "ST_DWithin"),
-                ("threat_matched:true", "ip_threat_intel_cache"),
-                ("threat_matched:false", "ip_threat_intel_cache"),
-                ("threat_source:example_feed", "ip_threat_intel_cache"),
-                ("threat_observed_ip:192.0.2.10", "ip_threat_intel_cache"),
-                (
-                    "threat_indicator:198.51.100.0/24",
-                    "threat_intel_indicators",
-                ),
-                ("threat_indicator:198.51.100.20", "threat_intel_indicators"),
-                ("threat_severity:>3", "max_severity"),
             ] {
                 let response = compile_filter_request(filter, mode);
                 let predicate = response.sql.split_once(" WHERE ").expect("WHERE").1;
@@ -252,15 +299,81 @@ mod tests {
                     predicate.contains(contract),
                     "{mode:?} {filter}: {predicate}"
                 );
-                if filter.contains("near:") || filter.starts_with("threat_") {
+            }
+            for (filter, relation, condition) in &threat_cases {
+                let predicate = compile_predicate(filter, mode);
+                assert!(!predicate.contains("TABLE("), "{predicate}");
+                let subquery =
+                    format!("IN (SELECT c.ip FROM {relation} {live}{condition}), FALSE)");
+                for side in ["src_endpoint_ip", "dst_endpoint_ip"] {
                     assert!(
-                        predicate.contains("cnpg_platform.native_query("),
-                        "{predicate}"
+                        predicate.contains(&format!("COALESCE({side} {subquery}")),
+                        "{mode:?} {filter}: {predicate}"
                     );
-                    assert!(predicate.contains("COALESCE("), "{predicate}");
                 }
+                assert_eq!(
+                    predicate.contains("NOT ("),
+                    *filter == "threat_matched:false",
+                    "{mode:?} {filter}: {predicate}"
+                );
+            }
+            for (filter, sides) in [
+                (
+                    "near:12.34,56.78,5km",
+                    &["src_endpoint_ip", "dst_endpoint_ip"][..],
+                ),
+                ("src_near:12.34,56.78,5km", &["src_endpoint_ip"][..]),
+                ("dst_near:12.34,56.78,5km", &["dst_endpoint_ip"][..]),
+                (
+                    "!near:12.34,56.78,5km",
+                    &["src_endpoint_ip", "dst_endpoint_ip"][..],
+                ),
+            ] {
+                let predicate = compile_predicate(filter, mode);
+                assert!(
+                    predicate.contains(distance),
+                    "{mode:?} {filter}: {predicate}"
+                );
+                for side in ["src_endpoint_ip", "dst_endpoint_ip"] {
+                    assert_eq!(
+                        predicate.contains(&format!("COALESCE({side} {geo}")),
+                        sides.contains(&side),
+                        "{mode:?} {filter}: {predicate}"
+                    );
+                }
+                assert_eq!(
+                    predicate.contains("NOT ("),
+                    filter.starts_with('!'),
+                    "{mode:?} {filter}: {predicate}"
+                );
             }
         }
+    }
+
+    #[test]
+    fn threat_indicator_rejects_values_postgres_would_reject() {
+        for filter in [
+            "threat_indicator:198.51.100.5/24",
+            "threat_indicator:not-an-address",
+            "threat_indicator:198.51.100.0/33",
+        ] {
+            let error = try_compile_filter_request(filter, Some("starrocks"))
+                .expect_err("an invalid indicator must be refused");
+            assert!(
+                matches!(error, crate::error::ServiceError::InvalidRequest(_)),
+                "{filter}: {error:?}"
+            );
+        }
+    }
+
+    fn compile_predicate(filter: &str, mode: Option<&str>) -> String {
+        let response = compile_filter_request(filter, mode);
+        response
+            .sql
+            .split_once(" WHERE ")
+            .expect("WHERE")
+            .1
+            .to_string()
     }
 
     #[test]

@@ -57,11 +57,13 @@ converge that role, so there is nothing to grant by hand:
 | `platform.device_alias_states` | `SELECT (device_id, alias_type, state, alias_value)` |
 | `platform.netflow_exporter_cache` | `SELECT (device_uid, sampler_address, exporter_name)` |
 | `platform.netflow_interface_cache` | `SELECT (sampler_address, if_index, if_name, if_speed_bps)` |
-| `platform.ip_geo_enrichment_cache` | `SELECT (ip, country_iso2, expires_at, location)` |
+| `platform.ip_geo_enrichment_cache` | `SELECT (ip, country_iso2, expires_at, location, latitude, longitude)` |
 | `platform.ip_threat_intel_cache` | `SELECT (ip, matched, expires_at, sources, max_severity)` |
 | `platform.threat_intel_indicators` | `SELECT (indicator, expires_at)` |
+| `platform.ip_threat_intel_sources_catalog` | `SELECT (ip, matched, expires_at, source)` |
+| `platform.threat_intel_indicator_members_catalog` | `SELECT (ip, matched, expires_at, indicator, indicator_family, first_ip_hex, last_ip_hex, indicator_expires_at)` |
 
-Five of those are views, not tables. A PostgreSQL `text[]` and a `jsonb` both
+Seven of those are views, not tables. A PostgreSQL `text[]` and a `jsonb` both
 reach StarRocks 3.5.21 as `UNKNOWN_TYPE`, and a query that names such a column
 is refused at analysis, so CNPG flattens what the device lookups need:
 `device_interface_addresses_catalog` is one row per interface address, and
@@ -77,12 +79,25 @@ exposure views: `exposure_device_catalog` is one row per non-deleted device with
 a non-tombstoned fleet ordinal (owner name, `site` tag and an agent-managed
 flag already extracted), and `exposure_device_tags_catalog` is one row per tag
 key/value of those devices. Neither exposes the assessment, package, advisory,
-fleet-dictionary, agent or alert tables.
+fleet-dictionary, agent or alert tables. Core migration
+`20261026190000_create_flow_threat_catalog_views` creates the two flow threat
+views for the StarRocks 4.1 JDBC catalog: `ip_threat_intel_sources_catalog`
+is one row per cache IP and feed source (the unnested `sources` array), and
+`threat_intel_indicator_members_catalog` is one row per cache IP and containing
+indicator, joined with PostgreSQL's `<<=`, with the indicator text, family and
+fixed-width hex bounds. It also grants `latitude`/`longitude` on
+`ip_geo_enrichment_cache` for `near`.
 
 Nothing else is reachable: `CatalogAllowlist` rejects any other table before
-the SQL leaves core, and the grants above are column-scoped to exactly what the
-compiled subqueries read. Telemetry hypertables and
-`network_credential_secrets` are never granted.
+the SQL leaves core. The grants match the columns compiled subqueries read,
+except `location` on `ip_geo_enrichment_cache`, `sources` on
+`ip_threat_intel_cache`, `indicator` on
+`threat_intel_indicator_members_catalog`, and `threat_intel_indicators`.
+`indicator` is the members view's indicator text, granted for readability and
+not read by SRQL. The other three stay granted and unread;
+`threat_intel_indicators` is also off the allowlist, because the StarRocks 4.1
+JDBC catalog cannot read geography, `text[]`, or `cidr`. Telemetry hypertables
+and `network_credential_secrets` are never granted.
 
 Core migration `20260918120000_create_starrocks_catalog_reader_role` creates the
 role and issues the grants, but only where the migrating connection holds

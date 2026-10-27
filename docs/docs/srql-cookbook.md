@@ -370,8 +370,13 @@ in:flows dst_near:37.7749,-122.4194,25mi time:last_1h
 ```
 
 `near:` matches if **either** endpoint's IP is within the radius of the coordinate
-according to `platform.ip_geo_enrichment_cache` (PostGIS `ST_DWithin` on the
-generated `location` geography). `src_near:` / `dst_near:` are directional.
+according to `platform.ip_geo_enrichment_cache`. `src_near:` / `dst_near:` are
+directional. Distances are great-circle distances on a sphere (StarRocks
+`st_distance_sphere`, mean Earth radius 6371.01 km), computed from the cache's
+`latitude`/`longitude`. The radius is not measured on the WGS84 spheroid, so an
+IP within a fraction of a percent of the radius edge can land on the other side
+of it compared with PostGIS `ST_DWithin`. GeoIP positions are far coarser than
+that difference.
 Radius units: `km` (default if omitted), `m`, `mi`. IPs missing from the geo
 cache are excluded from proximity matches without error.
 

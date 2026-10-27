@@ -47,47 +47,19 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
 
   @impl true
   def handle_in({data, [opcode: :text]}, %{attached?: false} = state) do
-    with {:ok, %{"type" => "attach"} = message} <- decode_json(data),
-         {:ok, ticket} <- required_string(message, "ticket"),
-         :ok <- ensure_session_id(message, state.session_id),
-         {:ok, %ProxmoxConsoleSession{} = session, state} <-
-           attach_with_current_authority(ticket, state),
-         {:ok, broker} <- start_broker(session, message, state) do
-      state =
-        state
-        |> cancel_timeout_timers()
-        |> schedule_timeout_timers(session)
-        |> schedule_reauth_timer()
+    case decode_json(data) do
+      {:ok, %{"type" => "attach"} = message} ->
+        attach(message, state)
 
-      {:push, {:text, encode(%{type: "ready", session_id: session.id})},
-       %{state | attached?: true, session: session, broker: broker}}
-    else
-      {:error, :broker_start_failed, reason, attached_state} ->
-        stop_for_broker_start_error(reason, attached_state)
-
-      {:error, :console_broker_unavailable} ->
-        _ = state.sessions_module.fail_session(state.session_id, :console_broker_unavailable, scope: state.scope)
-
-        {:stop, :normal, 1011,
-         [{:text, encode(%{type: "error", message: "Proxmox console broker is not available on the edge agent yet."})}],
-         state}
-
-      {:error, :invalid_size} ->
-        _ = state.sessions_module.fail_session(state.session_id, :invalid_size, scope: state.scope)
-
-        {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Invalid console terminal dimensions."})}],
-         state}
-
-      {:error, :permission_revoked, denied_state} ->
-        stop_for_permission_revoked(denied_state)
+      # The browser sends attach and its first resize back to back, and may
+      # send input frames before the ready reply arrives. A frame that is not
+      # an attach has no session to act on until one is attached, and after a
+      # failed attach the stream is already closing, so it is dropped.
+      {:ok, _frame} ->
+        {:ok, state}
 
       {:error, reason} ->
-        Logger.warning("Proxmox console websocket attach rejected",
-          session_id: state.session_id,
-          reason: inspect(reason)
-        )
-
-        {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Invalid or expired console ticket."})}], state}
+        reject_attach(reason, state)
     end
   end
 
@@ -190,6 +162,54 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
     end
 
     :ok
+  end
+
+  defp attach(message, state) do
+    with {:ok, ticket} <- required_string(message, "ticket"),
+         :ok <- ensure_session_id(message, state.session_id),
+         {:ok, %ProxmoxConsoleSession{} = session, state} <-
+           attach_with_current_authority(ticket, state),
+         {:ok, broker} <- start_broker(session, message, state) do
+      state =
+        state
+        |> cancel_timeout_timers()
+        |> schedule_timeout_timers(session)
+        |> schedule_reauth_timer()
+
+      {:push, {:text, encode(%{type: "ready", session_id: session.id})},
+       %{state | attached?: true, session: session, broker: broker}}
+    else
+      {:error, :broker_start_failed, reason, attached_state} ->
+        stop_for_broker_start_error(reason, attached_state)
+
+      {:error, :console_broker_unavailable} ->
+        _ = state.sessions_module.fail_session(state.session_id, :console_broker_unavailable, scope: state.scope)
+
+        {:stop, :normal, 1011,
+         [{:text, encode(%{type: "error", message: "Proxmox console broker is not available on the edge agent yet."})}],
+         state}
+
+      {:error, :invalid_size} ->
+        _ = state.sessions_module.fail_session(state.session_id, :invalid_size, scope: state.scope)
+
+        {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Invalid console terminal dimensions."})}],
+         state}
+
+      {:error, :permission_revoked, denied_state} ->
+        stop_for_permission_revoked(denied_state)
+
+      {:error, reason} ->
+        reject_attach(reason, state)
+    end
+  end
+
+  defp reject_attach(reason, state) do
+    Logger.warning("Proxmox console websocket attach rejected",
+      session_id: state.session_id,
+      reason: inspect(reason)
+    )
+
+    {:stop, :normal, 1008, [{:text, encode(%{type: "error", message: "Invalid or expired console ticket."})}], state}
   end
 
   defp start_broker(session, message, state) do
