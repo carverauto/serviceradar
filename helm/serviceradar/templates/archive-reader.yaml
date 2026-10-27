@@ -1,0 +1,198 @@
+{{- $archiveReader := default (dict) .Values.archiveReader -}}
+{{- if $archiveReader.enabled }}
+{{- if eq (toString (default (dict) .Values.webNg).enabled) "false" -}}
+{{- fail "archiveReader requires webNg.enabled" -}}
+{{- end -}}
+{{- $revision := required "archiveReader.revision is required" $archiveReader.revision -}}
+{{- $configSecret := required "archiveReader.configSecretName is required" $archiveReader.configSecretName -}}
+{{- $providerSecret := required "archiveReader.providerSecretName is required" $archiveReader.providerSecretName -}}
+{{- $authSecret := required "archiveReader.authSecretName is required" $archiveReader.authSecretName -}}
+{{- $tlsSecret := required "archiveReader.tlsSecretName is required" $archiveReader.tlsSecretName -}}
+{{- $client := default (dict) $archiveReader.client -}}
+{{- $_ := required "archiveReader.client.configSecretName is required" $client.configSecretName -}}
+{{- $clientTLS := required "archiveReader.client.tlsSecretName is required" $client.tlsSecretName -}}
+{{- if eq $tlsSecret $clientTLS -}}
+{{- fail "archiveReader server and client TLS Secrets must be distinct" -}}
+{{- end -}}
+{{- $writer := default (dict) .Values.mediaStorage -}}
+{{- range $key := list "providerSecretName" "authSecretName" "tlsSecretName" -}}
+{{- if eq (get $archiveReader $key) (get $writer $key) -}}
+{{- fail (printf "archiveReader.%s must be distinct from mediaStorage.%s" $key $key) -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $clientTLS (get $writer "tlsSecretName") -}}
+{{- fail "archiveReader.client.tlsSecretName must be distinct from mediaStorage.tlsSecretName" -}}
+{{- end -}}
+{{- $egress := default (dict) $archiveReader.providerEgress -}}
+{{- if not $egress.cidrs -}}
+{{- fail "archiveReader.providerEgress.cidrs must explicitly allow the provider or CONNECT proxy" -}}
+{{- end -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: serviceradar-archive-reader-release
+data:
+  isolated.config: "[].\n"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serviceradar-archive-reader
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: serviceradar-archive-reader
+  template:
+    metadata:
+      labels:
+        app: serviceradar-archive-reader
+        app.kubernetes.io/part-of: serviceradar-media
+      annotations:
+        serviceradar.io/archive-reader-revision: {{ $revision | quote }}
+    spec:
+      {{- include "serviceradar.imagePullSecrets" . | nindent 6 }}
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with $archiveReader.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: reader
+          image: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart "name" "serviceradar-core-elx" "service" "core") }}
+          imagePullPolicy: {{ include "serviceradar.imagePullPolicy" . }}
+          command: [/app/bin/serviceradar_core_elx]
+          args: [eval, "ServiceRadarCoreElx.CameraStorage.Service.main_read()"]
+          ports:
+            - name: reader-https
+              containerPort: {{ $archiveReader.port }}
+          env:
+            - name: VMS_ARCHIVE_READ_STORAGE_CONFIG
+              value: /etc/serviceradar/archive-read-storage/config/config.json
+            - name: RELEASE_SYS_CONFIG
+              value: /etc/serviceradar/archive-read-storage/release/isolated
+            - name: RELEASE_DISTRIBUTION
+              value: none
+            - name: ENABLE_TLS_DIST
+              value: "false"
+            - name: RELEASE_COOKIE
+              value: unused_isolated_archive_reader_cookie
+            - name: ERL_CRASH_DUMP
+              value: /dev/null
+            - name: ERL_FLAGS
+              value: "+S 2:2 +fnu"
+            - name: TMPDIR
+              value: /tmp
+            {{- with $archiveReader.egressProxy }}
+            - name: SERVICERADAR_EGRESS_PROXY
+              value: {{ . | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml $archiveReader.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: release
+              mountPath: /etc/serviceradar/archive-read-storage/release
+              readOnly: true
+            - name: config
+              mountPath: /etc/serviceradar/archive-read-storage/config
+              readOnly: true
+            - name: provider
+              mountPath: /etc/serviceradar/archive-read-storage/provider
+              readOnly: true
+            - name: auth
+              mountPath: /etc/serviceradar/archive-read-storage/auth
+              readOnly: true
+            - name: tls
+              mountPath: /etc/serviceradar/archive-read-storage/tls
+              readOnly: true
+      volumes:
+        - name: tmp
+          emptyDir:
+            sizeLimit: 32Mi
+        - name: release
+          configMap:
+            name: serviceradar-archive-reader-release
+        - name: config
+          secret:
+            secretName: {{ $configSecret | quote }}
+            defaultMode: 0440
+            items: [{key: config.json, path: config.json}]
+        - name: provider
+          secret:
+            secretName: {{ $providerSecret | quote }}
+            defaultMode: 0440
+            items: [{key: credentials.json, path: credentials.json}]
+        - name: auth
+          secret:
+            secretName: {{ $authSecret | quote }}
+            defaultMode: 0440
+            items: [{key: reader-token, path: token}]
+        - name: tls
+          secret:
+            secretName: {{ $tlsSecret | quote }}
+            defaultMode: 0440
+            items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}, {key: ca.crt, path: ca.crt}]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-archive-reader
+spec:
+  type: ClusterIP
+  selector:
+    app: serviceradar-archive-reader
+  ports:
+    - name: reader-https
+      port: {{ $archiveReader.port }}
+      targetPort: reader-https
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: serviceradar-archive-reader
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-archive-reader
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-web-ng
+      ports:
+        - protocol: TCP
+          port: {{ $archiveReader.port }}
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+      ports:
+        - {protocol: UDP, port: 53}
+        - {protocol: TCP, port: 53}
+    - to:
+        {{- range $egress.cidrs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: {{ $egress.port }}
+{{- end }}

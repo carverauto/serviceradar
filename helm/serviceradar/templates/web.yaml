@@ -27,6 +27,10 @@
 {{- $controlPlaneMediaSecretName := default "serviceradar-control-plane-media-access" $controlPlaneMedia.existingSecretName -}}
 {{- $controlPlaneMediaSecretKey := default "token" $controlPlaneMedia.tokenSecretKey -}}
 {{- $archiveStorage := default (dict) $webNg.archiveStorage -}}
+{{- $archiveReader := default (dict) .Values.archiveReader -}}
+{{- if or (hasKey (default (dict) $webNg.extraEnv) "VMS_ARCHIVE_READER_CONFIG") (hasKey (default (dict) $webNg.extraEnvValueFrom) "VMS_ARCHIVE_READER_CONFIG") -}}
+{{- fail "VMS_ARCHIVE_READER_CONFIG must be configured through archiveReader" -}}
+{{- end -}}
 {{- range $key := list "SERVICERADAR_ARCHIVE_STORAGE_ENABLED" "SERVICERADAR_ARCHIVE_STORAGE_CONFIG_FILE" "SERVICERADAR_ARCHIVE_STORAGE_TOKEN_FILE" "SERVICERADAR_ARCHIVE_STORAGE_PORT" -}}
 {{- if or (hasKey (default (dict) $webNg.extraEnv) $key) (hasKey (default (dict) $webNg.extraEnvValueFrom) $key) -}}
 {{- fail (printf "%s must be configured through webNg.archiveStorage" $key) -}}
@@ -236,6 +240,9 @@ spec:
         {{- if $archiveStorage.enabled }}
         serviceradar.io/archive-storage-revision: {{ $archiveStorage.revision | quote }}
         {{- end }}
+        {{- if $archiveReader.enabled }}
+        serviceradar.io/archive-reader-revision: {{ $archiveReader.revision | quote }}
+        {{- end }}
         {{- if $controlPlaneMediaEnabled }}
         serviceradar.io/media-deployment-ref: {{ $controlPlaneMedia.deploymentRef | quote }}
         serviceradar.io/media-generation: {{ $controlPlaneMedia.generation | quote }}
@@ -412,6 +419,10 @@ spec:
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
         - name: PORT
           value: "4000"
+        {{- if $archiveReader.enabled }}
+        - name: VMS_ARCHIVE_READER_CONFIG
+          value: /etc/serviceradar/archive-reader/config/config.json
+        {{- end }}
         {{- if $archiveStorage.enabled }}
         - name: SERVICERADAR_ARCHIVE_STORAGE_ENABLED
           value: "true"
@@ -937,6 +948,17 @@ spec:
         volumeMounts:
         - name: tmp
           mountPath: /tmp
+        {{- if $archiveReader.enabled }}
+        - name: archive-reader-config
+          mountPath: /etc/serviceradar/archive-reader/config
+          readOnly: true
+        - name: archive-reader-auth
+          mountPath: /etc/serviceradar/archive-reader/auth
+          readOnly: true
+        - name: archive-reader-tls
+          mountPath: /etc/serviceradar/archive-reader/tls
+          readOnly: true
+        {{- end }}
         {{- if $archiveStorage.enabled }}
         - name: archive-storage-config
           mountPath: /etc/serviceradar/archive-storage
@@ -1027,6 +1049,23 @@ spec:
       - name: tmp
         emptyDir:
           sizeLimit: 512Mi
+      {{- if $archiveReader.enabled }}
+      - name: archive-reader-config
+        secret:
+          secretName: {{ $archiveReader.client.configSecretName | quote }}
+          defaultMode: 0440
+          items: [{key: config.json, path: config.json}]
+      - name: archive-reader-auth
+        secret:
+          secretName: {{ $archiveReader.authSecretName | quote }}
+          defaultMode: 0440
+          items: [{key: reader-token, path: token}]
+      - name: archive-reader-tls
+        secret:
+          secretName: {{ $archiveReader.client.tlsSecretName | quote }}
+          defaultMode: 0440
+          items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}, {key: ca.crt, path: ca.crt}]
+      {{- end }}
       {{- if $archiveStorage.enabled }}
       - name: archive-storage-config
         secret:

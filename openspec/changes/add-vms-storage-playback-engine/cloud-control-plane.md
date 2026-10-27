@@ -36,8 +36,8 @@ actions. See [Akamai access-key permissions](https://techdocs.akamai.com/cloud-c
 
 ## Next bounded Cloud checkpoint
 
-After [Cloud #188](https://github.com/carverauto/serviceradar-control/pull/188)
-merges, expose read-only reservation inventory and preservation status through
+[Cloud #188](https://github.com/carverauto/serviceradar-control/pull/188) is merged.
+The next independent Cloud scope exposes read-only reservation inventory and preservation status through
 the existing operator environment console. This is a bounded part of the
 approved Cloud design's resource inventory and lifecycle visibility; it does not
 complete provisioning or the ownership gate below.
