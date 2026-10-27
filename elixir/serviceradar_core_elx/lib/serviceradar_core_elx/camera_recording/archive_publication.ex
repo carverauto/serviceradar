@@ -11,14 +11,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ArchivePublication do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Camera.ArchiveStorageConfig, as: Config
+  alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
   alias ServiceRadar.Camera.ArchiveUploads
   alias ServiceRadar.Camera.RecordingBlock
   alias ServiceRadar.Camera.RecordingBlocks
   alias ServiceRadar.Camera.RecordingControl
   alias ServiceRadar.JSONDocument
   alias ServiceRadarCoreElx.CameraRecording.Storage
-  alias ServiceRadarCoreElx.CameraStorage.Config
-  alias ServiceRadarCoreElx.CameraStorage.HTTP
 
   @operation_ms 30_000
 

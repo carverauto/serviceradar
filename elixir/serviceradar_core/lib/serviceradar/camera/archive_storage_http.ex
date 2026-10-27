@@ -1,6 +1,6 @@
-defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
+defmodule ServiceRadar.Camera.ArchiveStorageHTTP do
   @moduledoc """
-  One bounded HTTPS exchange for the isolated storage service and its diagnostic.
+  One bounded HTTPS exchange for isolated archive storage and its private clients.
 
   The caller owns authorization, signing and the total operation deadline. This
   transport owns its socket, never retries or follows redirects, and buffers at
@@ -11,6 +11,39 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
   alias ServiceRadar.HTTP.EgressClient
 
   @header_limit 16_384
+
+  def sign(provider, method, url, headers, body, digest \\ nil) do
+    uri = URI.parse(url)
+    # Supply transport defaults before hashing; Mint otherwise adds User-Agent after signing.
+    headers = [
+      {"host", uri.authority},
+      {"user-agent", "serviceradar-init-storage/1"},
+      {"accept-encoding", "identity"} | headers
+    ]
+
+    length =
+      case body do
+        {:file, _, size} -> size
+        bytes when is_binary(bytes) -> byte_size(bytes)
+        nil -> nil
+      end
+
+    headers =
+      if length, do: [{"content-length", Integer.to_string(length)} | headers], else: headers
+
+    Req.Utils.aws_sigv4_headers(
+      access_key_id: provider.credential["access_key_id"],
+      secret_access_key: provider.credential["secret_access_key"],
+      region: provider.destination["region"],
+      service: "s3",
+      datetime: DateTime.utc_now(),
+      method: method,
+      url: url,
+      headers: headers,
+      body: "",
+      body_digest: digest || :sha256 |> :crypto.hash(body || "") |> Base.encode16(case: :lower)
+    )
+  end
 
   # This one-shot process owns its sockets. Killing it bounds connect, upload,
   # headers and progressing reads together, including a stalled TLS send.
@@ -51,7 +84,9 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
           spawn_monitor(operation)
 
         _ ->
-          {:ok, pid} = Task.Supervisor.start_child(ServiceRadarCoreElx.CameraStorage.Tasks, operation)
+          {:ok, pid} =
+            Task.Supervisor.start_child(Map.fetch!(config, :task_supervisor), operation)
+
           {pid, Process.monitor(pid)}
       end
 
@@ -99,7 +134,16 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
     execute(config, :get, url, headers, nil, timeout, max_bytes, {first, last, size, etag, nil})
   end
 
-  defp execute(config, :get, url, headers, _body, timeout, max_bytes, {first, last, size, etag, version}) do
+  defp execute(
+         config,
+         :get,
+         url,
+         headers,
+         _body,
+         timeout,
+         max_bytes,
+         {first, last, size, etag, version}
+       ) do
     EgressClient.fetch_range(url, {first, last},
       expected_size: size,
       expected_etag: etag,
@@ -120,7 +164,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
       mode: :passive,
       protocols: [:http1],
       max_header_list_size: @header_limit,
-      transport_opts: [cacerts: config.cacerts, timeout: timeout] ++ Map.get(config, :client_tls, [])
+      transport_opts:
+        [cacerts: config.cacerts, timeout: timeout] ++ Map.get(config, :client_tls, [])
     ]
 
     options =
@@ -138,7 +183,13 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
           path = (uri.path || "/") <> if(uri.query, do: "?" <> uri.query, else: "")
 
           with {:ok, conn, ref} <- send_request(conn, method, path, headers, body) do
-            receive_response(conn, ref, %{status: nil, headers: [], body: [], bytes: 0}, max_bytes, timeout)
+            receive_response(
+              conn,
+              ref,
+              %{status: nil, headers: [], body: [], bytes: 0},
+              max_bytes,
+              timeout
+            )
           end
         after
           Mint.HTTP.close(conn)
@@ -151,7 +202,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
   defp send_request(conn, method, path, headers, {:file, filename, size}) do
     with {:ok, file} <- File.open(filename, [:read, :binary, :raw]) do
       try do
-        with {:ok, conn, ref} <- Mint.HTTP.request(conn, String.upcase(to_string(method)), path, headers, :stream),
+        with {:ok, conn, ref} <-
+               Mint.HTTP.request(conn, String.upcase(to_string(method)), path, headers, :stream),
              {:ok, conn} <- stream_file(conn, ref, file, size) do
           {:ok, conn, ref}
         end
@@ -195,12 +247,14 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
     end
   end
 
-  defp event({:status, ref, status}, {:cont, response}, ref, _limit), do: {:cont, {:cont, %{response | status: status}}}
+  defp event({:status, ref, status}, {:cont, response}, ref, _limit),
+    do: {:cont, {:cont, %{response | status: status}}}
 
   defp event({:headers, ref, headers}, {:cont, response}, ref, _limit) do
     headers = response.headers ++ headers
 
-    if Enum.reduce(headers, 0, fn {k, v}, size -> size + byte_size(k) + byte_size(v) end) > @header_limit do
+    if Enum.reduce(headers, 0, fn {k, v}, size -> size + byte_size(k) + byte_size(v) end) >
+         @header_limit do
       {:halt, {:error, :response_headers_too_large}}
     else
       {:cont, {:cont, %{response | headers: headers}}}
@@ -228,7 +282,10 @@ defmodule ServiceRadarCoreElx.CameraStorage.HTTP do
   end
 
   defp event(_, _, _, _), do: {:halt, {:error, :invalid_response}}
-  defp normalize({:ok, %Req.Response{status: status}}) when status in 300..399, do: {:error, :redirect_refused}
+
+  defp normalize({:ok, %Req.Response{status: status}}) when status in 300..399,
+    do: {:error, :redirect_refused}
+
   defp normalize({:ok, response}), do: {:ok, response}
   defp normalize({:error, reason}) when is_atom(reason), do: {:error, reason}
   defp normalize(_), do: {:error, :transport_error}

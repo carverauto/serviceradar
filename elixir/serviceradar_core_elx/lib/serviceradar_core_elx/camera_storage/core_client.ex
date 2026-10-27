@@ -1,8 +1,8 @@
 defmodule ServiceRadarCoreElx.CameraStorage.CoreClient do
   @moduledoc false
 
+  alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
   alias ServiceRadar.JSONDocument
-  alias ServiceRadarCoreElx.CameraStorage.HTTP
 
   @paths %{
     challenge: "/v1/init-authorities/challenge",

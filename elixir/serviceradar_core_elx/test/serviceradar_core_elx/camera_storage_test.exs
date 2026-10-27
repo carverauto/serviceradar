@@ -4,8 +4,9 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Camera.ArchiveAuthorityConfig
-  alias ServiceRadarCoreElx.CameraStorage.Config
-  alias ServiceRadarCoreElx.CameraStorage.HTTP
+  alias ServiceRadar.Camera.ArchiveStorageConfig, as: Config
+  alias ServiceRadar.Camera.ArchiveStorageHTTP, as: HTTP
+  alias ServiceRadarCoreElx.CameraStorage.ReadSession
   alias ServiceRadarCoreElx.CameraStorage.Service
   alias ServiceRadarCoreElx.CameraStorage.Session
   alias ServiceRadarCoreElx.Test.StorageHTTPFixture, as: Fixture
@@ -167,7 +168,8 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
       config_path: config_path,
       credentials_path: credentials_path,
       credential: credential,
-      runtime_path: runtime_path
+      runtime_path: runtime_path,
+      tls: tls
     }
   end
 
@@ -737,6 +739,244 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     refute_receive :direct_provider_request, 200
   end
 
+  test "the isolated reader returns only the verified range using its installed destination and credential", ctx do
+    reader = start_reader(ctx)
+
+    assert {:ok, %{status: 200, body: "immutable", headers: headers}} = read_range(reader)
+    assert Map.get(headers, "content-type") == ["application/octet-stream"]
+    assert Map.get(headers, "cache-control") == ["no-store"]
+    refute Map.has_key?(headers, "etag")
+    refute Map.has_key?(headers, "x-amz-version-id")
+
+    assert [request] = Agent.get(ctx.store, & &1.provider)
+    assert request.method == "GET"
+    assert request.target == "/synthetic-media/#{object_key(:media)}?versionId=version-1"
+    assert request.headers["range"] == "bytes=9-17"
+    assert request.headers["if-match"] == ~s("synthetic-etag")
+    assert request.headers["authorization"] =~ "Credential=synthetic-reader/"
+    refute request.headers["authorization"] =~ "synthetic-writer"
+    assert request.body == ""
+
+    init_plan =
+      Map.merge(reader.plan, %{
+        "object_key" => @key,
+        "first" => 0,
+        "last" => byte_size(@bytes) - 1,
+        "sha256" => digest(@bytes)
+      })
+
+    assert {:ok, %{status: 200, body: @bytes}} = read_range(reader, Jason.encode!(init_plan))
+    assert [init_request, ^request] = Agent.get(ctx.store, & &1.provider)
+    assert init_request.method == "GET"
+    assert init_request.target == "/synthetic-media/#{@key}?versionId=version-1"
+    assert init_request.headers["range"] == "bytes=0-#{byte_size(@bytes) - 1}"
+    refute Enum.any?(Agent.get(ctx.store, & &1.core), fn {path, _} -> not String.ends_with?(path, "/challenge") end)
+  end
+
+  test "read and upload listeners reject each other's identities and routes", ctx do
+    reader = start_reader(ctx)
+
+    assert {:ok, %{status: 401}} = read_range(%{reader | client: ctx.client})
+
+    assert {:error, _} =
+             HTTP.request(
+               reader.client,
+               :post,
+               ctx.url,
+               [{"authorization", "Bearer " <> reader.token}],
+               "{}",
+               2_000,
+               1024
+             )
+
+    assert {:ok, %{status: 401}} = read_range(%{reader | token: @recorder_token})
+
+    assert {:ok, %{status: 404}} = read_range(%{reader | url: "https://localhost:#{reader.port}/v1/init-uploads"})
+
+    assert {:ok, %{status: 404}} =
+             read_range(%{
+               reader
+               | client: ctx.client,
+                 token: @recorder_token,
+                 url: "https://localhost:#{ctx.port}/v1/archive-ranges"
+             })
+
+    assert Agent.get(ctx.store, & &1.provider) == []
+  end
+
+  test "the read listener rejects unbounded or foreign plans before provider access", ctx do
+    reader = start_reader(ctx)
+
+    for plan <- [
+          Map.put(reader.plan, "binding_id", "00000000-0000-4000-8000-000000000003"),
+          Map.put(reader.plan, "destination_sha256", String.duplicate("d", 64)),
+          Map.put(reader.plan, "object_key", "recordings/v1/../init.mp4"),
+          Map.put(reader.plan, "object_key", String.replace(@key, "init.mp4", "manifest.json")),
+          Map.put(reader.plan, "provider", "https://foreign.example.test"),
+          Map.put(reader.plan, "first", -1),
+          Map.put(reader.plan, "last", byte_size(@bytes)),
+          Map.put(reader.plan, "size", 16_777_217),
+          Map.put(reader.plan, "object_key", @key),
+          Map.merge(reader.plan, %{"object_key" => @key, "first" => 0, "last" => 1_048_576, "size" => 1_048_577}),
+          Map.merge(reader.plan, %{
+            "object_key" => object_key(:media),
+            "first" => 0,
+            "last" => 4_194_304,
+            "size" => 4_194_305
+          }),
+          Map.put(reader.plan, "etag", "W/\"weak\""),
+          Map.put(reader.plan, "version_id", "null"),
+          Map.put(reader.plan, "block_id", "not-a-uuid"),
+          Map.put(reader.plan, "manifest_verification_sha256", "not-a-hash")
+        ] do
+      assert {:ok, %{status: 400}} = read_range(reader, Jason.encode!(plan))
+    end
+
+    assert {:ok, %{status: 413}} = read_range(reader, String.duplicate("x", 8193))
+    duplicate = String.replace_prefix(Jason.encode!(reader.plan), "{", ~s({"schema_version":1,))
+    assert {:ok, %{status: 400}} = read_range(reader, duplicate)
+    assert Agent.get(ctx.store, & &1.provider) == []
+  end
+
+  test "readback identity or byte failures expose no provider response", ctx do
+    reader = start_reader(ctx)
+
+    for mode <- [:whole_object_fallback, :wrong_bytes] do
+      Agent.update(ctx.store, fn state ->
+        %{
+          state
+          | mode: mode,
+            object: if(mode == :wrong_bytes, do: String.duplicate("x", byte_size(@bytes)), else: @bytes)
+        }
+      end)
+
+      assert {:ok, %{status: 503, body: body, headers: headers}} = read_range(reader)
+      assert Jason.decode!(body) == %{"error" => "archive_read_unavailable"}
+      refute Map.has_key?(headers, "etag")
+    end
+
+    assert length(Agent.get(ctx.store, & &1.provider)) == 2
+    assert Enum.all?(Agent.get(ctx.store, & &1.provider), &(&1.method == "GET"))
+  end
+
+  test "one read slot remains occupied until its original deadline kills the ingress and provider owners", ctx do
+    reader = start_reader(ctx)
+    Agent.update(ctx.store, &%{&1 | mode: :slow_read})
+    task = Task.async(fn -> read_range(reader) end)
+    assert_receive :read_started, 2_000
+    slot = :sys.get_state(ReadSession).slot
+    {socket, _} = slot.socket
+    ingress_monitor = Process.monitor(slot.owner)
+    socket_monitor = Process.monitor(socket)
+    :erlang.suspend_process(slot.owner)
+    on_exit(fn -> if Process.alive?(slot.owner), do: :erlang.resume_process(slot.owner) end)
+    assert {:ok, %{status: 503}} = read_range(reader)
+    assert length(Agent.get(ctx.store, & &1.provider)) == 1
+    assert_receive {:DOWN, ^ingress_monitor, :process, _, :killed}, 11_000
+    assert_receive {:DOWN, ^socket_monitor, :process, ^socket, _}, 1_000
+    assert {:error, _} = Task.await(task, 2_000)
+    assert eventually(fn -> is_nil(:sys.get_state(ReadSession).slot) end)
+    Agent.update(ctx.store, &%{&1 | mode: nil})
+    assert {:ok, %{status: 200, body: "immutable"}} = read_range(reader)
+  end
+
+  defp start_reader(ctx) do
+    algorithm = [{:digest, :sha256}, {:key, {:namedCurve, :secp256r1}}]
+
+    certificates =
+      :public_key.pkix_test_data(%{
+        server_chain: %{root: algorithm, intermediates: [], peer: algorithm},
+        client_chain: %{root: algorithm, intermediates: [], peer: algorithm}
+      })
+
+    roots = Enum.uniq(ctx.client.cacerts ++ certificates.client_config[:cacerts] ++ certificates.server_config[:cacerts])
+    ca = write_pem(ctx.tmp_dir, "reader-ca.crt", Enum.map(roots, &{:Certificate, &1, :not_encrypted}))
+    cert = write_pem(ctx.tmp_dir, "reader.crt", [{:Certificate, certificates.client_config[:cert], :not_encrypted}])
+    {key_type, key_der} = certificates.client_config[:key]
+    key = write_pem(ctx.tmp_dir, "reader.key", [{key_type, key_der, :not_encrypted}])
+    token = String.duplicate("p", 40)
+    tokenfile = write_file(ctx.tmp_dir, "reader-token", token)
+
+    credentialfile =
+      write_file(
+        ctx.tmp_dir,
+        "reader-credential.json",
+        Jason.encode!(%{
+          ctx.credential
+          | "access_key_id" => "synthetic-reader",
+            "secret_access_key" => "invented-reader-key"
+        })
+      )
+
+    port = free_port()
+
+    document = %{
+      "schema_version" => 1,
+      "binding_id" => @binding,
+      "destination" => ctx.config.provider.destination,
+      "provider_credentials_file" => credentialfile,
+      "listener" =>
+        Map.merge(ctx.tls, %{
+          "port" => port,
+          "cacertfile" => ca,
+          "reader_certificate_sha256" => digest(certificates.client_config[:cert]),
+          "token_file" => tokenfile
+        })
+    }
+
+    path = write_file(ctx.tmp_dir, "reader-storage.json", Jason.encode!(document))
+    assert {:ok, config} = Config.load_read_storage(path)
+    config = put_in(config.provider, Map.merge(config.provider, Map.take(ctx.config.provider, [:proxy, :cacerts])))
+    start_supervised!(%{id: :reader_service, start: {Service, :start_read_link, [config]}, restart: :temporary})
+    Agent.update(ctx.store, &%{&1 | object: @bytes})
+
+    client_document = %{
+      "schema_version" => 1,
+      "binding_id" => @binding,
+      "destination_sha256" => config.destination_sha256,
+      "storage" => %{
+        "base_url" => "https://localhost:#{port}",
+        "certfile" => cert,
+        "keyfile" => key,
+        "cacertfile" => ca,
+        "token_file" => tokenfile
+      }
+    }
+
+    client_path = write_file(ctx.tmp_dir, "reader-client.json", Jason.encode!(client_document))
+    assert {:ok, installed} = Config.load_reader(client_path)
+
+    plan = %{
+      "schema_version" => 1,
+      "binding_id" => @binding,
+      "destination_sha256" => installed.destination_sha256,
+      "descriptor_sha256" => @descriptor,
+      "manifest_verification_sha256" => String.duplicate("c", 64),
+      "block_id" => @storage,
+      "object_key" => object_key(:media),
+      "first" => 9,
+      "last" => 17,
+      "size" => byte_size(@bytes),
+      "etag" => ~s("synthetic-etag"),
+      "version_id" => "version-1",
+      "sha256" => digest("immutable")
+    }
+
+    %{client: installed.client, token: token, plan: plan, port: port, url: "https://localhost:#{port}/v1/archive-ranges"}
+  end
+
+  defp read_range(reader, body \\ nil) do
+    HTTP.request(
+      reader.client,
+      :post,
+      reader.url,
+      [{"authorization", "Bearer " <> reader.token}, {"content-type", "application/json"}],
+      body || Jason.encode!(reader.plan),
+      12_000,
+      8192
+    )
+  end
+
   defp upload_socket(ctx, length, bytes \\ "") do
     options = [:binary, active: false, verify: :verify_peer, cacerts: ctx.client.cacerts] ++ ctx.client.client_tls
     assert {:ok, socket} = :ssl.connect(~c"localhost", ctx.port, options, 2_000)
@@ -964,7 +1204,17 @@ defmodule ServiceRadarCoreElx.CameraStorageTest do
     last = String.to_integer(last)
     headers = Map.put(identity_headers(), "content-range", "bytes #{first}-#{last}/#{size}")
     status = if state.mode == :whole_object_fallback, do: 200, else: 206
-    {{status, headers, binary_part(state.object, first, last - first + 1)}, state}
+    response = {status, headers, binary_part(state.object, first, last - first + 1)}
+
+    response =
+      if state.mode == :slow_read do
+        send(state.parent, :read_started)
+        {:delay, 20_000, response}
+      else
+        response
+      end
+
+    {response, state}
   end
 
   defp identity_headers,

@@ -271,8 +271,8 @@ defmodule ServiceRadarCoreElx.CameraStorage.Session do
   defp owned_config(config, kind) do
     %{
       desired: Map.fetch!(config.purposes, kind),
-      runtime: Map.put(config.runtime, :socket_owner, self()),
-      provider: Map.put(config.provider, :socket_owner, self())
+      runtime: Map.merge(config.runtime, %{socket_owner: self(), task_supervisor: Tasks}),
+      provider: Map.merge(config.provider, %{socket_owner: self(), task_supervisor: Tasks})
     }
   end
 
