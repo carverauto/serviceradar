@@ -160,7 +160,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
   # ---------------------------------------------------------------------------
   @parent_groups [
     # System
-    %{id: :sys_cluster, category: :system, title: "Cluster", icon: "hero-server-stack", order: 10},
+    %{id: :sys_cluster, category: :system, title: "Platform", icon: "hero-server-stack", order: 10},
     %{id: :sys_security, category: :system, title: "Security", icon: "hero-shield-check", order: 20},
     %{id: :sys_alerts, category: :system, title: "Alerts", icon: "hero-bell-alert", order: 30},
     %{

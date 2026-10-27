@@ -3,7 +3,7 @@
 ### Requirement: Settings Navigation Groups
 The web-ng Settings tree SHALL group pages by what they control, without
 changing any page's route or permission:
-- System → Cluster: Cluster Status, Jobs, Data retention, Endpoint Inventory, Mail.
+- System → Platform: Cluster Status, Jobs, Data retention, Endpoint Inventory, Mail.
 - System → Security: *Users & Access*; *Credentials* (API Credentials, MCP
   Sessions, Credentials and Rules); *Remote Access* (Session Recordings, Host
   Keys, Desktop Targets); *Threat Intelligence* (Threat Intel, Vulnerability Feeds).
@@ -23,6 +23,11 @@ changing any page's route or permission:
 - **WHEN** an operator opens it after the regrouping
 - **THEN** the Credentials and Rules page SHALL load
 - **AND** the tree SHALL highlight it under System → Security → *Credentials*
+
+#### Scenario: A moved page keeps its status cards
+- **GIVEN** a page the regrouping moved, such as Credentials and Rules
+- **WHEN** an operator opens it
+- **THEN** it SHALL show the same status cards it showed before the move
 
 #### Scenario: Subgroups do not split
 - **WHEN** the catalog is validated in CI

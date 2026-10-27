@@ -99,7 +99,7 @@ Settings has three categories, shown as tabs at the top. Each one is a tree of
 groups:
 
 - **System**
-  - **Cluster**: Cluster Status, Jobs, Data retention, Endpoint Inventory, and
+  - **Platform**: Cluster Status, Jobs, Data retention, Endpoint Inventory, and
     Mail (`/settings/mail`), the deployment-wide outbound email. See
     [Outbound Mail](./outbound-mail.md).
   - **Security**, split into four sections:

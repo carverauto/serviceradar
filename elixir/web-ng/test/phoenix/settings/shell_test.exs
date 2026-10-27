@@ -32,6 +32,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
   defp auditor_scope, do: %Scope{permissions: MapSet.new(["settings.audit.view"])}
 
+  defp card_titles(view_id), do: view_id |> Catalog.view() |> StatusCards.for_view() |> Enum.map(& &1.title)
+
   defp search_hit?(item, attribute, tokens) do
     [haystack] = LazyHTML.attribute(item, attribute)
     Enum.all?(tokens, &String.contains?(haystack, &1))
@@ -293,6 +295,23 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
     assert nav_by_title["Active (30d)"] == "/settings/auth/users"
     assert nav_by_title["Admins"] == "/settings/auth/users"
     assert nav_by_title["API keys"] == "/settings/api-credentials"
+  end
+
+  test "a page the navigation regroup moved shows the same status cards as before" do
+    # Each moved page is paired with a page that still sits where it used to.
+    for {moved, unmoved} <- [
+          credential_rules: :sweep_profiles,
+          threat_intel: :sweep_profiles,
+          vulnerability_feeds: :sweep_profiles,
+          desktop_targets: :sweep_profiles,
+          field_survey: :sweep_profiles,
+          mail: :rules,
+          endpoint_inventory: :host_health,
+          profile: :auth_users
+        ] do
+      assert card_titles(moved) == card_titles(unmoved),
+             "#{inspect(moved)} lost the status cards it showed before the regroup"
+    end
   end
 
   test "edge status cards report the deployed ServiceRadar image version" do
