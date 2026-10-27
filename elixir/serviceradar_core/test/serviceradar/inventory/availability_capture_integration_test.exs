@@ -14,6 +14,8 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
   alias ServiceRadar.CompositeChecks.CompositeCheck
   alias ServiceRadar.CompositeChecks.CompositeCheckInput
   alias ServiceRadar.CompositeChecks.DeviceCompositeCheckResult
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Integrations.ArmisNorthboundRunner
   alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Availability.ResolverWorker
   alias ServiceRadar.Inventory.Availability.VantageExpectations
@@ -23,6 +25,7 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.AvailabilityFixtures, as: Fixtures
   alias ServiceRadar.WifiMap.BatchIngestor
 
   @moduletag :integration
@@ -288,7 +291,195 @@ defmodule ServiceRadar.Inventory.AvailabilityCaptureIntegrationTest do
     end
   end
 
+  describe "a device swept at several addresses" do
+    # One agent sweeps a device at its own address and at an alias it no longer answers on.
+    # Before, the per-agent row kept whichever result came first among equal times, or the
+    # newer one across batches, so the device's availability depended on the order the
+    # results arrived in. One execution is now one observation: up when any address answered.
+
+    test "an execution is up when any address answered, whatever the order of its results",
+         %{actor: actor} do
+      for order <- [:answer_first, :failure_first] do
+        {device, alias_ip} = two_address_device!(actor, minutes_ago(30))
+        {group, agent_id} = sweep_group!(actor)
+
+        for minutes <- [10, 5] do
+          at = minutes_ago(minutes)
+
+          Fixtures.sweep_execution!(
+            actor,
+            group,
+            agent_id,
+            Ash.UUID.generate(),
+            ordered(order, {device.ip, true, at}, {alias_ip, false, at})
+          )
+        end
+
+        assert {ledger(device.uid, agent_id), legacy_value(device.uid)} == {{true, 0}, true},
+               "results #{order}"
+
+        assert {true, "available", _rule} = device_state(device.uid)
+      end
+    end
+
+    test "the chunks of one execution are one observation, whatever order they arrive in",
+         %{actor: actor} do
+      for order <- [:answer_first, :failure_first] do
+        {device, alias_ip} = two_address_device!(actor, minutes_ago(30))
+        {group, agent_id} = sweep_group!(actor)
+        execution_id = Ash.UUID.generate()
+
+        # The failure is the later probe, so keeping the newer result would keep it.
+        order
+        |> ordered([{device.ip, true, minutes_ago(6)}], [{alias_ip, false, minutes_ago(5)}])
+        |> Enum.with_index(1)
+        |> Enum.each(fn {chunk, index} ->
+          Fixtures.sweep_execution!(actor, group, agent_id, execution_id, chunk,
+            chunk_index: index,
+            total_chunks: 2,
+            is_final: index == 2
+          )
+        end)
+
+        assert ledger(device.uid, agent_id) == {true, 0}, "chunks #{order}"
+      end
+    end
+
+    test "with no address answering the device is down", %{actor: actor} do
+      {device, alias_ip} = two_address_device!(actor, minutes_ago(30))
+      {group, agent_id} = sweep_group!(actor)
+
+      for minutes <- [10, 5] do
+        at = minutes_ago(minutes)
+
+        Fixtures.sweep_execution!(actor, group, agent_id, Ash.UUID.generate(), [
+          {alias_ip, false, at},
+          {device.ip, false, at}
+        ])
+      end
+
+      assert ledger(device.uid, agent_id) == {false, 2}
+      assert legacy_value(device.uid) == false
+      assert {false, "unavailable", _rule} = device_state(device.uid)
+    end
+
+    test "an alias no identity source has seen within the window is not credited with a failure",
+         %{actor: actor} do
+      {device, alias_ip} = two_address_device!(actor, Fixtures.days_ago(40))
+      {group, agent_id} = sweep_group!(actor)
+      execution_id = Ash.UUID.generate()
+
+      Fixtures.sweep_execution!(actor, group, agent_id, execution_id, [
+        {alias_ip, false, minutes_ago(5)}
+      ])
+
+      assert Fixtures.ledger(device.uid) == []
+      assert host_result_device(execution_id, alias_ip) == nil
+    end
+
+    test "an answer from such an alias is still the device's", %{actor: actor} do
+      {device, alias_ip} = two_address_device!(actor, Fixtures.days_ago(40))
+      {group, agent_id} = sweep_group!(actor)
+      execution_id = Ash.UUID.generate()
+
+      Fixtures.sweep_execution!(actor, group, agent_id, execution_id, [
+        {alias_ip, true, minutes_ago(5)}
+      ])
+
+      assert ledger(device.uid, agent_id) == {true, 0}
+      assert host_result_device(execution_id, alias_ip) == device.uid
+    end
+
+    # What an Armis source pushes for such a device. Before, it followed the order of the
+    # results: a device whose failing alias came first in two sweeps was pushed down by a
+    # legacy-semantics source. It is now up for both orders and both semantics.
+    test "an Armis-linked device pushes the same value whatever the order of its results",
+         %{actor: actor} do
+      # A source needs a registered agent.
+      agent_uid = "agent-" <> Ash.UUID.generate()
+
+      Agent
+      |> Ash.Changeset.for_create(:register_connected, %{uid: agent_uid, name: agent_uid},
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+      legacy_source =
+        actor |> Fixtures.armis_source!("SITE01 legacy") |> Fixtures.keep_legacy_semantics!()
+
+      merged_source = Fixtures.armis_source!(actor, "SITE01 merged")
+
+      pushed =
+        for source <- [legacy_source, merged_source],
+            order <- [:answer_first, :failure_first],
+            into: %{} do
+          ip = TestSupport.unique_device_ip()
+          alias_ip = TestSupport.unique_device_ip()
+          armis_id = "SITE01-AP-#{System.unique_integer([:positive])}"
+          Fixtures.ingest_armis!(actor, source, ip, armis_id, true)
+          device = %{uid: device_by_ip(ip), ip: ip}
+          Fixtures.ip_alias!(device, alias_ip, minutes_ago(30))
+          {group, agent_id} = sweep_group!(actor)
+
+          for minutes <- [10, 5] do
+            at = minutes_ago(minutes)
+
+            Fixtures.sweep_execution!(
+              actor,
+              group,
+              agent_id,
+              Ash.UUID.generate(),
+              ordered(order, {ip, true, at}, {alias_ip, false, at})
+            )
+          end
+
+          {{ArmisNorthboundRunner.availability_semantics(source), order},
+           pushed(source, armis_id)}
+        end
+
+      assert pushed == %{
+               {:legacy, :answer_first} => true,
+               {:legacy, :failure_first} => true,
+               {:merged, :answer_first} => true,
+               {:merged, :failure_first} => true
+             }
+    end
+  end
+
   # -- fixtures -------------------------------------------------------------------------
+
+  defp two_address_device!(actor, alias_last_seen_at) do
+    device = create_device!(actor, TestSupport.unique_device_ip())
+    alias_ip = TestSupport.unique_device_ip()
+    Fixtures.ip_alias!(device, alias_ip, alias_last_seen_at)
+    {device, alias_ip}
+  end
+
+  defp ordered(:answer_first, answer, failure), do: [answer, failure]
+  defp ordered(:failure_first, answer, failure), do: [failure, answer]
+
+  defp device_by_ip(ip) do
+    %{rows: [[uid]]} = Repo.query!("SELECT uid FROM platform.ocsf_devices WHERE ip = $1", [ip])
+    uid
+  end
+
+  defp host_result_device(execution_id, ip) do
+    %{rows: [[device_id]]} =
+      Repo.query!(
+        "SELECT device_id FROM platform.sweep_host_results WHERE execution_id = $1 AND ip = $2",
+        [Ecto.UUID.dump!(execution_id), ip]
+      )
+
+    device_id
+  end
+
+  defp pushed(source, armis_id) do
+    source
+    |> ArmisNorthboundRunner.candidates_query()
+    |> Repo.all()
+    |> Enum.find(&(&1.armis_device_id == armis_id))
+    |> Map.fetch!(:is_available)
+  end
 
   defp create_device!(actor, ip) do
     {:ok, device} =

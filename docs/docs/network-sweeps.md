@@ -261,7 +261,13 @@ normal interval.
 - A device matched by target criteria is swept at its primary IP and at up to
   8 of its active IP aliases (`confirmed` and `updated` ahead of `detected`;
   configurable with `:sweep_max_alias_targets_per_device`). Stale aliases,
-  interface addresses, and addresses another live device in the partition
-  holds as its primary IP are not swept.
-- Sweep results update device availability and discovery metadata.
+  aliases whose `last_seen_at` is older than 30 days (configurable with the
+  `:serviceradar_core` application setting `:sweep_alias_max_age_days`, a positive
+  integer), interface addresses, and addresses another live
+  device in the partition holds as its primary IP are not swept.
+- A result for an alias older than that window, from a group that still covers
+  the address, counts for the device only when the address answered.
+- Sweep results update device availability and discovery metadata. When one
+  agent sweeps a device at several addresses, the device is available from that
+  agent if any address answered in the sweep, whatever order the results arrive in.
 - Large result sets are chunked by the agent and streamed to the gateway.

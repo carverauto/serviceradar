@@ -7,9 +7,11 @@ defmodule ServiceRadar.TestSupport.AvailabilityFixtures do
 
   import ExUnit.Assertions
 
+  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Availability.ResolverWorker
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
@@ -169,5 +171,116 @@ defmodule ServiceRadar.TestSupport.AvailabilityFixtures do
       Repo.query!("SELECT device_uid FROM platform.availability_invalidations ORDER BY id")
 
     Enum.map(rows, &hd/1)
+  end
+
+  @doc """
+  One agent's sweep results for one execution, as one ingest call. `results` are
+  `{ip, available?, checked_at}`; `opts` are passed to the ingestor (an agent's chunk index).
+  """
+  def sweep_execution!(actor, group, agent_id, execution_id, results, opts \\ []) do
+    results =
+      Enum.map(results, fn {ip, available?, checked_at} ->
+        %{
+          "host_ip" => ip,
+          "available" => available?,
+          "port_results" => [],
+          "last_sweep_time" => DateTime.to_iso8601(checked_at)
+        }
+      end)
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               results,
+               execution_id,
+               [
+                 actor: actor,
+                 sweep_group_id: group.id,
+                 agent_id: agent_id,
+                 authenticated_agent_id: agent_id,
+                 authenticated_partition_id: "default"
+               ] ++ opts
+             )
+  end
+
+  @doc "A confirmed IP alias of `device` at `ip`, last seen by an identity source at `last_seen_at`."
+  def ip_alias!(device, ip, last_seen_at) do
+    Repo.query!(
+      """
+      INSERT INTO platform.device_alias_states
+        (device_id, partition, alias_type, alias_value, state, first_seen_at, last_seen_at,
+         sighting_count)
+      VALUES ($1, 'default', 'ip', $2, 'confirmed', $3, $3, 3)
+      """,
+      [device.uid, ip, DateTime.to_naive(DateTime.truncate(last_seen_at, :second))]
+    )
+
+    :ok
+  end
+
+  def days_ago(days),
+    do: DateTime.utc_now() |> DateTime.shift(day: -days) |> DateTime.truncate(:second)
+
+  def armis_source!(actor, name, attrs \\ []) do
+    attrs =
+      Map.merge(
+        %{
+          name: name <> " " <> Ash.UUID.generate(),
+          source_type: :armis,
+          endpoint: "https://armis.example.invalid/#{System.unique_integer([:positive])}",
+          northbound_enabled: true,
+          custom_fields: ["availability"]
+        },
+        Map.new(attrs)
+      )
+
+    IntegrationSource
+    |> Ash.Changeset.new()
+    |> Ash.Changeset.set_argument(:credentials, %{secret_key: "secret", api_key: "api"})
+    |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+    |> Ash.create!(actor: actor)
+  end
+
+  @doc """
+  A source created before merged availability: `legacy` semantics, which new sources
+  cannot choose.
+  """
+  def keep_legacy_semantics!(source) do
+    Repo.query!(
+      "UPDATE platform.integration_sources SET northbound_availability_semantics = 'legacy' WHERE id = $1",
+      [Ecto.UUID.dump!(source.id)]
+    )
+
+    %{source | northbound_availability_semantics: :legacy}
+  end
+
+  @doc "An Armis sync of one device at `ip`, linked to `source`."
+  def ingest_armis!(actor, source, ip, armis_id, available?) do
+    update = %{
+      "ip" => ip,
+      "mac" => unique_mac(),
+      "hostname" => "armis-" <> String.replace(ip, ".", "-") <> ".example.com",
+      "source" => "armis",
+      "is_available" => available?,
+      "metadata" => %{
+        "armis_device_id" => armis_id,
+        "integration_id" => armis_id,
+        "integration_type" => "armis"
+      },
+      "sync_meta" => %{"sync_service_id" => source.id}
+    }
+
+    :ok = SyncIngestor.ingest_updates([update], actor: actor)
+  end
+
+  defp unique_mac do
+    [:positive]
+    |> System.unique_integer()
+    |> Integer.to_string(16)
+    |> String.pad_leading(10, "0")
+    |> String.upcase()
+    |> String.graphemes()
+    |> Enum.chunk_every(2)
+    |> Enum.map_join(":", &Enum.join/1)
+    |> then(&"02:#{&1}")
   end
 end

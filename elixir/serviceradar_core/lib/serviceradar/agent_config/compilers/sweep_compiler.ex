@@ -40,6 +40,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.Repo
   alias ServiceRadar.SRQLAst
   alias ServiceRadar.SRQLQuery
+  alias ServiceRadar.SweepJobs.AliasRecency
   alias ServiceRadar.SweepJobs.DeclaredTargets
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
@@ -1004,6 +1005,9 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     WHERE a.device_id = ANY($1::text[])
       AND a.alias_type = 'ip'
       AND a.state IN ('confirmed', 'updated', 'detected')
+      -- An alias not seen within the window is an address the device
+      -- has most likely left (ServiceRadar.SweepJobs.AliasRecency).
+      AND a.last_seen_at >= (now() AT TIME ZONE 'utc') - make_interval(days => $3)
       AND NOT EXISTS (
         SELECT 1
         FROM platform.ocsf_devices d
@@ -1023,7 +1027,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
     uids
     |> Enum.chunk_every(@alias_lookup_chunk_size)
     |> Enum.reduce_while({:ok, %{}}, fn chunk, {:ok, acc} ->
-      case Repo.query(@active_device_alias_ips_sql, [chunk, limit]) do
+      case Repo.query(@active_device_alias_ips_sql, [chunk, limit, AliasRecency.max_age_days()]) do
         {:ok, %{rows: rows}} ->
           chunk_map =
             Enum.group_by(

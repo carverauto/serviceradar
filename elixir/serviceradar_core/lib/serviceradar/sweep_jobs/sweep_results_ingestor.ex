@@ -50,6 +50,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.MergeAudit
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.AliasRecency
   alias ServiceRadar.SweepJobs.DiscoveryScope
   alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.PortCoverage
@@ -501,6 +502,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       device_map
       |> Map.merge(detected_device_map)
       |> Map.merge(created_device_map)
+      |> Map.drop(stale_alias_failure_ips(results, Map.merge(device_map, detected_device_map)))
 
     _accepted =
       upsert_agent_availability(
@@ -658,7 +660,16 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     detected_ips = Map.keys(detected_alias_map)
 
-    # Step 4a: Confirm detected aliases only for a resolved authenticated reporter.
+    # Step 4a: Extract device records from detected aliases
+    detected_device_map =
+      Map.new(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
+
+    # Step 4b: Unanswered probes of an alias the device has most likely left are not the
+    # device's (AliasRecency). Read before any alias below is confirmed.
+    stale_failure_ips =
+      stale_alias_failure_ips(results, Map.merge(device_map, detected_device_map))
+
+    # Step 4c: Confirm detected aliases only for a resolved authenticated reporter.
     aliases_confirmed =
       maybe_confirm_detected_aliases(
         detected_alias_map,
@@ -666,10 +677,6 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
         reporter_context,
         actor
       )
-
-    # Step 4b: Extract device records from detected aliases
-    detected_device_map =
-      Map.new(detected_alias_map, fn {ip, {record, _alias}} -> {ip, record} end)
 
     {created_device_map, seed_uid_collisions} =
       create_available_unknown_devices(
@@ -687,6 +694,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       device_map
       |> Map.merge(detected_device_map)
       |> Map.merge(created_device_map)
+      |> Map.drop(stale_failure_ips)
 
     # Step 7: Build host result records
     {host_results, stats} =
@@ -719,6 +727,32 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # The addresses whose results this batch does not credit to the device it resolved them to:
+  # an alias the device holds whose last_seen_at is older than AliasRecency's window,
+  # with no answering result. The device's own address always counts, as does any answer.
+  defp stale_alias_failure_ips(results, device_map) do
+    answered =
+      for result <- results, result_available?(result), into: MapSet.new(), do: extract_ip(result)
+
+    results
+    |> Enum.flat_map(fn result ->
+      ip = extract_ip(result)
+
+      case Map.get(device_map, ip) do
+        %{canonical_device_id: uid, attributes: attributes} when is_binary(uid) ->
+          if MapSet.member?(answered, ip) or Map.get(attributes, "ip") == ip,
+            do: [],
+            else: [{ip, uid}]
+
+        _ ->
+          []
+      end
+    end)
+    |> Enum.uniq()
+    |> AliasRecency.stale_alias_ips()
+    |> MapSet.to_list()
   end
 
   defp maybe_confirm_detected_aliases(detected_alias_map, execution_id, reporter_context, actor) do
@@ -1872,9 +1906,27 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp bulk_upsert_agent_availability(records) do
     records = dedupe_availability_records(records)
 
+    # The batches of one execution (an agent's chunks, and this module's own batches) are
+    # one observation per device, as within a batch (dedupe_availability_records/1): once
+    # any address answered, the device is up for that execution, so a failure of another
+    # address in a later batch of the same execution never replaces it, and an answer
+    # replaces a failure whatever their times. Across executions the newer result wins.
     on_conflict_query =
       from(a in DeviceAgentAvailability,
-        where: fragment("EXCLUDED.checked_at >= ?", a.checked_at),
+        where:
+          fragment(
+            """
+            CASE
+              WHEN EXCLUDED.execution_id IS NOT NULL AND EXCLUDED.execution_id = ?
+                THEN EXCLUDED.is_available AND (NOT ? OR EXCLUDED.checked_at >= ?)
+              ELSE EXCLUDED.checked_at >= ?
+            END
+            """,
+            a.execution_id,
+            a.is_available,
+            a.checked_at,
+            a.checked_at
+          ),
         update: [
           set: [
             agent_name: fragment("EXCLUDED.agent_name"),
@@ -1909,10 +1961,14 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
       []
   end
 
-  # One sweep batch can carry multiple results for the same (device_uid,
-  # agent_id) — e.g. two swept IPs aliasing to one device. Postgres rejects
-  # ON CONFLICT DO UPDATE batches that touch the same row twice
-  # (cardinality_violation), so keep only the freshest row per key.
+  # One sweep batch can carry several results for the same (device_uid, agent_id): a
+  # device swept at more than one address gets one result per address. They are one
+  # observation of the device by that agent, and it is up when any address answered, as
+  # the agent's own sweep aggregator decides. The answering address's result (its time,
+  # response time and ports) is kept; with none, the freshest failure. The choice depends
+  # only on the rows, never on their order in the batch, which decided it before: two
+  # results with the same `checked_at` kept whichever came first. Postgres also rejects
+  # ON CONFLICT DO UPDATE batches that touch the same row twice (cardinality_violation).
   #
   # Rows are returned in key order. Concurrent batches from one agent share
   # keys, and inserting them in different orders deadlocks on the unique index;
@@ -1922,7 +1978,18 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     records
     |> Enum.group_by(fn record -> {record.device_uid, record.agent_id} end)
     |> Enum.sort_by(fn {key, _rows} -> key end)
-    |> Enum.map(fn {_key, rows} -> Enum.max_by(rows, & &1.checked_at, DateTime) end)
+    |> Enum.map(fn {_key, rows} -> Enum.max_by(rows, &observation_rank/1) end)
+  end
+
+  # Answered first, then freshest, then the fastest response; a result without one last.
+  defp observation_rank(record) do
+    response =
+      case Map.get(record, :response_time_ms) do
+        ms when is_number(ms) -> {1, -ms}
+        _ -> {0, 0}
+      end
+
+    {record.is_available == true, DateTime.to_unix(record.checked_at, :microsecond), response}
   end
 
   defp agent_display_name(agent_id) do
