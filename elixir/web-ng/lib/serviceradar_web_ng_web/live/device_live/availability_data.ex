@@ -11,7 +11,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AvailabilityData do
 
   @bucket_seconds 30 * 60
   @window_seconds 24 * 60 * 60
-  # One row per bucket and probed address: a full window is 49 buckets, and a sweep probes a
+  # One row per bucket and probed address: a full window spans up to 49 buckets, and a sweep probes a
   # device at its own address plus up to eight aliases.
   @row_limit 500
 
