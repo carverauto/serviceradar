@@ -171,7 +171,19 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
         nil
       )
 
-      on_exit(fn -> :telemetry.detach(handler_id) end)
+      on_exit(fn ->
+        assert {:ok, []} = database_calls(fn -> :telemetry.detach(handler_id) end)
+
+        refute Enum.any?(
+                 :telemetry.list_handlers([
+                   :serviceradar,
+                   :event_writer,
+                   :device_correlation,
+                   :lookup_timeout
+                 ]),
+                 &(&1.id == handler_id)
+               )
+      end)
 
       candidate = %{
         partition: partition,
@@ -207,7 +219,8 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
 
       log =
         ExUnit.CaptureLog.capture_log([level: :warning], fn ->
-          assert DeviceCorrelation.resolve(candidate) == nil
+          assert {nil, [_first_query]} =
+                   database_calls(fn -> DeviceCorrelation.resolve(candidate) end)
         end)
 
       send(holder.pid, :release_sandbox)
@@ -235,6 +248,41 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelationTest do
       # Timed-out resolution must not be negative-cached; once the DB connection
       # is available again, the same candidate resolves to the canonical device.
       assert DeviceCorrelation.resolve(candidate) == device.uid
+    end
+  end
+
+  defp database_calls(fun) do
+    session = :trace.session_create(__MODULE__, self(), [])
+
+    try do
+      for {function, arity} <- [prepare_execute: 4, execute: 4, prepare: 3] do
+        assert :trace.function(session, {DBConnection, function, arity}, true, []) == 1
+      end
+
+      task =
+        Task.async(fn ->
+          receive do
+            :run -> fun.()
+          end
+        end)
+
+      :trace.process(session, task.pid, true, [:call, :set_on_spawn])
+      send(task.pid, :run)
+      result = Task.await(task, 10_000)
+      delivered = :trace.delivered(session, :all)
+      assert_receive {:trace_delivered, :all, ^delivered}, 1_000
+      {result, collect_database_calls([])}
+    after
+      :trace.session_destroy(session)
+    end
+  end
+
+  defp collect_database_calls(calls) do
+    receive do
+      {:trace, _pid, :call, {DBConnection, _function, _args} = call} ->
+        collect_database_calls([call | calls])
+    after
+      0 -> Enum.reverse(calls)
     end
   end
 

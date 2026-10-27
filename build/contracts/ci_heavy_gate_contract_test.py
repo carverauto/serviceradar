@@ -2303,10 +2303,10 @@ print(open(sys.argv[2]).read().strip())
 
         self.assertEqual(ASYNC_ON_EXIT_ALLOWED_SOURCES, sources_with_on_exit)
 
+        runtime_verified_callbacks = {
+            "test/serviceradar/event_writer/device_correlation_test.exs",
+        }
         allowed_callbacks = {
-            "test/serviceradar/event_writer/device_correlation_test.exs": {
-                "on_exit(fn -> :telemetry.detach(handler_id) end)": 1,
-            },
             "test/serviceradar/integrations/armis_northbound_runner_test.exs": {
                 "on_exit(stop_server)": 1,
             },
@@ -2324,6 +2324,11 @@ print(open(sys.argv[2]).read().strip())
                 "on_exit(fn ->": 1,
             },
         }
+
+        self.assertEqual(
+            ASYNC_ON_EXIT_ALLOWED_SOURCES,
+            runtime_verified_callbacks | set(allowed_callbacks),
+        )
 
         for source, expected_lines in allowed_callbacks.items():
             text = (CORE_TEST_ROOT.parent / source).read_text(encoding="utf-8")
