@@ -1072,3 +1072,21 @@ HTTP/database scenarios require their own published-head guarded execution;
 #6047's results establish the prerequisite only. Remote quality/unit and final
 hosted results will be recorded after execution. No live provider or deployment
 acceptance is claimed.
+
+Combined source `5821c9b9847496e681b44dc962f53e66f19c3361` passed
+[`make test` on RBE](https://carverauto.buildbuddy.io/invocation/d1f905f2-dc5f-42d2-b52c-f39f035d3c0a)
+with exit zero: 464 targets passed, 54 executed and 410 cached. Only
+`//build/arrow_swift:ios_compile_test` and
+`//build/arrow_swift:swift_regression_test` were skipped. Core and Web quality
+checks executed successfully. The clean source stayed unchanged during the run;
+normal command stdout and independently retrieved BuildBuddy output agree.
+Strict OpenSpec validation and edited-document local links/ASCII checks passed.
+Independent production and test reviews found no blocking defect.
+
+Both changed HTTP/database files remain in `networks_live_db_test_0`; no test
+source moved and no routing registration changed. The unit result above does
+not execute their database-tagged bodies. Their real route, publication/conflict,
+permission and cleanup assertions remain pending guarded Web execution. Core's
+existing proof/fencing regressions and both complete lifecycle workflows remain
+mandatory on the published head. This documentation-only evidence addition does
+not change runtime or test inputs.
