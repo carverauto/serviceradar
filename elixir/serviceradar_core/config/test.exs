@@ -296,8 +296,6 @@ config :serviceradar_core, Oban,
   peer: false,
   notifier: Oban.Notifiers.PG
 
-config :serviceradar_core, ServiceRadar.Inventory.Availability.Mode, cache_ms: 0
-
 # Use Test adapter for mailer
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
 
