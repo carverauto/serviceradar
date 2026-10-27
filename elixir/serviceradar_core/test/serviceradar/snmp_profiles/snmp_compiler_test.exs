@@ -85,6 +85,116 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompilerTest do
     end
   end
 
+  describe "shared_oids_document/1 (#6031)" do
+    test "deduplicates repeated per-target OID lists into sorted oid_sets and rehydrates exactly" do
+      shared_oids = [
+        %{
+          "oid" => ".1.3.6.1.2.1.1.3.0",
+          "name" => "sysUpTime",
+          "data_type" => "timeticks",
+          "scale" => 1.0,
+          "delta" => false
+        },
+        %{
+          "oid" => ".1.3.6.1.2.1.31.1.1.1.6",
+          "name" => "ifHCInOctets",
+          "data_type" => "counter",
+          "scale" => 1.0,
+          "delta" => true,
+          "mode" => "walk",
+          "max_rows" => 120,
+          "walk_timeout_seconds" => 15
+        }
+      ]
+
+      other_oids = [
+        %{
+          "oid" => ".1.3.6.1.2.1.1.5.0",
+          "name" => "sysName",
+          "data_type" => "string",
+          "scale" => 1.0,
+          "delta" => false
+        }
+      ]
+
+      legacy_base = %{
+        "enabled" => true,
+        "profile_id" => "prof-snmp-1",
+        "profile_name" => "Core SNMP",
+        "targets" => [
+          %{
+            "id" => "sr:dev-0001",
+            "name" => "switch-01",
+            "host" => "192.0.2.10",
+            "port" => 161,
+            "version" => "v2c",
+            "community" => "public",
+            "poll_interval_seconds" => 60,
+            "timeout_seconds" => 5,
+            "retries" => 3,
+            "oids" => shared_oids
+          },
+          %{
+            "id" => "sr:dev-0002",
+            "name" => "switch-02",
+            "host" => "192.0.2.11",
+            "port" => 161,
+            "version" => "v2c",
+            "community" => "public",
+            "poll_interval_seconds" => 60,
+            "timeout_seconds" => 5,
+            "retries" => 3,
+            "oids" => shared_oids
+          },
+          %{
+            "id" => "sr:dev-0003",
+            "name" => "router-01",
+            "host" => "192.0.2.12",
+            "port" => 161,
+            "version" => "v2c",
+            "community" => "public",
+            "poll_interval_seconds" => 60,
+            "timeout_seconds" => 5,
+            "retries" => 3,
+            "oids" => other_oids
+          }
+        ]
+      }
+
+      legacy = Map.put(legacy_base, "config_hash", SNMPCompiler.config_hash(legacy_base))
+      shared = SNMPCompiler.shared_oids_document(legacy)
+
+      assert shared["format"] == "shared-oids/v1"
+      assert length(shared["oid_sets"]) == 2
+
+      assert Enum.map(shared["oid_sets"], & &1["key"]) ==
+               Enum.sort(Enum.map(shared["oid_sets"], & &1["key"]))
+
+      assert shared["config_hash"] == SNMPCompiler.config_hash(shared)
+      assert shared["config_hash"] != legacy["config_hash"]
+
+      for target <- shared["targets"] do
+        refute Map.has_key?(target, "oids")
+        assert String.starts_with?(target["oid_set"], "oids-")
+      end
+
+      [t1, t2, t3] = shared["targets"]
+      assert t1["oid_set"] == t2["oid_set"]
+      assert t1["oid_set"] != t3["oid_set"]
+
+      # Rehydrate shared targets and verify exact equality with legacy targets.
+      sets_by_key = Map.new(shared["oid_sets"], &{&1["key"], &1["oids"]})
+
+      rehydrated_targets =
+        Enum.map(shared["targets"], fn target ->
+          oids = Map.fetch!(sets_by_key, target["oid_set"])
+          target |> Map.delete("oid_set") |> Map.put("oids", oids)
+        end)
+
+      assert rehydrated_targets == legacy["targets"]
+    end
+  end
+
   describe "validate/1" do
     test "valid disabled config passes validation" do
       config = SNMPCompiler.disabled_config()

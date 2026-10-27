@@ -110,36 +110,43 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
     # DB connection's search_path determines the schema
     actor = opts[:actor] || SystemActor.system(:snmp_compiler)
     device_uid = opts[:device_uid]
+    format = resolve_format_opt(opts)
 
-    # Resolve the profile for this agent/device.
-    #
-    # agent_id gates *profile selection*: when a profile pins agent_ids, only
-    # the listed agents resolve it; everyone else falls through to disabled
-    # config below. When agent_ids is empty, behavior is unchanged (legacy
-    # target_query + is_default fallback).
-    case fetch_profile(device_uid, agent_id, actor) do
-      {:ok, %{enabled: true} = profile} ->
-        case compile_profile(profile, actor, agent_id: agent_id, partition: partition) do
-          {:ok, config} ->
-            publish_duplicate_polling_warning(profile, config)
-            {:ok, config}
+    with :ok <- validate_format(format) do
+      # Resolve the profile for this agent/device.
+      #
+      # agent_id gates *profile selection*: when a profile pins agent_ids, only
+      # the listed agents resolve it; everyone else falls through to disabled
+      # config below. When agent_ids is empty, behavior is unchanged (legacy
+      # target_query + is_default fallback).
+      case fetch_profile(device_uid, agent_id, actor) do
+        {:ok, %{enabled: true} = profile} ->
+          case compile_profile(profile, actor,
+                 agent_id: agent_id,
+                 partition: partition,
+                 format: format
+               ) do
+            {:ok, config} ->
+              publish_duplicate_polling_warning(profile, config)
+              {:ok, config}
 
-          {:error, reason} ->
-            # A failed target, template, or profile-target read is not an empty
-            # config. ConfigServer caches every {:ok, _}, so returning one here
-            # would make agents poll nothing until the next :snmp invalidation.
-            Logger.error("SNMPCompiler: failed to compile profile - #{inspect(reason)}")
-            {:error, reason}
-        end
+            {:error, reason} ->
+              # A failed target, template, or profile-target read is not an empty
+              # config. ConfigServer caches every {:ok, _}, so returning one here
+              # would make agents poll nothing until the next :snmp invalidation.
+              Logger.error("SNMPCompiler: failed to compile profile - #{inspect(reason)}")
+              {:error, reason}
+          end
 
-      {:ok, _no_enabled_profile} ->
-        # Return disabled config if no profile found or profile is disabled
-        {:ok, disabled_config()}
+        {:ok, _no_enabled_profile} ->
+          # Return disabled config if no profile found or profile is disabled
+          {:ok, disabled_config()}
 
-      # A failed profile read is not "no profile": returning the disabled
-      # config here would be cached by ConfigServer as this agent's SNMP config.
-      {:error, reason} ->
-        {:error, {:profile_resolution_failed, reason}}
+        # A failed profile read is not "no profile": returning the disabled
+        # config here would be cached by ConfigServer as this agent's SNMP config.
+        {:error, reason} ->
+          {:error, {:profile_resolution_failed, reason}}
+      end
     end
   end
 
@@ -310,9 +317,11 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
   end
 
   defp do_compile_profile(profile, actor, opts) do
+    format = resolve_format_opt(opts)
     target_query = normalize_target_query(profile.target_query, profile.is_default)
 
-    with {:ok, profile_targets} <- load_profile_targets(profile, actor, opts),
+    with :ok <- validate_format(format),
+         {:ok, profile_targets} <- load_profile_targets(profile, actor, opts),
          {:ok, devices} <- execute_target_query(target_query, actor),
          {:ok, oids} <- load_template_oids(profile.oid_template_ids, actor),
          {:ok, query_targets} <- compile_query_targets(devices, profile, oids, actor, opts) do
@@ -322,16 +331,79 @@ defmodule ServiceRadar.AgentConfig.Compilers.SNMPCompiler do
         |> sort_targets()
         |> sanitize_target_names()
 
-      config = %{
-        "enabled" => profile.enabled and compiled_targets != [],
-        "profile_id" => profile.id,
-        "profile_name" => profile.name,
-        "targets" => compiled_targets
-      }
+      config =
+        format_compiled_config(
+          %{
+            "enabled" => profile.enabled and compiled_targets != [],
+            "profile_id" => profile.id,
+            "profile_name" => profile.name,
+            "targets" => compiled_targets
+          },
+          format
+        )
 
       {:ok, Map.put(config, "config_hash", config_hash(config))}
     end
   end
+
+  @doc """
+  Transforms a legacy compiled SNMP config map into the `shared-oids/v1` format.
+
+  Deduplicates per-target `oids` lists into a deterministic top-level `oid_sets`
+  table (`[%{"key" => "oids-...", "oids" => [...]}]`, sorted by `key`) and
+  replaces each target's inline `oids` list with `"oid_set" => key`.
+  """
+  @spec shared_oids_document(map()) :: map()
+  def shared_oids_document(config) when is_map(config) do
+    targets = Map.get(config, "targets", [])
+
+    {shared_targets, sets_by_key} =
+      Enum.map_reduce(targets, %{}, fn target, acc ->
+        case Map.get(target, "oids", []) do
+          [_ | _] = oids ->
+            key = oid_set_key(oids)
+            shared_target = target |> Map.delete("oids") |> Map.put("oid_set", key)
+            {shared_target, Map.put_new(acc, key, %{"key" => key, "oids" => oids})}
+
+          _ ->
+            {Map.delete(target, "oids"), acc}
+        end
+      end)
+
+    oid_sets =
+      sets_by_key
+      |> Map.values()
+      |> Enum.sort_by(& &1["key"])
+
+    base = %{
+      "format" => "shared-oids/v1",
+      "enabled" => Map.get(config, "enabled", false),
+      "profile_id" => Map.get(config, "profile_id"),
+      "profile_name" => Map.get(config, "profile_name"),
+      "oid_sets" => oid_sets,
+      "targets" => shared_targets
+    }
+
+    if Map.has_key?(config, "config_hash") do
+      Map.put(base, "config_hash", config_hash(base))
+    else
+      base
+    end
+  end
+
+  defp oid_set_key(oids) do
+    "oids-" <> (%{"oids" => oids} |> Compiler.content_hash() |> String.slice(0, 16))
+  end
+
+  defp resolve_format_opt(opts) when is_list(opts) do
+    Keyword.get(opts, :format, Keyword.get(opts, :snmp_format, :legacy))
+  end
+
+  defp validate_format(format) when format in [:legacy, :shared_oids_v1], do: :ok
+  defp validate_format(format), do: {:error, {:unsupported_snmp_format, format}}
+
+  defp format_compiled_config(config, :legacy), do: config
+  defp format_compiled_config(config, :shared_oids_v1), do: shared_oids_document(config)
 
   @doc """
   Computes a deterministic config hash for a compiled SNMP config.

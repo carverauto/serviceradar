@@ -1448,6 +1448,20 @@ defmodule Monitoring.SNMPConfig do
   field :profile_id, 2, type: :string, json_name: "profileId"
   field :profile_name, 3, type: :string, json_name: "profileName"
   field :targets, 4, repeated: true, type: Monitoring.SNMPTargetConfig
+  field :format, 5, type: :string
+  field :oid_sets, 6, repeated: true, type: Monitoring.SNMPOIDSet, json_name: "oidSets"
+end
+
+defmodule Monitoring.SNMPOIDSet do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.SNMPOIDSet",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :oids, 2, repeated: true, type: Monitoring.SNMPOIDConfig
 end
 
 defmodule Monitoring.VisibilityConfig do
@@ -1546,6 +1560,7 @@ defmodule Monitoring.SNMPTargetConfig do
   field :timeout_seconds, 9, type: :uint32, json_name: "timeoutSeconds"
   field :retries, 10, type: :uint32
   field :oids, 11, repeated: true, type: Monitoring.SNMPOIDConfig
+  field :oid_set, 12, type: :string, json_name: "oidSet"
 end
 
 defmodule Monitoring.SNMPv3Auth do

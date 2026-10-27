@@ -22,6 +22,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand"
 	"os"
@@ -62,6 +63,9 @@ const (
 
 	// Platform constants
 	snmpPlatformDarwin = "darwin"
+
+	// Wire format constants
+	snmpConfigFormatSharedOIDsV1 = "shared-oids/v1"
 )
 
 // ErrSNMPServiceNotInitialized is returned when attempting to reconfigure before starting.
@@ -69,6 +73,15 @@ var ErrSNMPServiceNotInitialized = fmt.Errorf("SNMP service not initialized")
 
 // ErrNilProtoConfig is returned when a nil proto config is passed to ApplyProtoConfig.
 var ErrNilProtoConfig = fmt.Errorf("nil proto config")
+
+// ErrUnsupportedSNMPConfigFormat is returned when SNMPConfig.format is not recognized.
+var ErrUnsupportedSNMPConfigFormat = errors.New("unsupported SNMP config format")
+
+// ErrSNMPOIDSetMissing is returned when an SNMP target references an absent OID set key.
+var ErrSNMPOIDSetMissing = errors.New("SNMP target references a missing OID set")
+
+// ErrSNMPOIDSetInvalidKey is returned when an SNMP OID set has an empty or duplicate key.
+var ErrSNMPOIDSetInvalidKey = errors.New("SNMP OID set has an empty or duplicate key")
 
 type snmpStatusSummary struct {
 	Available      bool                         `json:"available"`
@@ -657,7 +670,10 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 	}
 
 	// Convert proto config to internal config format
-	config := protoToSNMPConfig(protoConfig)
+	config, err := parseProtoSNMPConfig(protoConfig)
+	if err != nil {
+		return err
+	}
 
 	// Compute hash of new config
 	newHash := computeSNMPConfigHash(config)
@@ -731,8 +747,42 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 
 // protoToSNMPConfig converts a proto.SNMPConfig to snmp.SNMPConfig.
 func protoToSNMPConfig(p *proto.SNMPConfig) *snmp.SNMPConfig {
-	if p == nil {
+	cfg, err := parseProtoSNMPConfig(p)
+	if err != nil {
 		return snmp.DefaultConfig()
+	}
+
+	return cfg
+}
+
+func parseProtoSNMPConfig(p *proto.SNMPConfig) (*snmp.SNMPConfig, error) {
+	if p == nil {
+		return snmp.DefaultConfig(), nil
+	}
+
+	var oidSets map[string][]snmp.OIDConfig
+
+	switch p.GetFormat() {
+	case "":
+	case snmpConfigFormatSharedOIDsV1:
+		oidSets = make(map[string][]snmp.OIDConfig, len(p.GetOidSets()))
+		for _, set := range p.GetOidSets() {
+			key := set.GetKey()
+			if key == "" {
+				return nil, fmt.Errorf("%w: empty key", ErrSNMPOIDSetInvalidKey)
+			}
+			if _, exists := oidSets[key]; exists {
+				return nil, fmt.Errorf("%w: %q", ErrSNMPOIDSetInvalidKey, key)
+			}
+
+			converted := make([]snmp.OIDConfig, 0, len(set.GetOids()))
+			for _, oid := range set.GetOids() {
+				converted = append(converted, protoToSNMPOIDConfig(oid))
+			}
+			oidSets[key] = converted
+		}
+	default:
+		return nil, fmt.Errorf("%w: %q", ErrUnsupportedSNMPConfigFormat, p.GetFormat())
 	}
 
 	config := &snmp.SNMPConfig{
@@ -743,6 +793,15 @@ func protoToSNMPConfig(p *proto.SNMPConfig) *snmp.SNMPConfig {
 	}
 
 	for _, t := range p.Targets {
+		if t == nil {
+			continue
+		}
+
+		oids, err := resolveProtoTargetOIDs(t, oidSets)
+		if err != nil {
+			return nil, err
+		}
+
 		target := snmp.Target{
 			ID:        t.Id,
 			Name:      t.Name,
@@ -753,7 +812,7 @@ func protoToSNMPConfig(p *proto.SNMPConfig) *snmp.SNMPConfig {
 			Interval:  snmp.Duration(time.Duration(t.PollIntervalSeconds) * time.Second),
 			Timeout:   snmp.Duration(time.Duration(t.TimeoutSeconds) * time.Second),
 			Retries:   int(t.Retries),
-			OIDs:      make([]snmp.OIDConfig, 0, len(t.Oids)),
+			OIDs:      oids,
 			MaxPoints: 1000, // Default value
 		}
 
@@ -770,14 +829,29 @@ func protoToSNMPConfig(p *proto.SNMPConfig) *snmp.SNMPConfig {
 			}
 		}
 
-		for _, oid := range t.Oids {
-			target.OIDs = append(target.OIDs, protoToSNMPOIDConfig(oid))
-		}
-
 		config.Targets = append(config.Targets, target)
 	}
 
-	return config
+	return config, nil
+}
+
+func resolveProtoTargetOIDs(t *proto.SNMPTargetConfig, oidSets map[string][]snmp.OIDConfig) ([]snmp.OIDConfig, error) {
+	if oidSets != nil && t.GetOidSet() != "" {
+		shared, ok := oidSets[t.GetOidSet()]
+		if !ok {
+			return nil, fmt.Errorf("%w: target %q references %q", ErrSNMPOIDSetMissing, t.GetName(), t.GetOidSet())
+		}
+		oids := make([]snmp.OIDConfig, 0, len(shared))
+		oids = append(oids, shared...)
+		return oids, nil
+	}
+
+	oids := make([]snmp.OIDConfig, 0, len(t.GetOids()))
+	for _, oid := range t.GetOids() {
+		oids = append(oids, protoToSNMPOIDConfig(oid))
+	}
+
+	return oids, nil
 }
 
 func protoToSNMPOIDConfig(oid *proto.SNMPOIDConfig) snmp.OIDConfig {

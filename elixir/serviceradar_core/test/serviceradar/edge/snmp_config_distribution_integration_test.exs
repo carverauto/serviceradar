@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.SNMPProfiles.SNMPOIDConfig
   alias ServiceRadar.SNMPProfiles.SNMPProfile
@@ -647,6 +648,218 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
       # Passwords should be present (may be encrypted)
       assert v3_target["v3_auth"]["auth_password"]
       assert v3_target["v3_auth"]["priv_password"]
+    end
+  end
+
+  describe "SNMP format selection (#6031)" do
+    @tag :integration
+    test "agent without snmp-config-shared-oids:v1 receives legacy inline OID format byte-for-byte",
+         %{
+           actor: actor
+         } do
+      unique_id = System.unique_integer([:positive])
+      _profile = create_shared_oid_profile!(unique_id, actor)
+
+      legacy_agent =
+        register_agent_with_capabilities("snmp-format-legacy-#{unique_id}", [], actor)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(legacy_agent.uid, "default")
+      snmp_proto = config.snmp_config
+
+      assert snmp_proto.enabled == true
+      assert snmp_proto.format == ""
+      assert snmp_proto.oid_sets == []
+      assert length(snmp_proto.targets) == 2
+
+      for target <- snmp_proto.targets do
+        assert target.oid_set == ""
+        assert length(target.oids) == 2
+      end
+
+      # Byte-for-byte identical proto wire encoding to a legacy SNMPConfig struct.
+      expected_legacy_proto = %Monitoring.SNMPConfig{
+        enabled: snmp_proto.enabled,
+        profile_id: snmp_proto.profile_id,
+        profile_name: snmp_proto.profile_name,
+        targets:
+          Enum.map(snmp_proto.targets, fn t ->
+            %{t | oid_set: ""}
+          end)
+      }
+
+      assert Protobuf.encode(snmp_proto) == Protobuf.encode(expected_legacy_proto)
+    end
+
+    @tag :integration
+    test "capable agent receives shared-oids/v1 and rehydrates to the exact legacy per-target OIDs",
+         %{
+           actor: actor
+         } do
+      unique_id = System.unique_integer([:positive])
+      _profile = create_shared_oid_profile!(unique_id, actor)
+
+      legacy_agent =
+        register_agent_with_capabilities("snmp-parity-legacy-#{unique_id}", [], actor)
+
+      capable_agent =
+        register_agent_with_capabilities(
+          "snmp-parity-shared-#{unique_id}",
+          ["snmp-config-shared-oids:v1"],
+          actor
+        )
+
+      {:ok, legacy_config} = AgentConfigGenerator.generate_config(legacy_agent.uid, "default")
+      {:ok, shared_config} = AgentConfigGenerator.generate_config(capable_agent.uid, "default")
+
+      legacy_snmp = legacy_config.snmp_config
+      shared_snmp = shared_config.snmp_config
+
+      assert shared_snmp.format == "shared-oids/v1"
+      assert [%Monitoring.SNMPOIDSet{key: key, oids: set_oids}] = shared_snmp.oid_sets
+      assert String.starts_with?(key, "oids-")
+      assert length(set_oids) == 2
+
+      for target <- shared_snmp.targets do
+        assert target.oid_set == key
+        assert target.oids == []
+      end
+
+      sets_by_key = Map.new(shared_snmp.oid_sets, &{&1.key, &1.oids})
+
+      rehydrated_targets =
+        Enum.map(shared_snmp.targets, fn target ->
+          %{target | oid_set: "", oids: Map.fetch!(sets_by_key, target.oid_set)}
+        end)
+
+      assert rehydrated_targets == legacy_snmp.targets
+    end
+
+    @tag :integration
+    test "two agents in one partition each get their own SNMP format without cache bleed", %{
+      actor: actor
+    } do
+      unique_id = System.unique_integer([:positive])
+      _profile = create_shared_oid_profile!(unique_id, actor)
+
+      capable =
+        register_agent_with_capabilities(
+          "snmp-two-capable-#{unique_id}",
+          ["snmp-config-shared-oids:v1"],
+          actor
+        )
+
+      legacy =
+        register_agent_with_capabilities("snmp-two-legacy-#{unique_id}", [], actor)
+
+      {:ok, shared_first} = AgentConfigGenerator.generate_config(capable.uid, "default")
+      {:ok, legacy_after} = AgentConfigGenerator.generate_config(legacy.uid, "default")
+      {:ok, shared_again} = AgentConfigGenerator.generate_config(capable.uid, "default")
+
+      assert shared_first.snmp_config.format == "shared-oids/v1"
+      assert legacy_after.snmp_config.format == ""
+      assert shared_again.snmp_config.format == "shared-oids/v1"
+    end
+
+    @tag :integration
+    test "gaining snmp-config-shared-oids:v1 changes the version and format on the next request",
+         %{
+           actor: actor
+         } do
+      unique_id = System.unique_integer([:positive])
+      _profile = create_shared_oid_profile!(unique_id, actor)
+      agent = register_agent_with_capabilities("snmp-upgrade-#{unique_id}", [], actor)
+
+      {:ok, first} = AgentConfigGenerator.get_config_if_changed(agent.uid, "default", "")
+      assert first.snmp_config.format == ""
+
+      agent
+      |> Ash.Changeset.for_update(
+        :update,
+        %{capabilities: ["snmp-config-shared-oids:v1"]},
+        actor: actor
+      )
+      |> Ash.update!()
+
+      {:ok, second} =
+        AgentConfigGenerator.get_config_if_changed(agent.uid, "default", first.config_version)
+
+      assert second.config_version != first.config_version
+      assert second.snmp_config.format == "shared-oids/v1"
+    end
+
+    defp register_agent_with_capabilities(uid, capabilities, actor) do
+      Agent
+      |> Ash.Changeset.for_create(
+        :register,
+        %{uid: uid, capabilities: capabilities},
+        actor: actor
+      )
+      |> Ash.create!()
+    end
+
+    defp create_shared_oid_profile!(unique_id, actor) do
+      {:ok, profile} =
+        SNMPProfile
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            name: "Shared OID Profile #{unique_id}",
+            is_default: false,
+            enabled: true,
+            poll_interval: 60,
+            timeout: 5,
+            retries: 2
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, profile} =
+        profile
+        |> Ash.Changeset.for_update(:set_as_default, %{}, actor: actor)
+        |> Ash.update(actor: actor)
+
+      for idx <- [1, 2] do
+        host = "198.51.100.#{rem(unique_id + idx, 200) + 10}"
+
+        {:ok, target} =
+          SNMPTarget
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              name: "shared-target-#{unique_id}-#{idx}",
+              host: host,
+              port: 161,
+              version: :v2c,
+              community: "public",
+              snmp_profile_id: profile.id
+            },
+            actor: actor
+          )
+          |> Ash.create()
+
+        for {oid, name, data_type} <- [
+              {".1.3.6.1.2.1.1.3.0", "sysUpTime", :timeticks},
+              {".1.3.6.1.2.1.1.5.0", "sysName", :string}
+            ] do
+          {:ok, _oid} =
+            SNMPOIDConfig
+            |> Ash.Changeset.for_create(
+              :create,
+              %{
+                oid: oid,
+                name: name,
+                data_type: data_type,
+                snmp_target_id: target.id
+              },
+              actor: actor
+            )
+            |> Ash.create()
+        end
+      end
+
+      ConfigServer.invalidate(:snmp)
+      profile
     end
   end
 end

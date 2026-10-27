@@ -69,6 +69,10 @@ const (
 	// shared-targets/v1 format (device table + per-query target sets), so
 	// core may stop embedding device targets per group for it.
 	capabilitySweepSharedTargets = "sweep-config-shared-targets:v1"
+	// capabilitySNMPSharedOIDs: this agent parses SNMP config in the
+	// shared-oids/v1 format (top-level oid_sets + per-target oid_set key), so
+	// core may stop repeating OID lists per target for it.
+	capabilitySNMPSharedOIDs = "snmp-config-shared-oids:v1"
 	// capabilityICMP / capabilityICMPUnavailable: whether the ICMP sweep
 	// scanner can open its raw sockets. Core withholds ICMP sweep work from an
 	// agent reporting the unavailable marker.
@@ -396,6 +400,7 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		commandTypeAdhocScan,
 		capabilityConfigPushChunks,
 		"snmp",
+		capabilitySNMPSharedOIDs,
 		"mapper",
 		"sync",
 		"sysmon",

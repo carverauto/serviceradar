@@ -269,9 +269,15 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
         _ -> nil
       end
 
-    case Keyword.get(opts, :agent_id) do
-      agent_id when is_binary(agent_id) and agent_id != "" -> {:agent, agent_id, device_uid}
-      _ -> device_uid && {:device_uid, device_uid}
+    base_scope =
+      case Keyword.get(opts, :agent_id) do
+        agent_id when is_binary(agent_id) and agent_id != "" -> {:agent, agent_id, device_uid}
+        _ -> device_uid && {:device_uid, device_uid}
+      end
+
+    case Keyword.get(opts, :snmp_format, Keyword.get(opts, :format, :legacy)) do
+      :legacy -> base_scope
+      format -> {:snmp_format, format, base_scope}
     end
   end
 

@@ -951,6 +951,18 @@ message SNMPConfig {
 
   // SNMP targets to poll
   repeated SNMPTargetConfig targets = 4;
+
+  // Wire format for OID delivery: empty (legacy inline target.oids) or "shared-oids/v1".
+  string format = 5;
+
+  // Shared OID sets keyed by SNMPOIDSet.key when format is "shared-oids/v1".
+  repeated SNMPOIDSet oid_sets = 6;
+}
+
+// SNMPOIDSet defines a reusable OID list referenced by SNMPTargetConfig.oid_set.
+message SNMPOIDSet {
+  string key = 1;
+  repeated SNMPOIDConfig oids = 2;
 }
 
 // VisibilityConfig defines host network visibility sidecar configuration.
@@ -1012,6 +1024,9 @@ message SNMPTargetConfig {
 
   // OIDs to poll
   repeated SNMPOIDConfig oids = 11;
+
+  // Key into SNMPConfig.oid_sets when SNMPConfig.format is "shared-oids/v1".
+  string oid_set = 12;
 }
 
 // SNMPVersion represents SNMP protocol versions.

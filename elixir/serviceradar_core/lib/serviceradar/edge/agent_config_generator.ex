@@ -3057,6 +3057,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     stable_config_fragment(sweep_config)
   end
 
+  defp snmp_version_fragment(%{"config_hash" => config_hash, "format" => format})
+       when is_binary(config_hash) and config_hash != "" and is_binary(format) and format != "" do
+    %{"format" => format, "config_hash" => config_hash}
+  end
+
   defp snmp_version_fragment(%{"config_hash" => config_hash})
        when is_binary(config_hash) and config_hash != "" do
     %{"config_hash" => config_hash}
@@ -3743,14 +3748,28 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # ConfigServer compiles snmp configs from SNMPProfile resources. No profile
   # is a valid disabled config. A compile or read error raises so generation
   # fails instead of delivering that disabled config in its place.
+  @snmp_shared_oids_capability "snmp-config-shared-oids:v1"
+
+  defp resolve_snmp_format(agent_id, actor) do
+    profile = resolve_agent_addon_profile(agent_id, actor)
+
+    if @snmp_shared_oids_capability in profile.capabilities do
+      :shared_oids_v1
+    else
+      :legacy
+    end
+  end
+
   defp load_snmp_config!(partition, agent_id) do
     actor = SystemActor.system(:snmp_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
+    snmp_format = resolve_snmp_format(agent_id, actor)
 
     case ConfigServer.get_config(:snmp, partition, agent_id,
            actor: actor,
            device_uid: device_uid,
-           agent_id: agent_id
+           agent_id: agent_id,
+           snmp_format: snmp_format
          ) do
       {:ok, entry} ->
         put_cached_config_hash(entry.config, entry.hash)
@@ -4078,13 +4097,36 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> List.wrap()
       |> Enum.map(&build_snmp_target_config/1)
 
+    oid_sets =
+      config
+      |> Map.get("oid_sets", [])
+      |> List.wrap()
+      |> Enum.map(&build_snmp_oid_set/1)
+
     %Monitoring.SNMPConfig{
       enabled: Map.get(config, "enabled", false),
       profile_id: Map.get(config, "profile_id", "") || "",
       profile_name: Map.get(config, "profile_name", "") || "",
-      targets: targets
+      targets: targets,
+      format: Map.get(config, "format", "") || "",
+      oid_sets: oid_sets
     }
   end
+
+  defp build_snmp_oid_set(oid_set) when is_map(oid_set) do
+    oids =
+      oid_set
+      |> Map.get("oids", [])
+      |> List.wrap()
+      |> Enum.map(&build_snmp_oid_config/1)
+
+    %Monitoring.SNMPOIDSet{
+      key: Map.get(oid_set, "key", "") || "",
+      oids: oids
+    }
+  end
+
+  defp build_snmp_oid_set(_), do: %Monitoring.SNMPOIDSet{}
 
   defp build_snmp_target_config(target) when is_map(target) do
     v3_auth = build_snmp_v3_auth(Map.get(target, "v3_auth"))
@@ -4102,7 +4144,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       poll_interval_seconds: Map.get(target, "poll_interval_seconds", 60) || 60,
       timeout_seconds: Map.get(target, "timeout_seconds", 5) || 5,
       retries: Map.get(target, "retries", 3) || 3,
-      oids: oids
+      oids: oids,
+      oid_set: Map.get(target, "oid_set", "") || ""
     }
   end
 
