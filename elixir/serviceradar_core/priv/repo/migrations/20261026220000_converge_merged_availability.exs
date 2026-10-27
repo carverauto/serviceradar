@@ -45,7 +45,8 @@ defmodule ServiceRadar.Repo.Migrations.ConvergeMergedAvailability do
   row); it never updates a device row or waits on a writer's row lock. The
   integration-source UPDATE writes only Armis sources in `merged` semantics with no
   agent, again only in `legacy` or `shadow`. The settings UPDATE writes the single
-  settings row, and the DELETE removes only waiting jobs of the
+  settings row, including the one-time convergence marker; the empty-install check
+  stops at the first device row. The DELETE removes only waiting jobs of the
   four retired workers. Every DDL statement runs under the 5 s lock timeout.
   """
 
@@ -203,6 +204,17 @@ defmodule ServiceRadar.Repo.Migrations.ConvergeMergedAvailability do
         """
         INSERT INTO #{@prefix}.availability_settings (singleton) VALUES (true)
         ON CONFLICT (singleton) DO NOTHING
+        """,
+        """
+        ALTER TABLE #{@prefix}.availability_settings
+          ADD COLUMN IF NOT EXISTS converged_at timestamp without time zone
+        """,
+        """
+        UPDATE #{@prefix}.availability_settings
+        SET converged_at = #{@now_utc}
+        WHERE singleton AND converged_at IS NULL
+          AND (#{@prefix}.availability_mode() = 'authoritative'
+               OR NOT EXISTS (SELECT 1 FROM #{@prefix}.ocsf_devices))
         """,
         """
         UPDATE #{@prefix}.availability_settings
