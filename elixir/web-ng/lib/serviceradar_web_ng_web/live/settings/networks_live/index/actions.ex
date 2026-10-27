@@ -220,7 +220,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Actions do
   def resolve_tab("groups"), do: :groups
   def resolve_tab("profiles"), do: :profiles
   def resolve_tab("active_scans"), do: :active_scans
-  def resolve_tab("cleanup"), do: :cleanup
   def resolve_tab(_), do: :groups
 
   defp initialize_agent_picker(socket, scope, agent_ids) do

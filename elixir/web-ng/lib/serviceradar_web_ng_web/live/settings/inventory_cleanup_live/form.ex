@@ -1,6 +1,8 @@
-defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup do
+defmodule ServiceRadarWebNGWeb.Settings.InventoryCleanupLive.Form do
   @moduledoc false
   use ServiceRadarWebNGWeb, :html
+
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
 
   attr :form, :any, default: nil
   attr :settings, :any, default: nil
@@ -10,7 +12,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
     <div class="rounded-xl border border-sr-line bg-sr-surface p-6 space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h3 class="text-lg font-semibold text-sr-ink">Inventory Cleanup</h3>
+          <h1 class="text-xl font-semibold text-sr-ink">Inventory Cleanup</h1>
           <p class="text-sm text-sr-muted">
             Expire ephemeral devices, then purge soft-deleted devices after a retention window.
             An expired device is restored when a sweep finds it answering or a sync reports it
@@ -34,7 +36,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
         <.icon name="hero-exclamation-triangle" class="size-5" />
         <div>
           <div class="font-semibold">Cleanup settings unavailable</div>
-          <div class="text-sm">Unable to load device cleanup settings.</div>
+          <div class="text-sm">Unable to load inventory cleanup settings.</div>
         </div>
       </div>
 
@@ -94,7 +96,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
           <.input
             field={@form[:ephemeral_expiry_guard_override]}
             type="checkbox"
-            label="Allow the next passes to exceed that share"
+            label={DeviceCleanupSettings.guard_override_label(:ephemeral_expiry_guard_override)}
           />
           <.input
             field={@form[:source_retirement_enabled]}
@@ -125,7 +127,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
           <.input
             field={@form[:source_retirement_guard_override]}
             type="checkbox"
-            label="Allow the next retirement or grace pass to exceed that share"
+            label={DeviceCleanupSettings.guard_override_label(:source_retirement_guard_override)}
           />
           <.input
             field={@form[:source_retired_grace_days]}

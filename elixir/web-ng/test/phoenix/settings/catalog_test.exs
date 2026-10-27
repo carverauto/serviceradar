@@ -126,17 +126,70 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
         assert tab.tab in supported,
                "view #{inspect(view.id)} tab #{inspect(tab.tab)} is not in #{inspect(view.live_view)}.supported_tabs/0 (#{inspect(supported)})"
 
-        assert URI.parse(tab.route).path == view.route,
-               "view #{inspect(view.id)} tab #{inspect(tab.id)} route #{inspect(tab.route)} must share path #{inspect(view.route)}"
-
-        assert URI.decode_query(URI.parse(tab.route).query || "")["tab"] == tab.tab,
-               "view #{inspect(view.id)} tab #{inspect(tab.id)} route #{inspect(tab.route)} must carry ?tab=#{tab.tab}"
+        assert tab.route in ["#{view.route}?tab=#{tab.tab}", "#{view.route}/#{tab.tab}"],
+               "view #{inspect(view.id)} tab #{inspect(tab.id)} route #{inspect(tab.route)} must be " <>
+                 "#{view.route}?tab=#{tab.tab} or #{view.route}/#{tab.tab}"
 
         for permission <- List.wrap(tab.permission) do
           assert MapSet.member?(permission_keys, permission),
                  "view #{inspect(view.id)} tab #{inspect(tab.id)} permission #{inspect(permission)} " <>
                    "is not in RBAC.Catalog.permission_keys/0"
         end
+      end
+    end
+  end
+
+  # The reverse of the orphan detector: the router is the list of Settings pages,
+  # and search can only reach a page the catalog names.
+  describe "router coverage (every Settings page is in the catalog)" do
+    test "every Settings live route is a catalog view or a sub-page of one" do
+      for {path, _module} <- settings_live_routes() do
+        view = Catalog.view_for_path(path)
+
+        assert view, "#{path} is routed, but no catalog view owns it: add it to Catalog @views"
+
+        assert path in Catalog.match_prefixes(view) or sub_page?(path),
+               "#{path} is a page of its own, but it reaches the catalog only through the prefix of " <>
+                 "#{inspect(view.id)} (#{view.route}), so search cannot find it: give it a catalog view"
+      end
+    end
+
+    test "a route whose tab is a path segment declares its tabs" do
+      for {path, module} <- settings_live_routes(), String.ends_with?(path, "/:tab") do
+        assert Code.ensure_loaded?(module) and function_exported?(module, :supported_tabs, 0),
+               "#{path} takes its tab from the path, so #{inspect(module)} must export supported_tabs/0"
+      end
+    end
+
+    test "every tab a Settings LiveView handles has a catalog sub-entry" do
+      # One LiveView can back several views (Sweep Profiles and Discovery Jobs);
+      # each tab needs a sub-entry under one of them.
+      tabs_by_live_view =
+        Enum.group_by(Catalog.views(), & &1.live_view, fn view ->
+          view |> Map.get(:tabs, []) |> Enum.map(& &1.tab)
+        end)
+
+      for {live_view, catalog_tabs} <- tabs_by_live_view,
+          Code.ensure_loaded?(live_view),
+          function_exported?(live_view, :supported_tabs, 0),
+          tab <- live_view.supported_tabs() do
+        assert tab in List.flatten(catalog_tabs),
+               "#{inspect(live_view)} handles tab #{inspect(tab)}, but no catalog view of it has a " <>
+                 "tab sub-entry for it, so search cannot reach it"
+      end
+
+      for {path, module} <- settings_live_routes(), String.ends_with?(path, "/:tab") do
+        view = Catalog.view_for_path(path)
+
+        assert view && view.live_view == module,
+               "#{path} routes to #{inspect(module)}, but the catalog view that owns it does not"
+      end
+    end
+
+    test "every catalog view and tab route reaches its LiveView" do
+      for view <- Catalog.views(), route <- [view.route | Enum.map(Map.get(view, :tabs, []), & &1.route)] do
+        assert routed_live_view(route) == view.live_view,
+               "catalog link #{route} (view #{inspect(view.id)}) does not route to #{inspect(view.live_view)}"
       end
     end
   end
@@ -185,7 +238,7 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       assert %{id: :cluster_status} = Catalog.view_for_path("/admin/cluster")
       assert %{id: :plugins} = Catalog.view_for_path("/admin/plugins")
       assert %{id: :addons} = Catalog.view_for_path("/admin/addons")
-      assert %{id: :agent_deploy} = Catalog.view_for_path("/admin/edge-packages")
+      assert %{id: :edge_onboarding} = Catalog.view_for_path("/admin/edge-packages")
     end
 
     test "the add-on fleet child wins over the add-ons parent prefix" do
@@ -396,13 +449,13 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
             {"Sweep Profiles › Sweep Groups", "/settings/networks?tab=groups"},
             {"Sweep Profiles › Scanner Profiles", "/settings/networks?tab=profiles"},
             {"Sweep Profiles › Active Scans", "/settings/networks?tab=active_scans"},
-            {"Sweep Profiles › Inventory Cleanup", "/settings/networks?tab=cleanup"}
+            {"Inventory Cleanup", "/settings/networks/inventory-cleanup"}
           ] do
         assert Enum.any?(palette, &(&1.view_title == tab_title and &1.route == route)),
                "expected #{tab_title} (#{route}) in palette_index"
       end
 
-      cleanup_entry = Enum.find(palette, &(&1.route == "/settings/networks?tab=cleanup"))
+      cleanup_entry = Enum.find(palette, &(&1.route == "/settings/networks/inventory-cleanup"))
       assert "inventory" in cleanup_entry.keywords
       assert "cleanup" in cleanup_entry.keywords
 
@@ -532,6 +585,35 @@ defmodule ServiceRadarWebNGWeb.Settings.CatalogTest do
       end
     end)
     |> Enum.group_by(fn {path, _module} -> path end, fn {_path, module} -> module end)
+  end
+
+  # Live routes of the Settings pages: `/settings/**` and the legacy `/admin/*`
+  # pages the catalog still owns. Oban Web's dashboard under /admin is not ours.
+  defp settings_live_routes do
+    for route <- Router.__routes__(),
+        {module, _} <- [live_view(route)],
+        String.starts_with?(route.path, ["/settings", "/admin/"]),
+        String.starts_with?(Atom.to_string(module), "Elixir.ServiceRadarWebNGWeb.") do
+      {route.path, module}
+    end
+  end
+
+  defp live_view(%{metadata: %{phoenix_live_view: {module, action, _opts, _extra}}}), do: {module, action}
+  defp live_view(%{metadata: %{phoenix_live_view: {module, action}}}), do: {module, action}
+  defp live_view(_route), do: nil
+
+  # A detail page or a form of the view it resolves to (`/:id`, `/new`, `/:id/edit`).
+  defp sub_page?(path) do
+    segments = String.split(path, "/", trim: true)
+    Enum.any?(segments, &String.starts_with?(&1, ":")) or List.last(segments) in ["new", "edit"]
+  end
+
+  defp routed_live_view(route) do
+    case Phoenix.Router.route_info(Router, "GET", URI.parse(route).path, "localhost") do
+      %{phoenix_live_view: {module, _action, _opts, _extra}} -> module
+      %{phoenix_live_view: {module, _action}} -> module
+      _ -> nil
+    end
   end
 
   defp duplicates(list) do

@@ -91,7 +91,11 @@ for the full workflow.
 ## Settings
 
 The **Settings** tree is where administrators and operators configure the
-platform. Common sections include:
+platform. Use **Search views** in the sidebar or **Ctrl+K** to find a page or
+tab. Both searches include descriptions and require every typed word to match,
+in any order.
+
+Common sections include:
 
 - **Auth / Users** — manage users (`/settings/auth/users`), authentication
   providers (`/settings/authentication`), and RBAC policy profiles
@@ -99,7 +103,8 @@ platform. Common sections include:
   [Roles & Permissions](./rbac-and-roles.md).
 - **Networks** — sweep profiles (`/settings/networks`), visibility profiles
   (`/settings/networks/visibility-profiles`), discovery jobs, device
-  enrichment, credential rules, remote-access host keys and desktop targets,
+  enrichment, inventory cleanup (`/settings/networks/inventory-cleanup`),
+  credential rules, remote-access host keys and desktop targets,
   BMP, MTR profiles, field surveys, integrations, prefix tags, and threat
   intel. See [Network Sweeps](./network-sweeps.md) and
   [Visibility Profiles](./visibility-profiles.md).

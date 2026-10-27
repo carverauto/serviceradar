@@ -576,7 +576,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
   defp stat_display(value), do: value
 
   defp palette_search(item) do
-    [item.view_title, item.category_title, item.route | item.keywords]
+    [item.view_title, item.category_title, item.route, item.description | item.keywords]
     |> Enum.join(" ")
     |> String.downcase()
   end
@@ -587,7 +587,7 @@ defmodule ServiceRadarWebNGWeb.Settings.Shell do
       |> view_tabs()
       |> Enum.flat_map(fn tab -> [tab.title | List.wrap(Map.get(tab, :keywords))] end)
 
-    ([view.title, view.route | List.wrap(Map.get(view, :keywords))] ++ tab_terms)
+    ([view.title, view.route, Map.get(view, :description) | List.wrap(Map.get(view, :keywords))] ++ tab_terms)
     |> Enum.join(" ")
     |> String.downcase()
   end

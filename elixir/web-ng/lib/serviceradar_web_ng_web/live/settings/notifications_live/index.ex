@@ -83,6 +83,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NotificationsLive.Index do
   @preview_alert_limit 200
   @preview_sample 5
 
+  @doc "In-page tab path segments handled by this LiveView (`/settings/notifications/<tab>`)."
+  @spec supported_tabs() :: [String.t()]
+  def supported_tabs, do: Enum.map(Access.tabs(), & &1.id)
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope

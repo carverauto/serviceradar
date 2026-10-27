@@ -67,6 +67,7 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.NetworkDiscovery.TopologyGraph.CanonicalRebuild
@@ -390,8 +391,9 @@ defmodule ServiceRadar.Inventory.Identity.AwxSourceRetirement do
     Logger.error(
       "AwxSourceRetirement: controller #{ctx.controller_id} pass refused (#{reason}): would " <>
         "retire the AWX source of #{devices} of #{live} linked records in one pass (max " <>
-        "fraction #{max_fraction}); set source_retirement_guard_override in the device " <>
-        "cleanup settings to admit it"
+        "fraction #{max_fraction}); " <>
+        DeviceCleanupSettings.guard_override_hint(:source_retirement_guard_override) <>
+        " to admit it"
     )
 
     {:error,

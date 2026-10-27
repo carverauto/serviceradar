@@ -69,6 +69,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.IntegrationIdentity
@@ -887,7 +888,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
     Logger.error(
       "SourceRetirement: #{describe(instance)} pass refused (#{reason}): would retire ids " <>
         "from #{devices} of #{live} live records in one pass (max fraction #{max_fraction}); " <>
-        "set source_retirement_guard_override in the device cleanup settings to admit it"
+        DeviceCleanupSettings.guard_override_hint(:source_retirement_guard_override) <>
+        " to admit it"
     )
 
     {:error,

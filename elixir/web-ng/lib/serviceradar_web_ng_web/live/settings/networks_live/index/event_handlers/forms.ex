@@ -1,16 +1,13 @@
-defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.ProfileCleanup do
+defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Forms do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Builder
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data
-  import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Messages
   import ServiceRadarWebNGWeb.Settings.NetworksLive.Index.ProfileParams
 
   alias AshPhoenix.Form
-  alias ServiceRadar.Inventory.DeviceCleanupSettings
-  alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.TargetBuilder
 
   def handle_event("delete_profile", %{"id" => id}, socket) do
@@ -63,48 +60,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Profile
          socket
          |> assign(:ash_form, ash_form)
          |> assign(:form, to_form(ash_form))}
-    end
-  end
-
-  def handle_event("validate_cleanup_settings", %{"cleanup" => params}, socket) do
-    form = Form.validate(socket.assigns.cleanup_form, params)
-
-    {:noreply, assign(socket, :cleanup_form, to_form(form))}
-  end
-
-  def handle_event("save_cleanup_settings", %{"cleanup" => params}, socket) do
-    scope = socket.assigns.current_scope
-
-    form = Form.validate(socket.assigns.cleanup_form, params)
-
-    case Form.submit(form, params: params) do
-      {:ok, settings} ->
-        _ = DeviceCleanupWorker.ensure_scheduled()
-        updated_form = build_cleanup_form(scope, settings)
-
-        {:noreply,
-         socket
-         |> assign(:cleanup_settings, settings)
-         |> assign(:cleanup_form, updated_form)
-         |> put_flash(:info, "Inventory cleanup settings saved")}
-
-      {:error, form} ->
-        {:noreply,
-         socket
-         |> assign(:cleanup_form, to_form(form))
-         |> put_flash(:error, "Failed to save inventory cleanup settings")}
-    end
-  end
-
-  def handle_event("run_cleanup_now", _params, socket) do
-    scope = socket.assigns.current_scope
-
-    case DeviceCleanupSettings.run_cleanup(scope: scope) do
-      {:ok, _} ->
-        {:noreply, put_flash(socket, :info, "Cleanup job queued")}
-
-      {:error, reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to queue cleanup: #{inspect(reason)}")}
     end
   end
 

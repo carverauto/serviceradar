@@ -35,7 +35,8 @@ The review tasks of classes 4 and 6 appear under Devices > De-duplication tasks
    collection after the release, so until then the dry run counts no retirement and no
    class 5 record. An instance whose latest collection is not exact is left alone (status
    `no_exact_collection`), and its part of each check stays pending.
-3. **The Inventory Cleanup settings exist** (Settings > Networks > Inventory Cleanup). Every
+3. **The Inventory Cleanup settings exist** (Settings > Network Services > Discovery > Inventory
+   Cleanup, `/settings/networks/inventory-cleanup`). Every
    step reads its rules and the mass guard from them, and fails closed without them
    (`settings_unavailable`).
 4. **Source retirement is enabled** ("Retire source ids their source stopped reporting").
@@ -44,7 +45,7 @@ The review tasks of classes 4 and 6 appear under Devices > De-duplication tasks
 
 ## Settings during the run
 
-All of these are on Settings > Networks > Inventory Cleanup.
+All of these are on Settings > Network Services > Discovery > Inventory Cleanup.
 
 - **"Most source succession merges per reconciliation run"**
   (`max_successions_per_run`, default 200): set it to 0 for the whole procedure, so the

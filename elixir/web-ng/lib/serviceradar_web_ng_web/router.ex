@@ -1316,6 +1316,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/device-enrichment", Settings.DeviceEnrichmentRulesLive, :index)
       live("/settings/networks/hostname-rdns", Settings.DeviceHostnameRdnsLive, :index)
       live("/settings/networks/availability-sources", Settings.AvailabilitySourceProfilesLive, :index)
+      live("/settings/networks/inventory-cleanup", Settings.InventoryCleanupLive, :index)
       live("/settings/networks/visibility-profiles", Settings.VisibilityProfilesLive.Index, :index)
       live("/settings/networks/visibility-profiles/new", Settings.VisibilityProfilesLive.Index, :new_profile)
       live("/settings/networks/visibility-profiles/:id/edit", Settings.VisibilityProfilesLive.Index, :edit_profile)

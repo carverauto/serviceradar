@@ -16,14 +16,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.EventHandlers.Groups 
         "groups" -> :groups
         "profiles" -> :profiles
         "active_scans" -> :active_scans
-        "cleanup" -> :cleanup
         _ -> socket.assigns.active_tab
       end
 
     socket = assign(socket, :active_tab, active_tab)
 
     socket =
-      if tab in ~w(groups profiles active_scans cleanup) do
+      if tab in ~w(groups profiles active_scans) do
         push_patch(socket, to: ~p"/settings/networks?#{%{tab: Atom.to_string(active_tab)}}")
       else
         socket

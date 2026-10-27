@@ -1,38 +1,8 @@
 defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Executions do
   @moduledoc false
-  import Phoenix.Component, only: [to_form: 1]
-
-  alias AshPhoenix.Form
-  alias ServiceRadar.Inventory.DeviceCleanupSettings
-  alias ServiceRadar.Inventory.DeviceCleanupWorker
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.Data
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.MtrJobs
-
-  def load_or_create_cleanup_settings(scope) do
-    case DeviceCleanupSettings.get_settings(scope: scope) do
-      {:ok, settings} ->
-        settings
-
-      {:error, _} ->
-        case DeviceCleanupSettings.create_settings(%{}, scope: scope) do
-          {:ok, settings} ->
-            _ = DeviceCleanupWorker.ensure_scheduled()
-            settings
-
-          {:error, _} ->
-            nil
-        end
-    end
-  end
-
-  def build_cleanup_form(_scope, nil), do: nil
-
-  def build_cleanup_form(scope, settings) do
-    settings
-    |> Form.for_update(:update, domain: ServiceRadar.Inventory, scope: scope, as: "cleanup")
-    |> to_form()
-  end
 
   @doc """
   Loads MTR bulk jobs for Active Scans, or none when the viewer lacks the

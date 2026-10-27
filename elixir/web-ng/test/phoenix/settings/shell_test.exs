@@ -32,6 +32,22 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
   defp auditor_scope, do: %Scope{permissions: MapSet.new(["settings.audit.view"])}
 
+  defp search_hit?(item, attribute, tokens) do
+    [haystack] = LazyHTML.attribute(item, attribute)
+    Enum.all?(tokens, &String.contains?(haystack, &1))
+  end
+
+  defp links_to_inventory_cleanup?(item) do
+    link = LazyHTML.query(item, ~s(a[href="/settings/networks/inventory-cleanup"]))
+    LazyHTML.text(link) =~ "Inventory Cleanup"
+  end
+
+  defp links_to_delivery_log?(item) do
+    link = LazyHTML.query(item, ~s(a[href="/settings/notifications/deliveries"]))
+    text = LazyHTML.text(link)
+    text =~ "Notifications" and text =~ "Delivery Log"
+  end
+
   defp catalog_assigns(path) do
     scope = auditor_scope()
     view = Catalog.view_for_path(path)
@@ -411,7 +427,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
   end
 
   describe "in-page tab search and deep links (#5554)" do
-    test "command palette and view-tree search index Sweep Profiles › Inventory Cleanup with deep link" do
+    test "command palette and view-tree search find Inventory Cleanup by the names of its settings" do
       scope = %Scope{permissions: MapSet.new(["settings.networks.manage"])}
       view = Catalog.view_for_path("/settings/networks")
       category = Catalog.category_for_view(view)
@@ -448,34 +464,103 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
 
       doc = LazyHTML.from_fragment(html)
 
-      palette_matches =
-        doc
-        |> LazyHTML.query("[data-command-palette-item]")
-        |> Enum.filter(fn item ->
-          [haystack] = LazyHTML.attribute(item, "data-search")
-          String.contains?(haystack, "inventory") and String.contains?(haystack, "cleanup")
-        end)
+      # What an operator types after reading a refused-pass log line or the page's
+      # checkboxes. Both searches require every typed word, in any order.
+      for query <- [
+            "inventory cleanup",
+            "device cleanup",
+            "retirement",
+            "retired",
+            "override",
+            "retirement override",
+            "guard",
+            "awx",
+            "armis",
+            "grace",
+            "ephemeral",
+            "expiry",
+            "ephemeral expiry",
+            "purge"
+          ] do
+        tokens = String.split(query)
 
-      assert Enum.any?(palette_matches, fn item ->
-               link = LazyHTML.query(item, ~s(a[href="/settings/networks?tab=cleanup"]))
-               LazyHTML.text(link) =~ "Sweep Profiles › Inventory Cleanup"
-             end)
+        palette_hits =
+          doc
+          |> LazyHTML.query("[data-command-palette-item]")
+          |> Enum.filter(&search_hit?(&1, "data-search", tokens))
 
-      tree_matches =
-        doc
-        |> LazyHTML.query("#settings-view-tree [data-view-search]")
-        |> Enum.filter(fn item ->
-          [haystack] = LazyHTML.attribute(item, "data-view-search")
-          String.contains?(haystack, "inventory") and String.contains?(haystack, "cleanup")
-        end)
+        assert Enum.any?(palette_hits, &links_to_inventory_cleanup?/1),
+               "palette query #{inspect(query)} does not find Inventory Cleanup"
 
-      assert Enum.any?(tree_matches, fn item ->
-               link = LazyHTML.query(item, ~s(a[href="/settings/networks?tab=cleanup"]))
-               LazyHTML.text(link) =~ "Sweep Profiles › Inventory Cleanup"
-             end)
+        tree_hits =
+          doc
+          |> LazyHTML.query("#settings-view-tree [data-view-search]")
+          |> Enum.filter(&search_hit?(&1, "data-view-search", tokens))
+
+        assert Enum.any?(tree_hits, &links_to_inventory_cleanup?/1),
+               "view-tree query #{inspect(query)} does not find Inventory Cleanup"
+      end
     end
 
-    test "NetworksLive.Index reads ?tab= in handle_params, renders Inventory Cleanup, and patches URL on switch_tab" do
+    test "a deliveries-only scope finds Notifications › Delivery Log in the palette and view tree" do
+      scope = %Scope{permissions: MapSet.new(["notifications.deliveries.view"])}
+      view = Catalog.view(:notifications)
+      category = Catalog.category(:system)
+
+      assigns = %{
+        current_path: "/settings/notifications/deliveries",
+        current_scope: scope,
+        active_view: view,
+        active_category: category,
+        breadcrumbs: Catalog.breadcrumbs_for_path("/settings/notifications/deliveries", scope),
+        nav_tree: %{
+          categories: Catalog.visible_categories(scope),
+          groups: Catalog.nav_tree(scope, category.id)
+        },
+        palette: Catalog.palette_index(scope),
+        stats: StatusCards.for_view(view)
+      }
+
+      html =
+        rendered_to_string(~H"""
+        <Shell.settings_chrome
+          current_path={@current_path}
+          current_scope={@current_scope}
+          active_view={@active_view}
+          active_category={@active_category}
+          breadcrumbs={@breadcrumbs}
+          nav_tree={@nav_tree}
+          palette={@palette}
+          stats={@stats}
+        >
+          <p>notifications body</p>
+        </Shell.settings_chrome>
+        """)
+
+      doc = LazyHTML.from_fragment(html)
+
+      for query <- ["delivery", "deliveries"] do
+        tokens = String.split(query)
+
+        palette_hits =
+          doc
+          |> LazyHTML.query("[data-command-palette-item]")
+          |> Enum.filter(&search_hit?(&1, "data-search", tokens))
+
+        assert Enum.any?(palette_hits, &links_to_delivery_log?/1),
+               "palette query #{inspect(query)} does not find Notifications › Delivery Log"
+
+        tree_hits =
+          doc
+          |> LazyHTML.query("#settings-view-tree [data-view-search]")
+          |> Enum.filter(&search_hit?(&1, "data-view-search", tokens))
+
+        assert Enum.any?(tree_hits, &links_to_delivery_log?/1),
+               "view-tree query #{inspect(query)} does not find Notifications › Delivery Log"
+      end
+    end
+
+    test "NetworksLive.Index reads ?tab= in handle_params, renders the tab, and patches URL on switch_tab" do
       scope = %Scope{
         user: %{email: "admin@example.com", timezone: "Etc/UTC"},
         permissions: MapSet.new(["settings.networks.manage"])
@@ -535,8 +620,6 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
           mapper_mikrotik: %{},
           mapper_command_statuses: %{},
           sweep_command_statuses: %{},
-          cleanup_settings: nil,
-          cleanup_form: nil,
           can_enable_banner_grab: false,
           banner_preview_device_count: nil,
           settings_active_view: view,
@@ -552,27 +635,27 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
         private: %{live_temp: %{}, lifecycle: %Lifecycle{}}
       }
 
-      assert {:noreply, cleanup_socket} =
+      assert {:noreply, profiles_socket} =
                Index.handle_params(
-                 %{"tab" => "cleanup"},
-                 "http://localhost/settings/networks?tab=cleanup",
+                 %{"tab" => "profiles"},
+                 "http://localhost/settings/networks?tab=profiles",
                  base_socket
                )
 
-      assert cleanup_socket.assigns.active_tab == :cleanup
+      assert profiles_socket.assigns.active_tab == :profiles
 
       html =
-        cleanup_socket.assigns
+        profiles_socket.assigns
         |> Index.render()
         |> rendered_to_string()
 
-      assert html =~ "Expire ephemeral devices, then purge soft-deleted devices"
+      assert html =~ "profile(s) available"
 
       assert {:noreply, fallback_socket} =
                Index.handle_params(
                  %{"tab" => "bogus"},
                  "http://localhost/settings/networks?tab=bogus",
-                 cleanup_socket
+                 profiles_socket
                )
 
       assert fallback_socket.assigns.active_tab == :groups
@@ -580,14 +663,14 @@ defmodule ServiceRadarWebNGWeb.Settings.ShellTest do
       assert {:noreply, patched_socket} =
                Index.handle_event(
                  "switch_tab",
-                 %{"tab" => "cleanup"},
+                 %{"tab" => "profiles"},
                  fallback_socket
                )
 
-      assert patched_socket.assigns.active_tab == :cleanup
+      assert patched_socket.assigns.active_tab == :profiles
 
       assert patched_socket.redirected ==
-               {:live, :patch, %{kind: :push, to: "/settings/networks?tab=cleanup"}}
+               {:live, :patch, %{kind: :push, to: "/settings/networks?tab=profiles"}}
     end
 
     test "AnsibleLive reads ?tab= in handle_params with permission gating" do

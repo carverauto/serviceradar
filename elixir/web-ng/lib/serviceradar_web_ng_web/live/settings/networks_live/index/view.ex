@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
 
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.ActiveScans
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Discovery
-  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.InventoryCleanup
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Navigation
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.Profiles
   alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.SweepGroups
@@ -113,8 +112,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View do
                       can_cancel_sweeps={@can_run_sweeps}
                       timezone={@current_scope.user.timezone || "Etc/UTC"}
                     />
-                  <% :cleanup -> %>
-                    <InventoryCleanup.render form={@cleanup_form} settings={@cleanup_settings} />
                 <% end %>
               <% end %>
             <% end %>
