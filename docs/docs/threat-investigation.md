@@ -27,11 +27,8 @@ security findings.
 | Attributed threat flows | `in:attributed_flows threat_matched:true time:last_24h` |
 | Feed configuration | **Settings -> Networks -> Threat Intel** |
 
-`threat_indicator:` and `threat_source:` are not available on flows yet. The
-StarRocks 4.1 JDBC catalog cannot read the indicator `cidr` or the cache's
-source list, so SRQL refuses these filters rather than return approximate
-rows. Find the matched endpoints in `in:threat_intel_matches`, then narrow
-flows to one of them with `threat_observed_ip:`.
+For unavailable flow filters and the matched-endpoint workaround, see
+[SRQL Cookbook](./srql-cookbook.md#flows-for-one-matched-endpoint).
 
 Dashboard **Matched IPs** is distinct live cache endpoints.
 **Indicator matches** is endpoint-to-indicator memberships, not flow

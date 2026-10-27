@@ -244,11 +244,8 @@ Flow proximity does **not** store geometry on the flow hypertable. Instead:
    StarRocks 4.1 JDBC catalog cannot read geography.
 
 Writers of the geo cache continue to set `latitude`/`longitude` only; Postgres
-maintains `location`.
-
-Flows are stored in StarRocks, and the StarRocks 4.1 JDBC catalog cannot read
-the `location` geography, so SRQL currently refuses `near:` on flows rather
-than approximate the distance. See [SRQL Cookbook](./srql-cookbook.md).
+maintains `location`. See [SRQL Cookbook](./srql-cookbook.md#proximity-geo-cache)
+for flow proximity filter availability.
 
 ## Related
 
