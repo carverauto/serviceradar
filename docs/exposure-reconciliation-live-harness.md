@@ -107,4 +107,4 @@ The coordinator must still drop and verify absence of the scratch schema, includ
 
 Collect the actual named test result and canonical suite/observer/teardown/
 release statuses. A compile/setup failure is not behavioral proof. Fresh hosted
-execution is required before claiming this gap closed.
+execution of the source tree under review is required before claiming a pass.
