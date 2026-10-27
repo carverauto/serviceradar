@@ -1346,8 +1346,48 @@ results, not a clean pass.
 
 The correction uses the canonical Identity RBAC cache API and compares relay
 identities against one snapshot taken after fixture setup, preserving the
-fixture's recording relay and all behavior assertions. Final readiness still
-requires new published-head uncached Core12/Web7 execution, completed changed
-owning cases and numeric zero suite, observer, teardown and generation-release
-statuses. The prepublication deferral is not a waiver of that gate.
+fixture's recording relay and all behavior assertions. At this checkpoint, final
+readiness still required new published-head uncached Core12/Web7 execution,
+completed changed owning cases and numeric zero suite, observer, teardown and
+generation-release statuses. The subsequent evidence is recorded below; the
+prepublication deferral did not waive that gate.
 Recording remains disabled; no live deployment or provider mutation was performed.
+
+## Published-head archive player validation
+
+[PR #6096](https://github.com/carverauto/serviceradar/pull/6096) merged at
+`465e98505c68069abcb47d99fd06ba570a648629`. Published head
+`2ce5100cb2d58d6455e712b354d7c88a7fa28256` passed all 20 GitHub/BuildBuddy
+checks after the assertion-preserving correction described above.
+
+- [Core suite](https://carverauto.buildbuddy.io/invocation/b310e044-c095-4577-a0f1-1eb74cbbb5c9)
+  executed all 12 targets uncached, each passing once without a flaky result.
+  The workflow fetched the published head, then merged staging for executor
+  commit `fee9c62b6f1d1a6464c92614f9f8e112cc4ab1b9`.
+- [Web suite](https://carverauto.buildbuddy.io/invocation/ed1fc8e8-e90f-4c88-9977-d33b6b0e9d0a)
+  executed all seven targets uncached. Its owning shard
+  `networks_live_db_test_0` ran 839 tests plus two properties with zero failures.
+  Completed traces covered both recording-role cases, the expanded
+  publication/LiveView flow, actual public HTTP cancellation/admission and
+  independent authenticated HLS decoding. Its published-head executor merge was
+  `59fe75b272cd74c775f4e0b115a0eb31837d3c00`.
+- [Core lifecycle](https://carverauto.buildbuddy.io/invocation/cb616d4e-c5a2-44ac-ad7c-71b34f5412f6)
+  and [Web lifecycle](https://carverauto.buildbuddy.io/invocation/221344cc-a67a-4217-9bb6-9abfb7805ad7)
+  each emitted numeric `suite_status=0 observer_status=0 teardown_status=0
+  release_status=0`.
+- The published-head Assets JS check passed ESLint for the application hooks,
+  closing the prepublication remote lint coverage gap. The author full remote
+  run above passed 467 targets, with 29 executed, two existing Swift platform
+  skips and retries disabled; all seven synthetic Chromium cases passed again.
+
+The proxy correction used `ServiceRadar.Identity.RBAC.Cache`, removed a call to
+a nonexistent cache API and replaced the invalid zero-relay expectation with
+exact sorted relay-ID equality against one snapshot taken before archive
+requests. The separate fresh-source zero-relay assertion remains. No behavior
+assertion was removed or weakened.
+
+The approved prepublication database deferral remains part of the record.
+Final CI supplies the authenticated-route and actual public-socket evidence it
+deferred; it does not convert the earlier controlled browser fixture into
+browser-to-hosted-provider acceptance. Recording remains disabled, no provider
+was qualified or deployed, and #4913/#4915 remain open.

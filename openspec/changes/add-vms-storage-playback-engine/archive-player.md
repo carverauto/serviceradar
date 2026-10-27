@@ -64,6 +64,9 @@ RBAC, database publication or actual provider cancellation.
 Those contracts belong to the existing joined Web database owner. Its public
 HTTP cancellation case holds a real provider GET, closes the public client,
 checks refusal without more provider work, then verifies eventual admission,
-exact fragment bytes and unchanged publication. Final published-head Core/Web
-execution and successful fixture cleanup remain mandatory. No live rollout,
-recording enablement or hosted provider qualification is implied.
+exact fragment bytes and unchanged publication. Final #6096
+[published-head Core/Web execution](validation.md#published-head-archive-player-validation)
+passed with successful fixture cleanup, including the changed owning cases.
+Authenticated-route browser acceptance remains separate from those browser
+component and HTTP/database proofs. No live rollout, recording enablement or
+hosted provider qualification is implied.
