@@ -6,8 +6,8 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLResponse do
   `decode/2`:
 
   1. base64-decodes the form value;
-  2. parses it with `ServiceRadarWebNGWeb.Auth.SAMLXml` (no DTDs,
-     namespace-conformant);
+  2. parses it with `ServiceRadarWebNGWeb.Auth.SAMLXml.parse_response/1` (no
+     DTDs, namespace-conformant, and no atom interned from client input);
   3. verifies an XML signature with `:xmerl_dsig` against the signing
      certificates in the IdP metadata, honouring certificate pinning. The
      response must carry exactly one `saml:Assertion`, as a direct child of the
@@ -83,7 +83,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLResponse do
   end
 
   defp parse_response(xml) do
-    case SAMLXml.parse(xml) do
+    case SAMLXml.parse_response(xml) do
       {:ok, doc} -> {:ok, doc}
       {:error, :invalid_xml} -> {:error, :invalid_saml_response}
     end

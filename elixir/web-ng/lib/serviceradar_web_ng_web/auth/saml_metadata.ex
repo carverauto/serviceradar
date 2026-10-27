@@ -104,7 +104,7 @@ defmodule ServiceRadarWebNGWeb.Auth.SAMLMetadata do
   end
 
   defp parse(xml) do
-    case SAMLXml.parse(xml) do
+    case SAMLXml.parse_metadata(xml) do
       {:ok, doc} -> {:ok, doc}
       {:error, :invalid_xml} -> {:error, :invalid_metadata}
     end

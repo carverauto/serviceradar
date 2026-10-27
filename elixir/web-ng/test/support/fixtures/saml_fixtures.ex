@@ -58,6 +58,9 @@ defmodule ServiceRadarWebNG.SAMLFixtures do
     * `:not_before`, `:not_on_or_after` - `DateTime`s for `Conditions`
     * `:sign` - `:assertion` (default) or `:response`
     * `:signer` - an `idp/1` identity to sign with instead of `idp`
+    * `:dialect` - how the IdP writes namespace prefixes, applied before
+      signing: `:saml` (default, `samlp:`/`saml:`), `:saml2` (`saml2p:`/`saml2:`)
+      or `:default_namespace` (unprefixed assertion elements)
   """
   def response(idp, opts \\ []) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
@@ -79,15 +82,16 @@ defmodule ServiceRadarWebNG.SAMLFixtures do
     }
 
     signer = Keyword.get(opts, :signer, idp)
+    dialect = Keyword.get(opts, :dialect, :saml)
+    assertion = fields |> assertion_xml() |> in_dialect(dialect)
 
     xml =
       case Keyword.get(opts, :sign, :assertion) do
         :assertion ->
-          signed_assertion = fields |> assertion_xml() |> sign(signer)
-          response_xml(fields, signed_assertion)
+          response_xml(fields, sign(assertion, signer), dialect)
 
         :response ->
-          fields |> response_xml(assertion_xml(fields)) |> sign(signer)
+          fields |> response_xml(assertion, dialect) |> sign(signer)
       end
 
     Base.encode64(xml)
@@ -121,15 +125,34 @@ defmodule ServiceRadarWebNG.SAMLFixtures do
       ~s(</saml:Assertion>)
   end
 
-  defp response_xml(fields, assertion_xml) do
-    ~s(<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" ) <>
-      ~s(ID="#{fields.response_id}" Version="2.0" IssueInstant="#{fields.issue_instant}" ) <>
-      ~s(Destination="#{fields.recipient}"#{attr("InResponseTo", fields.response_in_response_to)}>) <>
-      ~s(<saml:Issuer xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">#{fields.issuer}</saml:Issuer>) <>
-      ~s(<samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>) <>
-      ~s(</samlp:Status>) <>
-      assertion_xml <>
-      ~s(</samlp:Response>)
+  # `assertion_xml` is already in `dialect`, and may already be signed.
+  defp response_xml(fields, assertion_xml, dialect) do
+    open =
+      ~s(<samlp:Response xmlns:samlp="urn:oasis:names:tc:SAML:2.0:protocol" ) <>
+        ~s(ID="#{fields.response_id}" Version="2.0" IssueInstant="#{fields.issue_instant}" ) <>
+        ~s(Destination="#{fields.recipient}"#{attr("InResponseTo", fields.response_in_response_to)}>) <>
+        ~s(<saml:Issuer xmlns:saml="urn:oasis:names:tc:SAML:2.0:assertion">#{fields.issuer}</saml:Issuer>) <>
+        ~s(<samlp:Status><samlp:StatusCode Value="urn:oasis:names:tc:SAML:2.0:status:Success"/>) <>
+        ~s(</samlp:Status>)
+
+    in_dialect(open, dialect) <> assertion_xml <> in_dialect(~s(</samlp:Response>), dialect)
+  end
+
+  defp in_dialect(xml, :saml), do: xml
+
+  defp in_dialect(xml, :saml2) do
+    xml
+    |> String.replace("saml:", "saml2:")
+    |> String.replace("xmlns:saml=", "xmlns:saml2=")
+    |> String.replace("samlp:", "saml2p:")
+    |> String.replace("xmlns:samlp=", "xmlns:saml2p=")
+  end
+
+  defp in_dialect(xml, :default_namespace) do
+    xml
+    |> String.replace("<saml:", "<")
+    |> String.replace("</saml:", "</")
+    |> String.replace("xmlns:saml=", "xmlns=")
   end
 
   # Signs the document's root element (enveloped signature, RSA-SHA256) and
