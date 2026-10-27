@@ -59,6 +59,7 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
        OR (state = 'quarantined' AND COALESCE(quarantined_at, last_attempt_at) < $2)
     ORDER BY id
     LIMIT $3
+    FOR UPDATE
   )
   DELETE FROM platform.plugin_result_ingestion_attempts AS attempt
   USING doomed
@@ -311,12 +312,10 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
           {:ok, %{deleted: non_neg_integer(), batches: non_neg_integer()}} | {:error, term()}
   def prune(opts \\ []) do
     now = Keyword.get_lazy(opts, :now, &DateTime.utc_now/0)
-    active_days = positive_opt(opts, :active_retention_days, active_retention_days())
-    quarantine_days = positive_opt(opts, :quarantine_retention_days, quarantine_retention_days())
     batch_size = min(positive_opt(opts, :batch_size, prune_batch_size()), 10_000)
 
-    active_cutoff = DateTime.shift(now, day: -active_days)
-    quarantine_cutoff = DateTime.shift(now, day: -quarantine_days)
+    active_cutoff = DateTime.shift(now, day: -active_retention_days())
+    quarantine_cutoff = DateTime.shift(now, day: -quarantine_retention_days())
 
     do_prune(active_cutoff, quarantine_cutoff, batch_size, 0, 0)
   end
