@@ -1700,3 +1700,25 @@ second descriptor representation. Confidence: medium.
 - **Verdict:** sound. Client scheduling fixes a reproduced playback failure
   without treating browser cancellation as server retirement.
 - **Confidence:** high for this measured path; parallel audio is unqualified.
+
+## Cloud handoff after archive playback
+
+### Sound: expose reservation status before ownership promotion (medium confidence)
+
+- **When:** planning the next Cloud pass after merged archive player #6096.
+- **Choice:** first recover #188's immutable reservation and preservation work,
+  then show those records in the existing operator environment console. An
+  operator can see the requested storage purpose and the protection against
+  generic cleanup while the page explicitly says ownership is not established.
+  Reading that page will not contact the provider or change storage authority.
+- **Gap:** the approved Cloud inventory scope did not choose its first operator
+  surface. Provider creation still lacks an accepted operation-bound ownership
+  proof, and no particular existing bucket has been authorized for adoption.
+- **Reach:** this gives the operator useful visibility without adding another
+  resource model or implying that a reservation is a bucket. A later allocation
+  or adoption contract must establish ownership before qualification/readiness;
+  this checkpoint cannot silently satisfy that gate.
+- **Verdict:** sound as the next bounded implementation, not a claim that
+  ownership is resolved or that the console work is already implemented.
+- **Confidence:** medium; the scope is approved inventory visibility, while
+  pagination and operator presentation still need implementation review.

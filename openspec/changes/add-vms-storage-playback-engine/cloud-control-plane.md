@@ -34,6 +34,46 @@ required no-provisioning/no-retention-authority recorder boundary. Direct worker
 credentials require separate evidence that the endpoint enforces the narrower
 actions. See [Akamai access-key permissions](https://techdocs.akamai.com/cloud-computing/docs/manage-access-keys).
 
+## Next bounded Cloud checkpoint
+
+After [Cloud #188](https://github.com/carverauto/serviceradar-control/pull/188)
+merges, expose read-only reservation inventory and preservation status through
+the existing operator environment console. This is a bounded part of the
+approved Cloud design's resource inventory and lifecycle visibility; it does not
+complete provisioning or the ownership gate below.
+
+- Reuse `TenantMediaAllocationIntent` and `TenantMediaReservations`. Preserve
+  immutable environment, operation, purpose and generation identity, operator
+  attribution and the sticky preservation fence.
+- Extend `OperatorEnvironmentConsole.get_environment/2`, its detail projection
+  and `OperatorEnvironmentLive` at `/operator/environments/:id`. Present a bounded
+  list of requested provider/region and purpose with explicit continuation when
+  more reservations exist. Never imply that a truncated list is complete.
+- Label these as reservations with ownership not established. They are not
+  observed provider resources, allocated buckets or readiness evidence. No
+  provider request is needed to render them.
+- Grant the existing operator-console owner narrowly scoped read authority.
+  Keep reservation mutation authority separate and retain environment scoping.
+  No create, adopt, clear-preservation, delete or enable-recording action belongs
+  in this checkpoint.
+- Do not expose credentials, private credential references or opaque provider
+  response bodies. Existing infrastructure credential custody remains the owner
+  of secret material.
+
+Behavioral acceptance must cover authorized and unauthorized readers, isolation
+between environment details, empty and bounded multi-page inventory, immutable
+intent display and visible preservation when generic cleanup is refused.
+Reading or paging must not call the provider, create reservations, change
+preservation or promote readiness. Tests must execute the domain projection and
+LiveView behavior using independently invented records, with committed fixture
+rows cleaned up.
+
+This visibility work does not require an adoption decision. Ownership promotion
+still requires an accepted operation-bound proof contract or a separately
+specified adoption workflow, and adopting any particular resource remains an
+explicit operator action. A matching name, successful list or successful create
+response cannot supply that authority.
+
 ## C1. Provisioning and private storage
 
 Before enabling hosted recording, the control plane creates or explicitly adopts
