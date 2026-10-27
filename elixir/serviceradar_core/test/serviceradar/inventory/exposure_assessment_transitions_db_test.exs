@@ -242,13 +242,18 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
           assert {:ok, {:ok, [replayed]}} =
                    Repo.transaction(fn -> ExposureSnapshotRepairs.publish([target]) end)
 
+          assert replayed == target
           assert {:ok, []} = ExposureSnapshotRepairs.verify([replayed])
 
-          assert [[1]] =
+          # Identical replay may enqueue multiple copies of the newer publication.
+          assert [[queued]] =
                    Repo.query!(
-                     "SELECT 1 FROM platform.exposure_dimension_outbox WHERE kind = 'cve' AND ordinal = $1 AND transition_seq = $2",
+                     "SELECT DISTINCT payload FROM platform.exposure_dimension_outbox WHERE kind = 'cve' AND ordinal = $1 AND transition_seq = $2",
                      [ordinal, newer]
                    ).rows
+
+          assert queued["transition_seq"] == newer
+          assert Map.take(queued, Map.keys(content)) == content
 
           live_global_readiness!(conn, ctx, scope, cve)
           live_union_paging!(conn, ctx)
