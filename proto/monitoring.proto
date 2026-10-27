@@ -952,7 +952,7 @@ message SNMPConfig {
   // SNMP targets to poll
   repeated SNMPTargetConfig targets = 4;
 
-  // Wire format for OID delivery: empty (legacy inline target.oids) or "shared-oids/v1".
+  // Wire format for OID delivery: empty or "legacy" (inline target.oids), or "shared-oids/v1".
   string format = 5;
 
   // Shared OID sets keyed by SNMPOIDSet.key when format is "shared-oids/v1".

@@ -19,6 +19,69 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
   alias ServiceRadar.SNMPProfiles.SNMPTarget
   alias ServiceRadar.TestSupport
 
+  defmodule LegacySNMPv3Auth do
+    use Protobuf, syntax: :proto3
+
+    field :username, 1, type: :string
+
+    field :security_level, 2,
+      type: Monitoring.SNMPSecurityLevel,
+      json_name: "securityLevel",
+      enum: true
+
+    field :auth_protocol, 3,
+      type: Monitoring.SNMPAuthProtocol,
+      json_name: "authProtocol",
+      enum: true
+
+    field :auth_password, 4, type: :string, json_name: "authPassword"
+
+    field :priv_protocol, 5,
+      type: Monitoring.SNMPPrivProtocol,
+      json_name: "privProtocol",
+      enum: true
+
+    field :priv_password, 6, type: :string, json_name: "privPassword"
+  end
+
+  defmodule LegacySNMPOIDConfig do
+    use Protobuf, syntax: :proto3
+
+    field :oid, 1, type: :string
+    field :name, 2, type: :string
+    field :data_type, 3, type: Monitoring.SNMPDataType, json_name: "dataType", enum: true
+    field :scale, 4, type: :double
+    field :delta, 5, type: :bool
+    field :mode, 6, type: :string
+    field :max_rows, 7, type: :int32, json_name: "maxRows"
+    field :walk_timeout_seconds, 8, type: :uint32, json_name: "walkTimeoutSeconds"
+  end
+
+  defmodule LegacySNMPTargetConfig do
+    use Protobuf, syntax: :proto3
+
+    field :id, 1, type: :string
+    field :name, 2, type: :string
+    field :host, 3, type: :string
+    field :port, 4, type: :uint32
+    field :version, 5, type: Monitoring.SNMPVersion, enum: true
+    field :community, 6, type: :string
+    field :v3_auth, 7, type: LegacySNMPv3Auth, json_name: "v3Auth"
+    field :poll_interval_seconds, 8, type: :uint32, json_name: "pollIntervalSeconds"
+    field :timeout_seconds, 9, type: :uint32, json_name: "timeoutSeconds"
+    field :retries, 10, type: :uint32
+    field :oids, 11, repeated: true, type: LegacySNMPOIDConfig
+  end
+
+  defmodule LegacySNMPConfig do
+    use Protobuf, syntax: :proto3
+
+    field :enabled, 1, type: :bool
+    field :profile_id, 2, type: :string, json_name: "profileId"
+    field :profile_name, 3, type: :string, json_name: "profileName"
+    field :targets, 4, repeated: true, type: LegacySNMPTargetConfig
+  end
+
   @moduletag :integration
 
   setup_all do
@@ -653,7 +716,7 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
 
   describe "SNMP format selection (#6031)" do
     @tag :integration
-    test "agent without snmp-config-shared-oids:v1 receives legacy inline OID format byte-for-byte",
+    test "agent without snmp-config-shared-oids:v1 receives bytes matching the pre-shared-OID protobuf schema",
          %{
            actor: actor
          } do
@@ -676,14 +739,28 @@ defmodule ServiceRadar.Edge.SNMPConfigDistributionIntegrationTest do
         assert length(target.oids) == 2
       end
 
-      # Byte-for-byte identical proto wire encoding to a legacy SNMPConfig struct.
-      expected_legacy_proto = %Monitoring.SNMPConfig{
+      expected_legacy_proto = %LegacySNMPConfig{
         enabled: snmp_proto.enabled,
         profile_id: snmp_proto.profile_id,
         profile_name: snmp_proto.profile_name,
         targets:
-          Enum.map(snmp_proto.targets, fn t ->
-            %{t | oid_set: ""}
+          Enum.map(snmp_proto.targets, fn target ->
+            %LegacySNMPTargetConfig{
+              id: target.id,
+              name: target.name,
+              host: target.host,
+              port: target.port,
+              version: target.version,
+              community: target.community,
+              v3_auth:
+                if target.v3_auth do
+                  struct!(LegacySNMPv3Auth, Map.from_struct(target.v3_auth))
+                end,
+              poll_interval_seconds: target.poll_interval_seconds,
+              timeout_seconds: target.timeout_seconds,
+              retries: target.retries,
+              oids: Enum.map(target.oids, &struct!(LegacySNMPOIDConfig, Map.from_struct(&1)))
+            }
           end)
       }
 

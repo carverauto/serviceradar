@@ -692,10 +692,10 @@ func TestProtoToSNMPOIDConfig_GetIsDefault(t *testing.T) {
 	require.Zero(t, got.WalkTimeout)
 }
 
-func TestProtoToSNMPConfigCopiesProfileAndTargetIDs(t *testing.T) {
+func TestParseProtoSNMPConfigCopiesProfileAndTargetIDs(t *testing.T) {
 	t.Parallel()
 
-	got := protoToSNMPConfig(&proto.SNMPConfig{
+	got, err := parseProtoSNMPConfig(&proto.SNMPConfig{
 		Enabled:     true,
 		ProfileId:   "profile-uuid",
 		ProfileName: "ClearPass node health",
@@ -709,6 +709,7 @@ func TestProtoToSNMPConfigCopiesProfileAndTargetIDs(t *testing.T) {
 		},
 	})
 
+	require.NoError(t, err)
 	require.Equal(t, "profile-uuid", got.ProfileID)
 	require.Equal(t, "ClearPass node health", got.ProfileName)
 	require.Len(t, got.Targets, 1)
@@ -856,6 +857,11 @@ func TestParseProtoSNMPConfig_SharedOIDsParity(t *testing.T) {
 
 	legacyCfg, err := parseProtoSNMPConfig(legacyProto)
 	require.NoError(t, err)
+
+	legacyProto.Format = "legacy"
+	explicitLegacyCfg, err := parseProtoSNMPConfig(legacyProto)
+	require.NoError(t, err)
+	require.Equal(t, legacyCfg, explicitLegacyCfg)
 
 	sharedCfg, err := parseProtoSNMPConfig(sharedProto)
 	require.NoError(t, err)

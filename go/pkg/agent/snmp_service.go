@@ -745,16 +745,6 @@ func (s *SNMPAgentService) ApplyProtoConfig(ctx context.Context, protoConfig *pr
 	return nil
 }
 
-// protoToSNMPConfig converts a proto.SNMPConfig to snmp.SNMPConfig.
-func protoToSNMPConfig(p *proto.SNMPConfig) *snmp.SNMPConfig {
-	cfg, err := parseProtoSNMPConfig(p)
-	if err != nil {
-		return snmp.DefaultConfig()
-	}
-
-	return cfg
-}
-
 func parseProtoSNMPConfig(p *proto.SNMPConfig) (*snmp.SNMPConfig, error) {
 	if p == nil {
 		return snmp.DefaultConfig(), nil
@@ -763,7 +753,7 @@ func parseProtoSNMPConfig(p *proto.SNMPConfig) (*snmp.SNMPConfig, error) {
 	var oidSets map[string][]snmp.OIDConfig
 
 	switch p.GetFormat() {
-	case "":
+	case "", "legacy":
 	case snmpConfigFormatSharedOIDsV1:
 		oidSets = make(map[string][]snmp.OIDConfig, len(p.GetOidSets()))
 		for _, set := range p.GetOidSets() {

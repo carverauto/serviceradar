@@ -6750,7 +6750,7 @@ type SNMPConfig struct {
 	ProfileName string `protobuf:"bytes,3,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"` // Name of the profile for logging
 	// SNMP targets to poll
 	Targets []*SNMPTargetConfig `protobuf:"bytes,4,rep,name=targets,proto3" json:"targets,omitempty"`
-	// Wire format for OID delivery: empty (legacy inline target.oids) or "shared-oids/v1".
+	// Wire format for OID delivery: empty or "legacy" (inline target.oids), or "shared-oids/v1".
 	Format string `protobuf:"bytes,5,opt,name=format,proto3" json:"format,omitempty"`
 	// Shared OID sets keyed by SNMPOIDSet.key when format is "shared-oids/v1".
 	OidSets       []*SNMPOIDSet `protobuf:"bytes,6,rep,name=oid_sets,json=oidSets,proto3" json:"oid_sets,omitempty"`
