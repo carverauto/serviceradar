@@ -230,6 +230,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     token = recording_reader_token()
     path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
     inventory_path = "/api/cameras/#{context.source.id}/recordings"
+    relay_ids = camera_relay_ids(context.source.id)
 
     assert token |> recording_response(inventory_path) |> json_response(200) == %{
              "data" => %{"schema_version" => 1, "items" => [], "next_cursor" => nil}
@@ -251,7 +252,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     {:ok, view, _html} = live(page_conn, "/cameras/#{context.source.id}/recordings")
     assert has_element?(view, "#camera-recordings-empty")
     refute has_element?(view, "#camera-archive-player")
-    assert_no_camera_relay(context.source.id)
+    assert camera_relay_ids(context.source.id) == relay_ids
 
     assert Agent.get(context.store, & &1.requests) == []
     assert {:ok, %{"status" => "media_verified"}} = MediaUpload.upload_once(context.block.id)
@@ -321,7 +322,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert has_element?(view, "#next-recording-window[disabled]")
     assert has_element?(view, "#camera-recording-time-note", "No capture-time timeline")
     assert Agent.get(context.store, & &1.requests) == requests
-    assert_no_camera_relay(context.source.id)
+    assert camera_relay_ids(context.source.id) == relay_ids
 
     {:ok, %{"sub" => "user:" <> page_user_id}} = Guardian.decode_and_verify(token)
     page_user_uuid = Ecto.UUID.dump!(page_user_id)
@@ -384,7 +385,7 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     refute has_element?(view, "#camera-archive-player")
     view |> element("#refresh-recordings") |> render_click()
     assert has_element?(view, "#camera-recordings-empty")
-    assert_no_camera_relay(context.source.id)
+    assert camera_relay_ids(context.source.id) == relay_ids
 
     conflicted = recording_response(token, path)
 
@@ -871,12 +872,12 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     Path.join([System.fetch_env!("TEST_SRCDIR"), System.fetch_env!("TEST_WORKSPACE"), relative])
   end
 
-  defp assert_no_camera_relay(source_id) do
-    assert %{rows: [[0]]} =
-             ServiceRadar.Repo.query!(
-               "SELECT count(*) FROM platform.camera_relay_sessions WHERE camera_source_id = $1",
-               [Ecto.UUID.dump!(source_id)]
-             )
+  defp camera_relay_ids(source_id) do
+    List.flatten(
+      ServiceRadar.Repo.query!("SELECT id FROM platform.camera_relay_sessions WHERE camera_source_id = $1 ORDER BY id", [
+        Ecto.UUID.dump!(source_id)
+      ]).rows
+    )
   end
 
   defp recording_response(token, path, accept \\ "application/json") do

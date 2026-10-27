@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.Camera.Source
+  alias ServiceRadar.Identity.RBAC.Cache
   alias ServiceRadar.Identity.RoleProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AshTestHelpers
@@ -70,7 +71,7 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveTest do
     )
     |> Ash.update!()
 
-    RBAC.Cache.put(user.id, MapSet.new(permissions))
+    Cache.put(user.id, MapSet.new(permissions))
 
     render_click(view, "next_recordings")
     assert has_element?(view, "#camera-recordings-error", "permission")
@@ -111,9 +112,8 @@ defmodule ServiceRadarWebNGWeb.CameraRecordingsLiveTest do
       |> Ash.Changeset.for_update(:update_role_profile, %{role_profile_id: profile.id}, actor: actor)
       |> Ash.update!()
 
-    RBAC.clear_process_cache()
-    RBAC.Cache.put(user.id, MapSet.new(permissions))
-    on_exit(fn -> RBAC.Cache.invalidate(user.id) end)
+    Cache.put(user.id, MapSet.new(permissions))
+    on_exit(fn -> Cache.invalidate(user.id) end)
     {user, profile}
   end
 end
