@@ -776,7 +776,6 @@ go_deps.from_file(go_mod = "//:go.mod")
 # rules_go now embeds dependency build info, exposing wazero v1.12.0's
 # unsynchronized version cache when runtimes are created concurrently.
 go_deps.module_override(
-    path = "github.com/tetratelabs/wazero",
     patch_cmds = ["""patch -p1 <<'PATCH'
 --- a/internal/version/version.go
 +++ b/internal/version/version.go
@@ -807,6 +806,7 @@ go_deps.module_override(
  \t}
 PATCH
 """],
+    path = "github.com/tetratelabs/wazero",
 )
 
 # NOTE: `bazel mod tidy` populates the list of repositories below based on the
