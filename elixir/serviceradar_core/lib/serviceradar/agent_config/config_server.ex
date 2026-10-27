@@ -51,6 +51,10 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
   The returned entry's `hash` reuses a non-empty compiled `config_hash`,
   prefixed with `format:` when a non-empty format is present. Configs without
   a compiled hash use `Compiler.content_hash/1` over the complete config.
+
+  SNMP cache entries also distinguish the requested `:snmp_format` (falling
+  back to `:format`, then `:legacy`) within the agent/device scope. Pass one
+  format option consistently so the compiler and cache select the same format.
   """
   @spec get_config(atom(), String.t(), String.t() | nil, keyword()) ::
           {:ok, map()} | {:error, term()}
@@ -269,9 +273,15 @@ defmodule ServiceRadar.AgentConfig.ConfigServer do
         _ -> nil
       end
 
-    case Keyword.get(opts, :agent_id) do
-      agent_id when is_binary(agent_id) and agent_id != "" -> {:agent, agent_id, device_uid}
-      _ -> device_uid && {:device_uid, device_uid}
+    base_scope =
+      case Keyword.get(opts, :agent_id) do
+        agent_id when is_binary(agent_id) and agent_id != "" -> {:agent, agent_id, device_uid}
+        _ -> device_uid && {:device_uid, device_uid}
+      end
+
+    case Keyword.get(opts, :snmp_format, Keyword.get(opts, :format, :legacy)) do
+      :legacy -> base_scope
+      format -> {:snmp_format, format, base_scope}
     end
   end
 

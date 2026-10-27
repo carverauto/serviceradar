@@ -20,6 +20,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"testing"
 	"time"
 
@@ -690,10 +692,10 @@ func TestProtoToSNMPOIDConfig_GetIsDefault(t *testing.T) {
 	require.Zero(t, got.WalkTimeout)
 }
 
-func TestProtoToSNMPConfigCopiesProfileAndTargetIDs(t *testing.T) {
+func TestParseProtoSNMPConfigCopiesProfileAndTargetIDs(t *testing.T) {
 	t.Parallel()
 
-	got := protoToSNMPConfig(&proto.SNMPConfig{
+	got, err := parseProtoSNMPConfig(&proto.SNMPConfig{
 		Enabled:     true,
 		ProfileId:   "profile-uuid",
 		ProfileName: "ClearPass node health",
@@ -707,9 +709,342 @@ func TestProtoToSNMPConfigCopiesProfileAndTargetIDs(t *testing.T) {
 		},
 	})
 
+	require.NoError(t, err)
 	require.Equal(t, "profile-uuid", got.ProfileID)
 	require.Equal(t, "ClearPass node health", got.ProfileName)
 	require.Len(t, got.Targets, 1)
 	require.Equal(t, "target-uuid", got.Targets[0].ID)
 	require.Equal(t, "clearpass-a", got.Targets[0].Name)
+}
+
+func TestParseProtoSNMPConfig_SharedOIDsParity(t *testing.T) {
+	t.Parallel()
+
+	coreOIDs := []*proto.SNMPOIDConfig{
+		{
+			Oid:                ".1.3.6.1.2.1.31.1.1.1.6",
+			Name:               "ifHCInOctets",
+			DataType:           proto.SNMPDataType_SNMP_DATA_TYPE_COUNTER,
+			Scale:              1.0,
+			Delta:              true,
+			Mode:               "walk",
+			MaxRows:            200,
+			WalkTimeoutSeconds: 15,
+		},
+		{
+			Oid:      ".1.3.6.1.2.1.1.3.0",
+			Name:     "sysUpTime",
+			DataType: proto.SNMPDataType_SNMP_DATA_TYPE_TIMETICKS,
+			Scale:    1.0,
+		},
+	}
+
+	edgeOIDs := []*proto.SNMPOIDConfig{
+		{
+			Oid:      ".1.3.6.1.2.1.1.5.0",
+			Name:     "sysName",
+			DataType: proto.SNMPDataType_SNMP_DATA_TYPE_STRING,
+			Scale:    1.0,
+		},
+	}
+
+	legacyProto := &proto.SNMPConfig{
+		Enabled:     true,
+		ProfileId:   "prof-shared-1",
+		ProfileName: "Shared OIDs Profile",
+		Targets: []*proto.SNMPTargetConfig{
+			{
+				Id:                  "sr:dev-0001",
+				Name:                "switch-01",
+				Host:                "192.0.2.10",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V2C,
+				Community:           "public",
+				PollIntervalSeconds: 60,
+				TimeoutSeconds:      5,
+				Retries:             3,
+				Oids:                coreOIDs,
+			},
+			{
+				Id:                  "sr:dev-0002",
+				Name:                "switch-02",
+				Host:                "192.0.2.11",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V2C,
+				Community:           "public",
+				PollIntervalSeconds: 60,
+				TimeoutSeconds:      5,
+				Retries:             3,
+				Oids:                coreOIDs,
+			},
+			{
+				Id:                  "sr:dev-0003",
+				Name:                "router-01",
+				Host:                "192.0.2.12",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V3,
+				PollIntervalSeconds: 30,
+				TimeoutSeconds:      4,
+				Retries:             2,
+				V3Auth: &proto.SNMPv3Auth{
+					Username:      "snmp-user",
+					SecurityLevel: proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_PRIV,
+					AuthProtocol:  proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA256,
+					AuthPassword:  "synthetic-auth-secret",
+					PrivProtocol:  proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES,
+					PrivPassword:  "synthetic-priv-secret",
+				},
+				Oids: edgeOIDs,
+			},
+		},
+	}
+
+	sharedProto := &proto.SNMPConfig{
+		Enabled:     true,
+		ProfileId:   "prof-shared-1",
+		ProfileName: "Shared OIDs Profile",
+		Format:      "shared-oids/v1",
+		OidSets: []*proto.SNMPOIDSet{
+			{Key: "oids-core", Oids: coreOIDs},
+			{Key: "oids-edge", Oids: edgeOIDs},
+		},
+		Targets: []*proto.SNMPTargetConfig{
+			{
+				Id:                  "sr:dev-0001",
+				Name:                "switch-01",
+				Host:                "192.0.2.10",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V2C,
+				Community:           "public",
+				PollIntervalSeconds: 60,
+				TimeoutSeconds:      5,
+				Retries:             3,
+				OidSet:              "oids-core",
+			},
+			{
+				Id:                  "sr:dev-0002",
+				Name:                "switch-02",
+				Host:                "192.0.2.11",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V2C,
+				Community:           "public",
+				PollIntervalSeconds: 60,
+				TimeoutSeconds:      5,
+				Retries:             3,
+				OidSet:              "oids-core",
+			},
+			{
+				Id:                  "sr:dev-0003",
+				Name:                "router-01",
+				Host:                "192.0.2.12",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V3,
+				PollIntervalSeconds: 30,
+				TimeoutSeconds:      4,
+				Retries:             2,
+				V3Auth: &proto.SNMPv3Auth{
+					Username:      "snmp-user",
+					SecurityLevel: proto.SNMPSecurityLevel_SNMP_SECURITY_LEVEL_AUTH_PRIV,
+					AuthProtocol:  proto.SNMPAuthProtocol_SNMP_AUTH_PROTOCOL_SHA256,
+					AuthPassword:  "synthetic-auth-secret",
+					PrivProtocol:  proto.SNMPPrivProtocol_SNMP_PRIV_PROTOCOL_AES,
+					PrivPassword:  "synthetic-priv-secret",
+				},
+				OidSet: "oids-edge",
+			},
+		},
+	}
+
+	legacyCfg, err := parseProtoSNMPConfig(legacyProto)
+	require.NoError(t, err)
+
+	legacyProto.Format = "legacy"
+	explicitLegacyCfg, err := parseProtoSNMPConfig(legacyProto)
+	require.NoError(t, err)
+	require.Equal(t, legacyCfg, explicitLegacyCfg)
+
+	sharedCfg, err := parseProtoSNMPConfig(sharedProto)
+	require.NoError(t, err)
+
+	if !reflect.DeepEqual(legacyCfg, sharedCfg) {
+		t.Fatalf("shared-oids parse differs from legacy:\nlegacy: %+v\nshared: %+v", legacyCfg, sharedCfg)
+	}
+	require.Equal(t, computeSNMPConfigHash(legacyCfg), computeSNMPConfigHash(sharedCfg))
+
+	// Mutating one target's rehydrated OID slice must not affect another target sharing the set.
+	sharedCfg.Targets[0].OIDs[0].Scale = 42.0
+	require.InDelta(t, 1.0, sharedCfg.Targets[1].OIDs[0].Scale, 1e-9)
+}
+
+func TestParseProtoSNMPConfig_ErrorCases(t *testing.T) {
+	t.Parallel()
+
+	_, err := parseProtoSNMPConfig(&proto.SNMPConfig{
+		Enabled: true,
+		Format:  "shared-oids/v99",
+	})
+	require.ErrorIs(t, err, ErrUnsupportedSNMPConfigFormat)
+
+	_, err = parseProtoSNMPConfig(&proto.SNMPConfig{
+		Enabled: true,
+		Format:  "shared-oids/v1",
+		OidSets: []*proto.SNMPOIDSet{
+			{Key: ""},
+		},
+	})
+	require.ErrorIs(t, err, ErrSNMPOIDSetInvalidKey)
+
+	_, err = parseProtoSNMPConfig(&proto.SNMPConfig{
+		Enabled: true,
+		Format:  "shared-oids/v1",
+		OidSets: []*proto.SNMPOIDSet{
+			{Key: "oids-dup"},
+			{Key: "oids-dup"},
+		},
+	})
+	require.ErrorIs(t, err, ErrSNMPOIDSetInvalidKey)
+
+	_, err = parseProtoSNMPConfig(&proto.SNMPConfig{
+		Enabled: true,
+		Format:  "shared-oids/v1",
+		OidSets: []*proto.SNMPOIDSet{
+			{Key: "oids-present"},
+		},
+		Targets: []*proto.SNMPTargetConfig{
+			{Name: "switch-01", Host: "192.0.2.10", OidSet: "oids-missing"},
+		},
+	})
+	require.ErrorIs(t, err, ErrSNMPOIDSetMissing)
+}
+
+func TestApplyProtoConfig_UnknownFormatKeepsRunningConfig(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	cachePath := filepath.Join(tmpDir, "cache", "snmp-config.json")
+
+	svc, err := NewSNMPAgentService(SNMPAgentServiceConfig{
+		AgentID:        "test-agent",
+		ConfigDir:      tmpDir,
+		CachePath:      cachePath,
+		Logger:         logger.NewTestLogger(),
+		ServiceFactory: &mockSNMPServiceFactory{},
+	})
+	require.NoError(t, err)
+	require.NoError(t, svc.Start(ctx))
+	defer func() { _ = svc.Stop(ctx) }()
+
+	initialProto := &proto.SNMPConfig{
+		Enabled:     true,
+		ProfileId:   "prof-1",
+		ProfileName: "Running Profile",
+		Targets: []*proto.SNMPTargetConfig{
+			{
+				Id:                  "sr:dev-0001",
+				Name:                "switch-01",
+				Host:                "192.0.2.10",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V2C,
+				Community:           "public",
+				PollIntervalSeconds: 60,
+				TimeoutSeconds:      2,
+				Retries:             1,
+				Oids: []*proto.SNMPOIDConfig{
+					{
+						Oid:      ".1.3.6.1.2.1.1.1.0",
+						Name:     "sysDescr",
+						DataType: proto.SNMPDataType_SNMP_DATA_TYPE_STRING,
+					},
+				},
+			},
+		},
+	}
+
+	require.NoError(t, svc.ApplyProtoConfig(ctx, initialProto))
+	require.True(t, svc.IsEnabled())
+	runningHash := svc.GetConfigHash()
+	runningProfile := svc.GetProfileID()
+	require.NotEmpty(t, runningHash)
+	require.Equal(t, "prof-1", runningProfile)
+
+	// Unknown format must be rejected without stopping or replacing the running config.
+	err = svc.ApplyProtoConfig(ctx, &proto.SNMPConfig{
+		Enabled:     false,
+		ProfileId:   "prof-unknown",
+		ProfileName: "Unknown Format",
+		Format:      "yaml",
+	})
+	require.ErrorIs(t, err, ErrUnsupportedSNMPConfigFormat)
+	require.True(t, svc.IsEnabled())
+	require.Equal(t, runningHash, svc.GetConfigHash())
+	require.Equal(t, "prof-1", svc.GetProfileID())
+
+	// Missing oid_set reference must also keep the running config.
+	err = svc.ApplyProtoConfig(ctx, &proto.SNMPConfig{
+		Enabled:     true,
+		ProfileId:   "prof-broken",
+		ProfileName: "Broken Shared OIDs",
+		Format:      "shared-oids/v1",
+		Targets: []*proto.SNMPTargetConfig{
+			{
+				Id:     "sr:dev-0001",
+				Name:   "switch-01",
+				Host:   "192.0.2.10",
+				Port:   161,
+				OidSet: "oids-missing",
+			},
+		},
+	})
+	require.ErrorIs(t, err, ErrSNMPOIDSetMissing)
+	require.True(t, svc.IsEnabled())
+	require.Equal(t, runningHash, svc.GetConfigHash())
+	require.Equal(t, "prof-1", svc.GetProfileID())
+
+	// Valid shared-oids/v1 update applies cleanly.
+	err = svc.ApplyProtoConfig(ctx, &proto.SNMPConfig{
+		Enabled:     true,
+		ProfileId:   "prof-2",
+		ProfileName: "Shared Profile",
+		Format:      "shared-oids/v1",
+		OidSets: []*proto.SNMPOIDSet{
+			{
+				Key: "oids-sys",
+				Oids: []*proto.SNMPOIDConfig{
+					{
+						Oid:      ".1.3.6.1.2.1.1.5.0",
+						Name:     "sysName",
+						DataType: proto.SNMPDataType_SNMP_DATA_TYPE_STRING,
+					},
+				},
+			},
+		},
+		Targets: []*proto.SNMPTargetConfig{
+			{
+				Id:                  "sr:dev-0002",
+				Name:                "switch-02",
+				Host:                "192.0.2.11",
+				Port:                161,
+				Version:             proto.SNMPVersion_SNMP_VERSION_V2C,
+				Community:           "public",
+				PollIntervalSeconds: 60,
+				TimeoutSeconds:      2,
+				Retries:             1,
+				OidSet:              "oids-sys",
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.True(t, svc.IsEnabled())
+	require.NotEqual(t, runningHash, svc.GetConfigHash())
+	require.Equal(t, "prof-2", svc.GetProfileID())
+}
+
+func TestAgentCapabilitiesAdvertiseSNMPSharedOIDs(t *testing.T) {
+	t.Parallel()
+
+	caps := agentCapabilities(agentCapabilityOptions{})
+	if !slices.Contains(caps, "snmp-config-shared-oids:v1") {
+		t.Fatalf("capabilities %v missing snmp-config-shared-oids:v1", caps)
+	}
 }

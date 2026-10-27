@@ -416,6 +416,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorProtoTest do
            [:snmp],
            Map.put(changed_snmp_raw, "config_hash", SNMPCompiler.config_hash(changed_snmp_raw))
          )},
+        {:snmp_format, put_in(base, [:snmp, "format"], "shared-oids/v1")},
         {:visibility, put_in(base, [:visibility, "enabled"], true)},
         {:bumblebee, put_in(base, [:bumblebee, "scan_profile"], "servers")},
         {:endpoint_inventory, put_in(base, [:endpoint_inventory, "cadence"], "24h")},
