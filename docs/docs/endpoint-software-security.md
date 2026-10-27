@@ -71,7 +71,7 @@ add-ons rather than adding more bespoke parser code to the agent.
 
 ## Endpoint Inventory Profiles
 
-Use **Settings > Agents > Endpoint Inventory** to control where endpoint
+Use **Settings > System > Cluster > Endpoint Inventory** to control where endpoint
 software inventory runs. Profiles target agents with SRQL, so the normal path is
 to define the desired device cohort once and let reconciliation create the
 add-on assignments.

@@ -23,7 +23,7 @@ under **Settings -> Integrations** (type **Netbox**).
 manifest declares no `integrations` block, so there is no `NetBox` entry under
 **New Credential** or **New Rule**, no `netbox` provider, and no
 `inventory_sync` purpose. Looking for NetBox on
-**Settings -> Networks -> Credential Rules** is a dead end on that release, and
+**Settings -> System -> Security -> Credentials and Rules** is a dead end on that release, and
 the assignment parameters below are the way to configure it.
 
 Merged work adds an `integrations.credential_profiles` block to

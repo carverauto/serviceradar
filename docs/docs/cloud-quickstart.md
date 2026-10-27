@@ -483,7 +483,7 @@ See [Device Configuration](./device-configuration.md) and
 
 ### 9.2 Credential rules
 
-**Where:** **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`)
+**Where:** **Settings -> System -> Security -> Credentials and Rules** (`/settings/networks/credentials`)
 
 Every integration credential lives here, encrypted, and reaches a plugin only as a
 short-lived scoped grant. Two objects: a **credential** holds the material, a

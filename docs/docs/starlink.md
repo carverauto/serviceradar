@@ -33,7 +33,7 @@ ServiceRadar monitors and manages Starlink user terminals and routers with two f
 
 ## Credential rule
 
-1. Open **Settings -> Networks -> Credential Rules**.
+1. Open **Settings -> System -> Security -> Credentials and Rules**.
 2. **New Credential -> Starlink - Service account**, with the client ID and client secret.
 3. Create a credential rule with provider `starlink`, purpose `inventory_telemetry`, and scope type `agent`: the agent that will run collection for this account. Starlink is a cloud API, so any agent with outbound HTTPS to `starlink.com` works; pick one.
 

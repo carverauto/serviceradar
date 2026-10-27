@@ -211,7 +211,7 @@ How much of each severity you are producing.
 
 Current IP/CIDR matches are cache memberships, not flow hits. The investigation
 UI is `/security/threat-intel`. Feed configuration stays at
-**Settings → Networks → Threat Intel**.
+**Settings → System → Security → Threat Intel**.
 
 ### List current OTX matches
 

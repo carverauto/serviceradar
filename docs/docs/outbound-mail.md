@@ -145,7 +145,7 @@ page resolves to a delivering adapter. See [Notifications](./notifications.md).
 | TLS | STARTTLS policy. `Always` on 587. `Never` when **Use SSL socket** is on (465). |
 | Use SSL socket | Implicit TLS from the first byte. Check this for 465. |
 | Retries | How many times Swoosh retries a failed SMTP handshake. Default `1`. |
-| Password secret / API key secret | Optional pointer at a credential from **Settings -> Networks -> Credential Rules** (`/settings/networks/credentials`). Empty means "use the Password / API key box on this form". |
+| Password secret / API key secret | Optional pointer at a credential from **Settings -> System -> Security -> Credentials and Rules** (`/settings/networks/credentials`). Empty means "use the Password / API key box on this form". |
 | Password / API key | Stored encrypted. The form will not show the saved value again; a `(saved)` label means one is present. |
 | Provider options JSON | Extra keys for HTTP adapters. Leave `{}` for SMTP. |
 
@@ -156,8 +156,8 @@ Two ways to hold the SMTP password:
 1. **Local encrypted value** (default). Paste the password into **Password**
    and save. ServiceRadar encrypts it in the `outbound_mail_settings` row.
    Fine for a dedicated outbound mailbox.
-2. **Password secret**. Create the secret under **Settings -> Networks ->
-   Credentials**, then select it here. Use this when several features should
+2. **Password secret**. Create the secret under **Settings -> System -> Security ->
+   Credentials and Rules**, then select it here. Use this when several features should
    share one vault-backed secret.
 
 ## Spoof protection

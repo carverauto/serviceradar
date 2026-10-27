@@ -61,6 +61,8 @@ defmodule ServiceRadarWebNGWeb.Settings.StatusCards do
   defp context_for(%{id: id}) when id in [:audit_trail, :lockouts, :history], do: :audit
   defp context_for(%{parent_group: :sys_cluster}), do: :cluster
   defp context_for(%{parent_group: :sys_security}), do: :users
+  # Profile left Security for its own Personal group; it keeps the users strip.
+  defp context_for(%{parent_group: :sys_personal}), do: :users
   defp context_for(%{parent_group: :sys_alerts}), do: :alerts
   defp context_for(%{category: :network_services}), do: :network
   defp context_for(%{category: :edge_ops}), do: :edge
