@@ -35,7 +35,7 @@ defmodule ServiceRadarWebNG.Plugins.EgressConnectivityCheckTest do
           :ok
 
         "github-releases.githubusercontent.com" ->
-          :ok
+          {:error, {:could_not_establish_ssl_tunnel, {~c"HTTP/1.1", 407, ~c"Request rejected by proxy"}}}
 
         "registry.carverauto.dev" ->
           {:error, {:could_not_establish_ssl_tunnel, {~c"HTTP/1.1", 407, ~c"Request rejected by proxy"}}}
@@ -43,11 +43,18 @@ defmodule ServiceRadarWebNG.Plugins.EgressConnectivityCheckTest do
 
       result = EgressConnectivityCheck.run(prober: prober)
 
-      assert result.blocked == 1
+      assert result.blocked == 2
 
-      blocked = Enum.find(result.results, &(&1.host == "registry.carverauto.dev"))
-      refute blocked.reachable
-      assert blocked.detail =~ "egress proxy rejected the connection to registry.carverauto.dev"
+      # Each row names the host the proxy refused for that probe, not the
+      # registry for every row.
+      assets = Enum.find(result.results, &(&1.host == "github-releases.githubusercontent.com"))
+      refute assets.reachable
+      assert assets.detail =~ "egress proxy rejected the connection to github-releases.githubusercontent.com"
+      refute assets.detail =~ "registry.carverauto.dev"
+
+      registry = Enum.find(result.results, &(&1.host == "registry.carverauto.dev"))
+      refute registry.reachable
+      assert registry.detail =~ "egress proxy rejected the connection to registry.carverauto.dev"
 
       reachable = Enum.find(result.results, &(&1.host == "github.com"))
       assert reachable.reachable

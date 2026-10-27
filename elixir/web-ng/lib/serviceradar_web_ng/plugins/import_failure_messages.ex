@@ -17,6 +17,21 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
   @plugin_registry_host FirstPartyReleaseClient.oci_registry()
 
   @doc """
+  Attaches the destination host to a CONNECT-tunnel failure.
+
+  `:httpc` reports an egress proxy refusing a CONNECT as
+  `{:could_not_establish_ssl_tunnel, {proto, status, phrase}}`, with no
+  destination in it, so only the caller that made the request can say which
+  host was refused. Pass the host only, never the URL: a pre-signed asset URL's
+  query is a credential. Every other reason is returned unchanged.
+  """
+  @spec with_refused_host(term(), String.t() | nil) :: term()
+  def with_refused_host({:could_not_establish_ssl_tunnel, _response} = reason, host) when is_binary(host) and host != "",
+    do: {:egress_tunnel_refused, host, reason}
+
+  def with_refused_host(reason, _host), do: reason
+
+  @doc """
   Renders an import failure reason as operator-facing text.
 
   Unknown reasons fall back to `"import was rejected"`, the previous
@@ -28,9 +43,21 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
   # :httpc's CONNECT-tunnel rejection. A 407 is the egress proxy's ACL
   # refusing the destination, not the destination refusing us: the remedy is
   # allowing the host in the proxy policy, so say both halves.
+  def reason_to_text({:egress_tunnel_refused, host, {:could_not_establish_ssl_tunnel, {_proto, 407, _phrase}}}) do
+    "egress proxy rejected the connection to #{host} (HTTP 407) - allow #{acl_subject(host)} in the egress proxy ACL"
+  end
+
+  def reason_to_text({:egress_tunnel_refused, host, {:could_not_establish_ssl_tunnel, {_proto, status, phrase}}})
+      when is_integer(status) do
+    "egress proxy rejected the CONNECT tunnel to #{host} (HTTP #{status}#{proxy_phrase(phrase)})"
+  end
+
+  def reason_to_text({:egress_tunnel_refused, _host, reason}), do: reason_to_text(reason)
+
+  # Without a host, naming one would be a guess: the refusal may be for any
+  # host the import or check reached through the proxy.
   def reason_to_text({:could_not_establish_ssl_tunnel, {_proto, 407, _phrase}}) do
-    "egress proxy rejected the connection to #{@plugin_registry_host} (HTTP 407) - " <>
-      "allow the plugin registry host in the egress proxy ACL"
+    "the egress proxy refused the connection (HTTP 407) - allow the destination host in the egress proxy ACL"
   end
 
   def reason_to_text({:could_not_establish_ssl_tunnel, {_proto, status, phrase}}) when is_integer(status) do
@@ -142,7 +169,10 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessages do
 
   defp transport_reason(_reason), do: "import was rejected"
 
-  # The proxy's phrase is operator-controlled proxy text; keep it but bounded.
+  defp acl_subject(@plugin_registry_host), do: "the plugin registry host"
+  defp acl_subject(host), do: host
+
+  # Preserve the proxy's status phrase when it is text.
   defp proxy_phrase(phrase) when is_list(phrase) or is_binary(phrase), do: ": #{phrase}"
 
   defp proxy_phrase(_), do: ""

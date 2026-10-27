@@ -7,16 +7,31 @@ defmodule ServiceRadarWebNG.Plugins.ImportFailureMessagesTest do
 
   @moduletag :db_free
 
-  describe "reason_to_text/1" do
-    test "an egress proxy 407 names the plugin registry and the fix" do
-      assert text =
-               ImportFailureMessages.reason_to_text(
-                 {:could_not_establish_ssl_tunnel, {~c"HTTP/1.1", 407, ~c"Request rejected by proxy"}}
-               )
+  @tunnel_407 {:could_not_establish_ssl_tunnel, {~c"HTTP/1.1", 407, ~c"Request rejected by proxy"}}
 
-      assert text =~ "egress proxy rejected the connection to registry.carverauto.dev"
-      assert text =~ "HTTP 407"
-      assert text =~ "proxy ACL"
+  defp refused_407_text(host) do
+    @tunnel_407
+    |> ImportFailureMessages.with_refused_host(host)
+    |> ImportFailureMessages.reason_to_text()
+  end
+
+  describe "reason_to_text/1" do
+    test "an egress proxy 407 names the host it refused and the fix" do
+      text = refused_407_text("github-releases.githubusercontent.com")
+
+      assert text =~ "egress proxy rejected the connection to github-releases.githubusercontent.com (HTTP 407)"
+      assert text =~ "allow github-releases.githubusercontent.com in the egress proxy ACL"
+      refute text =~ "registry.carverauto.dev"
+
+      assert refused_407_text("registry.carverauto.dev") =~
+               "connection to registry.carverauto.dev (HTTP 407) - allow the plugin registry host in the egress proxy ACL"
+    end
+
+    test "an egress proxy 407 with no known host names no host" do
+      text = ImportFailureMessages.reason_to_text(@tunnel_407)
+
+      assert text =~ "the egress proxy refused the connection (HTTP 407)"
+      refute text =~ "registry.carverauto.dev"
     end
 
     test "a non-407 CONNECT rejection keeps the proxy status" do

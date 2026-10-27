@@ -2,12 +2,9 @@ defmodule ServiceRadarWebNG.Plugins.EgressConnectivityCheck do
   @moduledoc """
   Probes the egress hosts first-party plugin sync depends on.
 
-  First-party sync fails silently when the deployment's egress proxy ACL does
-  not admit the GitHub or plugin registry hosts: the failure surfaces as a
-  generic import rejection far from the cause. This check probes every
-  required host through `ServiceRadar.HTTP.EgressClient` -- the same client,
-  proxy, and error vocabulary the import uses -- and reports per-host reach
-  plus a mapped reason for the blocked ones.
+  Probes every required host through `ServiceRadar.HTTP.EgressClient` using
+  the same proxy as imports, and reports per-host reachability. Failure text
+  is owned by `ServiceRadarWebNG.Plugins.ImportFailureMessages`.
   """
 
   alias ServiceRadar.HTTP.EgressClient
@@ -50,7 +47,12 @@ defmodule ServiceRadarWebNG.Plugins.EgressConnectivityCheck do
             %{host: host, purpose: purpose, reachable: true, detail: nil}
 
           {:error, reason} ->
-            %{host: host, purpose: purpose, reachable: false, detail: ImportFailureMessages.reason_to_text(reason)}
+            detail =
+              reason
+              |> ImportFailureMessages.with_refused_host(host)
+              |> ImportFailureMessages.reason_to_text()
+
+            %{host: host, purpose: purpose, reachable: false, detail: detail}
         end
       end)
 

@@ -222,6 +222,10 @@ defmodule ServiceRadarWebNG.Packages.RepoClient do
     end
   end
 
+  @doc "The GitHub API host the release and repository calls are sent to."
+  @spec github_api_host() :: String.t()
+  def github_api_host, do: @github_api_host
+
   # ---------------------------------------------------------------------------
   # Release listing
   # ---------------------------------------------------------------------------

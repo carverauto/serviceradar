@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   alias ServiceRadar.Policies.OutboundURLPolicy
   alias ServiceRadarWebNG.Packages.RepoClient
   alias ServiceRadarWebNG.Plugins.CosignVerifier
+  alias ServiceRadarWebNG.Plugins.ImportFailureMessages
   alias ServiceRadarWebNG.Plugins.Storage
 
   require Logger
@@ -87,7 +88,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   # --- release + asset fetch ----------------------------------------------------
 
   def fetch_release(repo, tag) do
-    RepoClient.fetch_release(%{owner: repo.owner, repo: repo.repo}, tag, repo_client_opts(repo))
+    %{owner: repo.owner, repo: repo.repo}
+    |> RepoClient.fetch_release(tag, repo_client_opts(repo))
+    |> tag_refused_host(RepoClient.github_api_host())
   end
 
   @doc """
@@ -182,7 +185,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
   end
 
   def fetch_recent_releases(repo, limit) do
-    RepoClient.fetch_recent_releases(%{owner: repo.owner, repo: repo.repo}, limit, repo_client_opts(repo))
+    %{owner: repo.owner, repo: repo.repo}
+    |> RepoClient.fetch_recent_releases(limit, repo_client_opts(repo))
+    |> tag_refused_host(RepoClient.github_api_host())
   end
 
   # Opts passed to RepoClient for GitHub release listing.
@@ -385,12 +390,20 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyReleaseClient do
           {&client.get/2, request_opts}
       end
 
-    if Keyword.get(opts, :decode_body, false) do
-      EgressClient.fetch_json(url, Keyword.put(request_opts, :http_client, fetch))
-    else
-      fetch.(url, request_opts)
-    end
+    result =
+      if Keyword.get(opts, :decode_body, false) do
+        EgressClient.fetch_json(url, Keyword.put(request_opts, :http_client, fetch))
+      else
+        fetch.(url, request_opts)
+      end
+
+    tag_refused_host(result, URI.parse(url).host)
   end
+
+  # Redirects are followed hop by hop (`redirect: false`), so `url` is the host
+  # the proxy actually refused -- a pre-signed asset host, not the registry.
+  defp tag_refused_host({:error, reason}, host), do: {:error, ImportFailureMessages.with_refused_host(reason, host)}
+  defp tag_refused_host(result, _host), do: result
 
   defp request_oci(url, ref, opts) do
     case request(url, opts) do
