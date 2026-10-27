@@ -817,6 +817,70 @@ defmodule ServiceRadar.Analytics.StarRocks.StreamLoadTest do
              StreamLoad.persist("ocsf_network_activity", @rows, http: http, label: label)
   end
 
+  # A producer that replaces a row by id (a Trivy report's event across
+  # rescans) keeps the id and moves the time. The replacement is not a
+  # redelivery: reconciling it against the first load's label drops the new
+  # row, and the replace delete that ran before the load has already removed
+  # the old one, so the warehouse ends up with neither.
+  test "a replaced row (same id, new content) loads instead of reconciling to the old load" do
+    first = %{
+      "id" => "event-alpha-0001",
+      "time" => "2026-01-15T10:00:00Z",
+      "message" => "first"
+    }
+
+    second = %{
+      "id" => "event-alpha-0001",
+      "time" => "2026-01-15T11:00:00Z",
+      "message" => "rescan"
+    }
+
+    parent = self()
+    loaded_labels = :ets.new(:loaded_labels, [:set, :public])
+
+    http = fn
+      %{method: :put, headers: headers, body: body} ->
+        {"label", label} = List.keyfind(headers, "label", 0)
+
+        if :ets.member(loaded_labels, label) do
+          {:ok,
+           %{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "Status" => "Label Already Exists",
+                 "Message" => "Label [#{label}] has already been used."
+               })
+           }}
+        else
+          :ets.insert(loaded_labels, {label})
+          send(parent, {:loaded, label, Jason.decode!(body)})
+
+          {:ok,
+           %{
+             status: 200,
+             body:
+               Jason.encode!(%{
+                 "Status" => "Success",
+                 "NumberLoadedRows" => 1,
+                 "NumberFilteredRows" => 0
+               })
+           }}
+        end
+
+      %{method: :get} ->
+        {:ok, %{status: 200, body: load_state_body("VISIBLE")}}
+    end
+
+    assert {:ok, %{loaded: 1}} = StreamLoad.persist("events", [first], http: http)
+    assert_received {:loaded, first_label, [^first]}
+
+    assert {:ok, %{loaded: 1} = result} = StreamLoad.persist("events", [second], http: http)
+    refute Map.get(result, :reconciled, false)
+    assert_received {:loaded, second_label, [^second]}
+    refute first_label == second_label
+  end
+
   test "redelivery of an already-loaded batch reconciles instead of failing the ACK" do
     label = StreamLoad.load_label("ocsf_network_activity", @rows)
 
