@@ -115,6 +115,15 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
 
         assert repeated.id == degraded.id
 
+        stop_supervised!(ExposureTransitionRelay)
+        relay = health_relay!()
+        report!(relay)
+
+        assert {:ok, restarted} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert restarted.id == degraded.id
+
         assert %{"config" => %{}} =
                  ExposureBroker.request(
                    conn,
@@ -130,6 +139,9 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
         assert over_limit.id == degraded.id
         assert retained_metrics!(conn)["exposure_transitions_stream_max_age_seconds"] == 691_200.0
 
+        stop_supervised!(ExposureTransitionRelay)
+        relay = health_relay!()
+
         assert %{"config" => %{"max_age" => 604_800_000_000_000}} =
                  ExposureBroker.request(
                    conn,
@@ -143,6 +155,7 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
                  HealthTracker.current_status(:custom, "exposure_transitions_stream")
 
         assert recovered.new_state == :healthy
+        assert recovered.old_state == :degraded
         assert recovered.reason == :stream_freshness_recovered
         assert recovered.metadata["oldest_age_seconds"] >= 0
 

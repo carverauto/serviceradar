@@ -43,8 +43,7 @@ defmodule ServiceRadar.Inventory.ExposureOutboxRelay do
     send(self(), :relay)
     Process.send_after(self(), :report, report_interval(opts))
 
-    {:ok,
-     %{opts: opts, relayed: 0, degraded?: false, stream_degraded?: false, stream_ready?: false}}
+    {:ok, %{opts: opts, relayed: 0, degraded?: false, stream_ready?: false}}
   end
 
   @impl GenServer
@@ -313,11 +312,12 @@ defmodule ServiceRadar.Inventory.ExposureOutboxRelay do
       ] ++ stream_metrics
     )
 
+    record_stream_health(spec, reason, metadata)
+
     %{
       state
       | relayed: 0,
-        degraded?: record_health(spec, state.degraded?, age > bound, age, bound),
-        stream_degraded?: record_stream_health(spec, state.stream_degraded?, reason, metadata)
+        degraded?: record_health(spec, state.degraded?, age > bound, age, bound)
     }
   rescue
     error ->
@@ -371,20 +371,20 @@ defmodule ServiceRadar.Inventory.ExposureOutboxRelay do
 
   defp stream_age(_stream, _now), do: :error
 
-  defp record_stream_health(spec, was_degraded?, reason, metadata) do
-    degraded? = not is_nil(reason)
+  defp record_stream_health(spec, reason, metadata) do
+    entity_id = spec.metrics <> "_stream"
 
-    if degraded? == was_degraded? do
-      was_degraded?
-    else
-      case HealthTracker.record_state_change(:custom, spec.metrics <> "_stream",
-             old_state: health_state(was_degraded?),
-             new_state: health_state(degraded?),
-             reason: reason || :stream_freshness_recovered,
-             metadata: metadata
-           ) do
-        {:ok, _event} -> degraded?
-        _error -> was_degraded?
+    with {:ok, previous} <- HealthTracker.current_status(:custom, entity_id) do
+      old_state = if previous, do: previous.new_state, else: :healthy
+      new_state = health_state(not is_nil(reason))
+
+      if old_state != new_state do
+        HealthTracker.record_state_change(:custom, entity_id,
+          old_state: old_state,
+          new_state: new_state,
+          reason: reason || :stream_freshness_recovered,
+          metadata: metadata
+        )
       end
     end
   end
