@@ -167,11 +167,16 @@ git fetch origin demo/prod-release
 git diff --stat origin/demo/prod-release "${COMMIT}" -- helm/serviceradar/
 ```
 
-If that is empty apart from the `.argocd-source-...` file, the tag is the only
-change. If not, do not guess: the new images may need a chart change (bring
+If that is empty apart from the `.argocd-source-...` file, no chart change
+is needed. Review that parameter file separately. If not, do not guess: the new images may need a chart change (bring
 those hunks into the PR), or `demo/prod-release` may carry demo-only commits
 that staging lacks (keep them). Review each hunk and say which it is in the PR
 body.
+
+List existing `image.digests.<service>` parameters in
+`helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml`. Remove the pin
+for every service that should move to the new tag in the same PR, because a
+digest pin overrides `global.imageTag`.
 
 ```bash
 SHORT="${COMMIT:0:10}"
@@ -302,6 +307,11 @@ crane copy \
 ```
 
 ### Roll
+
+List existing `image.digests.<service>` pins with `helm get values` below.
+When changing `global.imageTag`, remove the pin for every service that should
+move in the same upgrade (`--set image.digests.<service>=null` for each),
+because a digest pin overrides `global.imageTag`.
 
 ```bash
 export KUBECONFIG="$HOME/.kube/farm01.yaml"

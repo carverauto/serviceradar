@@ -151,6 +151,7 @@ py_test(
         "//:.github/workflows/publish-oci.yml",
         "//scripts:ci/prepare-openbao-cosign-env.sh",
     ],
+    deps = ["@pyyaml//:yaml"],
 )
 
 py_binary(

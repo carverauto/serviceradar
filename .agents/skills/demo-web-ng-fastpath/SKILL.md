@@ -104,7 +104,11 @@ that step, then re-run the loop until every image reports `signed`.
 
 Open the pin PR into `demo/prod-release` setting `global.imageTag` to
 `sha-<new>`, and confirm the automated Argo sync, exactly as in
-`$demo-local-rollout` (demo roll, steps 4 and 5). Do not patch the Argo
+`$demo-local-rollout` (demo roll, steps 4 and 5). List existing
+`image.digests.<service>` parameters in
+`helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml` and remove the
+pin for every service that should move in the same PR: a digest pin overrides
+`global.imageTag`. Do not patch the Argo
 Application: the `.argocd-source-...` file replaces its parameters (see
 Verified Facts).
 

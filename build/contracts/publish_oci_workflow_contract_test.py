@@ -8,10 +8,11 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/publish-oci.yml"
-OPENBAO_ENV_SCRIPT = ROOT / "scripts/ci/prepare-openbao-cosign-env.sh"
 SELECTIVE_CONDITION = (
     "if: ${{ github.event.inputs.publish_scope == 'web-stack-commit-only' }}"
 )
@@ -263,38 +264,41 @@ esac
         self.assertEqual(summary.count(VALID_DIGEST), 2)
 
     def test_full_publish_signs_on_the_demo_test_build_branch(self):
-        # The full publish must reach signing when dispatched from the demo
-        # test-build branch, and the guard must still refuse other refs. Runs
-        # the real OpenBao env script with the step's allowlist; with no service
-        # account token present, passing the ref guard surfaces as the
-        # missing-token error instead of the ref refusal.
-        step = workflow_step(self.workflow, "Publish images")
-        match = re.search(
-            r"^          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '([^']+)'$",
-            step,
-            re.MULTILINE,
+        workflow = yaml.safe_load(self.workflow)
+        step = next(
+            step
+            for job in workflow["jobs"].values()
+            for step in job["steps"]
+            if step.get("name") == "Publish images"
         )
-        self.assertIsNotNone(match, "Publish images must set a signing ref allowlist")
-        self.assertIn("source ./scripts/ci/prepare-openbao-cosign-env.sh", step)
 
         def guard(ref: str) -> subprocess.CompletedProcess[str]:
-            env = {
-                key: value
-                for key, value in os.environ.items()
-                if not key.startswith(("VAULT_", "COSIGN_", "OPENBAO_"))
-            }
-            env |= {
-                "GITHUB_REF": ref,
-                "OPENBAO_SIGNING_ALLOWED_REFS_REGEX": match.group(1),
-                "OPENBAO_K8S_TOKEN_FILE": "/nonexistent/serviceaccount/token",
-            }
-            return subprocess.run(
-                ["/bin/bash", "-c", 'source "$1"', "guard", str(OPENBAO_ENV_SCRIPT)],
-                check=False,
-                capture_output=True,
-                env=env,
-                text=True,
-            )
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp = Path(temp_dir)
+                bazel = temp / "bazel"
+                bazel.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+                bazel.chmod(0o755)
+                env = {
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith(("VAULT_", "COSIGN_", "OPENBAO_", "BASH_FUNC_"))
+                    and key not in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")
+                }
+                env.update(step["env"])
+                env.update({
+                    "PATH": str(temp),
+                    "GITHUB_SHA": "1" * 40,
+                    "GITHUB_REF": ref,
+                    "OPENBAO_K8S_TOKEN_FILE": str(temp / "missing-token"),
+                })
+                return subprocess.run(
+                    ["/bin/bash", "-c", step["run"]],
+                    cwd=ROOT,
+                    check=False,
+                    capture_output=True,
+                    env=env,
+                    text=True,
+                )
 
         for ref in (
             "refs/heads/staging",
@@ -303,6 +307,7 @@ esac
         ):
             with self.subTest(ref=ref):
                 result = guard(ref)
+                self.assertNotEqual(result.returncode, 0)
                 self.assertNotIn("signing is not allowed", result.stderr)
                 self.assertIn("No Kubernetes service account token", result.stderr)
 
