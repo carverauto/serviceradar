@@ -836,7 +836,7 @@ defmodule ServiceRadar.EventWriter.Processors.AnalyticsSignals do
   defp describe_batch_failure(error, nil), do: inspect(error)
 
   defp describe_batch_failure(error, stacktrace),
-    do: inspect(error) <> "\n" <> Exception.format_stacktrace(stacktrace)
+    do: Exception.format(:error, error, stacktrace)
 
   defp in_failed_sql_transaction?(error) do
     case extract_postgres_fields(error) do
