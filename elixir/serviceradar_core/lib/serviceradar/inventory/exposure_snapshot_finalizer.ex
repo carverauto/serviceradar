@@ -77,10 +77,29 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
     end)
   end
 
+  def recover(scope) do
+    case Repo.query!(
+           """
+           SELECT id FROM platform.exposure_snapshot_generations
+           WHERE status = 'aborted' AND jsonb_array_length(control->'repairs') > 0
+             AND ($1::bigint IS NULL OR control->>'scope' IS NULL OR (control->>'scope')::bigint = $1)
+           ORDER BY id LIMIT 1
+           """,
+           [scope]
+         ).rows do
+      [] ->
+        :ok
+
+      [[id]] ->
+        with {:ok, generation} <- State.get(id), do: settle(generation)
+    end
+  end
+
   defp settle(generation) do
     with {:ok, repairs} <-
            State.change(generation["id"], fn current ->
-             if current["status"] == "finalizing" and current["repairs"] == generation["repairs"] do
+             if current["status"] == generation["status"] and
+                  current["repairs"] == generation["repairs"] do
                with {:ok, assigned} <- Repairs.publish(current["repairs"]) do
                  {:ok, Map.put(current, "repairs", assigned), assigned}
                end
@@ -91,7 +110,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotFinalizer do
          {:ok, remaining} <- Repairs.verify(repairs),
          {:ok, :ok} <-
            State.change(generation["id"], fn current ->
-             if current["status"] == "finalizing" and current["repairs"] == repairs do
+             if current["status"] == generation["status"] and current["repairs"] == repairs do
                {:ok, Map.put(current, "repairs", remaining), :ok}
              else
                {:error, :exposure_snapshot_finalizer_changed}

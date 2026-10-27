@@ -1563,6 +1563,48 @@ The hosted CNPG/NATS/HTTP owner on that tree passed 460 cases. Task 1.6 stays
 open for reconciliation, readiness, and the separate fleet-scale throughput
 gate.
 
+### Decision 25 third implementation slice: reconciliation and readiness
+
+The daily `ExposureReconciliationWorker` keyset-pages the union of CNPG ordinals,
+previous comparison scopes, warehouse facts and warehouse lifecycle ordinals.
+The fleet cursor and bounded device-job admission commit together. Each device
+comparison has a finite read-only source view, 500-row pages, and a deadline;
+a failed comparison remains deferred rather than becoming an empty successful
+result. Repeated snapshot requests use the existing coordinator's coalescing.
+
+`ExposureReconciliationDigest` version 1 encodes the fact key, transition and
+lifecycle sequences, package-version ordinal, state, severity rank, CVSS, KEV,
+exploit/fix flags and source scope. It distinguishes null, boolean, integer,
+float and length-prefixed string values. Count plus a SHA-256 sum modulo 2^256
+is independent of read order. The version dictionary and dimension comparison
+cover the installed version; timestamps and snapshot markers are not actionable
+content. Current assessment columns are compared independently of retained
+replay. Detected source drift uses the existing source-locked publication repair;
+its required sequence and digest stay durable until warehouse confirmation.
+Dimension and lifecycle comparison also uses the existing sequenced repair path.
+Retained dimension keys can be republished even after an assessment upgrades away
+from that version. Replay preserves an assigned repair's sequence and digest;
+an ordinary live update cannot move an already-confirmed repair target. A newer
+warehouse row can discharge it only when that row matches the current source.
+
+`exposure_reconciliation_checks` contains control metadata per device and a fleet
+enumeration checkpoint, with no fact payload or exposure query fallback.
+`ExposureReadiness.status/1` requires completed generation coverage followed by a
+successful comparison, prepared sources, lifecycle restoration and dimension
+coverage, and no unresolved scoped journals or comparison/repair work. A mismatch
+requires a newer verified generation. Deployment readiness evaluates each
+device's latest covering generation, including completed scoped recovery, while
+retaining the full baseline and fleet-enumeration gates. Older aborted-generation
+repairs remain blocking until verified, and pending repairs continue requesting
+recovery publication. Young ordinary outbox rows are allowed;
+the ten-minute outbox age and daily comparison age remain visible gates.
+Metrics export inspected, mismatched and deferred devices, pending repairs,
+generation age and delivery recovery. Missing ordinal dictionaries fail closed.
+
+This slice has no rollout. Task 1.6 remains open until correctness validation and
+the separate fleet-scale reconciliation throughput gate are recorded. Small
+synthetic checks do not establish the 15-minute fleet target.
+
 ## Section 0 evidence (2026-10-21)
 
 ### Task 0.6: synthetic warehouse spike

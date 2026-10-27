@@ -223,6 +223,16 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
     end
   end
 
+  @doc "Enumerates facts and lifecycle-only ordinals without losing warehouse-only devices."
+  def device_ordinals(cursor) when is_integer(cursor) and cursor in 0..4_294_967_295 do
+    rows("""
+    SELECT device_ord FROM (
+      SELECT device_ord FROM #{Env.table("exposure_facts")} WHERE device_ord > #{cursor}
+      UNION SELECT device_ord FROM #{Env.table("exposure_retired_ordinals")} WHERE device_ord > #{cursor}
+    ) devices GROUP BY device_ord ORDER BY device_ord LIMIT 500
+    """)
+  end
+
   def scan(scope, [device, cve, package]) do
     rows(
       "SELECT * FROM #{Env.table("exposure_facts")} WHERE #{cursor_predicate(device, cve, package)}#{scope_predicate(scope)} ORDER BY device_ord,cve_ord,pkg_ord LIMIT 500"
