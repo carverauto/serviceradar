@@ -15,7 +15,10 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
   alias ServiceRadar.Observability.StatefulAlertEngine.EvaluationWorker
   alias ServiceRadar.Observability.StatefulAlertEngine.Inbox
   alias ServiceRadar.Observability.StatefulAlertEngine.Owner
+  alias ServiceRadar.Observability.StatefulAlertEngine.PeerReadiness
   alias ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker
+  alias ServiceRadar.Observability.StatefulAlertEngine.Rollout
+  alias ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics, as: AlertRuntimeMetrics
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleState
   alias ServiceRadar.Repo
@@ -332,8 +335,27 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
     try do
       # PostgreSQL, not the client, must enforce the expired budget: the
       # caller keeps the same live connection rather than a replacement.
+      ensure_metric_publisher!()
       %{rows: [[backend]]} = Repo.query!("SELECT pg_backend_pid()")
       assert {:error, :evaluation_completion_timeout} = Completion.await(keys, 25)
+      assert %{rows: [[^backend]]} = Repo.query!("SELECT pg_backend_pid()")
+
+      before_store_failures = alert_maintenance_store_failures()
+
+      prune_log =
+        capture_log([level: :warning], fn ->
+          assert {:error, _} = AlertEvaluationReceipt.prune()
+        end)
+
+      assert alert_maintenance_store_failures() == before_store_failures + 1
+
+      assert length(
+               String.split(
+                 prune_log,
+                 "Could not prune expired alert evaluation receipts ({ServiceRadar.Observability.AlertEvaluationReceipt, :prune})"
+               )
+             ) == 2
+
       assert %{rows: [[^backend]]} = Repo.query!("SELECT pg_backend_pid()")
     after
       send(locker, :release)
@@ -1213,6 +1235,170 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
              |> Ash.read!(actor: actor)
 
     assert [] = work(rule, actor)
+  end
+
+  test "short-timeout alert evaluation DB callers name their caller, record store_unavailable, and recover without data loss",
+       %{rule: rule, actor: actor} do
+    ensure_metric_publisher!()
+    assert {:ok, [_]} = Inbox.admit(:event, [event()])
+
+    Repo.query!(
+      "UPDATE platform.alert_evaluation_work SET available_at = timezone('utc', now()) WHERE rule_id = $1::uuid",
+      [Ecto.UUID.dump!(rule.id)]
+    )
+
+    Repo.query!(
+      "DELETE FROM platform.oban_jobs WHERE worker = $1 AND args->>'rule_id' = $2",
+      [Oban.Worker.to_string(EvaluationWorker), rule.id]
+    )
+
+    parent = self()
+    handler_id = "alert-short-timeout-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach_many(
+      handler_id,
+      [
+        [:serviceradar, :stateful_alert_engine, :capability_query_failed],
+        [:serviceradar, :stateful_alert_engine, :sample_health_failed],
+        [:serviceradar, :stateful_alert_engine, :receipt_prune_failed],
+        [:serviceradar, :stateful_alert_engine, :recovery_failed],
+        [:service_radar, :repo, :query]
+      ],
+      fn event_name, _measurements, metadata, _config ->
+        case event_name do
+          [:service_radar, :repo, :query] ->
+            caller = Keyword.get(metadata[:options] || [], :caller)
+
+            if caller do
+              send(
+                parent,
+                {:repo_query_caller, caller, Keyword.get(metadata[:options], :timeout_ms)}
+              )
+            end
+
+          _ ->
+            send(parent, {:alert_caller_failed, event_name, metadata})
+        end
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    old_writer = Application.get_env(:serviceradar_core, :event_writer_enabled)
+    Application.put_env(:serviceradar_core, :event_writer_enabled, true)
+
+    on_exit(fn ->
+      if is_nil(old_writer) do
+        Application.delete_env(:serviceradar_core, :event_writer_enabled)
+      else
+        Application.put_env(:serviceradar_core, :event_writer_enabled, old_writer)
+      end
+    end)
+
+    holder =
+      Task.async(fn ->
+        Repo.checkout(fn ->
+          send(parent, :sandbox_held)
+
+          receive do
+            :release_sandbox -> :ok
+          after
+            15_000 -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :sandbox_held, 1_000
+
+    before_store_failures = alert_maintenance_store_failures()
+    before_retries = alert_maintenance_retries()
+
+    log =
+      capture_log([level: :warning], fn ->
+        assert {:evaluator, {:error, :alert_evaluation_capability_unavailable}} =
+                 :erpc.call(node(), PeerReadiness, :readiness, [], 5_000)
+
+        assert {:error, %DBConnection.ConnectionError{reason: :queue_timeout}} =
+                 AlertRuntimeMetrics.sample_health()
+
+        assert {:error, %DBConnection.ConnectionError{reason: :queue_timeout}} =
+                 RecoveryWorker.perform(%Oban.Job{args: %{}})
+      end)
+
+    send(holder.pid, :release_sandbox)
+    assert :ok = Task.await(holder, 5_000)
+
+    assert_receive {:repo_query_caller, {Rollout, :capability}, 1_000}, 1_000
+    assert_receive {:repo_query_caller, {AlertRuntimeMetrics, :sample_health}, 1_000}, 1_000
+    assert_receive {:repo_query_caller, {RecoveryWorker, :recover_ready_rules}, 2_000}, 1_000
+
+    assert_receive {:alert_caller_failed,
+                    [:serviceradar, :stateful_alert_engine, :capability_query_failed],
+                    %{caller: {Rollout, :capability}}},
+                   1_000
+
+    assert_receive {:alert_caller_failed,
+                    [:serviceradar, :stateful_alert_engine, :sample_health_failed],
+                    %{caller: {AlertRuntimeMetrics, :sample_health}}},
+                   1_000
+
+    assert_receive {:alert_caller_failed,
+                    [:serviceradar, :stateful_alert_engine, :recovery_failed],
+                    %{caller: {RecoveryWorker, :recover_ready_rules}}},
+                   1_000
+
+    assert alert_maintenance_store_failures() == before_store_failures + 3
+    assert alert_maintenance_retries() == before_retries + 1
+
+    assert length(
+             String.split(
+               log,
+               "Alert evaluation capability query failed ({ServiceRadar.Observability.StatefulAlertEngine.Rollout, :capability})"
+             )
+           ) == 2
+
+    assert length(
+             String.split(
+               log,
+               "Could not sample alert evaluation health ({ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics, :sample_health})"
+             )
+           ) == 2
+
+    assert length(
+             String.split(
+               log,
+               "Alert evaluation recovery scan failed ({ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker, :recover_ready_rules})"
+             )
+           ) == 2
+
+    # Accepted work remains intact and the next recovery scan enqueues its wake-up.
+    assert [%{position: 1}] = work(rule, actor)
+    assert :ok = RecoveryWorker.perform(%Oban.Job{args: %{}})
+    assert %{success: 1} = Oban.drain_queue(queue: :alerts)
+    assert [] = work(rule, actor)
+  end
+
+  defp ensure_metric_publisher! do
+    if !Process.whereis(MetricPublisher) do
+      start_supervised!(
+        {MetricPublisher, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
+      )
+    end
+  end
+
+  defp alert_maintenance_store_failures do
+    case :ets.lookup(MetricPublisher, {:rejection, :alert_maintenance, :store_unavailable}) do
+      [{_key, count}] -> count
+      [] -> 0
+    end
+  end
+
+  defp alert_maintenance_retries do
+    case :ets.lookup(MetricPublisher, {:events, :alert_maintenance, :retry}) do
+      [{_key, count}] -> count
+      [] -> 0
+    end
   end
 
   defp admitted_wire_total(marker, total, deadline) do

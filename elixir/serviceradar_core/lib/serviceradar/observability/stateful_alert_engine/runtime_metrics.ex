@@ -10,6 +10,10 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics do
   alias ServiceRadar.Ingestion.RuntimeMetrics, as: Publisher
   alias ServiceRadar.Repo
 
+  require Logger
+
+  @sample_timeout_ms 1_000
+
   def admission(signal, result, started) do
     lane = lane(signal)
     Publisher.record(lane, :admission, %{acknowledgement_ms: elapsed(started)})
@@ -46,55 +50,96 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.RuntimeMetrics do
     do: Publisher.record(:alert_maintenance, :rejected, %{reason: :store_unavailable})
 
   def sample_health do
-    with {:ok, %{rows: rows}} <-
-           Repo.query(
-             """
-             SELECT signal, count(*), coalesce(sum(payload_bytes), 0)::bigint,
-                    greatest(extract(epoch FROM (timezone('utc', now()) - min(accepted_at))) * 1000, 0)::bigint,
-                    count(*) FILTER (WHERE attempts > 0)
-             FROM platform.alert_evaluation_work GROUP BY signal
-             """,
-             [],
-             timeout: 1_000
-           ),
-         {:ok, %{rows: [[failed]]}} <-
-           Repo.query(
-             """
-             SELECT count(*) FROM platform.alert_evaluation_receipts
-             WHERE disposition = 'failed' AND completed_at >= timezone('utc', now()) - interval '1 hour'
-             """,
-             [],
-             timeout: 1_000
-           ) do
-      sampled =
-        Map.new(rows, fn [signal, count, bytes, age, retrying] ->
-          {signal,
-           %{
-             pending_count: count,
-             pending_bytes: bytes,
-             oldest_pending_ms: age,
-             retrying_count: retrying
-           }}
+    caller = {__MODULE__, :sample_health}
+    maybe_set_process_label(caller)
+
+    query_opts = [
+      timeout: @sample_timeout_ms,
+      telemetry_options: [caller: caller, timeout_ms: @sample_timeout_ms]
+    ]
+
+    try do
+      with {:ok, %{rows: rows}} <-
+             Repo.query(
+               """
+               SELECT signal, count(*), coalesce(sum(payload_bytes), 0)::bigint,
+                      greatest(extract(epoch FROM (timezone('utc', now()) - min(accepted_at))) * 1000, 0)::bigint,
+                      count(*) FILTER (WHERE attempts > 0)
+               FROM platform.alert_evaluation_work GROUP BY signal
+               """,
+               [],
+               query_opts
+             ),
+           {:ok, %{rows: [[failed]]}} <-
+             Repo.query(
+               """
+               SELECT count(*) FROM platform.alert_evaluation_receipts
+               WHERE disposition = 'failed' AND completed_at >= timezone('utc', now()) - interval '1 hour'
+               """,
+               [],
+               query_opts
+             ) do
+        sampled =
+          Map.new(rows, fn [signal, count, bytes, age, retrying] ->
+            {signal,
+             %{
+               pending_count: count,
+               pending_bytes: bytes,
+               oldest_pending_ms: age,
+               retrying_count: retrying
+             }}
+          end)
+
+        Enum.each([:log, :event, :metric, :maintenance], fn signal ->
+          measurements =
+            Map.get(sampled, Atom.to_string(signal), %{
+              pending_count: 0,
+              pending_bytes: 0,
+              oldest_pending_ms: 0,
+              retrying_count: 0
+            })
+
+          Publisher.record(lane(signal), :state, measurements)
         end)
 
-      Enum.each([:log, :event, :metric, :maintenance], fn signal ->
-        measurements =
-          Map.get(sampled, Atom.to_string(signal), %{
-            pending_count: 0,
-            pending_bytes: 0,
-            oldest_pending_ms: 0,
-            retrying_count: 0
-          })
+        Publisher.record(:alert_maintenance, :state, %{failed_count: failed})
+        :ok
+      else
+        {:error, reason} = error ->
+          sample_health_failed(caller, reason)
+          error
+      end
+    rescue
+      error ->
+        sample_health_failed(caller, error)
+        {:error, error}
+    catch
+      :exit, reason ->
+        sample_health_failed(caller, {:exit, reason})
+        {:error, {:exit, reason}}
+    end
+  end
 
-        Publisher.record(lane(signal), :state, measurements)
-      end)
+  defp sample_health_failed(caller, reason) do
+    store_failure()
 
-      Publisher.record(:alert_maintenance, :state, %{failed_count: failed})
-      :ok
-    else
-      {:error, _} = error ->
-        store_failure()
-        error
+    :telemetry.execute(
+      [:serviceradar, :stateful_alert_engine, :sample_health_failed],
+      %{count: 1},
+      %{caller: caller, reason: reason}
+    )
+
+    Logger.warning(
+      "Could not sample alert evaluation health (#{inspect(caller)}): " <>
+        inspect(reason, limit: 10, printable_limit: 500),
+      caller: inspect(caller)
+    )
+  end
+
+  defp maybe_set_process_label(caller) do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, []} -> Process.set_label(caller)
+      _ -> :ok
     end
   end
 

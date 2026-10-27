@@ -26,7 +26,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Completion do
     if remaining <= 0 do
       {:error, :evaluation_completion_timeout}
     else
-      case Inbox.transact(min(remaining, 2_000), fn -> read_receipts(keys) end) do
+      case Inbox.transact(
+             min(remaining, 2_000),
+             fn -> read_receipts(keys) end,
+             caller: {__MODULE__, :await}
+           ) do
         {:ok, receipts} ->
           observe(keys, receipts, deadline)
 

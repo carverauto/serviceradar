@@ -120,7 +120,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
   Resolve identity keys to a canonical device record.
 
   Tries each key in order until a match is found. Returns the first match
-  with information about which key was used.
+  with information about which key was used. A database read error stops the
+  lookup and returns `{:error, reason}` without trying later keys or IP
+  fallbacks; only a successful read with no match advances to another key.
 
   ## Options
 
@@ -139,9 +141,14 @@ defmodule ServiceRadar.Identity.DeviceLookup do
     if Enum.empty?(keys) do
       {:ok, %{found: false, record: nil, matched_key: nil, resolved_via: "empty_keys"}}
     else
-      result = do_lookup(keys, opts)
-      emit_lookup_telemetry(result, start_time)
-      {:ok, result}
+      case do_lookup(keys, opts) do
+        {:error, _reason} = error ->
+          error
+
+        result ->
+          emit_lookup_telemetry(result, start_time)
+          {:ok, result}
+      end
     end
   end
 
@@ -371,10 +378,8 @@ defmodule ServiceRadar.Identity.DeviceLookup do
         cache_lookup_result(key, record, use_cache)
         {:halt, %{found: true, record: record, matched_key: key, resolved_via: "db"}}
 
-      {:error, reason} ->
-        Logger.debug("Identity lookup failed for #{key.kind}:#{key.value}: #{inspect(reason)}")
-
-        {:cont, %{found: false, record: nil, matched_key: nil, resolved_via: "error"}}
+      {:error, _reason} = error ->
+        {:halt, error}
     end
   end
 
@@ -403,7 +408,7 @@ defmodule ServiceRadar.Identity.DeviceLookup do
       {:ok, %Device{} = device} ->
         {:ok, device}
 
-      _ ->
+      {:ok, nil} ->
         Device
         |> Ash.Query.for_read(:by_ip, %{
           ip: ip,
@@ -411,6 +416,9 @@ defmodule ServiceRadar.Identity.DeviceLookup do
           include_deleted: include_deleted
         })
         |> read_canonical_device(actor, include_deleted)
+
+      {:error, _reason} = error ->
+        error
     end
   end
 

@@ -77,6 +77,16 @@ global samples. A former sampling node's health gauges expire after two minutes.
 PubAck-bound pending frames retain their original bytes and observation timestamp.
 An absent fresh health sample is unknown health, not an empty queue.
 
+Database failures during capability checks, health sampling, receipt pruning,
+and recovery scans increment the `alert_maintenance` lane's `store_unavailable`
+rejection counter and log one warning naming the caller. Each emits telemetry
+under `[:serviceradar, :stateful_alert_engine, event]`, with `event` respectively
+`:capability_query_failed`, `:sample_health_failed`, `:receipt_prune_failed`, or
+`:recovery_failed`, and `caller` and `reason` metadata. A failed recovery scan
+also increments the retry counter and returns an error for Oban retry, leaving
+accepted work intact. Health-sampling and receipt-pruning failures do not stop
+recovery wake-ups.
+
 Live mixed-version rollout, disconnected-owner retirement, drain and rollback
 remain unverified until their deployment evidence is recorded. Unit success does
 not substitute for those checks.

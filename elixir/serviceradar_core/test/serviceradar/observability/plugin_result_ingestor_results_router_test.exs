@@ -382,6 +382,119 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
 
       assert remaining == ["fresh-active-#{suffix}"]
     end
+
+    test "attempt store timeout names caller, records counter and warning, and fails open" do
+      if !Process.whereis(RuntimeMetrics) do
+        start_supervised!(
+          {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
+        )
+      end
+
+      lane = start_retained_lane!(worker_timeout_ms: 5_000)
+      parent = self()
+      handler_id = "quarantine-timeout-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach_many(
+        handler_id,
+        [
+          [:serviceradar, :plugin_result_quarantine, :store_failed],
+          [:service_radar, :repo, :query]
+        ],
+        fn event, _measurements, metadata, _config ->
+          case event do
+            [:serviceradar, :plugin_result_quarantine, :store_failed] ->
+              send(parent, {:quarantine_store_failed, metadata})
+
+            [:service_radar, :repo, :query] ->
+              if Keyword.get(metadata[:options] || [], :caller) ==
+                   {PluginResultQuarantine, :lookup} do
+                send(parent, {:quarantine_repo_query, metadata[:options]})
+              end
+          end
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      holder =
+        spawn_link(fn ->
+          Repo.checkout(fn ->
+            send(parent, :sandbox_checked_out)
+
+            receive do
+              :release_sandbox -> :ok
+            after
+              10_000 -> :ok
+            end
+          end)
+        end)
+
+      assert_receive :sandbox_checked_out, 1_000
+
+      release_watcher =
+        spawn_link(fn ->
+          receive do
+            :release_now -> send(holder, :release_sandbox)
+          after
+            10_000 -> :ok
+          end
+        end)
+
+      :telemetry.attach(
+        "#{handler_id}-release",
+        [:serviceradar, :plugin_result_quarantine, :store_failed],
+        fn _event, _measurements, %{operation: :lookup}, _config ->
+          send(release_watcher, :release_now)
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach("#{handler_id}-release") end)
+
+      before_failed = store_failed_metric_counter()
+      status = retained_status("fail-open-on-store-timeout")
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+          assert :ok = admit_and_await(lane, status)
+        end)
+
+      assert_receive {:failing_handler_ingest,
+                      %{
+                        "status" => "OK",
+                        "summary" => "fail-open-on-store-timeout"
+                      }},
+                     1_000
+
+      assert_receive {:quarantine_repo_query, options}, 1_000
+      assert Keyword.get(options, :caller) == {PluginResultQuarantine, :lookup}
+      assert Keyword.get(options, :timeout_ms) == 2_000
+
+      assert_receive {:quarantine_store_failed,
+                      %{
+                        caller: {PluginResultQuarantine, :lookup},
+                        operation: :lookup,
+                        reason: %DBConnection.ConnectionError{reason: :queue_timeout}
+                      }},
+                     1_000
+
+      assert store_failed_metric_counter() == before_failed + 1
+
+      assert length(
+               String.split(
+                 log,
+                 "Plugin result attempt store lookup ({ServiceRadar.Observability.PluginResultQuarantine, :lookup}) failed"
+               )
+             ) == 2
+    end
+  end
+
+  defp store_failed_metric_counter do
+    case :ets.lookup(RuntimeMetrics, {:events, :retained_plugin_result, :attempt_store_failed}) do
+      [{_key, count}] -> count
+      [] -> 0
+    end
   end
 
   defp insert_attempt_row!(agent_id, result_key, state, opts) do
@@ -460,7 +573,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
     result
   end
 
-  defp start_retained_lane! do
+  defp start_retained_lane!(overrides \\ []) do
     suffix = System.unique_integer([:positive])
     task_sup = start_supervised!({Task.Supervisor, name: :"retained_task_#{suffix}"}, id: :task)
 
@@ -472,14 +585,18 @@ defmodule ServiceRadar.Observability.PluginResultIngestorResultsRouterTest do
        name: :"retained_lane_#{suffix}",
        task_supervisor: task_sup,
        lease_supervisor: lease_sup,
-       config: [
-         max_items: 8,
-         max_bytes: 1_024 * 1_024,
-         max_items_per_agent: 4,
-         queue_wait_ms: 500,
-         worker_timeout_ms: 1_000,
-         gateway_call_timeout_ms: 15_000
-       ]},
+       config:
+         Keyword.merge(
+           [
+             max_items: 8,
+             max_bytes: 1_024 * 1_024,
+             max_items_per_agent: 4,
+             queue_wait_ms: 500,
+             worker_timeout_ms: 1_000,
+             gateway_call_timeout_ms: 15_000
+           ],
+           overrides
+         )},
       id: :lane
     )
   end

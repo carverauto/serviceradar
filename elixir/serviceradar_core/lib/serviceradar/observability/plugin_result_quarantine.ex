@@ -28,11 +28,8 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   too expensive, and counting it would quarantine results that were only queued
   behind a slow one.
 
-  Every outcome is counted on the `:retained_plugin_result` ingestion lane
-  (`result_ingestion_events_attempt_recorded`, `_quarantined`,
-  `_quarantine_acknowledged`, `_attempt_pruned` and `_attempt_store_failed`). A
-  store failure is logged and fails open: the result is ingested, or redelivered,
-  as if no attempt had been recorded.
+  See `docs/result-ingestion-operations.md` for ingestion lane counters,
+  store-failure telemetry, query budgets, and fail-open/retry behavior.
   """
 
   alias ServiceRadar.EventWriter.FieldParser
@@ -157,6 +154,7 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   @spec lookup(identity()) :: :none | :attempted | :quarantined
   def lookup(%{agent_id: agent_id, result_key: result_key}) do
     case query(
+           :lookup,
            "SELECT state FROM platform.plugin_result_ingestion_attempts " <>
              "WHERE agent_id = $1 AND result_key = $2",
            [agent_id, result_key]
@@ -181,6 +179,7 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   @spec clear(identity()) :: :ok
   def clear(%{agent_id: agent_id, result_key: result_key}) do
     case query(
+           :clear,
            "DELETE FROM platform.plugin_result_ingestion_attempts " <>
              "WHERE agent_id = $1 AND result_key = $2",
            [agent_id, result_key]
@@ -220,7 +219,7 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
       retained_status(status)
     ]
 
-    case query(record_timeout_sql(), params) do
+    case query(:record_execution_timeout, record_timeout_sql(), params) do
       {:ok, %{rows: [[attempts, newly_quarantined]]}} ->
         observe(:attempt_recorded)
 
@@ -321,10 +320,11 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   end
 
   defp do_prune(active_cutoff, quarantine_cutoff, batch_size, total_deleted, batches) do
-    case Repo.query(
+    case query(
+           :prune,
            @prune_batch_sql,
            [active_cutoff, quarantine_cutoff, batch_size],
-           timeout: @prune_timeout_ms
+           @prune_timeout_ms
          ) do
       {:ok, %{num_rows: deleted}} when deleted > 0 ->
         RuntimeMetrics.record(@lane, :attempt_pruned, %{count: deleted})
@@ -340,7 +340,8 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
       {:ok, %{num_rows: 0}} ->
         {:ok, %{deleted: total_deleted, batches: batches}}
 
-      {:error, _reason} = error ->
+      {:error, reason} = error ->
+        store_failed(:prune, reason)
         error
     end
   end
@@ -400,8 +401,14 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
     """
   end
 
-  defp query(sql, params) do
-    Repo.query(sql, params, timeout: @store_timeout_ms)
+  defp query(operation, sql, params, timeout \\ @store_timeout_ms) when is_atom(operation) do
+    caller = {__MODULE__, operation}
+    maybe_set_process_label(caller)
+
+    Repo.query(sql, params,
+      timeout: timeout,
+      telemetry_options: [caller: caller, timeout_ms: timeout]
+    )
   rescue
     error -> {:error, error}
   catch
@@ -409,14 +416,30 @@ defmodule ServiceRadar.Observability.PluginResultQuarantine do
   end
 
   defp store_failed(operation, reason) do
+    caller = {__MODULE__, operation}
     observe(:attempt_store_failed)
 
+    :telemetry.execute(
+      [:serviceradar, :plugin_result_quarantine, :store_failed],
+      %{count: 1},
+      %{caller: caller, operation: operation, reason: reason}
+    )
+
     Logger.warning(
-      "Plugin result attempt store #{operation} failed: " <>
-        inspect(reason, limit: 10, printable_limit: 500)
+      "Plugin result attempt store #{operation} (#{inspect(caller)}) failed: " <>
+        inspect(reason, limit: 10, printable_limit: 500),
+      caller: inspect(caller),
+      operation: operation
     )
 
     :ok
+  end
+
+  defp maybe_set_process_label(caller) do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, []} -> Process.set_label(caller)
+      _ -> :ok
+    end
   end
 
   defp observe(event) do

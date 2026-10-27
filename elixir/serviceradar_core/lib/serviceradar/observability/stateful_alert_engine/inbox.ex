@@ -62,13 +62,18 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     with :ok <- Rollout.admission_ready(),
          :ok <- within(length(records), limits.batch_records, :batch_records),
          {:ok, prepared} <- prepare(signal, records) do
-      transact(limits.admission_timeout_ms, fn ->
-        lock_admission()
-        rules = active_rules(signal, limits.batch_work)
-        require_ok(within(length(rules), limits.batch_work, :rule_inventory))
-        candidates = candidates(rules, prepared, limits.batch_work)
-        commit_candidates(candidates, signal, limits)
-      end)
+      transact(
+        limits.admission_timeout_ms,
+        fn ->
+          lock_admission()
+          rules = active_rules(signal, limits.batch_work)
+          require_ok(within(length(rules), limits.batch_work, :rule_inventory))
+          candidates = candidates(rules, prepared, limits.batch_work)
+          commit_candidates(candidates, signal, limits)
+        end,
+        caller: {__MODULE__, :admit},
+        telemetry_options: [signal: signal]
+      )
     end
   end
 
@@ -88,31 +93,35 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     json = Jason.encode!(payload)
     payload = Jason.decode!(json)
 
-    transact(limits.admission_timeout_ms, fn ->
-      lock_admission()
+    transact(
+      limits.admission_timeout_ms,
+      fn ->
+        lock_admission()
 
-      rules =
-        StatefulAlertRule
-        |> Ash.Query.for_read(:active, %{})
-        |> Ash.Query.filter(name == ^rule_name)
-        |> Ash.read!(actor: actor())
-        |> Page.unwrap!()
+        rules =
+          StatefulAlertRule
+          |> Ash.Query.for_read(:active, %{})
+          |> Ash.Query.filter(name == ^rule_name)
+          |> Ash.read!(actor: actor())
+          |> Page.unwrap!()
 
-      candidates =
-        Enum.map(rules, fn rule ->
-          revision = Input.revision(rule)
+        candidates =
+          Enum.map(rules, fn rule ->
+            revision = Input.revision(rule)
 
-          %{
-            rule_id: rule.id,
-            source_key: source_key,
-            rule_revision: revision,
-            payload: payload,
-            payload_bytes: byte_size(json) + byte_size(Jason.encode!(revision))
-          }
-        end)
+            %{
+              rule_id: rule.id,
+              source_key: source_key,
+              rule_revision: revision,
+              payload: payload,
+              payload_bytes: byte_size(json) + byte_size(Jason.encode!(revision))
+            }
+          end)
 
-      commit_candidates(candidates, :maintenance, limits)
-    end)
+        commit_candidates(candidates, :maintenance, limits)
+      end,
+      caller: {__MODULE__, :admit_maintenance}
+    )
   rescue
     error -> {:error, {:invalid_payload, error}}
   end
@@ -265,26 +274,38 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
   # stays usable. The client checkout deadline is per transaction and only
   # backstops a store PostgreSQL cannot reach, so size it for multiple round
   # trips with a floor for short tail polls in Completion.await/2.
-  def transact(timeout, work) do
-    with_notification_queue(fn -> run_transaction(timeout, work) end)
+  def transact(timeout, work, opts \\ []) do
+    with_notification_queue(fn -> run_transaction(timeout, work, opts) end)
   end
 
-  defp run_transaction(timeout, work) do
+  defp run_transaction(timeout, work, opts) do
+    caller = Keyword.get(opts, :caller, {__MODULE__, :transact})
+    maybe_set_process_label(caller)
+
+    telemetry_options =
+      Keyword.merge(
+        [caller: caller, timeout_ms: timeout],
+        Keyword.get(opts, :telemetry_options, [])
+      )
+
     Repo.transaction(
       fn ->
         %{rows: [[lock_timeout, statement_timeout]]} =
           Repo.query!(
-            "SELECT current_setting('lock_timeout'), current_setting('statement_timeout')"
+            "SELECT current_setting('lock_timeout'), current_setting('statement_timeout')",
+            [],
+            telemetry_options: telemetry_options
           )
 
-        set_timeouts("#{timeout}ms", "#{timeout}ms")
+        set_timeouts("#{timeout}ms", "#{timeout}ms", telemetry_options)
         result = work.()
         # A nested caller transaction (including a sandbox) keeps SET LOCAL
         # values until its own end. Do not leave our short budget on it.
-        set_timeouts(lock_timeout, statement_timeout)
+        set_timeouts(lock_timeout, statement_timeout, telemetry_options)
         result
       end,
-      timeout: client_timeout(timeout)
+      timeout: client_timeout(timeout),
+      telemetry_options: telemetry_options
     )
   rescue
     error -> {:error, {:store_unavailable, error}}
@@ -296,11 +317,19 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine.Inbox do
     max(timeout * @client_backstop_multiplier, @min_client_timeout_ms)
   end
 
-  defp set_timeouts(lock_timeout, statement_timeout) do
+  defp set_timeouts(lock_timeout, statement_timeout, telemetry_options) do
     Repo.query!(
       "SELECT set_config('lock_timeout', $1, true), set_config('statement_timeout', $2, true)",
-      [lock_timeout, statement_timeout]
+      [lock_timeout, statement_timeout],
+      telemetry_options: telemetry_options
     )
+  end
+
+  defp maybe_set_process_label(caller) do
+    case Process.info(self(), :registered_name) do
+      {:registered_name, []} -> Process.set_label(caller)
+      _ -> :ok
+    end
   end
 
   defp prepare(signal, records) do
