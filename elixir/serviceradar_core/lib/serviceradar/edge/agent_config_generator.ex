@@ -2977,25 +2977,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     check_configs = Map.get(components, :checks, [])
     raw_sync = Map.get(components, :sync, %{})
 
-    sweep_config =
-      Map.get(components, :sweep) ||
-        (is_map(raw_sync) && Map.get(raw_sync, "sweep")) ||
-        %{}
-
-    mapper_config =
-      Map.get(components, :mapper) ||
-        (is_map(raw_sync) && Map.get(raw_sync, "mapper")) ||
-        %{}
-
-    bumblebee_config =
-      Map.get(components, :bumblebee) ||
-        (is_map(raw_sync) && Map.get(raw_sync, "bumblebee")) ||
-        %{}
-
-    endpoint_inventory_config =
-      Map.get(components, :endpoint_inventory) ||
-        (is_map(raw_sync) && Map.get(raw_sync, "endpoint_inventory")) ||
-        %{}
+    sweep_config = Map.get(components, :sweep, %{})
+    mapper_config = Map.get(components, :mapper, %{})
+    bumblebee_config = Map.get(components, :bumblebee, %{})
+    endpoint_inventory_config = Map.get(components, :endpoint_inventory, %{})
 
     sync_payload =
       if is_map(raw_sync) do
