@@ -1202,3 +1202,64 @@ Core's complete guarded regression suite is also mandatory. In particular, the
 middle-window timestamp and decoded-color assertions must execute unchanged;
 building tools or compiling test source is not evidence that HLS consumption
 passed. No live or browser deployment acceptance is claimed.
+
+
+## Published-head archive playlist validation
+
+PR #6071 merged at `80af80b6e1563d071667634073719b7c396b2681` from final
+head `240e6ff787c710a9ddfc7b4aef362f0f5a3cf66f`; all 19 checks passed.
+The no-mistakes run completed passed-with-override because the operator approved
+draft publication before CI-only database validation. The final published-head
+execution below subsequently satisfied those database gates; the exception did
+not waive them.
+
+- Core [suite](https://carverauto.buildbuddy.io/invocation/44a5a8ab-72e9-4022-9ba8-1a49e72835df):
+  all 12 guarded targets executed uncached and passed, against merge head
+  `bca264388b4fbe1281199b6d0c66418a6dba7fec`.
+- Web [suite](https://carverauto.buildbuddy.io/invocation/89379230-871b-417e-8633-42c48f2d844c):
+  all seven guarded targets executed uncached and passed, against merge head
+  `048fb0bc73de09c7886e825c7b2141ba62107038`.
+- Both fixture lifecycles reported zero suite, observer, teardown and generation
+  release statuses. Owning Web shard 0 reported 836 tests, two properties and
+  zero failures, including the independent HTTP HLS consumer and authorization
+  proof cases.
+- FFprobe selected the middle fragment and decoded 30 frames at 64 by 64 with
+  original media PTS `2 + index / 15` within two microseconds. FFmpeg followed
+  the full authenticated playlist and decoded 90 RGB frames across all three
+  synthetic color phases. Local spool inputs had been removed and recording
+  stopped; requests contained only bounded init/media reads.
+
+The first published attempt failed before media fetch: FFmpeg 7.0.2 increments
+its reload counter before the first read. Repair `04d8c8b3` changed client
+`max_reload` from zero to one and `m3u8_hold_counters` from one to two. Every
+assertion and product-code line remained intact. The repaired final head passed.
+
+This is deliberately sequential, nonpersistent, no-Range FFmpeg/FFprobe
+consumption. Default-browser compatibility, seeking/cancellation and live
+provider/deployment qualification remain unmeasured. Recording remains disabled.
+
+
+## Archive discovery prepublication validation
+
+The bounded publication inventory has passed remote formatting, strict OpenSpec
+validation and independent Core/Web review. The generated migration and snapshot
+add only the partial publication index; the chart readiness version matches it.
+No existing assertion was removed.
+
+- Targeted [Core quality and integration-selection check](https://carverauto.buildbuddy.io/invocation/1e12a395-8d1b-4b17-b063-1049c8fb6aa7)
+  executed both targets successfully. Selection compilation does not execute the
+  database test bodies.
+- Full remote [make test](https://carverauto.buildbuddy.io/invocation/e65de62e-0146-43d8-9c33-ea61fde7a5ac)
+  completed successfully: 466 passing targets, 63 executed, and two existing
+  Swift platform skips. One Core unit target passed after an automatic retry.
+  Its first attempt failed the unchanged ConfigInvalidator follow-up case while
+  awaiting killed-worker telemetry; the mailbox contained error telemetry and
+  a follow-up timer. The cause is not established as a timeout-only failure.
+- An [uncached owning-target rerun](https://carverauto.buildbuddy.io/invocation/235fef11-ee2c-4d48-b910-67592606cd9f)
+  with retries disabled executed once and passed in 114.2 seconds. No assertion,
+  timeout or production code was changed to obtain that pass.
+
+Actual published-head Core/Web database execution remains mandatory and pending.
+These prepublication results do not prove the new database pagination or HTTP
+publication behavior. Recording, browser playback and hosted readiness remain
+outside this checkpoint.

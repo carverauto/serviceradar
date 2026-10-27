@@ -69,6 +69,13 @@ The system SHALL store recording/index/hold state in CNPG/Ash, durable media in 
 ### Requirement: Authorized bounded replay
 The system SHALL authorize timeline, HLS manifest, media ranges and export operations and expose unavailable, provisional, expired and discontinuous intervals explicitly.
 
+#### Scenario: Discover published archives with bounded continuation
+- **WHEN** an authenticated caller lists one camera's published recordings
+- **THEN** the system SHALL require current recording-read and inventory permissions and fresh Source access for every page
+- **AND** it SHALL examine a bounded candidate window in deterministic publication order and return only canonically available compact summaries
+- **AND** continuation SHALL advance past examined candidates even when late conflicts leave no visible items, without an unbounded refill scan
+- **AND** publication time SHALL NOT be represented as capture time or a future-access grant
+
 #### Scenario: Inspect a retained archive block
 - **WHEN** an authenticated caller requests one camera's recording metadata
 - **THEN** the system SHALL require current recording-read and inventory permissions and match the retained block to that camera

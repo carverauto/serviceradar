@@ -18,6 +18,12 @@ defmodule ServiceRadar.Camera.RecordingBlock do
     schema "platform"
     repo ServiceRadar.Repo
 
+    custom_indexes do
+      index [:camera_source_id, :archive_published_at, :id],
+        name: "camera_recording_blocks_publication_index",
+        where: "archive_published_at IS NOT NULL"
+    end
+
     references do
       reference :archive_binding, on_delete: :restrict
 
@@ -52,6 +58,19 @@ defmodule ServiceRadar.Camera.RecordingBlock do
 
   actions do
     defaults [:read]
+
+    read :archive_inventory do
+      argument :camera_source_id, :uuid, allow_nil?: false
+
+      filter expr(
+               camera_source_id == ^arg(:camera_source_id) and not is_nil(archive_published_at)
+             )
+
+      prepare build(
+                sort: [archive_published_at: :desc, id: :desc],
+                select: [:id, :archive_published_at]
+              )
+    end
 
     create :reserve do
       accept [

@@ -34,8 +34,11 @@ or live acceptance task below.
 - [ ] 1.5 Add authorized local/archive range gateway and bounded HLS windows; deny unauthorized ranges and whole-object leakage.
   - [x] Expose [authorized single-block archive metadata](archive-metadata.md), with separate recording permission, fresh authorization and canonical conflict exclusion. Final #6055 passed all 19 checks and uncached Core/Web database lifecycle gates. Metadata never grants media access.
   - [x] Serve [authorized archive initialization and fragment bytes](archive-reads.md) through a separate bounded reader, with independent authorization before and after provider I/O. Final #6060 passed 19 checks and uncached Core/Web database lifecycles with successful cleanup.
-  - [ ] Assemble [bounded single-block HLS playlists](archive-playlists.md) from current canonical metadata; prove consumption through independently authorized fragment URLs. Runtime implementation and consumer validation are in progress; timeline discovery, browser player and provisional local delivery remain separate.
+  - [x] Assemble [bounded single-block HLS playlists](archive-playlists.md) from current canonical metadata; prove consumption through independently authorized fragment URLs. Final #6071 passed 19 checks, independent real-HTTP HLS consumption and uncached Core/Web database lifecycles; [validation](validation.md#published-head-archive-playlist-validation) records the consumer settings and repaired reload limits. Browser player and provisional local delivery remain separate.
 - [ ] 1.6 Integrate timeline/player and spatial links; preserve viewer cleanup and live-view behavior.
+  - [ ] Expose [bounded publication inventory](archive-discovery.md) with fresh authority, canonical availability and candidate-bounded continuation. Implementation and validation are in progress; publication order does not assert capture UTC.
+  - [ ] Add a separate archive player with measured HLS seeking, cancellation and cleanup; preserve live relay ownership.
+  - [ ] Add capture-time timeline and spatial links once trustworthy clock mapping and uncertainty semantics are qualified.
 - [ ] 1.7 Ship disabled by default with storage/capability validation, admission budgets and observability through JetStream/EventWriter. Local marker verification and the explicit upload's single-slot byte/deadline limits are implemented; coordinated admission, observability and hosted enablement remain open, and recording stays disabled.
 
 ## 2. Production lifecycle and Cloud

@@ -1,7 +1,8 @@
 # Authorized archive metadata
 
 `GET /api/cameras/:camera_source_id/recordings/:id` inspects one retained block.
-It is a metadata API, not a timeline search, playlist or media delivery endpoint.
+The [publication inventory](archive-discovery.md) discovers block IDs; this route
+inspects one selected block. It is not a capture-time timeline search.
 Recording remains disabled by default.
 
 ## Authorization and identity

@@ -1582,3 +1582,48 @@ The reader therefore has a separate installed identity and only GET behavior,
 while provider keys remain isolated from Web. The approved recording-read
 permission covers footage as well as metadata. Cloud installation and real
 credential-policy qualification remain separate acceptance work.
+
+
+## Publication inventory choices: sound, medium confidence
+
+### Bound examined candidates rather than promising a full page
+
+When: archive-discovery checkpoint. The plan required bounded discovery but did
+not select a page contract. A request examines ten candidates by default, at
+most twenty, and checks each through the existing availability proof. If a late
+conflict hides all ten, the response can contain no items and still offer a
+continuation cursor. That cursor resumes after the last examined candidate;
+it does not repeatedly start at the same hidden block. Filling the page instead
+could scan an arbitrarily long conflict history. Clients must follow a non-null
+cursor even when the item list is empty. The limits are reversible engineering
+ceilings, not measured throughput promises. Verdict: sound because work stays
+bounded without silently losing the ability to reach older available blocks.
+Confidence: medium.
+
+### Discover by publication time before adding capture-time search
+
+When: archive-discovery checkpoint. Current recording descriptors retain unknown
+capture UTC. A user can find the newest published blocks, inspect one and request
+its existing playlist, but cannot infer when its scene happened from upload
+completion. The plan left the first discovery surface open. Publication time
+plus block UUID provides a stable order across profiles; a source-scoped partial
+database index supports it. Calendar filters await trustworthy camera-clock
+mapping. This leaves a useful API foundation while the separate browser player
+still needs actual HLS seek and cancellation measurements. Verdict: sound;
+publication ordering does not manufacture capture-time precision. Confidence:
+medium.
+
+### Keep discovery summaries small and cursors without authority
+
+When: archive-discovery checkpoint. A list item exposes the block, camera and
+profile identifiers plus publication time. A selected block's descriptor is
+already available through its separately authorized metadata route. The plan did
+not choose a list shape or continuation format. A bounded, versioned JSON cursor
+records source and ordering position, with timestamp microseconds preserved; it
+is encoded for transport but unsigned because it carries no permission. Every
+request still validates the cursor, camera scope and current persisted access.
+Changing a position can navigate the caller's authorized inventory but cannot
+change its camera filter or grant byte access. No list item includes provider
+locations or full fragment descriptors. Verdict: sound because discovery reuses
+the existing proof and access boundaries without adding token authority or a
+second descriptor representation. Confidence: medium.

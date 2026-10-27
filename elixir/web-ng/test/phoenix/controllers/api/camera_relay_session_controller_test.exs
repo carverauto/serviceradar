@@ -403,11 +403,14 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
     end
   end
 
-  describe "archive metadata authorization" do
+  describe "archive discovery and metadata authorization" do
     test "requires authentication before exposing recording metadata" do
       path = "/api/cameras/#{Ecto.UUID.generate()}/recordings/#{Ecto.UUID.generate()}"
-      conn = get(build_conn(), path)
-      assert conn.status == 401
+
+      for route <- [path, Path.dirname(path)] do
+        conn = get(build_conn(), route)
+        assert conn.status == 401
+      end
     end
 
     test "live video permission does not grant historical metadata" do
@@ -415,10 +418,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       {:ok, token, _claims} = Guardian.create_access_token(user)
       path = "/api/cameras/#{Ecto.UUID.generate()}/recordings/#{Ecto.UUID.generate()}"
 
-      conn = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
+      for route <- [path, Path.dirname(path)] do
+        conn = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(route)
 
-      assert conn.status == 403
-      assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+        assert conn.status == 403
+        assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+      end
     end
 
     test "recording permission still requires inventory access" do
@@ -426,10 +431,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       {:ok, token, _claims} = Guardian.create_access_token(user)
       path = "/api/cameras/#{Ecto.UUID.generate()}/recordings/#{Ecto.UUID.generate()}"
 
-      conn = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
+      for route <- [path, Path.dirname(path)] do
+        conn = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(route)
 
-      assert conn.status == 403
-      assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+        assert conn.status == 403
+        assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+      end
     end
 
     test "rereads persisted permission when an authenticated token retains stale cached authority" do
@@ -438,9 +445,11 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       {:ok, token, _claims} = Guardian.create_access_token(user)
       path = "/api/cameras/#{Ecto.UUID.generate()}/recordings/#{Ecto.UUID.generate()}"
 
-      allowed = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
-      assert json_response(allowed, 404)["error"] == "recording_not_found"
-      assert get_resp_header(allowed, "cache-control") == ["private, no-store"]
+      for route <- [path, Path.dirname(path)] do
+        allowed = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(route)
+        assert json_response(allowed, 404)["error"] == "recording_not_found"
+        assert get_resp_header(allowed, "cache-control") == ["private, no-store"]
+      end
 
       actor = AshTestHelpers.system_actor()
       profile = Ash.get!(RoleProfile, user.role_profile_id, actor: actor)
@@ -455,9 +464,11 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
       RBAC.clear_process_cache()
       RBAC.Cache.put(user.id, MapSet.new(permissions))
 
-      revoked = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(path)
-      assert revoked.status == 403
-      assert get_resp_header(revoked, "cache-control") == ["private, no-store"]
+      for route <- [path, Path.dirname(path)] do
+        revoked = build_conn() |> put_req_header("authorization", "Bearer " <> token) |> get(route)
+        assert revoked.status == 403
+        assert get_resp_header(revoked, "cache-control") == ["private, no-store"]
+      end
     end
 
     for {source_id, block_id} <- [{"not-a-uuid", "valid"}, {"valid", "not-a-uuid"}] do
@@ -468,6 +479,12 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRelaySessionControllerTest do
 
         assert json_response(conn, 400)["error"] == "invalid_request"
         assert get_resp_header(conn, "cache-control") == ["private, no-store"]
+
+        if source_id == "not-a-uuid" do
+          collection = get(recycle(conn), "/api/cameras/#{source_id}/recordings")
+          assert json_response(collection, 400)["error"] == "invalid_request"
+          assert get_resp_header(collection, "cache-control") == ["private, no-store"]
+        end
       end
     end
   end

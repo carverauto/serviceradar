@@ -228,6 +228,11 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     before = directory_bytes(context.directory)
     token = recording_reader_token()
     path = "/api/cameras/#{context.source.id}/recordings/#{context.block.id}"
+    inventory_path = "/api/cameras/#{context.source.id}/recordings"
+
+    assert token |> recording_response(inventory_path) |> json_response(200) == %{
+             "data" => %{"schema_version" => 1, "items" => [], "next_cursor" => nil}
+           }
 
     assert token |> recording_response(path) |> json_response(200) == %{
              "data" => %{
@@ -277,9 +282,52 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
     assert Agent.get(context.store, & &1.requests) == requests
     assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
 
+    inventory = recording_response(token, inventory_path)
+
+    assert json_response(inventory, 200) == %{
+             "data" => %{
+               "schema_version" => 1,
+               "items" => [
+                 %{
+                   "block_id" => context.block.id,
+                   "camera_source_id" => context.source.id,
+                   "stream_profile_id" => context.block.stream_profile_id,
+                   "published_at" => receipt["published_at"]
+                 }
+               ],
+               "next_cursor" => nil
+             }
+           }
+
+    assert get_resp_header(inventory, "cache-control") == ["private, no-store"]
+    assert get_resp_header(inventory, "x-content-type-options") == ["nosniff"]
+    assert recording_response(token, inventory_path <> "?limit=20").resp_body == inventory.resp_body
+
+    for query <- [
+          "limit=0",
+          "limit=21",
+          "limit=01",
+          "limit=-1",
+          "limit=1.0",
+          "limit=",
+          "limit[]=1",
+          "cursor=",
+          "cursor=not-a-cursor",
+          "cursor[]=x",
+          "cursor=" <> String.duplicate("x", 513)
+        ] do
+      invalid = recording_response(token, inventory_path <> "?" <> query)
+      assert json_response(invalid, 400)["error"] == "invalid_request"
+      assert get_resp_header(invalid, "cache-control") == ["private, no-store"]
+    end
+
     other_source = other_recording_source(context)
     wrong_source = recording_response(token, "/api/cameras/#{other_source.id}/recordings/#{context.block.id}")
     assert json_response(wrong_source, 404)["error"] == "recording_not_found"
+
+    assert token |> recording_response("/api/cameras/#{other_source.id}/recordings") |> json_response(200) == %{
+             "data" => %{"schema_version" => 1, "items" => [], "next_cursor" => nil}
+           }
 
     manifest = dispatch(context, :manifest)
 
@@ -307,6 +355,10 @@ defmodule ServiceRadarWebNG.CameraMediaUploadDBTest do
 
     assert {:ok, %{status: :reconciliation_required, result: ^receipt}} =
              ArchiveUploads.publication_status(context.block.id, context.opts)
+
+    assert token |> recording_response(inventory_path) |> json_response(200) == %{
+             "data" => %{"schema_version" => 1, "items" => [], "next_cursor" => nil}
+           }
 
     assert {:ok, ^published} = Ash.get(RecordingBlock, context.block.id, context.opts)
     assert Agent.get(context.store, & &1.requests) == requests

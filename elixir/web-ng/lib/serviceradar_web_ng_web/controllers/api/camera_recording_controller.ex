@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
-  @moduledoc "Authenticated metadata, playlists and bounded fragment reads for retained camera archives."
+  @moduledoc "Authenticated discovery, metadata, playlists and bounded reads for retained camera archives."
 
   use ServiceRadarWebNGWeb, :controller
 
@@ -13,6 +13,22 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
   alias ServiceRadarWebNG.RBAC
 
   @read_permissions ["devices.view", "devices.cameras.recordings.view"]
+
+  def index(conn, %{"camera_source_id" => source_id} = params) do
+    conn = private_media(conn)
+
+    with {:ok, source_id} <- authorize_inventory(conn.assigns[:current_scope], source_id),
+         {:ok, limit} <- decimal(Map.get(params, "limit", "10"), 1, 20),
+         {:ok, inventory} <-
+           ArchiveUploads.archive_inventory(source_id, [limit: limit, cursor: params["cursor"]],
+             actor: SystemActor.system(:camera_archive_metadata)
+           ) do
+      json(conn, %{data: inventory})
+    else
+      {:error, :invalid_page} -> error(conn, :bad_request, "invalid_request")
+      {:error, reason} -> archive_error(conn, reason)
+    end
+  end
 
   def show(conn, %{"camera_source_id" => source_id, "id" => block_id}) do
     conn = put_resp_header(conn, "cache-control", "private, no-store")
@@ -116,12 +132,28 @@ defmodule ServiceRadarWebNGWeb.Api.CameraRecordingController do
     with {:ok, scope} <- RBAC.authorize_current(scope, @read_permissions),
          {:ok, source_id} <- cast_id(source_id),
          {:ok, block_id} <- cast_id(block_id),
-         {:ok, source} <- Source |> Ash.Query.for_read(:by_id, %{id: source_id}) |> Ash.read_one(scope: scope) do
-      if source, do: {:ok, scope, source_id, block_id}, else: {:error, :recording_block_not_found}
+         :ok <- source_exists(scope, source_id) do
+      {:ok, scope, source_id, block_id}
     end
   end
 
   defp authorize_read(_, _, _), do: {:error, :unauthorized}
+
+  defp authorize_inventory(%Scope{user: user} = scope, source_id) when not is_nil(user) do
+    with {:ok, scope} <- RBAC.authorize_current(scope, @read_permissions),
+         {:ok, source_id} <- cast_id(source_id),
+         :ok <- source_exists(scope, source_id) do
+      {:ok, source_id}
+    end
+  end
+
+  defp authorize_inventory(_, _), do: {:error, :unauthorized}
+
+  defp source_exists(scope, source_id) do
+    with {:ok, source} <- Source |> Ash.Query.for_read(:by_id, %{id: source_id}) |> Ash.read_one(scope: scope) do
+      if source, do: :ok, else: {:error, :recording_block_not_found}
+    end
+  end
 
   defp cast_id(value) do
     case Ecto.UUID.cast(value) do
