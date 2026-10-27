@@ -174,7 +174,7 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
   } do
     Repo.query!("UPDATE platform.ocsf_devices SET deleted_at = now() WHERE deleted_at IS NULL")
     before = reconciliation_summaries()
-    assert :ok = ReconcileWorker.announce()
+    assert {:ok, :ok} = Repo.transaction(fn -> ReconcileWorker.announce() end)
     assert reconciliation_summaries() == before
 
     device = create_device!(actor, TestSupport.unique_device_ip())
@@ -185,7 +185,7 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
       [device.uid]
     )
 
-    assert :ok = ReconcileWorker.announce()
+    assert {:ok, :ok} = Repo.transaction(fn -> ReconcileWorker.announce() end)
     assert [summary] = reconciliation_summaries() -- before
 
     assert summary["attributes"] == %{
