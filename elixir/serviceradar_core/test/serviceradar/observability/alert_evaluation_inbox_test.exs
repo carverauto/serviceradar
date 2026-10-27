@@ -1267,7 +1267,9 @@ defmodule ServiceRadar.Observability.AlertEvaluationInboxTest do
       fn event_name, _measurements, metadata, _config ->
         case event_name do
           [:service_radar, :repo, :query] ->
-            if caller = Keyword.get(metadata[:options] || [], :caller) do
+            caller = Keyword.get(metadata[:options] || [], :caller)
+
+            if caller do
               send(
                 parent,
                 {:repo_query_caller, caller, Keyword.get(metadata[:options], :timeout_ms)}
