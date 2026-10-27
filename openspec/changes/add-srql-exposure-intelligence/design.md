@@ -130,32 +130,10 @@ Alternatives considered:
 
 ### Decision 2: A Primary Key fact table keyed on the assessment identity
 
-```sql
-CREATE TABLE IF NOT EXISTS serviceradar.exposure_facts (
-  device_ord          BIGINT    NOT NULL,
-  cve_ord             BIGINT    NOT NULL,
-  pkg_ord             BIGINT    NOT NULL,   -- version-independent package identity
-  pkgver_ord          BIGINT    NOT NULL,   -- identity + installed version
-  state               TINYINT   NOT NULL,   -- 1 active (actionable), 0 resolved, 2 retired
-  source_scope        VARCHAR(32),
-  severity_rank       TINYINT,              -- 0 none, 1 low, 2 medium, 3 high, 4 critical
-  cvss_score          DECIMAL(3,1),
-  kev                 BOOLEAN,
-  exploit_available   BOOLEAN,
-  fix_available       BOOLEAN,
-  first_exposed_at    DATETIME,
-  resolved_at         DATETIME,
-  updated_at          DATETIME  NOT NULL,
-  transition_seq      BIGINT    NOT NULL,
-  transition_xid      BIGINT    NOT NULL,   -- CNPG xact id of the producing transaction
-  snapshot_generation BIGINT    NOT NULL DEFAULT "0",
-  device_lifecycle_seq BIGINT   NOT NULL DEFAULT "0"  -- appended by migration 0034; Decision 23
-)
-PRIMARY KEY (device_ord, cve_ord, pkg_ord)
-DISTRIBUTED BY HASH(device_ord) BUCKETS 16
-ORDER BY (cve_ord, device_ord)
-PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
-```
+The authoritative schema is defined by warehouse migrations
+[0032](../../../elixir/serviceradar_core/priv/starrocks/0032_exposure_facts.sql),
+[0034](../../../elixir/serviceradar_core/priv/starrocks/0034_exposure_device_lifecycle.sql)
+and [0035](../../../elixir/serviceradar_core/priv/starrocks/0035_exposure_terminal_compaction.sql).
 
 - **The key follows the assessment identity.** The CNPG unique index is `(device_uid,
   package_identity_key, cve_id)`, and the package identity is version-independent. The
@@ -172,9 +150,10 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
   too: each draws a **new** `transition_seq`, greater than the key's last one, and carries
   an explicit terminal state (`resolved` or `retired`). A terminal transition never reuses
   the key's last sequence.
-  - Every transition carries the complete after-image of every fact column except
-    `snapshot_generation`, never only the changed fields. A greater `transition_seq`
-    applies the after-image; an equal sequence may replay the identical after-image.
+  - Every transition carries the complete after-image of every producer-owned fact
+    column, never only the changed fields. Warehouse-owned `snapshot_generation`
+    and `payload_compacted` are not part of the producer after-image. A greater
+    `transition_seq` applies the after-image; an equal sequence may replay the identical after-image.
     Changed content requires a new sequence at the producer, serialized on the full fact
     key (Decision 20), with the assessment row locked when present.
     An older sequence is rejected. Live Stream Load uses row-mode partial updates with
@@ -186,11 +165,8 @@ PROPERTIES ("replication_num" = "3", "enable_persistent_index" = "true");
   - A resolution is written as `state = 0` and the row stays as a tombstone carrying its
     `transition_seq`.
   - **The row is the fact's sequence watermark, and it is kept permanently.** A daily
-    compaction clears only the payload columns of tombstones resolved more than 7 days ago,
-    leaving the key, `state = 0`, `transition_seq`, `transition_xid` and
-    `snapshot_generation`. An identical terminal replay may restore cleared payload,
-    which the next compaction can clear again; it cannot reactivate the fact. Correctness
-    therefore does not depend on any delivery horizon: an older active transition delivered
+    compaction follows the terminal payload contract in Decision 25 below.
+    Correctness does not depend on any delivery horizon: an older active transition delivered
     at any later time still loses to the watermark. Watermark rows cost about 24 bytes each
     before compression, and their number is bounded by the fact keys ever seen, because the
     package identity is version-independent.

@@ -85,8 +85,15 @@ It asserts:
     Repair verification accepts canonical compaction and rejects altered
     transaction markers or noncanonical payload. An older active delivery loses;
     a snapshot replays the same terminal publication without creating a repair.
-    A delayed compaction load loses to a newer active transition. A separate
-    transport-failure case checks durable cursor recovery after a filtered load.
+    A delayed compaction load loses to a newer active transition.
+11. A legacy repair obligation defers compaction of 501 synthetic facts. After
+    removing that test-owned obligation, the first 500-row page succeeds. Invalid
+    synthetic HTTP credentials cause the warehouse to return an actual HTTP 401
+    for the next page. The successful-page cursor and original cutoff remain
+    durable, and restoring the credentials lets retry clear the final row.
+
+The separate controlled-response test covers filtered-load cursor recovery;
+the live HTTP 401 case does not establish real warehouse filtered-row behavior.
 
 The finite paging fixture is a functional boundary check, not fleet throughput
 proof. Task 1.6 and the <=15-minute fleet-scale gate remain open. These assertions
