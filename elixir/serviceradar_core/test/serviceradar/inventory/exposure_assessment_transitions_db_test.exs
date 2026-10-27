@@ -845,6 +845,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     last = live_fact!([ordinal, 501, 40])
     job = compaction_job!(initial)
+
     control = %{
       "repairs" => [%{"kind" => "fact", "required" => 41, "expected" => "legacy-digest"}]
     }
@@ -862,6 +863,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert {:snooze, 30} = ExposureTerminalCompactionWorker.perform(job)
     assert Repo.get!(Oban.Job, job.id).args == initial
+
     assert {:ok, %{rows: [[501]]}} =
              MySQL.query(
                "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND payload_compacted = false AND pkgver_ord = 41"
@@ -926,6 +928,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     # Passing the original job proves that retry reloads the durable checkpoint.
     assert :ok = ExposureTerminalCompactionWorker.perform(job)
+
     assert Repo.get!(Oban.Job, job.id).args == %{
              "cutoff" => cutoff,
              "cursor" => [ordinal, 501, 40]
