@@ -50,6 +50,13 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
         ctx.opts
       )
 
+    ctx
+    |> Map.merge(%{owner: owner, claim: claim, relay: relay, control_owned?: control_owned?})
+    |> archive_context(tags)
+  end
+
+  defp archive_context(ctx, tags) do
+    %{owner: owner, claim: claim, relay: relay} = ctx
     {:ok, block} = RecorderOwnership.reserve_block(owner, claim, @clock, ctx.opts)
 
     {description, media_bytes} =
@@ -181,7 +188,7 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       claim: claim,
       relay: relay,
       media_bytes: media_bytes,
-      control_owned?: control_owned?
+      control_owned?: ctx.control_owned?
     })
   end
 
@@ -2081,6 +2088,168 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
     assert dispatch.manifest_verified_at == manifest.dispatch.manifest_verified_at
   end
 
+  test "publication inventory advances a bounded candidate page through hidden conflicts", ctx do
+    first = publish_inventory_block(ctx)
+    second = ctx |> archive_context(%{}) |> publish_inventory_block()
+    third = ctx |> archive_context(%{}) |> publish_inventory_block()
+    archive_context(ctx, %{})
+
+    # Invented equal publication times exercise the UUID tie-break independently
+    # of the recorder's epoch/sequence and of wall-clock capture claims.
+    tied_at = ~U[2025-01-02 03:04:05.123456Z]
+    older_at = ~U[2025-01-02 03:04:05.123455Z]
+    tied_ids = Enum.map([first, second], &Ecto.UUID.dump!(&1.block.id))
+
+    assert %{num_rows: 2} =
+             Repo.query!(
+               "UPDATE platform.camera_recording_blocks SET archive_published_at = $1 WHERE id = ANY($2::uuid[])",
+               [tied_at, tied_ids]
+             )
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "UPDATE platform.camera_recording_blocks SET archive_published_at = $1 WHERE id = $2",
+               [older_at, Ecto.UUID.dump!(third.block.id)]
+             )
+
+    [newest, next] = Enum.sort_by([first, second], & &1.block.id, :desc)
+
+    expected = [
+      inventory_item(newest, tied_at),
+      inventory_item(next, tied_at),
+      inventory_item(third, older_at)
+    ]
+
+    assert {:ok, %{schema_version: 1, items: ^expected, next_cursor: nil}} =
+             ArchiveUploads.archive_inventory(ctx.source.id, [], ctx.opts)
+
+    assert {:ok, %{items: ^expected, next_cursor: nil}} =
+             ArchiveUploads.archive_inventory(ctx.source.id, [limit: 20], ctx.opts)
+
+    assert {:ok, %{items: [], next_cursor: nil}} =
+             ArchiveUploads.archive_inventory(Ecto.UUID.generate(), [], ctx.opts)
+
+    assert {:ok, page} = ArchiveUploads.archive_inventory(ctx.source.id, [limit: 1], ctx.opts)
+    assert page.items == [hd(expected)]
+    assert is_binary(page.next_cursor) and byte_size(page.next_cursor) <= 512
+
+    assert {:ok, second_page} =
+             ArchiveUploads.archive_inventory(
+               ctx.source.id,
+               [limit: 1, cursor: page.next_cursor],
+               ctx.opts
+             )
+
+    assert second_page.items == [Enum.at(expected, 1)]
+    assert is_binary(second_page.next_cursor)
+
+    assert {:ok, %{items: last, next_cursor: nil}} =
+             ArchiveUploads.archive_inventory(
+               ctx.source.id,
+               [limit: 1, cursor: second_page.next_cursor],
+               ctx.opts
+             )
+
+    assert last == [List.last(expected)]
+
+    assert {:error, :invalid_page} =
+             ArchiveUploads.archive_inventory(
+               Ecto.UUID.generate(),
+               [cursor: page.next_cursor],
+               ctx.opts
+             )
+
+    assert {:error, :archive_upload_response_conflict} =
+             ArchiveUploads.observe_response(
+               newest.lease,
+               newest.manifest.dispatch.id,
+               %{"status" => 503},
+               ctx.opts
+             )
+
+    assert {:ok, %{items: [], next_cursor: cursor}} =
+             ArchiveUploads.archive_inventory(ctx.source.id, [limit: 1], ctx.opts)
+
+    assert cursor == page.next_cursor
+
+    assert {:ok, ^second_page} =
+             ArchiveUploads.archive_inventory(ctx.source.id, [limit: 1, cursor: cursor], ctx.opts)
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "UPDATE platform.camera_recording_blocks SET descriptor_sha256 = $1 WHERE id = $2",
+               [String.duplicate("0", 64), Ecto.UUID.dump!(next.block.id)]
+             )
+
+    assert {:error, :recording_block_mismatch} =
+             ArchiveUploads.archive_inventory(ctx.source.id, [], ctx.opts)
+  end
+
+  test "publication inventory rejects malformed pages instead of silently restarting", ctx do
+    for options <- [
+          nil,
+          %{},
+          [:limit],
+          [limit: "1"],
+          [limit: 0],
+          [limit: 21],
+          [limit: 1, limit: 2],
+          [other: 1],
+          [cursor: ""],
+          [cursor: "!"],
+          [cursor: String.duplicate("a", 513)],
+          [cursor: %{}]
+        ] do
+      assert {:error, :invalid_page} =
+               ArchiveUploads.archive_inventory(ctx.source.id, options, ctx.opts)
+    end
+
+    assert {:error, :invalid_page} = ArchiveUploads.archive_inventory("invalid", [], ctx.opts)
+
+    cursor = %{
+      "schema_version" => 1,
+      "source_id" => ctx.source.id,
+      "published_at" => "2025-01-02T03:04:05.000000Z",
+      "id" => ctx.block.id
+    }
+
+    for invalid <- [
+          Map.put(cursor, "schema_version", 2),
+          Map.put(cursor, "source_id", Ecto.UUID.generate()),
+          Map.put(cursor, "published_at", nil),
+          Map.put(cursor, "published_at", "not-a-date"),
+          Map.put(cursor, "published_at", "-9999-01-02T03:04:05.000000Z"),
+          Map.put(cursor, "id", "invalid"),
+          Map.put(cursor, "extra", true),
+          Map.delete(cursor, "id"),
+          [],
+          nil
+        ] do
+      encoded = invalid |> Jason.encode!() |> Base.url_encode64(padding: false)
+
+      assert {:error, :invalid_page} =
+               ArchiveUploads.archive_inventory(ctx.source.id, [cursor: encoded], ctx.opts)
+    end
+  end
+
+  defp publish_inventory_block(ctx) do
+    bind(ctx)
+    verified_object(ctx, :media)
+    verified_object(ctx, :init)
+    manifest = verified_object(ctx, :manifest)
+    assert {:ok, _} = ArchiveUploads.publish_archive(ctx.lease, ctx.opts)
+    Map.put(ctx, :manifest, manifest)
+  end
+
+  defp inventory_item(ctx, published_at) do
+    %{
+      block_id: ctx.block.id,
+      camera_source_id: ctx.source.id,
+      stream_profile_id: ctx.block.stream_profile_id,
+      published_at: DateTime.to_iso8601(published_at)
+    }
+  end
+
   for role <- [:init, :media, :manifest], conflict <- [:response, :verification] do
     test "late #{conflict} conflict for #{role} excludes availability while keeping publication history",
          ctx do
@@ -2260,6 +2429,9 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
       assert {:error, :invalid_dispatcher} = ArchiveUploads.publication_status(ctx.block.id, opts)
 
       assert {:error, :invalid_dispatcher} =
+               ArchiveUploads.archive_inventory(ctx.source.id, [], opts)
+
+      assert {:error, :invalid_dispatcher} =
                ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, :init, opts)
 
       assert {:error, :invalid_dispatcher} = ArchiveUploads.prepare_manifest(ctx.lease, opts)
@@ -2274,6 +2446,9 @@ defmodule ServiceRadar.Camera.ArchiveUploadsIntegrationTest do
              Repo.transaction(fn ->
                assert {:error, :ambient_transaction} =
                         ArchiveUploads.publication_status(ctx.block.id, ctx.opts)
+
+               assert {:error, :ambient_transaction} =
+                        ArchiveUploads.archive_inventory(ctx.source.id, [], ctx.opts)
 
                assert {:error, :ambient_transaction} =
                         ArchiveUploads.archive_range(ctx.source.id, ctx.block.id, :init, ctx.opts)

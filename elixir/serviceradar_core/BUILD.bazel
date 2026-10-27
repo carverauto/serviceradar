@@ -260,6 +260,28 @@ write_source_files(
     tags = ["manual"],
 )
 
+ash_schema(
+    name = "camera_archive_inventory_schema",
+    srcs = ["priv/resource_snapshots/repo/platform.camera_recording_blocks/20261026160000.json"],
+    outs = [
+        "generated_camera_archive_inventory/block.json",
+        "generated_camera_archive_inventory/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:camera_archive_inventory_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_camera_archive_inventory_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.camera_recording_blocks/20261027160000.json": ":generated_camera_archive_inventory/block.json",
+        "priv/repo/migrations/20261027160000_index_camera_archive_inventory.exs": ":generated_camera_archive_inventory/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # The generator operates on an isolated Ash domain, so unrelated resource drift
 # cannot become a migration in this change. The write-back target is the only
 # interface for generated outputs; never copy from the Bazel output cache.

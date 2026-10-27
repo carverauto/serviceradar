@@ -202,6 +202,125 @@ defmodule ServiceRadar.Camera.ArchiveUploads do
   end
 
   @doc """
+  Discover a bounded page in newest-publication order for an authorized camera.
+
+  The caller owns current recording authorization. Publication timestamps are
+  inventory ordering, never capture time. Each candidate is checked through the
+  canonical metadata transaction; only currently available blocks are returned.
+  A cursor advances past scanned candidates even when conflicts hide every item.
+  The page is not a grant or a transaction spanning all its individual proofs.
+  """
+  def archive_inventory(camera_source_id, page_opts, opts \\ []) do
+    with :ok <- outside_transaction(),
+         {:ok, _} <- dispatcher(opts),
+         {:ok, source_id, limit, cursor} <- inventory_page(camera_source_id, page_opts),
+         {:ok, candidates} <- inventory_candidates(source_id, limit, cursor, opts) do
+      {scanned, remaining} = Enum.split(candidates, limit)
+
+      with {:ok, items} <- inventory_items(source_id, scanned, opts) do
+        next_cursor =
+          if remaining != [], do: encode_inventory_cursor(source_id, List.last(scanned))
+
+        {:ok, %{schema_version: 1, items: items, next_cursor: next_cursor}}
+      end
+    end
+  end
+
+  defp inventory_page(source_id, page_opts) when is_list(page_opts) do
+    with true <- Keyword.keyword?(page_opts),
+         keys = Keyword.keys(page_opts),
+         true <- keys -- [:limit, :cursor] == [],
+         {:ok, source_id} <- Ecto.UUID.cast(source_id),
+         limit = Keyword.get(page_opts, :limit, 10),
+         true <- is_integer(limit) and limit in 1..20,
+         {:ok, cursor} <- inventory_cursor(source_id, Keyword.get(page_opts, :cursor)) do
+      {:ok, source_id, limit, cursor}
+    else
+      _ -> {:error, :invalid_page}
+    end
+  end
+
+  defp inventory_page(_, _), do: {:error, :invalid_page}
+
+  defp inventory_cursor(_source_id, nil), do: {:ok, nil}
+
+  defp inventory_cursor(source_id, encoded)
+       when is_binary(encoded) and byte_size(encoded) in 1..512 do
+    with {:ok, json} <- Base.url_decode64(encoded, padding: false),
+         {:ok,
+          %{
+            "schema_version" => 1,
+            "source_id" => ^source_id,
+            "published_at" => timestamp,
+            "id" => id
+          } = cursor}
+         when map_size(cursor) == 4 and is_binary(timestamp) and is_binary(id) <-
+           Jason.decode(json),
+         {:ok, %DateTime{year: year} = published_at, 0} when year in 1..9999 <-
+           DateTime.from_iso8601(timestamp),
+         true <- DateTime.to_iso8601(published_at) == timestamp,
+         {:ok, ^id} <- Ecto.UUID.cast(id) do
+      {:ok, {published_at, id}}
+    else
+      _ -> {:error, :invalid_page}
+    end
+  end
+
+  defp inventory_cursor(_, _), do: {:error, :invalid_page}
+
+  defp encode_inventory_cursor(source_id, block) do
+    %{
+      schema_version: 1,
+      source_id: source_id,
+      published_at: DateTime.to_iso8601(block.archive_published_at),
+      id: block.id
+    }
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp inventory_candidates(source_id, limit, cursor, opts) do
+    RecordingBlock
+    |> Ash.Query.for_read(:archive_inventory, %{camera_source_id: source_id})
+    |> Ash.Query.limit(limit + 1)
+    |> after_inventory_cursor(cursor)
+    |> Ash.read(opts)
+  end
+
+  defp after_inventory_cursor(query, nil), do: query
+
+  defp after_inventory_cursor(query, {published_at, id}) do
+    Ash.Query.filter(
+      query,
+      archive_published_at < ^published_at or
+        (archive_published_at == ^published_at and id < ^id)
+    )
+  end
+
+  defp inventory_items(source_id, candidates, opts) do
+    candidates
+    |> Enum.reduce_while({:ok, []}, fn candidate, {:ok, items} ->
+      case archive_metadata(source_id, candidate.id, opts) do
+        {:ok, %{archive_status: "available"} = metadata} ->
+          item =
+            Map.take(metadata, [:block_id, :camera_source_id, :stream_profile_id, :published_at])
+
+          {:cont, {:ok, [item | items]}}
+
+        {:ok, _metadata} ->
+          {:cont, {:ok, items}}
+
+        {:error, _} = error ->
+          {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, items} -> {:ok, Enum.reverse(items)}
+      error -> error
+    end
+  end
+
+  @doc """
   Derive one exact immutable init or fragment range for an authorized reader.
 
   The caller authorizes the current user before entering with its internal actor,
