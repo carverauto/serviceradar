@@ -54,6 +54,12 @@ plugin-result ingestion more reliable, and ships security updates.
 - Proxmox and AWX plugin results no longer time out during ingestion,
   and a result that keeps timing out is quarantined after three
   attempts (#5923, #5999, #6028, #6030).
+- Old plugin-result attempt records are cleaned up automatically:
+  active ones after 7 days and quarantined ones after 30. Change the
+  windows with `SERVICERADAR_PLUGIN_RESULT_ATTEMPT_ACTIVE_RETENTION_DAYS`
+  and `SERVICERADAR_PLUGIN_RESULT_QUARANTINE_RETENTION_DAYS` (#6077).
+- Agent configuration is generated with less repeated work, so agents
+  that poll for config changes cost core less (#6076).
 
 **Proxmox and identity**
 
@@ -105,8 +111,12 @@ plugin-result ingestion more reliable, and ships security updates.
   from different rules. Action-only plugins are no longer reported as
   stale or unavailable in the plugin fleet (#5874, #6011, #6027, #5899).
 - Groundwork for exposure intelligence and camera archive recording
-  continues. Camera recording stays off by default (#5964, #6041,
-  #6047, #6060).
+  continues. Exposure data now checks itself daily against the
+  vulnerability assessments and repairs any drift, and is not reported
+  ready until that check passes. Camera recording stays off by default
+  (#5964, #6041, #6047, #6060, #6081).
+- Events in StarRocks no longer go missing when a scanner reports the
+  same event again with a new time, such as a Trivy rescan (#6073).
 - Atlas filtered topology stays visible while panning, RDP viewers
   connect more reliably, and StarRocks loading recovers from
   compute-node restarts (#5830, #5831, #5867, #5869, #5876, #5880).
@@ -114,8 +124,8 @@ plugin-result ingestion more reliable, and ships security updates.
 **Native add-ons and Wasm plugins**
 
 - The add-on fleet flags scans from outdated scanner versions (#6026).
-- netprobe 0.2.71 reports the package that owns each process
-  executable (#5914), bumblebee 0.1.8 reports its own build as the
+- netprobe 0.2.72 reports the package that owns each process
+  executable (#5914, #6079), bumblebee 0.1.8 reports its own build as the
   scanner version (#5944), awx 0.1.22 and awx-inventory-sync 0.1.17
   report rejected or expiring API tokens (#5875, #6023),
   proxmox-inventory 0.1.12 skips container-bridge addresses (#5883),
@@ -131,9 +141,10 @@ plugin-result ingestion more reliable, and ships security updates.
 - SAML response parsing is hardened against malicious XML (#6054).
 - zstd is patched through tonic, along with other Rust advisories
   (#5864, #5885, #5982, #5990, #6043).
-- Also updated: NATS, OpenTelemetry Go 1.47, Arrow 60, other Go and
-  Rust libraries, and JavaScript lockfiles (#4884, #6018, #6056,
-  #6070).
+- Also updated: NATS, OpenTelemetry Go 1.47, Arrow 60, Cap'n Proto
+  0.27, quick-xml 0.42, other Go and Rust libraries, and JavaScript
+  dependencies (#4884, #6018, #6056, #6065, #6070, #6075, #6079, #6080,
+  #6082, #6083, #6084).
 
 # ServiceRadar v1.4.97
 
