@@ -225,6 +225,11 @@ lto = true
 debug-assertions = false
 panic = "abort"
 
+# Security patch rationale and removal instructions:
+# third_party/rust_patches/tonic-0.14.6/README.serviceradar.md
+[patch.crates-io]
+tonic = { path = "third_party/rust_patches/tonic-0.14.6" }
+
 # Crate build configuration, read by rules_rs from Cargo's own metadata table.
 # Binary-only crates: //rust/protoc-plugins exists solely to pin these, and the plugins
 # have to be generated as runnable binaries rather than libraries.

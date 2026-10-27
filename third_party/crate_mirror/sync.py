@@ -1,8 +1,13 @@
 """Populate //third_party/crate_mirror from Cargo.lock.
 
-Run it as a Bazel target, never by hand:
+Run it as a Bazel target on Linux:
 
-    bazel run //third_party/crate_mirror:sync
+    bazel run --config=remote //third_party/crate_mirror:sync
+
+On macOS the remote-built Linux interpreter cannot execute locally. From the
+repository root, use the system Python without a local Bazel build:
+
+    BUILD_WORKSPACE_DIRECTORY="$PWD" python3 third_party/crate_mirror/sync.py
 
 This is the vendoring step. It is a `bazel run` tool rather than a build action on
 purpose: it fetches over the network and writes into the source tree, so it belongs in
