@@ -15,21 +15,20 @@ operator switches.
 - **BREAKING (internal):** the availability modes, their switches and the automatic
   progression are removed. Core always runs merged availability: the resolver owns
   `availability_state` and `is_available`, and emits each transition.
-- On upgrade, core converges every install, whatever mode it was in, once: a migration
-  records the pre-merge value of every device that has none in the compatibility store
-  (installs in `legacy` or `shadow` only), drops the rollout objects, and enqueues one
-  full resolve whose first decision per device emits no per-device event, followed by
-  one reconciliation summary. A fresh install needs no special case.
+- On upgrade, core converges every install, whatever mode it was in, once. See the
+  [convergence design](design.md#decision-1-converge-once-in-the-migration-and-one-job)
+  for compatibility seeding and announcement conditions, and
+  [first-decision handling](design.md#decision-2-first-merged-decisions-are-reconciliations-not-transitions)
+  for transition suppression.
 - Removed: the mode setting and `availability_mode()`, the mode control and its Helm pin
   (`core.availability.modeControl`), the Settings rollout panel, the readiness
   conditions and the `availability_cutover_readiness` health check, the progression,
   shadow-entry, capture-backfill and cutover workers, the shadow decision table and the
   divergence report, the `Operator` switch, control, status and report commands and
   their Mix tasks, the legacy-mode mirror trigger, and the legacy transition publishers.
-- One-time exception to "only the adopt action changes a source": on an install that never
-  cut over (`legacy` or `shadow`), an Armis source in `merged` semantics with no agent
-  pushed the mirror of the legacy value; the upgrade sets it to `legacy` semantics, with
-  an audit row, so it keeps pushing exactly that value instead of switching silently.
+- The upgrade includes a one-time audited exception to "only the adopt action changes a
+  source". See the [Armis compatibility decision](design.md#decision-1a-merged-armis-sources-on-an-install-that-never-cut-over)
+  for the affected sources and accepted incomplete-rollout exceptions.
 - Kept: the per-source Armis northbound choice (agent | `legacy` semantics | `merged`
   semantics) as a product setting, and with it the compatibility store
   `device_availability_legacy` and the legacy writers that maintain it, because `legacy`
@@ -50,4 +49,5 @@ operator switches.
   Sources settings, Armis source settings), `helm/serviceradar` (`modeControl` removed,
   `expectedVersion` bumped), `docs/merged-device-availability.md` (replaces the cutover
   runbook).
-- Armis northbound: what every existing source pushes is unchanged.
+- Armis northbound: compatibility is preserved subject to the accepted exceptions in
+  the Armis compatibility decision linked above.
