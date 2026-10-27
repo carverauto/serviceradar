@@ -235,7 +235,7 @@ Permission: `settings.prefix_tags.manage` (operator+ by default).
 
 ## Proximity queries (geo cache)
 
-Flow proximity does **not** store geometry on the flow hypertable. Instead:
+Flow proximity does **not** store geometry on flow rows. Instead:
 
 1. Migration adds a generated `location geography(Point, 4326)` column on
    `platform.ip_geo_enrichment_cache` (from lat/lng) plus a partial GiST index.
