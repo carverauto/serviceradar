@@ -20,9 +20,17 @@ it commits, aborts, or the budget runs out. UNKNOWN or no answer is
 unresolved, and the next attempt loads the batch again under the same label:
 if a transaction exists under it after all, StarRocks refuses the label and
 the client polls it as above, so the batch is not loaded twice. Only an aborted
-label is retried under a new label. StarRocks retains successful labels to prevent
-duplicate loading, as described in its
+label is retried under a new label within that Stream Load call. StarRocks
+retains successful labels to prevent duplicate loading, as described in its
 [Stream Load protocol](https://docs.starrocks.io/docs/sql-reference/sql-statements/loading_unloading/STREAM_LOAD/).
+
+Across ordinary deliveries, changed row content gets a new default label so
+updates load instead of reconciling an earlier version. Identical content keeps
+the same label; the fingerprint's encode-time exclusions are defined in
+[`StreamLoad.content_fingerprint/1`](../elixir/serviceradar_core/lib/serviceradar/analytics/starrocks/stream_load.ex).
+Delete-and-replace deliveries have a separate label lifetime so redelivery can
+restore a previously replaced row; see the replacement contract in
+[`Destination`](../elixir/serviceradar_core/lib/serviceradar/analytics/starrocks/destination.ex).
 
 After the budget or attempt limit is reached, the error returns to the processor
 and Broadway fails the batch. EventWriter NAKs it for JetStream redelivery.
