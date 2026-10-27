@@ -10,9 +10,9 @@ uncached, with successful observer, teardown and generation release. The
 availability and bounded continuation in publication order.
 
 The current checkpoint implements a [separate recordings page and single-block
-HLS player](archive-player.md). Author validation passed 467 targets including seven
-real Chromium cases. Complete no-mistakes publication and published-head database
-CI next. Client fragment requests are serialized; interrupted seeks and switches
+HLS player](archive-player.md). The [checkpoint validation ledger](validation.md#archive-player-checkpoint-validation)
+owns author results, draft publication and the remaining published-head database
+gate. Client fragment requests are serialized; interrupted seeks and switches
 may require explicit retry while the existing single reader retires old work. Unknown capture UTC remains unknown; publication order is
 not a wall-clock timeline.
 
@@ -68,9 +68,9 @@ identifiers and failure injections are independently invented synthetic data.
 | Sealed-media upload | #6007 merged at `575dfc1f`; head `4c965ee8` passed 19 checks. Core `773fd2dc` and Web `7fd98129` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. [Byte-path contract](media-upload.md) | Publication is complete below; hosted qualification and deployment acceptance remain open |
 | Archive publication | #6047 merged at `35078ce5`; final head `3bd7402a` passed 20 checks. Core `cb53539e` and Web `78dee076` executed all 12/seven guarded targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-publication-validation) | Byte access is covered by [archive reads](archive-reads.md); reconciliation, hosted qualification and deployment acceptance remain open |
 | Authorized archive metadata | #6055 merged at `ca8ad4e2`; head `a586219c` passed 19 checks. Core `5c6abc7a` and Web `a05a66e9` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-metadata-validation) | Byte delivery is covered by [archive reads](archive-reads.md); timeline and hosted acceptance remain open |
-| Authorized archive bytes | #6060 merged at `9a68975d`; head `cf918169` passed 19 checks. Core `fc501f97` and Web `88ddf619` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-fragment-read-validation) | Playlists are merged below; browser player, timeline and hosted acceptance |
-| Bounded archive playlists | #6071 merged at `80af80b6`; head `240e6ff7` passed 19 checks. Core `44a5a8ab` and Web `89379230` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Real HTTP HLS consumer passed with 30 selected-window frames and 90 full-stream frames | Browser compatibility, discovery, provisional local delivery and hosted acceptance |
-| Bounded publication inventory | #6089 merged at `e0635e06`; head `76d4c063` passed 19 checks. Core `90e51d24` and Web `f755112a` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Core owner 324 tests and Web owner 836 tests plus two properties passed | Archive player, capture-time timeline and hosted acceptance |
+| Authorized archive bytes | #6060 merged at `9a68975d`; head `cf918169` passed 19 checks. Core `fc501f97` and Web `88ddf619` executed all 12/seven targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-fragment-read-validation) | [Player status](archive-player.md#validation-boundaries); timeline and hosted acceptance |
+| Bounded archive playlists | #6071 merged at `80af80b6`; head `240e6ff7` passed 19 checks. Core `44a5a8ab` and Web `89379230` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Real HTTP HLS consumer passed with 30 selected-window frames and 90 full-stream frames | [Discovery](archive-discovery.md) and [player status](archive-player.md#validation-boundaries); provisional local delivery and hosted acceptance |
+| Bounded publication inventory | #6089 merged at `e0635e06`; head `76d4c063` passed 19 checks. Core `90e51d24` and Web `f755112a` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Core owner 324 tests and Web owner 836 tests plus two properties passed | [Player status](archive-player.md#validation-boundaries); capture-time timeline and hosted acceptance |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
 | Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
 

@@ -1334,5 +1334,20 @@ owner review found no concrete defect. Ripwire reported no gating regressions;
 its remaining rows were the framework-called disconnected hook and small lockfile
 map growth. These do not constitute a claim of zero new maintenance cost.
 
-No-mistakes publication and final published-head database execution are pending.
+[Draft PR #6096](https://github.com/carverauto/serviceradar/pull/6096) used the
+approved prepublication deferral to reach CI-only database validation. The first
+[Web invocation](https://carverauto.buildbuddy.io/invocation/9ff1904f-b9c4-41ce-89f9-5b1d6fd96624)
+failed: owning suite `d1e69075-ca5c-45af-a82a-1d11c8057fd3` reported 839 tests
+plus two properties and three failures. Six of seven Web targets passed;
+lifecycle exit statuses were suite 3, observer 0, teardown 0 and generation
+release 0. The public HTTP cancellation case passed in 4981.2 ms and the
+independent authenticated HLS consumer passed in 5756.7 ms. These are first-run
+results, not a clean pass.
+
+The correction uses the canonical Identity RBAC cache API and compares relay
+identities against one snapshot taken after fixture setup, preserving the
+fixture's recording relay and all behavior assertions. Final readiness still
+requires new published-head uncached Core12/Web7 execution, completed changed
+owning cases and numeric zero suite, observer, teardown and generation-release
+statuses. The prepublication deferral is not a waiver of that gate.
 Recording remains disabled; no live deployment or provider mutation was performed.
