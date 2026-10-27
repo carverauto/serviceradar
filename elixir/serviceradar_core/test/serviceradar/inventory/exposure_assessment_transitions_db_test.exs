@@ -797,7 +797,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     [[retirement]] =
       Repo.query!("SELECT platform.exposure_lifecycle_publication($1)", [ordinal]).rows
 
-    live_transition!(conn, retirement)
+    live_transition!(conn, retirement, 0)
     retired = live_fact!(key)
     assert retired["state"] == 2
     assert retired["transition_seq"] == retirement["retired_seq"]
@@ -915,7 +915,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     ExposureSnapshots.process_batch([%{message | data: Base.decode64!(encoded)}])
   end
 
-  defp live_transition!(conn, payload) do
+  defp live_transition!(conn, payload, expected_fact_count \\ 1) do
     subject = ExposureTransitionRelay.subject(payload["device_uid"])
     assert %{"seq" => position} = ExposureBroker.request(conn, subject, payload)
 
@@ -924,7 +924,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                seq: position
              })
 
-    assert {:ok, 1} =
+    assert {:ok, ^expected_fact_count} =
              ExposureTransitions.process_batch([
                %{
                  data: Base.decode64!(encoded),
