@@ -573,8 +573,8 @@ in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
 | `dst_endpoint_port` | `dst_port` | Destination port |
 | `port` | `endpoint_port` | Matches **either** endpoint port — e.g. `port:22` for SSH regardless of direction |
 | `threat_matched` | | Live cache match on either flow endpoint. Interactive queries default to `time:last_24h` |
-| `threat_source` | | Feed source on the live cache row |
-| `threat_indicator` | | IP or CIDR of the matching indicator |
+| `threat_source` | | Refused on flows; see [availability and workaround](./srql-cookbook.md#flows-for-one-matched-endpoint). |
+| `threat_indicator` | | Refused on flows; see [availability and workaround](./srql-cookbook.md#flows-for-one-matched-endpoint). |
 | `threat_observed_ip` | | Specific cached endpoint IP |
 | `threat_severity` | | Compare live `max_severity` |
 | `protocol_name` | | Protocol name |

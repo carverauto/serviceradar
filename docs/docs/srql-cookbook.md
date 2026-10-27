@@ -231,17 +231,18 @@ in:flows threat_matched:true time:last_24h sort:time:desc limit:100
 Each flow appears once even if several indicators cover an endpoint. Omitting
 `time:` defaults to the last 24 hours.
 
-### Flows for one indicator CIDR
+### Flows for one matched endpoint
 
 ```srql
-in:flows threat_indicator:"198.51.100.0/24" time:last_24h sort:time:desc limit:100
+in:threat_intel_matches source:alienvault_otx sort:evaluated_at:desc limit:100
+in:flows threat_observed_ip:"198.51.100.10" time:last_24h sort:time:desc limit:100
 ```
 
-### Attributed threat-matched flows
-
-```srql
-in:attributed_flows threat_source:alienvault_otx time:last_24h sort:time:desc limit:100
-```
+`threat_indicator:` and `threat_source:` are not available on flows yet. The
+StarRocks 4.1 JDBC catalog cannot read the indicator `cidr` or the cache's
+source list, so SRQL refuses these filters rather than return approximate
+rows. Find the matched endpoints in `in:threat_intel_matches`, then narrow
+flows to one of them with `threat_observed_ip:`.
 
 ## NetFlow traffic queries
 
@@ -357,23 +358,12 @@ IPAM prefix enrichment (see [Prefix Tags](./prefix-tags.md)).
 
 ### Proximity (geo cache)
 
-```
-in:flows near:30.2672,-97.7431,50km time:last_6h
-```
-
-```
-in:flows tag:ti:otx near:30.27,-97.74,50km time:last_24h
-```
-
-```
-in:flows dst_near:37.7749,-122.4194,25mi time:last_1h
-```
-
-`near:` matches if **either** endpoint's IP is within the radius of the coordinate
-according to `platform.ip_geo_enrichment_cache` (PostGIS `ST_DWithin` on the
-generated `location` geography). `src_near:` / `dst_near:` are directional.
-Radius units: `km` (default if omitted), `m`, `mi`. IPs missing from the geo
-cache are excluded from proximity matches without error.
+`near:`, `src_near:` and `dst_near:` are not available on flows yet. They are
+defined as PostGIS `ST_DWithin` on the generated `location` geography of
+`platform.ip_geo_enrichment_cache`, and the StarRocks 4.1 JDBC catalog cannot
+read geography columns. SRQL refuses these filters rather than return rows
+from a different distance model. Country filters (`src_country_iso2:`,
+`dst_country_iso2:`) still work.
 
 ### Traffic broken down by application
 

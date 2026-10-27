@@ -23,9 +23,12 @@ security findings.
 | Current matched endpoints | `/security/threat-intel` |
 | Current matches in SRQL | `in:threat_intel_matches source:alienvault_otx` |
 | Flows for a live match | `in:flows threat_matched:true time:last_24h` |
-| Flows for one indicator | `in:flows threat_indicator:"198.51.100.0/24" time:last_24h` |
-| Attributed threat flows | `in:attributed_flows threat_source:alienvault_otx time:last_24h` |
+| Flows for one matched endpoint | `in:flows threat_observed_ip:"198.51.100.10" time:last_24h` |
+| Attributed threat flows | `in:attributed_flows threat_matched:true time:last_24h` |
 | Feed configuration | **Settings -> Networks -> Threat Intel** |
+
+For unavailable flow filters and the matched-endpoint workaround, see
+[SRQL Cookbook](./srql-cookbook.md#flows-for-one-matched-endpoint).
 
 Dashboard **Matched IPs** is distinct live cache endpoints.
 **Indicator matches** is endpoint-to-indicator memberships, not flow
