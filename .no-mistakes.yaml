@@ -98,12 +98,16 @@ review:
     DIRE FORMAL-MODEL RULE: `formal/dire/README.md` requires that "each model
     describes the code as it is". The model checks run in BazelCI on every PR,
     but they only catch a regression when the changed behaviour is in the
-    model. When a diff changes device-identity behaviour, meaning any file under
+    model. When a diff changes device-identity behaviour by altering what
+    matches, merges, retires, revives (restores a tombstone) or reseeds a device,
+    wherever that behaviour lives, this rule applies.
+    Examples include files under
     `elixir/serviceradar_core/lib/serviceradar/inventory/identity/`,
-    `inventory/sync/device_writes.ex`, `inventory/sync_ingestor.ex`, or
-    `inventory/hypervisor_enrichment_ingestor.ex`, and the change alters what
-    matches, merges, retires, revives or reseeds a device, then the diff must
-    do one of these:
+    `inventory/sync/device_writes.ex`, `inventory/sync_ingestor.ex`,
+    `inventory/hypervisor_enrichment_ingestor.ex`,
+    `sweep_jobs/sweep_results_ingestor.ex` (`restore_eligible?` / `:restore`),
+    and `inventory/device.ex` (`:restore` / `:gateway_restore` actions).
+    The diff must do one of these:
       (a) update `formal/dire`: the actions naming the changed Elixir functions,
           the goal or vacuity configs, the `CurrentBugs.tla` table, or the golden
           traces under `formal/dire/traces/`; or
