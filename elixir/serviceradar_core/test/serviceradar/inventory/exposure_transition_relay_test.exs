@@ -1,7 +1,8 @@
 defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
   @moduledoc """
   The outbox relay deletes a transition only after the stream acknowledged it,
-  and publishes each one under its sequence as the JetStream message id.
+  publishes it under its sequence as the JetStream message id, and reports
+  stream freshness without treating unavailable status as healthy.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -113,6 +114,21 @@ defmodule ServiceRadar.Inventory.ExposureTransitionRelayTest do
                  HealthTracker.current_status(:custom, "exposure_transitions_stream")
 
         assert repeated.id == degraded.id
+
+        assert %{"config" => %{}} =
+                 ExposureBroker.request(
+                   conn,
+                   "$JS.API.STREAM.UPDATE.EXPOSURE_TRANSITIONS",
+                   Map.put(config, "max_age", 691_200_000_000_000)
+                 )
+
+        report!(relay)
+
+        assert {:ok, over_limit} =
+                 HealthTracker.current_status(:custom, "exposure_transitions_stream")
+
+        assert over_limit.id == degraded.id
+        assert retained_metrics!(conn)["exposure_transitions_stream_max_age_seconds"] == 691_200.0
 
         assert %{"config" => %{"max_age" => 604_800_000_000_000}} =
                  ExposureBroker.request(
