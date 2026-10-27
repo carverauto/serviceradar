@@ -90,8 +90,8 @@ defmodule ServiceRadarCore.MixProject do
       {:ash, "~> 3.37.2"},
       # The floors below are the first releases carrying the fixes for the Hex
       # advisories open against the previously locked versions
-      # (`mix hex.audit`); do not lower them. ash_postgres 2.14 is the
-      # temporal release that matches Ash 3.34; its advisory floor was 2.13.
+      # (`mix hex.audit`); do not lower them. The ash_postgres floor covers
+      # EEF-CVE-2026-115627 and EEF-CVE-2026-115635.
       {:ash_postgres, "~> 2.15 and >= 2.15.2"},
       {:ash_oban, "~> 0.8.14"},
       {:ash_state_machine, "~> 0.2"},
