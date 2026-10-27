@@ -803,13 +803,13 @@ orphaned. Reclaim stale bases with the `bazel-reclaim` tool:
 
 ```
 # Report only (dry-run is the default; nothing is deleted)
-bazel run //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root
+bazel run --config=remote //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root
 
 # Delete the bases the report marked stale
-bazel run //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root --apply
+bazel run --config=remote //go/cmd/tools/bazel-reclaim -- --output-user-root /path/to/output-user-root --apply
 ```
 
-Find the output user root as the parent directory of `bazel info output_base`;
+Find the output user root as the parent directory of `bazel info --config=remote output_base`;
 a custom root from `~/.bazelrc` must be passed explicitly. With no flag, the
 tool scans a candidate only when that directory exists:
 `$XDG_CACHE_HOME/bazel/_bazel_$USER` when `XDG_CACHE_HOME` is set,
