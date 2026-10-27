@@ -25,8 +25,32 @@ Armis sources with `merged` semantics all read that one value.
 
 ## Upgrading
 
-Nothing to do. The release that removed the staged rollout converges every install on
-merged availability by itself, whatever stage it had reached:
+### Before upgrading
+
+Run these read-only queries on the old release before starting the upgrade:
+
+```sql
+SELECT count(*) FROM platform.oban_jobs
+WHERE worker = 'ServiceRadar.Inventory.Availability.CaptureBackfillWorker'
+  AND state IN ('available','scheduled','retryable','executing');
+
+SELECT count(*) FROM platform.oban_jobs
+WHERE worker = 'ServiceRadar.Inventory.Availability.CutoverWorker'
+  AND args ->> 'phase' = 'restore'
+  AND state IN ('available','scheduled','retryable','executing');
+```
+
+Both counts must be 0 before upgrading. Otherwise, wait for the jobs to finish and
+repeat the checks. An in-flight stage-a backfill or `hold_legacy` restore on an old core
+pod can still overwrite availability state and provenance after convergence; the
+backfill can also seed unavailable per-agent rows' zero failure counters. These jobs
+run only just after stage a ships or during a `hold_legacy` rollback, and do not affect
+the Armis legacy table or its northbound pushes.
+
+### Automatic convergence
+
+After these checks, the release that removed the staged rollout converges every install
+on merged availability by itself, whatever stage it had reached:
 
 1. For legacy or shadow installs, the migration
    `20261026220000_converge_merged_availability` seeds missing

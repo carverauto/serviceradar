@@ -80,7 +80,20 @@ retaining its history; absent and already healthy checks receive no new record.
 
 ## Rollout window
 
-Core is a rolling update. While an old pod still runs after the migration committed, its
-availability writers and resolutions fail (the mode function is gone) and are retried or
-deferred to the invalidation log; none of them writes the device column or the
-compatibility store in the old way. The window ends when the old pod stops.
+Core is a rolling update. After the migration commits, old-pod availability paths
+that call `availability_mode()` fail because the function is gone; their work is
+retried or deferred to the invalidation log. This does not stop every in-flight write.
+An old core pod already executing a stage-a
+`ServiceRadar.Inventory.Availability.CaptureBackfillWorker` job can continue its page
+transactions after convergence, rewriting `availability_state` and provenance and
+seeding `consecutive_down` on unavailable per-agent ledger rows still at 0. An executing
+`ServiceRadar.Inventory.Availability.CutoverWorker` restore (`hold_legacy` rollback)
+can also commit a page that passed its mode check before the migration, rewriting
+availability state and provenance after convergence.
+
+This residual is accepted because these jobs run only immediately after stage a ships
+or during a `hold_legacy` rollback. They do not affect the Armis legacy table or its
+northbound pushes. Operators confirm that neither job is pending or executing on the
+old release before upgrading, using the checks in
+`docs/merged-device-availability.md`, and wait for any such jobs to finish. No migration
+drain guard or deployment-strategy change is introduced.
