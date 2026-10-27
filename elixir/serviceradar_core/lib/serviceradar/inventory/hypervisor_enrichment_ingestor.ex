@@ -941,13 +941,18 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       |> Enum.filter(&present?/1)
 
     with {:ok, integration_identity} <- integration_identity_by_ref(records),
+         {:ok, node_candidates} <- node_candidate_identity_by_host(records),
          {:ok, guest_resolution} <-
-           resolve_guest_network_and_awx_candidates(records, integration_identity, actor),
+           resolve_guest_network_and_awx_candidates(
+             records,
+             Map.merge(node_candidates, integration_identity),
+             actor
+           ),
          {:ok, host_network_identity} <- network_identity_by_host(records, actor),
          {:ok, devices} <- lookup_devices(current_uids, names, actor) do
       network_identity = guest_resolution.by_ref
       guest_identity_maps = [integration_identity, network_identity]
-      host_identity_maps = [integration_identity, host_network_identity]
+      host_identity_maps = [integration_identity, host_network_identity, node_candidates]
 
       {:ok,
        Map.merge(records, %{
@@ -988,8 +993,15 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
   defp ensure_inventory_devices(records, actor) do
     with {:ok, integration_identity} <- integration_identity_by_ref(records),
+         {:ok, node_candidates} <- node_candidate_identity_by_host(records),
+         {:ok, hosts} <- converge_node_records(records.hosts, node_candidates, actor),
+         records = %{records | hosts: hosts},
          {:ok, guest_resolution} <-
-           resolve_guest_network_and_awx_candidates(records, integration_identity, actor),
+           resolve_guest_network_and_awx_candidates(
+             records,
+             Map.merge(node_candidates, integration_identity),
+             actor
+           ),
          :ok <-
            reconcile_guest_device_merges(
              records.guests,
@@ -1650,6 +1662,241 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
           {:cont, {:ok, acc}}
       end
     end)
+  end
+
+  # A Proxmox node's own device is the one the mapper fingerprinted as a PVE web
+  # UI at the address the node's authenticated API reports for it, in the
+  # result's partition. The PVE API reports no NIC MACs, so without this a node
+  # whose address another record holds never resolves to that record: the
+  # node's integration identity is written as a second, address-less record,
+  # because a declarative address never displaces a live holder.
+  #
+  # The address alone is not enough, and neither is the node name: two clusters
+  # can share node names, and an address can move. The holder must carry the
+  # mapper's PVE fingerprint (`proxmox_candidate_evidence`, which only the
+  # mapper writes), its fingerprinted title must not name another node, its
+  # MACs must not contradict the node's, and it must hold no other node's or
+  # guest's hypervisor integration id, which keeps a node of one cluster off a
+  # record another cluster's node already owns. An address two nodes of the
+  # result claim binds neither.
+  defp node_candidate_identity_by_host(records) do
+    host_ip_by_ref = primary_ip_by_host(records.network_interfaces)
+    host_macs = host_macs_by_ref(records.network_interfaces)
+
+    nodes =
+      records.hosts
+      |> Enum.filter(&proxmox_record?/1)
+      |> Enum.map(fn record ->
+        ref = Map.get(record, :provider_ref)
+
+        %{
+          ref: ref,
+          ips: node_addresses(record, host_ip_by_ref),
+          partition: metadata_partition(record),
+          name: normalize_lookup_key(Map.get(record, :name)),
+          macs: MapSet.new(Map.get(host_macs, ref, [])),
+          own_ids: MapSet.new(integration_lookup_values(record, %{}))
+        }
+      end)
+
+    claims =
+      nodes
+      |> Enum.flat_map(fn node -> Enum.map(node.ips, &{node.partition, &1}) end)
+      |> Enum.frequencies()
+
+    nodes =
+      nodes
+      |> Enum.map(fn node ->
+        %{node | ips: Enum.filter(node.ips, &(Map.fetch!(claims, {node.partition, &1}) == 1))}
+      end)
+      |> Enum.reject(&(&1.ips == []))
+
+    case nodes do
+      [] ->
+        {:ok, %{}}
+
+      _ ->
+        with {:ok, candidates} <- query_node_candidate_devices(Enum.flat_map(nodes, & &1.ips)) do
+          {:ok,
+           Enum.reduce(nodes, %{}, fn node, acc ->
+             case Enum.filter(candidates, &node_candidate?(&1, node)) do
+               [candidate] -> Map.put(acc, node.ref, candidate.uid)
+               _none_or_ambiguous -> acc
+             end
+           end)}
+        end
+    end
+  end
+
+  defp node_addresses(record, host_ip_by_ref) do
+    [metadata_ip(record), Map.get(host_ip_by_ref, Map.get(record, :provider_ref))]
+    |> Enum.map(&normalize_ip_identifier/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp node_candidate?(candidate, node) do
+    candidate.partition == node.partition and candidate.ip in node.ips and
+      (is_nil(candidate.title) or is_nil(node.name) or candidate.title == node.name) and
+      (MapSet.size(node.macs) == 0 or MapSet.size(candidate.macs) == 0 or
+         not MapSet.disjoint?(node.macs, candidate.macs)) and
+      Enum.all?(candidate.hypervisor_ids, &MapSet.member?(node.own_ids, &1))
+  end
+
+  defp query_node_candidate_devices(ips) do
+    sql = """
+    SELECT d.uid,
+           d.ip,
+           COALESCE(d.partition, 'default') AS partition,
+           d.metadata->>'proxmox_candidate_title' AS title,
+           ARRAY(
+             SELECT di.identifier_value
+             FROM platform.device_identifiers di
+             WHERE di.device_id = d.uid AND di.identifier_type IN ('integration_id', 'mac')
+           ) AS identifiers
+    FROM platform.ocsf_devices d
+    WHERE d.deleted_at IS NULL
+      AND d.source_retired_at IS NULL
+      AND d.ip = ANY($1::text[])
+      AND d.metadata->>'proxmox_candidate_evidence' = 'pve_web_fingerprint'
+    """
+
+    case Repo.query(sql, [Enum.uniq(ips)]) do
+      {:ok, %{rows: rows}} ->
+        {:ok, Enum.map(rows, &row_to_node_candidate/1)}
+
+      {:error, reason} ->
+        Logger.warning("Hypervisor enrichment node candidate lookup failed: #{inspect(reason)}")
+        {:error, {:identifier_lookup_failed, reason}}
+    end
+  end
+
+  defp row_to_node_candidate([uid, ip, partition, title, identifiers]) do
+    {hypervisor_ids, others} = Enum.split_with(identifiers, &hypervisor_integration_id?/1)
+
+    %{
+      uid: uid,
+      ip: normalize_ip_identifier(ip),
+      partition: partition,
+      title: normalize_lookup_key(title),
+      hypervisor_ids: hypervisor_ids,
+      macs:
+        others
+        |> Enum.map(&normalize_mac_identifier/1)
+        |> Enum.filter(&present?/1)
+        |> MapSet.new()
+    }
+  end
+
+  # The result's earlier records of a node may hold its integration identity on a
+  # record of their own, written before the node's address resolved to its
+  # fingerprinted device. Such a record, one holding nothing but this node's
+  # integration ids and no agent, merges into that device (audited in
+  # `merge_audit`), and the node is written to the device. A record holding
+  # anything else is left as it is.
+  defp converge_node_records(hosts, node_candidates, actor) do
+    pairs =
+      Enum.flat_map(hosts, fn host ->
+        held_uid = existing_sr_uid(Map.get(host, :device_uid))
+        candidate_uid = Map.get(node_candidates, Map.get(host, :provider_ref))
+
+        if is_binary(held_uid) and is_binary(candidate_uid) and held_uid != candidate_uid,
+          do: [{host, held_uid, candidate_uid}],
+          else: []
+      end)
+
+    with {:ok, shells} <- node_record_shells(pairs) do
+      merged =
+        pairs
+        |> Enum.filter(fn {_host, held_uid, _candidate_uid} ->
+          MapSet.member?(shells, held_uid)
+        end)
+        |> Enum.flat_map(fn {host, held_uid, candidate_uid} ->
+          case merge_node_record(host, held_uid, candidate_uid, actor) do
+            :ok -> [{Map.get(host, :provider_ref), candidate_uid}]
+            :skipped -> []
+          end
+        end)
+        |> Map.new()
+
+      {:ok,
+       Enum.map(hosts, fn host ->
+         case Map.fetch(merged, Map.get(host, :provider_ref)) do
+           {:ok, uid} -> Map.put(host, :device_uid, uid)
+           :error -> host
+         end
+       end)}
+    end
+  end
+
+  defp node_record_shells([]), do: {:ok, MapSet.new()}
+
+  defp node_record_shells(pairs) do
+    own_ids =
+      Map.new(pairs, fn {host, held_uid, _candidate_uid} ->
+        {held_uid, MapSet.new(integration_lookup_values(host, %{}))}
+      end)
+
+    sql = """
+    SELECT d.uid,
+           ARRAY(
+             SELECT di.identifier_type::text || ':' || di.identifier_value
+             FROM platform.device_identifiers di
+             WHERE di.device_id = d.uid
+           ) AS identifiers
+    FROM platform.ocsf_devices d
+    WHERE d.uid = ANY($1::text[])
+      AND d.deleted_at IS NULL
+      AND COALESCE(btrim(d.agent_id), '') = ''
+    """
+
+    case Repo.query(sql, [Map.keys(own_ids)]) do
+      {:ok, %{rows: rows}} ->
+        shells =
+          for [uid, identifiers] <- rows,
+              only_own_integration_ids?(identifiers, Map.fetch!(own_ids, uid)),
+              into: MapSet.new(),
+              do: uid
+
+        {:ok, shells}
+
+      {:error, reason} ->
+        Logger.warning("Hypervisor enrichment node record lookup failed: #{inspect(reason)}")
+        {:error, {:identifier_lookup_failed, reason}}
+    end
+  end
+
+  defp only_own_integration_ids?([], _own_ids), do: false
+
+  defp only_own_integration_ids?(identifiers, own_ids) do
+    Enum.all?(identifiers, fn
+      "integration_id:" <> value -> MapSet.member?(own_ids, value)
+      _other -> false
+    end)
+  end
+
+  defp merge_node_record(host, held_uid, candidate_uid, actor) do
+    case IdentityReconciler.merge_devices(held_uid, candidate_uid,
+           actor: actor,
+           reason: "hypervisor_node_candidate_match",
+           details: %{
+             "host_provider_ref" => Map.get(host, :provider_ref),
+             "evidence" => "pve_web_fingerprint_at_node_address"
+           }
+         ) do
+      :ok ->
+        :ok
+
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.info(
+          "HypervisorEnrichment: skipped node merge #{held_uid} -> #{candidate_uid}: #{inspect(reason)}"
+        )
+
+        :skipped
+    end
   end
 
   defp lookup_device_by_macs(macs, partition, actor) do

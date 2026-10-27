@@ -156,6 +156,9 @@ Every `resolution_goal_*` configuration also checks `AddressNeverMerges`: no mer
 caused by address or IP-alias evidence. No address-only record in the model ever holds an alias
 (sweep-created records get no alias sightings, as in the code), so absorbing one is unreachable
 either way; the property guards against any change that lets address evidence merge records.
+It covers only the modeled observers; hypervisor enrichment is not modeled. See
+[Hypervisor nodes](../../docs/docs/dire-identity-model.md#hypervisor-nodes) for the
+binding and merge contract implemented by `HypervisorEnrichmentIngestor`.
 
 Every `resolution_goal_*` configuration also checks `AliasFollowsSyncedDevice`: after a source
 sync observes a device at an address, every identified record keeping a confirmed alias of the
