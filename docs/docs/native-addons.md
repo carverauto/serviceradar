@@ -612,6 +612,19 @@ sudo systemctl status serviceradar-workload-identity.service --no-pager
 sudo systemctl status serviceradar.slice --no-pager
 ```
 
+If systemd add-on installation fails with
+`flag provided but not defined: -addon-bin`, roll out an agent release containing
+the `--addon-binary` invocation fix through normal
+[agent release management](./agent-release-management.md). Release activation uses
+unaffected flags, so affected agents can self-update; the installed updater needs
+no change. On restart, the fixed agent re-applies configuration and retries add-on
+installation because its per-add-on failure state is held in memory.
+
+Agent recovery does not resume add-on rollouts paused after
+`candidate_health_timeout`, including those whose candidate was rolled back.
+Retry or resume those rollouts explicitly, or publish a newer add-on package version
+that supersedes the paused rollout.
+
 The ServiceRadar UI classifies each effective row into exactly one operator state:
 
 | Category | Meaning |

@@ -1,5 +1,5 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 load("//build:benchmarks.bzl", "go_benchmark")
 
 # Read by //build/contracts:agent_release_key_consistency_test, which asserts this key matches the
@@ -36,10 +36,14 @@ go_test(
     size = "small",
     timeout = "short",
     srcs = ["camera_rtsp_recording_fixture_test.go"],
-    args = ["-test.run=^TestCameraRTCPClockEvidence$$", "-test.timeout=20s", "-test.v"],
+    args = [
+        "-test.run=^TestCameraRTCPClockEvidence$$",
+        "-test.timeout=20s",
+        "-test.v",
+    ],
     embed = [":agent"],
-    gotags = ["camera_recording_fixture"],
     exec_properties = {"test.network": "off"},
+    gotags = ["camera_recording_fixture"],
     deps = CAMERA_RTSP_FIXTURE_DEPS,
 )
 
@@ -183,8 +187,8 @@ go_library(
         "//go/pkg/agent/sidecar",
         "//go/pkg/agent/snmp",
         "//go/pkg/agent/syncsources",
-        "//go/pkg/agent/updaterflags",
         "//go/pkg/agent/syncsources/armis",
+        "//go/pkg/agent/updaterflags",
         "//go/pkg/agentgateway",
         "//go/pkg/bumblebee",
         "//go/pkg/config",
@@ -469,13 +473,13 @@ go_test(
 
 go_test(
     name = "dusk_checker_runtime_test",
+    timeout = "eternal",
     srcs = ["dusk_checker_runtime_test.go"],
     data = ["//build/wasm_plugins:dusk_checker_wasm"],
     embed = [":agent"],
     # TinyGo produces the guest, then the agent host drives it against a local
     # RUES stand-in. Wildcard CI does not need that compile on every run.
     tags = ["manual"],
-    timeout = "eternal",
     deps = [
         "//go/pkg/logger",
         "@com_github_gorilla_websocket//:websocket",
