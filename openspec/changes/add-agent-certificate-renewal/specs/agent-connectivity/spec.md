@@ -11,9 +11,22 @@ Connected agents SHALL automatically renew their mTLS leaf certificate over the 
 - **AND** the gateway SHALL verify the CSR signature, ignore any Subject or SAN fields in the CSR, and issue a new leaf certificate bound to the `component_id`, `partition_id`, and `component_type` extracted from the caller's verified mTLS peer certificate
 - **AND** the agent SHALL atomically persist the renewed certificate and private key to `/etc/serviceradar/certs/` and hot-reload its in-memory TLS credentials (`GetClientCertificate` / `GetCertificate`) without restarting the process
 
+#### Scenario: Crash during keypair persistence
+- **GIVEN** an agent has received and validated a renewed certificate matching its staged private key
+- **WHEN** it commits the renewed keypair
+- **THEN** it SHALL write and fsync the combined recovery bundle, atomically rename it to `component-bundle.pem`, and fsync the containing directory before replacing either live keypair file
+- **AND** it SHALL fsync the directory after replacing both live files and before hot reload
+- **AND** if a crash leaves a mismatched pair, startup SHALL repair the pair from the published bundle before loading TLS credentials, using fsynced temporary files, atomic renames, and directory fsync while retaining the bundle so repair remains repeatable
+
+#### Scenario: Renewal response lost before successor use
+- **GIVEN** the gateway has issued a successor certificate but the agent has not received the renewal response
+- **WHEN** connectivity returns more than five minutes later while the predecessor is still valid and not independently revoked
+- **THEN** the agent SHALL be able to retry renewal with the predecessor
+- **AND** the gateway SHALL NOT retire the predecessor solely because issuance occurred or a handoff timeout elapsed
+
 #### Scenario: Predecessor certificate retirement after renewal
 - **GIVEN** `serviceradar-agent-gateway` has issued a renewed certificate $C_{\text{new}}$ to replace an agent's current certificate $C_{\text{old}}$
-- **WHEN** the agent reconnects and completes `Hello` presenting $C_{\text{new}}$ (or when the 5-minute handoff window elapses)
+- **WHEN** the agent reconnects and completes `Hello` presenting $C_{\text{new}}$
 - **THEN** the gateway SHALL record $C_{\text{old}}$'s serial number and SHA-256 fingerprint in the durable revocation store with reason `superseded_by_renewal`
 - **AND** any subsequent connection attempt presenting $C_{\text{old}}$ SHALL be rejected
 

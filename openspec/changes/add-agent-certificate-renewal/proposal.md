@@ -16,7 +16,7 @@ When an enrolled agent's leaf certificate expires:
   - Add `RenewCertificate(CertificateRenewalRequest) returns (CertificateRenewalResponse)` to `monitoring.AgentGatewayService` over the existing mutually-authenticated gRPC session.
   - Require proof of possession of a freshly generated private key via a PKCS#10 Certificate Signing Request (`csr_der`) signed by the new key, while deriving `component_id`, `partition_id`, and `component_type` exclusively from the authenticated peer's current mTLS client certificate (`ServiceRadarAgentGateway.ComponentIdentityResolver`) -- never from untrusted CSR subject/SAN fields.
   - Agents automatically initiate renewal at two-thirds (`2/3`) of their leaf certificate's validity window (with jitter and exponential backoff on transient failures), write the new keypair and chain atomically to `/etc/serviceradar/certs/`, and hot-reload both client and server TLS credentials in memory (`tls.Config.GetClientCertificate` / `GetCertificate`) without restarting the agent process or dropping active checks.
-  - Upon confirming the renewed certificate on subsequent mTLS calls (or after a short handoff grace window), `ServiceRadarAgentGateway.CertIssuer` revokes the predecessor certificate's fingerprint and serial number.
+  - Upon confirming the renewed certificate on a subsequent authenticated `Hello`, `ServiceRadarAgentGateway.CertIssuer` revokes the predecessor certificate's fingerprint and serial number.
 - **Expired-Certificate Recovery Policy**:
   - Reject expired client certificates at the TLS handshake boundary with no unauthenticated or expired-cert renewal grace window (preventing an attacker who compromises a decommissioned host or backups after expiry from silently minting a fresh certificate).
   - Provide a single-command operator re-enrollment path (`serviceradar-cli enroll --token <token>` / `POST /api/admin/agents/:uid/reissue-enrollment-token`) that preserves the existing `component_id` (`agent_uid`) and replaces the expired certificate bundle in place without duplicating inventory records.
@@ -39,7 +39,7 @@ When an enrolled agent's leaf certificate expires:
   - `agent-connectivity`
   - `agent-registry`
 - Affected code (future implementation):
-  - `proto/monitoring.proto` (`RenewCertificate` RPC and certificate metadata in `AgentHelloRequest`)
+  - `proto/monitoring.proto` (`RenewCertificate` RPC)
   - `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/{agent_gateway_server.ex,cert_issuer.ex,agent_certificate_revocation.ex,component_identity_resolver.ex}`
   - `elixir/serviceradar_core/lib/serviceradar/edge/onboarding_packages.ex`
   - `elixir/serviceradar_core/lib/serviceradar/infrastructure/agent.ex` (plus CNPG migration for `ocsf_agents` certificate columns and `platform.revoked_component_certificates`)

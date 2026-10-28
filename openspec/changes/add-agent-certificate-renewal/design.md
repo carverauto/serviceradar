@@ -50,8 +50,6 @@ To prevent identity spoofing if a CSR contains forged subject or SAN fields:
 message CertificateRenewalRequest {
   // DER-encoded PKCS#10 Certificate Signing Request signed by the new private key.
   bytes csr_der = 1;
-  // SHA-256 hex fingerprint of the currently active client certificate for audit correlation.
-  string current_cert_fingerprint = 2;
 }
 
 message CertificateRenewalResponse {
@@ -68,14 +66,14 @@ message CertificateRenewalResponse {
   int64 not_after_unix = 6;
 }
 ```
-Additionally, `AgentHelloRequest` adds optional fields `cert_serial_number` (`string`), `cert_fingerprint_sha256` (`string`), `cert_not_before_unix` (`int64`), and `cert_not_after_unix` (`int64`), and the gateway cross-checks them against the TLS peer certificate presented on `Hello` so `ocsf_agents` is updated even for agents before their first renewal.
+The gateway derives current certificate metadata for inventory and audit correlation exclusively from the authenticated TLS peer certificate, including on `Hello` before the first renewal. `AgentHelloRequest` requires no certificate metadata fields.
 
 ### Renewal Schedule (`~2/3` of Lifetime)
 - On startup and every 15 minutes, the Go agent inspects the active leaf certificate's `NotBefore` and `NotAfter` timestamps:
   - Total lifetime: $L = \text{NotAfter} - \text{NotBefore}$
   - Target renewal timestamp: $T_{\text{renew}} = \text{NotBefore} + \frac{2}{3} L \pm \text{jitter}(0, \min(6\text{h}, 0.05 L))$
   - Example: For a 90-day certificate ($L = 90\text{d}$), renewal begins at day 60 ($\pm 6\text{h}$ jitter), leaving a 30-day operational buffer before expiry.
-- If `now >= T_renew`, the agent enters the renewal state machine. If renewal fails (e.g., transient gateway restart or core DB outage), the agent retries with exponential backoff (`1m`, `2m`, `5m`, `15m`, capped at `1h` with jitter) and reports `cert_renewal_error` on its next `PushStatus` / `Hello`.
+- If `now >= T_renew`, the agent enters the renewal state machine. If renewal fails (e.g., transient gateway restart or core DB outage), the agent retries with exponential backoff (`1m`, `2m`, `5m`, `15m`, capped at `1h` with jitter) and reports `cert_renewal_error` on its next `PushStatus` / `Hello`. If the renewal response is lost, the predecessor remains usable for retries until its natural expiry or independent administrative revocation; issuance alone does not retire it.
 
 ### Atomic Disk Write and Hot Reload
 1. **Keypair Generation & Staging**:
@@ -84,8 +82,8 @@ Additionally, `AgentHelloRequest` adds optional fields `cert_serial_number` (`st
    - Upon receiving `CertificateRenewalResponse`, the agent parses the leaf certificate, verifies that the public key matches the staged private key, verifies the signature chain against `ca_chain_pem`, and verifies `NotAfter > now`.
    - It writes the leaf certificate to `/etc/serviceradar/certs/.component.pem.tmp` with mode `0644` (`fsync` file).
 2. **Atomic Commit**:
-   - To prevent a power loss or crash between two `rename(2)` syscalls from leaving `component.pem` and `component-key.pem` mismatched, the agent writes a combined bundle `/etc/serviceradar/certs/.component-bundle.pem.tmp` (containing both the certificate chain and private key, `0600`, `fsync`), atomically renames `.component-key.pem.tmp` -> `component-key.pem` and `.component.pem.tmp` -> `component.pem`, and `fsync`s `/etc/serviceradar/certs/`.
-   - On startup, if `tls.X509KeyPair(component.pem, component-key.pem)` fails with a key mismatch (from an interrupted mid-rename crash) and `component-bundle.pem` is valid, the loader self-heals `component.pem` and `component-key.pem` from `component-bundle.pem`.
+   - To prevent a power loss or crash between two `rename(2)` syscalls from leaving `component.pem` and `component-key.pem` mismatched, the agent writes a combined bundle `/etc/serviceradar/certs/.component-bundle.pem.tmp` (containing both the certificate chain and private key, `0600`, `fsync`), atomically renames it to `component-bundle.pem`, and `fsync`s `/etc/serviceradar/certs/` before replacing either live file. Only then does it atomically rename `.component-key.pem.tmp` -> `component-key.pem` and `.component.pem.tmp` -> `component.pem` and `fsync` the directory again.
+   - On startup, if `tls.X509KeyPair(component.pem, component-key.pem)` fails with a key mismatch (from an interrupted mid-rename crash) and `component-bundle.pem` is valid, the loader self-heals `component.pem` and `component-key.pem` from the durably published `component-bundle.pem` before loading TLS credentials. Repair writes and fsyncs temporary files, renames them over the live pair, and fsyncs the directory while retaining the recovery bundle, so an interrupted repair can be repeated.
 3. **Zero-Downtime Hot Reload (`go/pkg/grpc/security.go`)**:
    - Replace static `tlsConfig.Certificates = []tls.Certificate{cert}` in `MTLSProvider` with an atomic pointer (`atomic.Pointer[tls.Certificate]`) backing `tlsConfig.GetClientCertificate` and `tlsConfig.GetCertificate`.
    - When the atomic disk write completes, `MTLSProvider.Reload()` swaps the in-memory `tls.Certificate` pointer and triggers a graceful reconnect of the gateway gRPC channel (`Hello` + `ControlStream`) so the gateway immediately observes the new certificate serial/fingerprint and retires the predecessor certificate.
@@ -207,8 +205,8 @@ Add a scheduled Ash/Oban worker (`ServiceRadar.Infrastructure.AgentCertExpiryMon
    - `RenewCertificate` calls `ComponentIdentityResolver.resolve_from_cert/1`, which queries `AgentCertificateRevocation.revoked?/1` by `component_id`, `serial_number`, and `certificate_fingerprint`.
    - A revoked certificate or revoked `component_id` is immediately denied renewal (`PERMISSION_DENIED`) and its active `ControlStream` is terminated.
 4. **Predecessor Certificate Retirement on Renewal**:
-   - When `RenewCertificate` issues a new certificate $C_{\text{new}}$ to replace $C_{\text{old}}$, the gateway records $C_{\text{old}}$ as pending retirement with a 5-minute handoff grace window (so the agent can finish writing $C_{\text{new}}$ to disk and reconnect).
-   - As soon as the agent completes `Hello` presenting $C_{\text{new}}$ (or when the 5-minute handoff timer elapses, whichever comes first), $C_{\text{old}}$'s `serial_number` and `fingerprint_sha256` are written to `platform.revoked_component_certificates` with `reason = "superseded_by_renewal"`.
+   - When `RenewCertificate` issues a new certificate $C_{\text{new}}$ to replace $C_{\text{old}}$, the gateway durably records the predecessor-successor relationship for retirement upon confirmed successor use across gateway restarts and replicas. Issuance starts no retirement timer; a lost response leaves the still-valid predecessor usable for retry.
+   - As soon as the agent completes `Hello` presenting $C_{\text{new}}$, $C_{\text{old}}$'s `serial_number` and `fingerprint_sha256` are written to `platform.revoked_component_certificates` with `reason = "superseded_by_renewal"`.
 5. **Alignment with `#5257` Edge NATS Leaf Certificates**:
    - Per-leaf certificates issued for edge NATS leaves include a distinct `component_id` in their CN (`<leaf_component_id>.<partition_id>.serviceradar`) and URI SAN (`spiffe://serviceradar.local/nats-leaf/<partition_id>/<leaf_component_id>`), and consult the same `platform.revoked_component_certificates` store during TLS verification / NATS auth callout.
 
@@ -219,10 +217,10 @@ Add a scheduled Ash/Oban worker (`ServiceRadar.Infrastructure.AgentCertExpiryMon
 Agents already deployed in the field fall into three cohorts when this change ships:
 
 1. **Cohort 1 -- Agents with valid certificates (`notAfter > now`) that upgrade to the new agent version before expiry**:
-   - As soon as the agent upgrades (via the in-band `agent-gateway` release rollout or OS package upgrade), it reports its current `cert_not_after` in `Hello`.
+   - As soon as the agent upgrades (via the in-band `agent-gateway` release rollout or OS package upgrade), the gateway derives its current `cert_not_after` from the TLS peer certificate on `Hello`.
    - Because any 1-day or near-expiry certificate is already past $\frac{2}{3}$ of its lifetime, the agent's renewal loop triggers **immediately on startup** (within jitter of `0..30s` when remaining lifetime is `< 24h`) and replaces the short-lived certificate with a fresh 90-day certificate in-band without operator intervention.
 2. **Cohort 2 -- Connected agents still running an older binary (`< renewal-capable version`) whose certificate is approaching expiry**:
-   - On first `Hello` after the gateway upgrades, `serviceradar-agent-gateway` inspects the peer TLS certificate's `notAfter` directly from the TLS socket (even if the older agent binary does not send `cert_not_after_unix` in `AgentHelloRequest`) and populates `ocsf_agents.cert_not_after`.
+   - On first `Hello` after the gateway upgrades, `serviceradar-agent-gateway` inspects the peer TLS certificate's `notAfter` directly from the TLS socket and populates `ocsf_agents.cert_not_after`.
    - Operators can immediately query `in:agents cert_expires_at:<7d` in SRQL and prioritize rolling the agent release update to those hosts before `notAfter` arrives.
 3. **Cohort 3 -- Agents whose 1-day (or older) certificate has already expired (`notAfter <= now`)**:
    - Because expired certificates cannot complete the mTLS handshake (Decision 2), `ocsf_agents` shows these agents as offline with `cert_expires_at < now` (or operators identify them on the host via the new startup check / `openssl x509 -enddate -noout -in /etc/serviceradar/certs/component.pem`).
