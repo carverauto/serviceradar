@@ -40,8 +40,11 @@ identifiers and failure injections are independently invented synthetic data.
 1. Complete provider qualification and persistent spool installation before
    attempting deployment acceptance of the merged reader and bounded capture. Preserve all
    19 qualification checks, provisioned spool identity and fresh per-purpose
-   authorities; a chart switch cannot substitute for them. Cloud #188 is merged;
-   its independent next scope remains the
+   authorities; a chart switch cannot substitute for them. The proposed
+   [persistent-spool installation](../add-persistent-camera-spool/proposal.md)
+   scopes per-replica storage, controlled controller conversion and Cloud restore
+   changes. Its architecture choice remains pending; it does not enable capture.
+   Cloud #188 is merged; its independent next scope remains the
    [read-only reservation status](cloud-control-plane.md#next-bounded-cloud-checkpoint)
    in the operator environment console, without provider mutation.
 2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
