@@ -26,7 +26,7 @@ When an enrolled agent's leaf certificate expires:
   - Persist `cert_serial_number`, `cert_fingerprint_sha256`, `cert_not_before`, `cert_not_after` (`cert_expires_at`), `cert_last_renewed_at`, and `cert_renewal_error` on `platform.ocsf_agents` (`ServiceRadar.Infrastructure.Agent`).
   - Expose `cert_expires_at` (`cert_not_after`), `cert_serial_number`, and `cert_fingerprint` in SRQL `in:agents` queries (supporting relative time comparisons such as `in:agents cert_expires_at:<7d` and ordering by `cert_expires_at`).
   - Surface certificate expiry badges, countdowns, and renewal errors in the Web-NG Agents Fleet and detail views.
-  - Emit proactive platform alerts when an agent certificate is within the warning/critical expiry window (`<14d` warning, `<7d` critical) or when an in-band renewal attempt fails, and log an explicit `"local mTLS client certificate expired (notAfter=..., serial=...); re-enroll required"` diagnostic in both the Go agent and `serviceradar-agent-gateway`.
+  - Emit proactive platform alerts for approaching expiry and renewal failures, with agent-side local expiry diagnostics and gateway-side peer rejection diagnostics as defined in [Decision 4](design.md#decision-4-visibility-srql-support-alerting-and-diagnostics).
 - **Unified Revocation Integration (`#5257`)**:
   - Back `ServiceRadarAgentGateway.AgentCertificateRevocation` with a durable CNPG revocation table (`platform.revoked_component_certificates`) synchronized across all `agent-gateway` nodes and the NATS leaf authentication boundary (`#5257`), ensuring revoked agents and edge NATS leaves cannot renew certificates or reconnect.
 - **Zero SPIFFE/SPIRE Dependency**:

@@ -220,12 +220,12 @@ Agents already deployed in the field fall into three cohorts when this change sh
 
 1. **Cohort 1 -- Agents with valid certificates (`notAfter > now`) that upgrade to the new agent version before expiry**:
    - As soon as the agent upgrades (via the in-band `agent-gateway` release rollout or OS package upgrade), the gateway derives its current `cert_not_after` from the TLS peer certificate on `Hello`.
-   - Because any 1-day or near-expiry certificate is already past $\frac{2}{3}$ of its lifetime, the agent's renewal loop triggers **immediately on startup** (within jitter of `0..30s` when remaining lifetime is `< 24h`) and replaces the short-lived certificate with a fresh 90-day certificate in-band without operator intervention.
+   - Certificates already due under the renewal schedule in Decision 1 trigger renewal on startup (within jitter of `0..30s` when remaining lifetime is `< 24h`). A 1-day certificate is not necessarily due merely because its total lifetime is short; certificates not yet due follow that schedule. Successful renewal replaces the certificate with one using the configured deployment lifetime.
 2. **Cohort 2 -- Connected agents still running an older binary (`< renewal-capable version`) whose certificate is approaching expiry**:
    - On first `Hello` after the gateway upgrades, `serviceradar-agent-gateway` inspects the peer TLS certificate's `notAfter` directly from the TLS socket and populates `ocsf_agents.cert_not_after`.
    - Operators can immediately query `in:agents cert_expires_at:<7d` in SRQL and prioritize rolling the agent release update to those hosts before `notAfter` arrives.
 3. **Cohort 3 -- Agents whose 1-day (or older) certificate has already expired (`notAfter <= now`)**:
-   - Because expired certificates cannot complete the mTLS handshake (Decision 2), `ocsf_agents` shows these agents as offline with `cert_expires_at < now` (or operators identify them on the host via the new startup check / `openssl x509 -enddate -noout -in /etc/serviceradar/certs/component.pem`).
+   - Expired certificates cannot complete the mTLS handshake (Decision 2). These agents appear offline; `cert_expires_at < now` identifies them only if the gateway recorded their certificate metadata before expiry. Agents that expired before metadata collection began retain an unknown expiry and will not match that filter. Operators identify those certificates on the host via the new startup check or `openssl x509 -enddate -noout -in /etc/serviceradar/certs/component.pem`.
    - Operators use the **Re-enroll Agent** action (`POST /api/admin/agents/:uid/reissue-enrollment-token` or UI button) and run `sudo serviceradar-cli enroll --token <token>` (or an Ansible playbook across affected hosts) to install a fresh 90-day certificate while preserving the existing `agent_uid`.
 
 ---
