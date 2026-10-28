@@ -145,7 +145,7 @@ lifetimes below the minimum for explicit tests, without bypassing the maximum.
 Gateway issuance above the default also requires an admin or system actor in `long_ttl_approved_by`.
 Changing issuance options does not extend certificates already installed.
 
-To change the default for a deployment, set `AGENT_CERT_VALIDITY_DAYS` to an
+To change the default for a deployment, set `AGENT_CERT_VALIDITY_DAYS` to the same
 integer from 7 to 365 on core-elx, web-ng, and the agent-gateway. With Helm, set
 `certs.agentValidityDays`, which reaches all three. Each service refuses to start
 when the value is not an integer in that range.

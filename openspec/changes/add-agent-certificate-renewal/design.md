@@ -132,15 +132,11 @@ Phase 1 implements the shared `ServiceRadar.Edge.CertificateLifetimePolicy`.
 See [certificate operations](../../../docs/docs/edge-agent-onboarding.md#certificate-lifetime-and-expiry-alerts)
 for the current issuance bounds and overrides.
 
-The default stays `90` days. A deployment can override it with
-`AGENT_CERT_VALIDITY_DAYS` (Helm `certs.agentValidityDays`), bounded by the
-same `7..365` range. core-elx, web-ng, and the agent-gateway each parse it at
-boot and fail to start on an invalid value. All three must see the same value:
-web-ng resolves the lifetime it requests, and the gateway compares the request
-against its own default to decide whether long-TTL admin approval is required.
-The Web-NG package form pre-fills the deployment default, accepts a per-package
-lifetime within the bounds, and shows the expiry read from the issued
-certificate.
+The deployment override and Web-NG package form are implemented as described
+in the certificate operations guide above. Agreement across core-elx, web-ng,
+and the agent-gateway is essential: web-ng resolves the lifetime it requests,
+and the gateway compares the request against its runtime default to decide
+whether long-TTL admin approval is required.
 
 ---
 
@@ -221,7 +217,7 @@ Agents already deployed in the field fall into three cohorts when this change sh
    - Operators can immediately query `in:agents cert_expires_at:<7d` in SRQL and prioritize rolling the agent release update to those hosts before `notAfter` arrives.
 3. **Cohort 3 -- Agents whose 1-day (or older) certificate has already expired (`notAfter <= now`)**:
    - Expired certificates cannot complete the mTLS handshake (Decision 2). These agents appear offline; `cert_expires_at < now` identifies them only if the gateway recorded their certificate metadata before expiry. Agents that expired before metadata collection began retain an unknown expiry and will not match that filter. Operators identify those certificates on the host via the new startup check or `openssl x509 -enddate -noout -in /etc/serviceradar/certs/component.pem`.
-   - Operators use the **Re-enroll Agent** action (`POST /api/admin/agents/:uid/reissue-enrollment-token` or UI button) and run `sudo serviceradar-cli enroll --token <token>` (or an Ansible playbook across affected hosts) to install a fresh 90-day certificate while preserving the existing `agent_uid`.
+   - Operators use the **Re-enroll Agent** action (`POST /api/admin/agents/:uid/reissue-enrollment-token` or UI button) and run `sudo serviceradar-cli enroll --token <token>` (or an Ansible playbook across affected hosts) to install a fresh certificate under the [shared lifetime policy](../../../docs/docs/edge-agent-onboarding.md#certificate-lifetime-and-expiry-alerts) while preserving the existing `agent_uid`.
 
 ---
 
