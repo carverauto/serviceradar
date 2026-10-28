@@ -67,7 +67,6 @@ py_test(
     data = [
         "templates/_helpers.tpl",
         "templates/cnpg-cluster.yaml",
-        "templates/spire-postgres.yaml",
         "values.yaml",
     ],
 )
@@ -82,7 +81,6 @@ py_test(
         "templates/_helpers.tpl",
         "templates/cnpg-cluster.yaml",
         "templates/secret-generator-job.yaml",
-        "templates/spire-postgres.yaml",
         "values.yaml",
     ],
 )
@@ -171,7 +169,6 @@ filegroup(
         "values-tenant.yaml",
     ] + glob([
         "charts/**",
-        "crds/**",
         "dashboards/**",
         "files/**",
         "templates/**",

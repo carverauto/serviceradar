@@ -168,8 +168,6 @@
 {{- $sshCaSignerWeb := true -}}
 {{- if hasKey $sshCaSignerWorkloads "web" -}}{{- $sshCaSignerWeb = get $sshCaSignerWorkloads "web" -}}{{- end -}}
 {{- $sshCaSignerWebEnabled := and $sshCaSignerEnabled $sshCaSignerWeb -}}
-{{- $trustDomain := (include "serviceradar.trustDomain" .Values) | default "carverauto.dev" -}}
-{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $datasvc := default (dict) $webNg.datasvc -}}
 {{- $datasvcHost := default "serviceradar-datasvc" $datasvc.host -}}
 {{- $datasvcPort := default 50057 $datasvc.port -}}
@@ -922,18 +920,6 @@ spec:
           value: {{ $datasvcCertName | quote }}
         - name: DATASVC_SERVER_NAME
           value: {{ $datasvcServerName | quote }}
-        {{- if eq $datasvcSecModeLower "spiffe" }}
-        - name: SPIFFE_TRUST_DOMAIN
-          value: {{ $trustDomain | quote }}
-        - name: SPIFFE_MODE
-          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
-        - name: SPIFFE_CERT_DIR
-          value: {{ $datasvcCertDir | quote }}
-        - name: SPIFFE_WORKLOAD_API_SOCKET
-          value: "unix:///run/spire/sockets/agent.sock"
-        - name: SPIFFE_TRUST_BUNDLE_PATH
-          value: "/run/spire/bundle/bundle.crt"
-        {{- end }}
         volumeMounts:
         - name: tmp
           mountPath: /tmp
@@ -996,14 +982,6 @@ spec:
         {{- if $deviceEnrichmentFsEnabled }}
         - name: device-enrichment-rules
           mountPath: {{ $deviceEnrichmentRulesDir | quote }}
-        {{- end }}
-        {{- if eq $datasvcSecModeLower "spiffe" }}
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
-        - name: spire-bundle
-          mountPath: /run/spire/bundle
-          readOnly: true
         {{- end }}
         resources:
           {{- toYaml (default (dict) .Values.webNg.resources) | nindent 10 }}
@@ -1137,15 +1115,6 @@ spec:
         {{- else }}
         emptyDir: {}
         {{- end }}
-      {{- end }}
-      {{- if eq $datasvcSecModeLower "spiffe" }}
-      - name: spire-agent-socket
-        hostPath:
-          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
-          type: DirectoryOrCreate
-      - name: spire-bundle
-        configMap:
-          name: {{ $spireBundle | quote }}
       {{- end }}
 ---
 apiVersion: v1

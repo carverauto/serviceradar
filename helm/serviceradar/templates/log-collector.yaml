@@ -272,11 +272,6 @@ spec:
           mountPath: /var/lib/serviceradar
         - name: logs
           mountPath: /var/log/serviceradar
-        {{- if .Values.spire.enabled }}
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
-        {{- end }}
       volumes:
       - name: log-collector-config
         configMap:
@@ -311,12 +306,6 @@ spec:
         {{- end }}
       - name: logs
         emptyDir: {}
-      {{- if .Values.spire.enabled }}
-      - name: spire-agent-socket
-        hostPath:
-          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
-          type: DirectoryOrCreate
-      {{- end }}
 ---
 apiVersion: v1
 kind: Service

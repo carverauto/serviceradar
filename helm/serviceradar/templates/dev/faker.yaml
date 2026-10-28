@@ -99,11 +99,6 @@ spec:
         - name: serviceradar-config
           mountPath: /etc/serviceradar
           readOnly: true
-        {{- if .Values.spire.enabled }}
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
-        {{- end }}
         readinessProbe:
           httpGet:
             path: /api/v1/search/?aql=test&length=1
@@ -127,12 +122,6 @@ spec:
       - name: serviceradar-config
         configMap:
           name: serviceradar-config
-      {{- if .Values.spire.enabled }}
-      - name: spire-agent-socket
-        hostPath:
-          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
-          type: DirectoryOrCreate
-      {{- end }}
       {{- if .Values.faker.gobgp.enabled }}
       - name: gobgp-bin
         emptyDir: {}

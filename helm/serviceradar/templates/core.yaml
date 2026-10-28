@@ -5,9 +5,6 @@
      so it would resurrect anything explicitly disabled. */ -}}
 {{- $gate4 := default (dict) .Values.core -}}
 {{- if or (not (hasKey $gate4 "enabled")) $gate4.enabled }}
-{{- $trustDomain := (include "serviceradar.trustDomain" .Values) | default "carverauto.dev" -}}
-{{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
-{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) -}}
 {{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $webrtcIce := include "serviceradar.webrtcIce" . | fromYaml -}}
@@ -326,18 +323,6 @@ spec:
           value: "+fnu"
         - name: ERL_FLAGS
           value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
-        {{- if .Values.spire.enabled }}
-        - name: SPIFFE_TRUST_DOMAIN
-          value: {{ $trustDomain | quote }}
-        - name: SPIFFE_MODE
-          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
-        - name: SPIFFE_CERT_DIR
-          value: "/etc/serviceradar/certs"
-        - name: SPIFFE_WORKLOAD_API_SOCKET
-          value: "unix:///run/spire/sockets/agent.sock"
-        - name: SPIFFE_TRUST_BUNDLE_PATH
-          value: "/run/spire/bundle/bundle.crt"
-        {{- end }}
         - name: SERVICERADAR_CLUSTER_COORDINATOR
           value: "true"
         - name: SERVICERADAR_COORDINATOR_DB_HOST
@@ -990,14 +975,6 @@ spec:
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
-        {{- if .Values.spire.enabled }}
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
-        - name: spire-bundle
-          mountPath: /run/spire/bundle
-          readOnly: true
-        {{- end }}
         {{- if $geoipMmdb.enabled }}
         - name: geoip-mmdb
           mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
@@ -1090,15 +1067,6 @@ spec:
       - name: {{ $cnpgClusterName }}-ca
         secret:
           secretName: {{ $cnpgClusterName }}-ca
-      {{- if .Values.spire.enabled }}
-      - name: spire-agent-socket
-        hostPath:
-          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
-          type: DirectoryOrCreate
-      - name: spire-bundle
-        configMap:
-          name: {{ $spireBundle | quote }}
-      {{- end }}
       {{- if $geoipMmdb.enabled }}
       - name: geoip-mmdb
         {{- if $geoipMmdb.emptyDir }}

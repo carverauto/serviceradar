@@ -130,15 +130,13 @@ core:
 #   clientCAFromCerts: true
 #   requireClientCert: true
 
-spire:
+trustDomain: carverauto.dev
+
+cnpg:
   enabled: true
-  trustDomain: carverauto.dev
-  clusterName: carverauto-cluster
-  postgres:
-    enabled: true
-    clusterName: cnpg-staging
-    instances: 3
-    storageSize: 10Gi
+  clusterName: cnpg-staging
+  instances: 3
+  storageSize: 10Gi
 
 trapd:
   externalService:

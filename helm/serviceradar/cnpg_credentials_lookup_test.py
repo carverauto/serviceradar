@@ -39,10 +39,7 @@ class CnpgCredentialsLookupTest(unittest.TestCase):
         )
 
     def test_cluster_templates_do_not_mint_random_passwords(self):
-        for rel in (
-            "templates/cnpg-cluster.yaml",
-            "templates/spire-postgres.yaml",
-        ):
+        for rel in ("templates/cnpg-cluster.yaml",):
             text = read(rel)
             self.assertIsNone(
                 RANDOMIZE.search(text),

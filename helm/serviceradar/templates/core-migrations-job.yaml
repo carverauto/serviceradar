@@ -5,8 +5,6 @@
      so it would resurrect anything explicitly disabled. */ -}}
 {{- $gate6 := default (dict) .Values.core -}}
 {{- if or (not (hasKey $gate6 "enabled")) $gate6.enabled }}
-{{- $trustDomain := (include "serviceradar.trustDomain" .Values) | default "carverauto.dev" -}}
-{{- $spireBundle := default "spire-bundle" .Values.spire.bundleConfigMap -}}
 {{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $coreVals := default (dict) .Values.core -}}
@@ -179,18 +177,6 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
-        {{- if .Values.spire.enabled }}
-        - name: SPIFFE_TRUST_DOMAIN
-          value: {{ $trustDomain | quote }}
-        - name: SPIFFE_MODE
-          value: {{ default "filesystem" .Values.spiffe.mode | quote }}
-        - name: SPIFFE_CERT_DIR
-          value: "/etc/serviceradar/certs"
-        - name: SPIFFE_WORKLOAD_API_SOCKET
-          value: "unix:///run/spire/sockets/agent.sock"
-        - name: SPIFFE_TRUST_BUNDLE_PATH
-          value: "/run/spire/bundle/bundle.crt"
-        {{- end }}
         args:
         - |
           set -eu
@@ -202,14 +188,6 @@ spec:
         - name: {{ $cnpgClusterName }}-ca
           mountPath: /etc/serviceradar/cnpg
           readOnly: true
-        {{- if .Values.spire.enabled }}
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
-        - name: spire-bundle
-          mountPath: /run/spire/bundle
-          readOnly: true
-        {{- end }}
       volumes:
       - name: cert-data
         secret:
@@ -224,14 +202,5 @@ spec:
           #   MountVolume.SetUp failed ... secret "cnpg-ca" not found
           # which surfaces as an opaque Helm timeout rather than a clear error.
           optional: true
-      {{- if .Values.spire.enabled }}
-      - name: spire-agent-socket
-        hostPath:
-          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
-          type: DirectoryOrCreate
-      - name: spire-bundle
-        configMap:
-          name: {{ $spireBundle | quote }}
-      {{- end }}
 {{- end }}
 {{- end }}
