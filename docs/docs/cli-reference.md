@@ -163,7 +163,7 @@ srctl edge package mtls --label "macbook-01"
 | `list` | List packages, with filters for status, component type, gateway, etc. |
 | `show` | Display detailed information for a package. |
 | `download` | Download onboarding artifacts as `tar.gz` or JSON. |
-| `revoke` | Revoke a package and its downstream entry. |
+| `revoke` | Revoke an onboarding package. |
 | `token` | Emit a signed `edgepkg-v3` token for an existing package. |
 | `mtls` | Shorthand for `create` with `checker:sysmon-osx` and mTLS defaults. |
 

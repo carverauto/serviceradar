@@ -603,7 +603,7 @@ curl http://localhost:8080/health
 | Database connected | Check Core logs | "Database connection established" |
 | NATS cluster healthy | `nats server list` | All nodes connected |
 | Web UI accessible | Open browser | Login page loads |
-| mTLS certs mounted | Check agent logs | "TLS configuration loaded" |
+| mTLS certificates | Follow [TLS Security](../docs/tls-security.md) | Certificate files mounted and authenticated connections succeed |
 
 **Initial configuration:**
 
@@ -711,14 +711,11 @@ High-risk features requiring ongoing maintenance:
 
 | Certificate Type | Rotation Frequency | Automation | Monitoring |
 |------------------|-------------------|------------|------------|
-| **mTLS Workload Certs** | Deployment-managed | Cert generator / Secret rotation | Prometheus alert on expiration |
 | **Core JWT keys** | 30 days | Manual (automating Q1 2026) | Core JWKS health checks |
 | **TLS ingress certs** | 90 days (Let's Encrypt) | cert-manager | cert-manager metrics |
 
-**Zero-downtime rotation:**
-- Updated certificate Secrets roll or reload into pods before expiration
-- gRPC clients retry with new cert on TLS handshake failure
-- Edge proxy reloads configuration without dropping connections
+For runtime certificate generation, preservation and explicit rotation, see
+[TLS Security](../docs/tls-security.md#in-chart-certificate-generator).
 
 **Secure Software Supply Chain:**
 
@@ -1244,7 +1241,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 |-------|---------|
 | **Symptom** | mTLS handshake failures, logs show "certificate expired", pod restarts |
 | **Root Cause** | Runtime certificate Secret expired or out of sync across pods |
-| **Resolution** | 1. Verify certificate Secret (`serviceradar-runtime-certs`)<br>2. Re-run cert generator job or update Secret<br>3. Restart affected pods if necessary |
+| **Resolution** | Follow the explicit runtime certificate rotation path in [TLS Security](../docs/tls-security.md#in-chart-certificate-generator), then verify affected services reconnect. |
 | **Prevention** | Monitor `serviceradar_cert_expiry_seconds`, alert if < 7 days remaining |
 
 **4. Gateway-Agent Communication Failure**

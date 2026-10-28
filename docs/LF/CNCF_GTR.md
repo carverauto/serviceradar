@@ -111,7 +111,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
     * Describe the project’s API topology and conventions  
       - REST/JSON routed through the edge proxy for user/API clients; gRPC for agents/gateways and internal services; SRQL exposed via `/api/query`.  
     * Describe the project defaults  
-      - CNPG host `cnpg-rw`, database `serviceradar`, mTLS enabled, Core enforces JWT, OTLP enabled to OTEL collector.  
+      - CNPG host `cnpg-rw`, database `serviceradar`, mTLS enabled, Core enforces JWT, OTLP enabled to OTEL collector.
     * Outline any additional configurations from default to make reasonable use of the project  
       - Configure ingress hostnames, JWKS issuer/audience, webhook endpoints, and CNPG credentials; adjust OTEL exporters per environment.  
     * Describe any new or changed API types and calls \- including to cloud providers \- that will result from this project being enabled and used  
@@ -136,21 +136,21 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
   - Not yet filed; current posture documented in `SECURITY.md` and `docs/docs/tls-security.md`.
 * Please review the [Cloud Native Security Tenets](https://github.com/cncf/tag-security/blob/main/community/resources/security-whitepaper/secure-defaults-cloud-native-8.md) from TAG Security.  
     * How are you satisfying the tenets of cloud native security projects?  
-      - mTLS everywhere via the deployment-managed CA (see `docs/docs/tls-security.md` and `docs/docs/migrating-off-spire.md`), least-privilege service accounts, secure defaults on Helm (CNPG/TLS/edge proxy), SBOM + dependency updates.  
+      - mTLS everywhere via the deployment-managed CA (see `docs/docs/tls-security.md` and `docs/docs/migrating-off-spire.md`), least-privilege service accounts, secure defaults on Helm (CNPG/TLS/edge proxy), SBOM + dependency updates.
     * Describe how each of the cloud native principles apply to your project.  
-      - Declarative configs (Helm/KV), automated mTLS certificate bootstrapping, immutable container builds via Bazel, and observable OTEL signals.  
+      - Declarative configs (Helm/KV), automated mTLS certificate bootstrapping, immutable container builds via Bazel, and observable OTEL signals.
     * How do you recommend users alter security defaults in order to "loosen" the security of the project? Please link to any documentation the project has written concerning these use cases.  
       - Non-production may relax JWT audience/issuer checks and disable webhook signing; documented in `docs/docs/helm-configuration.md`.  
 * Security Hygiene  
     * Please describe the frameworks, practices and procedures the project uses to maintain the basic health and security of the project.  
       - Weekly Dependabot updates, reproducible builds, SBOM via syft (`docs/LF/SBOM.spdx`), repolinter checks (`docs/LF/repo_lint.md`), and CI lint/test workflows.  
     * Describe how the project has evaluated which features will be a security risk to users if they are not maintained by the project?  
-      - Deployment-managed mTLS CA, Core JWT auth, and CNPG credentials are treated as critical paths; defaults avoid Proton and external data sinks; secrets managed via Kubernetes secrets and Helm values.  
+      - Deployment-managed mTLS CA, Core JWT auth, and CNPG credentials are treated as critical paths; defaults avoid Proton and external data sinks; secrets managed via Kubernetes secrets and Helm values.
 * Cloud Native Threat Modeling  
     * Explain the least minimal privileges required by the project and reasons for additional privileges.  
       - Services run as non-root, need network access to CNPG/NATS/OTEL/edge proxy; gateways/agents require only outbound gRPC; CNPG requires standard DB creds.  
     * Describe how the project is handling certificate rotation and mitigates any issues with certificates.  
-      - Deployment-managed CA and Kubernetes secret rotation handle workload and ingress certs; JWKS keys exposed by Core for JWT validation.  
+      - For workload certificate generation and explicit rotation, see [TLS Security](../docs/tls-security.md#in-chart-certificate-generator); JWKS keys are exposed by Core for JWT validation.
     * Describe how the project is following and implementing [secure software supply chain best practices](https://project.linuxfoundation.org/hubfs/CNCF_SSCP_v1.pdf)  
       - Immutable container images, provenance via Bazel builds, SBOM publishing, dependency updates via Dependabot, and signed release tags.
 
