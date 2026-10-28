@@ -7,6 +7,7 @@ defmodule ServiceRadar.ExposureCompactionCapacityTest do
 
   import Ecto.Query
 
+  alias Oban.Peers.Database
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.LoadSupervisor
   alias ServiceRadar.Analytics.StarRocks.MySQL
@@ -117,18 +118,21 @@ defmodule ServiceRadar.ExposureCompactionCapacityTest do
     # Keep the production Basic engine, database peer, default one-second
     # stager and maintenance concurrency. A separate queue prevents execution
     # of unrelated application jobs. No inline/drain/manual perform shortcut.
-    start_supervised!(
-      {Oban,
-       name: @oban,
-       repo: Repo,
-       prefix: "platform",
-       engine: Oban.Engines.Basic,
-       testing: :disabled,
-       notifier: Oban.Notifiers.PG,
-       peer: Oban.Peers.Database,
-       plugins: false,
-       queues: [{@queue, 2}]}
-    )
+    start_supervised!({
+      Oban,
+      # `false` also disables peer leadership, preventing snoozed jobs from staging.
+      name: @oban,
+      repo: Repo,
+      prefix: "platform",
+      engine: Oban.Engines.Basic,
+      testing: :disabled,
+      notifier: Oban.Notifiers.PG,
+      peer: Database,
+      plugins: [],
+      queues: [{@queue, 2}]
+    })
+
+    assert {Database, _} = Oban.config(@oban).peer
 
     started = now_ms()
 
