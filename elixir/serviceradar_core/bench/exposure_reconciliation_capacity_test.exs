@@ -65,7 +65,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
             Jason.encode!(%{hosts: hosts, fixture_ms: fixture_ms, assessment_bytes: source_bytes})
         )
 
-        run_capacity!(hosts, fixture_ms)
+        trace_capacity(fn -> run_capacity!(hosts, fixture_ms) end)
         reject_equal_count_corruption!()
       end)
 
@@ -92,6 +92,85 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
       "smoke" -> 200
       "fleet" -> 20_000
       _ -> flunk("EXPOSURE_CAPACITY_PROFILE must be smoke or fleet")
+    end
+  end
+
+  # Temporary phase profile for the paired smoke workload. Trace only coarse
+  # functions with small results; no row-by-row decoder or codec tracing.
+  defp trace_capacity(fun) do
+    comparison = ServiceRadar.Inventory.ExposureReconciliationComparison
+
+    functions = [
+      {ExposureReconciliationWorker, :perform, 1},
+      {ExposureReconciliationWorker, :enumerate, 1},
+      {ExposureReconciliationWorker, :settle, 1},
+      {ExposureReconciliationWorker, :finish_comparison, 2},
+      {ExposureReadiness, :status, 1},
+      {comparison, :run, 2},
+      {comparison, :lifecycle, 2},
+      {comparison, :dimensions, 4},
+      {comparison, :compare_dimensions, 1},
+      {comparison, :assessments, 5},
+      {comparison, :source_digest, 2},
+      {comparison, :warehouse, 4}
+    ]
+
+    tracer = spawn_link(fn -> trace_loop(%{}, %{}) end)
+
+    for {module, _, _} = mfa <- functions do
+      Code.ensure_loaded!(module)
+      assert :erlang.trace_pattern(mfa, [{:_, [], [{:return_trace}]}], [:local]) == 1
+    end
+
+    :erlang.trace(:all, true, [:call, :arity, :monotonic_timestamp, {:tracer, tracer}])
+
+    try do
+      fun.()
+    after
+      for mfa <- functions, do: :erlang.trace_pattern(mfa, false, [:local])
+      delivered = :erlang.trace_delivered(:all)
+      assert_receive {:trace_delivered, :all, ^delivered}, 10_000
+      :erlang.trace(:all, false, [:call])
+      send(tracer, {:report, self()})
+      assert_receive {:profile, totals, open}, 10_000
+      assert open == 0
+
+      for {{module, name, arity}, {calls, duration}} <- totals do
+        IO.puts(
+          "EXPOSURE_RECONCILIATION_PROFILE " <>
+            Jason.encode!(%{
+              function: "#{inspect(module)}.#{name}/#{arity}",
+              calls: calls,
+              inclusive_ms: System.convert_time_unit(duration, :native, :millisecond)
+            })
+        )
+      end
+    end
+  end
+
+  defp trace_loop(stacks, totals) do
+    receive do
+      {:trace_ts, pid, :call, mfa, at} ->
+        trace_loop(Map.update(stacks, {pid, mfa}, [at], &[at | &1]), totals)
+
+      {:trace_ts, pid, :return_from, mfa, _result, at} ->
+        [started | rest] = Map.fetch!(stacks, {pid, mfa})
+
+        if rest == [] do
+          value = {1, at - started}
+
+          totals =
+            Map.update(totals, mfa, value, fn {calls, duration} ->
+              {calls + 1, duration + at - started}
+            end)
+
+          trace_loop(Map.delete(stacks, {pid, mfa}), totals)
+        else
+          trace_loop(Map.put(stacks, {pid, mfa}, rest), totals)
+        end
+
+      {:report, caller} ->
+        send(caller, {:profile, totals, map_size(stacks)})
     end
   end
 
