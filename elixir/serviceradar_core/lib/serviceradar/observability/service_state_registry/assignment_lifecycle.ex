@@ -404,6 +404,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
     package_name = Map.fetch!(attrs, :service_name)
     plugin_id = PluginStateContract.state_plugin_id(attrs)
 
+    assignment_id = PluginStateContract.state_assignment_id(attrs)
+
+    logical_states =
+      Enum.filter(logical_states, fn state ->
+        PluginStateContract.state_assignment_id(state) in [nil, assignment_id]
+      end)
+
     {matching, distinct} =
       Enum.split_with(
         logical_states,

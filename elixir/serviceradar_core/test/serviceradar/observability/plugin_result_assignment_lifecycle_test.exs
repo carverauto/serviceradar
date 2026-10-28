@@ -294,6 +294,40 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
              current_state_rows_with_state(status)
   end
 
+  test "a replacement gets a pending placeholder instead of another assignment's evidence" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+
+    for snapshot_state <- ["active", "inactive"] do
+      {payload, status, _observed_at} = plugin_result_fixture(assignment?: false)
+      create_agent(status.agent_id, status.gateway_id)
+      package = create_repair_package!(status.service_name)
+      original = create_repair_assignment_for_package!(status, package)
+
+      assert :ok =
+               PluginResultIngestor.ingest(payload, provenance_status(status, original, package))
+
+      disabled =
+        original
+        |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: system_actor())
+        |> Ash.update!(domain: ServiceRadar.Plugins)
+
+      if snapshot_state == "inactive" do
+        assert :ok = ServiceStateRegistry.deactivate_for_assignment(disabled)
+      end
+
+      assert [[true, "edge plugin completed", _at, ^snapshot_state]] =
+               current_state_rows_with_state(status)
+
+      replacement = create_repair_assignment_for_package!(status, package)
+      assert :ok = ServiceStateRegistry.upsert_for_assignment(replacement)
+
+      assert [[false, "plugin assignment pending result", _at, "active"]] =
+               current_state_rows_with_state(status)
+
+      assert Jason.decode!(current_state_details(status))["assignment_id"] == replacement.id
+    end
+  end
+
   test "a sole assignment keeps the package service name" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
 
