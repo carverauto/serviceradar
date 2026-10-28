@@ -37,4 +37,5 @@ var (
 	errAddressRequired            = errors.New("address required")
 	errFailedToReadClientCACert   = errors.New("failed to read client CA certificate")
 	errFailedToAppendClientCACert = errors.New("failed to append client CA certificate")
+	ErrClientCertificateExpired   = errors.New("local mTLS client certificate expired")
 )

@@ -490,6 +490,33 @@ defmodule Monitoring.AgentHelloResponse do
   field :config_outdated, 7, type: :bool, json_name: "configOutdated"
 end
 
+defmodule Monitoring.CertificateRenewalRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.CertificateRenewalRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :csr_der, 1, type: :bytes, json_name: "csrDer"
+end
+
+defmodule Monitoring.CertificateRenewalResponse do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.CertificateRenewalResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :certificate_pem, 1, type: :bytes, json_name: "certificatePem"
+  field :ca_chain_pem, 2, type: :bytes, json_name: "caChainPem"
+  field :serial_number, 3, type: :string, json_name: "serialNumber"
+  field :certificate_fingerprint, 4, type: :string, json_name: "certificateFingerprint"
+  field :not_before_unix, 5, type: :int64, json_name: "notBeforeUnix"
+  field :not_after_unix, 6, type: :int64, json_name: "notAfterUnix"
+end
+
 defmodule Monitoring.AgentConfigRequest do
   @moduledoc false
 
@@ -1752,6 +1779,12 @@ defmodule Monitoring.AgentGatewayService.Service do
     :ResolveAutomationLaunchEnvelope,
     Monitoring.AutomationLaunchEnvelopeResolveRequest,
     Monitoring.AutomationLaunchEnvelopeResolveResponse
+  )
+
+  rpc(
+    :RenewCertificate,
+    Monitoring.CertificateRenewalRequest,
+    Monitoring.CertificateRenewalResponse
   )
 end
 

@@ -40,7 +40,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadar.Automation.Ansible.SafeFailureEvidence
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Edge.AgentGatewaySync
+  alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.AgentRegistryProxy
+  alias ServiceRadarAgentGateway.CertIssuer
   alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.Config
@@ -147,6 +149,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     Logger.info("Agent enrolled: agent_id=#{agent_id}, config_outdated=#{config_outdated}")
 
+    AgentCertificateRevocation.confirm_successor_hello(identity)
+
     %Monitoring.AgentHelloResponse{
       accepted: true,
       agent_id: agent_id,
@@ -156,6 +160,69 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       heartbeat_interval_sec: @default_heartbeat_interval_sec,
       config_outdated: config_outdated
     }
+  end
+
+  @doc """
+  Handle an agent mTLS certificate renewal request.
+
+  Authenticates the caller strictly from the active gRPC stream's mTLS client
+  certificate, enforces `NotBefore <= now < NotAfter` and revocation checks
+  against current gateway UTC time immediately before signing, verifies the
+  PKCS#10 CSR signature and identity match, issues a renewed leaf certificate
+  via `CertIssuer.issue_from_csr/5`, and registers a pending predecessor
+  retirement that fires only when the agent completes `Hello` presenting the
+  successor certificate.
+  """
+  @spec renew_certificate(Monitoring.CertificateRenewalRequest.t(), GRPC.Server.Stream.t()) ::
+          Monitoring.CertificateRenewalResponse.t()
+  def renew_certificate(request, stream) do
+    {cert_der, identity} = extract_renewal_peer_identity!(stream)
+    agent_id = required_agent_id(Map.get(identity, :component_id))
+    {identity, component_type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    partition_id = resolve_partition(identity)
+    csr_der = required_csr_der!(request)
+
+    enforce_active_peer_certificate_for_renewal!(identity, cert_der, stream)
+
+    opts =
+      identity
+      |> renewal_cert_issuer_opts()
+      |> Keyword.put(:before_sign, fn ->
+        enforce_active_peer_certificate_for_renewal!(identity, cert_der, stream)
+      end)
+
+    case CertIssuer.issue_from_csr(csr_der, agent_id, partition_id, component_type, opts) do
+      {:ok, issued} ->
+        :ok = AgentCertificateRevocation.register_pending_renewal(agent_id, identity, issued)
+
+        Logger.info(
+          "Agent certificate renewed: agent_id=#{agent_id}, partition=#{partition_id}, serial=#{issued.serial_number}"
+        )
+
+        %Monitoring.CertificateRenewalResponse{
+          certificate_pem: issued.certificate_pem,
+          ca_chain_pem: issued.ca_chain_pem,
+          serial_number: issued.serial_number,
+          certificate_fingerprint: issued.certificate_fingerprint,
+          not_before_unix: issued.not_before_unix,
+          not_after_unix: issued.not_after_unix
+        }
+
+      {:error, :csr_identity_mismatch} ->
+        raise GRPC.RPCError, status: :permission_denied, message: "csr_identity_mismatch"
+
+      {:error, reason}
+      when reason in [:invalid_csr, :invalid_csr_signature, :weak_public_key, :unsupported_public_key] ->
+        raise GRPC.RPCError, status: :invalid_argument, message: Atom.to_string(reason)
+
+      {:error, :ca_not_available} ->
+        raise GRPC.RPCError, status: :unavailable, message: "ca_not_available"
+
+      {:error, reason} ->
+        Logger.warning("Agent certificate renewal failed for #{agent_id}: #{inspect(reason)}")
+        raise GRPC.RPCError, status: :internal, message: "certificate renewal failed"
+    end
   end
 
   @doc """
@@ -1428,7 +1495,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       cert_not_before: Map.get(identity, :cert_not_before),
       cert_expires_at: cert_expires_at,
       cert_serial: Map.get(identity, :cert_serial),
-      cert_fingerprint_sha256: cert_fingerprint
+      cert_fingerprint_sha256: cert_fingerprint,
+      cert_renewed_at: Map.get(identity, :cert_renewed_at)
     })
   end
 
@@ -2172,6 +2240,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     agent_id = required_agent_id(hello.agent_id)
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    identity_context = Map.put(identity_context, :identity, identity)
 
     partition_id = resolve_partition(identity)
     capabilities = normalize_capabilities(hello.capabilities || [])
@@ -2191,6 +2260,146 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       capabilities,
       identity_context,
       hello
+    )
+
+    AgentCertificateRevocation.confirm_successor_hello(identity)
+    session
+  end
+
+  defp extract_renewal_peer_identity!(stream) do
+    now = renewal_now()
+
+    case get_peer_cert(stream) do
+      {:ok, cert_der} ->
+        case ComponentIdentityResolver.resolve_from_cert(cert_der, now: now) do
+          {:ok, identity} ->
+            {cert_der, identity}
+
+          {:error, :certificate_expired} ->
+            _ =
+              TlsDiagnosticLogger.log_handshake_failure(
+                :certificate_expired,
+                cert_der,
+                peer_ip: get_peer_ip(stream)
+              )
+
+            raise GRPC.RPCError, status: :permission_denied, message: "certificate_expired"
+
+          {:error, :certificate_not_yet_valid} ->
+            _ =
+              TlsDiagnosticLogger.log_handshake_failure(
+                :certificate_not_yet_valid,
+                cert_der,
+                peer_ip: get_peer_ip(stream)
+              )
+
+            raise GRPC.RPCError, status: :permission_denied, message: "certificate_not_yet_valid"
+
+          {:error, :revoked_certificate} ->
+            _ =
+              TlsDiagnosticLogger.log_handshake_failure(
+                :revoked_certificate,
+                cert_der,
+                peer_ip: get_peer_ip(stream)
+              )
+
+            raise GRPC.RPCError, status: :permission_denied, message: "certificate_revoked"
+
+          {:error, reason} ->
+            _ =
+              TlsDiagnosticLogger.log_handshake_failure(
+                reason,
+                cert_der,
+                peer_ip: get_peer_ip(stream)
+              )
+
+            raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+        end
+
+      {:error, reason} ->
+        _ =
+          TlsDiagnosticLogger.log_handshake_failure(
+            reason,
+            nil,
+            peer_ip: get_peer_ip(stream)
+          )
+
+        raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+    end
+  end
+
+  defp required_csr_der!(%Monitoring.CertificateRenewalRequest{csr_der: csr_der})
+       when is_binary(csr_der) and byte_size(csr_der) > 0 do
+    csr_der
+  end
+
+  defp required_csr_der!(_request) do
+    raise GRPC.RPCError, status: :invalid_argument, message: "csr_der is required"
+  end
+
+  defp enforce_active_peer_certificate_for_renewal!(identity, cert_der, stream) do
+    now = renewal_now()
+    not_before = Map.get(identity, :cert_not_before)
+    not_after = Map.get(identity, :cert_not_after) || Map.get(identity, :cert_expires_at)
+
+    cond do
+      match?(%DateTime{}, not_before) and DateTime.before?(now, not_before) ->
+        _ =
+          TlsDiagnosticLogger.log_handshake_failure(
+            :certificate_not_yet_valid,
+            cert_der,
+            peer_ip: get_peer_ip(stream)
+          )
+
+        raise GRPC.RPCError, status: :permission_denied, message: "certificate_not_yet_valid"
+
+      match?(%DateTime{}, not_after) and DateTime.compare(now, not_after) in [:eq, :gt] ->
+        _ =
+          TlsDiagnosticLogger.log_handshake_failure(
+            :certificate_expired,
+            cert_der,
+            peer_ip: get_peer_ip(stream)
+          )
+
+        raise GRPC.RPCError, status: :permission_denied, message: "certificate_expired"
+
+      AgentCertificateRevocation.revoked?(identity) ->
+        _ =
+          TlsDiagnosticLogger.log_handshake_failure(
+            :revoked_certificate,
+            cert_der,
+            peer_ip: get_peer_ip(stream)
+          )
+
+        raise GRPC.RPCError, status: :permission_denied, message: "certificate_revoked"
+
+      true ->
+        :ok
+    end
+  end
+
+  defp renewal_now do
+    case Application.get_env(:serviceradar_agent_gateway, :cert_issuer_opts, [])[:now] do
+      %DateTime{} = now -> now
+      now_fn when is_function(now_fn, 0) -> now_fn.()
+      _ -> DateTime.utc_now()
+    end
+  end
+
+  defp renewal_cert_issuer_opts(identity) do
+    configured_opts = Application.get_env(:serviceradar_agent_gateway, :cert_issuer_opts, [])
+
+    Keyword.merge(configured_opts,
+      audit_action: :agent_certificate_renew,
+      authorized_component_id: Map.get(identity, :component_id),
+      authorized_partition_id: Map.get(identity, :partition_id),
+      predecessor_certificate_fingerprint: Map.get(identity, :certificate_fingerprint),
+      predecessor_certificate_serial_number: Map.get(identity, :serial_number),
+      audit_actor: %{
+        id: Map.get(identity, :component_id),
+        spiffe_id: Map.get(identity, :spiffe_id),
+        certificate_fingerprint: Map.get(identity, :certificate_fingerprint)
+      }
     )
   end
 

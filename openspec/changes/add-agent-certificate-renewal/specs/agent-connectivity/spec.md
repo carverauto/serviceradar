@@ -8,7 +8,7 @@ Connected agents SHALL automatically renew their mTLS leaf certificate over the 
 - **WHEN** the agent's renewal loop runs
 - **THEN** the agent SHALL generate a new private key and a signed PKCS#10 Certificate Signing Request (`csr_der`)
 - **AND** the agent SHALL call `AgentGatewayService.RenewCertificate` over its active mTLS connection
-- **AND** the gateway SHALL verify the signature over DER-encoded `CertificationRequestInfo` using the CSR's public key and supported signature algorithm, reject requests whose signatures cannot be verified, ignore any Subject or SAN fields in the CSR, and issue a new leaf certificate bound to the `component_id`, `partition_id`, and `component_type` extracted from the caller's verified mTLS peer certificate
+- **AND** the gateway SHALL verify the signature over DER-encoded `CertificationRequestInfo` using the CSR's public key and supported signature algorithm, reject requests whose signatures cannot be verified or whose Subject CN or SANs claim a different identity (`csr_identity_mismatch`), and issue a new leaf certificate constructed strictly from the CSR's verified public key and the `component_id`, `partition_id`, and `component_type` extracted from the caller's verified mTLS peer certificate
 - **AND** the agent SHALL atomically persist the renewed certificate and private key to `/etc/serviceradar/certs/` and hot-reload its in-memory TLS credentials (`GetClientCertificate` / `GetCertificate`) without restarting the process
 
 #### Scenario: Crash during keypair persistence
@@ -27,7 +27,7 @@ Connected agents SHALL automatically renew their mTLS leaf certificate over the 
 #### Scenario: Predecessor certificate retirement after renewal
 - **GIVEN** `serviceradar-agent-gateway` has issued a renewed certificate $C_{\text{new}}$ to replace an agent's current certificate $C_{\text{old}}$
 - **WHEN** the agent reconnects and completes `Hello` presenting $C_{\text{new}}$
-- **THEN** the gateway SHALL record $C_{\text{old}}$'s serial number and SHA-256 fingerprint in the durable revocation store with reason `superseded_by_renewal`
+- **THEN** the gateway SHALL revoke $C_{\text{old}}$ by SHA-256 fingerprint, without revoking unrelated certificates sharing its serial number, in the gateway revocation registry (`ServiceRadarAgentGateway.AgentCertificateRevocation`) with reason `superseded_by_renewal`
 - **AND** any subsequent connection attempt presenting $C_{\text{old}}$ SHALL be rejected
 
 ### Requirement: Expired and Revoked Certificate Rejection and Diagnostics

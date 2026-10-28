@@ -3,7 +3,7 @@
 ## Why
 
 This describes the pre-change motivation and full renewal roadmap. See
-[tasks](tasks.md) for Phase 1 completion; automatic renewal remains pending.
+[tasks](tasks.md) for implemented scope and remaining work.
 
 Edge agents enrolled via `ServiceRadarWebNG.Edge.OnboardingPackages` receive a static leaf X.509 certificate and private key written once to `/etc/serviceradar/certs/component.pem` and `/etc/serviceradar/certs/component-key.pem`, with zero rotation or renewal mechanism after enrollment. Compounding this gap, `ServiceRadar.Edge.OnboardingPackages.create_with_platform_cert/2` defaults `:cert_validity_days` to `1` while `ServiceRadarAgentGateway.CertIssuer` defaults to `365`, causing enrolled agents to receive 1-day leaf certificates unless callers explicitly override `:cert_validity_days`.
 
@@ -19,7 +19,7 @@ When an enrolled agent's leaf certificate expires:
   - Add `RenewCertificate(CertificateRenewalRequest) returns (CertificateRenewalResponse)` to `monitoring.AgentGatewayService` over the existing mutually-authenticated gRPC session.
   - Require proof of possession of a freshly generated private key via a PKCS#10 Certificate Signing Request (`csr_der`) signed by the new key, while deriving `component_id`, `partition_id`, and `component_type` exclusively from the authenticated peer's current mTLS client certificate (`ServiceRadarAgentGateway.ComponentIdentityResolver`) -- never from untrusted CSR subject/SAN fields.
   - Agents automatically initiate renewal at two-thirds (`2/3`) of their leaf certificate's validity window (with jitter and exponential backoff on transient failures), write the new keypair and chain atomically to `/etc/serviceradar/certs/`, and hot-reload both client and server TLS credentials in memory (`tls.Config.GetClientCertificate` / `GetCertificate`) without restarting the agent process or dropping active checks.
-  - Upon confirming the renewed certificate on a subsequent authenticated `Hello`, `ServiceRadarAgentGateway.CertIssuer` revokes the predecessor certificate's fingerprint and serial number.
+  - Predecessor retirement follows [Decision 5](design.md#decision-5-interaction-with-leaf-and-component-revocation-5257).
 - **Expired-Certificate Recovery Policy**:
   - Reject expired client certificates at the TLS handshake boundary and recheck authenticated peer validity against current gateway time immediately before signing every renewal, including retries over existing connections, with no unauthenticated or expired-cert renewal grace window (preventing an attacker who compromises a decommissioned host or backups after expiry from silently minting a fresh certificate).
   - Provide a single-command operator re-enrollment path (`serviceradar-cli enroll --token <token>` / `POST /api/admin/agents/:uid/reissue-enrollment-token`) that preserves the existing `component_id` (`agent_uid`) and replaces the expired certificate bundle in place without duplicating inventory records.
@@ -41,7 +41,7 @@ When an enrolled agent's leaf certificate expires:
   - `edge-onboarding`
   - `agent-connectivity`
   - `agent-registry`
-- Affected code (future implementation):
+- Affected code (implemented and planned):
   - `proto/monitoring.proto` (`RenewCertificate` RPC)
   - `elixir/serviceradar_agent_gateway/lib/serviceradar_agent_gateway/{agent_gateway_server.ex,cert_issuer.ex,agent_certificate_revocation.ex,component_identity_resolver.ex}`
   - `elixir/serviceradar_core/lib/serviceradar/edge/onboarding_packages.ex`

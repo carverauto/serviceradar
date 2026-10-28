@@ -471,6 +471,7 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	go p.configPollLoop(runCtx)
 	go p.superviseControlStreamLoop(runCtx)
 	go p.monitorReleaseActivation(runCtx)
+	go p.certificateRenewalLoop(runCtx)
 
 	// Use a resettable timer so updated intervals take effect
 	timer := time.NewTimer(0) // fire immediately for first tick

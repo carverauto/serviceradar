@@ -321,6 +321,26 @@ func (mr *MockAgentGatewayServiceClientMockRecorder) PushStatus(ctx, in any, opt
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).PushStatus), varargs...)
 }
 
+// RenewCertificate mocks base method.
+func (m *MockAgentGatewayServiceClient) RenewCertificate(ctx context.Context, in *CertificateRenewalRequest, opts ...grpc.CallOption) (*CertificateRenewalResponse, error) {
+	m.ctrl.T.Helper()
+	varargs := []any{ctx, in}
+	for _, a := range opts {
+		varargs = append(varargs, a)
+	}
+	ret := m.ctrl.Call(m, "RenewCertificate", varargs...)
+	ret0, _ := ret[0].(*CertificateRenewalResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenewCertificate indicates an expected call of RenewCertificate.
+func (mr *MockAgentGatewayServiceClientMockRecorder) RenewCertificate(ctx, in any, opts ...any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	varargs := append([]any{ctx, in}, opts...)
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewCertificate", reflect.TypeOf((*MockAgentGatewayServiceClient)(nil).RenewCertificate), varargs...)
+}
+
 // ResolveAutomationLaunchEnvelope mocks base method.
 func (m *MockAgentGatewayServiceClient) ResolveAutomationLaunchEnvelope(ctx context.Context, in *AutomationLaunchEnvelopeResolveRequest, opts ...grpc.CallOption) (*AutomationLaunchEnvelopeResolveResponse, error) {
 	m.ctrl.T.Helper()
@@ -482,6 +502,21 @@ func (m *MockAgentGatewayServiceServer) PushStatus(arg0 context.Context, arg1 *G
 func (mr *MockAgentGatewayServiceServerMockRecorder) PushStatus(arg0, arg1 any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "PushStatus", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).PushStatus), arg0, arg1)
+}
+
+// RenewCertificate mocks base method.
+func (m *MockAgentGatewayServiceServer) RenewCertificate(arg0 context.Context, arg1 *CertificateRenewalRequest) (*CertificateRenewalResponse, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "RenewCertificate", arg0, arg1)
+	ret0, _ := ret[0].(*CertificateRenewalResponse)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// RenewCertificate indicates an expected call of RenewCertificate.
+func (mr *MockAgentGatewayServiceServerMockRecorder) RenewCertificate(arg0, arg1 any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RenewCertificate", reflect.TypeOf((*MockAgentGatewayServiceServer)(nil).RenewCertificate), arg0, arg1)
 }
 
 // ResolveAutomationLaunchEnvelope mocks base method.

@@ -51,6 +51,9 @@ service AgentGatewayService {
   // mTLS-authenticated agent and command. It is intentionally separate from
   // the reusable credential-broker contract.
   rpc ResolveAutomationLaunchEnvelope(AutomationLaunchEnvelopeResolveRequest) returns (AutomationLaunchEnvelopeResolveResponse) {}
+  // RenewCertificate renews the caller's mTLS client certificate from a PKCS#10 CSR
+  // authenticated by the currently valid peer certificate on the gRPC stream.
+  rpc RenewCertificate(CertificateRenewalRequest) returns (CertificateRenewalResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -326,6 +329,21 @@ message AgentHelloResponse {
   int32 heartbeat_interval_sec = 6; // Recommended status push interval in seconds
   bool config_outdated = 7;         // True if agent should fetch new config
   reserved 8, 9;                    // Removed: deployment identifiers (single-deployment)
+}
+
+// CertificateRenewalRequest is sent by an authenticated agent to renew its mTLS leaf certificate.
+message CertificateRenewalRequest {
+  bytes csr_der = 1; // PKCS#10 DER-encoded Certificate Signing Request
+}
+
+// CertificateRenewalResponse contains the newly issued mTLS leaf certificate and CA chain.
+message CertificateRenewalResponse {
+  bytes certificate_pem = 1;           // Newly issued leaf certificate in PEM format
+  bytes ca_chain_pem = 2;              // Issuing CA certificate chain in PEM format
+  string serial_number = 3;            // Lowercase hex serial number of the issued certificate
+  string certificate_fingerprint = 4;  // Lowercase hex SHA-256 fingerprint of the DER certificate
+  int64 not_before_unix = 5;           // Certificate NotBefore timestamp (Unix seconds)
+  int64 not_after_unix = 6;            // Certificate NotAfter timestamp (Unix seconds)
 }
 
 // ============================================================================
