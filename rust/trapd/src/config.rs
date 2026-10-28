@@ -19,12 +19,28 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase", try_from = "String")]
 pub enum SecurityMode {
     #[default]
-    #[serde(alias = "", alias = "mtls")]
     Mtls,
     None,
+}
+
+impl TryFrom<String> for SecurityMode {
+    type Error = String;
+
+    fn try_from(mode: String) -> Result<Self, Self::Error> {
+        match mode.as_str() {
+            "none" => Ok(Self::None),
+            "mtls" | "" => Ok(Self::Mtls),
+            "spiffe" | "spire" | "workload_api" => Err(format!(
+                "security mode {mode:?} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+            )),
+            _ => Err(format!(
+                "unknown security mode {mode:?}; expected mtls or none"
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -202,13 +218,16 @@ mod tests {
 
     #[test]
     fn spiffe_mode_is_rejected_on_deserialize() {
-        let raw = r#"{"mode":"spiffe"}"#;
-        let err = serde_json::from_str::<SecurityConfig>(raw)
-            .expect_err("expected spiffe security mode to fail deserialization");
-        assert!(
-            err.to_string().contains("unknown variant `spiffe`"),
-            "unexpected error: {err}"
-        );
+        for mode in ["spiffe", "spire", "workload_api"] {
+            let raw = format!(r#"{{"mode":"{mode}"}}"#);
+            let err = serde_json::from_str::<SecurityConfig>(&raw)
+                .expect_err("expected spiffe security mode to fail deserialization");
+            assert!(
+                err.to_string()
+                    .contains("https://docs.serviceradar.cloud/docs/migrating-off-spire"),
+                "unexpected error: {err}"
+            );
+        }
     }
 
     #[test]
@@ -249,5 +268,15 @@ mod tests {
 
         let path = config.client_ca_path().expect("expected client CA path");
         assert_eq!(path, Path::new("/etc/serviceradar/certs/root.pem"));
+    }
+
+    #[test]
+    fn supported_security_modes_deserialize() {
+        for (raw, expected) in [
+            (r#""mtls""#, SecurityMode::Mtls),
+            (r#""none""#, SecurityMode::None),
+        ] {
+            assert_eq!(serde_json::from_str::<SecurityMode>(raw).unwrap(), expected);
+        }
     }
 }

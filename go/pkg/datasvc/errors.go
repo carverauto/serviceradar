@@ -38,7 +38,6 @@ var (
 	errNatsURLRequired          = errors.New("nats_url is required")
 	errNATSCredsRequired        = errors.New("nats_creds_file is required for NATS JWT auth")
 	errSecurityRequired         = errors.New("security configuration is required for mTLS")
-	errNATSSecurityRequired     = errors.New("nats_security configuration is required")
 	errCertFileRequired         = errors.New("tls.cert_file is required for mTLS")
 	errKeyFileRequired          = errors.New("tls.key_file is required for mTLS")
 	errCAFileRequired           = errors.New("tls.ca_file is required for mTLS")

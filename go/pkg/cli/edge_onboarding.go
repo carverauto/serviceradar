@@ -43,6 +43,7 @@ type edgePackageView struct {
 	GatewayID          string     `json:"gateway_id"`
 	Site               string     `json:"site,omitempty"`
 	Status             string     `json:"status"`
+	DownstreamSPIFFEID string     `json:"downstream_spiffe_id"`
 	Selectors          []string   `json:"selectors,omitempty"`
 	JoinTokenExpiresAt time.Time  `json:"join_token_expires_at"`
 	DownloadExpiresAt  time.Time  `json:"download_token_expires_at"`
@@ -52,6 +53,7 @@ type edgePackageView struct {
 	DeliveredAt        *time.Time `json:"delivered_at,omitempty"`
 	ActivatedAt        *time.Time `json:"activated_at,omitempty"`
 	ActivatedFromIP    *string    `json:"activated_from_ip,omitempty"`
+	LastSeenSPIFFEID   *string    `json:"last_seen_spiffe_id,omitempty"`
 	RevokedAt          *time.Time `json:"revoked_at,omitempty"`
 	DeletedAt          *time.Time `json:"deleted_at,omitempty"`
 	DeletedBy          string     `json:"deleted_by,omitempty"`
@@ -811,6 +813,9 @@ func printPackageDetails(pkg edgePackageView) {
 	fmt.Printf("Updated    : %s\n", formatTimestamp(pkg.UpdatedAt))
 	fmt.Printf("Join token expires    : %s\n", formatTimestamp(pkg.JoinTokenExpiresAt))
 	fmt.Printf("Download token expires: %s\n", formatTimestamp(pkg.DownloadExpiresAt))
+	if pkg.DownstreamSPIFFEID != "" {
+		fmt.Printf("SPIFFE ID  : %s\n", pkg.DownstreamSPIFFEID)
+	}
 	if len(pkg.Selectors) > 0 {
 		fmt.Printf("Selectors  : %s\n", strings.Join(pkg.Selectors, ", "))
 	}

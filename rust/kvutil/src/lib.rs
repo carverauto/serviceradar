@@ -56,7 +56,7 @@ impl KvClient {
                     .tls_config(tls)
                     .map_err(|e| KvError::Other(e.into()))?
             }
-            "spiffe" => {
+            "spiffe" | "spire" | "workload_api" => {
                 return Err(KvError::UnsupportedSecMode(sec_mode));
             }
             "none" => endpoint,
@@ -227,21 +227,23 @@ mod tests {
 
     #[tokio::test]
     async fn spiffe_sec_mode_is_rejected() {
-        unsafe {
-            std::env::set_var("KV_ADDRESS", "127.0.0.1:50057");
-            std::env::set_var("KV_SEC_MODE", "spiffe");
+        for rejected in ["spiffe", "spire", "workload_api"] {
+            unsafe {
+                std::env::set_var("KV_ADDRESS", "127.0.0.1:50057");
+                std::env::set_var("KV_SEC_MODE", rejected);
+            }
+            let err = match KvClient::connect_from_env().await {
+                Ok(_) => panic!("expected KV_SEC_MODE=spiffe to fail"),
+                Err(err) => err,
+            };
+            unsafe {
+                std::env::remove_var("KV_ADDRESS");
+                std::env::remove_var("KV_SEC_MODE");
+            }
+            assert!(
+                matches!(err, KvError::UnsupportedSecMode(ref mode) if mode == rejected),
+                "expected UnsupportedSecMode(\"spiffe\"), got {err:?}"
+            );
         }
-        let err = match KvClient::connect_from_env().await {
-            Ok(_) => panic!("expected KV_SEC_MODE=spiffe to fail"),
-            Err(err) => err,
-        };
-        unsafe {
-            std::env::remove_var("KV_ADDRESS");
-            std::env::remove_var("KV_SEC_MODE");
-        }
-        assert!(
-            matches!(err, KvError::UnsupportedSecMode(ref mode) if mode == "spiffe"),
-            "expected UnsupportedSecMode(\"spiffe\"), got {err:?}"
-        );
     }
 }

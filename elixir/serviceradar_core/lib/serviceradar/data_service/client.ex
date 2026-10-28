@@ -504,12 +504,31 @@ defmodule ServiceRadar.DataService.Client do
 
   defp normalize_sec_mode_value(value, ssl, config) when is_binary(value) do
     case String.downcase(String.trim(value)) do
-      "mtls" -> :mtls
-      "tls" -> :tls
-      "plaintext" -> :plaintext
-      "none" -> :plaintext
-      _ -> default_sec_mode(ssl, config)
+      mode when mode in ~w(spiffe spire workload_api) ->
+        raise ArgumentError,
+              "security mode #{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+
+      "mtls" ->
+        :mtls
+
+      "tls" ->
+        :tls
+
+      "plaintext" ->
+        :plaintext
+
+      "none" ->
+        :plaintext
+
+      _ ->
+        default_sec_mode(ssl, config)
     end
+  end
+
+  defp normalize_sec_mode_value(value, _ssl, _config)
+       when value in [:spiffe, :spire, :workload_api] do
+    raise ArgumentError,
+          "security mode #{value} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
   end
 
   defp normalize_sec_mode_value(_value, ssl, config), do: default_sec_mode(ssl, config)

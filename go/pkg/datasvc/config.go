@@ -78,16 +78,6 @@ func (c *Config) validateRequiredFields() error {
 		return errNatsURLRequired
 	}
 
-	// nats_creds_file is only required when NOT using mTLS for NATS
-	// (i.e., when using JWT auth which needs the creds file)
-	natsMode := ""
-	if c.NATSSecurity != nil {
-		natsMode = strings.ToLower(string(c.NATSSecurity.Mode))
-	}
-	if natsMode != securityModeMTLS && strings.TrimSpace(c.NATSCredsFile) == "" {
-		return errNATSCredsRequired
-	}
-
 	return nil
 }
 
@@ -100,6 +90,8 @@ func (c *Config) validateSecurity() error {
 	mode := strings.ToLower(string(c.Security.Mode))
 
 	switch mode {
+	case "spiffe", "spire", "workload_api":
+		return fmt.Errorf("%w: %s; see https://docs.serviceradar.cloud/docs/migrating-off-spire", errInvalidSecurityMode, mode)
 	case securityModeMTLS:
 	case securityModeNone:
 		return nil
@@ -117,7 +109,7 @@ func (c *Config) validateSecurity() error {
 func (c *Config) validateNATSSecurity() error {
 	if c.NATSSecurity == nil {
 		if strings.TrimSpace(c.NATSCredsFile) == "" {
-			return errNATSSecurityRequired
+			return errNATSCredsRequired
 		}
 
 		return nil
@@ -126,6 +118,8 @@ func (c *Config) validateNATSSecurity() error {
 	mode := strings.ToLower(string(c.NATSSecurity.Mode))
 
 	switch mode {
+	case "spiffe", "spire", "workload_api":
+		return fmt.Errorf("%w: %s; see https://docs.serviceradar.cloud/docs/migrating-off-spire", errMTLSRequired, mode)
 	case securityModeMTLS:
 		return validateTLSConfig(c.NATSSecurity)
 	case securityModeNone:

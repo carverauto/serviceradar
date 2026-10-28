@@ -1,5 +1,15 @@
 import Config
 
+for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
+  mode = name |> System.get_env("") |> String.trim() |> String.downcase()
+
+  if mode in ~w(spiffe spire workload_api) do
+    raise ArgumentError,
+          "#{name}=#{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+  end
+end
+
+
 # Runtime configuration for production deployments.
 # This file is executed at runtime, not compile time.
 

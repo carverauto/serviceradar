@@ -563,11 +563,24 @@ defmodule ServiceRadar.NATS.AccountClient do
 
   defp normalize_sec_mode(value, ssl) do
     case String.downcase(String.trim(value)) do
-      "mtls" -> :mtls
-      "tls" -> :tls
-      "plaintext" -> :plaintext
-      "none" -> :plaintext
-      _ -> if ssl, do: :mtls, else: :plaintext
+      mode when mode in ~w(spiffe spire workload_api) ->
+        raise ArgumentError,
+              "security mode #{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+
+      "mtls" ->
+        :mtls
+
+      "tls" ->
+        :tls
+
+      "plaintext" ->
+        :plaintext
+
+      "none" ->
+        :plaintext
+
+      _ ->
+        if ssl, do: :mtls, else: :plaintext
     end
   end
 

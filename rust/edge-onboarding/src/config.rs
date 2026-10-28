@@ -24,11 +24,28 @@ use crate::error::Result;
 
 /// Security mode for the checker.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase", try_from = "String")]
 pub enum SecurityMode {
     Mtls,
     #[default]
     None,
+}
+
+impl TryFrom<String> for SecurityMode {
+    type Error = String;
+
+    fn try_from(mode: String) -> std::result::Result<Self, Self::Error> {
+        match mode.as_str() {
+            "none" => Ok(Self::None),
+            "mtls" => Ok(Self::Mtls),
+            "spiffe" | "spire" | "workload_api" => Err(format!(
+                "security mode {mode:?} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+            )),
+            _ => Err(format!(
+                "unknown security mode {mode:?}; expected mtls or none"
+            )),
+        }
+    }
 }
 
 /// Security configuration.
@@ -165,4 +182,31 @@ pub fn generate_checker_config(
     }
 
     Ok(config)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retired_security_modes_are_rejected_with_migration_guidance() {
+        for mode in ["spiffe", "spire", "workload_api"] {
+            let raw = format!(r#"{{"mode":"{mode}"}}"#);
+            let err = serde_json::from_str::<SecurityConfig>(&raw).unwrap_err();
+            assert!(
+                err.to_string()
+                    .contains("https://docs.serviceradar.cloud/docs/migrating-off-spire")
+            );
+        }
+    }
+
+    #[test]
+    fn supported_security_modes_deserialize() {
+        for (raw, expected) in [
+            (r#""mtls""#, SecurityMode::Mtls),
+            (r#""none""#, SecurityMode::None),
+        ] {
+            assert_eq!(serde_json::from_str::<SecurityMode>(raw).unwrap(), expected);
+        }
+    }
 }

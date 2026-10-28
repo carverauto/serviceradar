@@ -61,9 +61,13 @@ func TestConfigValidateRejectsSPIFFE(t *testing.T) {
 		},
 	}
 
-	err := cfg.Validate()
-	require.Error(t, err)
-	require.ErrorIs(t, err, errInvalidSecurityMode)
+	for _, mode := range []models.SecurityMode{"spiffe", "spire", "workload_api"} {
+		cfg.Security.Mode = mode
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorIs(t, err, errInvalidSecurityMode)
+		require.ErrorContains(t, err, "https://docs.serviceradar.cloud/docs/migrating-off-spire")
+	}
 }
 
 func TestConfigValidateRejectsUnknownSecurityMode(t *testing.T) {
@@ -144,9 +148,13 @@ func TestConfigValidateRejectsNonMTLSNATSSecurity(t *testing.T) {
 		},
 	}
 
-	err := cfg.Validate()
-	require.Error(t, err)
-	require.ErrorIs(t, err, errMTLSRequired)
+	for _, mode := range []models.SecurityMode{"spiffe", "spire", "workload_api"} {
+		cfg.NATSSecurity.Mode = mode
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorIs(t, err, errMTLSRequired)
+		require.ErrorContains(t, err, "https://docs.serviceradar.cloud/docs/migrating-off-spire")
+	}
 }
 
 func TestConfigValidateRequiresNATSTLSFiles(t *testing.T) {

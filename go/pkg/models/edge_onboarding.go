@@ -77,6 +77,7 @@ type EdgeOnboardingPackage struct {
 	Status                 EdgeOnboardingStatus        `json:"status"`
 	SecurityMode           string                      `json:"security_mode,omitempty"`
 	DownstreamEntryID      string                      `json:"downstream_entry_id,omitempty"`
+	DownstreamSPIFFEID     string                      `json:"downstream_spiffe_id"`
 	Selectors              []string                    `json:"selectors,omitempty"`
 	JoinTokenCiphertext    string                      `json:"join_token_ciphertext"`
 	JoinTokenExpiresAt     time.Time                   `json:"join_token_expires_at"`
@@ -89,6 +90,7 @@ type EdgeOnboardingPackage struct {
 	DeliveredAt            *time.Time                  `json:"delivered_at,omitempty"`
 	ActivatedAt            *time.Time                  `json:"activated_at,omitempty"`
 	ActivatedFromIP        *string                     `json:"activated_from_ip,omitempty"`
+	LastSeenSPIFFEID       *string                     `json:"last_seen_spiffe_id,omitempty"`
 	RevokedAt              *time.Time                  `json:"revoked_at,omitempty"`
 	DeletedAt              *time.Time                  `json:"deleted_at,omitempty"`
 	DeletedBy              string                      `json:"deleted_by,omitempty"`
