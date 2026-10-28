@@ -105,6 +105,18 @@ defmodule ServiceRadarCoreElx.CameraRelay.WebRTCViewerBin do
     WebRTCSink.handle_element_end_of_stream(name, pad, ctx, state)
   end
 
+  # A normal terminate action replaces our callbacks with Membrane's zombie
+  # callbacks and loses an in-flight crash reason. Drain the children while
+  # keeping handle_crash_group_down active; Membrane stops us when they are gone.
+  @impl true
+  def handle_terminate_request(%{children: children}, state) when map_size(children) == 0 do
+    {[terminate: :normal], state}
+  end
+
+  def handle_terminate_request(_ctx, state) do
+    {[remove_children: @internal_group], state}
+  end
+
   @impl true
   def handle_crash_group_down(@internal_group, ctx, state) do
     case ctx.crash_reason do

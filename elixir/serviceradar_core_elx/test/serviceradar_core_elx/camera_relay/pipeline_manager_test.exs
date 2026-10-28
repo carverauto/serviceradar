@@ -359,18 +359,29 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
     %{pid: element} =
       Enum.find([signaling_state.peer_a, signaling_state.peer_b], & &1.is_element)
 
+    %{pid: viewer_bin} = :sys.get_state(pipeline).children[{:webrtc_sink, viewer_session_id}]
     :erlang.trace(manager, true, [:receive])
+    :erlang.trace(pipeline, true, [:send])
 
     log =
       ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        # Queue explicit removal behind the failed child's DOWN, but ahead of
+        # the remaining internal children's exits. Both events must survive.
+        :ok = :sys.suspend(viewer_bin)
         :ok = :sys.suspend(pipeline)
 
         try do
-          send(element, {:ex_webrtc, self(), {:connection_state_change, :failed}})
-          assert_receive {:DOWN, ^signaling_ref, :process, ^signaling_pid, {:shutdown, :connection_failed}}, 5_000
-          assert_receive {:trace, ^manager, :receive, {:DOWN, _, :process, ^signaling_pid, _}}, 5_000
+          try do
+            send(element, {:ex_webrtc, self(), {:connection_state_change, :failed}})
+            assert_receive {:DOWN, ^signaling_ref, :process, ^signaling_pid, {:shutdown, :connection_failed}}, 5_000
+            assert_receive {:trace, ^manager, :receive, {:DOWN, _, :process, ^signaling_pid, _}}, 5_000
+          after
+            :sys.resume(pipeline)
+          end
+
+          assert_receive {:trace, ^pipeline, :send, {Membrane.Core.Message, :terminate, [], []}, ^viewer_bin}, 5_000
         after
-          :sys.resume(pipeline)
+          :sys.resume(viewer_bin)
         end
 
         assert_receive {:trace, ^manager, :receive,
@@ -383,6 +394,7 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
       end)
 
     :erlang.trace(manager, false, [:receive])
+    :erlang.trace(pipeline, false, [:send])
     assert log == ""
     assert Process.alive?(pipeline)
     refute PipelineManager.webrtc_viewer_alive?(relay_session_id, viewer_session_id)
