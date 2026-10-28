@@ -44,7 +44,6 @@ MUST_INCLUDE = (
     "templates/web.yaml",
     "files/serviceradar-config.yaml",
     "dashboards/serviceradar-overview.json",
-    "crds/spire.spiffe.io_clusterspiffeids.yaml",
     # Helm's convention for chart test hooks. Root-level build/test rules must
     # never reach into templates/.
     "templates/tests/test-connection.yaml",

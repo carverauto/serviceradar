@@ -58,7 +58,7 @@ py_test(
 # CNPG WAL/checkpoint defaults. PostgreSQL's stock max_wal_size=1GB forced a
 # checkpoint every ~14s at this product's ingest rate and parked every backend on
 # LWLock:WALWrite, failing probes across a whole namespace. These assertions pin the
-# properties that regress silently: both cluster templates covered, WAL sizes left
+# properties that regress silently: the CNPG cluster template covered, WAL sizes left
 # derived from storageSize rather than pinned flat, every injected key keeping its
 # escape hatch, and the unit-stripping regex never coming back.
 py_test(
@@ -67,7 +67,6 @@ py_test(
     data = [
         "templates/_helpers.tpl",
         "templates/cnpg-cluster.yaml",
-        "templates/spire-postgres.yaml",
         "values.yaml",
     ],
 )
@@ -82,7 +81,6 @@ py_test(
         "templates/_helpers.tpl",
         "templates/cnpg-cluster.yaml",
         "templates/secret-generator-job.yaml",
-        "templates/spire-postgres.yaml",
         "values.yaml",
     ],
 )
@@ -171,7 +169,6 @@ filegroup(
         "values-tenant.yaml",
     ] + glob([
         "charts/**",
-        "crds/**",
         "dashboards/**",
         "files/**",
         "templates/**",

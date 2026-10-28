@@ -931,18 +931,6 @@ datasvc:
 #   clientCAFromCerts: true
 #   requireClientCert: true
 
-spire:
-  enabled: false
-  trustDomain: carverauto.dev
-  clusterName: carverauto-cluster
-  agent:
-    hostNetwork: false
-  postgres:
-    enabled: false
-    clusterName: cnpg
-    instances: 3
-    storageSize: 100Gi
-
 prometheusRules:
   cnpg:
     enabled: true

@@ -69,11 +69,8 @@ Usage: {{ include "serviceradar.imageRef" (dict "Values" .Values "Chart" .Chart 
 {{/*
 The default ServiceRadar CNPG image tag, as tag@digest.
 
-SINGLE SOURCE OF TRUTH. Two templates render a CNPG Cluster -- cnpg-cluster.yaml and
-spire-postgres.yaml (which, despite the name, is the cluster definition demo-staging
-uses) -- and both used to carry their own copy of this string. They drifted: the main
-cluster was bumped while the other stayed on an older pin, so an environment silently
-kept running a different PostgreSQL. Both now call this.
+SINGLE SOURCE OF TRUTH. cnpg-cluster.yaml calls this helper to pin the default
+PostgreSQL image tag and digest.
 */}}
 {{- define "serviceradar.cnpgDefaultImageTag" -}}
 18.4.0-sr4@sha256:59e442dec59fac3149e3a3c49ba0cc2987bfb052bca1a0ea8c01b4bb31427d1d
@@ -190,7 +187,6 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- define "serviceradar.kvEnv" -}}
 {{- $vals := .Values -}}
 {{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.kv.trustDomain -}}
-{{- $serverID := include "serviceradar.kvServerSPIFFEID" . -}}
 {{- if not $vals.kv.enabled }}
 {{- else }}
 - name: CONFIG_SOURCE
@@ -201,10 +197,6 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: "{{ default "mtls" $vals.kv.secMode }}"
 - name: KV_TRUST_DOMAIN
   value: "{{ $trustDomain }}"
-- name: KV_SERVER_SPIFFE_ID
-  value: "{{ $serverID }}"
-- name: KV_WORKLOAD_SOCKET
-  value: "{{ default "unix:/run/spire/sockets/agent.sock" $vals.kv.workloadSocket }}"
 - name: KV_CERT_DIR
   value: "{{ default "/etc/serviceradar/certs" $vals.kv.certDir }}"
 {{- end }}
@@ -237,44 +229,21 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- end }}
 {{- end -}}
 
-{{- define "serviceradar.kvServerSPIFFEID" -}}
-{{- $vals := .Values -}}
-{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
-{{- $datasvcSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "datasvc")) -}}
-{{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.kv.trustDomain -}}
-{{- default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $datasvcSA) $vals.kv.serverSPIFFEID -}}
-{{- end -}}
-
-{{- define "serviceradar.coreServerSPIFFEID" -}}
-{{- $vals := .Values -}}
-{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
-{{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.coreClient.trustDomain -}}
-{{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "core")) -}}
-{{- default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
-{{- end -}}
-
 {{- define "serviceradar.coreAddress" -}}
 {{- $vals := .Values -}}
-{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
+{{- $ns := .Release.Namespace -}}
 {{- default (printf "serviceradar-core.%s.svc.cluster.local:50052" $ns) $vals.coreClient.address -}}
 {{- end -}}
 
 {{- define "serviceradar.coreEnv" -}}
 {{- $vals := .Values -}}
-{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
 {{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.coreClient.trustDomain -}}
-{{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "core")) -}}
-{{- $serverID := default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
 - name: CORE_ADDRESS
   value: "{{ include "serviceradar.coreAddress" . }}"
 - name: CORE_SEC_MODE
   value: "{{ default "mtls" $vals.coreClient.secMode }}"
 - name: CORE_TRUST_DOMAIN
   value: "{{ $trustDomain }}"
-- name: CORE_SERVER_SPIFFE_ID
-  value: "{{ $serverID }}"
-- name: CORE_WORKLOAD_SOCKET
-  value: "{{ default "unix:/run/spire/sockets/agent.sock" $vals.coreClient.workloadSocket }}"
 - name: CORE_CERT_DIR
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}
@@ -441,41 +410,6 @@ topologySpreadConstraints:
 {{- end }}
 {{- end -}}
 
-{{- define "serviceradar.spireSocketHostPath" -}}
-{{- $vals := .Values -}}
-{{- $ns := default .Release.Namespace $vals.spire.namespace -}}
-{{- if $vals.spire.socketHostPath }}
-{{- $vals.spire.socketHostPath }}
-{{- else }}
-{{- printf "/run/spire/%s/sockets" $ns }}
-{{- end -}}
-{{- end -}}
-
-{{- /* RBAC helper names to avoid clashes across namespaces */ -}}
-{{- define "serviceradar.spireAgentClusterRoleName" -}}
-{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-agent-cluster-role" -}}
-{{- end -}}
-
-{{- define "serviceradar.spireAgentClusterRoleBindingName" -}}
-{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-agent-cluster-role-binding" -}}
-{{- end -}}
-
-{{- define "serviceradar.spireServerTrustRoleName" -}}
-{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-server-trust-role" -}}
-{{- end -}}
-
-{{- define "serviceradar.spireServerTrustRoleBindingName" -}}
-{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-server-trust-role-binding" -}}
-{{- end -}}
-
-{{- define "serviceradar.spireControllerManagerRoleName" -}}
-{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-controller-manager" -}}
-{{- end -}}
-
-{{- define "serviceradar.spireControllerManagerRoleBindingName" -}}
-{{- printf "%s-%s-%s" (include "serviceradar.fullname" .) .Release.Namespace "spire-controller-manager-binding" -}}
-{{- end -}}
-
 {{/*
 Restricted-compliant pod-level securityContext.
 Usage: {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
@@ -585,7 +519,7 @@ sync. Values passwords still participate so an operator-supplied rotation
 rolls the workloads.
 */}}
 {{- define "serviceradar.dbCredentialsChecksum" -}}
-{{- $ns := default .Release.Namespace .Values.spire.namespace -}}
+{{- $ns := include "serviceradar.cnpgNamespace" . -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $secretName := default "serviceradar-db-credentials" $cnpg.credentialsSecret -}}
 {{- $superSecretName := default "cnpg-superuser" $cnpg.superuserSecret -}}
@@ -1595,38 +1529,29 @@ tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 {{- end -}}
 {{- end -}}
 
-{{/* Neutral values retain the legacy SPIRE account and trust-domain fallbacks. */}}
+{{/* Neutral workload identity and CNPG helpers. */}}
 {{- define "serviceradar.componentServiceAccount" -}}
 {{- $component := .component -}}
 {{- $values := .values -}}
-{{- $legacyKeys := dict "core" "coreServiceAccount" "webNg" "webNgServiceAccount" "datasvc" "datasvcServiceAccount" "agent" "serviceradarAgentServiceAccount" "logCollector" "logCollectorServiceAccount" "rperfChecker" "rperfCheckerServiceAccount" "trapd" "trapdServiceAccount" "flowCollector" "flowCollectorServiceAccount" "bmpCollector" "bmpCollectorServiceAccount" "otel" "otelServiceAccount" "flowgger" "flowggerServiceAccount" -}}
 {{- $defaults := dict "core" "serviceradar-core" "webNg" "serviceradar-web-ng" "datasvc" "serviceradar-datasvc" "agent" "serviceradar-agent" "logCollector" "serviceradar-log-collector" "rperfChecker" "serviceradar-rperf-checker" "trapd" "serviceradar-trapd" "flowCollector" "serviceradar-flow-collector" "bmpCollector" "serviceradar-bmp-collector" "otel" "serviceradar-otel" "flowgger" "serviceradar-flowgger" -}}
 {{- $neutral := get (default (dict) $values.serviceAccounts) $component -}}
-{{- $legacy := get (default (dict) $values.spire) (get $legacyKeys $component) -}}
+{{- $fallback := get $defaults $component -}}
 {{- if eq $component "agent" -}}
-  {{- $legacy = default $legacy (default (dict) $values.agent).serviceAccount -}}
+  {{- $fallback = default $fallback (default (dict) $values.agent).serviceAccount -}}
 {{- end -}}
-{{- default (default (get $defaults $component) $legacy) $neutral -}}
+{{- default $fallback $neutral -}}
 {{- end -}}
 
 {{- define "serviceradar.trustDomain" -}}
-{{- default (default "carverauto.dev" (default (dict) .spire).trustDomain) .trustDomain -}}
+{{- default "carverauto.dev" .trustDomain -}}
 {{- end -}}
 
-{{/* Nullable shared keys let neutral overrides win without masking legacy-only inputs. */}}
 {{- define "serviceradar.effectiveCNPG" -}}
 {{- $cnpg := deepCopy (default (dict) .Values.cnpg) -}}
-{{- $spire := default (dict) .Values.spire -}}
-{{- $pg := default (dict) $spire.postgres -}}
-{{- $legacyActive := and (default false $spire.enabled) (default false $pg.enabled) -}}
 {{- $defaults := dict "clusterName" "cnpg" "instances" 3 "storageClass" "" "storageSize" "100Gi" -}}
 {{- range $key, $builtIn := $defaults -}}
   {{- if or (not (hasKey $cnpg $key)) (eq (get $cnpg $key | toJson) "null") -}}
-    {{- $fallback := $builtIn -}}
-    {{- if and $legacyActive (hasKey $pg $key) -}}
-      {{- $fallback = get $pg $key -}}
-    {{- end -}}
-    {{- $_ := set $cnpg $key $fallback -}}
+    {{- $_ := set $cnpg $key $builtIn -}}
   {{- end -}}
 {{- end -}}
 {{- $cnpg | toYaml -}}
@@ -1634,25 +1559,7 @@ tls://{{ . }}:{{ default 7422 $endpoints.natsLeafPort }}
 
 {{- define "serviceradar.cnpgNamespace" -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
-{{- $spire := default (dict) .Values.spire -}}
-{{- $pg := default (dict) $spire.postgres -}}
-{{- $legacyNamespace := .Release.Namespace -}}
-{{- if and (default false $spire.enabled) (default false $pg.enabled) -}}
-  {{- $legacyNamespace = default .Release.Namespace $spire.namespace -}}
-{{- end -}}
-{{- default $legacyNamespace $cnpg.namespace -}}
-{{- end -}}
-
-{{- define "serviceradar.effectiveSpirePostgres" -}}
-{{- $pg := deepCopy (default (dict) .Values.spire.postgres) -}}
-{{- $cnpg := include "serviceradar.effectiveCNPG" . | fromYaml -}}
-{{- range $key := list "clusterName" "instances" "storageClass" "storageSize" -}}
-  {{- $_ := set $pg $key (get $cnpg $key) -}}
-{{- end -}}
-{{- with $cnpg.imageName -}}
-  {{- $_ := set $pg "imageName" . -}}
-{{- end -}}
-{{- $pg | toYaml -}}
+{{- default .Release.Namespace $cnpg.namespace -}}
 {{- end -}}
 
 {{/*

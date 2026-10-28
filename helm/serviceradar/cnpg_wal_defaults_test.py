@@ -7,8 +7,7 @@ load every 10 seconds, which parked every backend on LWLock:WALWrite and failed
 liveness probes across an entire namespace.
 
 The assertions below are the properties that are easy to regress silently:
-  * both CNPG cluster templates are covered (spire-postgres.yaml REPLACES
-    cnpg-cluster.yaml when spire.postgres.enabled, and it hosts the app database)
+  * the CNPG cluster template (cnpg-cluster.yaml) is covered
   * max_wal_size / min_wal_size stay DERIVED from storageSize rather than pinned,
     because pg_wal shares the data PVC and a flat value overflows small volumes
   * every injected key keeps its hasKey escape hatch
@@ -31,7 +30,7 @@ STATIC_PARAMS = {
 
 INJECTED = ("max_slot_wal_keep_size", "max_wal_size", "min_wal_size")
 
-TEMPLATES = ("templates/cnpg-cluster.yaml", "templates/spire-postgres.yaml")
+TEMPLATES = ("templates/cnpg-cluster.yaml",)
 
 
 def read(rel):
@@ -52,17 +51,15 @@ class CnpgWalDefaultsTest(unittest.TestCase):
         self.assertIsNotNone(match, "could not find %r block in values.yaml" % header)
         return match.group(1)
 
-    def test_static_params_present_in_both_values_blocks(self):
-        # cnpg.postgresqlParameters is indented 2, spire.postgres.* is indented 4.
-        for indent in ("  ", "    "):
-            block = self._block("postgresqlParameters", indent)
-            for key, expected in STATIC_PARAMS.items():
-                self.assertIn(
-                    '%s: "%s"' % (key, expected),
-                    block,
-                    "%s must be %r in the postgresqlParameters block at indent %d"
-                    % (key, expected, len(indent)),
-                )
+    def test_static_params_present_in_values_block(self):
+        block = self._block("postgresqlParameters", "  ")
+        for key, expected in STATIC_PARAMS.items():
+            self.assertIn(
+                '%s: "%s"' % (key, expected),
+                block,
+                "%s must be %r in the cnpg.postgresqlParameters block"
+                % (key, expected),
+            )
 
     def test_log_parameter_max_length_is_zero_not_a_positive_cap(self):
         # The GUC truncates PER PARAMETER with no per-statement cap, so a positive
@@ -70,7 +67,7 @@ class CnpgWalDefaultsTest(unittest.TestCase):
         # each still emits ~10MB for one statement. Only 0 hard-bounds it.
         for match in re.finditer(r"log_parameter_max_length:\s*\"([^\"]+)\"", self.values):
             self.assertEqual(match.group(1), "0")
-        self.assertEqual(self.values.count("log_parameter_max_length:"), 2)
+        self.assertEqual(self.values.count("log_parameter_max_length:"), 1)
 
     def test_bind_parameters_never_logged_on_error(self):
         # Would put customer device/network data in the log on EVERY statement
@@ -79,17 +76,16 @@ class CnpgWalDefaultsTest(unittest.TestCase):
 
     def test_wal_sizes_stay_derived_not_pinned_in_values(self):
         # A flat value would overflow small volumes; pg_wal shares the data PVC.
-        for indent in ("  ", "    "):
-            block = self._block("postgresqlParameters", indent)
-            self.assertNotIn("max_wal_size:", block)
-            self.assertNotIn("min_wal_size:", block)
+        block = self._block("postgresqlParameters", "  ")
+        self.assertNotIn("max_wal_size:", block)
+        self.assertNotIn("min_wal_size:", block)
 
     def test_escape_hatches_declared(self):
         for key in ("maxSlotWalKeepSize", "maxWalSize", "minWalSize"):
             self.assertGreaterEqual(
                 len(re.findall(r"^\s+%s:\s*\"\"\s*$" % key, self.values, re.MULTILINE)),
-                2,
-                "%s must be declared blank for both cnpg and spire.postgres" % key,
+                1,
+                "%s must be declared blank for cnpg" % key,
             )
 
     def test_both_templates_guard_every_injected_key(self):

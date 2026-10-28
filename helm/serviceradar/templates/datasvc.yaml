@@ -72,11 +72,6 @@ spec:
         {{- end }}
         - name: datasvc-data
           mountPath: /var/lib/serviceradar
-        {{- if .Values.spire.enabled }}
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
-        {{- end }}
         env:
         - name: CONFIG_PATH
           value: "/etc/serviceradar/datasvc.json"
@@ -98,10 +93,6 @@ spec:
           value: {{ $js.maxBytes | quote }}
         - name: {{ include "serviceradar.jetstreamEnvName" (dict "stream" $js.stream "suffix" "REPLICAS") }}
           value: {{ $js.replicas | quote }}
-        {{- end }}
-        {{- if .Values.spire.enabled }}
-        - name: SPIFFE_ENDPOINT_SOCKET
-          value: "unix:/run/spire/sockets/agent.sock"
         {{- end }}
         - name: NATS_OPERATOR_SEED
           valueFrom:
@@ -162,12 +153,6 @@ spec:
         {{- else }}
         emptyDir: {}
         {{- end }}
-      {{- if .Values.spire.enabled }}
-      - name: spire-agent-socket
-        hostPath:
-          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
-          type: DirectoryOrCreate
-      {{- end }}
 ---
 apiVersion: v1
 kind: Service
