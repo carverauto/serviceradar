@@ -526,6 +526,24 @@ CLI may request at all in Settings -> CLI auth policy.
 
 Assigned health-result plugins, including first-party plugins such as UniFi and AlienVault OTX, appear in `/services` with a stable `plugin` service identity. When an assignment is created, the control plane seeds a pending service row; the next agent-reported plugin result updates that row with the plugin status and summary.
 
+Core assigns the service name per plugin assignment on an agent. The
+earliest-created enabled assignment keeps the package name; later coexisting
+assignments use `<package name>#<assignment_id>`. Once a suffixed name appears
+in state or history, that assignment keeps it even if the primary assignment is
+disabled or deleted. Existing rows and history are not migrated.
+
+Placeholders use the same naming rule as ingested results. Core remaps results
+using host-stamped assignment provenance, including results from older agents
+that report the bare package name. A naming lookup failure retries ingestion
+without storing an unresolved result and skips placeholder creation. Results
+without provenance, or whose assignment no longer resolves, retain their
+reported name; assignment eligibility still governs their current state.
+
+The plugin fleet view selects evidence belonging to the assignment and only
+falls back to legacy evidence with no assignment identity. A late result from
+a different assignment can remain in history without replacing or deactivating
+the assignment that owns the current service state.
+
 ### Authenticated partition binding and legacy recovery
 
 An operator selects an **agent**, not a partition. Before an assignment is saved,

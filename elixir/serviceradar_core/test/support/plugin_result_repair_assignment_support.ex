@@ -25,15 +25,22 @@ defmodule ServiceRadar.Observability.PluginResultRepairAssignmentSupport do
     register_control_session!(agent_uid, partition_id)
 
     try do
+      attrs =
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: package.id,
+          enabled: Keyword.get(opts, :enabled, true)
+        }
+        |> maybe_put_opt(opts, :source)
+        |> maybe_put_opt(opts, :source_key)
+        |> maybe_put_opt(opts, :policy_id)
+        |> maybe_put_opt(opts, :params)
+
       assignment_changeset =
         Ash.Changeset.for_create(
           PluginAssignment,
           :create,
-          %{
-            agent_uid: agent_uid,
-            plugin_package_id: package.id,
-            enabled: Keyword.get(opts, :enabled, true)
-          },
+          attrs,
           actor: actor
         )
 
@@ -100,6 +107,13 @@ defmodule ServiceRadar.Observability.PluginResultRepairAssignmentSupport do
       |> update_without_notifications!()
 
     package
+  end
+
+  defp maybe_put_opt(attrs, opts, key) do
+    case Keyword.fetch(opts, key) do
+      {:ok, value} -> Map.put(attrs, key, value)
+      :error -> attrs
+    end
   end
 
   defp create_without_notifications!(changeset) do

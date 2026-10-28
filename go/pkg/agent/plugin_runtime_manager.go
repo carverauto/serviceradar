@@ -1380,7 +1380,22 @@ func (m *PluginManager) RunPluginVerb(
 	credentialGrants []credentialBrokerGrant,
 	timeout time.Duration,
 ) ([]byte, error) {
-	return m.runPluginVerb(ctx, pluginID, configJSON, credentialGrants, nil, nil, timeout)
+	return m.runPluginVerb(ctx, pluginID, "", configJSON, credentialGrants, nil, nil, timeout)
+}
+
+// RunPluginVerbForAssignment is RunPluginVerb addressed to one assignment.
+// Several assignments of one plugin can coexist on an agent with different
+// permissions and allowed domains; when the command names its assignment,
+// only that assignment's runner may execute it.
+func (m *PluginManager) RunPluginVerbForAssignment(
+	ctx context.Context,
+	pluginID string,
+	assignmentID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	timeout time.Duration,
+) ([]byte, error) {
+	return m.runPluginVerb(ctx, pluginID, assignmentID, configJSON, credentialGrants, nil, nil, timeout)
 }
 
 // RunPluginVerbWithAuthorizedRequestBody runs one verb while retaining exact
@@ -1394,9 +1409,32 @@ func (m *PluginManager) RunPluginVerbWithAuthorizedRequestBody(
 	authorizedRequestBody []byte,
 	timeout time.Duration,
 ) ([]byte, error) {
+	return m.RunPluginVerbWithAuthorizedRequestBodyForAssignment(
+		ctx,
+		pluginID,
+		"",
+		configJSON,
+		credentialGrants,
+		authorizedRequestBody,
+		timeout,
+	)
+}
+
+// RunPluginVerbWithAuthorizedRequestBodyForAssignment is
+// RunPluginVerbWithAuthorizedRequestBody addressed to one assignment.
+func (m *PluginManager) RunPluginVerbWithAuthorizedRequestBodyForAssignment(
+	ctx context.Context,
+	pluginID string,
+	assignmentID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	authorizedRequestBody []byte,
+	timeout time.Duration,
+) ([]byte, error) {
 	return m.runPluginVerb(
 		ctx,
 		pluginID,
+		assignmentID,
 		configJSON,
 		credentialGrants,
 		authorizedRequestBody,
@@ -1416,6 +1454,28 @@ func (m *PluginManager) RunPluginVerbWithAWXCallbackCredential(
 	callbackCredential *awxCallbackCredentialMemoryInput,
 	timeout time.Duration,
 ) ([]byte, error) {
+	return m.RunPluginVerbWithAWXCallbackCredentialForAssignment(
+		ctx,
+		pluginID,
+		"",
+		configJSON,
+		credentialGrants,
+		callbackCredential,
+		timeout,
+	)
+}
+
+// RunPluginVerbWithAWXCallbackCredentialForAssignment is
+// RunPluginVerbWithAWXCallbackCredential addressed to one assignment.
+func (m *PluginManager) RunPluginVerbWithAWXCallbackCredentialForAssignment(
+	ctx context.Context,
+	pluginID string,
+	assignmentID string,
+	configJSON json.RawMessage,
+	credentialGrants []credentialBrokerGrant,
+	callbackCredential *awxCallbackCredentialMemoryInput,
+	timeout time.Duration,
+) ([]byte, error) {
 	if callbackCredential == nil {
 		return nil, errAWXCallbackCredentialInputMissing
 	}
@@ -1423,12 +1483,13 @@ func (m *PluginManager) RunPluginVerbWithAWXCallbackCredential(
 	// assignment lookup, Wasm loading/instantiation, preflight verification, or
 	// the sentinel POST fails before the plugin returns normally.
 	defer callbackCredential.destroy()
-	return m.runPluginVerb(ctx, pluginID, configJSON, credentialGrants, nil, callbackCredential, timeout)
+	return m.runPluginVerb(ctx, pluginID, assignmentID, configJSON, credentialGrants, nil, callbackCredential, timeout)
 }
 
 func (m *PluginManager) runPluginVerb(
 	ctx context.Context,
 	pluginID string,
+	assignmentID string,
 	configJSON json.RawMessage,
 	credentialGrants []credentialBrokerGrant,
 	authorizedRequestBody []byte,
@@ -1439,7 +1500,7 @@ func (m *PluginManager) runPluginVerb(
 		return nil, errPluginAssignmentNotFound
 	}
 
-	assignment, ok := m.lookupRunnerAssignmentByPluginID(pluginID)
+	assignment, ok := m.lookupVerbAssignment(pluginID, assignmentID)
 	if !ok {
 		return nil, fmt.Errorf("%w for plugin %q", errPluginAssignmentNotFound, strings.TrimSpace(pluginID))
 	}
@@ -1487,6 +1548,28 @@ func (m *PluginManager) runPluginVerb(
 	)
 	m.recordExecution(err == nil)
 	return result, err
+}
+
+// lookupVerbAssignment finds the runner assignment a verb command
+// addresses. When the command carries an assignment id, only that
+// assignment matches (and it must still be an assignment of the named
+// plugin): coexisting assignments of one plugin hold different
+// permissions and allowed domains, so falling back to a sibling would run
+// the command under the wrong authority. Without an assignment id — a
+// command from a core that predates the field — it keeps the plugin-id
+// lookup.
+func (m *PluginManager) lookupVerbAssignment(pluginID string, assignmentID string) (*pluginAssignment, bool) {
+	assignmentID = strings.TrimSpace(assignmentID)
+	if assignmentID == "" {
+		return m.lookupRunnerAssignmentByPluginID(pluginID)
+	}
+
+	assignment, ok := m.lookupRunnerAssignment(assignmentID)
+	if !ok || assignment.PluginID != strings.TrimSpace(pluginID) {
+		return nil, false
+	}
+
+	return assignment, true
 }
 
 // lookupRunnerAssignmentByPluginID finds the runner assignment for an exact

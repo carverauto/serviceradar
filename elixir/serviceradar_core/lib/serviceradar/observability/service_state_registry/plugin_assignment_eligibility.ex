@@ -50,6 +50,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginAssignmentEligib
         AND package.status = 'approved'
         AND assignment.agent_uid = $1
         AND #{PluginStateContract.package_match_sql("$3::text", "$2", "package.name", "package.plugin_id")}
+        AND #{PluginStateContract.assignment_match_sql("$3::text", "assignment.id::text")}
         AND #{PluginStateContract.result_reporting_package_sql("$4", "$5", "$6")}
     )
     """

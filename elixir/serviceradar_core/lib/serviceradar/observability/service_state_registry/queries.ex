@@ -140,6 +140,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.Queries do
           AND package.status = 'approved'
           AND assignment.agent_uid = service_state.agent_id
           AND #{PluginStateContract.state_matches_joined_package_sql()}
+          AND #{PluginStateContract.assignment_match_sql("service_state.details", "assignment.id::text")}
           AND #{PluginStateContract.result_reporting_package_sql("$3", "$4", "$5")}
       )
     ORDER BY
@@ -234,6 +235,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.Queries do
         AND assignment.agent_uid = service_state.agent_id
         #{assignment_exclusion}
         AND #{PluginStateContract.state_matches_joined_package_sql()}
+        AND #{PluginStateContract.assignment_match_sql("service_state.details", "assignment.id::text")}
         AND #{result_reporting_package}
     )
     """

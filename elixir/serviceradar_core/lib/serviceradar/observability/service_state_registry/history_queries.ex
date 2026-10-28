@@ -129,6 +129,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.HistoryQueries do
         AND package.status = 'approved'
         AND assignment.agent_uid = service_status.agent_id
         AND #{PluginStateContract.status_matches_joined_package_sql()}
+        AND #{PluginStateContract.assignment_match_sql("service_status.details", "assignment.id::text")}
         AND #{result_reporting_package}
     )
     """

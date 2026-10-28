@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
   alias ServiceRadar.Observability.AdvisoryLocks
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStatePubSub
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadar.Observability.ServiceStateRegistry.Queries
   alias ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer
   alias ServiceRadar.Repo
@@ -82,7 +83,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
 
     with {:ok, active_states} <- active_logical_plugin_states(identity, actor),
          {:ok, notifications, changed_states} <-
-           deactivate_states_with_notifications(active_states, actor) do
+           deactivate_states_with_notifications(
+             Enum.reject(active_states, &assignment_conflict?(state, &1)),
+             actor
+           ) do
       side_effects = Enum.map(changed_states, &{:broadcast_update, &1})
 
       side_effects =
@@ -243,7 +247,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
          actor
        ) do
     with {:ok, states} <- logical_plugin_states(current_state, actor),
-         %ServiceState{} = winner <- logical_plugin_state_winner(states),
+         %ServiceState{} = winner <-
+           states
+           |> Enum.reject(&assignment_conflict?(current_state, &1))
+           |> logical_plugin_state_winner(),
          {:ok, notifications, changed_states} <-
            apply_logical_plugin_state_winner(states, winner, actor) do
       winner = Enum.find(changed_states, winner, &(&1.id == winner.id))
@@ -254,7 +261,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
     end
   end
 
-  defp logical_plugin_states(%ServiceState{} = state, actor) do
+  @doc false
+  def logical_plugin_states(state, actor) do
     ServiceState
     |> filter(
       agent_id == ^state.agent_id and
@@ -263,6 +271,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginState do
         service_name == ^state.service_name
     )
     |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+  end
+
+  @doc false
+  def assignment_conflict?(incoming, existing) do
+    incoming_id = PluginStateContract.state_assignment_id(incoming)
+    existing_id = PluginStateContract.state_assignment_id(existing)
+    not is_nil(incoming_id) and not is_nil(existing_id) and incoming_id != existing_id
   end
 
   defp logical_plugin_state_winner([]), do: nil

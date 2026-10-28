@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginResultStateWinner
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginServiceIdentity
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginState
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadar.Observability.ServiceStatus
@@ -75,28 +76,35 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     status_label = fetch_string(payload, ["status"])
     available = resolve_available(status, status_label)
 
-    status_row =
-      build_status_row(
-        payload,
-        status,
-        observed_at,
-        created_at,
-        summary,
-        available
-      )
+    case remap_service_name(status) do
+      {:ok, remapped_status} ->
+        status_row =
+          build_status_row(
+            payload,
+            remapped_status,
+            observed_at,
+            created_at,
+            summary,
+            available
+          )
 
-    case insert_status(status_row, actor) do
-      {:ok, reported_status, :inserted} ->
-        run_handlers(reported_status, payload, status, observed_at, actor)
+        case insert_status(status_row, actor) do
+          {:ok, reported_status, :inserted} ->
+            run_handlers(reported_status, payload, status, observed_at, actor)
 
-      {:ok, reported_status, :existing} ->
-        redeliver(reported_status, payload, status, observed_at, actor)
+          {:ok, reported_status, :existing} ->
+            redeliver(reported_status, payload, status, observed_at, actor)
 
-      {:error, persistence_error} ->
+          {:error, persistence_error} ->
+            PluginIngestor.discard_artifacts(payload, status)
+            error_text = handler_error_text(persistence_error)
+            Logger.error("Plugin result status persistence failed: #{error_text}")
+            {:error, {:plugin_result_status_persistence_failed, error_text}}
+        end
+
+      {:error, _reason} = error ->
         PluginIngestor.discard_artifacts(payload, status)
-        error_text = handler_error_text(persistence_error)
-        Logger.error("Plugin result status persistence failed: #{error_text}")
-        {:error, {:plugin_result_status_persistence_failed, error_text}}
+        error
     end
   rescue
     e ->
@@ -532,6 +540,39 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       true -> true
       false -> false
       _ -> plugin_status_available(status_label)
+    end
+  end
+
+  # The agent reports every assignment of a plugin under the package name.
+  # When the host-stamped provenance names the assignment, core rewrites
+  # the service name to that assignment's own identity (bare for the
+  # primary assignment, disambiguated for a coexisting one) before any
+  # lock, lookup, slot, or marker key is derived from it, so the whole
+  # ingest keys per assignment. Results without provenance, or whose
+  # assignment no longer resolves, keep the reported name as before.
+  defp remap_service_name(status) when is_map(status) do
+    provenance = PluginResultProvenance.from_status(status)
+    identity = PluginStateContract.status_identity(status)
+
+    case provenance &&
+           PluginServiceIdentity.service_name_for_assignment(
+             identity.agent_id,
+             provenance["assignment_id"]
+           ) do
+      {:ok, service_name} -> {:ok, put_service_name(status, service_name)}
+      {:error, reason} -> {:error, {:plugin_service_identity_resolution_failed, reason}}
+      :not_found -> {:ok, status}
+      nil -> {:ok, status}
+    end
+  end
+
+  defp remap_service_name(status), do: {:ok, status}
+
+  defp put_service_name(status, service_name) do
+    if Map.has_key?(status, "service_name") and not Map.has_key?(status, :service_name) do
+      Map.put(status, "service_name", service_name)
+    else
+      Map.put(status, :service_name, service_name)
     end
   end
 

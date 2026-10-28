@@ -205,8 +205,11 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
 
     with true <- is_map(args),
          {:ok, scope} <- AwxClient.broker_scope(value(controller, :base_url), verb, args) do
-      MapSet.new(Map.keys(payload)) ==
-        expected_payload_keys(scope.authorized_request_body_b64) and
+      payload_keys_match?(
+        payload,
+        expected_payload_keys(scope.authorized_request_body_b64),
+        controller
+      ) and
         payload["schema"] == @awx_command_schema and
         payload["verb"] == verb and
         to_string(payload["controller_id"]) == to_string(value(controller, :id)) and
@@ -335,6 +338,30 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
   end
 
   defp broker_matches?(_broker, _attempt, _controller, _request), do: false
+
+  # Accept legacy payloads without assignment addressing. Explicit IDs must
+  # belong to the controller's agent and the awx plugin; selection policy
+  # is owned by AwxClient.plugin_assignment_id_for/2.
+  defp payload_keys_match?(payload, expected_keys, controller) do
+    keys = MapSet.new(Map.keys(payload))
+
+    (keys == expected_keys or
+       keys == MapSet.put(expected_keys, "plugin_assignment_id")) and
+      assignment_id_matches?(payload, controller)
+  end
+
+  defp assignment_id_matches?(payload, controller) do
+    case Map.fetch(payload, "plugin_assignment_id") do
+      :error ->
+        true
+
+      {:ok, assignment_id} ->
+        AwxClient.awx_assignment_on_agent?(
+          value(controller, :agent_id),
+          assignment_id
+        )
+    end
+  end
 
   defp expected_payload_keys(nil) do
     MapSet.new(

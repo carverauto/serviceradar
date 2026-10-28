@@ -16,16 +16,23 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   ("AWX API token lives in the credential broker").
   """
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Automation.Ansible.AwxLaunchContract
   alias ServiceRadar.Automation.Ansible.Controller
   alias ServiceRadar.Automation.Ansible.VariableSchema
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.CredentialRedactor
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Credentials.RequestBodyPolicy
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Plugins.AssignmentOwner
+  alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.SecretRefs
 
+  require Ash.Query
+
   @payload_schema "serviceradar.awx_command.v1"
+  @awx_plugin_id "awx"
   @grant_type "awx_oauth2_token"
   @default_grant_ttl_seconds 300
   @default_command_ttl_seconds 60
@@ -614,7 +621,177 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
 
   def credential_secret_id_for_verb(_controller, _verb), do: {:error, :unsupported_awx_verb}
 
+  @doc """
+  The enabled `awx` plugin assignment on the controller's agent that a
+  verb command should run through, when one can be identified.
+
+  See docs/docs/ansible.md for selection precedence and legacy routing.
+  Returns `nil` when no unique assignment can be identified.
+  """
+  @spec plugin_assignment_id_for(map(), String.t() | nil) :: String.t() | nil
+  def plugin_assignment_id_for(controller, secret_id) when is_map(controller) do
+    agent_id = controller_value(controller, :agent_id)
+
+    case awx_assignments_on_agent(agent_id) do
+      [assignment] ->
+        to_string(assignment.id)
+
+      [_first, _second | _rest] = assignments ->
+        case unique_assignment_by_rule_secret(assignments, secret_id) ||
+               unique_assignment_by_base_url(
+                 assignments,
+                 controller_value(controller, :base_url)
+               ) do
+          nil -> nil
+          assignment -> to_string(assignment.id)
+        end
+
+      _ ->
+        nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  def plugin_assignment_id_for(_controller, _secret_id), do: nil
+
   ## Internals
+
+  @doc "Whether an `awx` plugin assignment with this id exists on the agent."
+  @spec awx_assignment_on_agent?(String.t() | nil, String.t() | nil) :: boolean()
+  def awx_assignment_on_agent?(agent_id, assignment_id)
+      when is_binary(agent_id) and is_binary(assignment_id) do
+    case Ecto.UUID.cast(assignment_id) do
+      {:ok, uuid} ->
+        PluginAssignment
+        |> Ash.Query.for_read(:read)
+        |> Ash.Query.filter(
+          id == ^uuid and agent_uid == ^agent_id and plugin_id == ^@awx_plugin_id
+        )
+        |> Ash.read(actor: SystemActor.system(:awx_client))
+        |> case do
+          {:ok, [_assignment]} -> true
+          _ -> false
+        end
+
+      :error ->
+        false
+    end
+  rescue
+    _ -> false
+  end
+
+  def awx_assignment_on_agent?(_agent_id, _assignment_id), do: false
+
+  defp awx_assignments_on_agent(agent_id) when is_binary(agent_id) do
+    PluginAssignment
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(
+      agent_uid == ^agent_id and plugin_id == ^@awx_plugin_id and enabled == true
+    )
+    |> Ash.Query.select([:policy_id, :params])
+    |> Ash.read(actor: SystemActor.system(:awx_client))
+    |> case do
+      {:ok, assignments} when is_list(assignments) -> assignments
+      _ -> []
+    end
+  end
+
+  defp awx_assignments_on_agent(_agent_id), do: []
+
+  defp unique_assignment_by_rule_secret(assignments, secret_id) when is_binary(secret_id) do
+    rule_ids =
+      Enum.flat_map(assignments, fn assignment ->
+        case AssignmentOwner.owner(assignment.policy_id) do
+          {:rule, rule_id} ->
+            case Ecto.UUID.cast(rule_id) do
+              {:ok, uuid} -> [{uuid, assignment}]
+              :error -> []
+            end
+
+          _ ->
+            []
+        end
+      end)
+
+    secrets_by_rule = rule_secret_ids(Enum.map(rule_ids, &elem(&1, 0)))
+
+    rule_ids
+    |> Enum.filter(fn {rule_id, _assignment} ->
+      Map.get(secrets_by_rule, rule_id) == to_string(secret_id)
+    end)
+    |> Enum.map(&elem(&1, 1))
+    |> unique_assignment()
+  end
+
+  defp unique_assignment_by_rule_secret(_assignments, _secret_id), do: nil
+
+  defp rule_secret_ids([]), do: %{}
+
+  defp rule_secret_ids(rule_ids) do
+    NetworkCredentialRule
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id in ^rule_ids)
+    |> Ash.Query.select([:secret_id])
+    |> Ash.read(actor: SystemActor.system(:awx_client))
+    |> case do
+      {:ok, rules} when is_list(rules) ->
+        Map.new(rules, &{to_string(&1.id), to_string(&1.secret_id)})
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp unique_assignment_by_base_url(assignments, base_url) when is_binary(base_url) do
+    normalized = normalize_base_url(base_url)
+
+    assignments
+    |> Enum.filter(fn assignment ->
+      assignment.params
+      |> assignment_base_urls()
+      |> Enum.map(&normalize_base_url/1)
+      |> Enum.member?(normalized)
+    end)
+    |> unique_assignment()
+  end
+
+  defp unique_assignment_by_base_url(_assignments, _base_url), do: nil
+
+  defp assignment_base_urls(params) when is_map(params) do
+    controllers =
+      case Map.get(params, "controllers") do
+        controllers when is_list(controllers) ->
+          Enum.flat_map(controllers, fn
+            %{"base_url" => base_url} when is_binary(base_url) -> [base_url]
+            _ -> []
+          end)
+
+        _ ->
+          []
+      end
+
+    case Map.get(params, "base_url") do
+      base_url when is_binary(base_url) -> [base_url | controllers]
+      _ -> controllers
+    end
+  end
+
+  defp assignment_base_urls(_params), do: []
+
+  defp normalize_base_url(base_url) do
+    base_url |> String.trim() |> String.trim_trailing("/")
+  end
+
+  defp unique_assignment([assignment]), do: assignment
+  defp unique_assignment(_assignments), do: nil
+
+  defp controller_value(controller, key) do
+    case Map.get(controller, key) || Map.get(controller, Atom.to_string(key)) do
+      value when is_binary(value) -> if String.trim(value) == "", do: nil, else: value
+      _ -> nil
+    end
+  end
 
   defp dispatch_verb(%Controller{} = controller, verb, args, opts) do
     if Keyword.has_key?(opts, :credential_purpose) do
@@ -726,6 +903,10 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
        |> maybe_put(
          "callback_credential_binding",
          callback_binding
+       )
+       |> maybe_put(
+         "plugin_assignment_id",
+         plugin_assignment_id_for(controller, secret_id)
        )}
     end
   end
@@ -775,9 +956,7 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   defp issue_persisted_grant(attrs) do
     attrs
     |> CredentialBrokerGrant.issue_attrs()
-    |> CredentialBrokerGrant.issue_grant(
-      actor: ServiceRadar.Actors.SystemActor.system(:awx_client)
-    )
+    |> CredentialBrokerGrant.issue_grant(actor: SystemActor.system(:awx_client))
     |> case do
       {:ok, grant} -> {:ok, CredentialBrokerGrant.to_payload(grant)}
       {:error, reason} -> {:error, reason}

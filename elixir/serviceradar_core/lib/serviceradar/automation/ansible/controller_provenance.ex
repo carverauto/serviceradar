@@ -574,12 +574,36 @@ defmodule ServiceRadar.Automation.Ansible.ControllerProvenance do
     end
   end
 
+  # Accept legacy payloads without assignment addressing. Explicit IDs must
+  # belong to the controller's agent and the awx plugin; selection policy
+  # is owned by AwxClient.plugin_assignment_id_for/2.
+  defp exact_command_payload_keys(payload, boundary) do
+    keys = MapSet.new(Map.keys(payload))
+    expected = MapSet.new(@command_payload_keys)
+
+    assignment_id_ok? =
+      case Map.fetch(payload, "plugin_assignment_id") do
+        :error ->
+          true
+
+        {:ok, assignment_id} ->
+          AwxClient.awx_assignment_on_agent?(boundary.agent_id, assignment_id)
+      end
+
+    if (keys == expected or keys == MapSet.put(expected, "plugin_assignment_id")) and
+         assignment_id_ok? do
+      :ok
+    else
+      {:error, :controller_provenance_result_mismatch}
+    end
+  end
+
   defp exact_command_payload(payload, verb, args, boundary) do
     broker = payload["credential_broker"]
     consumer = value(broker, :consumer) || %{}
     target = value(broker, :target) || %{}
 
-    with :ok <- exact_keys(payload, @command_payload_keys),
+    with :ok <- exact_command_payload_keys(payload, boundary),
          true <- payload["schema"] == "serviceradar.awx_command.v1",
          true <- payload["verb"] == verb,
          true <- payload["args"] == stringify(args),

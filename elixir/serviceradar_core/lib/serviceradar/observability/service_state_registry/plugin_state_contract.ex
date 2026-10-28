@@ -211,6 +211,56 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
     |> plugin_id_from_details()
   end
 
+  @doc false
+  # The assignment a state or status belongs to, from the ids the agent host
+  # and core already stamp into details: the assignment placeholder's
+  # top-level `assignment_id`, the result labels, and the server-authored
+  # provenance markers. `nil` for rows that predate assignment stamping;
+  # those keep the shared package-level matching.
+  def state_assignment_id(state) when is_map(state) do
+    state
+    |> fetch(:details)
+    |> decode_details()
+    |> assignment_id_from_details()
+  end
+
+  @doc false
+  def state_assignment_id(_state), do: nil
+
+  @doc false
+  def extracted_assignment_id_sql(details) do
+    """
+    CASE WHEN #{details} IS JSON THEN
+      COALESCE(
+        #{details}::jsonb #>> '{#{@reported_marker},provenance,assignment_id}',
+        #{details}::jsonb #>> '{labels,assignment_id}',
+        CASE WHEN NOT (#{details}::jsonb ? '#{@reported_marker}')
+          AND jsonb_typeof(#{details}::jsonb -> 'reported_result') = 'object'
+          AND #{details}::jsonb #>> '{downstream_ingest,status}' IN ('failed', 'succeeded')
+        THEN #{details}::jsonb #>> '{downstream_ingest,provenance,assignment_id}' END,
+        #{details}::jsonb #>> '{reported_result,labels,assignment_id}',
+        CASE WHEN NOT (#{details}::jsonb ? '#{@reported_marker}')
+          AND NOT (#{details}::jsonb ? 'reported_result')
+        THEN #{details}::jsonb ->> 'assignment_id' END
+      )
+    END
+    """
+  end
+
+  @doc false
+  # SQL twin of the per-assignment eligibility rule for a joined
+  # `assignment`: when details name an assignment, only that assignment
+  # matches; unattributed rows match any assignment of the package, as
+  # before.
+  def assignment_match_sql(details, assignment_id) do
+    """
+    (
+      NULLIF(#{extracted_assignment_id_sql(details)}, '') IS NULL
+      OR #{extracted_assignment_id_sql(details)} = #{assignment_id}
+    )
+    """
+  end
+
   defp winner_order_sql(message, observed_at, available, gateway_id, payload_order_key) do
     """
     CASE
@@ -411,6 +461,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
     COALESCE(
       #{details}::jsonb #>> '{labels,plugin_id}',
       #{details}::jsonb ->> 'plugin_id',
+      #{details}::jsonb #>> '{#{@reported_marker},provenance,plugin_id}',
+      #{details}::jsonb #>> '{downstream_ingest,provenance,plugin_id}',
       #{details}::jsonb #>> '{reported_result,labels,plugin_id}',
       #{details}::jsonb #>> '{reported_result,plugin_id}'
     )
@@ -435,12 +487,54 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
       [
         details |> fetch(:labels) |> fetch_nested(:plugin_id),
         fetch(details, :plugin_id),
+        details |> fetch(:_serviceradar_plugin_result) |> provenance_field(:plugin_id),
+        details |> fetch(:downstream_ingest) |> provenance_field(:plugin_id),
         reported_result |> fetch(:labels) |> fetch_nested(:plugin_id),
         fetch(reported_result, :plugin_id)
       ],
       &normalize_optional_string/1
     )
   end
+
+  defp assignment_id_from_details(details) do
+    reported_result = fetch(details, :reported_result) || %{}
+
+    [
+      details |> fetch(:_serviceradar_plugin_result) |> provenance_field(:assignment_id),
+      details |> fetch(:labels) |> fetch_nested(:assignment_id),
+      if(
+        not has_key?(details, :_serviceradar_plugin_result) and
+          is_map(fetch(details, :reported_result)) and
+          fetch_nested(fetch(details, :downstream_ingest), :status) in ["failed", "succeeded"],
+        do: details |> fetch(:downstream_ingest) |> provenance_field(:assignment_id)
+      ),
+      reported_result |> fetch(:labels) |> fetch_nested(:assignment_id),
+      if(
+        not has_key?(details, :_serviceradar_plugin_result) and
+          not has_key?(details, :reported_result),
+        do: fetch(details, :assignment_id)
+      )
+    ]
+    |> Enum.find_value(&normalize_optional_string/1)
+    |> normalize_uuid()
+  end
+
+  defp provenance_field(marker, field) when is_map(marker) do
+    marker |> fetch(:provenance) |> fetch_nested(field)
+  end
+
+  defp provenance_field(_marker, _field), do: nil
+
+  defp normalize_uuid(value) when is_binary(value) do
+    case Ecto.UUID.cast(value) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp normalize_uuid(_value), do: nil
+
+  defp has_key?(map, key), do: Map.has_key?(map, key) or Map.has_key?(map, Atom.to_string(key))
 
   defp fetch_nested(map, key) when is_map(map), do: fetch(map, key)
   defp fetch_nested(_value, _key), do: nil

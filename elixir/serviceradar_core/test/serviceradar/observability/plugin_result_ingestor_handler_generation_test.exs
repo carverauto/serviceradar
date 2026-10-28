@@ -2,6 +2,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest d
   use ServiceRadar.Observability.PluginResultIngestorTestSupport
 
   alias ServiceRadar.Observability.PluginResultProvenance
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
 
   @module_hash String.duplicate("ab", 32)
 
@@ -189,7 +190,8 @@ defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest d
       for {handler, outcome} <- [{SuccessfulHandler, "succeeded"}, {FailingHandler, "failed"}] do
         Application.put_env(:serviceradar_core, :plugin_result_handlers, [handler])
         {payload, status, _observed_at} = plugin_result_fixture()
-        status = Map.put(status, :plugin_provenance, host_provenance("assignment-#{outcome}-1"))
+        assignment_id = Ecto.UUID.generate()
+        status = Map.put(status, :plugin_provenance, host_provenance(assignment_id))
 
         _ = PluginResultIngestor.ingest(payload, status)
 
@@ -197,7 +199,17 @@ defmodule ServiceRadar.Observability.PluginResultIngestorHandlerGenerationTest d
         assert %{"downstream_ingest" => %{"status" => ^outcome}} = Jason.decode!(details)
 
         assert PluginResultProvenance.from_details(details) ==
-                 stored_provenance("assignment-#{outcome}-1")
+                 stored_provenance(assignment_id)
+
+        assert PluginStateContract.state_assignment_id(%{details: details}) == assignment_id
+
+        assert {:ok, %{rows: [[sql_assignment_id]]}} =
+                 ServiceRadar.Repo.query(
+                   "SELECT " <> PluginStateContract.extracted_assignment_id_sql("$1::text"),
+                   [details]
+                 )
+
+        assert sql_assignment_id == assignment_id
       end
     end
 
