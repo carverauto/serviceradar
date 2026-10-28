@@ -258,3 +258,60 @@ correct forward progress without claiming that the fleet gate is satisfied.
 passed all seven child invocations at the fixed source above. Required hosted
 PR CI remains a separate final-head gate. No deployment or codec change is
 included.
+
+### Reconciliation phase profile (2026-10-28)
+
+A [coarse function trace](https://carverauto.buildbuddy.io/invocation/e23154b5-8875-4696-9bb3-af72faafbb96)
+at source `2cd5c24829a4cb082dc19ee90ee1846c96ee09b5`, tree
+`5b87bba81a4f99731418fbc89accdb1d2736e083`, retained the same 200-host
+workload and two-worker queue. All devices matched in about 255 seconds,
+including verification; setup took about 26 seconds separately. The corruption
+negative control passed. The temporary tracer measured coarse call/return
+intervals without changing the production functions. Tracing overhead and
+shared infrastructure make this a diagnostic, not a new latency guarantee.
+
+| Phase | Aggregate inclusive time across workers |
+| --- | --- |
+| Dimension comparison | About 163 s |
+| Current/retained assessment comparison | About 89 s |
+| Warehouse fact scan and digest | About 32 s |
+| Readiness | About 142 s across 401 calls |
+
+These are summed function durations, not elapsed fleet time. The 401 readiness
+calls are two per successful device plus the final deployment-wide check. The
+successful worker path now retains the readiness check in `finish_comparison`
+and omits its immediate duplicate; deferred and failed work still refreshes
+readiness metrics. The comparison, repair, generation and freshness rules are
+unchanged.
+
+A separate [eight-worker sensitivity run](https://carverauto.buildbuddy.io/invocation/ab0e0052-5f1f-47c2-8bad-d6ac6f318d9d)
+at source `8d940efd8d647be2a8d5d0217af0f00065ae65dc`, tree
+`eee316e7017b8efbe4f6c47fa93f805965204b8a`, completed the same 200-host
+workload in about 90 seconds, including verification. Setup took about 28
+seconds. It used the unchanged production code and temporarily changed only the
+benchmark queue concurrency; tracing was disabled. Both diagnostic runs passed
+their content and corruption checks, canonical teardown and generation release,
+and independent scratch-schema/grant removal checks.
+
+The tracer and diagnostic queue change are absent from the final benchmark.
+Production and acceptance concurrency remain two. The eight-worker result does
+not establish the two-worker gate or justify a production queue change: even
+that small-profile rate is far below the roughly 22 devices per second needed
+for 20,000 devices in 15 minutes. The fleet gate remains open.
+
+The [two-worker readiness-only run](https://carverauto.buildbuddy.io/invocation/9347a673-a6c3-4f62-9532-de4e0330d7de)
+at source `9271dcda42b11c4f1b4bc0bef74af362346d26c0`, tree
+`9921e34786fa4f267c6173263c1d75a54368ddf7`, completed and verified all
+200 devices in about 222 seconds, with about 29 seconds of setup excluded.
+Content, corruption rejection and cleanup checks passed. This small difference
+from the prior untraced measurements is not evidence of a fleet-capacity fix.
+
+A read-only query-plan probe in that run waited until the complete synthetic
+assessment set had been analyzed. A preparation check scoped to one device
+still scanned all 510,200 assessment rows before joining its device ordinal,
+taking about 310 ms. Adding an explicit device-UID lookup to the source predicate
+selected the existing index and read only that device's 2,551 rows, taking
+about 30 ms in a separate probe. These are individual query observations, not
+p95 measurements. The runtime applies this extra predicate to scoped assessment
+and deletion-watermark checks; deployment-wide checks retain their original
+query. Neither repair changes a codec, page size, concurrency or readiness rule.

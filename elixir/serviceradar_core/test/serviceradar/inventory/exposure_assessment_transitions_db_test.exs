@@ -1745,6 +1745,59 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert Enum.map(resumed, &hd/1) == tl(expected)
   end
 
+  @tag sandbox: :unboxed
+  test "preparation gates retain scoped and global assessment and deletion checks", ctx do
+    cve = "EXAMPLE-PREPARATION-SCOPE-#{ctx.unique}"
+    {scope, payload, _} = reconciliation_source!(ctx, cve, false)
+    unique = System.unique_integer([:positive])
+    other = %{unique: unique, device_uid: "sr:preparation-other-#{unique}"}
+    {other_scope, _, _} = reconciliation_source!(other, "EXAMPLE-PREPARATION-OTHER", false)
+
+    check = fn ordinal ->
+      DirectSession.run(&ExposureSnapshotWorker.prerequisites(&1, ordinal))
+    end
+
+    assert :ok = check.(scope)
+    assert :ok = check.(other_scope)
+    assert :ok = check.(nil)
+
+    # A legacy assessment may precede its retained publication. Its own device
+    # and deployment checks must detect it without blocking an unrelated device.
+    Repo.query!(
+      "UPDATE platform.endpoint_vulnerability_assessments SET last_exposure_publication = NULL WHERE device_uid = $1",
+      [ctx.device_uid]
+    )
+
+    assert {:error, :exposure_snapshot_preparation_required} = check.(scope)
+    assert {:error, :exposure_snapshot_preparation_required} = check.(nil)
+    assert :ok = check.(other_scope)
+
+    Repo.query!(
+      "UPDATE platform.endpoint_vulnerability_assessments SET last_exposure_publication = $2 WHERE device_uid = $1",
+      [ctx.device_uid, payload]
+    )
+
+    assert :ok = check.(scope)
+    assert :ok = check.(nil)
+
+    Repo.query!("DELETE FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1", [
+      ctx.device_uid
+    ])
+
+    assert :ok = check.(scope)
+
+    Repo.query!(
+      "UPDATE platform.exposure_fact_watermarks SET payload = NULL WHERE device_uid = $1",
+      [
+        ctx.device_uid
+      ]
+    )
+
+    assert {:error, :exposure_snapshot_preparation_required} = check.(scope)
+    assert {:error, :exposure_snapshot_preparation_required} = check.(nil)
+    assert :ok = check.(other_scope)
+  end
+
   defp reconciliation_source!(ctx, cve, mock_warehouse? \\ true) do
     if mock_warehouse?, do: snapshot_http!()
     Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
