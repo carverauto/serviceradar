@@ -7,7 +7,10 @@ defmodule ServiceRadar.Edge.CertificateIssuanceAudit do
   NATS identity allowed to publish `logs.internal.>`, so an audit record
   written there is lost. `ServiceRadarAgentGateway.CertIssuer` therefore
   returns the record under `:issuance_audit`, and the node that requested the
-  certificate over RPC publishes it here.
+  certificate over RPC publishes it here. For agent-initiated renewal, the
+  gateway forwards only that record asynchronously to core through its existing
+  core RPC discovery. Forwarding failure is logged and counted by
+  `ServiceRadar.Telemetry.audit_metrics/0` without failing the renewal.
 
   The certificate exists once the gateway returns, whatever the caller does
   next. The record is published from its own process, outside any transaction

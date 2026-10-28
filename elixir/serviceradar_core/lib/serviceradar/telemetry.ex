@@ -335,8 +335,10 @@ defmodule ServiceRadar.Telemetry do
   Returns audit-trail delivery metrics.
 
   `ServiceRadar.Events.AuditWriter` emits `[:serviceradar, :audit, :publish_failed]`
-  for every audit record it could neither publish nor queue for publish. Any
-  runtime that writes audit records (core and web-ng) exports this counter.
+  for every audit record it could neither publish nor queue for publish. The
+  agent-gateway also emits it when renewal audit forwarding to core fails.
+  Core, web-ng and agent-gateway export this counter, tagged by `resource_type`
+  and `action`.
   """
   @spec audit_metrics() :: list()
   def audit_metrics do
