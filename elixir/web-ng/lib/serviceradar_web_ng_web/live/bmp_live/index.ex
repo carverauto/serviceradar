@@ -243,8 +243,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
   # Live refresh reuses the active query and drops cursor/page position so the
   # tail returns to the head of the result set.
-  defp refresh_bmp_head(%{assigns: %{bmp_list_request: request}} = socket)
-       when not is_nil(request) do
+  defp refresh_bmp_head(%{assigns: %{bmp_list_request: request}} = socket) when not is_nil(request) do
     maybe_schedule_live_refresh(socket)
   end
 

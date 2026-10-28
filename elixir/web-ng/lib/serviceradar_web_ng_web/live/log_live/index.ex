@@ -8962,8 +8962,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp refresh_tab(%{assigns: %{tab_load_request: request}} = socket, tab)
-       when not is_nil(request) do
+  defp refresh_tab(%{assigns: %{tab_load_request: request}} = socket, tab) when not is_nil(request) do
     schedule_debounced_refresh(socket, tab)
   end
 
