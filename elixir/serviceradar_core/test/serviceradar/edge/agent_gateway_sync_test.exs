@@ -1373,6 +1373,76 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert corroboration_review(site_b_uid, site_a_uid, actor).subject == shared_ip
     end
 
+    test "same-named integration arriving after an agent stays separate", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      name = "node#{uniq}"
+      ip = doc_ip(uniq, 0)
+      [mac] = host_macs(uniq, 1)
+      agent_id = "agent-first-#{uniq}"
+      integration_id = "proxmox:v3:#{Ecto.UUID.generate()}:cluster:node:#{name}"
+
+      assert {:ok, agent_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: name,
+                 source_ip: ip,
+                 partition: "default",
+                 host_interfaces: [host_nic("eno1", mac, [ip])]
+               })
+
+      assert :ok =
+               ServiceRadar.Inventory.SyncIngestor.ingest_updates(
+                 [
+                   %{
+                     "ip" => ip,
+                     "hostname" => name,
+                     "source" => "proxmox",
+                     "metadata" => %{
+                       "integration_type" => "proxmox",
+                       "integration_id" => integration_id
+                     }
+                   }
+                 ],
+                 actor: actor
+               )
+
+      [identifier] =
+        DeviceIdentifier
+        |> Ash.Query.filter(
+          identifier_type == :integration_id and identifier_value == ^integration_id
+        )
+        |> Ash.read!(actor: actor)
+
+      refute identifier.device_id == agent_uid
+
+      assert identifiers(agent_uid, actor) ==
+               Enum.sort([{:agent_id, agent_id}, {:mac, mac_value(mac)}])
+
+      assert identifiers(identifier.device_id, actor) == [{:integration_id, integration_id}]
+      review = decision(:policy_block, [agent_uid, identifier.device_id], actor)
+      assert review.reason == "hostname_agreement_not_identity"
+      assert review.evidence["refusal"] == "agent_bound_holder"
+    end
+
+    test "primary address corroboration survives address reassignment", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      name = "node#{uniq}"
+      ip = doc_ip(uniq, 0)
+      [known_mac, agent_mac] = host_macs(uniq, 2)
+      known_uid = known_host!(name, ip, [known_mac], actor)
+
+      assert {:ok, agent_uid} =
+               AgentGatewaySync.ensure_device_for_agent("agent-primary-#{uniq}", %{
+                 hostname: "#{name}.example.com",
+                 source_ip: ip,
+                 partition: "default",
+                 host_interfaces: [host_nic("eno1", agent_mac, [ip])]
+               })
+
+      refute agent_uid == known_uid
+      assert {:ok, %{ip: nil}} = Device.get_by_uid(known_uid, false, actor: actor)
+      assert corroboration_review(agent_uid, known_uid, actor).subject == ip
+    end
+
     # A hypervisor node an inventory knows only by its integration id, with the agent's address as
     # a confirmed alias. The agent shares no strong identifier with it, so it gets its own device;
     # the node keeps its identity and the agent takes none of it. The address follows the agent
@@ -1381,7 +1451,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
          %{actor: actor} do
       uniq = System.unique_integer([:positive, :monotonic])
       name = "node#{uniq}"
-      [mgmt_mac, cluster_mac] = host_macs(uniq, 2)
+      [mgmt_mac] = host_macs(uniq, 1)
       cluster_ip = doc_ip(uniq, 0)
       mgmt_ip = doc_ip(uniq, 1)
 
@@ -1399,8 +1469,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
         capabilities: ["sysmon"],
         host_macs: [mgmt_mac],
         host_interfaces: [
-          host_nic("eno1", mgmt_mac, [mgmt_ip]),
-          host_nic("eno2", cluster_mac, [cluster_ip])
+          host_nic("eno1", mgmt_mac, [mgmt_ip])
         ]
       }
 
@@ -1413,13 +1482,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert identifiers(agent_uid, actor) ==
                Enum.sort([
                  {:agent_id, agent_id},
-                 {:mac, mac_value(mgmt_mac)},
-                 {:mac, mac_value(cluster_mac)}
+                 {:mac, mac_value(mgmt_mac)}
                ])
 
       assert alias_state(node_uid, mgmt_ip) == "stale"
       assert decision(:alias_invalidated, [agent_uid, node_uid], actor)
-      assert corroboration_review(agent_uid, node_uid, actor).subject in [mgmt_ip, cluster_ip]
+      assert corroboration_review(agent_uid, node_uid, actor).subject == mgmt_ip
     end
   end
 

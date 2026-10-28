@@ -349,11 +349,10 @@ defmodule ServiceRadar.DireTrace do
 
   @doc """
   Agent check-in through the gateway at `x`'s address: its agent id and the host's interface
-  inventory, whose globally-unique MACs are the step's identifiers. `:extra_interfaces` adds
-  inventory entries that are not identity (a bridge, a veth, a tap); a world's
+  inventory, whose globally-unique MACs are the step's identifiers. A world's
   `:agent_hostname` map sets the hostname an agent reports.
   """
-  def agent(trace, h, x, opts \\ []) do
+  def agent(trace, h, x) do
     g = Map.fetch!(trace.world.agent_of, h)
     identity_macs = Enum.filter(macs_of(trace, h), &(&1 in trace.world.hw_ids))
     owner_mac = Map.get(trace.world.ifaces, x).mac
@@ -368,7 +367,7 @@ defmodule ServiceRadar.DireTrace do
       # What a current agent sends: the announced interface's MAC for older cores, and the
       # classified inventory core decides identity from.
       host_macs: if(owner_mac, do: [trace.real.mac[owner_mac]], else: []),
-      host_interfaces: host_interfaces(trace, h) ++ Keyword.get(opts, :extra_interfaces, [])
+      host_interfaces: host_interfaces(trace, h)
     }
 
     step(trace, "Agent", h, x, [g | identity_macs], fn ->
@@ -1041,6 +1040,7 @@ defmodule ServiceRadar.DireTrace do
     IdentityDecision
     |> Ash.read!(actor: trace.actor)
     |> Enum.filter(&(Map.get(before, &1.id) != &1.occurrence_count))
+    |> Enum.reject(&(&1.reason == "agent_corroboration_not_identity"))
     |> Enum.filter(fn d -> Enum.any?(d.device_uids, &MapSet.member?(named, &1)) end)
     |> Enum.map(fn d ->
       kind =

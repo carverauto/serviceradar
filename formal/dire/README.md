@@ -444,6 +444,13 @@ The traces of agent host identity (`link-agent-host-by-strong-identity`):
   integration and each running an agent with its own MAC. Each agent gets a record of its own and
   nothing joins the two sites.
 
+Hostname adoption refuses agent-bound records in either arrival order (`AgentHeld(y) = {}`
+is required for `hostAdopt`). Agent-held records use their agent's `HostOf` value for the
+refusal decision; this abstracts hostname spelling. Mapper/MAC holders remain eligible.
+Agent-before-Proxmox hosts without shared strong identity remain split and need operator
+review. The DB trace scenario `agent_first_same_name` asserts separate owners and the policy
+block; its committed golden capture remains pending a permitted scratch-database run.
+
 Until this change the agent reported only the MAC of the interface owning its announced address
 (`go/pkg/agent/host_identity.go`), while `AgentObserve`, and the trace harness, reported every MAC
 of the device. The model described an agent that did not exist: the divergence sat at the Go
@@ -538,11 +545,11 @@ still describes the code. The switches today's code has are listed once, in `Cur
   trace `armis_dhcp` and the tests pin the fix. For the same reason a lifecycle trace never
   reaches a source's record by a MAC-only sighting.
 - Hostnames reported by agents and the mapper. The model writes only the source's hostnames
-  (`recFs`), so the hostname agreement it records is the source's. For the same reason the agent
+  (`recFs`), with agent-bound refusal additionally using `HostOf` through `AgentOf`. The agent
   corroboration review (`AgentCorroboration`: another device holding one of the agent's addresses
   under the same first hostname label is recorded as an `agent_corroboration_not_identity`
   decision) is not modeled: it never links, merges or moves anything, and the integration tests in
-  `agent_gateway_sync_test.exs` pin it. No recorded trace reaches it.
+  `agent_gateway_sync_test.exs` pin it. The trace projection excludes that decision reason.
 - The agent's interface classification. Every modeled interface is a physical NIC with a
   permanent MAC; which interfaces are physical, and which MACs are permanent, is the agent's and
   `HostInterfaces`', pinned by `go/pkg/hostinventory` and the core unit tests.

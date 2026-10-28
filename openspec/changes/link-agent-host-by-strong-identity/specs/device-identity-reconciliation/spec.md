@@ -56,7 +56,10 @@ address only for an update with no strong identifier.
 The system SHALL NOT link an agent to, or merge it with, a device with which it shares no strong identifier, even when their hostnames match exactly and an address the agent reports is the device's.
 Disjoint eligible MACs mean two devices, regardless of name or address. Such an agent gets a
 device of its own; the other device keeps every identifier it holds, and the agent's device takes
-none of them.
+none of them. This guarantee holds in both arrival orders. A new integration record SHALL NOT
+adopt an agent-bound holder on hostname agreement. Source-authoritative refusal retains
+precedence; mapper/MAC holders remain eligible for adoption. Agent-before-Proxmox hosts without
+shared strong identity require operator de-duplication.
 
 #### Scenario: Two sites with identical node names
 - **GIVEN** a device at site A named `node01`, at address A, holding MAC MA
@@ -64,6 +67,12 @@ none of them.
 - **WHEN** the agent checks in
 - **THEN** the agent SHALL get a device of its own holding the agent id, MB1 and MB2
 - **AND** the site A device SHALL still hold only MA
+
+#### Scenario: Integration arrives after a same-named agent
+- **GIVEN** an agent-bound device named `node01` at address A
+- **WHEN** a new integration node with the same hostname and address arrives without shared strong identity
+- **THEN** the devices SHALL remain separate
+- **AND** a `hostname_agreement_not_identity` policy block SHALL record refusal `agent_bound_holder` and open a de-duplication task
 
 #### Scenario: An agent sharing nothing with a hypervisor record
 - **GIVEN** a hypervisor node record holding only its integration id, with a confirmed alias of the agent's address
@@ -76,7 +85,9 @@ none of them.
 The system SHALL record, and SHALL NOT act on, agreement between an agent and another device that shares no eligible MAC with it: an address the agent reports held by that device together with an equal first hostname label.
 The record is a `policy_block` identity decision with reason `agent_corroboration_not_identity`
 naming both devices, the address and the label, which opens a de-duplication task. A failed read
-records nothing and never fails the check-in.
+records nothing and never fails the check-in. Candidates from primary addresses and confirmed
+aliases SHALL be captured before resolution or upsert changes address ownership, and recorded
+after successful check-in, excluding the final resolved device.
 
 #### Scenario: Agreement opens review, not a merge
 - **GIVEN** a device named `node01` at address A

@@ -27,35 +27,42 @@ defmodule ServiceRadar.Inventory.Identity.AgentCorroboration do
 
   @reason "agent_corroboration_not_identity"
 
-  @doc """
-  Records every device the agent's addresses and hostname corroborate as a
-  review decision. Best effort: a failed read is logged and records nothing, and the
-  check-in goes on.
-  """
-  @spec record(String.t(), map(), term()) :: :ok
-  def record(device_uid, %{hostname: hostname, partition: partition, ips: ips}, actor) do
-    with label when is_binary(label) <- first_label(hostname),
-         [_ | _] <- ips,
-         {:ok, corroborated} <- corroborated(device_uid, label, partition, ips, actor) do
-      Enum.each(corroborated, fn {other_uid, ip} ->
-        DecisionLog.record(:policy_block, @reason, [device_uid, other_uid],
-          subject: ip,
-          source: "agent_gateway_sync",
-          evidence: %{
-            "device_id" => device_uid,
-            "corroborated_device_id" => other_uid,
-            "address" => ip,
-            "hostname_label" => label,
-            "agent_addresses" => ips
-          }
-        )
-      end)
-    else
-      {:error, reason} ->
-        Logger.warning("Agent corroboration review for #{device_uid} skipped: #{inspect(reason)}")
+  @spec capture(map(), term()) :: map()
+  def capture(%{hostname: hostname, partition: partition, ips: ips}, actor) do
+    label = first_label(hostname)
 
-      _no_evidence ->
-        :ok
+    candidates =
+      with true <- is_binary(label) and ips != [],
+           {:ok, found} <- corroborated(label, partition, ips, actor) do
+        found
+      else
+        {:error, reason} ->
+          Logger.warning("Agent corroboration capture skipped: #{inspect(reason)}")
+          []
+
+        _no_evidence ->
+          []
+      end
+
+    %{label: label, ips: ips, candidates: candidates}
+  end
+
+  @spec record(String.t(), map(), term()) :: :ok
+  def record(device_uid, %{label: label, ips: ips, candidates: candidates}, actor) do
+    for {other_uid, ip} <- candidates,
+        other_uid != device_uid,
+        same_label?(other_uid, label, actor) do
+      DecisionLog.record(:policy_block, @reason, [device_uid, other_uid],
+        subject: ip,
+        source: "agent_gateway_sync",
+        evidence: %{
+          "device_id" => device_uid,
+          "corroborated_device_id" => other_uid,
+          "address" => ip,
+          "hostname_label" => label,
+          "agent_addresses" => ips
+        }
+      )
     end
 
     :ok
@@ -85,11 +92,11 @@ defmodule ServiceRadar.Inventory.Identity.AgentCorroboration do
   def first_label(_hostname), do: nil
 
   # {other device uid, the address it was found at}, one per device.
-  defp corroborated(device_uid, label, partition, ips, actor) do
+  defp corroborated(label, partition, ips, actor) do
     ips
     |> Enum.reduce_while({:ok, []}, fn ip, {:ok, found} ->
       case address_holders(ip, partition, actor) do
-        {:ok, holders} -> {:cont, {:ok, found ++ Enum.map(holders -- [device_uid], &{&1, ip})}}
+        {:ok, holders} -> {:cont, {:ok, found ++ Enum.map(holders, &{&1, ip})}}
         {:error, _reason} = error -> {:halt, error}
       end
     end)

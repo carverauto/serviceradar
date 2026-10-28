@@ -194,7 +194,8 @@ Three goal environments (`agent_known_host`, `agent_same_name`, `agent_on_armis`
 property; `resolution_vacuity_agent_links_known_host` and `resolution_vacuity_agent_on_source_record`
 prove the goal links an agent to its known host and to an Armis record. Golden traces
 `agent_known_host_shared_mac` and `agent_same_name_two_sites` pin the code. Agent and mapper
-hostnames remain unmodeled, so the corroboration decision is covered by the integration tests.
+hostname spelling remains unmodeled; agent-bound holders use `HostOf` for hostname refusal.
+The corroboration decision is covered by the integration tests.
 
 ## Risks / Trade-offs
 
@@ -204,17 +205,14 @@ hostnames remain unmodeled, so the corroboration decision is covered by the inte
 - An endpoint linked to an agent pushes the agent's availability northbound (D6), by decision.
 - A Proxmox node with no SNMP stays split from its agent device until an operator merges the
   de-duplication task or the follow-up bridge lands.
-- Not changed here, and open for a decision: the sync path's hostname-agreement adoption
-  (`DeviceWrites.adopt_on_hostname_agreement?/4`) still lets a new integration record adopt the
-  live holder of its address when the hostnames are exactly equal and neither side holds a
-  source-authoritative id or a disjoint integration id. The holder may be an agent's device. A
-  scratch-database probe confirmed it: a Proxmox sync of node `n` at the address an agent device
-  named `n` holds lands its integration id on the agent's device, sharing no strong identifier;
-  with an FQDN agent hostname it does not. For the same host that is the convergence it was built
-  for; for a same-named node of another site reusing the address in the same partition it is a
-  fusion. Refusing agent-bound holders (`agent_bound_holder`, recorded as
-  `hostname_agreement_not_identity`) would close it at the cost of agent-first hosts no longer
-  converging with their hypervisor record by name.
+- Isolation holds in both arrival orders. A new integration record cannot adopt an agent-bound
+  address holder on hostname agreement: `agent_bound_holder` records the existing
+  `hostname_agreement_not_identity` policy block and opens a de-duplication task. The refusal
+  follows source-authoritative refusal, preserving its precedence. Mapper/MAC holders remain
+  eligible for hostname adoption, allowing Proxmox records to acquire their discovered MACs.
+- Agent-before-Proxmox hosts without a shared strong identifier now remain two devices and
+  require operator de-duplication; hostname and address agreement cannot distinguish them from
+  same-named hosts at different sites.
 
 ## Migration
 

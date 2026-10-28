@@ -621,4 +621,40 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.agent("h2", "x2")
     |> DireTrace.assert_golden!()
   end
+
+  test "agent first then a same-named integration at the same address", %{actor: actor} do
+    world = %{
+      phys: ["h1", "h2"],
+      ifaces: %{"x1" => %{phys: "h1", mac: "m1"}, "x2" => %{phys: "h2", mac: "m2"}},
+      src_of: %{},
+      int_of: %{"h2" => "i2"},
+      int_ids: ["i2"],
+      host_of: %{"h1" => "n1", "h2" => "n1"},
+      agent_of: %{"h1" => "g1"},
+      agent_ids: ["g1"],
+      agent_hostname: %{"h1" => "trace-n1"},
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: ["m1", "m2"],
+      laa_ids: [],
+      ips: ["p1"],
+      observers: ["Integration", "Agent"]
+    }
+
+    trace =
+      "agent_first_same_name"
+      |> DireTrace.start(world, actor)
+      |> DireTrace.lease("x1", "p1")
+      |> DireTrace.agent("h1", "x1")
+      |> DireTrace.lease("x2", "p1")
+      |> DireTrace.integration("h2", "x2")
+
+    DireTrace.stop(trace)
+    state = List.last(trace.states)
+    assert state["owner"]["g1"] == "g1"
+    assert state["owner"]["m1"] == "g1"
+    assert state["owner"]["i2"] == "i2"
+    assert Enum.count(state["created"], fn {_id, created} -> created end) == 2
+    assert %{kind: "policy_block", recs: ["g1", "i2"]} in state["act"].recorded
+  end
 end

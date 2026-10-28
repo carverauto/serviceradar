@@ -48,7 +48,15 @@ never identity. When another live device in the agent's partition holds one of t
 agent's addresses (primary or confirmed alias) and its hostname's first label equals the
 agent's, the pair is recorded as a `policy_block` decision with reason
 `agent_corroboration_not_identity`, which opens a de-duplication task. Same-named hosts at
-different sites share no eligible MAC and never fuse, whatever their names or addresses.
+different sites share no eligible MAC and never fuse, in either arrival order. A later
+integration record cannot adopt an agent-bound holder by hostname: it records
+`hostname_agreement_not_identity` with refusal `agent_bound_holder`. Source-authoritative
+refusal takes precedence; mapper/MAC holders remain eligible for adoption. An agent enrolled
+before Proxmox inventory therefore remains separate from its node record without shared strong
+identity, at the cost of an operator de-duplication task.
+
+Corroboration candidates are captured before resolution can clear a primary address or stale an
+alias, then recorded after successful check-in, excluding the resolved device.
 
 An agent's eligible MACs may link it to, and merge it with, a record that holds or held an
 Armis id: the user's decision of 2026-10-28 is that an Armis record and what an agent learns

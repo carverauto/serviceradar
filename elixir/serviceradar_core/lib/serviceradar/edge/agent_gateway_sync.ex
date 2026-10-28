@@ -363,7 +363,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   """
   @spec ensure_device_for_agent(String.t(), map()) ::
           {:ok, String.t()} | {:error, term()}
-  def ensure_device_for_agent(agent_id, attrs), do: ensure_fenced(agent_id, attrs, 1)
+  def ensure_device_for_agent(agent_id, attrs) do
+    actor = SystemActor.system(:gateway_sync)
+    candidates = AgentCorroboration.capture(corroboration_evidence(attrs), actor)
+
+    case ensure_fenced(agent_id, attrs, 1) do
+      {:ok, device_uid} = result ->
+        AgentCorroboration.record(device_uid, candidates, actor)
+        result
+
+      result ->
+        result
+    end
+  end
 
   # A check-in whose identity writes found the device's identity moved under them
   # (Identity.Fence) is resolved and written once more; a second move abandons it.
@@ -475,7 +487,6 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp finish_agent_device_sync(device_uid, agent_id, attrs, actor) do
-    AgentCorroboration.record(device_uid, corroboration_evidence(attrs), actor)
     backfill_endpoint_inventory_device_uid(agent_id, device_uid)
     retire_superseded_agents(agent_id, device_uid, attrs, actor)
     {:ok, device_uid}

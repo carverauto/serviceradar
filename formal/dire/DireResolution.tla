@@ -330,12 +330,14 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \*   Unsafe hostname_adopts_across_integration_ids: disjoint integration ids do not refuse
         \*       hostname-agreement adoption.
         hostAgree == IF kind \in {"Armis", "Integration"}
-                     THEN {y \in others0 \ seedHold : HostOf[h] \in HostsOf(recFs[y])}
+                     THEN {y \in others0 \ seedHold :
+                             HostOf[h] \in (HostsOf(recFs[y]) \cup
+                               {HostOf[a] : a \in {v \in Phys : AgentOf[v] \in AgentHeld(y)}})}
                      ELSE {}
         intConflict(y) == /\ "hostname_adopts_across_integration_ids" \notin Unsafe
                           /\ intS # {} /\ IntHeld(y) # {} /\ IntHeld(y) \cap intS = {}
         hostAdopt == {y \in hostAgree : /\ ~created[target0] /\ srcS = {} /\ SrcHist(y) = {}
-                                        /\ ~intConflict(y)}
+                                        /\ AgentHeld(y) = {} /\ ~intConflict(y)}
         \* A strong write creating a new record onto an address held by an anchorless provisional
         \* seed or an eligible hostname-agreement holder adopts it. An existing record never does
         \* (#4705): it takes the address below and the seed releases it. A record holding only

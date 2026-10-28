@@ -867,6 +867,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           retired: MapSet.new(),
           existing_uids: MapSet.new(),
           identity_times: %{},
+          agent_bound_holders: MapSet.new(),
           holder_integration_ids: %{}
         }
       else
@@ -879,6 +880,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           retired: retired,
           existing_uids: identity_times |> Map.keys() |> MapSet.new(),
           identity_times: identity_times,
+          agent_bound_holders: load_agent_bound_holders(existing_by_ip),
           holder_integration_ids: load_holder_integration_ids(existing_by_ip)
         }
       end
@@ -925,6 +927,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
            uid: d.uid,
            metadata: d.metadata,
            hostname: d.hostname,
+           agent_id: d.agent_id,
            mac: d.mac,
            last_seen_time: d.last_seen_time,
            identity_observed_at: d.identity_observed_at,
@@ -1386,6 +1389,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           MapSet.member?(identity_regs.source_authoritative, holder_uid) ->
         "source_authoritative_identifier"
 
+      MapSet.member?(identity_regs.agent_bound_holders, holder_uid) or
+        Ids.present_id?(Map.get(holder, :agent_id)) or
+          Enum.any?(record_identity_pairs(holder, partition), fn {type, _value, _partition} ->
+            type == "agent_id"
+          end) ->
+        "agent_bound_holder"
+
       not compatible_identity_claims?(record, holder) ->
         "incompatible_identity_claims"
 
@@ -1597,6 +1607,16 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
         fn {_uid, _partition, value} -> value end
       )
     end
+  end
+
+  defp load_agent_bound_holders(existing_by_ip) do
+    uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
+
+    DeviceIdentifier
+    |> where([i], i.device_id in ^uids and i.identifier_type == :agent_id)
+    |> select([i], i.device_id)
+    |> Repo.all()
+    |> MapSet.new()
   end
 
   defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do
