@@ -977,6 +977,121 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert_hostname_pair_recorded(holder, incoming, ip, actor)
   end
 
+  # Two invented clusters report a node with the same name at the same
+  # address in one partition, each under its own hypervisor integration
+  # id and with no MAC or serial (#6042). The ids are the evidence and
+  # the name/address the coincidence: the nodes stay two devices and the
+  # pair goes to an operator instead of one overwriting the other.
+  test "hostname agreement does not fuse same-named nodes from two hypervisor clusters",
+       %{actor: actor} do
+    n = System.unique_integer([:positive])
+    ip = "192.0.2.#{rem(n, 250) + 1}"
+    hostname = "virt-node-#{n}"
+
+    id_a =
+      "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:cluster-a-#{n}:node:virt-node-#{n}"
+
+    id_b =
+      "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:cluster-b-#{n}:node:virt-node-#{n}"
+
+    update = fn integration_id ->
+      %{
+        "hostname" => hostname,
+        "source" => "proxmox",
+        "ip" => ip,
+        "metadata" => %{
+          "integration_type" => "proxmox",
+          "integration_id" => integration_id
+        }
+      }
+    end
+
+    assert :ok = SyncIngestor.ingest_updates([update.(id_a)], actor: actor)
+    uid_a = device_for_integration_id(id_a, actor)
+    assert is_binary(uid_a)
+
+    assert :ok = SyncIngestor.ingest_updates([update.(id_b)], actor: actor)
+    uid_b = device_for_integration_id(id_b, actor)
+
+    assert is_binary(uid_b)
+    assert uid_a != uid_b, "the second cluster's node was fused into the first cluster's device"
+    assert device_for_integration_id(id_a, actor) == uid_a
+    assert_hostname_pair_recorded(uid_a, uid_b, ip, actor)
+
+    {:ok, decisions} = IdentityDecision.for_device(uid_b, actor: actor)
+
+    assert Enum.any?(
+             decisions,
+             &(&1.decision_kind == :policy_block and
+                 &1.evidence["refusal"] == "conflicting_integration_identity")
+           ),
+           "the refusal was not recorded as a conflicting integration identity"
+  end
+
+  # Negative: when the incoming record's integration ids overlap the
+  # holder's under the same provider, the claims agree about identity and
+  # the record still attaches to the holder instead of splitting.
+  test "overlapping same-provider integration ids still attach to the holder", %{actor: actor} do
+    n = System.unique_integer([:positive])
+    ip = benchmark_ip()
+    hostname = "virt-overlap-#{n}"
+
+    shared_id =
+      "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:cluster-a-#{n}:node:virt-overlap-#{n}"
+
+    other_id =
+      "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:cluster-b-#{n}:node:virt-overlap-#{n}"
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "hostname" => hostname,
+                   "source" => "proxmox",
+                   "ip" => ip,
+                   "metadata" => %{
+                     "integration_type" => "proxmox",
+                     "integration_id" => other_id,
+                     "legacy_integration_ids" => [shared_id]
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    holder = device_for_integration_id(other_id, actor)
+    assert is_binary(holder)
+    assert device_for_integration_id(shared_id, actor) == nil
+
+    assert :ok =
+             SyncIngestor.ingest_updates(
+               [
+                 %{
+                   "hostname" => hostname,
+                   "source" => "proxmox",
+                   "ip" => ip,
+                   "metadata" => %{
+                     "integration_type" => "proxmox",
+                     "integration_id" => shared_id
+                   }
+                 }
+               ],
+               actor: actor
+             )
+
+    assert device_for_integration_id(shared_id, actor) == holder
+    assert device_for_integration_id(other_id, actor) == holder
+
+    {:ok, decisions} = IdentityDecision.for_device(holder, actor: actor)
+
+    refute Enum.any?(
+             decisions,
+             &(&1.decision_kind == :policy_block and
+                 &1.reason == "hostname_agreement_not_identity" and &1.subject == ip)
+           ),
+           "overlapping integration ids must not be refused as a hostname-only match"
+  end
+
   test "a new typed Armis ID does not adopt another device's historical MAC", %{actor: actor} do
     armis_a = "armis-history-a-#{System.unique_integer([:positive])}"
     armis_b = "armis-history-b-#{System.unique_integer([:positive])}"

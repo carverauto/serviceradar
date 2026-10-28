@@ -39,6 +39,8 @@ CONSTANTS
     Rekeys,        \* whether the source may re-identify a device under another id (Rekey)
     FreshIds,      \* whether a re-key always uses an id the source never issued before
     AgentOf,       \* [Phys -> AgentIds \cup {NoId}]: the agent running on the device, if any
+    IntOf,         \* [Phys -> IntIds \cup {NoId}]: the integration id an integration sync reports
+                   \* for the device, if any (one provider prefix, e.g. proxmox:v3:...)
     ArmisMacs,     \* whether Armis reports the device's MACs with its id
     HostOf,        \* [Phys -> hostnames]: the hostname Armis reports for the device; cloned
                    \* machines share one
@@ -46,6 +48,7 @@ CONSTANTS
                      \* reports the device's original one
     AgentIds,      \* agent ids (agent_id identifiers)
     SrcIds,        \* source-authoritative identifiers (one source)
+    IntIds,        \* integration ids (integration_id identifiers under one provider prefix)
     HwIds,         \* globally-unique MACs
     LaaIds,        \* locally-administered (randomized) MACs
     Ips,
@@ -61,18 +64,19 @@ ASSUME Bugs \subseteq KnownBugs
 Bug(b) == b \in Bugs
 
 UnsafeAlternatives == {"mac_only_succession", "retired_ids_forgotten",
-                       "overlapping_hostname_corroborates"}
+                       "overlapping_hostname_corroborates",
+                       "hostname_adopts_across_integration_ids"}
 ASSUME Unsafe \subseteq UnsafeAlternatives
 ASSUME NewFirstSeenIds \subseteq SrcIds
 
 MacIds == HwIds \cup LaaIds
-Ids    == AgentIds \cup SrcIds \cup MacIds
+Ids    == AgentIds \cup SrcIds \cup IntIds \cup MacIds
 \* A record is named by the seed its uid was derived from: the highest-priority identifier
 \* (Ids.generate_deterministic_device_id/1) or, for an identifier-less update, the address.
 Recs   == Ids \cup Ips \cup Spare
 
 \* Ids @identifier_priority: agent_id, armis_device_id / integration_id, ..., mac.
-Prio(i) == IF i \in AgentIds THEN 0 ELSE IF i \in SrcIds THEN 1 ELSE IF i \in HwIds THEN 2 ELSE 3
+Prio(i) == IF i \in AgentIds THEN 0 ELSE IF i \in (SrcIds \cup IntIds) THEN 1 ELSE IF i \in HwIds THEN 2 ELSE 3
 Seed(S) == CHOOSE i \in S : \A j \in S : Prio(i) <= Prio(j)
 
 MacsOf(h) == {IfMac[x] : x \in {y \in Ifaces : IfPhys[y] = h}} \ {NoId}
@@ -139,6 +143,8 @@ Canon(r) == CanonIn(into, r, Cardinality(Recs))
 HeldIn(o, r, C) == {i \in C : o[i] = r}
 SrcHeldIn(o, r) == HeldIn(o, r, SrcIds)
 SrcHeld(r) == SrcHeldIn(owner, r)
+IntHeldIn(o, r) == HeldIn(o, r, IntIds)
+IntHeld(r) == IntHeldIn(owner, r)
 AgentHeld(r) == HeldIn(owner, r, AgentIds)
 MacsHeld(r) == HeldIn(owner, r, MacIds)
 IdsHeldIn(o, r) == HeldIn(o, r, Ids)
@@ -181,9 +187,9 @@ SameChassis(a, b) == ifClaims[a] \cap MacsHeld(b) # {} /\ ifClaims[b] \cap MacsH
 DistinctIdentifiedIn(o, a, b) == IdsHeldIn(o, a) # {} /\ IdsHeldIn(o, b) # {} /\ ~SameChassis(a, b)
 
 \* MergePolicy.merge_allowed_for_matches?/1 over the identifiers that matched: any set containing
-\* an agent, source-authoritative or globally-unique identifier (#4612); never an all-randomized
-\* set.
-PolicyAllows(matched) == matched \cap (AgentIds \cup SrcIds \cup HwIds) # {}
+\* an agent, source-authoritative, integration or globally-unique identifier (#4612); never an
+\* all-randomized set.
+PolicyAllows(matched) == matched \cap (AgentIds \cup SrcIds \cup IntIds \cup HwIds) # {}
 
 \* The globally-unique MACs a record reports (D3): its identifier rows, its own interface table,
 \* and the source's observations of the devices it describes, which carry their MACs when the
@@ -266,6 +272,7 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* registers. A randomized MAC is never one (Ids.has_strong_identifier?/1, #4760).
         strong  == S
         srcS    == S \cap SrcIds
+        intS    == S \cap IntIds
         \* D6: a retired id presented again. Resolution consults the archive: the id returns to the
         \* record it was retired from, or that record's merge survivor, when exactly one such
         \* record holds no current (unretired) id of the source, the update agrees with its archived
@@ -314,12 +321,28 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \*     polled, MapperResultsIngestor.move_device_address/4) ---
         others0   == holderAt \ {target0}
         seedHold  == {r \in others0 : IdsHeld(r) = {} /\ ArchivedOf(r) = {}}
+        \* Hostname-agreement adoption (DeviceWrites.adopt_on_hostname_agreement?/4,
+        \* hostname_adoption_refusal/4; #6042). Only Armis and Integration writes carry HostOf[h]
+        \* in the model. Agreement may attach only a record that is not yet a device
+        \* (~created[target0]) when neither side has a source-authoritative identifier
+        \* (srcS = {} /\ SrcHist(y) = {}) and the two sides do not claim disjoint integration ids
+        \* under one provider prefix (IntHeld(y) = {} \/ intS = {} \/ IntHeld(y) \cap intS # {}).
+        \*   Unsafe hostname_adopts_across_integration_ids: disjoint integration ids do not refuse
+        \*       hostname-agreement adoption.
+        hostAgree == IF kind \in {"Armis", "Integration"}
+                     THEN {y \in others0 \ seedHold : HostOf[h] \in HostsOf(recFs[y])}
+                     ELSE {}
+        intConflict(y) == /\ "hostname_adopts_across_integration_ids" \notin Unsafe
+                          /\ intS # {} /\ IntHeld(y) # {} /\ IntHeld(y) \cap intS = {}
+        hostAdopt == {y \in hostAgree : /\ ~created[target0] /\ srcS = {} /\ SrcHist(y) = {}
+                                        /\ ~intConflict(y)}
         \* A strong write creating a new record onto an address held by an anchorless provisional
-        \* seed adopts the seed. An existing record never does (#4705): it takes the address below
-        \* and the seed releases it. A record holding only retired ids is anchored by them: the
-        \* adoption check reads the archive too (D2), or another device's new id would adopt it.
-        adopt     == strong # {} /\ ~created[target0] /\ seedHold # {}
-        target    == IF adopt THEN CHOOSE r \in seedHold : TRUE ELSE target0
+        \* seed or an eligible hostname-agreement holder adopts it. An existing record never does
+        \* (#4705): it takes the address below and the seed releases it. A record holding only
+        \* retired ids is anchored by them: the adoption check reads the archive too (D2), or
+        \* another device's new id would adopt it.
+        adopt     == strong # {} /\ ~created[target0] /\ (seedHold \cup hostAdopt) # {}
+        target    == IF adopt THEN CHOOSE r \in (seedHold \cup hostAdopt) : TRUE ELSE target0
         \* An existing result whose address is still one of its own keeps it, and this write
         \* claims no address at all.
         keepAddr  == created[target] /\ recIp[target] \in keepIps
@@ -333,16 +356,15 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \* retired holder also yields to a current source id, whatever the times). A census
         \* carries no time of its own, only its record's last identity-bearing one: with none it
         \* never displaces a holder that has one, and when both have one either may be newer
-        \* (older). A holder that keeps the address leaves the write without one.
+        \* (older). A declarative integration sync (Integration) is not an observed-address source
+        \* (SourcePolicy.observed_address_source?/1), so a live holder keeps the address. A holder
+        \* that keeps the address leaves the write without one.
         rivals    == IF keepAddr THEN {} ELSE holderAt \ {target}
-        \* A source write whose hostname agrees with a rival's: agreement may attach only a record
-        \* that is not yet a device and carries no source-authoritative identifier, and a source
-        \* write carries one, so adoption is refused and the pair is recorded for de-duplication
-        \* review (DeviceWrites.adopt_on_hostname_agreement?/4), with telemetry beside the record.
-        \* The model writes only the source's hostnames (recFs).
-        hostRivals == IF kind = "Armis" THEN {y \in rivals : HostOf[h] \in HostsOf(recFs[y])} ELSE {}
+        hostRivals == hostAgree \ {target}
         keptHeld  == IF kind = "Arp" /\ strong # {}
                      THEN {r \in rivals : idSeen[r] /\ (~idSeen[target] \/ older)}
+                     ELSE IF kind = "Integration"
+                     THEN rivals
                      ELSE {}
         holders   == rivals \ keptHeld
         ipConflict == strong # {} /\ rivals # {}
@@ -435,11 +457,13 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
     /\ phys' = PhysAfter(h, S, p, step1Merged, target0, step2Merged, target, owner2, into2, recIp2)
     /\ act' = [name |-> kind, ids |-> S, ip |-> p, decisions |-> decisions,
                recorded |-> recorded, addressMerged |-> step2Merged]
-    \* A source sync writes the device's first-seen time and hostname to the record it lands on;
-    \* a merge keeps both records' values.
+    \* A source or integration sync writes the device's first-seen time and hostname to the record
+    \* it lands on; a merge keeps both records' values.
     /\ recFs' = [r \in Recs |->
                    recFs[r]
-                   \cup (IF kind = "Armis" /\ r = target THEN {FsOf(h, a) : a \in srcS} ELSE {})
+                   \cup (IF kind = "Armis" /\ r = target THEN {FsOf(h, a) : a \in srcS}
+                         ELSE IF kind = "Integration" /\ r = target THEN {<<h, NoId>>}
+                         ELSE {})
                    \cup (IF r = target0 THEN UNION {recFs[m] : m \in step1Merged} ELSE {})
                    \cup (IF r = target THEN UNION {recFs[m] : m \in step2Merged} ELSE {})]
     \* The sync is the source's latest sighting of the record's device, and every id the source has
@@ -450,9 +474,9 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
                       \cup (IF r = target0 THEN UNION {seenWith[m] : m \in step1Merged} ELSE {})
                       \cup (IF r = target THEN UNION {seenWith[m] : m \in step2Merged} ELSE {})]
     \* The write advances the record's identity_observed_at only when it is the device's own
-    \* identity-bearing report (D7): never a census or an address-only poll. A merge leaves it
-    \* as it was on the survivor (MergeEngine never writes it).
-    /\ idSeen' = [r \in Recs |-> idSeen[r] \/ (r = target /\ kind # "Arp" /\ S # {})]
+    \* identity-bearing report (D7): never a census, an address-only poll or a declarative
+    \* integration sync. A merge leaves it as it was on the survivor (MergeEngine never writes it).
+    /\ idSeen' = [r \in Recs |-> idSeen[r] \/ (r = target /\ kind \notin {"Arp", "Integration"} /\ S # {})]
     /\ archive' = [a \in SrcIds |->
                      IF a \in retiredS THEN {q \in archive[a] : Canon(q) \notin reactivated}
                      ELSE archive[a]]
@@ -466,6 +490,12 @@ ArmisObserve(h, x) ==
     /\ \E ra \in BOOLEAN :
          Resolve(h, x, {srcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra,
                  "sync", "Armis", {}, {})
+
+\* Non-source-authoritative integration sync (e.g. Proxmox): the device's integration_id and
+\* hostname at its configured address, through SyncIngestor.
+IntObserve(h, x) ==
+    /\ IntOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
+    /\ Resolve(h, x, {IntOf[h]}, FALSE, "sync", "Integration", {}, {})
 
 \* netprobe census: one interface's MAC and address, through SyncIngestor. A census update is an
 \* observer source with no non-MAC identifier, so Sync.Aliases never merges on it. A randomized
@@ -653,6 +683,7 @@ Next ==
     \/ \E pr, sc \in Recs : Succeed(pr, sc) \/ Review(pr, sc)
     \/ \E h \in Phys, x \in Ifaces :
          \/ "Armis" \in Observers /\ ArmisObserve(h, x)
+         \/ "Integration" \in Observers /\ IntObserve(h, x)
          \/ "Arp" \in Observers /\ ArpObserve(h, x)
          \/ "Agent" \in Observers /\ AgentObserve(h, x)
          \/ "Discovery" \in Observers /\ MapperObserve(h, x)

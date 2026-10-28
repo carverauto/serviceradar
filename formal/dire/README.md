@@ -17,6 +17,8 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   an address. DHCP moves addresses between interfaces. Observers report what they would
   really see:
   - Armis sync: the Armis device id, plus MACs when Armis reports them.
+  - Integration sync: an `IntOf` identifier from `IntIds` and the hostname at
+    the configured address. These IDs model one provider namespace.
   - Network discovery: every interface MAC.
   - ARP-style observation: one MAC and its address. A randomized MAC from this observer is
     not registered, so that sighting is address-only.
@@ -58,7 +60,9 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
     always take the address. A census carries no time of its own, only its record's last
     identity-bearing one, which the variable `idSeen` says the record has. A census record
     with none never displaces a holder that has one, and when both have one either may be
-    newer. A sweep, a census and an address-only poll never set `idSeen`.
+    newer. A sweep, a census, an address-only poll and a declarative integration
+    sync never set `idSeen`. An integration sync leaves an existing holder's
+    address in place.
   - A sweep seed that releases its address to an identified device and holds no identifier
     and no archived one is soft-deleted as `seed_released` in the same transaction (D8). The
     model writes it as a record that no longer exists.
@@ -268,6 +272,7 @@ Each environment stands for a real situation:
 | `armis_reissued_ids_one_device` | One Armis device that Armis may re-key and later report again under an id DIRE retired from it. |
 | `armis_clones` | Two devices cloned from one image, reporting the same MAC and the same hostname. Armis may stop reporting either, and the hostname must not make them one device. Both are in Armis from the start, so their lifetimes overlap. |
 | `armis_rekey_new_first_seen` | `armis_rekey`, except that Armis reports the device with a new first-seen time under its new id. Only the hostname corroborates the re-keyed pair, so the time guard must let a true re-key converge. |
+| `integration_clones` | Two same-named hypervisor nodes in different clusters under one non-source-authoritative integration provider (`IntIds`), with no MAC, serial or source-authoritative id. Disjoint integration ids refuse hostname-agreement adoption (`conflicting_integration_identity`, #6042). |
 
 The `Spare` constant holds record names that no identifier or address names. A re-issued id
 whose own uid already names an old record creates a record under one of them.
@@ -284,6 +289,7 @@ alternative merges two physical devices.
 | `mac_only_succession` | `resolution_unsafe_mac_only_succession` | `armis_rekey_shared_mac` | Succession on a linking MAC alone, without corroboration: once one of two devices sharing a MAC leaves Armis, its record merges into the other's. |
 | `retired_ids_forgotten` | `resolution_unsafe_retired_ids_forgotten` | `armis_reissued_ids` | Retirement without the archive: when Armis re-issues a retired id to another device, nothing remembers the record that held it, and the write lands on that record, which its uid still names. |
 | `overlapping_hostname_corroborates` | `resolution_unsafe_overlapping_hostname_corroborates` | `armis_clones` | A hostname corroborates without D3's time guard: once one of two clones leaves Armis and its id retires, its record merges into the other's, because they share a MAC and a hostname. |
+| `hostname_adopts_across_integration_ids` | `resolution_unsafe_hostname_adopts_across_integration_ids` | `integration_clones` | Hostname-agreement adoption without the `conflicting_integration_identity` refusal (#6042): two same-named nodes in different hypervisor clusters that share an address fuse onto one record owning both integration ids. |
 
 An alternative is never fixed, so its configuration stays when switches come and go.
 
@@ -405,6 +411,11 @@ record named by its address.
 `released_seed_stays_live` (#5085): an Armis device synced at a new address a sweep has seeded
 takes the address, and the conflict is recorded. The seed releases it and is soft-deleted as
 `seed_released` in the same step.
+
+`integration_hostname_conflict` (#6042) records two same-named hypervisor nodes in different
+clusters colliding on an address under one integration provider (`proxmox:v3:...`): hostname
+agreement is refused with `conflicting_integration_identity`, recording a `policy_block`
+decision alongside the `ip_conflict` decision, and the second node stays a separate device.
 
 The lifecycle regression traces:
 
