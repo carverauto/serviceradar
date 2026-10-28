@@ -12,6 +12,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
   alias ServiceRadar.Analytics.StarRocks.MySQL
   alias ServiceRadar.Inventory.ExposureReadiness
   alias ServiceRadar.Inventory.ExposureReconciliationWorker
+  alias ServiceRadar.Observability.ObanFailureEventReporter
   alias ServiceRadar.Repo
 
   @warehouse ~w(exposure_facts exposure_cve_dim exposure_package_dim exposure_retired_ordinals exposure_transitions_log)
@@ -45,32 +46,45 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
     # them in an unserved queue, retain their rows, and restore the queues later.
     pg!("UPDATE platform.oban_jobs SET queue = 'capacity_bootstrap'")
     assert :ok = Supervisor.terminate_child(ServiceRadar.Supervisor, Oban)
+    # Failure notifications target general event tables, outside this exposure
+    # schema. Persisted Oban errors below remain the benchmark's failure oracle.
+    assert :ok = Supervisor.terminate_child(ServiceRadar.Supervisor, ObanFailureEventReporter)
 
-    try do
-      seeded = now_ms()
-      seed!(hosts)
-      verify_fixture!(hosts)
-      fixture_ms = now_ms() - seeded
+    errors =
+      capture_errors(fn ->
+        seeded = now_ms()
+        seed!(hosts)
+        verify_fixture!(hosts)
+        fixture_ms = now_ms() - seeded
 
-      [[source_bytes]] =
-        pg!("SELECT pg_total_relation_size('platform.endpoint_vulnerability_assessments')")
+        [[source_bytes]] =
+          pg!("SELECT pg_total_relation_size('platform.endpoint_vulnerability_assessments')")
 
-      IO.puts(
-        "EXPOSURE_RECONCILIATION_FIXTURE " <>
-          Jason.encode!(%{hosts: hosts, fixture_ms: fixture_ms, assessment_bytes: source_bytes})
-      )
+        IO.puts(
+          "EXPOSURE_RECONCILIATION_FIXTURE " <>
+            Jason.encode!(%{hosts: hosts, fixture_ms: fixture_ms, assessment_bytes: source_bytes})
+        )
 
-      run_capacity!(hosts, fixture_ms)
-      reject_equal_count_corruption!()
-    after
-      stop_queue!()
-      cleanup!()
+        run_capacity!(hosts, fixture_ms)
+        reject_equal_count_corruption!()
+      end)
 
-      for [id, queue] <- bootstrap_jobs,
-          do: Repo.query!("UPDATE platform.oban_jobs SET queue = $2 WHERE id = $1", [id, queue])
+    shutdown_errors = capture_errors(&stop_queue!/0)
+    cleanup_errors = if shutdown_errors == [], do: capture_errors(&cleanup!/0), else: []
 
-      assert {:ok, _} = Supervisor.restart_child(ServiceRadar.Supervisor, Oban)
-    end
+    restore_errors =
+      capture_errors(fn ->
+        for [id, queue] <- bootstrap_jobs,
+            do: Repo.query!("UPDATE platform.oban_jobs SET queue = $2 WHERE id = $1", [id, queue])
+
+        assert {:ok, _} = Supervisor.restart_child(ServiceRadar.Supervisor, Oban)
+
+        assert {:ok, _} =
+                 Supervisor.restart_child(ServiceRadar.Supervisor, ObanFailureEventReporter)
+      end)
+
+    all_errors = errors ++ shutdown_errors ++ cleanup_errors ++ restore_errors
+    if all_errors != [], do: raise(ExUnit.MultiError, errors: all_errors)
   end
 
   defp profile! do
@@ -134,6 +148,22 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
     refute job.conflict?
     result = await_fleet(hosts, started + @deadline_ms)
     elapsed = now_ms() - started
+
+    if result != :completed do
+      for [worker, errors] <-
+            pg!(
+              "SELECT worker, errors FROM platform.oban_jobs WHERE queue = 'maintenance' AND errors <> '{}' ORDER BY id LIMIT 2"
+            ) do
+        IO.puts(
+          "EXPOSURE_RECONCILIATION_JOB_ERROR " <>
+            Jason.encode!(%{
+              worker: worker,
+              errors: Enum.map(errors, &String.slice(&1["error"] || "unknown", 0, 2000))
+            })
+        )
+      end
+    end
+
     stop_queue!()
 
     [[matched]] =
@@ -212,7 +242,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
   end
 
   defp stop_queue! do
-    if Oban.whereis() do
+    if Oban.whereis(Oban) do
       if Oban.config().testing == :disabled do
         :ok = Oban.pause_queue(queue: :maintenance)
 
@@ -459,4 +489,11 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
   end
 
   defp now_ms, do: System.monotonic_time(:millisecond)
+
+  defp capture_errors(fun) do
+    fun.()
+    []
+  catch
+    kind, reason -> [{kind, reason, __STACKTRACE__}]
+  end
 end
