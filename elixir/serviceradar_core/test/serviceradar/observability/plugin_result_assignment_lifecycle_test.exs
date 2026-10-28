@@ -330,7 +330,9 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
             ServiceRadar.Infrastructure.Agent.get_by_uid(status.agent_id, actor: system_actor())
 
           agent
-          |> Ash.Changeset.for_update(:gateway_sync, %{gateway_id: gateway_id}, actor: system_actor())
+          |> Ash.Changeset.for_update(:gateway_sync, %{gateway_id: gateway_id},
+            actor: system_actor()
+          )
           |> Ash.update!(domain: ServiceRadar.Infrastructure)
 
           %{status | gateway_id: gateway_id}
@@ -344,7 +346,8 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
       assert [[false, "plugin assignment pending result", _at, "active"]] =
                current_state_rows_with_state(replacement_status)
 
-      assert Jason.decode!(current_state_details(replacement_status))["assignment_id"] == replacement.id
+      assert Jason.decode!(current_state_details(replacement_status))["assignment_id"] ==
+               replacement.id
 
       if change_gateway? do
         assert [[true, "edge plugin completed", _at, "inactive"]] =
@@ -385,7 +388,10 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
           })
 
         assert :ok =
-                 PluginResultIngestor.ingest(late_payload, provenance_status(status, original, package))
+                 PluginResultIngestor.ingest(
+                   late_payload,
+                   provenance_status(status, original, package)
+                 )
 
         assert current_state_rows_with_state(replacement_status) == before_late_result
 

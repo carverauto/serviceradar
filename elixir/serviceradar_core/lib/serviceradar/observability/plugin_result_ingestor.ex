@@ -76,31 +76,32 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     status_label = fetch_string(payload, ["status"])
     available = resolve_available(status, status_label)
 
-    with {:ok, remapped_status} <- remap_service_name(status) do
-      status_row =
-        build_status_row(
-          payload,
-          remapped_status,
-          observed_at,
-          created_at,
-          summary,
-          available
-        )
+    case remap_service_name(status) do
+      {:ok, remapped_status} ->
+        status_row =
+          build_status_row(
+            payload,
+            remapped_status,
+            observed_at,
+            created_at,
+            summary,
+            available
+          )
 
-      case insert_status(status_row, actor) do
-        {:ok, reported_status, :inserted} ->
-          run_handlers(reported_status, payload, status, observed_at, actor)
+        case insert_status(status_row, actor) do
+          {:ok, reported_status, :inserted} ->
+            run_handlers(reported_status, payload, status, observed_at, actor)
 
-        {:ok, reported_status, :existing} ->
-          redeliver(reported_status, payload, status, observed_at, actor)
+          {:ok, reported_status, :existing} ->
+            redeliver(reported_status, payload, status, observed_at, actor)
 
-        {:error, persistence_error} ->
-          PluginIngestor.discard_artifacts(payload, status)
-          error_text = handler_error_text(persistence_error)
-          Logger.error("Plugin result status persistence failed: #{error_text}")
-          {:error, {:plugin_result_status_persistence_failed, error_text}}
-      end
-    else
+          {:error, persistence_error} ->
+            PluginIngestor.discard_artifacts(payload, status)
+            error_text = handler_error_text(persistence_error)
+            Logger.error("Plugin result status persistence failed: #{error_text}")
+            {:error, {:plugin_result_status_persistence_failed, error_text}}
+        end
+
       {:error, _reason} = error ->
         PluginIngestor.discard_artifacts(payload, status)
         error

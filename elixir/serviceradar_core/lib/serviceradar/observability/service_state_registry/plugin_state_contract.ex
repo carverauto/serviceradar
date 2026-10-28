@@ -502,14 +502,16 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
     [
       details |> fetch(:_serviceradar_plugin_result) |> provenance_field(:assignment_id),
       details |> fetch(:labels) |> fetch_nested(:assignment_id),
-      if(not has_key?(details, :_serviceradar_plugin_result) and
-           is_map(fetch(details, :reported_result)) and
-           fetch_nested(fetch(details, :downstream_ingest), :status) in ["failed", "succeeded"],
+      if(
+        not has_key?(details, :_serviceradar_plugin_result) and
+          is_map(fetch(details, :reported_result)) and
+          fetch_nested(fetch(details, :downstream_ingest), :status) in ["failed", "succeeded"],
         do: details |> fetch(:downstream_ingest) |> provenance_field(:assignment_id)
       ),
       reported_result |> fetch(:labels) |> fetch_nested(:assignment_id),
-      if(not has_key?(details, :_serviceradar_plugin_result) and
-           not has_key?(details, :reported_result),
+      if(
+        not has_key?(details, :_serviceradar_plugin_result) and
+          not has_key?(details, :reported_result),
         do: fetch(details, :assignment_id)
       )
     ]

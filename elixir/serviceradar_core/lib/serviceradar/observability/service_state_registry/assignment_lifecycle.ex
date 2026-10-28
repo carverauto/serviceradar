@@ -33,9 +33,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
          {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor),
          {:ok, service_name} <- assignment_service_name(assignment, package) do
       assignment
-      |> StatusNormalizer.build_attrs_from_assignment(agent, package,
-        service_name: service_name
-      )
+      |> StatusNormalizer.build_attrs_from_assignment(agent, package, service_name: service_name)
       |> maybe_upsert_assignment_state(actor)
     else
       false ->
