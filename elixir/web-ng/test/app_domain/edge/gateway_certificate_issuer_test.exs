@@ -114,6 +114,20 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
                validity_days: 1,
                cert_issuer_module: IssueProbe
              )
+
+    assert {:error, :ca_not_available} =
+             GatewayCertificateIssuer.issue_agent_bundle(
+               gateway_id,
+               "test-agent",
+               "default",
+               cert_validity_days: 1,
+               allow_short_test_lifetime: true,
+               cert_issuer_module: IssueProbe
+             )
+
+    assert {"test-agent", "default", short_opts} = IssueProbe.last_issue()
+    assert Keyword.fetch!(short_opts, :validity_days) == 1
+    assert Keyword.fetch!(short_opts, :allow_short_test_lifetime)
   end
 
   test "revokes agent certificates on the selected gateway" do

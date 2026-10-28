@@ -13,8 +13,6 @@ defmodule ServiceRadarAgentGateway.TlsDiagnosticLogger do
 
   require Logger
 
-  @filter_id :serviceradar_tls_diagnostics
-
   @doc """
   Fail-closed `:ssl` `verify_fun` callback that logs peer certificate metadata
   whenever OTP `:ssl` encounters a `:bad_cert` path validation error.
@@ -84,23 +82,6 @@ defmodule ServiceRadarAgentGateway.TlsDiagnosticLogger do
     )
 
     diag
-  end
-
-  @doc """
-  Idempotently attaches the primary logger filter for OTP `:ssl` handshake alerts.
-  """
-  @spec attach_logger_filter() :: :ok
-  def attach_logger_filter do
-    case :logger.add_primary_filter(@filter_id, {&__MODULE__.logger_filter/2, %{}}) do
-      :ok -> :ok
-      {:error, {:already_exist, @filter_id}} -> :ok
-      {:error, _} -> :ok
-    end
-  end
-
-  @doc false
-  def logger_filter(log_event, _extra) do
-    log_event
   end
 
   defp normalize_failure_reason(reason, meta, opts) do

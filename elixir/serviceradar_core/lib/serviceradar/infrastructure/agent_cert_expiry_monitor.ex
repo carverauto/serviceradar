@@ -15,7 +15,7 @@ defmodule ServiceRadar.Infrastructure.AgentCertExpiryMonitor do
   use Oban.Worker,
     queue: :monitoring,
     max_attempts: 3,
-    unique: [period: 300, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: 300, states: [:available, :scheduled, :retryable]]
 
   import Ecto.Query
 
@@ -52,20 +52,8 @@ defmodule ServiceRadar.Infrastructure.AgentCertExpiryMonitor do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{} = job) do
-    now =
-      case Map.get(job.args, "now") do
-        iso when is_binary(iso) ->
-          case DateTime.from_iso8601(iso) do
-            {:ok, dt, _} -> dt
-            _ -> DateTime.utc_now()
-          end
-
-        _ ->
-          DateTime.utc_now()
-      end
-
-    summary = evaluate(now: now)
+  def perform(%Oban.Job{}) do
+    summary = evaluate()
 
     Logger.info(
       "AgentCertExpiryMonitor completed",

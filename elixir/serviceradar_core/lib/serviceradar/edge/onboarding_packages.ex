@@ -124,12 +124,6 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
            %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
           | {:error, term()}
   def create(attrs, opts \\ []) do
-    with {:ok, _validity_days} <- CertificateLifetimePolicy.resolve_validity_days(opts) do
-      do_create(attrs, opts)
-    end
-  end
-
-  defp do_create(attrs, opts) do
     join_ttl = Keyword.get(opts, :join_token_ttl_seconds, @default_join_token_ttl_seconds)
 
     download_ttl =

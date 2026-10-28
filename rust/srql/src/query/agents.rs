@@ -251,7 +251,7 @@ fn apply_filter<'a>(
                 }
             };
         }
-        "cert_renewed_at" => {
+        "cert_renewed_at" | "cert_last_renewed_at" => {
             let ts = parse_cert_timestamp_filter_value(filter.value.as_scalar()?, now)?;
             query = match filter.op {
                 FilterOp::Eq => query.filter(col_cert_renewed_at.eq(ts)),
@@ -407,24 +407,26 @@ fn collect_filter_params_at(
         | "cert_serial_number"
         | "cert_fingerprint_sha256"
         | "cert_fingerprint" => collect_text_params(params, filter),
-        "cert_expires_at" | "cert_not_after" | "cert_not_before" | "cert_renewed_at" => {
-            match filter.op {
-                FilterOp::Eq
-                | FilterOp::NotEq
-                | FilterOp::Lt
-                | FilterOp::Lte
-                | FilterOp::Gt
-                | FilterOp::Gte => {
-                    let ts = parse_cert_timestamp_filter_value(filter.value.as_scalar()?, now)?;
-                    params.push(BindParam::timestamptz(ts));
-                    Ok(())
-                }
-                _ => Err(ServiceError::InvalidRequest(format!(
-                    "unsupported operator for {}: {:?}",
-                    filter.field, filter.op
-                ))),
+        "cert_expires_at"
+        | "cert_not_after"
+        | "cert_not_before"
+        | "cert_renewed_at"
+        | "cert_last_renewed_at" => match filter.op {
+            FilterOp::Eq
+            | FilterOp::NotEq
+            | FilterOp::Lt
+            | FilterOp::Lte
+            | FilterOp::Gt
+            | FilterOp::Gte => {
+                let ts = parse_cert_timestamp_filter_value(filter.value.as_scalar()?, now)?;
+                params.push(BindParam::timestamptz(ts));
+                Ok(())
             }
-        }
+            _ => Err(ServiceError::InvalidRequest(format!(
+                "unsupported operator for {}: {:?}",
+                filter.field, filter.op
+            ))),
+        },
         "type_id" => {
             let value =
                 filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -533,7 +535,7 @@ fn apply_single_order<'a>(
             OrderDirection::Asc => query.order(col_cert_not_before.asc()),
             OrderDirection::Desc => query.order(col_cert_not_before.desc()),
         },
-        "cert_renewed_at" => match direction {
+        "cert_renewed_at" | "cert_last_renewed_at" => match direction {
             OrderDirection::Asc => query.order(col_cert_renewed_at.asc()),
             OrderDirection::Desc => query.order(col_cert_renewed_at.desc()),
         },
@@ -615,7 +617,7 @@ fn apply_secondary_order<'a>(
             OrderDirection::Asc => query.then_order_by(col_cert_not_before.asc()),
             OrderDirection::Desc => query.then_order_by(col_cert_not_before.desc()),
         },
-        "cert_renewed_at" => match direction {
+        "cert_renewed_at" | "cert_last_renewed_at" => match direction {
             OrderDirection::Asc => query.then_order_by(col_cert_renewed_at.asc()),
             OrderDirection::Desc => query.then_order_by(col_cert_renewed_at.desc()),
         },
@@ -977,6 +979,9 @@ mod tests {
         assert_eq!(json["display_name"], "North Sensor");
         assert_eq!(json["description"], "Synthetic lab note");
         assert_eq!(json["cert_serial"], "01a2b3");
+        assert_eq!(json["cert_serial_number"], "01a2b3");
+        assert_eq!(json["cert_fingerprint"], "a".repeat(64));
+        assert_eq!(json["cert_last_renewed_at"], serde_json::json!(seen));
         assert_eq!(json["cert_fingerprint_sha256"], "a".repeat(64));
         assert!(json["cert_not_before"].is_string());
         assert!(json["cert_expires_at"].is_string());
@@ -984,8 +989,42 @@ mod tests {
     }
 
     #[test]
+    fn renewal_alias_filters_and_orders_like_canonical_field() {
+        for direction in [OrderDirection::Asc, OrderDirection::Desc] {
+            for secondary in [false, true] {
+                let mut plan = agent_plan(
+                    vec![eq_filter("cert_last_renewed_at", "2026-01-02T03:04:05Z")],
+                    false,
+                );
+                if secondary {
+                    plan.order.push(OrderClause {
+                        field: "uid".into(),
+                        direction: OrderDirection::Asc,
+                    });
+                }
+                plan.order.push(OrderClause {
+                    field: "cert_last_renewed_at".into(),
+                    direction: direction.clone(),
+                });
+                let (alias_sql, alias_params) = to_sql_and_params(&plan).unwrap();
+                assert!(matches!(&alias_params[0], BindParam::Timestamptz(value)
+                    if value == "2026-01-02T03:04:05+00:00"));
+                plan.filters[0].field = "cert_renewed_at".into();
+                plan.order.last_mut().unwrap().field = "cert_renewed_at".into();
+                let (canonical_sql, _) = to_sql_and_params(&plan).unwrap();
+                assert_eq!(alias_sql, canonical_sql);
+            }
+        }
+    }
+
+    #[test]
     fn builds_query_with_certificate_expiry_relative_duration_and_serial_filters() {
-        for duration in ["7d", "0d", "14d", "-1d"] {
+        for (duration, seconds) in [
+            ("7d", 604_800),
+            ("0d", 0),
+            ("14d", 1_209_600),
+            ("-1d", -86_400),
+        ] {
             let plan = agent_plan(
                 vec![Filter {
                     field: "cert_expires_at".into(),
@@ -994,8 +1033,15 @@ mod tests {
                 }],
                 false,
             );
+            let before = Utc::now() + ChronoDuration::seconds(seconds);
             let (sql, params) =
                 to_sql_and_params(&plan).expect("cert_expires_at relative duration query");
+            let after = Utc::now() + ChronoDuration::seconds(seconds);
+            let BindParam::Timestamptz(bound) = &params[0] else {
+                panic!("expected timestamp parameter");
+            };
+            let bound = chrono::DateTime::parse_from_rfc3339(bound).unwrap();
+            assert!(bound >= before && bound <= after);
             assert!(
                 sql.contains("\"cert_expires_at\" <"),
                 "expected cert_expires_at < comparison in SQL: {sql}"

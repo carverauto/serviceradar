@@ -148,7 +148,9 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                "agent-1",
                "default",
                :agent,
-               validity_days: CertIssuer.max_validity_days() + 1
+               validity_days: CertIssuer.max_validity_days() + 1,
+               allow_long_ttl?: true,
+               long_ttl_approved_by: %{role: :admin}
              )
   end
 
@@ -238,13 +240,12 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
                temp_parent_dir: parent_dir,
-               validity_days: CertIssuer.max_validity_days() + 1,
-               allow_long_ttl?: true,
+               validity_days: 180,
                long_ttl_approved_by: %{id: "admin-1", role: :admin},
                audit_writer: nil
              )
 
-    assert bundle.validity_days == CertIssuer.max_validity_days() + 1
+    assert bundle.validity_days == 180
   end
 
   test "emits certificate issuance audit without certificate or private key material" do

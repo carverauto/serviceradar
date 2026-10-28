@@ -62,6 +62,9 @@ defmodule ServiceRadar.Infrastructure.AgentCertExpiryMonitorTest do
       assert agent.cert_serial == serial
       assert agent.cert_fingerprint_sha256 == fingerprint
 
+      assert is_nil(agent.cert_renewed_at)
+
+      observed_after = DateTime.utc_now()
       renewed_not_before = now
       renewed_expires_at = DateTime.shift(now, day: 90)
       renewed_serial = "09f8e7d6c5b4"
@@ -74,8 +77,7 @@ defmodule ServiceRadar.Infrastructure.AgentCertExpiryMonitorTest do
                  cert_not_before: renewed_not_before,
                  cert_expires_at: renewed_expires_at,
                  cert_serial: renewed_serial,
-                 cert_fingerprint_sha256: renewed_fingerprint,
-                 cert_renewed_at: now
+                 cert_fingerprint_sha256: renewed_fingerprint
                })
 
       assert {:ok, updated} = Agent.get_by_uid(agent_uid, actor: actor)
@@ -83,7 +85,31 @@ defmodule ServiceRadar.Infrastructure.AgentCertExpiryMonitorTest do
       assert DateTime.compare(updated.cert_expires_at, renewed_expires_at) == :eq
       assert updated.cert_serial == renewed_serial
       assert updated.cert_fingerprint_sha256 == renewed_fingerprint
-      assert DateTime.compare(updated.cert_renewed_at, now) == :eq
+      assert DateTime.compare(updated.cert_renewed_at, observed_after) in [:eq, :gt]
+      assert DateTime.compare(updated.cert_renewed_at, DateTime.utc_now()) in [:eq, :lt]
+
+      assert :ok = AgentGatewaySync.heartbeat_agent(agent_uid, %{cert_serial: renewed_serial})
+      assert {:ok, unchanged} = Agent.get_by_uid(agent_uid, actor: actor)
+      assert unchanged.cert_renewed_at == updated.cert_renewed_at
+
+      for field <- [:cert_serial, :cert_fingerprint_sha256] do
+        observed_after = DateTime.utc_now()
+        value = if field == :cert_serial, do: "11223344", else: String.duplicate("c", 64)
+        assert :ok = AgentGatewaySync.upsert_agent(agent_uid, %{field => value})
+        assert {:ok, renewed} = Agent.get_by_uid(agent_uid, actor: actor)
+        assert Map.fetch!(renewed, field) == value
+        assert DateTime.compare(renewed.cert_renewed_at, observed_after) in [:eq, :gt]
+        assert DateTime.compare(renewed.cert_renewed_at, DateTime.utc_now()) in [:eq, :lt]
+      end
+
+      assert :ok =
+               AgentGatewaySync.heartbeat_agent(agent_uid, %{
+                 cert_serial: "55667788",
+                 cert_renewed_at: now
+               })
+
+      assert {:ok, explicit} = Agent.get_by_uid(agent_uid, actor: actor)
+      assert DateTime.compare(explicit.cert_renewed_at, now) == :eq
     end
   end
 

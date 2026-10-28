@@ -1608,7 +1608,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp update_agent(agent, attrs, actor) do
-    attrs = normalize_cert_attrs(attrs)
+    attrs = attrs |> normalize_cert_attrs() |> observe_certificate_renewal(agent)
 
     update_attrs =
       attrs
@@ -1707,6 +1707,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     heartbeat_attrs =
       attrs
       |> normalize_cert_attrs()
+      |> observe_certificate_renewal(agent)
       |> Map.take([
         :capabilities,
         :is_healthy,
@@ -1787,6 +1788,21 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     |> case do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp observe_certificate_renewal(attrs, agent) do
+    changed? =
+      Enum.any?([:cert_fingerprint_sha256, :cert_serial], fn key ->
+        previous = Map.get(agent, key)
+        incoming = Map.get(attrs, key)
+        not is_nil(previous) and not is_nil(incoming) and incoming != previous
+      end)
+
+    if changed? do
+      Map.put_new(attrs, :cert_renewed_at, DateTime.utc_now())
+    else
+      attrs
     end
   end
 

@@ -96,7 +96,6 @@ defmodule ServiceRadarAgentGateway.Application do
 
     # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
     OtelSetup.attach_instrumentations(instrumentations: [])
-    ServiceRadarAgentGateway.TlsDiagnosticLogger.attach_logger_filter()
 
     Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
 

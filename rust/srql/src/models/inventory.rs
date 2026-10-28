@@ -85,8 +85,11 @@ impl AgentRow {
             "cert_expires_at": self.cert_expires_at,
             "cert_not_after": self.cert_expires_at,
             "cert_serial": self.cert_serial,
+            "cert_serial_number": self.cert_serial,
             "cert_fingerprint_sha256": self.cert_fingerprint_sha256,
+            "cert_fingerprint": self.cert_fingerprint_sha256,
             "cert_renewed_at": self.cert_renewed_at,
+            "cert_last_renewed_at": self.cert_renewed_at,
         })
     }
 }

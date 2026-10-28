@@ -196,12 +196,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     end
   end
 
-  defp check_validity_bounds(validity_days, opts) when validity_days > @max_validity_days do
-    if Keyword.get(opts, :allow_long_ttl?, false) == true do
-      :ok
-    else
-      {:error, :validity_days_exceeds_limit}
-    end
+  defp check_validity_bounds(validity_days, _opts) when validity_days > @max_validity_days do
+    {:error, :validity_days_exceeds_limit}
   end
 
   defp check_validity_bounds(_validity_days, _opts), do: :ok
