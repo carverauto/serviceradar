@@ -146,77 +146,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
   describe "authenticated host identity forwarding" do
     setup do
-      if !Node.alive?() do
-        {_, 0} = System.cmd("epmd", ["-daemon"])
-        {:ok, _} = :net_kernel.start([:gateway_host_identity_test, :shortnames])
-        on_exit(fn -> :net_kernel.stop() end)
-      end
-
-      basename = "host_identity_core_#{System.unique_integer([:positive])}"
-
-      previous_basename =
-        Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename)
-
-      Application.put_env(:serviceradar_agent_gateway, :cluster_core_node_basename, basename)
-
-      on_exit(fn ->
-        if previous_basename do
-          Application.put_env(
-            :serviceradar_agent_gateway,
-            :cluster_core_node_basename,
-            previous_basename
-          )
-        else
-          Application.delete_env(:serviceradar_agent_gateway, :cluster_core_node_basename)
-        end
-      end)
-
-      peer =
-        start_supervised!(%{
-          id: :host_identity_core_peer,
-          start:
-            {:peer, :start_link,
-             [
-               %{
-                 name: String.to_atom(basename),
-                 connection: :standard_io,
-                 args: [~c"+S", ~c"2", ~c"-setcookie", Atom.to_charlist(Node.get_cookie())]
-               }
-             ]},
-          restart: :temporary
-        })
-
-      core_node = :peer.call(peer, :erlang, :node, [])
-      :ok = :peer.call(peer, :code, :add_paths, [:code.get_path()])
-      {:ok, _} = :peer.call(peer, Application, :ensure_all_started, [:elixir])
-
-      :peer.call(peer, Code, :compile_string, [
-        """
-        defmodule ServiceRadar.Edge.AgentGatewaySync do
-          def upsert_agent(agent_id, attrs) do
-            notify(:upsert_agent, [agent_id, attrs])
-            :ok
-          end
-
-          def ensure_device_for_agent(agent_id, attrs) do
-            notify(:ensure_device_for_agent, [agent_id, attrs])
-            {:ok, "synthetic-device"}
-          end
-
-          def reconcile_agent_release(agent_id) do
-            notify(:reconcile_agent_release, [agent_id])
-            :ok
-          end
-
-          defp notify(function, args) do
-            send(:persistent_term.get(:host_identity_test_owner), {:core_rpc, function, args})
-          end
-        end
-        """
-      ])
-
-      :ok = :peer.call(peer, :persistent_term, :put, [:host_identity_test_owner, self()])
-      assert Node.connect(core_node)
+      start_core_peer!()
 
       {:ok, _} = Application.ensure_all_started(:horde)
       {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
@@ -366,6 +296,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
     for transport <- [:unary, :control] do
       @transport transport
       test "#{transport} Hello retires only the predecessor after renewal retries", context do
+        start_core_peer!()
+
         csr_der_1 = build_test_csr_der!(context.agent_id, "default")
 
         resp_1 =
@@ -516,6 +448,85 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       assert not_yet_valid_error.status == GRPC.Status.permission_denied()
     end
 
+    test "live mTLS renewal keeps the predecessor usable when successor Hello fails", context do
+      {:ok, _} = Application.ensure_all_started(:grpc)
+      {:ok, _} = Application.ensure_all_started(:cowboy)
+      cert_path = Path.join(context.parent_dir, "peer.pem")
+      key_path = Path.join(context.parent_dir, "peer-key.pem")
+      File.write!(cert_path, context.old_bundle.certificate_pem)
+      File.write!(key_path, context.old_bundle.private_key_pem)
+
+      {:ok, socket} = :gen_tcp.listen(0, ip: {127, 0, 0, 1})
+      {:ok, port} = :inet.port(socket)
+      :ok = :gen_tcp.close(socket)
+
+      server_credential =
+        GRPC.Credential.new(
+          ssl: [
+            certfile: cert_path,
+            keyfile: key_path,
+            cacertfile: context.ca_cert,
+            verify: :verify_peer,
+            fail_if_no_peer_cert: true
+          ]
+        )
+
+      start_supervised!(
+        {GRPC.Server.Supervisor,
+         endpoint: ServiceRadarAgentGateway.Endpoint,
+         port: port,
+         start_server: true,
+         adapter_opts: [ip: {127, 0, 0, 1}, cred: server_credential]}
+      )
+
+      connect = fn client_cert ->
+        credential =
+          GRPC.Credential.new(
+            ssl: [
+              certfile: client_cert,
+              keyfile: key_path,
+              cacertfile: context.ca_cert,
+              verify: :verify_peer,
+              server_name_indication: ~c"agent-renew-01.default.serviceradar"
+            ]
+          )
+
+        {:ok, channel} = GRPC.Stub.connect("127.0.0.1:#{port}", cred: credential)
+        on_exit(fn -> GRPC.Stub.disconnect(channel) end)
+        channel
+      end
+
+      old_channel = connect.(cert_path)
+      stub = Monitoring.AgentGatewayService.Stub
+
+      assert {:error, %GRPC.RPCError{status: 7}} =
+               stub.renew_certificate(old_channel, %Monitoring.CertificateRenewalRequest{
+                 csr_der: build_test_csr_der!("other-agent-99", "default")
+               })
+
+      {csr_der, 0} =
+        System.cmd("openssl", [
+          "req", "-new", "-key", key_path, "-outform", "DER",
+          "-subj", "/CN=agent-renew-01.default.serviceradar",
+          "-addext",
+          "subjectAltName=URI:spiffe://serviceradar.local/agent/default/agent-renew-01,DNS:agent-renew-01.default.serviceradar"
+        ])
+
+      request = %Monitoring.CertificateRenewalRequest{csr_der: csr_der}
+      assert {:ok, successor} = stub.renew_certificate(old_channel, request)
+      assert {:ok, _retry} = stub.renew_certificate(old_channel, request)
+
+      successor_path = Path.join(context.parent_dir, "successor.pem")
+      File.write!(successor_path, successor.certificate_pem)
+      successor_channel = connect.(successor_path)
+
+      assert {:error, %GRPC.RPCError{status: 14}} =
+               stub.hello(successor_channel, host_hello(:unary, context.agent_id))
+
+      # The protocol retires the predecessor only after Hello completes successfully.
+      assert {:ok, _retry_after_failed_hello} = stub.renew_certificate(old_channel, request)
+    end
+
     test "rejects forged CSR with mismatched identity or invalid signature", context do
       forged_identity_csr = build_test_csr_der!("other-agent-99", "default")
 
@@ -545,6 +556,81 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
       assert sig_error.status == GRPC.Status.invalid_argument()
     end
+  end
+
+  defp start_core_peer! do
+    if !Node.alive?() do
+      {_, 0} = System.cmd("epmd", ["-daemon"])
+      {:ok, _} = :net_kernel.start([:gateway_host_identity_test, :shortnames])
+      on_exit(fn -> :net_kernel.stop() end)
+    end
+
+    basename = "host_identity_core_#{System.unique_integer([:positive])}"
+
+    previous_basename =
+      Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename)
+
+    Application.put_env(:serviceradar_agent_gateway, :cluster_core_node_basename, basename)
+
+    on_exit(fn ->
+      if previous_basename do
+        Application.put_env(
+          :serviceradar_agent_gateway,
+          :cluster_core_node_basename,
+          previous_basename
+        )
+      else
+        Application.delete_env(:serviceradar_agent_gateway, :cluster_core_node_basename)
+      end
+    end)
+
+    peer =
+      start_supervised!(%{
+        id: :host_identity_core_peer,
+        start:
+          {:peer, :start_link,
+           [
+             %{
+               name: String.to_atom(basename),
+               connection: :standard_io,
+               args: [~c"+S", ~c"2", ~c"-setcookie", Atom.to_charlist(Node.get_cookie())]
+             }
+           ]},
+        restart: :temporary
+      })
+
+    core_node = :peer.call(peer, :erlang, :node, [])
+    :ok = :peer.call(peer, :code, :add_paths, [:code.get_path()])
+    {:ok, _} = :peer.call(peer, Application, :ensure_all_started, [:elixir])
+
+    :peer.call(peer, Code, :compile_string, [
+      """
+      defmodule ServiceRadar.Edge.AgentGatewaySync do
+        def upsert_agent(agent_id, attrs) do
+          notify(:upsert_agent, [agent_id, attrs])
+          :ok
+        end
+
+        def ensure_device_for_agent(agent_id, attrs) do
+          notify(:ensure_device_for_agent, [agent_id, attrs])
+          {:ok, "synthetic-device"}
+        end
+
+        def reconcile_agent_release(agent_id) do
+          notify(:reconcile_agent_release, [agent_id])
+          :ok
+        end
+
+        defp notify(function, args) do
+          send(:persistent_term.get(:host_identity_test_owner), {:core_rpc, function, args})
+        end
+      end
+      """
+    ])
+
+    :ok = :peer.call(peer, :persistent_term, :put, [:host_identity_test_owner, self()])
+    assert Node.connect(core_node)
+
   end
 
   defp build_test_csr_der!(component_id, partition_id) do

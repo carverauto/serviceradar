@@ -135,7 +135,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     identity = extract_identity_from_stream(stream)
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
-    identity = confirm_renewal_handoff(identity)
     partition_id = resolve_partition(identity)
     capabilities = normalize_capabilities(request.capabilities || [])
     source_ip = get_peer_ip(stream)
@@ -149,6 +148,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     config_outdated = config_outdated?(request.config_version)
 
     Logger.info("Agent enrolled: agent_id=#{agent_id}, config_outdated=#{config_outdated}")
+
+    AgentCertificateRevocation.confirm_successor_hello(identity)
 
     %Monitoring.AgentHelloResponse{
       accepted: true,
@@ -2240,7 +2241,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     agent_id = required_agent_id(hello.agent_id)
     {identity, _component_type} = resolve_component_type!(identity, agent_id)
     enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
-    identity = confirm_renewal_handoff(identity)
     identity_context = Map.put(identity_context, :identity, identity)
 
     partition_id = resolve_partition(identity)
@@ -2262,16 +2262,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       identity_context,
       hello
     )
-  end
 
-  defp confirm_renewal_handoff(identity) when is_map(identity) do
-    case AgentCertificateRevocation.confirm_successor_hello(identity) do
-      {:ok, %{superseded: true}} ->
-        Map.put(identity, :cert_renewed_at, DateTime.truncate(DateTime.utc_now(), :second))
-
-      _ ->
-        identity
-    end
+    AgentCertificateRevocation.confirm_successor_hello(identity)
+    session
   end
 
   defp extract_renewal_peer_identity!(stream) do
