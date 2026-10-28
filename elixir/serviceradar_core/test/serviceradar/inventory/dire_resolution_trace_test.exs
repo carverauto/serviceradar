@@ -512,4 +512,37 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.discovery("h2", "x2")
     |> DireTrace.assert_golden!()
   end
+
+  # #6042: two same-named hypervisor nodes in different clusters collide on an address under one
+  # integration provider (`proxmox:v3:...`) with no MAC, serial or source-authoritative id.
+  # Steps: node A (`i1`, hostname `n1`) is synced at `p1`; node B (`i2`, hostname `n1`) is
+  # synced at `p1`. Expected: hostname-agreement adoption is refused with
+  # `conflicting_integration_identity`, recording a `policy_block` decision alongside the
+  # `ip_conflict` decision; B gets its own record (`recIp = NoIp`), A keeps `p1`, and the two
+  # physical nodes never fuse onto one record.
+  test "integration_hostname_conflict", %{actor: actor} do
+    world = %{
+      phys: ["h1", "h2"],
+      ifaces: %{"x1" => %{phys: "h1", mac: nil}, "x2" => %{phys: "h2", mac: nil}},
+      src_of: %{},
+      int_of: %{"h1" => "i1", "h2" => "i2"},
+      int_ids: ["i1", "i2"],
+      host_of: %{"h1" => "n1", "h2" => "n1"},
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: [],
+      laa_ids: [],
+      ips: ["p1"],
+      observers: ["Integration"]
+    }
+
+    "integration_hostname_conflict"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.integration("h1", "x1")
+    |> DireTrace.lease("x1", "NoIp")
+    |> DireTrace.lease("x2", "p1")
+    |> DireTrace.integration("h2", "x2")
+    |> DireTrace.assert_golden!()
+  end
 end

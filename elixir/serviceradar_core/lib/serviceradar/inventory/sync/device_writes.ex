@@ -866,7 +866,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           source_authoritative: MapSet.new(),
           retired: MapSet.new(),
           existing_uids: MapSet.new(),
-          identity_times: %{}
+          identity_times: %{},
+          holder_integration_ids: %{}
         }
       else
         {source_authoritative, retired} = load_source_authoritative_holders(existing_by_ip)
@@ -877,7 +878,8 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
           source_authoritative: source_authoritative,
           retired: retired,
           existing_uids: identity_times |> Map.keys() |> MapSet.new(),
-          identity_times: identity_times
+          identity_times: identity_times,
+          holder_integration_ids: load_holder_integration_ids(existing_by_ip)
         }
       end
 
@@ -1343,11 +1345,13 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
   # never identity: agreement may only attach a record that is not yet a
   # device to the holder, and only when neither side carries a
   # source-authoritative identifier (`@source_authoritative_types`), no
-  # hardware serial or partition disagrees, and no third device claims either
-  # side's strong identity (the over-merge shape -- a collector's agent_id, a
-  # re-pointed integration id -- the fork rule exists to refuse). Either
-  # hostname blank is not agreement: two records that say nothing about a name
-  # are merely silent.
+  # hardware serial or partition disagrees, the two sides do not claim
+  # disjoint integration ids under one provider prefix
+  # (`conflicting_integration_identity?/5`), and no third device claims
+  # either side's strong identity (the over-merge shape -- a collector's
+  # agent_id, a re-pointed integration id -- the fork rule exists to
+  # refuse). Either hostname blank is not agreement: two records that say
+  # nothing about a name are merely silent.
   #
   # Agreement never merges two existing devices and never overrides a
   # source-authoritative identifier. When the hostnames agree but adoption is
@@ -1384,6 +1388,15 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
 
       not compatible_identity_claims?(record, holder) ->
         "incompatible_identity_claims"
+
+      conflicting_integration_identity?(
+        record,
+        holder,
+        holder_uid,
+        partition,
+        identity_regs
+      ) ->
+        "conflicting_integration_identity"
 
       third_party_identity_claim?(
         record,
@@ -1486,6 +1499,104 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     length(partitions) <= 1 and
       (incoming_serials == [] or existing_serials == [] or
          Enum.any?(incoming_serials, &(&1 in existing_serials)))
+  end
+
+  # Two same-named hypervisor nodes in different clusters collide on an
+  # address with one integration id each from the same provider (for
+  # example two `proxmox:v3:...` ids) and no MAC, serial or
+  # source-authoritative id to discriminate them. An integration id is
+  # strong identity within its provider's namespace, so when both sides
+  # claim ids under one provider prefix and share none, the name and the
+  # address are the coincidence and the ids are the evidence: refuse the
+  # adoption instead of fusing the nodes. A node genuinely moved between
+  # clusters lands here too and goes to the operator as a de-duplication
+  # task; that is the accepted cost of never auto-merging two nodes.
+  #
+  # The holder's claimed ids are its map claims plus its live registered
+  # `integration_id` rows (`identity_regs.holder_integration_ids`): the
+  # holder map's metadata may not carry the identifier the row does, the
+  # same gap `load_source_authoritative_holders/1` covers.
+  defp conflicting_integration_identity?(record, holder, holder_uid, partition, identity_regs) do
+    incoming =
+      record
+      |> record_identity_pairs(partition)
+      |> integration_id_values()
+
+    registered =
+      identity_regs
+      |> Map.get(:holder_integration_ids, %{})
+      |> Map.get({holder_uid, partition}, [])
+
+    existing =
+      holder
+      |> record_identity_pairs(partition)
+      |> integration_id_values()
+      |> Kernel.++(registered)
+      |> Enum.uniq()
+
+    incoming_by_prefix = integration_ids_by_prefix(incoming)
+    existing_by_prefix = integration_ids_by_prefix(existing)
+
+    Enum.any?(incoming_by_prefix, fn {prefix, incoming_set} ->
+      case Map.fetch(existing_by_prefix, prefix) do
+        {:ok, existing_set} -> MapSet.disjoint?(incoming_set, existing_set)
+        :error -> false
+      end
+    end)
+  end
+
+  defp integration_id_values(pairs) do
+    for {"integration_id", value, _partition} <- pairs, do: value
+  end
+
+  defp integration_ids_by_prefix(ids) do
+    Enum.reduce(ids, %{}, fn id, acc ->
+      case integration_provider_prefix(id) do
+        nil -> acc
+        prefix -> Map.update(acc, prefix, MapSet.new([id]), &MapSet.put(&1, id))
+      end
+    end)
+  end
+
+  # The provider namespace of a minted integration id: the segment before
+  # the first colon (`proxmox:v3:...`, `netbox:...`). Values without a
+  # provider segment claim no namespace and never conflict.
+  defp integration_provider_prefix(value) when is_binary(value) do
+    case String.split(value, ":", parts: 2) do
+      [prefix, _rest] ->
+        case prefix |> String.trim() |> String.downcase() do
+          "" -> nil
+          normalized -> normalized
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp integration_provider_prefix(_value), do: nil
+
+  # Holders' live registered `integration_id` rows, keyed by
+  # `{device_uid, partition}`. Loaded once per colliding batch with the
+  # other identity registrations.
+  defp load_holder_integration_ids(existing_by_ip) do
+    uids = existing_by_ip |> Map.values() |> Enum.map(& &1.uid) |> Enum.uniq()
+
+    if uids == [] do
+      %{}
+    else
+      DeviceIdentifier
+      |> where(
+        [i],
+        i.device_id in ^uids and i.identifier_type == :integration_id
+      )
+      |> select([i], {i.device_id, i.partition, i.identifier_value})
+      |> Repo.all()
+      |> Enum.group_by(
+        fn {uid, partition, _value} -> {uid, partition} end,
+        fn {_uid, _partition, value} -> value end
+      )
+    end
   end
 
   defp hostnames_agree?(a, b) when is_binary(a) and is_binary(b) do

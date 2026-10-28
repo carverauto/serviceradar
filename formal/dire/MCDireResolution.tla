@@ -5,9 +5,12 @@ EXTENDS DireResolution
 TwoIfPhys   == [x \in {"x1", "x2"} |-> IF x = "x1" THEN "h1" ELSE "h2"]
 TwoHwMacs   == [x \in {"x1", "x2"} |-> IF x = "x1" THEN "m1" ELSE "m2"]
 TwoLaaMacs  == [x \in {"x1", "x2"} |-> IF x = "x1" THEN "r1" ELSE "r2"]
+NoMacs2     == [x \in {"x1", "x2"} |-> NoId]
 BothArmis   == [h \in {"h1", "h2"} |-> IF h = "h1" THEN "a1" ELSE "a2"]
+BothInt     == [h \in {"h1", "h2"} |-> IF h = "h1" THEN "i1" ELSE "i2"]
 OneArmis    == [h \in {"h1", "h2"} |-> IF h = "h1" THEN "a1" ELSE NoId]
 NoArmis2    == [h \in {"h1", "h2"} |-> NoId]
+NoInt       == [h \in Phys |-> NoId]
 NoAgents2   == [h \in {"h1", "h2"} |-> NoId]
 \* h2 runs an agent (agent gateway check-ins)
 AgentOnH2   == [h \in {"h1", "h2"} |-> IF h = "h2" THEN "g2" ELSE NoId]
@@ -35,7 +38,7 @@ HostnameAlone == SharedHost \/ NewFirstSeenIds # {}
 \* reads seenWith only where hostnames agree and first-seen times do not (HostnameAlone), and
 \* only for a record holding a retired id. Leaving them out of the fingerprint otherwise is sound.
 StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, absence, archive,
-               IF Rekeys THEN recFs ELSE <<>>,
+               IF Rekeys \/ "Integration" \in Observers THEN recFs ELSE <<>>,
                IF "Arp" \in Observers THEN idSeen ELSE <<>>,
                IF Rekeys /\ HostnameAlone THEN seenWith ELSE <<>>>>
 \* vacuity: nothing is ever merged

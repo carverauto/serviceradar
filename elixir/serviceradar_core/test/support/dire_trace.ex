@@ -115,6 +115,11 @@ defmodule ServiceRadar.DireTrace do
           {p, "198.51.100.#{rem(seed, 200) + i + 10}"}
         end),
       src: Map.new(Enum.with_index(world.src_ids, 1), fn {a, i} -> {a, "#{seed}#{i}"} end),
+      int:
+        Map.new(Enum.with_index(Map.get(world, :int_ids, []), 1), fn {id, i} ->
+          {id,
+           "proxmox:v3:#{Ash.UUID.generate()}:#{Ash.UUID.generate()}:cluster-#{seed}-#{i}:node:#{id}"}
+        end),
       agent: Map.new(Map.get(world, :agent_ids, []), fn g -> {g, "trace-agent-#{seed}-#{g}"} end),
       first_seen: first_seen_times(world)
     }
@@ -359,6 +364,32 @@ defmodule ServiceRadar.DireTrace do
 
     step(trace, "Agent", h, x, [g | macs], fn ->
       assert {:ok, _uid} = AgentGatewaySync.ensure_device_for_agent(trace.real.agent[g], attrs)
+    end)
+  end
+
+  @doc """
+  Non-source-authoritative integration sync (e.g. Proxmox): physical device `h`'s integration id
+  and hostname at interface `x`'s address, through `SyncIngestor`.
+  """
+  def integration(trace, h, x) do
+    int_id =
+      Map.get(Map.get(trace.world, :int_of, %{}), h) ||
+        flunk("DIRE trace #{trace.name}: the integration does not report #{h}")
+
+    ip = real_ip!(trace, x)
+
+    update = %{
+      "ip" => ip,
+      "hostname" => "trace-#{host_of(trace.world, h)}",
+      "source" => "proxmox",
+      "metadata" => %{
+        "integration_type" => "proxmox",
+        "integration_id" => trace.real.int[int_id]
+      }
+    }
+
+    step(trace, "Integration", h, x, [int_id], fn ->
+      assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor)
     end)
   end
 
@@ -736,7 +767,8 @@ defmodule ServiceRadar.DireTrace do
   defp all_recs(world),
     do:
       Map.get(world, :agent_ids, []) ++
-        world.src_ids ++ world.hw_ids ++ world.laa_ids ++ world.ips
+        world.src_ids ++
+        Map.get(world, :int_ids, []) ++ world.hw_ids ++ world.laa_ids ++ world.ips
 
   # A named record exists. A seed soft-deleted as `seed_released` (D8) is written as a record
   # that no longer exists, as the model writes it.
@@ -817,7 +849,15 @@ defmodule ServiceRadar.DireTrace do
         end
       end)
 
-    srcs |> Map.merge(macs) |> Map.merge(agents)
+    ints =
+      Map.new(Map.get(world, :int_ids, []), fn i ->
+        case owner_uid(trace, :integration_id, trace.real.int[i]) do
+          nil -> {i, "NoRec"}
+          uid -> {i, name_of!(trace, uid)}
+        end
+      end)
+
+    srcs |> Map.merge(ints) |> Map.merge(macs) |> Map.merge(agents)
   end
 
   defp owner_uid(trace, type, value) do
@@ -1028,6 +1068,7 @@ defmodule ServiceRadar.DireTrace do
     cond do
       seed = Enum.find(Map.get(w, :agent_ids, []), &(&1 in ids)) -> seed
       seed = Enum.find(w.src_ids, &(&1 in ids)) -> seed
+      seed = Enum.find(Map.get(w, :int_ids, []), &(&1 in ids)) -> seed
       seed = Enum.find(w.hw_ids, &(&1 in ids)) -> seed
       seed = Enum.find(w.laa_ids, &(&1 in ids)) -> seed
       is_binary(device.ip) -> model_ip!(trace, device.ip)
@@ -1134,6 +1175,7 @@ defmodule ServiceRadar.DireTrace do
 
     src
     |> Enum.concat(Enum.map(trace.world.src_ids, &integration_id(trace, &1)))
+    |> Enum.concat(Map.values(Map.get(trace.real, :int, %{})))
     |> Enum.concat(macs)
     |> Enum.concat(Map.values(trace.real.agent))
   end
@@ -1295,6 +1337,8 @@ defmodule ServiceRadar.DireTrace do
       NewFirstSeenIds = #{set(Map.get(w, :new_first_seen_ids, []))}
       AgentIds = #{set(Map.get(w, :agent_ids, []))}
       AgentOf <- TraceAgentOf
+      IntIds = #{set(Map.get(w, :int_ids, []))}
+      IntOf <- TraceIntOf
       SrcIds = #{set(w.src_ids)}
       HwIds = #{set(w.hw_ids)}
       LaaIds = #{set(w.laa_ids)}
@@ -1320,7 +1364,8 @@ defmodule ServiceRadar.DireTrace do
     TraceIfMac == #{fun(ifaces, fn x -> if(w.ifaces[x].mac, do: str(w.ifaces[x].mac), else: "NoId") end)}
     TraceSrcOf == #{fun(w.phys, fn h -> if(a = w.src_of[h], do: str(a), else: "NoId") end)}
     TraceHostOf == #{fun(w.phys, &str(host_of(w, &1)))}
-    TraceAgentOf == #{fun(w.phys, fn h -> if(g = Map.get(w, :agent_of, %{})[h], do: str(g), else: "NoId") end)}\
+    TraceAgentOf == #{fun(w.phys, fn h -> if(g = Map.get(w, :agent_of, %{})[h], do: str(g), else: "NoId") end)}
+    TraceIntOf == #{fun(w.phys, fn h -> if(i = Map.get(w, :int_of, %{})[h], do: str(i), else: "NoId") end)}\
     """
   end
 

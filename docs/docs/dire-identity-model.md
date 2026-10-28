@@ -165,9 +165,11 @@ like the address, never identity, so hostname agreement
 adopts the holder only when the incoming record is not yet a device and
 neither side holds a source-authoritative identifier (`armis_device_id`,
 `netbox_device_id`), with no disagreeing
-hardware serial and no third device claiming either side's identity. It never
+hardware serial, no disjoint integration identifiers under the same provider
+prefix (`conflicting_integration_identity`), and no third device claiming
+either side's identity. It never
 merges two existing devices and never adopts across a source-authoritative
-identifier. For an AWX inventory host, host-name agreement only corroborates
+identifier or across disjoint same-provider integration identifiers. For an AWX inventory host, host-name agreement only corroborates
 an exact `ansible_host` address match with the device holding that address; it
 is never identity on its own (see [Ansible](./ansible.md)). When the hostnames agree
 but adoption is refused, the two stay separate devices, the address is
