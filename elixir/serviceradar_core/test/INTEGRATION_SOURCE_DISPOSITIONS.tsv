@@ -162,6 +162,7 @@ test/serviceradar/camera/archive_destination_test.exs	-	not_selected	load_only	n
 test/serviceradar/camera/archive_qualification_report_test.exs	-	not_selected	load_only	not_selected	Pure qualification-report protocol checks canonical identity and bounded observations without granting authority or using database/network I/O.
 test/serviceradar/camera/event_ingestor_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/camera/inventory_ingestor_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/camera/recording_storage_identity_test.exs	-	not_selected	load_only	not_selected	Bounded installed member identity selection on synthetic filesystems; no database or application requirements.
 test/serviceradar/camera/relay_health_event_router_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/camera/relay_playback_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/camera/relay_session_authorization_test.exs	-	not_selected	load_only	not_selected	DB-free permission denial before any camera lookup.

@@ -64,6 +64,11 @@ from installation configuration, never adopts the marker as its authority.
 The local marker continues to detect misbinding rather than attest a physical
 volume by itself.
 
+The runtime resolver's version-1 schema, bounds and environment settings are
+specified in [member identity configuration](identity-configuration.md). It
+fails startup on invalid explicit installation configuration, even with recording
+disabled; the scalar-only installation behavior remains unchanged.
+
 Initialize each intended claim explicitly while no core pod mounts it. The
 provisioning operation verifies the expected claim/PV identity, creates only a
 designated private spool subdirectory on the mounted volume, then calls the
@@ -187,6 +192,8 @@ retained PVC or local freeze as an available recording.
 
 Live runtime validation remains mandatory after implementation: exclusive mount,
 identity mismatch refusal, pod replacement, retention, bounded capture and viewer
-continuity must be exercised. This docs-only change cannot execute those future
-behaviors. The user accepted proceeding without live validation for this planning
-checkpoint only; implementation and all other acceptance gates remain required.
+continuity must be exercised. The initial docs-only planning checkpoint could not
+execute those future behaviors; its accepted live-validation exception does not
+apply to implementation. The runtime identity pass exercises actual configuration
+loading and synthetic filesystems. Physical-volume and deployed capture acceptance
+remain required after the corresponding implementation is available.

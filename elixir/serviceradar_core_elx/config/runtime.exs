@@ -134,7 +134,13 @@ config :serviceradar_core_elx,
 
 # Provisioned identity of the recording storage lifetime. It follows that volume
 # across rescheduling and changes on replacement; never derive it from a pod/PID.
-config :serviceradar_core_elx, :camera_recording_storage_id, System.get_env("SERVICERADAR_CAMERA_RECORDING_STORAGE_ID")
+config :serviceradar_core_elx,
+       :camera_recording_storage_id,
+       ServiceRadar.Camera.RecordingStorageIdentity.resolve!(
+         System.get_env("SERVICERADAR_CAMERA_RECORDING_STORAGE_ID"),
+         System.get_env("SERVICERADAR_CAMERA_RECORDING_IDENTITY_FILE"),
+         System.get_env("SERVICERADAR_CAMERA_RECORDING_MEMBER")
+       )
 
 if is_map(callback_deployment) do
   envelope_key =

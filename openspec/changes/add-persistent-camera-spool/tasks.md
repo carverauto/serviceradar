@@ -1,7 +1,8 @@
 # Implementation plan
 
 The user approved per-replica persistent storage through an opt-in StatefulSet.
-All implementation, qualification and deployment acceptance work remains open.
+Runtime member-identity selection is implemented. Provisioning, packaging,
+qualification and deployment acceptance remain open.
 
 ## 1. Confirm design
 
@@ -12,7 +13,7 @@ All implementation, qualification and deployment acceptance work remains open.
 
 ## 2. Runtime identity and explicit provisioning
 
-- [ ] 2.1 Add the versioned per-member identity resolver with scalar-mode compatibility and ambiguity refusal.
+- [x] 2.1 Add the versioned per-member identity resolver with scalar-mode compatibility and ambiguity refusal; see [configuration contract](identity-configuration.md).
 - [ ] 2.2 Package a bounded, explicit filesystem provisioning entry point without starting core or accessing credentials.
 - [ ] 2.3 Exercise real resolver/filesystem success, exact retry, conflicting identity, substituted volume and partial marker refusal; preserve the existing worker ownership assertions.
 
