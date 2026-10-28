@@ -6,6 +6,9 @@
 {{- $gate9 := default (dict) .Values.nats -}}
 {{- if or (not (hasKey $gate9 "enabled")) $gate9.enabled }}
 {{- $nats := default (dict) .Values.nats -}}
+{{- $natsResources := default (dict) $nats.resources -}}
+{{- $natsResourceLimits := default (dict) $natsResources.limits -}}
+{{- $natsResourceRequests := default (dict) $natsResources.requests -}}
 {{- $persistence := default (dict) $nats.persistence -}}
 {{- $jetstream := default (dict) $nats.jetstream -}}
 {{- $replicas := int (default 1 $nats.replicas) -}}
@@ -653,11 +656,13 @@ spec:
           readOnly: true
         resources:
           limits:
-            cpu: "2"
-            memory: "4Gi"
+            {{- with $natsResourceLimits.cpu }}
+            cpu: {{ . | quote }}
+            {{- end }}
+            memory: {{ default "4Gi" $natsResourceLimits.memory | quote }}
           requests:
-            cpu: "100m"
-            memory: "1Gi"
+            cpu: {{ default "500m" $natsResourceRequests.cpu | quote }}
+            memory: {{ default "1Gi" $natsResourceRequests.memory | quote }}
         livenessProbe:
           httpGet:
             path: /
