@@ -43,13 +43,11 @@ identifiers and failure injections are independently invented synthetic data.
    authorities; a chart switch cannot substitute for them. The architecture-approved
    [persistent-spool installation](../add-persistent-camera-spool/proposal.md)
    scopes per-replica storage, controlled controller conversion and Cloud restore
-   changes. The user selected per-replica persistent storage through an opt-in
-   StatefulSet. Implementation, maintenance-window approval and deployment
-   acceptance remain open; this decision does not enable capture. Live runtime
-   validation remains mandatory after implementation, including exclusive mount,
-   identity mismatch refusal, pod replacement, retention, bounded capture and
-   viewer continuity. The user accepted the no-live-validation exception only for
-   this docs-only planning checkpoint, which cannot execute those future behaviors.
+   changes. Its [implementation plan](../add-persistent-camera-spool/tasks.md)
+   owns completion status, and its
+   [evidence boundaries](../add-persistent-camera-spool/design.md#5-implementation-and-evidence-boundaries)
+   own required runtime and deployment acceptance. The planning-only
+   live-validation exception does not apply to runtime implementation.
    Cloud #188 is merged; its independent next scope remains the
    [read-only reservation status](cloud-control-plane.md#next-bounded-cloud-checkpoint)
    in the operator environment console, without provider mutation.
