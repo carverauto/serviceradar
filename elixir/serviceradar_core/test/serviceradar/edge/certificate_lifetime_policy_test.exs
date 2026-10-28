@@ -41,4 +41,38 @@ defmodule ServiceRadar.Edge.CertificateLifetimePolicyTest do
                allow_short_test_lifetime: true
              )
   end
+
+  test "parses the AGENT_CERT_VALIDITY_DAYS deployment default and refuses values outside 7..365" do
+    assert CertificateLifetimePolicy.parse_default_validity_days!(nil) == 90
+    assert CertificateLifetimePolicy.parse_default_validity_days!("  ") == 90
+    assert CertificateLifetimePolicy.parse_default_validity_days!("7") == 7
+    assert CertificateLifetimePolicy.parse_default_validity_days!(" 365 ") == 365
+
+    for invalid <- ["6", "366", "0", "-30", "90d", "1.5", "ninety"] do
+      assert_raise ArgumentError,
+                   ~r/AGENT_CERT_VALIDITY_DAYS must be an integer from 7 to 365 days/,
+                   fn ->
+                     CertificateLifetimePolicy.parse_default_validity_days!(invalid)
+                   end
+    end
+  end
+
+  test "reads notAfter from UTCTime and GeneralizedTime certificates" do
+    for not_after <- [~D[2027-03-04], ~D[2051-01-02]] do
+      %{cert: der} =
+        :public_key.pkix_test_root_cert(~c"policy-test",
+          validity: {{2026, 1, 1}, Date.to_erl(not_after)}
+        )
+
+      pem = :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+
+      assert CertificateLifetimePolicy.certificate_not_after(pem) ==
+               {:ok, DateTime.new!(not_after, ~T[13:00:00], "Etc/UTC")}
+    end
+
+    assert CertificateLifetimePolicy.certificate_not_after(
+             "-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----\n"
+           ) ==
+             :error
+  end
 end

@@ -646,6 +646,14 @@ config :serviceradar_core, ThreatIntelRawPayloadStore,
   jetstream_replicas: parse_int_env.("SERVICERADAR_OTX_RAW_REPLICAS", 1),
   jetstream_storage: otx_raw_storage
 
+# Default agent mTLS certificate lifetime in days (unset: 90). Core, web-ng and the
+# agent-gateway must agree; a value outside 7..365 stops the boot here.
+config :serviceradar_core,
+       :agent_cert_validity_days,
+       ServiceRadar.Edge.CertificateLifetimePolicy.parse_default_validity_days!(
+         System.get_env("AGENT_CERT_VALIDITY_DAYS")
+       )
+
 config :serviceradar_core, :spiffe,
   mode: :filesystem,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),

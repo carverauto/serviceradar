@@ -130,9 +130,17 @@ Once `now >= NotAfter`, `serviceradar-agent-gateway` strictly rejects the TLS ha
 ### Design Fix
 Phase 1 implements the shared `ServiceRadar.Edge.CertificateLifetimePolicy`.
 See [certificate operations](../../../docs/docs/edge-agent-onboarding.md#certificate-lifetime-and-expiry-alerts)
-for the current issuance bounds and overrides. Deployment-level default
-configuration and a validity selector in the Web-NG package modal remain future
-work; Phase 1 validates issuance options and uses a fixed shared default.
+for the current issuance bounds and overrides.
+
+The default stays `90` days. A deployment can override it with
+`AGENT_CERT_VALIDITY_DAYS` (Helm `certs.agentValidityDays`), bounded by the
+same `7..365` range. core-elx, web-ng, and the agent-gateway each parse it at
+boot and fail to start on an invalid value. All three must see the same value:
+web-ng resolves the lifetime it requests, and the gateway compares the request
+against its own default to decide whether long-TTL admin approval is required.
+The Web-NG package form pre-fills the deployment default, accepts a per-package
+lifetime within the bounds, and shows the expiry read from the issued
+certificate.
 
 ---
 

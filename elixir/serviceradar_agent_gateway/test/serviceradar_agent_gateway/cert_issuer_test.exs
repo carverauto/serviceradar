@@ -178,6 +178,42 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     assert bundle.validity_days == 1
   end
 
+  test "mints certificates with the deployment default lifetime without long-TTL approval" do
+    previous = Application.fetch_env(:serviceradar_core, :agent_cert_validity_days)
+    Application.put_env(:serviceradar_core, :agent_cert_validity_days, 180)
+
+    parent_dir = unique_tmp_dir!("gateway-cert-issuer-deployment-default")
+
+    on_exit(fn ->
+      File.rm_rf(parent_dir)
+
+      case previous do
+        {:ok, days} -> Application.put_env(:serviceradar_core, :agent_cert_validity_days, days)
+        :error -> Application.delete_env(:serviceradar_core, :agent_cert_validity_days)
+      end
+    end)
+
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    # web-ng sends the resolved default explicitly; gateway-internal callers omit it.
+    for requested <- [[validity_days: 180], []] do
+      assert {:ok, bundle} =
+               CertIssuer.issue_agent_bundle(
+                 "agent-deployment-default",
+                 "default",
+                 :agent,
+                 requested ++
+                   [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir, audit_writer: nil]
+               )
+
+      [{:Certificate, cert_der, _}] = :public_key.pem_decode(bundle.certificate_pem)
+      assert {:ok, identity} = ComponentIdentityResolver.resolve_from_cert(cert_der)
+      assert DateTime.diff(identity.cert_not_after, identity.cert_not_before, :second) == 180 * 86_400
+    end
+  end
+
   test "requires admin approval for certificate TTL above the default" do
     assert {:error, :long_ttl_approval_required} =
              CertIssuer.issue_agent_bundle(

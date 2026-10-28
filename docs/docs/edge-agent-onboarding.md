@@ -145,6 +145,16 @@ lifetimes below the minimum for explicit tests, without bypassing the maximum.
 Gateway issuance above the default also requires an admin or system actor in `long_ttl_approved_by`.
 Changing issuance options does not extend certificates already installed.
 
+To change the default for a deployment, set `AGENT_CERT_VALIDITY_DAYS` to an
+integer from 7 to 365 on core-elx, web-ng, and the agent-gateway. With Helm, set
+`certs.agentValidityDays`, which reaches all three. Each service refuses to start
+when the value is not an integer in that range.
+
+The **Create agent package** form pre-fills **Certificate validity (days)** with
+the deployment default. You can enter another value from 7 to 365 for that
+package; a value above the default needs an administrator. After the package is
+created, the page shows when the issued certificate expires.
+
 The gateway records the peer certificate's validity, serial, and SHA-256
 fingerprint during Hello and heartbeats. A change from a previously recorded
 serial or fingerprint records the time the replacement was observed. Agents

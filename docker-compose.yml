@@ -425,6 +425,7 @@ services:
     hostname: core-elx
     environment:
       - CLUSTER_ENABLED=true
+      - AGENT_CERT_VALIDITY_DAYS=${AGENT_CERT_VALIDITY_DAYS:-}
       - CLUSTER_STRATEGY=epmd
       - CLUSTER_HOSTS=serviceradar_web_ng@web-ng,serviceradar_agent_gateway@agent-gateway,serviceradar_agent_gateway_t2@agent-gateway-t2
       - ENABLE_TLS_DIST=true
@@ -840,6 +841,7 @@ services:
     hostname: agent-gateway
     environment:
       - GATEWAY_PARTITION_ID=${GATEWAY_PARTITION_ID:-default}
+      - AGENT_CERT_VALIDITY_DAYS=${AGENT_CERT_VALIDITY_DAYS:-}
       - GATEWAY_ID=${GATEWAY_ID:-docker-gateway}
       - GATEWAY_DOMAIN=${GATEWAY_DOMAIN:-default}
       - GATEWAY_GRPC_PORT=50052
@@ -1252,6 +1254,7 @@ services:
       - ./docker/compose/profiles/${SERVICERADAR_NATS_PROFILE:-small}.env
     environment:
       - PORT=4000
+      - AGENT_CERT_VALIDITY_DAYS=${AGENT_CERT_VALIDITY_DAYS:-}
       - PHX_SERVER=true
       - PHX_HOST=${SERVICERADAR_HOST:-localhost}
       - PHX_CHECK_ORIGIN=${PHX_CHECK_ORIGIN:-false}

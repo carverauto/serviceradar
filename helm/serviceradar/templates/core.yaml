@@ -260,6 +260,7 @@ spec:
         {{- end }}
         {{- end }}
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
+        {{- include "serviceradar.agentCertValidityEnv" . | nindent 8 }}
         - name: CLUSTER_ENABLED
           value: "true"
         - name: CLUSTER_STRATEGY

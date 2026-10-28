@@ -9,6 +9,24 @@ The system SHALL enforce an explicit, configurable default validity period for e
 - **THEN** the issued certificate SHALL have a validity period equal to the shared policy default
 - **AND** the certificate SHALL NOT default to a `1`-day lifetime
 
+#### Scenario: Deployment overrides the default certificate lifetime
+- **GIVEN** a deployment sets `AGENT_CERT_VALIDITY_DAYS` (Helm `certs.agentValidityDays`) to an integer from `7` to `365`
+- **WHEN** core, web-ng, or the agent-gateway issues an agent leaf certificate without an explicit `cert_validity_days`
+- **THEN** the issued certificate SHALL expire that many days after issuance
+- **AND** the agent-gateway SHALL NOT require long-TTL approval for a lifetime equal to that default
+
+#### Scenario: Reject an invalid deployment default at boot
+- **GIVEN** `AGENT_CERT_VALIDITY_DAYS` is set to a value that is not an integer from `7` to `365`
+- **WHEN** core, web-ng, or the agent-gateway starts
+- **THEN** startup SHALL fail with an error naming `AGENT_CERT_VALIDITY_DAYS` and the allowed range
+
+#### Scenario: Deploy page requests and reports the certificate lifetime
+- **GIVEN** an operator creates an agent package from the Web-NG package form
+- **WHEN** the form opens
+- **THEN** the certificate validity field SHALL be pre-filled with the deployment default
+- **AND** values outside `7..365` SHALL be rejected without issuing a certificate
+- **AND** after creation the page SHALL show the expiry read from the issued certificate's `notAfter`
+
 #### Scenario: Reject sub-minimum leaf certificate validity in production
 - **GIVEN** a production request to create an onboarding package with `cert_validity_days` less than `7`
 - **WHEN** certificate issuance is requested without an explicit test-only override

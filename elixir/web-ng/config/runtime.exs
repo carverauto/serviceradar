@@ -29,6 +29,14 @@ callback_deployment =
     response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
   })
 
+# Default agent mTLS certificate lifetime in days (unset: 90). Core, web-ng and the
+# agent-gateway must agree; a value outside 7..365 stops the boot here.
+config :serviceradar_core,
+       :agent_cert_validity_days,
+       ServiceRadar.Edge.CertificateLifetimePolicy.parse_default_validity_days!(
+         System.get_env("AGENT_CERT_VALIDITY_DAYS")
+       )
+
 # web-ng consumes the shared alerts queue and must honor the same cutover
 # settings as standalone and embedded core consumers.
 config :serviceradar_core, ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
