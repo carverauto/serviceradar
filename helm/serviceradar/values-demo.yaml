@@ -209,6 +209,11 @@ cnpg:
     max_connections: "500"
     shared_buffers: "1GB"
     work_mem: "16MB"
+    # JIT compilation cost more than it saved here: since the last stats reset
+    # it spent ~23 h of CPU compiling, e.g. 52 ms of a 62 ms hypertable-size
+    # monitoring query on every call and 4-5 s of each flow-correlation query.
+    # These are short or repeated statements; JIT rarely pays off for them.
+    jit: "off"
   pooler:
     enabled: true
     # THE CLUSTER-INTERNAL ENDPOINT THE SERVICES ACTUALLY USE, for every workload routed to the
