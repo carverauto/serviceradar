@@ -598,7 +598,6 @@ mod tests {
             key_file: Some("trapd-key.pem".into()),
             ca_file: Some("root.pem".into()),
             client_ca_file: Some("client-root.pem".into()),
-            ..Default::default()
         });
 
         let transport =
