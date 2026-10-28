@@ -34,7 +34,6 @@ use tonic_health::server::health_reporter;
 use tonic_reflection::server::Builder as ReflectionBuilder;
 
 mod config;
-mod spiffe;
 use config::{Config, SecurityMode};
 
 pub mod monitoring {
@@ -44,7 +43,6 @@ use monitoring::agent_service_server::{AgentService, AgentServiceServer};
 
 const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
-const DEFAULT_WORKLOAD_SOCKET: &str = "unix:/run/spire/sockets/agent.sock";
 
 #[derive(Parser, Debug)]
 #[command(name = "serviceradar-trapd")]
@@ -118,9 +116,6 @@ async fn main() -> Result<()> {
                 } else {
                     async_nats::connect(&cfg.nats_url).await?
                 }
-            }
-            SecurityMode::Spiffe => {
-                anyhow::bail!("SPIFFE mode is not supported for NATS security")
             }
             SecurityMode::Mtls => {
                 let mut opts = async_nats::ConnectOptions::new();
@@ -490,10 +485,6 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
             let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
             serve_with_tls(addr, tls).await
         }
-        GrpcServerTransport::Spiffe {
-            workload_socket,
-            trust_domain,
-        } => serve_with_spiffe(addr, &workload_socket, &trust_domain).await,
     }
 }
 
@@ -503,10 +494,6 @@ enum GrpcServerTransport {
         cert_path: PathBuf,
         key_path: PathBuf,
         ca_path: PathBuf,
-    },
-    Spiffe {
-        workload_socket: String,
-        trust_domain: String,
     },
 }
 
@@ -535,18 +522,6 @@ fn resolve_grpc_server_transport(cfg: &Config) -> Result<GrpcServerTransport> {
                 .client_ca_path()
                 .ok_or_else(|| anyhow::anyhow!("missing trapd gRPC client_ca_file or ca_file"))?,
         }),
-        SecurityMode::Spiffe => Ok(GrpcServerTransport::Spiffe {
-            workload_socket: sec
-                .workload_socket
-                .as_deref()
-                .filter(|s| !s.trim().is_empty())
-                .unwrap_or(DEFAULT_WORKLOAD_SOCKET)
-                .to_string(),
-            trust_domain: sec
-                .trust_domain
-                .clone()
-                .ok_or_else(|| anyhow::anyhow!("missing trapd gRPC trust_domain"))?,
-        }),
     }
 }
 
@@ -571,80 +546,6 @@ async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
         .context("trapd gRPC server failed")
 }
 
-async fn serve_with_spiffe(
-    addr: SocketAddr,
-    workload_socket: &str,
-    trust_domain: &str,
-) -> Result<()> {
-    warn!(
-        "SPIFFE/SPIRE runtime support is deprecated; use mTLS. See https://docs.serviceradar.cloud/docs/migrating-off-spire"
-    );
-
-    let credentials = spiffe::load_server_credentials(workload_socket, trust_domain)
-        .await
-        .context("failed to load SPIFFE credentials for trapd gRPC server")?;
-    let mut updates = credentials.watch_updates();
-
-    loop {
-        let service = TrapdAgentService;
-        let (health_reporter, health_service) = health_reporter();
-        health_reporter
-            .set_serving::<AgentServiceServer<TrapdAgentService>>()
-            .await;
-
-        let reflection_service = ReflectionBuilder::configure()
-            .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
-            .build_v1()?;
-
-        let (identity, client_ca) = credentials.tls_materials()?;
-        let tls = ServerTlsConfig::new()
-            .identity(identity)
-            .client_ca_root(client_ca);
-
-        let mut shutdown_rx = updates.clone();
-        let server_future = Server::builder()
-            .tls_config(tls)?
-            .add_service(health_service)
-            .add_service(AgentServiceServer::new(service))
-            .add_service(reflection_service)
-            .serve_with_shutdown(addr, async move {
-                let _ = shutdown_rx.changed().await;
-            });
-
-        tokio::pin!(server_future);
-
-        let mut reload = false;
-        let mut channel_closed = false;
-
-        tokio::select! {
-            biased;
-            res = updates.changed() => {
-                match res {
-                    Ok(_) => reload = true,
-                    Err(_) => channel_closed = true,
-                }
-            }
-            res = &mut server_future => {
-                res.context("trapd gRPC server encountered an error during SPIFFE serve")?;
-                return Ok(());
-            }
-        }
-
-        if reload {
-            info!("SPIFFE update detected; reloading trapd gRPC server identity");
-            server_future.await?;
-            continue;
-        }
-
-        if channel_closed {
-            server_future.await?;
-            break;
-        }
-    }
-
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -663,10 +564,12 @@ mod tests {
             nats_security: None,
             grpc_listen_addr: Some("0.0.0.0:50043".into()),
             grpc_security: Some(SecurityConfig {
-                mode: SecurityMode::Spiffe,
-                trust_domain: Some("carverauto.dev".into()),
-                workload_socket: None,
-                ..Default::default()
+                mode: SecurityMode::Mtls,
+                cert_dir: Some("/etc/serviceradar/certs".into()),
+                cert_file: Some("trapd.pem".into()),
+                key_file: Some("trapd-key.pem".into()),
+                ca_file: Some("root.pem".into()),
+                client_ca_file: None,
             }),
         }
     }
@@ -686,22 +589,6 @@ mod tests {
     }
 
     #[test]
-    fn resolve_grpc_server_transport_defaults_spiffe_socket() {
-        let cfg = base_config();
-
-        let transport =
-            resolve_grpc_server_transport(&cfg).expect("expected spiffe transport resolution");
-
-        assert_eq!(
-            transport,
-            GrpcServerTransport::Spiffe {
-                workload_socket: DEFAULT_WORKLOAD_SOCKET.to_string(),
-                trust_domain: "carverauto.dev".to_string(),
-            }
-        );
-    }
-
-    #[test]
     fn resolve_grpc_server_transport_resolves_mtls_paths() {
         let mut cfg = base_config();
         cfg.grpc_security = Some(SecurityConfig {
@@ -711,7 +598,6 @@ mod tests {
             key_file: Some("trapd-key.pem".into()),
             ca_file: Some("root.pem".into()),
             client_ca_file: Some("client-root.pem".into()),
-            ..Default::default()
         });
 
         let transport =

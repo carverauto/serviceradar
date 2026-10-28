@@ -7,7 +7,7 @@ Cluster:   {{ include "sr-edge.clusterId" . | default "(set clusterId)" }}
 What this chart deploys (and what it does not)
   ✓  serviceradar-agent (outbound mTLS → agent-gateway)
   ✓  serviceradar-k8s-inventory (optional; kube API public VIP ownership)
-  ✗  core / web-ng / NATS / CNPG / agent-gateway / SPIRE
+  ✗  core / web-ng / NATS / CNPG / agent-gateway
 
 Next steps
   1. Ensure the TLS Secret exists:

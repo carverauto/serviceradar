@@ -16,23 +16,6 @@ ServiceRadar MUST publish a CNPG-compatible Postgres image that bundles the Time
 - **WHEN** `SELECT postgis_full_version();` is executed
 - **THEN** the query returns a non-empty PostGIS version string.
 
-### Requirement: SPIRE CNPG cluster uses the custom image
-The SPIRE CNPG deployment rendered by the Helm chart MUST consume the custom image and initialize required extensions in the target database(s).
-
-#### Scenario: Helm values deployment
-- **GIVEN** `helm template serviceradar ./helm/serviceradar --set spire.enabled=true --set spire.postgres.enabled=true`
-- **WHEN** the rendered CNPG manifest is inspected
-- **THEN** it references the same custom image
-- **AND** extension bootstrap SQL includes `CREATE EXTENSION IF NOT EXISTS postgis;` for the configured database.
-
-### Requirement: Clean rebuild path for SPIRE CNPG cluster
-Operators MUST have a documented, testable rebuild path that deletes and recreates the SPIRE CNPG cluster with the new image, re-applies the Helm release, and validates the system from a clean slate.
-
-#### Scenario: Recreate cluster without backups
-- **GIVEN** a running SPIRE deployment on the legacy CNPG image
-- **WHEN** the documented steps are followed (delete the existing `Cluster`, upgrade the Helm release, and wait for pods to reconcile)
-- **THEN** SPIRE reconnects to Postgres on the fresh database, the controller re-registers workloads, and agents can request new SVIDs without relying on an etcd backup.
-
 ### Requirement: Trigram indexes optimize ILIKE text search queries
 The CNPG migrations MUST create GIN trigram indexes on frequently searched text columns to prevent full table scans when users run case-insensitive pattern matching queries via SRQL.
 
@@ -273,16 +256,16 @@ The system SHALL store interface observations in a TimescaleDB hypertable with a
 - **THEN** observations older than 3 days are removed
 
 ### Requirement: CNPG bootstrap credentials are generated and persisted
-The Helm CNPG bootstrap MUST generate random passwords for the `postgres` superuser and `spire`/`serviceradar` roles when they are not explicitly provided, and MUST store them in Kubernetes secrets that persist across upgrades.
+The Helm CNPG bootstrap MUST generate random passwords for the `postgres` superuser and `serviceradar` role when they are not explicitly provided, and MUST store them in Kubernetes secrets that persist across upgrades.
 
 #### Scenario: New Helm install without provided passwords
 - **GIVEN** a Helm install where CNPG passwords are not set in values
 - **WHEN** the chart renders and installs CNPG resources
-- **THEN** `cnpg-superuser`, `spire-db-credentials`, and `serviceradar-db-credentials` secrets contain non-empty, non-default passwords
+- **THEN** `cnpg-superuser` and `serviceradar-db-credentials` secrets contain non-empty, non-default passwords
 - **AND** subsequent upgrades reuse the existing secret values without rotating them
 
 #### Scenario: Existing secrets are preserved
-- **GIVEN** `cnpg-superuser` or `spire-db-credentials` already exist in the namespace
+- **GIVEN** `cnpg-superuser` or `serviceradar-db-credentials` already exist in the namespace
 - **WHEN** the chart is upgraded
 - **THEN** the existing secret values are reused without being overwritten
 
@@ -390,7 +373,7 @@ access model that ServiceRadar relies on after the upgrade completes.
 #### Scenario: Application roles remain usable after Compose migration
 - **GIVEN** a supported Compose PG16-to-PG18 migration has completed
 - **WHEN** ServiceRadar services connect to the migrated PG18 CNPG cluster
-- **THEN** the configured superuser, `serviceradar`, and `spire` roles can authenticate as expected
+- **THEN** the configured superuser and `serviceradar` roles can authenticate as expected
 - **AND** the application database retains the required `platform, ag_catalog` search_path behavior
 
 ### Requirement: Demo CNPG provides repeatable slow-query observability

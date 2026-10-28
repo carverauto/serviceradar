@@ -50,8 +50,4 @@ rust_binary(
 rust_test(
     name = "trapd_test",
     crate = ":trapd",
-    deps = all_crate_deps(
-        cargo_only = True,
-        normal_dev = True,
-    ),
 )

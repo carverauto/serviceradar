@@ -42,7 +42,7 @@ ServiceRadar is an opensource network management and observability platform that
 
 ### Background
 
-ServiceRadar was designed for network operators small or large, designed to work under cloud-native paradigms. This means that it can easily run in container environments, centralized management of a distributed configuration management system where you have one place to manage a fleet of agents/gateways/checkers, and a hands-off approach to securing microservices using mTLS and SPIFFE.
+ServiceRadar was designed for network operators small or large, designed to work under cloud-native paradigms. This means that it can easily run in container environments, centralized management of a distributed configuration management system where you have one place to manage a fleet of agents/gateways/checkers, and a hands-off approach to securing microservices using deployment-managed mTLS and X.509 URI SAN (`spiffe://...`) workload identities.
 
 ServiceRadar offers traditional network management functionality and features, such as log ingestion, metrics collection, event management, along with a roadmap to support newer NMS technologies like streaming telemetry (gNMI).
 
@@ -101,7 +101,7 @@ This document provides the CNCF TAG-Security with an initial understanding of **
 
 ### Security Relevant
 
-* mTLS Configuration: SPIFFE/SPIRE integration for workload identity and certificate management
+* mTLS Configuration: Deployment-managed CA and X.509 URI SAN (`spiffe://...`) workload identities for certificate management
 * NATS JetStream: Subject-based authorization and TLS encryption for message broker
 * RBAC Implementation: Deployment-scoped role-based access control across all services
 * gRPC Security: Mutual TLS enforcement and token-based authentication for all inter-service communication
@@ -154,7 +154,7 @@ ServiceRadar is purpose-built for the cloud-native observability ecosystem, prov
 Core CNCF Integrations:
 
 * Kubernetes: Native deployment via Helm charts and Kubernetes operators for all components
-* SPIFFE/SPIRE: Workload identity and mTLS certificate management across all microservices
+* Workload Identity: Deployment-managed mTLS certificate management with X.509 URI SAN (`spiffe://...`) workload identities across all microservices
 * NATS JetStream: CNCF-incubating messaging system for high-performance event streaming
 * OCSF: Event format standard for security and observability events
 * OpenTelemetry: Native OTLP protocol support for metrics, traces, and logs
@@ -170,7 +170,7 @@ Key Differentiators in CNCF Ecosystem:
 * Horizontal scaling of data collection without single points of failure
 * Event-driven architecture leveraging NATS JetStream with OCSF/OTEL payloads for real-time processing
 * Native support for edge deployments via NATS hub/leaf topology
-* Integration with service mesh security models via SPIFFE
+* Integration with service mesh security models via X.509 URI SAN (`spiffe://...`) workload identities
 
 ServiceRadar complements projects like Prometheus (metrics), Jaeger (tracing), and Fluentd (logging) by providing the network layer observability that's critical for understanding service-to-service communication in Kubernetes environments. Our roadmap includes deeper integration with eBPF-based observability tools and CNCF's emerging streaming telemetry standards.
 

@@ -187,7 +187,6 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- define "serviceradar.kvEnv" -}}
 {{- $vals := .Values -}}
 {{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.kv.trustDomain -}}
-{{- $serverID := include "serviceradar.kvServerSPIFFEID" . -}}
 {{- if not $vals.kv.enabled }}
 {{- else }}
 - name: CONFIG_SOURCE
@@ -198,8 +197,6 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
   value: "{{ default "mtls" $vals.kv.secMode }}"
 - name: KV_TRUST_DOMAIN
   value: "{{ $trustDomain }}"
-- name: KV_SERVER_SPIFFE_ID
-  value: "{{ $serverID }}"
 - name: KV_CERT_DIR
   value: "{{ default "/etc/serviceradar/certs" $vals.kv.certDir }}"
 {{- end }}
@@ -232,22 +229,6 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 {{- end }}
 {{- end -}}
 
-{{- define "serviceradar.kvServerSPIFFEID" -}}
-{{- $vals := .Values -}}
-{{- $ns := .Release.Namespace -}}
-{{- $datasvcSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "datasvc")) -}}
-{{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.kv.trustDomain -}}
-{{- default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $datasvcSA) $vals.kv.serverSPIFFEID -}}
-{{- end -}}
-
-{{- define "serviceradar.coreServerSPIFFEID" -}}
-{{- $vals := .Values -}}
-{{- $ns := .Release.Namespace -}}
-{{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.coreClient.trustDomain -}}
-{{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "core")) -}}
-{{- default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
-{{- end -}}
-
 {{- define "serviceradar.coreAddress" -}}
 {{- $vals := .Values -}}
 {{- $ns := .Release.Namespace -}}
@@ -256,18 +237,13 @@ serviceradar.io/runtime-tls-revision: {{ default "initial" (default (dict) .Valu
 
 {{- define "serviceradar.coreEnv" -}}
 {{- $vals := .Values -}}
-{{- $ns := .Release.Namespace -}}
 {{- $trustDomain := default (include "serviceradar.trustDomain" $vals) $vals.coreClient.trustDomain -}}
-{{- $coreSA := (include "serviceradar.componentServiceAccount" (dict "values" $vals "component" "core")) -}}
-{{- $serverID := default (printf "spiffe://%s/ns/%s/sa/%s" $trustDomain $ns $coreSA) $vals.coreClient.serverSPIFFEID -}}
 - name: CORE_ADDRESS
   value: "{{ include "serviceradar.coreAddress" . }}"
 - name: CORE_SEC_MODE
   value: "{{ default "mtls" $vals.coreClient.secMode }}"
 - name: CORE_TRUST_DOMAIN
   value: "{{ $trustDomain }}"
-- name: CORE_SERVER_SPIFFE_ID
-  value: "{{ $serverID }}"
 - name: CORE_CERT_DIR
   value: "{{ default "/etc/serviceradar/certs" $vals.coreClient.certDir }}"
 {{- end -}}

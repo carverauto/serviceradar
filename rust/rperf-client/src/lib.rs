@@ -19,7 +19,6 @@ pub mod config;
 pub mod poller;
 pub mod rperf;
 pub mod server;
-pub mod spiffe;
 pub mod template;
 
 // Public re-exports

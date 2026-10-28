@@ -35,7 +35,7 @@ type ServiceStatus struct {
 	Type string `json:"type" example:"database"`
 	// Detailed service-specific information as a JSON object
 	Details     json.RawMessage `json:"details,omitempty"`
-	GatewayID    string          `json:"gateway_id" example:"gateway-prod-east-01"`
+	GatewayID   string          `json:"gateway_id" example:"gateway-prod-east-01"`
 	AgentID     string          `json:"agent_id" example:"agent-prod-east-01"`
 	ServiceName string          `json:"service_name" example:"postgres"`
 	ServiceType string          `json:"service_type" example:"database"`

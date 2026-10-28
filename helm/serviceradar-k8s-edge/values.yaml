@@ -1,5 +1,5 @@
 # ServiceRadar Kubernetes edge sensors only.
-# Does NOT install core, web-ng, NATS, CNPG, agent-gateway, or SPIRE.
+# Does NOT install core, web-ng, NATS, CNPG, or agent-gateway.
 #
 # Customer provides:
 #   1. agent-gateway address (central self-host or serviceradar.cloud)

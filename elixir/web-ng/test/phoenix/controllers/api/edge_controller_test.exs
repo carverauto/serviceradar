@@ -158,9 +158,9 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
 
     test "creates a package with canonical partition_id", %{conn: conn} do
       params = %{
-        "label" => "new-partition-agent",
-        "component_type" => "agent",
-        "security_mode" => "spire",
+        "label" => "new-partition-gateway",
+        "component_type" => "gateway",
+        "security_mode" => "mtls",
         "partition_id" => "edge-partition-1"
       }
 
@@ -188,7 +188,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
     end
 
     test "returns the signed onboarding token the download routes accept", %{conn: conn} do
-      params = %{"label" => "token-agent", "component_type" => "agent", "security_mode" => "spire"}
+      params = %{"label" => "token-gateway", "component_type" => "gateway", "security_mode" => "mtls"}
 
       result = conn |> post(~p"/api/admin/edge-packages", params) |> json_response(201)
 
@@ -197,6 +197,14 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeControllerTest do
       assert {:ok, decoded} = ServiceRadarWebNG.Edge.decode_onboarding_token(result["onboarding_token"])
       assert decoded.pkg == result["package"]["package_id"]
       assert decoded.dl == result["download_token"]
+    end
+
+    test "rejects spire security_mode with 422", %{conn: conn} do
+      params = %{"label" => "spire-gateway", "component_type" => "gateway", "security_mode" => "spire"}
+
+      conn = post(conn, ~p"/api/admin/edge-packages", params)
+
+      assert json_response(conn, 422)["error"] == "validation_error"
     end
 
     test "an mTLS agent package needs a gateway to issue its certificate", %{conn: conn} do

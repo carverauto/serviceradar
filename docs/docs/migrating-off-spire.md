@@ -5,13 +5,13 @@ sidebar_position: 5
 
 # Migrating off SPIRE
 
-The Helm chart no longer ships SPIRE workloads, registration CRDs, socket mounts or `spire.*` values and compatibility fallbacks. Use mTLS with ServiceRadar's deployment-managed CA. This chart removal does not convert existing `spire` onboarding packages or remove the remaining application runtime compatibility code.
+The Helm chart and application runtime no longer support SPIRE workloads, Workload API socket clients, registration CRDs, `spire` security modes, or `spire.*` values and compatibility fallbacks. Use mTLS with ServiceRadar's deployment-managed CA.
 
 The `spiffe://serviceradar.local/...` URI SANs issued by the in-house CA are still used by certificate identity resolution, NATS leaf authentication and datasvc authorization. Keep those identities, trust roots and role bindings. Removing SPIRE does not require renaming certificate URIs.
 
 ## Already using mTLS
 
-Keep `spiffe.mode=filesystem`, `kv.secMode=mtls`, `coreClient.secMode=mtls` and `webNg.datasvc.secMode=mtls`. No cluster move or SPIRE cleanup is needed if those resources were never installed. Existing package rows are not rewritten by the new database default.
+Keep `kv.secMode=mtls`, `coreClient.secMode=mtls` and `webNg.datasvc.secMode=mtls`. No cluster move or SPIRE cleanup is needed if those resources were never installed.
 
 ## Neutral chart values
 
@@ -27,12 +27,14 @@ Copy any required legacy `spire.*ServiceAccount` and `spire.trustDomain` overrid
 
 ## Existing SPIRE deployments
 
+Before starting the new runtime, replace `spiffe` or `spire` service security modes with `mtls` and configure certificate files. This includes `KV_SEC_MODE`, `DATASVC_SEC_MODE` and `SERVICERADAR_SECURITY_MODE` where used. Remove `SPIFFE_MODE=workload_api` or set `SPIFFE_MODE=filesystem`; retired modes are rejected rather than converted. Keep `SPIFFE_CERT_DIR` and certificate URI identities used by filesystem loading. The `srctl spire-join-token` command and Compose SPIRE bootstrap scripts have been removed.
+
 1. Inventory effective values, the current CNPG Cluster name/namespace, PVCs, databases, users, Secrets, workload accounts and issued certificate identities. Keep secrets in the existing credential tooling; do not export them into source control or support artifacts.
 2. Render the target chart version with the proposed neutral overrides and compare it with the deployed version. Compare cluster/PVC identity, image, storage, roles, certificate mounts and service endpoints before applying it. Populate overrides with the same effective values first.
 3. The target chart renders only the native CNPG template when `cnpg.enabled=true`. Set neutral cluster fields explicitly to preserve the existing Cluster identity and review the full rendered spec. Retain the application database and its credential references. Reusing a name does not prove the new spec is equivalent.
 4. If a different cluster is required, take and verify a backup, restore to the intended cluster, and test application schema, credentials and service connectivity before switching traffic. Retain the old cluster until verification is complete. Do not delete a PVC to make a migration appear successful.
 5. Configure deployment-managed runtime certificates, `mtls` service modes and filesystem certificate loading. Verify internal RPCs, agent gateway registration, datasvc authorization and NATS leaf authentication using the intended new certificates. Issue a new mTLS onboarding package and verify enrollment.
-6. Retire SPIRE resources only after those checks pass. Existing `spire` onboarding packages can be revoked and replaced with mTLS packages when needed; changing the default does not convert them.
+6. Retire SPIRE resources only after those checks pass. Replace existing `spire` onboarding packages with mTLS packages before using them for new enrollment; the runtime no longer supports their security mode. Existing rows and identity fields are not converted by this upgrade.
 
 ## Manual cluster cleanup
 

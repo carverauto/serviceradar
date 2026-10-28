@@ -76,7 +76,8 @@ enum SecurityMode {
   SECURITY_MODE_UNSPECIFIED = 0;
   SECURITY_MODE_NONE = 1;
   SECURITY_MODE_MTLS = 2;
-  SECURITY_MODE_SPIFFE = 3;
+  reserved 3;
+  reserved "SECURITY_MODE_SPIFFE";
 }
 
 // PostgreSQL / CNPG coordinates.
@@ -194,9 +195,8 @@ message CoreConfig {
   optional string api_url = 2;
   optional SecurityMode security_mode = 3;
   optional string server_name = 4;
-  optional string trust_domain = 5;
-  optional string server_spiffe_id = 6;
-  optional string workload_socket = 7;
+  reserved 5, 6, 7;
+  reserved "trust_domain", "server_spiffe_id", "workload_socket";
 }
 
 // One environment. Exactly one committed instance per environment identity.

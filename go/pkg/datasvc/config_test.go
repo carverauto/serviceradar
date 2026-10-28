@@ -38,15 +38,13 @@ func TestConfigValidateRejectsBucketHistoryTooLarge(t *testing.T) {
 	require.ErrorIs(t, err, errBucketHistoryTooLarge)
 }
 
-func TestConfigValidateAllowsSPIFFE(t *testing.T) {
+func TestConfigValidateRejectsSPIFFE(t *testing.T) {
 	cfg := &Config{
 		ListenAddr:    "127.0.0.1:0",
 		NATSURL:       "nats://127.0.0.1:4222",
 		NATSCredsFile: "/etc/serviceradar/creds/platform.creds",
 		Security: &models.SecurityConfig{
-			Mode:           models.SecurityMode("spiffe"),
-			TrustDomain:    "example.org",
-			WorkloadSocket: "unix:/run/spire/sockets/agent.sock",
+			Mode: models.SecurityMode("spiffe"),
 			TLS: models.TLSConfig{
 				CertFile: "cert.pem",
 				KeyFile:  "key.pem",
@@ -63,7 +61,13 @@ func TestConfigValidateAllowsSPIFFE(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, cfg.Validate())
+	for _, mode := range []models.SecurityMode{"spiffe", "spire", "workload_api"} {
+		cfg.Security.Mode = mode
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorIs(t, err, errInvalidSecurityMode)
+		require.ErrorContains(t, err, "https://docs.serviceradar.cloud/docs/migrating-off-spire")
+	}
 }
 
 func TestConfigValidateRejectsUnknownSecurityMode(t *testing.T) {
@@ -144,9 +148,13 @@ func TestConfigValidateRejectsNonMTLSNATSSecurity(t *testing.T) {
 		},
 	}
 
-	err := cfg.Validate()
-	require.Error(t, err)
-	require.ErrorIs(t, err, errMTLSRequired)
+	for _, mode := range []models.SecurityMode{"spiffe", "spire", "workload_api"} {
+		cfg.NATSSecurity.Mode = mode
+		err := cfg.Validate()
+		require.Error(t, err)
+		require.ErrorIs(t, err, errMTLSRequired)
+		require.ErrorContains(t, err, "https://docs.serviceradar.cloud/docs/migrating-off-spire")
+	}
 }
 
 func TestConfigValidateRequiresNATSTLSFiles(t *testing.T) {

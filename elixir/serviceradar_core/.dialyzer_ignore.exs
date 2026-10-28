@@ -400,8 +400,6 @@
    "The pattern variable __value@1 can never match the type, because it is covered by previous clauses."},
   {"lib/serviceradar/snmp_profiles/credential_resolver.ex",
    "The pattern pattern <__payload@1, __record@1, __secret@1> can never match the type, because it is covered by previous clauses."},
-  {"lib/serviceradar/spiffe/workload_api.ex",
-   "The pattern variable _other@1 can never match the type, because it is covered by previous clauses."},
   {"lib/serviceradar/sweep_jobs/sweep_results_ingestor.ex",
    "The pattern variable __message@1 can never match the type, because it is covered by previous clauses."},
   {"lib/serviceradar/wifi_map/batch_ingestor.ex", "The pattern can never match the type :ok."},

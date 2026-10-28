@@ -24,14 +24,12 @@ kafka = { workspace = true, features = ["snappy", "gzip", "security"], optional 
 log = { workspace = true }
 may = { workspace = true, optional = true }
 notify = { workspace = true, features = ["macos_fsevent"], optional = true }
-pem = { workspace = true }
 rand = { workspace = true }
 redis = { workspace = true, optional = true }
 rustls = { workspace = true, features = ["ring", "std", "tls12", "logging"], optional = true }
 rustls-pemfile = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
-spiffe = { workspace = true, features = ["x509-source"] }
 tempfile = { workspace = true }
 time = { workspace = true, features = ["parsing", "formatting"] }
 time-tz = { workspace = true }
@@ -43,7 +41,6 @@ tonic-prost = { workspace = true }
 
 [dev-dependencies]
 quickcheck = { workspace = true }
-rcgen = { workspace = true }
 
 [build-dependencies]
 tonic-prost-build = { workspace = true }

@@ -4,7 +4,7 @@ import "time"
 
 // Service represents a monitored service associated with a gateway.
 type Service struct {
-	GatewayID    string            `json:"gateway_id"`
+	GatewayID   string            `json:"gateway_id"`
 	ServiceName string            `json:"service_name"`
 	ServiceType string            `json:"service_type"`
 	AgentID     string            `json:"agent_id"`

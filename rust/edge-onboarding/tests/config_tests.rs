@@ -31,10 +31,7 @@ fn test_generate_checker_config_defaults() {
         component_id: Some("sysmon-1".to_string()),
         label: Some("Test Sysmon".to_string()),
         site: None,
-        downstream_spiffe_id: None,
         mtls_bundle: None,
-        join_token: None,
-        bundle_pem: None,
     };
 
     let config = generate_checker_config(&package, None, &DeploymentType::BareMetal).unwrap();
@@ -58,10 +55,7 @@ fn test_generate_checker_config_with_overlay() {
         component_id: None,
         label: None,
         site: None,
-        downstream_spiffe_id: None,
         mtls_bundle: None,
-        join_token: None,
-        bundle_pem: None,
     };
 
     let config = generate_checker_config(&package, None, &DeploymentType::Docker).unwrap();
@@ -80,9 +74,6 @@ fn test_security_config_serialization() {
         key_file: Some("client-key.pem".to_string()),
         ca_file: Some("ca.pem".to_string()),
         client_ca_file: None,
-        trust_domain: None,
-        workload_socket: None,
-        server_spiffe_id: None,
     };
 
     let json = serde_json::to_string(&security).unwrap();

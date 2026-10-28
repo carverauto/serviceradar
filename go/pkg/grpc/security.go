@@ -26,9 +26,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/spiffe/go-spiffe/v2/spiffeid"
-	"github.com/spiffe/go-spiffe/v2/spiffetls/tlsconfig"
-	"github.com/spiffe/go-spiffe/v2/workloadapi"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -38,9 +35,8 @@ import (
 )
 
 const (
-	SecurityModeNone   models.SecurityMode = "none"
-	SecurityModeSpiffe models.SecurityMode = "spiffe"
-	SecurityModeMTLS   models.SecurityMode = "mtls"
+	SecurityModeNone models.SecurityMode = "none"
+	SecurityModeMTLS models.SecurityMode = "mtls"
 )
 
 // NoSecurityProvider implements SecurityProvider with no security (development only).
@@ -309,178 +305,8 @@ func (p *MTLSProvider) GetServerCredentials(_ context.Context) (grpc.ServerOptio
 	return grpc.Creds(p.serverCreds), nil
 }
 
-// SpiffeProvider implements SecurityProvider using SPIFFE workload API.
-type SpiffeProvider struct {
-	config         *models.SecurityConfig
-	client         *workloadapi.Client
-	source         *workloadapi.X509Source
-	trustDomain    spiffeid.TrustDomain
-	serverID       spiffeid.ID
-	hasTrustDomain bool
-	hasServerID    bool
-	closeOnce      sync.Once
-	logger         logger.Logger
-}
-
-func NewSpiffeProvider(ctx context.Context, config *models.SecurityConfig, log logger.Logger) (*SpiffeProvider, error) {
-	log.Warn().Msg("SPIFFE/SPIRE runtime support is deprecated; use mTLS. See https://docs.serviceradar.cloud/docs/migrating-off-spire")
-
-	if config.WorkloadSocket == "" {
-		config.WorkloadSocket = "unix:/run/spire/sockets/agent.sock"
-	}
-
-	client, err := workloadapi.New(
-		ctx,
-		workloadapi.WithAddr(config.WorkloadSocket),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errFailedWorkloadAPIClient, err)
-	}
-
-	source, err := workloadapi.NewX509Source(
-		ctx,
-		workloadapi.WithClient(client),
-	)
-	if err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("%w: %w", errFailedToCreateX509Source, err)
-	}
-
-	var (
-		trustDomain    spiffeid.TrustDomain
-		hasTrustDomain bool
-	)
-
-	if td := strings.TrimSpace(config.TrustDomain); td != "" {
-		if strings.Contains(td, "://") {
-			id, parseErr := spiffeid.FromString(td)
-			if parseErr != nil {
-				_ = source.Close()
-				_ = client.Close()
-				return nil, fmt.Errorf("%w: %w", errInvalidTrustDomain, parseErr)
-			}
-
-			trustDomain = id.TrustDomain()
-			hasTrustDomain = true
-		} else {
-			parsedDomain, parseErr := spiffeid.TrustDomainFromString(td)
-			if parseErr != nil {
-				_ = source.Close()
-				_ = client.Close()
-				return nil, fmt.Errorf("%w: %w", errInvalidTrustDomain, parseErr)
-			}
-
-			trustDomain = parsedDomain
-			hasTrustDomain = true
-		}
-	}
-
-	var (
-		serverID    spiffeid.ID
-		hasServerID bool
-	)
-
-	if idStr := strings.TrimSpace(config.ServerSPIFFEID); idStr != "" {
-		log.Debug().
-			Str("server_spiffe_id", idStr).
-			Str("role", string(config.Role)).
-			Msg("Validating SPIFFE server identity")
-		parsedID, parseErr := normalizeServerSPIFFEID(idStr, trustDomain, hasTrustDomain, log)
-		if parseErr != nil {
-			_ = source.Close()
-			_ = client.Close()
-			return nil, fmt.Errorf("%w: %w", errInvalidServerSPIFFEID, parseErr)
-		}
-
-		serverID = parsedID
-		hasServerID = true
-	}
-
-	return &SpiffeProvider{
-		config:         config,
-		client:         client,
-		source:         source,
-		trustDomain:    trustDomain,
-		hasTrustDomain: hasTrustDomain,
-		serverID:       serverID,
-		hasServerID:    hasServerID,
-		logger:         log,
-	}, nil
-}
-
-func normalizeServerSPIFFEID(raw string, trustDomain spiffeid.TrustDomain, hasTrustDomain bool, log logger.Logger) (spiffeid.ID, error) {
-	trimmed := strings.TrimSpace(raw)
-	if strings.Contains(trimmed, "://") {
-		parts := strings.SplitN(trimmed, "://", 2)
-		if len(parts) != 2 || !strings.EqualFold(parts[0], "spiffe") {
-			return spiffeid.ID{}, fmt.Errorf("%w: %q", errMissingServerSPIFFEScheme, trimmed)
-		}
-		return spiffeid.FromString("spiffe://" + parts[1])
-	}
-
-	if !hasTrustDomain {
-		return spiffeid.ID{}, fmt.Errorf("%w: %q", errMissingServerSPIFFEScheme, trimmed)
-	}
-
-	normalized := "/" + strings.TrimPrefix(trimmed, "/")
-	fullID := fmt.Sprintf("spiffe://%s%s", trustDomain.String(), normalized)
-
-	log.Debug().
-		Str("original_server_spiffe_id", trimmed).
-		Str("normalized_server_spiffe_id", fullID).
-		Msg("Normalized SPIFFE server identity to include scheme and trust domain")
-
-	return spiffeid.FromString(fullID)
-}
-
-func (p *SpiffeProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
-	if !p.hasServerID {
-		return nil, errServerSPIFFEIDRequired
-	}
-
-	authorizer := tlsconfig.AuthorizeID(p.serverID)
-	tlsConfig := tlsconfig.MTLSClientConfig(p.source, p.source, authorizer)
-
-	return grpc.WithTransportCredentials(credentials.NewTLS(tlsConfig)), nil
-}
-
-func (p *SpiffeProvider) GetServerCredentials(_ context.Context) (grpc.ServerOption, error) {
-	if !p.hasTrustDomain {
-		return nil, errTrustDomainRequired
-	}
-
-	authorizer := tlsconfig.AuthorizeMemberOf(p.trustDomain)
-	tlsConfig := tlsconfig.MTLSServerConfig(p.source, p.source, authorizer)
-
-	return grpc.Creds(credentials.NewTLS(tlsConfig)), nil
-}
-
-func (p *SpiffeProvider) Close() error {
-	var err error
-
-	p.closeOnce.Do(func() {
-		if p.source != nil {
-			if e := p.source.Close(); e != nil {
-				p.logger.Error().Err(e).Msg("Failed to close X.509 source")
-
-				err = e
-			}
-		}
-
-		if p.client != nil {
-			if e := p.client.Close(); e != nil {
-				p.logger.Error().Err(e).Msg("Failed to close workload client")
-
-				err = e
-			}
-		}
-	})
-
-	return err
-}
-
 // NewSecurityProvider creates the appropriate security provider based on mode.
-func NewSecurityProvider(ctx context.Context, config *models.SecurityConfig, log logger.Logger) (SecurityProvider, error) {
+func NewSecurityProvider(_ context.Context, config *models.SecurityConfig, log logger.Logger) (SecurityProvider, error) {
 	if config == nil {
 		log.Error().Msg("ERROR: No security config provided")
 		return nil, errSecurityConfigRequired
@@ -516,13 +342,9 @@ func NewSecurityProvider(ctx context.Context, config *models.SecurityConfig, log
 		log.Info().Msg("Successfully created mTLS security provider")
 
 		return provider, nil
-	case SecurityModeSpiffe:
-		log.Info().Str("workloadSocket", config.WorkloadSocket).Msg("Initializing SPIFFE security provider")
-
-		return NewSpiffeProvider(ctx, config, log)
 	default:
 		log.Error().Str("mode", string(config.Mode)).Msg("ERROR: Unknown security mode")
 
-		return nil, fmt.Errorf("%w: %s", errUnknownSecurityMode, config.Mode)
+		return nil, fmt.Errorf("%w: %s (see https://docs.serviceradar.cloud/docs/migrating-off-spire)", errUnknownSecurityMode, config.Mode)
 	}
 }

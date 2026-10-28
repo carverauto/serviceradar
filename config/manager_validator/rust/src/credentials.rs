@@ -45,7 +45,7 @@ fn shapes() -> Vec<Shape> {
         ),
         (r"-----BEGIN", "PEM-encoded key or certificate material"),
         // An unbroken base64 run as the WHOLE value. Anchored so it cannot fire on a
-        // hostname, a DSN or a SPIFFE ID, all of which carry '.', '-', ':' or '/'.
+        // hostname, a DSN or a URL, all of which carry '.', '-', ':' or '/'.
         (r"^[A-Za-z0-9+/]{40,}={0,2}$", "high-entropy token"),
     ];
     specs

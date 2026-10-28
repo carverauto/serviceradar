@@ -52,7 +52,7 @@ ServiceRadar follows a dual-track roadmap:
 ServiceRadar provides secure-by-design network management for cloud-native environments:
 
 - **Deployment isolation**: Agent/gateway/checker architecture supporting overlapping IP spaces and separate security domains
-- **Cloud-native deployment**: Kubernetes-native with Helm charts, microservices secured by mTLS via SPIFFE/SPIRE
+- **Cloud-native deployment**: Kubernetes-native with Helm charts, microservices secured by mTLS via deployment-managed CA and X.509 URI SAN (`spiffe://...`) workload identities
 - **Event-driven architecture**: NATS JetStream for reliable message delivery and horizontal scalability, using OCSF for events and OTEL for logs
 - **Stream processing**: CNPG/Timescale for real-time data processing and analysis
 - **Stateless rules**: ZenEngine-based rule editor (web UI) for event transformation without service restarts
@@ -138,7 +138,7 @@ docker compose up -d
 **Current (v1.0.53):**
 - Manual JSON configuration files per service
 - RBAC policies in Kubernetes Secrets
-- Certificate management via SPIFFE/SPIRE
+- Certificate management via deployment-managed mTLS CA
 
 **Migration (November 2025):**
 - NATS KV-based centralized configuration
@@ -222,7 +222,7 @@ ServiceRadar provides its own:
 | **Secure by Default** | mTLS enforced, Rust for network-facing code, no default passwords | Zero trust networking, memory safety                   |
 | **Event-Driven Scalability** | NATS JetStream messaging, async processing | Horizontal scaling, fault isolation, OCSF/OTEL payloads |
 | **Fault Tolerant** | Distributed gateways, circuit breakers, retry logic | 99.9% availability during component failures           |
-| **Cloud Native** | SPIFFE/SPIRE identity, Kubernetes-first, container-native | Easy deployment, vendor-neutral                        |
+| **Cloud Native** | X.509 URI SAN workload identity, Kubernetes-first, container-native | Easy deployment, vendor-neutral                        |
 | **Deployment Isolation** | RBAC, network policies, deployment-scoped queries | Security compliance, MSP-ready                         |
 
 #### Architecture Requirements
@@ -255,8 +255,8 @@ ServiceRadar provides its own:
                     ┌────────────┼────────────┐
                     ▼            ▼            ▼
               ┌──────────┐ ┌─────────┐ ┌──────────┐
-              │   NATS   │ │ CNPG  │ │ SPIFFE/  │
-              │JetStream │ │   DB    │ │  SPIRE   │
+              │   NATS   │ │ CNPG  │ │   mTLS   │
+              │JetStream │ │   DB    │ │    CA    │
               └──────────┘ └─────────┘ └──────────┘
                     ▲
        ┌────────────┼────────────┐
@@ -279,7 +279,7 @@ ServiceRadar provides its own:
 | **NATS JetStream** | Message broker, KV store | Data ingestion halted | 3-node cluster, R3 replication |
 | **CNPG/Timescale** | Stream processing DB | Queries fail, data buffered | OSS→Enterprise clustering upgrade |
 | **Edge Proxy** | TLS termination, routing | UI/API access denied | Multiple replicas behind ingress |
-| **SPIFFE/SPIRE** | Cert management | New pods fail auth | Server HA, agent per node |
+| **mTLS CA / Certs** | Cert management | New pods fail auth if secret missing | Mounted Kubernetes Secrets |
 
 **Data collection:**
 
@@ -307,7 +307,7 @@ Device → Checker (plugin) → Agent (proxy) → Gateway (aggregator) → NATS 
 |--------|----------------|--------|
 | **Local Auth** | Bcrypt-hashed passwords, CLI-generated | Production |
 | **OAuth2/OIDC** | Google, Azure AD, Okta integration | Beta (Q4 2025) |
-| **Service Identity** | SPIFFE X.509 SVIDs for workload auth | Production |
+| **Service Identity** | X.509 URI SAN (`spiffe://...`) certificates for workload auth | Production |
 
 **Authorization:**
 
@@ -603,7 +603,7 @@ curl http://localhost:8080/health
 | Database connected | Check Core logs | "Database connection established" |
 | NATS cluster healthy | `nats server list` | All nodes connected |
 | Web UI accessible | Open browser | Login page loads |
-| SPIFFE certs issued | Check agent logs | "Certificate rotated successfully" |
+| mTLS certificates | Follow [TLS Security](../docs/tls-security.md) | Certificate files mounted and authenticated connections succeed |
 
 **Initial configuration:**
 
@@ -626,7 +626,7 @@ curl -X POST https://serviceradar.example.com/api/v1/devices \
 | Pods CrashLoopBackOff | Insufficient resources | Increase resource limits |
 | Database connection timeout | PVC not bound | Check PVC status, storage class |
 | 401 Unauthorized | JWT token expired | Regenerate token |
-| SPIFFE cert errors | SPIRE agent not running | Verify SPIRE installation |
+| mTLS cert errors | Certificate Secret missing or mismatched | Verify `serviceradar-runtime-certs` Secret |
 
 ---
 
@@ -645,7 +645,7 @@ curl -X POST https://serviceradar.example.com/api/v1/devices \
 | Tenet | Implementation | Evidence |
 |-------|----------------|----------|
 | **Secure Defaults** | mTLS enforced, non-root containers, no default passwords | All services require explicit config |
-| **Least Privilege** | RBAC per deployment, SPIFFE workload IDs, read-only filesystems | Service accounts scoped minimally |
+| **Least Privilege** | RBAC per deployment, X.509 URI SAN workload IDs, read-only filesystems | Service accounts scoped minimally |
 | **Immutability** | Signed multi-stage Docker images, read-only root filesystems | Cosign signatures on all images |
 | **Shift Left Security** | CodeQL SAST, Trivy container scans in CI | Automated pre-merge checks |
 | **Transparency** | SBOM in releases, public security advisories | GitHub Security tab |
@@ -686,7 +686,7 @@ High-risk features requiring ongoing maintenance:
 - **Authentication mechanisms**: Local-auth, OAuth2 integration
 - **RBAC policy engine**: Deployment isolation logic
 - **SRQL query parser**: SQL injection prevention
-- **mTLS certificate handling**: SPIFFE/SPIRE integration
+- **mTLS certificate handling**: Deployment-managed CA and X.509 URI SAN validation
 - **Edge proxy configuration**: Routing and TLS rules
 
 **Risk mitigation:**
@@ -711,14 +711,11 @@ High-risk features requiring ongoing maintenance:
 
 | Certificate Type | Rotation Frequency | Automation | Monitoring |
 |------------------|-------------------|------------|------------|
-| **SPIFFE X.509 SVIDs** | 1 hour (configurable) | SPIRE automatic | Prometheus alert on expiration |
 | **Core JWT keys** | 30 days | Manual (automating Q1 2026) | Core JWKS health checks |
 | **TLS ingress certs** | 90 days (Let's Encrypt) | cert-manager | cert-manager metrics |
 
-**Zero-downtime rotation:**
-- SPIRE agent pre-fetches next certificate before expiration
-- gRPC clients retry with new cert on TLS handshake failure
-- Edge proxy reloads configuration without dropping connections
+For runtime certificate generation, preservation and explicit rotation, see
+[TLS Security](../docs/tls-security.md#in-chart-certificate-generator).
 
 **Secure Software Supply Chain:**
 
@@ -746,16 +743,12 @@ High-risk features requiring ongoing maintenance:
 
 1. **Prerequisites check**: Kubernetes 1.25+, Helm 3.8+, 25GB+ cluster resources
 2. **Namespace creation**: `kubectl create namespace serviceradar`
-3. **SPIRE installation** (if not present):
-   ```bash
-   helm install spire spiffe/spire --namespace spire-system --create-namespace
-   ```
-4. **Storage provisioning**: Verify default StorageClass or create PVCs manually
-5. **Helm installation**:
+3. **Storage provisioning**: Verify default StorageClass or create PVCs manually
+4. **Helm installation**:
    ```bash
    helm install serviceradar serviceradar/serviceradar -n serviceradar
    ```
-6. **Initial configuration**:
+5. **Initial configuration**:
    ```bash
    # Create admin user
    kubectl exec -it deploy/serviceradar-tools -n serviceradar -- \
@@ -764,7 +757,7 @@ High-risk features requiring ongoing maintenance:
    # Get generated password
    kubectl get secret serviceradar-admin -n serviceradar -o jsonpath='{.data.password}' | base64 -d
    ```
-7. **Validation**: Access Web UI at `https://serviceradar.example.com` and log in
+6. **Validation**: Access Web UI at `https://serviceradar.example.com` and log in
 
 **Configuration touchpoints:**
 
@@ -862,7 +855,7 @@ kubectl apply -f previous-version/manifests/
 | **Database schema incompatibility** | Queries fail, data corruption risk | Manual migration rollback, restore from backup |
 | **CRD version mismatch** | Operator fails to start | Delete CRD, reinstall compatible version |
 | **Config format change** | Services crash loop | Helm rollback + manual config fix |
-| **SPIFFE cert mismatch** | mTLS handshake failures | Restart SPIRE server, regenerate certs |
+| **mTLS cert mismatch** | mTLS handshake failures | Regenerate or rotate certificate Secrets |
 
 **Impact to running workloads:**
 - Data collection: Brief interruption during gateway restarts (<30s)
@@ -1097,7 +1090,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 **Health checks verify:**
 - Database connectivity (CNPG query succeeds)
 - NATS JetStream cluster status (all nodes connected)
-- SPIFFE certificate validity (not expired)
+- mTLS certificate validity (not expired)
 - Disk space availability (> 10% free)
 
 **Determining usage:**
@@ -1141,7 +1134,6 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 |---------|---------|---------|-------------|
 | **NATS JetStream** | v2.10+ | Message broker, KV store | Critical (data loss if down) |
 | **CNPG/Timescale** | v1.5+ | Stream processing database | Critical (queries fail) |
-| **SPIFFE/SPIRE** | v1.8+ | Workload identity, mTLS | Critical (auth fails) |
 | **Edge Proxy** | Caddy/Gateway API | TLS termination, routing | High (API access denied) |
 | **Kubernetes** | 1.25+ | Orchestration | Critical (entire system) |
 
@@ -1151,7 +1143,6 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 |-----------------|------------------|------------|----------|
 | **NATS** | Data ingestion halted | Gateways buffer locally (5min) | Automatic retry, drain buffer |
 | **CNPG** | Queries fail, writes buffered | NATS retains messages | Replay from NATS on recovery |
-| **SPIRE** | New pods fail auth | Existing services continue | Restart SPIRE, pods self-heal |
 | **Edge Proxy** | API access denied | Direct Core API access possible | Restart proxy, routes restored |
 
 **Dependency lifecycle policy:**
@@ -1216,15 +1207,6 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
   4. Cached data flushed to NATS
 - **Data loss**: Minimal (5 minutes if all NATS nodes fail)
 
-**SPIFFE/SPIRE failure:**
-- **Impact**: New service instances cannot obtain certificates, existing services continue
-- **Recovery**:
-  1. Existing mTLS connections remain active
-  2. Restart SPIRE server
-  3. SPIRE agents reconnect
-  4. New pods obtain certificates
-- **Data loss**: None
-
 **Leader node failure (etcd):**
 - **Impact**: Kubernetes control plane briefly unavailable
 - **Recovery**:
@@ -1253,14 +1235,14 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 | **Resolution** | 1. Scale db-event-writer replicas: `kubectl scale deployment serviceradar-db-event-writer --replicas=5`<br>2. Tune batch sizes: increase `writer.batchSize` in config<br>3. Check database write performance |
 | **Prevention** | Alert on consumer lag > 10k messages, autoscale db-event-writer |
 
-**3. SPIFFE Certificate Rotation Failure**
+**3. mTLS Certificate Expiration or Mismatch**
 
 | Field | Details |
 |-------|---------|
 | **Symptom** | mTLS handshake failures, logs show "certificate expired", pod restarts |
-| **Root Cause** | SPIRE agent unable to rotate certificates (network issue, SPIRE server down) |
-| **Resolution** | 1. Verify SPIRE server health: `kubectl get pods -n spire-system`<br>2. Check SPIRE agent logs: `kubectl logs -n serviceradar <pod> -c spire-agent`<br>3. Manually trigger rotation: `kubectl exec <pod> -- spire-agent api fetch -socketPath /run/spire/sockets/agent.sock`<br>4. Restart affected pods if necessary |
-| **Prevention** | Monitor `spiffe_cert_expiry_seconds`, alert if < 1 hour remaining |
+| **Root Cause** | Runtime certificate Secret expired or out of sync across pods |
+| **Resolution** | Follow the explicit runtime certificate rotation path in [TLS Security](../docs/tls-security.md#in-chart-certificate-generator), then verify affected services reconnect. |
+| **Prevention** | Monitor `serviceradar_cert_expiry_seconds`, alert if < 7 days remaining |
 
 **4. Gateway-Agent Communication Failure**
 
@@ -1268,7 +1250,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 |-------|---------|
 | **Symptom** | Device data gaps, "unreachable" status in UI, logs show "connection refused" |
 | **Root Cause** | Network connectivity issue, agent pod crash, mTLS certificate mismatch |
-| **Resolution** | 1. Verify network connectivity: `kubectl exec <gateway-pod> -- nc -zv <agent-service> 50051`<br>2. Check agent pod status: `kubectl get pods -l app=serviceradar-agent`<br>3. Validate mTLS: check SPIRE logs in both gateway and agent<br>4. Restart agent pod if necessary |
+| **Resolution** | 1. Verify network connectivity: `kubectl exec <gateway-pod> -- nc -zv <agent-service> 50051`<br>2. Check agent pod status: `kubectl get pods -l app=serviceradar-agent`<br>3. Validate mTLS certificates in both gateway and agent<br>4. Restart agent pod if necessary |
 | **Prevention** | Network policies correctly configured, regular connectivity tests |
 
 **5. Large SNMP Payload Timeout**
@@ -1411,7 +1393,7 @@ ServiceRadar is a production-ready, cloud-native network management platform cur
 **Key strengths:**
 - Carrier-grade scalability (100k+ devices validated through load testing)
 - Security-first design (mTLS, RBAC, memory-safe languages)
-- Cloud-native integration (Kubernetes, SPIFFE, OCSF, NATS, OpenTelemetry)
+- Cloud-native integration (Kubernetes, OCSF, NATS, OpenTelemetry)
 - Dedicated deployment architecture suitable for MSP deployments
 
 **Current limitations:**

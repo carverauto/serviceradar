@@ -463,13 +463,13 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackagesTest do
     test "returns a string security mode" do
       mode = OnboardingPackages.configured_security_mode()
       assert is_binary(mode)
-      assert mode in ["mtls", "spire", "insecure"]
+      assert mode == "mtls"
     end
   end
 
   describe "certificate generation (external infrastructure)" do
     # NOTE: In single-deployment mode, certificate generation is handled by
-    # external infrastructure (SPIFFE/SPIRE, cert-manager). These tests verify that
+    # external infrastructure (cert-manager) or the agent-gateway. These tests verify that
     # the functions return appropriate errors indicating this.
 
     test "create_with_platform_cert returns error for unavailable CA", _context do

@@ -26,6 +26,11 @@ func TestCoreSecurityProviderFromEnvRejectsInsecureModes(t *testing.T) {
 			wantErr: errInsecureCoreSecMode,
 		},
 		{
+			name:    "spiffe mode removed",
+			mode:    "spiffe",
+			wantErr: errUnsupportedCoreSecMode,
+		},
+		{
 			name:    "unsupported mode",
 			mode:    "bogus",
 			wantErr: errUnsupportedCoreSecMode,

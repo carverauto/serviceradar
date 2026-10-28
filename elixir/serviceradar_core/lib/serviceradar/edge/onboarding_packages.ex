@@ -455,7 +455,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   Generates a component certificate signed by the platform CA.
 
   In single-deployment mode, certificate generation is handled by
-  external infrastructure (SPIFFE/SPIRE, cert-manager). This function returns
+  external infrastructure (cert-manager) or the agent-gateway. This function returns
   an error indicating that the legacy certificate generation is not available.
 
   ## Parameters
@@ -479,7 +479,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
         _opts \\ []
       ) do
     # In single-deployment mode, certificate generation is handled by
-    # external infrastructure (SPIFFE/SPIRE, cert-manager)
+    # external infrastructure (cert-manager) or the agent-gateway
     {:error, :ca_not_available}
   end
 

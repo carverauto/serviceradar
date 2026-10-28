@@ -1,7 +1,7 @@
 {{- $lb := "{{" -}}
 {{- $rb := "}}" -}}
 {{- $trustDomain := include "serviceradar.trustDomain" .Values -}}
-{{- $spireNamespace := .Release.Namespace -}}
+{{- $ns := .Release.Namespace -}}
 {{- $datasvcSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "datasvc")) -}}
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $pluginHTTPTrustedCAFiles := list "/etc/serviceradar/certs/root.pem" -}}
@@ -141,7 +141,6 @@ data:
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "trust_domain": "{{$trustDomain}}",
-        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/core.pem",
           "key_file": "/etc/serviceradar/certs/core-key.pem",
@@ -155,7 +154,6 @@ data:
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "trust_domain": "{{$trustDomain}}",
-        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/core.pem",
           "key_file": "/etc/serviceradar/certs/core-key.pem",
@@ -165,20 +163,11 @@ data:
       "edge_onboarding": {
         "enabled": true,
         "encryption_key": "",
-        "default_selectors": [
-          "unix:uid:0",
-          "unix:gid:0",
-          "unix:user:root",
-          "unix:group:root"
-        ],
         "default_metadata": {
           "gateway": {
             "core_address": "{{ include "serviceradar.coreAddress" . }}",
-            "core_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
             "kv_address": "serviceradar-datasvc:50057",
-            "kv_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
             "agent_address": "agent:50051",
-            "agent_spiffe_id": "spiffe://{{$trustDomain}}/services/agent",
             "log_level": "info",
             "logs_dir": "./logs"
           },
@@ -312,7 +301,6 @@ data:
           "cert_dir": "/etc/serviceradar/certs",
           "role": "agent",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$datasvcSA}}",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -324,7 +312,6 @@ data:
           "cert_dir": "/etc/serviceradar/certs",
           "role": "agent",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$agentSA}}",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -418,7 +405,6 @@ data:
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$rperfCheckerSA}}",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -438,7 +424,6 @@ data:
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$trapdSA}}",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -458,7 +443,6 @@ data:
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$logCollectorSA}}",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -494,7 +478,7 @@ data:
   
       echo "Using runtime configuration at $CONFIG_PATH"
   
-      EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-{{$spireNamespace}}}"
+      EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-{{$ns}}}"
       CNPG_HOST_VALUE="${CNPG_HOST:-{{ $cnpgClusterName }}-rw.${EFFECTIVE_NAMESPACE}.svc.cluster.local}"
       CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
       CNPG_DATABASE_VALUE="${CNPG_DATABASE:-serviceradar}"
@@ -979,15 +963,15 @@ data:
           "system_account_creds_file": "/etc/serviceradar/creds/system.creds",
         {{- end }}
           "allowed_client_identities": [
-            "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}",
+            "spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}",
             "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           ]
         },
         "rbac": {
           "roles": [
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}", "role": "writer"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "reader"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}", "role": "writer"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ $logCollectorSA }}", "role": "reader"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ $agentSA }}", "role": "reader"},
             {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},

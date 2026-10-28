@@ -16,10 +16,7 @@
 
 //! Integration tests for edge_onboarding crate.
 
-use edge_onboarding::{
-    ComponentType, DeploymentType, MtlsBootstrapConfig, OnboardingResult, SecurityConfig,
-    SecurityMode, try_onboard,
-};
+use edge_onboarding::{ComponentType, SecurityConfig, SecurityMode, try_onboard};
 use std::sync::{Mutex, OnceLock};
 
 const ONBOARDING_TOKEN_ENV: &str = "ONBOARDING_TOKEN";
@@ -92,45 +89,6 @@ fn test_try_onboard_whitespace_token() {
     unsafe {
         std::env::remove_var(ONBOARDING_TOKEN_ENV);
     }
-}
-
-#[test]
-fn test_mtls_bootstrap_config_fields() {
-    let cfg = MtlsBootstrapConfig {
-        token: "edgepkg-v2:abc.def".to_string(),
-        host: Some("https://core.example.com:8090".to_string()),
-        bundle_path: None,
-        cert_dir: Some("/tmp/certs".to_string()),
-        service_name: Some("sysmon".to_string()),
-    };
-
-    assert_eq!(cfg.token, "edgepkg-v2:abc.def");
-    assert_eq!(cfg.host.as_deref(), Some("https://core.example.com:8090"));
-    assert!(cfg.bundle_path.is_none());
-    assert_eq!(cfg.cert_dir.as_deref(), Some("/tmp/certs"));
-    assert_eq!(cfg.service_name.as_deref(), Some("sysmon"));
-}
-
-#[test]
-fn test_onboarding_result_fields() {
-    let result = OnboardingResult {
-        config_path: "/etc/config/checker.json".to_string(),
-        config_data: vec![1, 2, 3],
-        spiffe_id: Some("spiffe://example.com/service".to_string()),
-        package_id: "pkg-123".to_string(),
-        deployment_type: DeploymentType::Docker,
-        cert_dir: "/etc/certs".to_string(),
-    };
-
-    assert_eq!(result.config_path, "/etc/config/checker.json");
-    assert_eq!(result.config_data, vec![1, 2, 3]);
-    assert_eq!(
-        result.spiffe_id,
-        Some("spiffe://example.com/service".to_string())
-    );
-    assert_eq!(result.package_id, "pkg-123");
-    assert_eq!(result.deployment_type, DeploymentType::Docker);
-    assert_eq!(result.cert_dir, "/etc/certs");
 }
 
 #[test]

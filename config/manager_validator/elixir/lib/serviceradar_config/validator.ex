@@ -237,9 +237,6 @@ defmodule ServiceradarConfig.Validator do
   defp core_field(c, "api_url"), do: str_value(Map.get(c, :api_url))
   defp core_field(c, "security_mode"), do: enum_value(Map.get(c, :security_mode))
   defp core_field(c, "server_name"), do: str_value(Map.get(c, :server_name))
-  defp core_field(c, "trust_domain"), do: str_value(Map.get(c, :trust_domain))
-  defp core_field(c, "server_spiffe_id"), do: str_value(Map.get(c, :server_spiffe_id))
-  defp core_field(c, "workload_socket"), do: str_value(Map.get(c, :workload_socket))
   defp core_field(_c, _), do: :unknown
 
   defp dgraph_field(d, "host"), do: str_value(Map.get(d, :host))

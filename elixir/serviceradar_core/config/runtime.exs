@@ -34,6 +34,15 @@ alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDisposi
 alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
 alias ServiceRadar.Security.AuditVersionRetentionWorker
 
+for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
+  mode = name |> System.get_env("") |> String.trim() |> String.downcase()
+
+  if mode in ~w(spiffe spire workload_api) do
+    raise ArgumentError,
+          "#{name}=#{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+  end
+end
+
 # Fail closed on invalid ingestion bounds; do not silently enable a larger queue.
 ingestion_positive_env = fn name, default ->
   case System.get_env(name) do
@@ -514,17 +523,6 @@ if config_env() == :prod do
       Generate a 32-byte key with:
         :crypto.strong_rand_bytes(32) |> Base.encode64()
       """
-
-  spiffe_mode =
-    case System.get_env("SPIFFE_MODE", "filesystem") do
-      "workload_api" -> :workload_api
-      _ -> :filesystem
-    end
-
-  spiffe_socket =
-    System.get_env("SPIFFE_WORKLOAD_API_SOCKET") ||
-      System.get_env("SPIFFE_ENDPOINT_SOCKET") ||
-      "unix:///run/spire/sockets/agent.sock"
 
   spiffe_bundle_path = System.get_env("SPIFFE_TRUST_BUNDLE_PATH")
 
@@ -1263,10 +1261,9 @@ if config_env() == :prod do
   config :serviceradar_core, :platform_sync_component_id, platform_sync_component_id
 
   config :serviceradar_core, :spiffe,
-    mode: spiffe_mode,
+    mode: :filesystem,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: spiffe_socket,
     trust_bundle_path: spiffe_bundle_path
 
   config :serviceradar_core,

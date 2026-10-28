@@ -166,6 +166,6 @@ sizing.
 
 - Everything is mTLS by default.
 - Deployment-managed mTLS is the supported identity model. For legacy installations, see [Migrating off SPIRE](./migrating-off-spire.md).
-- Docker Compose uses non-SPIFFE mTLS bootstrapping (cert generation + distribution via volumes).
+- Docker Compose uses mTLS bootstrapping (cert generation + distribution via volumes).
 
 See [TLS / mTLS](./tls-security.md).

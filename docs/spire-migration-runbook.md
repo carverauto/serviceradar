@@ -1,6 +1,6 @@
-# SPIRE deprecation operator checklist
+# SPIRE removal operator checklist
 
-This is a manual checklist for an existing SPIRE deployment. New and existing mTLS deployments do not need a SPIRE migration. For chart compatibility, value mapping and upgrade cleanup behavior, see [Migrating off SPIRE](docs/migrating-off-spire.md).
+This is a manual checklist for operators upgrading an older SPIRE-based deployment to a release where SPIRE chart and runtime support have been removed. New and existing mTLS deployments do not need a SPIRE migration. For chart compatibility, value mapping and upgrade cleanup behavior, see [Migrating off SPIRE](docs/migrating-off-spire.md).
 
 1. Record the deployed chart version and effective non-secret values. Identify the existing CNPG Cluster namespace/name, application database, SPIRE datastore, PVCs and credential references. Keep secret material in the approved credential tooling.
 2. Compare the deployed chart with the target chart using neutral overrides before upgrading. Compare Cluster metadata/spec, storage size/class, instance count, image, users, Secret references, workload accounts and certificate URI identities. Use the value mapping in the migration guide; record explicit settings for every legacy override.
