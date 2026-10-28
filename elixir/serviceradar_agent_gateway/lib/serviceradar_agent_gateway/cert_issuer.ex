@@ -803,26 +803,27 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
           revoked?: false
         }
 
-        issuance_audit = issuance_audit(
-          Keyword.put_new(opts, :audit_action, :agent_certificate_renew),
-          component_id: component_id,
-          component_type: component_type,
-          requested_partition_id: partition_id,
-          granted_partition_id: partition_id,
-          authorized_component_id: normalize_identity_id(Keyword.get(opts, :authorized_component_id)),
-          authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
-          validity_days: validity_days,
-          long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
-          predecessor_certificate_fingerprint: predecessor_info.fingerprint,
-          predecessor_certificate_serial_number: predecessor_info.serial_number,
-          predecessor_certificate_revoked: predecessor_info.revoked?,
-          certificate_fingerprint: cert_meta.certificate_fingerprint,
-          serial_number: cert_meta.serial_number,
-          not_before_unix: cert_meta.not_before_unix,
-          not_after_unix: cert_meta.not_after_unix,
-          cn: cn,
-          spiffe_id: spiffe_id
-        )
+        issuance_audit =
+          issuance_audit(
+            Keyword.put_new(opts, :audit_action, :agent_certificate_renew),
+            component_id: component_id,
+            component_type: component_type,
+            requested_partition_id: partition_id,
+            granted_partition_id: partition_id,
+            authorized_component_id: normalize_identity_id(Keyword.get(opts, :authorized_component_id)),
+            authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
+            validity_days: validity_days,
+            long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
+            predecessor_certificate_fingerprint: predecessor_info.fingerprint,
+            predecessor_certificate_serial_number: predecessor_info.serial_number,
+            predecessor_certificate_revoked: predecessor_info.revoked?,
+            certificate_fingerprint: cert_meta.certificate_fingerprint,
+            serial_number: cert_meta.serial_number,
+            not_before_unix: cert_meta.not_before_unix,
+            not_after_unix: cert_meta.not_after_unix,
+            cn: cn,
+            spiffe_id: spiffe_id
+          )
 
         {:ok,
          %{

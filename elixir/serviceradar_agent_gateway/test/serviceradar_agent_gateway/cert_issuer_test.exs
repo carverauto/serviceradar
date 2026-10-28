@@ -202,7 +202,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                  "default",
                  :agent,
                  requested ++
-                   [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir, audit_writer: nil]
+                   [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir]
                )
 
       [{:Certificate, cert_der, _}] = :public_key.pem_decode(bundle.certificate_pem)
@@ -374,9 +374,8 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
            })
   end
 
-  test "issues renewed certificate from a verified ECDSA CSR and emits agent_certificate_renew audit" do
+  test "issues renewed certificate from a verified ECDSA CSR and returns agent_certificate_renew audit" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-csr-test")
-    test_pid = self()
 
     on_exit(fn -> File.rm_rf(parent_dir) end)
 
@@ -391,11 +390,6 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
         "URI:spiffe://serviceradar.local/agent/default/agent-1,DNS:agent-1.default.serviceradar"
       )
 
-    audit_writer = fn event ->
-      send(test_pid, {:csr_renew_audit, event})
-      :ok
-    end
-
     assert {:ok, issued} =
              CertIssuer.issue_from_csr(
                csr_der,
@@ -404,8 +398,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: audit_writer
+               temp_parent_dir: parent_dir
              )
 
     assert issued.cn == "agent-1.default.serviceradar"
@@ -420,9 +413,8 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/agent/default/agent-1"} in sans
     assert {:dNSName, ~c"agent-1.default.serviceradar"} in sans
 
-    assert_receive {:csr_renew_audit, event}
-    assert event.action == :agent_certificate_renew
-    assert event.resource_id == "agent-1"
+    assert issued.issuance_audit[:action] == :agent_certificate_renew
+    assert issued.issuance_audit[:resource_id] == "agent-1"
   end
 
   test "rejects CSR with forged signature or weak key or mismatched CN/SAN" do
@@ -460,8 +452,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     weak_csr_der =
@@ -479,8 +470,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     mismatched_cn_csr =
@@ -498,8 +488,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     mismatched_san_csr =
@@ -517,8 +506,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
   end
 
