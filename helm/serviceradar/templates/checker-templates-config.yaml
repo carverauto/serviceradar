@@ -1,4 +1,3 @@
-{{- $trustDomain := (include "serviceradar.trustDomain" .Values) | default "carverauto.dev" -}}
 {{- if .Values.checkerTemplates.enabled }}
 apiVersion: v1
 kind: ConfigMap
@@ -11,12 +10,11 @@ data:
       "node_address": "{{`{{AGENT_ADDRESS}}`}}",
       "listen_addr": ":50054",
       "security": {
-        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "mode": "mtls",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs",
         "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
-        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}",
-        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}"
       },
       "timeout": "30s",
       "logger": {
@@ -33,11 +31,10 @@ data:
       "type": "grpc",
       "timeout": "30s",
       "security": {
-        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
-        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}",
-        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}"
       },
       "default_poll_interval": 300,
       "targets": []
@@ -50,12 +47,11 @@ data:
       "listen_addr": ":50082",
       "timeout": "5m",
       "security": {
-        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "mode": "mtls",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs",
         "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
-        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}",
-        "workload_socket": "unix:/run/spire/sockets/agent.sock"
+        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}"
       }
     }
 {{- end }}

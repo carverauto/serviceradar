@@ -2,9 +2,7 @@
 title: ServiceRadar CLI
 ---
 
-:::warning Deprecated SPIRE runtime
-SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
-:::
+For SPIRE compatibility and upgrade guidance, see [Migrating off SPIRE](./migrating-off-spire.md).
 
 # ServiceRadar CLI
 

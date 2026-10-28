@@ -61,11 +61,6 @@ spec:
           readOnly: true
         - name: checkers-dir
           mountPath: /etc/serviceradar/checkers
-        {{- if .Values.spire.enabled }}
-        - name: spire-agent-socket
-          mountPath: /run/spire/sockets
-          readOnly: true
-        {{- end }}
         env:
 {{ include "serviceradar.kvEnv" . | indent 8 }}
         - name: CONFIG_PATH
@@ -108,12 +103,6 @@ spec:
               path: "rperf-client-key.pem"
       - name: checkers-dir
         emptyDir: {}
-      {{- if .Values.spire.enabled }}
-      - name: spire-agent-socket
-        hostPath:
-          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
-          type: DirectoryOrCreate
-      {{- end }}
 ---
 apiVersion: v1
 kind: Service

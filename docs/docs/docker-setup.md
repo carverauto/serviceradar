@@ -2,9 +2,7 @@
 title: Docker Setup
 ---
 
-:::warning Deprecated SPIRE runtime
-SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
-:::
+For SPIRE compatibility and upgrade guidance, see [Migrating off SPIRE](./migrating-off-spire.md).
 
 # Docker Setup
 
@@ -115,7 +113,7 @@ docker compose run --rm \
 ## Certificates and TLS
 
 The stack auto-generates mTLS certificates on first boot. Certificates live in the `cert-data` volume and are mounted into each service as needed.
-SPIFFE/SPIRE is Kubernetes-only; Docker Compose uses the built-in certificate generator instead.
+Docker Compose uses the built-in certificate generator.
 
 If you need to verify cert generation:
 

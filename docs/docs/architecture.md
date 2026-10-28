@@ -3,9 +3,7 @@ sidebar_position: 6
 title: Architecture
 ---
 
-:::warning Deprecated SPIRE runtime
-SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
-:::
+For SPIRE compatibility and upgrade guidance, see [Migrating off SPIRE](./migrating-off-spire.md).
 
 # Architecture
 
@@ -167,7 +165,7 @@ sizing.
 ## Identity And TLS
 
 - Everything is mTLS by default.
-- Deployment-managed mTLS is the supported identity model. SPIFFE/SPIRE remains deprecated compatibility in Kubernetes.
+- Deployment-managed mTLS is the supported identity model. For legacy installations, see [Migrating off SPIRE](./migrating-off-spire.md).
 - Docker Compose uses non-SPIFFE mTLS bootstrapping (cert generation + distribution via volumes).
 
 See [TLS / mTLS](./tls-security.md).

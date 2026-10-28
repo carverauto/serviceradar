@@ -175,11 +175,9 @@ kv:
   configSource: file
   bucket: serviceradar-datasvc
   address: serviceradar-datasvc:50057
-  # The spiffe value is deprecated; use mtls.
   secMode: mtls
   trustDomain: ""
   serverSPIFFEID: ""
-  workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
 natsCreds:
   # Inline NATS .creds files for platform/system accounts.
@@ -1159,17 +1157,14 @@ gobgp:
     port: 179
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
-  # The spiffe value is deprecated; use mtls.
   secMode: mtls
   trustDomain: ""
   serverSPIFFEID: ""
-  workloadSocket: unix:/run/spire/sockets/agent.sock
   certDir: /etc/serviceradar/certs
 cnpg:
   enabled: true
-  # Null retains the active legacy SPIRE cluster setting, then the shown default.
   clusterName: null # cnpg
-  namespace: null # release namespace; legacy spire.namespace for its active cluster
+  namespace: null # release namespace
   instances: null # 3
   storageClass: null # global storage policy
   storageSize: null # 100Gi
@@ -1703,7 +1698,6 @@ webNg:
   datasvc:
     host: "serviceradar-datasvc"
     port: 50057
-    # The spiffe value is deprecated; use mtls.
     secMode: "mtls"
     certDir: "/etc/serviceradar/certs"
     certName: "web"
@@ -2327,7 +2321,7 @@ configSync:
     role: ""
     extraArgs: ""
     extraEnv: {}
-# Neutral workload identity overrides. Blank values retain deprecated spire.* fallbacks.
+# Neutral workload identity overrides.
 trustDomain: ""
 serviceAccounts:
   core: ""
@@ -2341,117 +2335,6 @@ serviceAccounts:
   bmpCollector: ""
   otel: ""
   flowgger: ""
-# Deprecated: SPIRE runtime support will be removed in a later phase.
-spire:
-  enabled: false
-  namespace: ""
-  serverSelector: app=spire-server
-  trustDomain: carverauto.dev
-  clusterName: carverauto-cluster
-  agentServiceAccount: spire-agent
-  coreServiceAccount: serviceradar-core
-  webNgServiceAccount: serviceradar-web-ng
-  datasvcServiceAccount: serviceradar-datasvc
-  serviceradarAgentServiceAccount: serviceradar-agent
-  socketHostPath: ""
-  joinTokenTTL: 15m
-  logCollectorServiceAccount: serviceradar-log-collector
-  # Deprecated: otel and flowgger are now merged into logCollector
-  otelServiceAccount: serviceradar-otel
-  rperfCheckerServiceAccount: serviceradar-rperf-checker
-  flowggerServiceAccount: serviceradar-flowgger
-  trapdServiceAccount: serviceradar-trapd
-  flowCollectorServiceAccount: serviceradar-flow-collector
-  bmpCollectorServiceAccount: serviceradar-bmp-collector
-  bundleConfigMap: spire-bundle
-  server:
-    image: ghcr.io/spiffe/spire-server:1.11.2
-    logLevel: DEBUG
-    adminIDs: []
-    initConfigImage: busybox
-    serviceName: spire-server
-    serviceType: ClusterIP
-    exposeHealthPort: false
-    dataPVC:
-      size: 1Gi
-      storageClass: ""
-  agent:
-    image: ghcr.io/spiffe/spire-agent:1.11.2
-    logLevel: DEBUG
-    waitForImage: cgr.dev/chainguard/wait-for-it
-    hostNetwork: true
-    skipKubeletVerification: false
-  tokenAudience: spire-server
-  additionalAgentNamespaces: []
-  postgres:
-    enabled: true
-    clusterName: cnpg
-    database: spire
-    instances: 3
-    storageClass: local-path
-    storageSize: 100Gi
-    # Same WAL budget as cnpg.* above; all three derive from storageSize when blank.
-    maxSlotWalKeepSize: ""
-    maxWalSize: ""
-    minWalSize: ""
-    secretName: spire-db-credentials
-    username: spire
-    password: ""
-    # If blank, Helm generates a random password and stores it in spire-db-credentials.
-    # Existing secrets are reused; delete the secret to rotate.
-    image: ""
-    imageTag: ""
-    imageName: ""
-    imagePullSecrets: []
-    sharedPreloadLibraries:
-      - timescaledb
-      - age
-      - pg_stat_statements
-    postgresqlParameters:
-      log_min_duration_statement: "500ms"
-      # See cnpg.postgresqlParameters.log_parameter_max_length -- must be 0, since the
-      # truncation is per parameter and does not bound a bulk insert.
-      log_parameter_max_length: "0"
-      log_lock_waits: "on"
-      deadlock_timeout: "1s"
-      # max_wal_size / min_wal_size derive from storageSize; see spire.postgres.maxWalSize.
-      checkpoint_timeout: "15min"
-      checkpoint_completion_target: "0.9"
-      wal_compression: "on"
-      pg_stat_statements.max: "10000"
-      pg_stat_statements.track: "all"
-      pg_stat_statements.track_planning: "on"
-      track_io_timing: "on"
-    extensionsSQL:
-      - CREATE EXTENSION IF NOT EXISTS timescaledb;
-      - CREATE EXTENSION IF NOT EXISTS age;
-      - CREATE EXTENSION IF NOT EXISTS postgis;
-      - CREATE EXTENSION IF NOT EXISTS vector;
-      - CREATE EXTENSION IF NOT EXISTS pg_stat_statements;
-  controllerManager:
-    enabled: true
-    image: ghcr.io/spiffe/spire-controller-manager
-    tag: 0.6.3
-    configMapName: spire-controller-manager-config
-    spireServerSocketPath: /spire-server/api.sock
-    metricsBindAddress: 127.0.0.1:8082
-    healthProbeBindAddress: 0.0.0.0:8083
-    logLevel: info
-    leaderElectionResourceName: spire-controller-manager
-    ignoreNamespaces:
-      - kube-system
-      - kube-public
-      - local-path-storage
-      - kube-node-lease
-    validatingWebhookConfigurationName: spire-controller-manager-webhook
-    enableWebhooks: false
-    resources:
-      limits:
-        cpu: 200m
-        memory: 512Mi
-      requests:
-        cpu: 50m
-        memory: 256Mi
 ingress:
   enabled: false
   host: ""
