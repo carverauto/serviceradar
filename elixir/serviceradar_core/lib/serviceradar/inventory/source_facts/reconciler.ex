@@ -31,12 +31,12 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
   Records the facts of a sync batch's written `{update, device_uid}` pairs and reconciles
   each device.
 
-  The batch costs a fixed number of statements, whatever its size: the facts are written
-  with one upsert and one absent mark, and the devices' facts, canonical values and open
-  disagreements are read once for all of them. A device is written on its own only when
-  its facts promote a canonical value or it has a disagreement to open, refresh or clear.
-  When a batch carries several updates of one source for a device, the last one decides
-  each fact, as writing them in order did.
+  Facts are upserted in bounded chunks, omitted keys are marked absent in one batch
+  statement, and legacy-instance facts are retired once per source. The devices' facts,
+  canonical values and open disagreements are each read once for the batch. Per-device
+  writes remain for canonical promotions and disagreements to open, refresh or clear.
+  When a batch carries several updates for the same device, source and source instance,
+  the last update decides each fact, as writing them in order did.
   """
   @spec ingest_resolved([{map(), String.t()}], keyword()) :: :ok
   def ingest_resolved(resolved_updates, opts \\ [])
