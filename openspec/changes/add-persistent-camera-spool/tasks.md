@@ -2,15 +2,16 @@
 
 The user approved per-replica persistent storage through an opt-in StatefulSet.
 Runtime member-identity selection and the isolated filesystem initializer are
-implemented. Physical-volume preflight, packaging, qualification and deployment
-acceptance remain open.
+implemented. The installation inventory and conversion contracts are specified;
+their enforcement, physical-volume preflight, packaging, qualification and
+deployment acceptance remain open.
 
 ## 1. Confirm design
 
 - [x] 1.1 Select per-replica StatefulSet storage; the user approved this architecture over the single-core demo alternative.
 - [ ] 1.1a Obtain approval for the initial conversion maintenance window.
 - [ ] 1.2 Verify qualified CSI ReadWriteOncePod support, PV retention and encryption for the intended installation.
-- [ ] 1.3 Specify the bounded installation-document schema, volume inventory association and guarded controller-kind conversion/rollback protocol.
+- [x] 1.3 Specify the bounded installation-document schema, volume inventory association and guarded controller-kind conversion/rollback protocol; see [inventory](installation-inventory.md) and [conversion](conversion-protocol.md). These are implementation contracts, not installed enforcement.
 
 ## 2. Runtime identity and explicit provisioning
 
@@ -20,9 +21,10 @@ acceptance remain open.
 
 ## 3. Chart packaging and migration
 
+- [x] 3.0 Preserve an explicit zero core replica count so an operator-requested drain is not rendered as one replica; this does not prove retirement or authorize conversion.
 - [ ] 3.1 Add the opt-in StatefulSet, per-member retained claims and installed identity document; preserve the default Deployment.
 - [ ] 3.2 Add an explicitly invoked provisioning Job and actual-volume preflight with recording disabled.
-- [ ] 3.3 Implement the guarded conversion and rollback procedure, including interrupted conversion and refusal of concurrent old/new owners.
+- [ ] 3.3 Implement the independent admission fence and guarded conversion/rollback procedure, including interrupted conversion, stale Helm revisions, scale subresources and refusal of concurrent old/new owners.
 - [ ] 3.4 Validate rendered manifests and synthetic cluster replacement, exclusive mount, scaling and uninstall preservation.
 
 ## 4. Cloud scope

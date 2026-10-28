@@ -13,6 +13,12 @@ tests:
   - it: renders an Oban shutdown grace the pod outlives by default
     asserts:
       - equal:
+          path: spec.replicas
+          value: 3
+        documentSelector:
+          path: kind
+          value: Deployment
+      - equal:
           path: spec.template.spec.terminationGracePeriodSeconds
           value: 90
         documentSelector:
@@ -48,6 +54,17 @@ tests:
         documentSelector:
           path: kind
           value: Deployment
+
+  - it: preserves explicit zero replicas for an operator requested drain
+    set:
+      core.replicas: 0
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 0
 
   - it: rejects a pod grace that does not outlive the Oban grace
     set:

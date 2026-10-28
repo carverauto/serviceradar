@@ -16,6 +16,9 @@ across core replicas.
   enablement. Bind each volume lifetime to an explicitly provisioned UUID.
 - Specify a controlled Deployment-to-StatefulSet migration and preservation on
   scale-down, rollback and uninstall.
+- Specify bounded installation/volume inventory and admission enforcement that
+  survives runtime Helm rollback; implement explicit zero core replicas as a
+  preparation for an observed drain.
 - Scope the corresponding Cloud inventory, chart preflight and restore changes
   before hosted enablement. Cloud restore currently targets a Deployment.
 
@@ -36,6 +39,7 @@ remain open. Architecture approval neither qualifies a provider nor enables reco
 - Related work: [VMS plan](../add-vms-storage-playback-engine/README.md),
   [spool identity](../add-vms-storage-playback-engine/spool-lifetime.md) and
   [bounded capture](../add-vms-storage-playback-engine/capture-once.md).
-- The implementation passes supply runtime identity configuration and an
-  explicitly invoked filesystem initializer.
-  Chart, database, credential, bucket and deployment state remain unchanged.
+- The implementation passes supply runtime identity configuration, an
+  explicitly invoked filesystem initializer and the zero-replica chart fix.
+  The inventory and independent conversion fence are specified, not installed.
+  Database, credential, bucket and deployment state remain unchanged.

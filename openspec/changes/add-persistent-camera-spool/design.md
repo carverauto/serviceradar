@@ -69,6 +69,12 @@ specified in [member identity configuration](identity-configuration.md). It
 fails startup on invalid explicit installation configuration, even with recording
 disabled; the scalar-only installation behavior remains unchanged.
 
+The [installation inventory contract](installation-inventory.md) specifies the
+bounded infrastructure record, immutable bound-volume association and small
+runtime projection. Retained volume records outlive active member selection and
+runtime Helm history. This contract is specified; infrastructure enforcement and
+materialization remain unimplemented.
+
 Initialize each intended claim explicitly while no core pod mounts it. The
 provisioning operation verifies the expected claim/PV identity, creates only a
 designated private spool subdirectory on the mounted volume, then calls the
@@ -129,6 +135,13 @@ kind explicitly. They must refuse ambiguous or mixed controller observations.
 An automatic Helm rollback must not resurrect the old Deployment alongside
 the StatefulSet. The migration implementation must define this guard and its
 failure recovery before it can be used.
+
+The [conversion protocol](conversion-protocol.md) specifies an independently
+owned admission fence, observed owner retirement, interrupted-operation recovery
+and controlled rollback. A new chart's lookup cannot constrain old Helm
+revisions. The guard remains an implementation and acceptance dependency, and
+installing it requires explicit operational approval. The preparatory chart fix
+honors zero core replicas without claiming that desired zero proves retirement.
 
 Rollback stops new recording/work, observes owner retirement and preserves
 claims and their inventory. Returning to a Deployment restores service only;

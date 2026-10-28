@@ -26,6 +26,11 @@ The system SHALL select each member's expected storage UUID from explicit versio
 - **THEN** it SHALL follow the existing exact marker verification contract without rewriting a valid marker
 - **AND** partial, conflicting or unmarked nonempty storage SHALL remain preserved for reconciliation
 
+#### Scenario: Physical association changes under a retained name
+- **WHEN** a retained member or same-named claim resolves to a different PVC UID, PV UID or CSI volume identity
+- **THEN** infrastructure SHALL refuse new initialization and member admission until explicit reconciliation
+- **AND** SHALL preserve the prior storage-lifetime record instead of overwriting its association
+
 ### Requirement: Preservation across controller and lifecycle changes
 The system SHALL preserve recording claims and their storage-lifetime inventory across scale-down, rollback and workload removal, and require observed old-owner retirement before controller conversion or replacement writers.
 
@@ -38,6 +43,16 @@ The system SHALL preserve recording claims and their storage-lifetime inventory 
 - **WHEN** a core member is removed or its workload is uninstalled
 - **THEN** its claim, backing volume and inventory SHALL remain retained
 - **AND** deletion SHALL require the separate preservation-aware lifecycle authority
+
+#### Scenario: Explicit zero requests a drain
+- **WHEN** the operator sets the core replica count to zero
+- **THEN** the chart SHALL render zero replicas without substituting a default
+- **AND** conversion SHALL still require observed owner retirement
+
+#### Scenario: A stale release attempts to resurrect the previous controller
+- **WHEN** an older Helm revision or rollout requests a competing core controller or its pods after conversion
+- **THEN** admission enforcement independent of runtime Helm history SHALL refuse the competing owner
+- **AND** missing or unverified enforcement SHALL prevent conversion readiness
 
 ### Requirement: Controller-aware hosted recording readiness
 The control plane SHALL verify the installed core controller kind, per-member storage identities and preservation state before declaring persistent recording installation ready, including in restore planning and execution.
