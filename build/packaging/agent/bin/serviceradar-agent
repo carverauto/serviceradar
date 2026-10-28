@@ -7,42 +7,110 @@ VERSIONS_DIR="${RUNTIME_ROOT}/versions"
 SEED_DIR="${VERSIONS_DIR}/seed-installed"
 CURRENT_LINK="${RUNTIME_ROOT}/current"
 
+# Exit codes matched by RestartPreventExitStatus= in serviceradar-agent.service
+# so a broken seed or unwritable runtime directory stops the unit loudly instead
+# of crash-looping every RestartSecforever.
+EX_NOPERM=77
+EX_CONFIG=78
+
+describe_path_state() {
+    target="$1"
+    if [ -e "${target}" ] || [ -L "${target}" ]; then
+        owner="$(stat -c '%U:%G (%u:%g)' "${target}" 2>/dev/null || echo unknown)"
+        mode="$(stat -c '%a' "${target}" 2>/dev/null || echo unknown)"
+        printf 'owner=%s mode=%s' "${owner}" "${mode}"
+    else
+        printf 'missing'
+    fi
+}
+
+fail_seed_config() {
+    echo "FATAL: serviceradar-agent launcher seed validation failed: $*" >&2
+    exit "${EX_CONFIG}"
+}
+
+fail_seed_refresh() {
+    target="$1"
+    reason="$2"
+    state="$(describe_path_state "${target}")"
+    caller_user="$(id -un 2>/dev/null || id -u)"
+    echo "FATAL: serviceradar-agent launcher cannot refresh seed runtime at ${target} (${state}) as ${caller_user}: ${reason}. Refusing to crash-loop; repair ownership of ${RUNTIME_ROOT} or reinstall serviceradar-agent." >&2
+    exit "${EX_NOPERM}"
+}
+
 validate_package_owned_file() {
     path="$1"
     label="$2"
 
     if [ ! -f "${path}" ]; then
-        echo "${label} must be a regular file: ${path}" >&2
-        exit 1
+        fail_seed_config "${label} must be a regular file: ${path}"
     fi
 
     owner_uid="$(stat -c '%u' "${path}")"
     if [ "${owner_uid}" != "0" ]; then
-        echo "${label} must be owned by root: ${path}" >&2
-        exit 1
+        fail_seed_config "${label} must be owned by root: ${path}"
     fi
 
     mode="$(stat -c '%A' "${path}")"
     case "${mode}" in
         ?????w????|????????w?)
-            echo "${label} must not be group or world writable: ${path}" >&2
-            exit 1
+            fail_seed_config "${label} must not be group or world writable: ${path}"
             ;;
     esac
 }
 
-mkdir -p "${VERSIONS_DIR}" "${RUNTIME_ROOT}/tmp"
+ensure_writable_runtime_dir() {
+    dir="$1"
+
+    if [ -L "${dir}" ]; then
+        fail_seed_refresh "${dir}" "path is a symbolic link"
+    fi
+
+    if [ ! -d "${dir}" ]; then
+        if ! mkdir -p "${dir}" 2>/dev/null; then
+            fail_seed_refresh "${dir}" "unable to create directory"
+        fi
+    fi
+
+    if [ -L "${dir}" ] || [ ! -d "${dir}" ]; then
+        fail_seed_refresh "${dir}" "path is not a directory"
+    fi
+
+    caller_uid="$(id -u)"
+    if [ "${caller_uid}" != "0" ]; then
+        dir_uid="$(stat -c '%u' "${dir}" 2>/dev/null || echo unknown)"
+        if [ "${dir_uid}" != "${caller_uid}" ]; then
+            fail_seed_refresh "${dir}" "directory is not owned by the service user"
+        fi
+    fi
+
+    if [ ! -w "${dir}" ] || [ ! -x "${dir}" ]; then
+        fail_seed_refresh "${dir}" "directory is not writable by the service user"
+    fi
+}
 
 validate_package_owned_file "${SEED_BINARY}" "seed binary"
 
-mkdir -p "${SEED_DIR}"
-cp "${SEED_BINARY}" "${SEED_DIR}/serviceradar-agent.new"
-chmod 0755 "${SEED_DIR}/serviceradar-agent.new"
-mv -Tf "${SEED_DIR}/serviceradar-agent.new" "${SEED_DIR}/serviceradar-agent"
+ensure_writable_runtime_dir "${RUNTIME_ROOT}"
+ensure_writable_runtime_dir "${RUNTIME_ROOT}/tmp"
+ensure_writable_runtime_dir "${VERSIONS_DIR}"
+ensure_writable_runtime_dir "${SEED_DIR}"
+
+STAGE_BINARY="${SEED_DIR}/serviceradar-agent.new"
+TARGET_BINARY="${SEED_DIR}/serviceradar-agent"
+
+if [ -L "${STAGE_BINARY}" ] || [ -L "${TARGET_BINARY}" ]; then
+    fail_seed_refresh "${SEED_DIR}" "refusing symbolic link in seed-installed directory"
+fi
+
+rm -f "${STAGE_BINARY}" 2>/dev/null || fail_seed_refresh "${STAGE_BINARY}" "unable to remove stale staged binary"
+cp "${SEED_BINARY}" "${STAGE_BINARY}" 2>/dev/null || fail_seed_refresh "${STAGE_BINARY}" "unable to copy seed binary"
+chmod 0755 "${STAGE_BINARY}" 2>/dev/null || fail_seed_refresh "${STAGE_BINARY}" "unable to set executable mode on staged binary"
+mv -Tf "${STAGE_BINARY}" "${TARGET_BINARY}" 2>/dev/null || fail_seed_refresh "${TARGET_BINARY}" "unable to activate refreshed seed binary"
 
 if [ ! -e "${CURRENT_LINK}" ]; then
-    ln -sfn "versions/seed-installed" "${CURRENT_LINK}.new"
-    mv -Tf "${CURRENT_LINK}.new" "${CURRENT_LINK}"
+    ln -sfn "versions/seed-installed" "${CURRENT_LINK}.new" 2>/dev/null || fail_seed_refresh "${CURRENT_LINK}.new" "unable to stage current symlink"
+    mv -Tf "${CURRENT_LINK}.new" "${CURRENT_LINK}" 2>/dev/null || fail_seed_refresh "${CURRENT_LINK}" "unable to publish current symlink"
 fi
 
 exec "${CURRENT_LINK}/serviceradar-agent" "$@"

@@ -19,6 +19,8 @@ Provides local system monitoring capabilities.
 mkdir -p %{buildroot}/usr/local/bin
 mkdir -p %{buildroot}/etc/serviceradar/checkers/sweep
 mkdir -p %{buildroot}/lib/systemd/system
+mkdir -p %{buildroot}/var/lib/serviceradar/agent/tmp
+mkdir -p %{buildroot}/var/lib/serviceradar/agent/versions/seed-installed
 
 install -m 755 %{_builddir}/serviceradar-agent %{buildroot}/usr/local/bin/
 install -m 4750 %{_builddir}/serviceradar-agent-updater %{buildroot}/usr/local/bin/
@@ -39,6 +41,10 @@ install -m 644 %{_sourcedir}/build/packaging/agent/config/checkers/sweep/sweep.j
 %attr(0644, root, root) /lib/systemd/system/serviceradar-agent.service
 %dir %attr(0755, root, root) /etc/serviceradar
 %dir %attr(0755, root, root) /etc/serviceradar/checkers
+%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar/agent
+%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar/agent/tmp
+%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar/agent/versions
+%dir %attr(0755, serviceradar, serviceradar) /var/lib/serviceradar/agent/versions/seed-installed
 
 %pre
 # Ensure serviceradar group exists before user creation
@@ -67,6 +73,10 @@ else
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar
 install -d -m 0750 -o serviceradar -g serviceradar /var/lib/serviceradar
+install -d -m 0755 -o serviceradar -g serviceradar /var/lib/serviceradar/agent
+install -d -m 0755 -o serviceradar -g serviceradar /var/lib/serviceradar/agent/tmp
+install -d -m 0755 -o serviceradar -g serviceradar /var/lib/serviceradar/agent/versions
+install -d -m 0755 -o serviceradar -g serviceradar /var/lib/serviceradar/agent/versions/seed-installed
 chmod 755 /usr/local/bin/serviceradar-agent
 chown root:serviceradar /usr/local/bin/serviceradar-agent-updater
 chmod 4750 /usr/local/bin/serviceradar-agent-updater

@@ -37,6 +37,8 @@ mkdir -p usr/local/bin
 mkdir -p usr/local/lib/serviceradar/agent
 mkdir -p etc/serviceradar/checkers
 mkdir -p lib/systemd/system
+mkdir -p var/lib/serviceradar/agent/tmp
+mkdir -p var/lib/serviceradar/agent/versions/seed-installed
 
 echo "Building Go binary..."
 

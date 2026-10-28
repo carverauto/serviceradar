@@ -26,6 +26,15 @@ func linuxAgentExecutablePaths() []string {
 	}
 }
 
+func linuxAgentRuntimeDirs() []string {
+	return []string{
+		"var/lib/serviceradar/agent",
+		"var/lib/serviceradar/agent/tmp",
+		"var/lib/serviceradar/agent/versions",
+		"var/lib/serviceradar/agent/versions/seed-installed",
+	}
+}
+
 func TestDeclaredLinuxAgentPackages(t *testing.T) {
 	resolver, err := newRunfileResolver()
 	if err != nil {
@@ -148,6 +157,7 @@ func verifyDebianControl(t *testing.T, reader io.Reader, arch string) {
 func verifyTarPayload(t *testing.T, reader io.Reader, arch string) {
 	t.Helper()
 	found := map[string]bool{}
+	foundDirs := map[string]bool{}
 	archive := tar.NewReader(reader)
 	for {
 		header, err := archive.Next()
@@ -157,9 +167,11 @@ func verifyTarPayload(t *testing.T, reader io.Reader, arch string) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		verifyPackagedDirectory(t, foundDirs, header.Name, header.Mode, header.Typeflag == tar.TypeDir, header.Uname, header.Gname)
 		verifyPackagedExecutable(t, found, header.Name, header.Mode, archive, arch)
 	}
 	requirePackageExecutables(t, found)
+	requirePackageDirectories(t, foundDirs)
 }
 
 func verifyRPMAgent(t *testing.T, file *os.File, arch string) {
@@ -283,6 +295,7 @@ func rpmHeaderStrings(t *testing.T, store, entry []byte) []string {
 func verifyCPIOPayload(t *testing.T, reader io.Reader, arch string) {
 	t.Helper()
 	found := map[string]bool{}
+	foundDirs := map[string]bool{}
 	for {
 		header := make([]byte, 110)
 		readPackageBytes(t, reader, header)
@@ -300,14 +313,18 @@ func verifyCPIOPayload(t *testing.T, reader io.Reader, arch string) {
 		if string(name) == "TRAILER!!!\x00" {
 			break
 		}
+		entryName := strings.TrimSuffix(string(name), "\x00")
+		entryMode := packageNumber(t, string(header[14:22]), 16)
+		verifyPackagedDirectory(t, foundDirs, entryName, entryMode, entryMode&0o170000 == 0o040000, "", "")
 		limited := &io.LimitedReader{R: reader, N: size}
-		verifyPackagedExecutable(t, found, strings.TrimSuffix(string(name), "\x00"), packageNumber(t, string(header[14:22]), 16), limited, arch)
+		verifyPackagedExecutable(t, found, entryName, entryMode, limited, arch)
 		if _, err := io.Copy(io.Discard, limited); err != nil {
 			t.Fatal(err)
 		}
 		readPackageBytes(t, reader, make([]byte, (4-size%4)%4))
 	}
 	requirePackageExecutables(t, found)
+	requirePackageDirectories(t, foundDirs)
 }
 
 func verifyPackagedExecutable(t *testing.T, found map[string]bool, name string, mode int64, reader io.Reader, arch string) {
@@ -338,6 +355,35 @@ func requirePackageExecutables(t *testing.T, found map[string]bool) {
 	for _, path := range linuxAgentExecutablePaths() {
 		if !found[path] {
 			t.Fatalf("package is missing %s", path)
+		}
+	}
+}
+
+func verifyPackagedDirectory(t *testing.T, found map[string]bool, name string, mode int64, isDir bool, uname, gname string) {
+	t.Helper()
+	normalized := strings.TrimSuffix(strings.TrimPrefix(name, "./"), "/")
+	for _, expected := range linuxAgentRuntimeDirs() {
+		if normalized != expected {
+			continue
+		}
+		if !isDir {
+			t.Fatalf("%s is not packaged as a directory", normalized)
+		}
+		if mode&0o777 != 0o755 {
+			t.Fatalf("%s has incorrect directory permissions %o, want 0755", normalized, mode&0o777)
+		}
+		if (uname != "" && uname != "serviceradar") || (gname != "" && gname != "serviceradar") {
+			t.Fatalf("%s has owner %s:%s, want serviceradar:serviceradar", normalized, uname, gname)
+		}
+		found[normalized] = true
+	}
+}
+
+func requirePackageDirectories(t *testing.T, found map[string]bool) {
+	t.Helper()
+	for _, path := range linuxAgentRuntimeDirs() {
+		if !found[path] {
+			t.Fatalf("package is missing runtime directory %s", path)
 		}
 	}
 }

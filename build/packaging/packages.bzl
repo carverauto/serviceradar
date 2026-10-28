@@ -86,6 +86,12 @@ PACKAGES = {
             "src": "systemd/serviceradar-agent.service",
             "dest": "/lib/systemd/system/serviceradar-agent.service",
         },
+        "directories": [
+            {"path": "/var/lib/serviceradar/agent", "mode": "0755", "owner": "serviceradar", "group": "serviceradar"},
+            {"path": "/var/lib/serviceradar/agent/tmp", "mode": "0755", "owner": "serviceradar", "group": "serviceradar"},
+            {"path": "/var/lib/serviceradar/agent/versions", "mode": "0755", "owner": "serviceradar", "group": "serviceradar"},
+            {"path": "/var/lib/serviceradar/agent/versions/seed-installed", "mode": "0755", "owner": "serviceradar", "group": "serviceradar"},
+        ],
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
         "conffiles": [

@@ -181,6 +181,17 @@ func TestAgentSystemdUnitDoesNotOwnSharedRuntimeDirectory(t *testing.T) {
 		t.Fatalf("agent unit missing explicit shared runtime directory setup %q", want)
 	}
 
+	wantStateDir := "StateDirectory=serviceradar/agent serviceradar/agent/tmp serviceradar/agent/versions serviceradar/agent/versions/seed-installed"
+	if !strings.Contains(unit, "\n"+wantStateDir+"\n") {
+		t.Fatalf("agent unit missing StateDirectory setup %q", wantStateDir)
+	}
+	if !strings.Contains(unit, "\nStateDirectoryMode=0755\n") {
+		t.Fatal("agent unit missing StateDirectoryMode=0755")
+	}
+	if !strings.Contains(unit, "\nRestartPreventExitStatus=77 78\n") {
+		t.Fatal("agent unit missing RestartPreventExitStatus=77 78 to prevent seed-refresh crash loops")
+	}
+
 	if !strings.Contains(unit, "\nSlice=serviceradar.slice\n") {
 		t.Fatal("agent unit must join serviceradar.slice for ServiceRadar host-component cgroup accounting")
 	}
