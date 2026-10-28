@@ -136,7 +136,7 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 // downloadAgentBundle resolves the onboarding token to its core and fetches
 // and unpacks the package's bundle.
 func downloadAgentBundle(ctx context.Context, opts EnrollOptions) (*bundlePayload, error) {
-	payload, err := parseOnboardingToken(opts.Token, "", opts.CoreHost)
+	payload, err := parseOnboardingToken(opts.Token, opts.CoreHost)
 	if err != nil {
 		return nil, fmt.Errorf("parse onboarding token: %w", err)
 	}

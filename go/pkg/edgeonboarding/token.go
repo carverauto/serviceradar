@@ -56,7 +56,7 @@ type tokenPayload struct {
 	version       int    `json:"-"`
 }
 
-func parseOnboardingToken(raw string, fallbackPackageID, overrideCoreURL string) (*tokenPayload, error) {
+func parseOnboardingToken(raw, overrideCoreURL string) (*tokenPayload, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, ErrTokenRequired
@@ -64,15 +64,15 @@ func parseOnboardingToken(raw string, fallbackPackageID, overrideCoreURL string)
 
 	switch {
 	case strings.HasPrefix(raw, tokenV3Prefix):
-		return parseSignedStructuredToken(raw, tokenV3Prefix, 3, fallbackPackageID, overrideCoreURL)
+		return parseSignedStructuredToken(raw, tokenV3Prefix, 3, overrideCoreURL)
 	case strings.HasPrefix(raw, tokenV2Prefix):
-		return parseSignedStructuredToken(raw, tokenV2Prefix, 2, fallbackPackageID, overrideCoreURL)
+		return parseSignedStructuredToken(raw, tokenV2Prefix, 2, overrideCoreURL)
 	default:
 		return nil, ErrUnsupportedTokenFormat
 	}
 }
 
-func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackageID, overrideCoreURL string) (*tokenPayload, error) {
+func parseSignedStructuredToken(raw, prefix string, version int, overrideCoreURL string) (*tokenPayload, error) {
 	encoded := strings.TrimPrefix(raw, prefix)
 	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
 	if !ok || encodedPayload == "" || encodedSignature == "" {
@@ -103,9 +103,6 @@ func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackage
 		return nil, fmt.Errorf("unmarshal onboarding token: %w", err)
 	}
 
-	if payload.PackageID == "" {
-		payload.PackageID = fallbackPackageID
-	}
 	// A caller-supplied URL is an operator override. The signed token remains
 	// authoritative for package identity and the download secret, but its API
 	// origin must not make an explicit --core-url impossible to use for recovery
