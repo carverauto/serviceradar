@@ -39,10 +39,10 @@ BAZEL ?= bazel
 BAZEL_CI_FLAGS ?= -c opt --config=remote
 # EMPTY ON PURPOSE, AND IT MUST NOT NAME A PROFILE THAT NO LONGER EXISTS.
 #
-# The cache proxy used to be opt-in via `--config=cache_proxy`. It is now the default for
-# every remote build: //.bazelrc sends `build:cache_only --remote_cache` to the shared Envoy
-# edge, and remote_base/--config=ci inherit cache_only. There is nothing left to
-# opt into, so the `-cache` targets below are aliases that differ only in using the CI flags.
+# The cache proxy used to be opt-in via `--config=cache_proxy`. Cache routing is now
+# owned by the profiles in //.bazelrc; see that file for the workstation and CI paths.
+# There is nothing left to opt into, so the `-cache` targets below are aliases that
+# differ only in using the CI flags.
 #
 # Left as a variable rather than deleted so those target names keep working. Do NOT put a
 # `--config=` value here speculatively: Bazel treats an undefined config as a hard error

@@ -127,9 +127,10 @@ build:remote_base --noenable_platform_specific_config
 # expanded twice from --config=ci.
 build:ci --config=remote_base
 # BazelCI runs inside the workflow-executor pod. Hairpinning the Bazel
-# client through cache-proxy.carverauto.dev:443 (shared Envoy + Coraza)
-# RST_STREAMs FindMissingBlobs (gRPC UNKNOWN, bazel Exit 34) even after
-# 1Gi HTTP/2 windows. Executors already use this in-cluster h2c Service;
+# client through cache-proxy.carverauto.dev:443 (dedicated Envoy data plane on
+# 23.138.124.4 / 2602:f678:0:105::3, with no WAF and a heap-based overload
+# manager) RST_STREAMs FindMissingBlobs (gRPC UNKNOWN, bazel Exit 34) even
+# after 1Gi HTTP/2 windows. Executors already use this in-cluster h2c Service;
 # workstations keep the public grpcs URL via cache_only / remote.
 # --remote_bytestream_uri_prefix stays on carverauto.buildbuddy.io.
 build:ci --remote_cache=grpc://bb-cache-proxy-buildbuddy-enterprise-cache-proxy.buildbuddy.svc.cluster.local:1985
