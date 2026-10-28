@@ -1688,6 +1688,63 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert :ok = ExposureReconciliationWorker.perform(job)
   end
 
+  @tag sandbox: :unboxed
+  test "scoped dimension pages retain deleted keys and exclude other devices", ctx do
+    Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
+    package = insert_endpoint_package!(ctx.unique)
+    on_exit(fn -> cleanup_source(ctx, package) end)
+
+    deleted_cve = "EXAMPLE-DIMENSION-DELETED-#{ctx.unique}"
+    current_cve = "EXAMPLE-DIMENSION-CURRENT-#{ctx.unique}"
+    insert_assessment!(ctx, package, deleted_cve)
+    deleted = publication(ctx.device_uid, deleted_cve)
+
+    Repo.query!(
+      "DELETE FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1 AND cve_id = $2",
+      [ctx.device_uid, deleted_cve]
+    )
+
+    insert_assessment!(ctx, package, current_cve, installed_version: "2.0.0")
+    current = publication(ctx.device_uid, current_cve)
+    refute deleted["pkgver_ord"] == current["pkgver_ord"]
+
+    unique = System.unique_integer([:positive])
+    foreign = %{unique: unique, device_uid: "sr:exposure-dimension-#{unique}"}
+    reconciliation_source!(foreign, "EXAMPLE-DIMENSION-FOREIGN-#{unique}", false)
+
+    expected =
+      Enum.sort([
+        ["cve", deleted["cve_ord"]],
+        ["cve", current["cve_ord"]],
+        ["package", deleted["pkgver_ord"]],
+        ["package", current["pkgver_ord"]]
+      ])
+
+    assert {:ok, rows} =
+             DirectSession.run(fn reader ->
+               ExposureSnapshotWorker.source_page(
+                 reader,
+                 "dimensions",
+                 current["device_ord"],
+                 nil
+               )
+             end)
+
+    assert Enum.map(rows, &hd/1) == expected
+
+    assert {:ok, resumed} =
+             DirectSession.run(fn reader ->
+               ExposureSnapshotWorker.source_page(
+                 reader,
+                 "dimensions",
+                 current["device_ord"],
+                 hd(expected)
+               )
+             end)
+
+    assert Enum.map(resumed, &hd/1) == tl(expected)
+  end
+
   defp reconciliation_source!(ctx, cve, mock_warehouse? \\ true) do
     if mock_warehouse?, do: snapshot_http!()
     Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])

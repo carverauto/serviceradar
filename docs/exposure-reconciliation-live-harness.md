@@ -175,3 +175,86 @@ concurrent-ingestion capacity gates.
 Collect the actual named test result and canonical suite/observer/teardown/
 release statuses. A compile/setup failure is not behavioral proof. Fresh hosted
 execution of the source tree under review is required before claiming a pass.
+
+## Daily reconciliation capacity
+
+The manual target `//elixir/serviceradar_core:exposure_reconciliation_capacity`
+measures the production fleet enumerator and per-device comparison workers. Run
+it alone on a fresh canonical `serial_2` clone and a never-used warehouse schema,
+with the same `EXPOSURE_LIVE_*` inputs and `EXPOSURE_CAPACITY_PROFILE` selector as
+the compaction target. Keep the canonical observer, teardown and generation
+release. The ordinary integration lane does not select this manual benchmark.
+
+The warehouse identity must also support the negative control's `UPDATE` on
+`exposure_facts`. The disposable CNPG clone's identity must be able to disable
+and restore user triggers on the fixture tables and truncate them during cleanup.
+The harness parks existing bootstrap jobs in an unserved queue and temporarily
+stops `ObanFailureEventReporter`, because the exposure-only warehouse has no
+generic event tables. It restores the bootstrap queues and original supervised
+Oban and reporter processes after the run; persisted Oban errors remain the
+failure oracle during measurement.
+
+Smoke pairs 200 hosts and 500,000 active facts in CNPG and StarRocks. Fleet pairs
+20,000 hosts and 50 million active facts. Both use all 50,000 synthetic CVEs,
+2,551 shared package versions and 51 resolved controls per host. SQL constructs
+this already-published starting state, including a completed recovery generation;
+fixture preparation and initial full-table checks are excluded from elapsed time.
+This does not measure source publication, snapshot rebuilding or mismatch repair
+throughput.
+
+The timed run uses the default Oban instance, Basic engine, database peer,
+default stager and production `maintenance` concurrency of two. The fleet job
+admits its own per-device jobs. It does not call `perform/1`, drain the queue or
+change production queues during the measurement. Deadline or any job error is
+an explicit failure. The result is not a pass until every scope has a fresh
+matched comparison with 2,500 actionable rows, deployment readiness is true,
+and a full warehouse oracle confirms all fact keys and actionable contents.
+
+`EXPOSURE_RECONCILIATION_FIXTURE` reports setup time and assessment storage.
+`EXPOSURE_RECONCILIATION_CAPACITY` is intermediate scheduling/comparison evidence.
+Only `EXPOSURE_RECONCILIATION_CAPACITY_VERIFIED` establishes the timed result.
+Afterward, changing one fact's severity while preserving the row count must
+record a mismatch and block readiness; its separately reported negative control
+runs outside the capacity timer. Both stores are cleared and checked before the
+coordinator removes the disposable databases and verifies absence.
+
+The first paired smoke run exposed a source-query bottleneck. The old scoped
+dimension query correlated every catalogue entry with the device's assessments
+and deletion watermarks. At only 200 hosts, it remained active just before the
+30-second statement deadline, and reconciliation completed no device matches.
+The replacement builds the distinct referenced keys once per page, then joins
+the dimension catalogue. The full-scope snapshot path continues to page the
+catalogue directly. The source view, returned keys, ordering and page size are
+unchanged.
+
+### Initial reconciliation measurements (2026-10-28)
+
+The [baseline diagnostic run](https://carverauto.buildbuddy.io/invocation/3cebc714-0ff6-45fe-948e-a78f716443dd)
+used source `f0be00f16a9478446fedb57a9d6746b29ecb4d43`, tree
+`1eb44cb0ffeeebfd833dcfbc542c641d3da784f9`. It admitted the 200-device workload,
+then failed after about 35 seconds with no matched devices. A read-only activity
+trace found the scoped dimension query active at 29 seconds before its configured
+30-second statement limit. The worker retained the failure as a rollback.
+
+The [fixed smoke run](https://carverauto.buildbuddy.io/invocation/fb518418-5a56-45c0-adc8-8ceb4f629674)
+used source `67fe02a045174b03a320ef656daa491ae064f7f1`, tree
+`cee2e7f2b93ca2d8b8111b3b8ae418faf2c55470`. All 200 devices matched. Fixture
+construction and initial verification took about 31 seconds, excluded from the
+timer. Worker completion took about 244 seconds; including full verification,
+the run took about 245 seconds. There were no remaining devices or content
+violations, and the equal-count severity corruption was rejected. Assessment
+storage including indexes was about 0.6 GiB. The canonical connection observer,
+teardown and generation release passed, and the external scratch schemas and
+grants were independently verified absent.
+
+These are synthetic smoke measurements, not the 20,000-host/50-million-active-fact
+fleet result or a p95 guarantee. The full fleet run has not been attempted: the
+small-profile throughput remains far below the rate needed for the 15-minute
+fleet budget. Task 1.6 remains open. The next capacity work must address that
+per-device cost before loading the full source profile; this fix establishes
+correct forward progress without claiming that the fleet gate is satisfied.
+
+[Broad hosted BazelCI](https://carverauto.buildbuddy.io/invocation/57fcc5c5-314c-40b4-a238-c6299503c794)
+passed all seven child invocations at the fixed source above. Required hosted
+PR CI remains a separate final-head gate. No deployment or codec change is
+included.

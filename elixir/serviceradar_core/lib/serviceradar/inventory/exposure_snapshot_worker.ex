@@ -314,24 +314,50 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
   end
 
   @doc "Bounded source pages shared by publication and reconciliation in one source view."
-  def source_page(reader, "dimensions", scope, cursor) do
+  def source_page(reader, "dimensions", nil, cursor) do
     [kind, ordinal] = cursor || ["", 0]
 
     query(
       reader,
       """
       SELECT jsonb_build_array(d.kind, d.ordinal), d.payload FROM platform.exposure_dimension_state d
-      WHERE (d.kind, d.ordinal) > ($1, $2) AND ($3::bigint IS NULL OR EXISTS (
-        SELECT 1 FROM platform.device_fleet_ordinals o
-        JOIN platform.endpoint_vulnerability_assessments a ON a.device_uid = o.uid
-        WHERE o.ordinal = $3 AND d.ordinal = (a.last_exposure_publication->>
-          CASE d.kind WHEN 'cve' THEN 'cve_ord' ELSE 'pkgver_ord' END)::bigint
-      ) OR EXISTS (
-        SELECT 1 FROM platform.device_fleet_ordinals o
-        JOIN platform.exposure_fact_watermarks w ON w.device_uid = o.uid
-        WHERE o.ordinal = $3 AND d.ordinal = (w.payload->>
-          CASE d.kind WHEN 'cve' THEN 'cve_ord' ELSE 'pkgver_ord' END)::bigint
-      )) ORDER BY d.kind, d.ordinal LIMIT #{@page_size}
+      WHERE (d.kind, d.ordinal) > ($1, $2)
+      ORDER BY d.kind, d.ordinal LIMIT #{@page_size}
+      """,
+      [kind, ordinal]
+    )
+  end
+
+  def source_page(reader, "dimensions", scope, cursor) do
+    [kind, ordinal] = cursor || ["", 0]
+
+    # Materialize the scoped keys once. A correlated EXISTS per catalogue row
+    # repeatedly scans the same assessments, including all unrelated CVEs.
+    query(
+      reader,
+      """
+      WITH referenced AS MATERIALIZED (
+        SELECT DISTINCT k.kind, k.ordinal
+        FROM (
+          SELECT a.last_exposure_publication AS payload
+          FROM platform.device_fleet_ordinals o
+          JOIN platform.endpoint_vulnerability_assessments a ON a.device_uid = o.uid
+          WHERE o.ordinal = $3
+          UNION ALL
+          SELECT w.payload
+          FROM platform.device_fleet_ordinals o
+          JOIN platform.exposure_fact_watermarks w ON w.device_uid = o.uid
+          WHERE o.ordinal = $3
+        ) publications
+        CROSS JOIN LATERAL (VALUES
+          ('cve', (payload->>'cve_ord')::bigint),
+          ('package', (payload->>'pkgver_ord')::bigint)
+        ) k(kind, ordinal)
+        WHERE (k.kind, k.ordinal) > ($1, $2)
+      )
+      SELECT jsonb_build_array(d.kind, d.ordinal), d.payload
+      FROM referenced r JOIN platform.exposure_dimension_state d USING (kind, ordinal)
+      ORDER BY d.kind, d.ordinal LIMIT #{@page_size}
       """,
       [kind, ordinal, scope]
     )
