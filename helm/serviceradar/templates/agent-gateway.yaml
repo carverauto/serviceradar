@@ -99,6 +99,7 @@ spec:
         env:
         - name: TMPDIR
           value: /tmp
+        {{- include "serviceradar.agentCertValidityEnv" $ | nindent 8 }}
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
         - name: ERL_FLAGS

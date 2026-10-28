@@ -309,6 +309,13 @@ certs:
   regenerator:
     # Disable by default to avoid unexpected cert rotation.
     enabled: false
+  # Default lifetime, in days, of agent mTLS certificates issued from
+  # Settings -> Agents -> Deploy and the edge package API. Empty keeps the
+  # built-in 90-day default. Set it to an integer from 7 to 365; core-elx,
+  # web-ng and the agent-gateway refuse to boot on any other value. Lifetimes
+  # above this default need an administrator when requested per package.
+  # Already issued certificates keep their lifetime.
+  agentValidityDays: ""
 checkerTemplates:
   # KV-backed checker template seeding is deprecated; leave disabled.
   enabled: false

@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
 
   """
 
+  alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.OnboardingToken
   alias ServiceRadarWebNG.Shell
@@ -79,7 +80,7 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
       {"#{package_dir}/config/config.yaml", config_yaml},
       {"#{package_dir}/config/config.json", config_json},
       {"#{package_dir}/install.sh", generate_install_script(package, opts)},
-      {"#{package_dir}/README.md", generate_readme(package, opts)}
+      {"#{package_dir}/README.md", generate_readme(package, cert_pem, opts)}
     ]
 
     files =
@@ -471,10 +472,16 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     end
   end
 
-  defp generate_readme(package, opts) do
+  defp generate_readme(package, cert_pem, opts) do
     component_type = effective_component_type(package.component_type)
     enrollment_token = onboarding_token(package, opts)
     base_url = Keyword.get(opts, :base_url, default_base_url())
+
+    certificate_expiry =
+      case CertificateLifetimePolicy.certificate_not_after(cert_pem) do
+        {:ok, not_after} -> format_datetime(not_after)
+        :error -> "unavailable; inspect certs/component.pem"
+      end
 
     """
     # ServiceRadar Edge Package
@@ -513,7 +520,9 @@ defmodule ServiceRadarWebNG.Edge.BundleGenerator do
     ## Security Notes
 
     - The private key (`component-key.pem`) should be kept secure
-    - Certificates are valid for 365 days from creation
+    - This package's certificate expires: #{certificate_expiry}
+    - Certificate lifetime policy: see `docs/docs/edge-agent-onboarding.md` in the
+      ServiceRadar repository (https://github.com/carverauto/serviceradar/blob/staging/docs/docs/edge-agent-onboarding.md)
     - All connections use mTLS (mutual TLS) for authentication
 
     ## Support

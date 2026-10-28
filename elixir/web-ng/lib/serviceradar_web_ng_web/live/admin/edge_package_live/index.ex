@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias Ash.Error.Invalid
+  alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.ComponentID
@@ -47,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         |> assign(:selected_component_type, "agent")
         |> assign(:partition_value, "default")
         |> assign(:host_ip_value, "")
+        |> assign_default_cert_validity()
         |> assign(:gateway_options, gateway_options)
         |> assign(:default_gateway_id, default_gateway_id)
         |> assign(:approved_addons, AddonPackages.list_approved_latest(scope: scope))
@@ -110,6 +112,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:selected_component_type, "agent")
      |> assign(:partition_value, "default")
      |> assign(:host_ip_value, "")
+     |> assign_default_cert_validity()
      |> assign(:gateway_options, gateway_options)
      |> assign(:default_gateway_id, default_gateway_id)
      |> assign(:approved_addons, AddonPackages.list_approved_latest(scope: socket.assigns.current_scope))}
@@ -127,6 +130,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:created_tokens, nil)
       |> assign(:partition_value, "default")
       |> assign(:host_ip_value, "")
+      |> assign_default_cert_validity()
       |> assign(:gateway_options, gateway_options)
       |> assign(:default_gateway_id, default_gateway_id)
       |> assign(:approved_addons, AddonPackages.list_approved_latest(scope: socket.assigns.current_scope))
@@ -148,6 +152,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     component_type = params["component_type"] || "agent"
     partition = params["partition"] || socket.assigns.partition_value
     host_ip = params["host_ip"] || socket.assigns.host_ip_value
+    cert_validity_days = params["cert_validity_days"] || socket.assigns.cert_validity_days_value
 
     form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
@@ -156,121 +161,29 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:create_form, form)
      |> assign(:selected_component_type, component_type)
      |> assign(:partition_value, partition)
-     |> assign(:host_ip_value, host_ip)}
+     |> assign(:host_ip_value, host_ip)
+     |> assign(:cert_validity_days_value, cert_validity_days)}
   end
 
   def handle_event("create_package", %{"form" => params}, socket) do
     params = ensure_gateway_id(params, socket.assigns.default_gateway_id)
     form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
-    if form.valid? do
-      # Show loading state while creating package and generating certificates
-      base_url = base_url()
+    case {form.valid?, requested_cert_validity_days(params)} do
+      {true, {:ok, validity_days}} ->
+        create_package(socket, form, params, validity_days)
 
-      socket = assign(socket, :creating, true)
+      {true, :error} ->
+        {:noreply,
+         socket
+         |> assign(:create_form, form)
+         |> put_flash(:error, cert_validity_range_message())}
 
-      # Extract validated form data
-      actor = get_actor(socket)
-      attrs = build_package_attrs_from_form(params, socket.assigns.security_mode)
-
-      # Issue certificates via the selected agent-gateway
-      Logger.info("[EdgePackage] create: base_url=#{base_url} component_type=#{params["component_type"] || "agent"}")
-
-      result =
-        OnboardingPackages.create_with_gateway_cert(attrs,
-          actor: actor
-        )
-
-      case result do
-        {:ok, package_result} ->
-          security_mode = socket.assigns.security_mode
-
-          assignment_result =
-            assign_initial_addons(
-              package_result.package,
-              selected_initial_addon_ids(params),
-              socket.assigns.current_scope
-            )
-
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> assign(:created_tokens, package_result)
-           |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: user_actor(socket)))
-           |> assign(:create_form, build_create_form(security_mode))
-           |> put_flash(:info, package_created_message(assignment_result))}
-
-        {:error, :gateway_unavailable} ->
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> put_flash(
-             :error,
-             "Agent gateway is unavailable. Ensure a gateway is online and try again."
-           )}
-
-        {:error, :ca_not_available} ->
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> put_flash(
-             :error,
-             "Gateway CA is not available. Ensure root-key.pem is mounted on the gateway."
-           )}
-
-        {:error, :certificate_issue_failed} ->
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> put_flash(
-             :error,
-             "Gateway failed to issue certificates. Check gateway logs and try again."
-           )}
-
-        {:error, :openssl_failed} ->
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> put_flash(
-             :error,
-             "Certificate generation failed on the gateway (openssl error)."
-           )}
-
-        {:error, :invalid_identity} ->
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> put_flash(:error, "Missing gateway or component identity for package creation.")}
-
-        {:error, {:edge_onboarding_quota_exceeded, _bucket, retry_after}} ->
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> put_flash(:error, "Package creation quota exceeded. Try again in #{retry_after} seconds.")}
-
-        {:error, %Invalid{} = error} ->
-          form = AshPhoenix.Form.add_error(form, error)
-
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> assign(:create_form, form)
-           |> put_flash(:error, "Failed to create package")}
-
-        {:error, error} ->
-          Logger.error("[EdgePackage] create failed: #{inspect(error)}", [])
-          error_msg = format_error(error)
-
-          {:noreply,
-           socket
-           |> assign(:creating, false)
-           |> put_flash(:error, "Failed to create package: #{error_msg}")}
-      end
-    else
-      {:noreply,
-       socket
-       |> assign(:create_form, form)
-       |> put_flash(:error, "Please fix the errors below")}
+      {false, _validity} ->
+        {:noreply,
+         socket
+         |> assign(:create_form, form)
+         |> put_flash(:error, "Please fix the errors below")}
     end
   end
 
@@ -369,6 +282,159 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       end
 
     {:noreply, socket}
+  end
+
+  defp create_package(socket, form, params, validity_days) do
+    base_url = base_url()
+
+    # Show loading state while creating package and generating certificates
+    socket = assign(socket, :creating, true)
+
+    actor = get_actor(socket)
+    attrs = build_package_attrs_from_form(params, socket.assigns.security_mode)
+
+    # Issue certificates via the selected agent-gateway
+    Logger.info("[EdgePackage] create: base_url=#{base_url} component_type=#{params["component_type"] || "agent"}")
+
+    result =
+      OnboardingPackages.create_with_gateway_cert(
+        attrs,
+        [actor: actor, cert_validity_days: validity_days] ++ long_ttl_approval(actor, validity_days)
+      )
+
+    case result do
+      {:ok, package_result} ->
+        security_mode = socket.assigns.security_mode
+
+        assignment_result =
+          assign_initial_addons(
+            package_result.package,
+            selected_initial_addon_ids(params),
+            socket.assigns.current_scope
+          )
+
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> assign(:created_tokens, package_result)
+         |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: user_actor(socket)))
+         |> assign(:create_form, build_create_form(security_mode))
+         |> put_flash(:info, package_created_message(assignment_result))}
+
+      {:error, :gateway_unavailable} ->
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> put_flash(
+           :error,
+           "Agent gateway is unavailable. Ensure a gateway is online and try again."
+         )}
+
+      {:error, :ca_not_available} ->
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> put_flash(
+           :error,
+           "Gateway CA is not available. Ensure root-key.pem is mounted on the gateway."
+         )}
+
+      {:error, :certificate_issue_failed} ->
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> put_flash(
+           :error,
+           "Gateway failed to issue certificates. Check gateway logs and try again."
+         )}
+
+      {:error, :openssl_failed} ->
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> put_flash(
+           :error,
+           "Certificate generation failed on the gateway (openssl error)."
+         )}
+
+      {:error, :invalid_identity} ->
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> put_flash(:error, "Missing gateway or component identity for package creation.")}
+
+      {:error, {:edge_onboarding_quota_exceeded, _bucket, retry_after}} ->
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> put_flash(:error, "Package creation quota exceeded. Try again in #{retry_after} seconds.")}
+
+      {:error, :long_ttl_approval_required} ->
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> put_flash(
+           :error,
+           "Certificate validity above the deployment default of " <>
+             "#{CertificateLifetimePolicy.default_validity_days()} days requires an administrator."
+         )}
+
+      {:error, %Invalid{} = error} ->
+        form = AshPhoenix.Form.add_error(form, error)
+
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> assign(:create_form, form)
+         |> put_flash(:error, "Failed to create package")}
+
+      {:error, error} ->
+        Logger.error("[EdgePackage] create failed: #{inspect(error)}", [])
+        error_msg = format_error(error)
+
+        {:noreply,
+         socket
+         |> assign(:creating, false)
+         |> put_flash(:error, "Failed to create package: #{error_msg}")}
+    end
+  end
+
+  # The gateway requires an admin approver for lifetimes above the deployment
+  # default; the user requesting that lifetime on this form is the approver.
+  defp long_ttl_approval(actor, validity_days) do
+    if validity_days > CertificateLifetimePolicy.default_validity_days() do
+      [long_ttl_approved_by: actor]
+    else
+      []
+    end
+  end
+
+  defp requested_cert_validity_days(params) do
+    case params |> Map.get("cert_validity_days", "") |> to_string() |> String.trim() do
+      "" ->
+        {:ok, CertificateLifetimePolicy.default_validity_days()}
+
+      raw ->
+        parse_cert_validity_days(Integer.parse(raw))
+    end
+  end
+
+  defp parse_cert_validity_days({days, ""}) do
+    case CertificateLifetimePolicy.resolve_validity_days(validity_days: days) do
+      {:ok, days} -> {:ok, days}
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp parse_cert_validity_days(_invalid), do: :error
+
+  defp cert_validity_range_message do
+    "Certificate validity must be a whole number of days from " <>
+      "#{CertificateLifetimePolicy.min_validity_days()} to #{CertificateLifetimePolicy.max_validity_days()}."
+  end
+
+  defp assign_default_cert_validity(socket) do
+    assign(socket, :cert_validity_days_value, to_string(CertificateLifetimePolicy.default_validity_days()))
   end
 
   @impl true
@@ -517,6 +583,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         selected_component_type={@selected_component_type}
         partition_value={@partition_value}
         host_ip_value={@host_ip_value}
+        cert_validity_days_value={@cert_validity_days_value}
+        timezone={@current_scope.user.timezone || "Etc/UTC"}
         gateway_options={@gateway_options}
         default_gateway_id={@default_gateway_id}
         approved_addons={@approved_addons}
@@ -561,7 +629,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
           </div>
         <% else %>
           <%= if @created_tokens do %>
-            <.success_content created_tokens={@created_tokens} />
+            <.success_content created_tokens={@created_tokens} timezone={@timezone} />
           <% else %>
             <h3 class="text-lg font-bold">Create Edge Package</h3>
             <p class="py-2 text-sm text-sr-muted">
@@ -621,6 +689,21 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                     No gateways registered yet. Start a gateway before creating an agent package.
                   </p>
                 <% end %>
+
+                <.input
+                  id="create_package_cert_validity_days"
+                  name="form[cert_validity_days]"
+                  type="number"
+                  label="Certificate validity (days)"
+                  value={@cert_validity_days_value}
+                  min={CertificateLifetimePolicy.min_validity_days()}
+                  max={CertificateLifetimePolicy.max_validity_days()}
+                  step="1"
+                />
+                <p class="text-xs text-sr-muted -mt-2 ml-1">
+                  Lifetime of the agent's mTLS certificate, from {CertificateLifetimePolicy.min_validity_days()} to {CertificateLifetimePolicy.max_validity_days()} days.
+                  Deployment default: {CertificateLifetimePolicy.default_validity_days()} days; a longer lifetime requires an administrator.
+                </p>
               <% end %>
 
               <div class="sr-ui-collapse sr-ui-collapse-arrow bg-sr-subtle rounded-lg">
@@ -721,6 +804,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     package = assigns.created_tokens.package
     download_token = assigns.created_tokens.download_token
     certificate_data = Map.get(assigns.created_tokens, :certificate_data)
+    certificate_expires_at = certificate_expires_at(certificate_data)
     component_type = to_string(package.component_type)
     base_url = base_url()
 
@@ -759,6 +843,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:package, package)
       |> assign(:download_token, download_token)
       |> assign(:certificate_data, certificate_data)
+      |> assign(:certificate_expires_at, certificate_expires_at)
       |> assign(:docker_cmd, docker_cmd)
       |> assign(:systemd_cmd, systemd_cmd)
       |> assign(:onboarding_token, onboarding_token)
@@ -903,6 +988,15 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             <div class="text-xs uppercase tracking-wide text-sr-muted">Certificate CN</div>
             <code class="font-mono text-xs break-all">{cert_cn(@certificate_data)}</code>
           </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-sr-muted">Certificate Expires</div>
+            <.user_time
+              id={"admin-edge-package-#{@package.id}-certificate-expires-at"}
+              value={@certificate_expires_at}
+              timezone={@timezone}
+              fallback="Unknown"
+            />
+          </div>
         <% end %>
       </div>
 
@@ -1010,6 +1104,16 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   end
 
   defp cert_cn(_), do: "N/A"
+
+  # Read from the issued certificate itself, so the page shows the real notAfter.
+  defp certificate_expires_at(%{certificate_pem: pem}) when is_binary(pem) do
+    case CertificateLifetimePolicy.certificate_not_after(pem) do
+      {:ok, not_after} -> not_after
+      :error -> nil
+    end
+  end
+
+  defp certificate_expires_at(_certificate_data), do: nil
 
   attr :package, :map, required: true
   attr :events, :list, required: true
@@ -1225,7 +1329,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       transform_params: fn _form, params, _action ->
         # Convert component_type string to atom if needed (allowlist prevents DoS via atom exhaustion)
         params = Map.put(params, "component_type", :agent)
-        params = Map.delete(params, "initial_addon_package_ids")
+        params = Map.drop(params, ["initial_addon_package_ids", "cert_validity_days"])
 
         # Set security mode from environment config
         params = Map.put(params, "security_mode", security_mode)

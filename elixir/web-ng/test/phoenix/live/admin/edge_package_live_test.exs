@@ -1,12 +1,20 @@
 # Stand-in for the agent-gateway peer. web-ng issues agent certificates by RPC to
 # `ServiceRadarAgentGateway.CertIssuer` on the gateway's node; that application is
 # not part of web-ng, so a test that needs a successful issuance provides the
-# remote module here, on the local node the tracked gateway reports.
+# remote module here, on the local node the tracked gateway reports. It mints a
+# real certificate expiring `validity_days` after today (at 13:00 UTC), so the
+# page's expiry is read from the certificate the RPC returned.
 defmodule ServiceRadarAgentGateway.CertIssuer do
   @moduledoc false
 
-  def issue_agent_bundle(component_id, partition_id, :agent, _opts) do
-    pem = "-----BEGIN CERTIFICATE-----\nc3ludGhldGlj\n-----END CERTIFICATE-----\n"
+  def issue_agent_bundle(component_id, partition_id, :agent, opts) do
+    today = Date.utc_today()
+    not_after = Date.add(today, Keyword.fetch!(opts, :validity_days))
+
+    %{cert: der} =
+      :public_key.pkix_test_root_cert(~c"agent-stand-in", validity: {Date.to_erl(today), Date.to_erl(not_after)})
+
+    pem = :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
 
     {:ok,
      %{
@@ -223,6 +231,59 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
       refute html =~ "/usr/local/bin/srctl enroll --token &#39;edgepkg-v3:"
       assert html =~ "ServiceRadar\\srctl.exe&quot; enroll --core-url &#39;http://localhost:4002&#39;"
     end
+
+    test "pre-fills the deployment default and shows the issued certificate's expiry", %{
+      conn: conn,
+      gateway_id: gateway_id
+    } do
+      put_agent_cert_validity_default(200)
+      track_gateway_on_this_node(gateway_id)
+
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
+
+      assert lv |> element("#create_package_cert_validity_days") |> render() =~ ~s(value="200")
+
+      html =
+        lv
+        |> form("#create_package_form", form: %{label: "test-agent-default-lifetime", gateway_id: gateway_id})
+        |> render_submit()
+
+      assert html =~ "Package Created Successfully"
+      assert html =~ ~s(datetime="#{expected_not_after(200)}")
+    end
+
+    test "issues the certificate validity entered on the form", %{conn: conn, gateway_id: gateway_id} do
+      track_gateway_on_this_node(gateway_id)
+
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
+
+      html =
+        lv
+        |> form("#create_package_form",
+          form: %{label: "test-agent-short-lifetime", gateway_id: gateway_id, cert_validity_days: "45"}
+        )
+        |> render_submit()
+
+      assert html =~ ~s(datetime="#{expected_not_after(45)}")
+    end
+
+    test "rejects a certificate validity outside the policy bounds", %{conn: conn, gateway_id: gateway_id} do
+      track_gateway_on_this_node(gateway_id)
+
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
+
+      for out_of_range <- ["6", "366"] do
+        html =
+          lv
+          |> form("#create_package_form",
+            form: %{label: "test-agent-bad-lifetime", gateway_id: gateway_id, cert_validity_days: out_of_range}
+          )
+          |> render_submit()
+
+        assert html =~ "Certificate validity must be a whole number of days from 7 to 365."
+        refute html =~ "Package Created Successfully"
+      end
+    end
   end
 
   describe "package filters" do
@@ -315,6 +376,38 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
 
       assert html =~ "Package revoked" or html =~ "revoked"
     end
+  end
+
+  defp put_agent_cert_validity_default(days) do
+    previous = Application.fetch_env(:serviceradar_core, :agent_cert_validity_days)
+    Application.put_env(:serviceradar_core, :agent_cert_validity_days, days)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:serviceradar_core, :agent_cert_validity_days, value)
+        :error -> Application.delete_env(:serviceradar_core, :agent_cert_validity_days)
+      end
+    end)
+  end
+
+  # Issuance resolves the gateway's node through GatewayTracker; the stand-in
+  # CertIssuer above answers on this node.
+  defp track_gateway_on_this_node(gateway_id) do
+    ServiceRadar.GatewayTracker.register(gateway_id, %{
+      node: Node.self(),
+      partition: "default",
+      domain: "local",
+      status: :available
+    })
+
+    on_exit(fn -> ServiceRadar.GatewayTracker.unregister(gateway_id) end)
+  end
+
+  defp expected_not_after(days) do
+    Date.utc_today()
+    |> Date.add(days)
+    |> DateTime.new!(~T[13:00:00], "Etc/UTC")
+    |> DateTime.to_iso8601()
   end
 
   defp create_approved_addon!(actor, addon_id, version) do

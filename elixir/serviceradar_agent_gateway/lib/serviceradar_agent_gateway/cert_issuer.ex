@@ -11,7 +11,6 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   require Logger
 
   @default_cert_dir "/etc/serviceradar/certs"
-  @default_validity_days CertificateLifetimePolicy.default_validity_days()
   @min_validity_days CertificateLifetimePolicy.min_validity_days()
   @max_validity_days CertificateLifetimePolicy.max_validity_days()
   @identity_token_regex ~r/\A[A-Za-z0-9_-]+\z/
@@ -85,7 +84,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp server_host_san(_host), do: :error
 
   @doc false
-  def default_validity_days, do: @default_validity_days
+  def default_validity_days, do: CertificateLifetimePolicy.default_validity_days()
 
   @doc false
   def min_validity_days, do: @min_validity_days
@@ -170,13 +169,15 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp normalize_identity_id(_value), do: nil
 
   defp validate_validity_days(opts) do
+    default_days = CertificateLifetimePolicy.default_validity_days()
+
     validity_days =
       Keyword.get(opts, :validity_days) ||
-        Keyword.get(opts, :cert_validity_days, @default_validity_days)
+        Keyword.get(opts, :cert_validity_days, default_days)
 
     with :ok <- check_validity_bounds(validity_days, opts),
-         :ok <- check_long_ttl_approval(validity_days, opts) do
-      if validity_days > @default_validity_days do
+         :ok <- check_long_ttl_approval(validity_days, default_days, opts) do
+      if validity_days > default_days do
         Logger.warning("[CertIssuer] Issuing long-lived agent certificate: validity_days=#{validity_days}")
       end
 
@@ -202,7 +203,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
   defp check_validity_bounds(_validity_days, _opts), do: :ok
 
-  defp check_long_ttl_approval(validity_days, opts) when validity_days > @default_validity_days do
+  defp check_long_ttl_approval(validity_days, default_days, opts) when validity_days > default_days do
     if long_ttl_approved?(opts) do
       :ok
     else
@@ -210,7 +211,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     end
   end
 
-  defp check_long_ttl_approval(_validity_days, _opts), do: :ok
+  defp check_long_ttl_approval(_validity_days, _default_days, _opts), do: :ok
 
   defp load_ca_paths(opts) do
     cert_dir = Keyword.get(opts, :cert_dir, System.get_env("GATEWAY_CERT_DIR", @default_cert_dir))
@@ -495,8 +496,9 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp actor_identifier(actor) when is_binary(actor), do: actor
   defp actor_identifier(_actor), do: nil
 
-  defp audit_severity(validity_days) when validity_days > @default_validity_days, do: :medium
-  defp audit_severity(_validity_days), do: :informational
+  defp audit_severity(validity_days) do
+    if validity_days > CertificateLifetimePolicy.default_validity_days(), do: :medium, else: :informational
+  end
 
   defp write_extfile(path, component_type, partition_id, component_id, cn, extra_sans) do
     spiffe_id = build_spiffe_id(component_type, partition_id, component_id)

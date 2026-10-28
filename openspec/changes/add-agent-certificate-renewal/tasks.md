@@ -4,6 +4,7 @@
 - [ ] 1.1 Add `RenewCertificate(CertificateRenewalRequest) returns (CertificateRenewalResponse)` to `monitoring.AgentGatewayService` in `proto/monitoring.proto`, then regenerate Go and Elixir protobuf bindings.
 - [x] 1.2 Create `ServiceRadar.Edge.CertificateLifetimePolicy` in `elixir/serviceradar_core` defining the shared leaf certificate validity bounds, plus renewal scheduling constants (the renewal loop remains pending).
 - [x] 1.3 Fix `ServiceRadar.Edge.OnboardingPackages.create_with_platform_cert/2` and `ServiceRadarWebNG.Edge.OnboardingPackages` to use `CertificateLifetimePolicy.default_validity_days()` (`90` days) instead of `1` day.
+- [x] 1.4 Add the deployment default override (`AGENT_CERT_VALIDITY_DAYS`, Helm `certs.agentValidityDays`) validated at boot by core-elx, web-ng, and the agent-gateway, plus the Web-NG package form validity field and issued-certificate expiry display.
 
 ## 2. CNPG Migrations, Ash Resources & Durable Revocation (`#5257`)
 - [x] 2.1a Add a CNPG migration adding `cert_not_before`, `cert_expires_at`, `cert_serial`, `cert_fingerprint_sha256`, and `cert_renewed_at` to `platform.ocsf_agents` (with an index on `cert_expires_at`).
