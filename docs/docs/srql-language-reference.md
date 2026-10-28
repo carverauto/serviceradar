@@ -1190,11 +1190,10 @@ resolved observation time.
 WASM results do not currently carry a host-authored version; an explicitly
 reported `package_version` is shown when present, without inferring it from the
 assignment. `assignment_drift` compares a reported assignment ID with the
-current assignment. It is null when either ID is unknown. A reported ID that
-is another enabled assignment of the same plugin, agent, and partition is not
-drift, because those owners still share one service state. Any other known
-mismatch is drift. Otherwise healthy WASM results with known drift require
-action.
+current assignment. It is null when either ID is unknown; a known mismatch is
+drift. Evidence selection follows the
+[per-assignment service identity contract](./wasm-plugins.md).
+Otherwise healthy WASM results with known drift require action.
 
 `last_success_at` and `last_failure_at` describe availability of the latest WASM
 result: `available:true` sets the former and `available:false` sets the latter.
