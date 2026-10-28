@@ -8,6 +8,8 @@ import textwrap
 import unittest
 from pathlib import Path
 
+import yaml
+
 
 ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW = ROOT / ".github/workflows/publish-oci.yml"
@@ -260,6 +262,69 @@ esac
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(summary.count(VALID_DIGEST), 2)
+
+    def test_full_publish_signs_on_the_demo_test_build_branch(self):
+        workflow = yaml.safe_load(self.workflow)
+        step = next(
+            step
+            for job in workflow["jobs"].values()
+            for step in job["steps"]
+            if step.get("name") == "Publish images"
+        )
+
+        def guard(ref: str) -> subprocess.CompletedProcess[str]:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp = Path(temp_dir)
+                bazel = temp / "bazel"
+                bazel.write_text("#!/bin/bash\nexit 0\n", encoding="utf-8")
+                bazel.chmod(0o755)
+                env = {
+                    key: value
+                    for key, value in os.environ.items()
+                    if not key.startswith(("VAULT_", "COSIGN_", "OPENBAO_", "BASH_FUNC_"))
+                    and key not in ("BASH_ENV", "ENV", "SHELLOPTS", "BASHOPTS")
+                }
+                env.update(step["env"])
+                env.update({
+                    "PATH": str(temp),
+                    "GITHUB_SHA": "1" * 40,
+                    "GITHUB_REF": ref,
+                    "OPENBAO_K8S_TOKEN_FILE": str(temp / "missing-token"),
+                })
+                return subprocess.run(
+                    ["/bin/bash", "-c", step["run"]],
+                    cwd=ROOT,
+                    check=False,
+                    capture_output=True,
+                    env=env,
+                    text=True,
+                )
+
+        for ref in (
+            "refs/heads/staging",
+            "refs/heads/test/demo-test-7",
+            "refs/heads/test/demo-test-27",
+        ):
+            with self.subTest(ref=ref):
+                result = guard(ref)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("signing is not allowed", result.stderr)
+                self.assertIn("No Kubernetes service account token", result.stderr)
+
+        for ref in (
+            "refs/heads/feature/demo-test-27",
+            "refs/heads/test/demo-test-",
+            "refs/heads/test/demo-test-27-extra",
+            "refs/heads/xstaging",
+            "refs/tags/v1.2.3",
+        ):
+            with self.subTest(ref=ref):
+                result = guard(ref)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(
+                    f"OpenBao signing is not allowed for ref '{ref}'.",
+                    result.stderr,
+                )
 
     def test_release_environment_uses_canonical_harbor_credentials(self):
         self.assertIn("    environment: release", self.workflow)

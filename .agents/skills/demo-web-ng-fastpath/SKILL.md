@@ -1,55 +1,74 @@
 ---
 name: demo-web-ng-fastpath
-description: Refresh the Kubernetes `demo` namespace with a web-ng-only change using the ServiceRadar fast path. Use when the diff only touches `elixir/web-ng/**` and the user wants a faster local demo rollout without rebuilding the full image graph. Covers scope verification, copying unchanged images forward, rebuilding the production `serviceradar-web-ng` release locally, pushing with `crane`, signing with the OpenBao release key, patching Argo, and verifying the rollout. Do not use when non-web-ng services changed or when cutting a release.
+description: Refresh the Kubernetes `demo` namespace with a web-ng-only change using the ServiceRadar fast path. Use when the diff only touches `elixir/web-ng/**` and the user wants a faster demo rollout than the full image graph. Covers scope verification, the in-cluster `publish-oci.yml` web-stack-commit-only build, copying unchanged images forward, signing with the OpenBao release key, the pin PR into `demo/prod-release`, and verifying the rollout. Do not use when non-web-ng services changed or when cutting a release.
 ---
 
 # Demo Web-NG Fast Path
 
 ## Overview
 
-Use this skill when a change is isolated to `elixir/web-ng/**` and the goal is to test it in `demo` quickly. Rebuild only `serviceradar-web-ng`, copy the other `demo` images forward to the new immutable tag, sign the new web-ng image, patch Argo, and verify the rollout.
+Use this skill when a change is isolated to `elixir/web-ng/**` and the goal is to test it in `demo` quickly. Build only `serviceradar-web-ng` (and `serviceradar-core-elx`, which the same build step produces) in-cluster, copy the other `demo` images forward to the new immutable tag, sign the new digests, pin the tag with a PR into `demo/prod-release`, and verify the rollout.
 
-Formal releases use semver tags, such as `v1.2.41`, and ArgoCD Image Updater. This skill is only for temporary unpublished `sha-...` demo testing.
+Formal releases use semver tags, such as `v1.2.41`, and `$release-cut-and-demo-roll`. This skill is only for temporary unpublished `sha-...` demo testing. The signing commands, the pin PR, and the Argo checks are shared with `$demo-local-rollout` (demo roll, steps 3 to 5); follow them there rather than keeping a second copy here.
 
 ## Workflow
 
 1. Work from the repo root.
-2. Determine the new immutable tag from `git rev-parse HEAD`.
+2. Determine the new immutable tag: `sha-$(git rev-parse <commit>)`.
 3. Verify the diff only touches `elixir/web-ng/**`.
 4. Identify the currently deployed `demo` tag.
-5. Copy every unchanged `demo` image from the old tag to the new tag.
-6. Build a local production `web-ng` release.
-7. Package and push the new `serviceradar-web-ng` image with `crane`.
-8. Sign the new web-ng digest with the OpenBao-backed release key.
-9. Patch `serviceradar-demo-prod` to the new tag.
-10. Watch Argo and the key workloads until the rollout completes.
+5. Push a `test/demo-test-NN` branch at the commit and dispatch `publish-oci.yml` with `publish_scope=web-stack-commit-only`.
+6. Copy every other `demo` image from the old tag to the new tag.
+7. Verify every image at the new tag and sign the new web-ng and core-elx digests.
+8. Open the pin PR into `demo/prod-release`.
+9. After merge, watch Argo and the key workloads until the rollout completes.
 
 ## Guardrails
 
 - Use this only when the diff is actually `web-ng`-only. If anything outside `elixir/web-ng/**` changed, fall back to `$demo-local-rollout`.
 - Do not use this for release cuts or any namespace other than `demo` unless the user explicitly redirects you.
-- Do not leave a formal release rollout on a `sha-...` tag. After testing is complete, use `$release-cut-and-demo-roll` to return `demo` to the published semver/Image Updater path.
-- Do not skip signing. `demo` admission is Kyverno-enforced.
-- Sign by digest, not by tag, whenever possible.
-- Keep the other demo images identical by copying them forward from the currently deployed tag.
+- Do not build the image on a workstation. A workstation Bazel build of the image set pulls large CAS blobs through `cache-proxy.carverauto.dev` and has OOMKilled the shared Envoy gateway; the in-cluster build avoids that.
+- Do not leave a formal release rollout on a `sha-...` tag. After testing is complete, use `$release-cut-and-demo-roll` to return `demo` to the published semver path.
+- Do not skip signing. `demo` admission is Kyverno-enforced, and the web-stack-commit-only publish does not sign.
+- Sign by digest, not by tag.
+- Never push to `staging` or `demo/prod-release`; push new branches with an explicit refspec (`git push origin <local>:refs/heads/<branch>`).
 
 ## Verify The Scope First
 
 Run:
 
 ```bash
-git diff --name-only <currently-deployed-sha>..HEAD
+git fetch origin demo/prod-release
+git show origin/demo/prod-release:helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml
+git diff --name-only <currently-deployed-sha>..<commit>
 ```
 
 Proceed only if every changed file is under `elixir/web-ng/`.
 
-## Copy Unchanged Images Forward
-
-Copy the unchanged images from the current demo tag to the new tag with `crane`:
+## Build In-Cluster
 
 ```bash
-/tmp/gobin/crane copy \
-  registry.carverauto.dev/serviceradar/<image>:sha-<old> \
+COMMIT="$(git rev-parse <commit>)"
+git ls-remote origin 'refs/heads/test/demo-test-*'   # pick the next unused NN
+git push origin "${COMMIT}:refs/heads/test/demo-test-<NN>"
+gh workflow run publish-oci.yml --ref "test/demo-test-<NN>" \
+  -f publish_scope=web-stack-commit-only -f expected_commit="${COMMIT}"
+gh run list --workflow publish-oci.yml --branch "test/demo-test-<NN>" --limit 1
+gh run watch <run-id> --exit-status
+```
+
+`expected_commit` must equal the branch head exactly or the run refuses to
+publish. The run pushes only `serviceradar-core-elx:sha-<COMMIT>` and
+`serviceradar-web-ng:sha-<COMMIT>` (no `latest`), writes both digests to the
+step summary, and does **not** sign them.
+
+## Copy Unchanged Images Forward
+
+Copy the other images from the current demo tag to the new tag with `crane` (on `PATH` via Homebrew):
+
+```bash
+crane copy \
+  registry.carverauto.dev/serviceradar/<image>:<old-tag> \
   registry.carverauto.dev/serviceradar/<image>:sha-<new>
 ```
 
@@ -58,7 +77,6 @@ Repeat for:
 - `arancini`
 - `serviceradar-agent`
 - `serviceradar-agent-gateway`
-- `serviceradar-core-elx`
 - `serviceradar-datasvc`
 - `serviceradar-db-event-writer`
 - `serviceradar-faker`
@@ -67,145 +85,64 @@ Repeat for:
 - `serviceradar-rperf-client`
 - `serviceradar-tools`
 - `serviceradar-trapd`
+- `serviceradar-trivy-sidecar`
 - `serviceradar-zen`
 
-Leave `serviceradar-log-collector-tcp` alone unless the user explicitly changed that path too.
+Do not copy `serviceradar-core-elx` or `serviceradar-web-ng`; the run already
+pushed them at the new tag. A copy keeps the digest, so the copied images keep
+their existing signatures. Leave `serviceradar-log-collector-tcp` alone; it
+shares the log-collector image.
 
-## Build The Production Web-NG Release
+## Verify And Sign
 
-From `elixir/web-ng`:
+Run the verify loop from `$demo-local-rollout` (demo roll, step 3) over all 15
+images at `sha-<new>`. Expect `serviceradar-web-ng` and `serviceradar-core-elx`
+to be `UNSIGNED`; sign those digests with the `github-signing-runner` flow in
+that step, then re-run the loop until every image reports `signed`.
 
-```bash
-MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix deps.compile
-MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix compile
-MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix assets.deploy
-MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix release --path /tmp/serviceradar_web_ng_release_<shortsha>
-```
+## Pin And Roll
 
-## Package And Push The Web-NG Image
-
-Create the image layer tarball:
-
-```bash
-tar --owner=10001 --group=10001 --transform='s,^,app/,' \
-  -cf /tmp/serviceradar_web_ng_layer_<shortsha>.tar \
-  -C /tmp/serviceradar_web_ng_release_<shortsha> .
-```
-
-Append the release onto the pinned Elixir base image and then mutate the runtime config:
-
-```bash
-/tmp/gobin/crane append \
-  --platform linux/amd64 \
-  -b index.docker.io/hexpm/elixir:1.19.4-erlang-28.3-debian-bookworm-20251208-slim \
-  -f /tmp/serviceradar_web_ng_layer_<shortsha>.tar \
-  -t registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>
-
-/tmp/gobin/crane mutate \
-  --platform linux/amd64 \
-  --tag registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new> \
-  --entrypoint /app/bin/serviceradar_web_ng \
-  --cmd start \
-  --env HOME=/app \
-  --env PATH=/app/bin:/usr/local/bin:/usr/bin:/bin \
-  --env PHX_SERVER=true \
-  --env MIX_ENV=prod \
-  --exposed-ports 4000/tcp \
-  --user 10001:10001 \
-  --workdir /app \
-  registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>
-```
-
-Capture the pushed digest with:
-
-```bash
-/tmp/gobin/crane digest registry.carverauto.dev/serviceradar/serviceradar-web-ng:sha-<new>
-```
+Open the pin PR into `demo/prod-release` setting `global.imageTag` to
+`sha-<new>`, and confirm the automated Argo sync, exactly as in
+`$demo-local-rollout` (demo roll, steps 4 and 5). List existing
+`image.digests.<service>` parameters in
+`helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml` and remove the
+pin for every service that should move in the same PR: a digest pin overrides
+`global.imageTag`. Do not patch the Argo
+Application: the `.argocd-source-...` file replaces its parameters (see
+Verified Facts).
 
 ## Verified Facts (2026-08-22, live run)
 
 These were each confirmed against the live `carverauto` cluster during a real web-ng roll.
 Do not re-derive them.
 
-- **OpenBao is HTTPS.** Through the port-forward, `https://127.0.0.1:18200` works and
-  `http://` returns `400 Client sent an HTTP request to an HTTPS server`.
-- **The role is `forgejo-signing-runner` (namespace `forgejo-actions`), NOT `forgejo-runner`.**
-  The plain `forgejo-runner` role does not exist. A successful login returns policies
-  `["cosign-runner","default","plugin-upload-signing"]`.
+- For the OpenBao endpoint, signing identity, and token handling, follow
+  `$demo-local-rollout` (demo roll, step 3).
 - **`.argocd-source-serviceradar-demo-prod.yaml` REPLACES `helm.parameters` at render time.**
   This is stronger than a race: a `kubectl patch` of `spec.source.helm.parameters` on
   `serviceradar-demo-prod` persists in the Application spec, syncs `Synced|Healthy|Succeeded`,
-  and is still **completely ignored** — only the parameters listed in that file on
+  and is still **completely ignored** -- only the parameters listed in that file on
   `demo/prod-release` reach Helm. Any parameter you need (`global.imageTag`,
   `image.digests.*`) must be committed to that file on `demo/prod-release`.
 - **`image.digests.<service>` is a real per-service escape hatch** (`_helpers.tpl`
   `serviceradar.imageRefSuffix`): it short-circuits ahead of the tag, so you can move ONE
-  service and leave every other image on the already-signed release tag — one signature
+  service and leave every other image on the already-signed release tag -- one signature
   instead of fifteen. Service key for web-ng is `webNg`. It still has to go in the
   `.argocd-source-...` file to take effect.
-- **`make push_all` also moves `latest`** on every image (`oci_push` carries
-  `static_tags = ["latest"]`), despite advice elsewhere to "tag only sha-<commit>".
+- **A full-scope publish moves `latest`** on every image (`oci_push` carries
+  `static_tags = ["latest"]`; this covers `publish-oci.yml` `publish_scope=full` and the
+  workstation `make push_all`). The `web-stack-commit-only` scope pushes only `sha-<commit>`.
   It does NOT move `v<VERSION>`: `scripts/workspace_status.sh` emits `STABLE_VERSION dev`
   unless a matching `v<VERSION>` git tag points at HEAD, and `container_tags.bzl` filters
   `vdev`. Verify with `git tag --points-at HEAD` before pushing.
 - **Claude Code auto mode blocks the signing flow** unless these allow rules exist in
   `.claude/settings.local.json`, and the commands are run discretely (a `bash -c '...'`
   wrapper defeats prefix matching):
-  `Bash(kubectl create token:*)`,
-  `Bash(curl -sS -k -X POST https://127.0.0.1:18200/v1/auth/kubernetes/login:*)`,
+  `Bash(kubectl --context carverauto create token:*)`,
+  `Bash(curl -sS -k -X POST --data:*)`,
   `Bash(cosign sign:*)`, `Bash(cosign verify:*)`.
   Keep the JWT and Vault token in files; never put them on a command line.
-
-## Prepare OpenBao Signing Env
-
-Port-forward the signer if needed:
-
-```bash
-kubectl port-forward -n openbao-system svc/openbao-active 18200:8200
-```
-
-Mint a Forgejo runner service-account token and exchange it for a Vault token:
-
-```bash
-OPENBAO_ADDR=https://127.0.0.1:18200
-OPENBAO_K8S_ROLE=forgejo-signing-runner   # NOT forgejo-runner (that role does not exist -> 403)
-sa_jwt="$(kubectl create token -n forgejo-actions forgejo-signing-runner)"
-vault_token="$({
-  curl -sS -k \
-    -H 'Content-Type: application/json' \
-    -d "{\"role\":\"${OPENBAO_K8S_ROLE}\",\"jwt\":\"${sa_jwt}\"}" \
-    "${OPENBAO_ADDR}/v1/auth/kubernetes/login"  # HTTPS + -k: the listener is TLS, http:// returns 400
-} | jq -er '.auth.client_token')"
-```
-
-Export:
-
-```bash
-export VAULT_ADDR="$OPENBAO_ADDR"
-export VAULT_TOKEN="$vault_token"
-export COSIGN_KEY_REF=hashivault://cosign-release
-export COSIGN_YES=true
-export COSIGN_DOCKER_MEDIA_TYPES=1
-export COSIGN_REFERRERS_MODE=legacy
-export COSIGN_TLOG_UPLOAD=true
-```
-
-If signing fails with `403 permission denied`, mint a fresh Vault token and retry.
-
-## Sign The Web-NG Digest
-
-```bash
-cosign sign --key "$COSIGN_KEY_REF" \
-  registry.carverauto.dev/serviceradar/serviceradar-web-ng@sha256:<digest>
-```
-
-## Patch Demo Argo App
-
-```bash
-kubectl patch application -n argocd serviceradar-demo-prod \
-  --type merge \
-  -p '{"spec":{"source":{"helm":{"parameters":[{"name":"global.imageTag","value":"sha-<new>"}]}}}}'
-```
 
 ## Verify Rollout
 
@@ -237,7 +174,7 @@ kubectl get pods -n demo -o wide
 kubectl get jobs -n demo
 ```
 
-Do not report success until the new `serviceradar-web-ng` pod is running on the new tag and Argo reaches `Succeeded`.
+Do not report success until the new `serviceradar-web-ng` pod is running on the new tag and Argo reaches `Succeeded` for the pin PR's merge revision (`.status.sync.revision`).
 
 ## Report Back
 
@@ -245,6 +182,8 @@ Close with:
 
 - target immutable tag
 - old tag that was copied forward
-- web-ng digest that was signed
+- publish run id and test branch
+- web-ng and core-elx digests that were signed
+- pin PR
 - final Argo status
 - any lingering rollout risk

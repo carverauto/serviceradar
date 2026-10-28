@@ -15,7 +15,7 @@ Use this skill for the formal release path: update release metadata, cut the rel
 2. Update `VERSION` and the top `CHANGELOG` entry for the new semver.
 3. Dry-run the release cut to verify the changelog entry is wired correctly.
 4. Run `scripts/cut-release.sh --version <version> --push`; this publishes the release branch only and keeps the annotated tag local.
-5. Open the release pull request and merge it into `staging` with `fj pr merge <PR> -M merge` after CI passes. Squash/rebase would discard the tagged commit.
+5. Open the release pull request and merge it into `staging` with `gh pr merge <PR> --merge` after CI passes. Squash/rebase would discard the tagged commit.
 6. Fetch `origin/staging`, prove the local tag commit is now an ancestor, and publish the tag with an explicit tag refspec.
 7. Wait for the published release artifacts to exist for the target semver tag.
 8. Confirm the release workflow advanced `demo/prod-release` and its Argo source file to `v<version>`.
@@ -39,7 +39,7 @@ Use this skill for the formal release path: update release metadata, cut the rel
 Run all of these BEFORE touching `VERSION`. Each one has broken a release already.
 
 1. **Every unit test, the way CI runs them.** A tag pins its own source, so a fix pushed to
-   `staging` afterwards is invisible to a re-run of that tag — a broken test found after
+   `staging` afterwards is invisible to a re-run of that tag -- a broken test found after
    tagging costs a new tag, not a re-run.
 
    ```bash
@@ -51,7 +51,7 @@ Run all of these BEFORE touching `VERSION`. Each one has broken a release alread
    (`//elixir/serviceradar_core:unit_tests_*`, `//elixir/web-ng:unit_tests_*`), which is how
    two broken Elixir suites reached the v1.4.30 tag.
 
-2. **Duplicate migration versions** — must print nothing:
+2. **Duplicate migration versions** -- must print nothing:
 
    ```bash
    ls elixir/serviceradar_core/priv/repo/migrations/ | grep -oE '^[0-9]+' | sort | uniq -d
@@ -62,11 +62,11 @@ Run all of these BEFORE touching `VERSION`. Each one has broken a release alread
    assignment on every fresh install. CI passed because it does not migrate against a prior
    baseline. If it prints anything, renumber the extras before cutting.
 
-3. **Prod release assembles** — broke v1.3.8. `cd elixir/serviceradar_core && MIX_ENV=prod mix release`
+3. **Prod release assembles** -- broke v1.3.8. `cd elixir/serviceradar_core && MIX_ENV=prod mix release`
    must produce no "Duplicated modules" (the hackney/h2 vs grpcbox/chatterbox conflict).
    Gate on BOTH `serviceradar_core` and `serviceradar_core_elx`.
 
-4. macOS needs `gsed` (`brew install gnu-sed`) — `cut-release.sh` uses GNU sed for in-place
+4. macOS needs `gsed` (`brew install gnu-sed`) -- `cut-release.sh` uses GNU sed for in-place
    edits.
 
 ## Update Release Metadata
@@ -100,7 +100,7 @@ Open the resulting release pull request and use the ancestry-preserving merge
 commit method:
 
 ```bash
-fj pr merge <PR> -M merge
+gh pr merge <PR> --merge
 ```
 
 Do not squash or rebase the release PR because that changes or discards the
@@ -126,12 +126,15 @@ Keep the release commit SHA for reporting and traceability. Use the release vers
 ## Published Artifact Expectations
 
 Do not roll `demo` until the release artifacts for the target semver tag exist.
-Forgejo Actions is the supported formal publisher because the complete release
-also includes packages, the Helm chart, managed-agent assets, native add-ons,
-Wasm plugins, signatures, both import catalogs, and source/image security
-bundles. `make push_all_release` only covers the container/Wasm portion and is
-not a complete release recovery. Rerun the appropriate Forgejo workflow at the
-release tag when recovery is required.
+The GitHub Actions `release.yml` workflow is the supported formal publisher
+because the complete release also includes packages, the Helm chart,
+managed-agent assets, native add-ons, Wasm plugins, signatures, both import
+catalogs, and source/image security bundles. `make push_all_release` only covers
+the container/Wasm portion, is not a complete release recovery, and is a
+workstation image-set build: it pulls large CAS blobs through
+`cache-proxy.carverauto.dev` and can OOMKill the shared Envoy gateway, so do not
+run it. Re-run the failed `release.yml` job at the release tag
+(`gh run rerun <run-id> --failed`) when recovery is required.
 
 ## Recovery: Release Published But `demo/prod-release` Was Not Advanced
 
@@ -150,7 +153,9 @@ git push --force-with-lease demo-release "HEAD:refs/heads/demo/prod-release"
 
 where `HEAD` is the release commit, `git rev-list -n1 "refs/tags/v<version>^{commit}"`.
 So the recovery is to reproduce that push, NOT to hand-write a commit that edits
-`.argocd-source-serviceradar-demo-prod.yaml`. `scripts/cut-release.sh` already
+`.argocd-source-serviceradar-demo-prod.yaml`. That push force-rewrites a shared
+branch, which agents must never do: run the checks below, then hand the user the
+exact command and let them run it. `scripts/cut-release.sh` already
 wrote `global.imageTag: v<version>` into that file at the release commit, and
 that commit is also the only tree carrying the matching `Chart.yaml` version and
 migration `expectedVersion`. Adding a tag-only commit on top of the stale branch
@@ -208,7 +213,16 @@ carry chart edits that were never upstreamed; diff
 `origin/demo/prod-release..v<version> -- helm/serviceradar/` and account for
 every removal before pushing.
 
-After pushing, Argo picks the new revision up on its own. Do not sync manually;
+The command to hand over, with an explicit lease on the branch head you
+verified and an explicit refspec:
+
+```bash
+OLD="$(git rev-parse refs/remotes/origin/demo/prod-release)"
+git push --force-with-lease="refs/heads/demo/prod-release:${OLD}" \
+  origin "${RC}:refs/heads/demo/prod-release"
+```
+
+After the user pushes, Argo picks the new revision up on its own. Do not sync manually;
 confirm the operation was automatic with
 `.status.operationState.operation.initiatedBy.automated`.
 

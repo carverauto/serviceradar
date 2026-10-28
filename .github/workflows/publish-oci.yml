@@ -3,11 +3,11 @@ name: Publish OCI Images
 on:
   # Auto-trigger on staging pushes removed (2026-06): release.yml builds + signs
   # the semver images every environment deploys (global.imageTag is a semver tag),
-  # so this per-commit latest/sha publish was redundant. It also always failed at
-  # signing — the RBE build uses --remote_download_minimal, so the local image-index
-  # metadata cosign needs is never materialized. Runs on demand only now. Re-add the
-  # `push:` trigger (and fix signing first) if a dev/staging env ever needs
-  # per-commit images.
+  # so this per-commit latest/sha publish was redundant. Runs on demand only now:
+  # the demo test-build flow dispatches it on a test/demo-test-<N> branch (see
+  # .agents/skills/demo-local-rollout). Signing reads digests from the registry
+  # tag (SERVICERADAR_SIGN_REGISTRY_TAG), so the --remote_download_minimal build
+  # no longer blocks it.
   workflow_dispatch:
     inputs:
       publish_scope:
@@ -253,7 +253,9 @@ jobs:
           EXTRA_TAG: ${{ steps.release.outputs.tag }}
           OPENBAO_ADDR: https://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: github-signing-runner
-          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/staging$'
+          # test/demo-test-<N> is the branch the demo test-build flow dispatches
+          # this workflow on; any other ref still refuses to sign.
+          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/heads/(staging|test/demo-test-[0-9]+)$'
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
