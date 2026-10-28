@@ -236,30 +236,69 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
   end
 
   defp bind_schedule(rule, profile, assignment, params, entry, actor, store) do
-    %{schedule: schedule, cadence_seconds: cadence_seconds} = entry
+    %{schedule: template_schedule, cadence_seconds: cadence_seconds} = entry
     requirement = profile["provisioning"]["credential_requirement"]
 
-    attrs = %{
-      enabled: schedule_enabled?(rule, entry.schedule_id, params),
-      schedule_type: :interval,
-      cadence_seconds: cadence_seconds,
-      plugin_assignment_id: assignment.id,
-      params: params,
-      credential_refs: %{
-        requirement => SecretRefs.network_credential_ref(required_value!(rule, :secret_id))
-      },
-      metadata:
-        (schedule.metadata || %{})
-        |> Map.put("credential_rule_id", required_value!(rule, :id))
-        |> Map.put("integration_provider", profile["provider"])
-    }
+    with {:ok, target_schedule, mode} <-
+           resolve_assignment_schedule(store, template_schedule, assignment.id, actor) do
+      base_metadata =
+        case target_schedule do
+          %{metadata: %{} = metadata} -> metadata
+          _ -> template_schedule.metadata || %{}
+        end
 
-    if schedule_matches?(schedule, attrs) do
-      {:ok, schedule, false}
-    else
-      with {:ok, updated} <- store.update_schedule(schedule, attrs, actor) do
-        {:ok, updated, true}
+      attrs = %{
+        enabled: schedule_enabled?(rule, entry.schedule_id, params),
+        schedule_type: :interval,
+        cadence_seconds: cadence_seconds,
+        plugin_assignment_id: assignment.id,
+        params: params,
+        credential_refs: %{
+          requirement => SecretRefs.network_credential_ref(required_value!(rule, :secret_id))
+        },
+        metadata:
+          base_metadata
+          |> Map.put("credential_rule_id", required_value!(rule, :id))
+          |> Map.put("integration_provider", profile["provider"])
+      }
+
+      case {mode, target_schedule} do
+        {:existing, schedule} ->
+          if schedule_matches?(schedule, attrs) do
+            {:ok, schedule, false}
+          else
+            with {:ok, updated} <- store.update_schedule(schedule, attrs, actor) do
+              {:ok, updated, true}
+            end
+          end
+
+        {:create, nil} ->
+          create_attrs =
+            template_schedule
+            |> Map.take([
+              :producer_kind,
+              :plugin_package_id,
+              :schedule_id,
+              :display_name,
+              :description,
+              :contract,
+              :timezone,
+              :target_query
+            ])
+            |> Map.merge(attrs)
+
+          with {:ok, created} <- store.create_schedule(create_attrs, actor) do
+            {:ok, created, true}
+          end
       end
+    end
+  end
+
+  defp resolve_assignment_schedule(store, template_schedule, assignment_id, actor) do
+    if function_exported?(store, :resolve_assignment_schedule, 3) do
+      store.resolve_assignment_schedule(template_schedule, assignment_id, actor)
+    else
+      {:ok, template_schedule, :existing}
     end
   end
 
@@ -775,7 +814,47 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
         producer_kind == :wasm_plugin and plugin_package_id == ^package_id and
           schedule_id == ^schedule_id
       )
+      |> Ash.Query.sort(inserted_at: :asc, id: :asc)
+      |> Ash.Query.limit(1)
       |> Ash.read_one(actor: actor)
+    end
+
+    def resolve_assignment_schedule(template_schedule, assignment_id, actor) do
+      package_id = template_schedule.plugin_package_id
+      schedule_id = template_schedule.schedule_id
+
+      ProducerSchedule
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(
+        producer_kind == :wasm_plugin and plugin_package_id == ^package_id and
+          schedule_id == ^schedule_id and plugin_assignment_id == ^assignment_id
+      )
+      |> Ash.read_one(actor: actor)
+      |> case do
+        {:ok, %ProducerSchedule{} = existing} ->
+          {:ok, existing, :existing}
+
+        {:ok, nil} ->
+          find_unbound_package_schedule(package_id, schedule_id, actor)
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+
+    defp find_unbound_package_schedule(package_id, schedule_id, actor) do
+      ProducerSchedule
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(
+        producer_kind == :wasm_plugin and plugin_package_id == ^package_id and
+          schedule_id == ^schedule_id and is_nil(plugin_assignment_id)
+      )
+      |> Ash.read_one(actor: actor)
+      |> case do
+        {:ok, %ProducerSchedule{} = unbound} -> {:ok, unbound, :existing}
+        {:ok, nil} -> {:ok, nil, :create}
+        {:error, reason} -> {:error, reason}
+      end
     end
 
     def list_assignment_schedules(assignment_id, actor) do
@@ -783,6 +862,12 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
       |> Ash.Query.for_read(:read, %{}, actor: actor)
       |> Ash.Query.filter(plugin_assignment_id == ^assignment_id)
       |> Ash.read(actor: actor)
+    end
+
+    def create_schedule(attrs, actor) do
+      ProducerSchedule
+      |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+      |> Ash.create(actor: actor)
     end
 
     def update_schedule(schedule, attrs, actor) do

@@ -70,18 +70,23 @@ defmodule ServiceRadar.Plugins.ProducerScheduleCatalog do
       )
 
     case find_existing(kind, package.id, schedule_id, actor) do
-      {:ok, nil} ->
+      {:ok, []} ->
         ProducerSchedule
         |> Ash.Changeset.for_create(:create, attrs)
         |> Ash.create(actor: actor)
 
-      {:ok, schedule} ->
-        schedule
-        |> Ash.Changeset.for_update(
-          :update,
-          Map.take(attrs, [:display_name, :description, :contract])
-        )
-        |> Ash.update(actor: actor)
+      {:ok, schedules} when is_list(schedules) ->
+        update_attrs = Map.take(attrs, [:display_name, :description, :contract])
+
+        Enum.reduce_while(schedules, {:ok, nil}, fn schedule, {:ok, _last} ->
+          schedule
+          |> Ash.Changeset.for_update(:update, update_attrs)
+          |> Ash.update(actor: actor)
+          |> case do
+            {:ok, updated} -> {:cont, {:ok, updated}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
 
       {:error, reason} ->
         {:error, reason}
@@ -94,7 +99,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleCatalog do
       producer_kind == :wasm_plugin and plugin_package_id == ^package_id and
         schedule_id == ^schedule_id
     )
-    |> Ash.read_one(actor: actor)
+    |> Ash.read(actor: actor)
   end
 
   defp find_existing(:native_addon, package_id, schedule_id, actor) do
@@ -103,7 +108,7 @@ defmodule ServiceRadar.Plugins.ProducerScheduleCatalog do
       producer_kind == :native_addon and addon_package_id == ^package_id and
         schedule_id == ^schedule_id
     )
-    |> Ash.read_one(actor: actor)
+    |> Ash.read(actor: actor)
   end
 
   defp put_package_ref(attrs, :wasm_plugin, package_id),

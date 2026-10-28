@@ -9,9 +9,11 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   alias ServiceRadar.Automation.Northbound.ActionInvocationTarget
   alias ServiceRadar.Automation.Northbound.CredentialGrants
   alias ServiceRadar.Automation.Northbound.TargetPayloadContract
+  alias ServiceRadar.Credentials.NetworkCredentialRule
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Plugins
+  alias ServiceRadar.Plugins.AssignmentOwner
   alias ServiceRadar.Plugins.PluginAssignment
 
   require Ash.Query
@@ -164,7 +166,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
   defp resolve_plugin_assignment(%ActionInvocation{provider: provider} = invocation, actor) do
     with :ok <- validate_wasm_provider(provider),
          {:ok, assignments} <- list_package_assignments(provider.plugin_package_id, actor) do
-      select_assignment(assignments, preferred_agent_ids(invocation))
+      select_assignment(assignments, invocation, actor)
     end
   end
 
@@ -226,15 +228,109 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
     |> Ash.read(actor: actor, domain: Plugins)
   end
 
-  defp select_assignment([], _preferred_agent_ids), do: {:error, :no_enabled_plugin_assignment}
+  defp select_assignment([], _invocation, _actor), do: {:error, :no_enabled_plugin_assignment}
 
-  defp select_assignment(assignments, preferred_agent_ids) do
-    preferred =
-      Enum.find(assignments, fn assignment ->
-        assignment.agent_uid in preferred_agent_ids
+  defp select_assignment(assignments, invocation, actor) do
+    rule_candidates =
+      Enum.flat_map(assignments, fn assignment ->
+        case AssignmentOwner.owner(assignment.policy_id) do
+          {:rule, rule_id} -> [{assignment, rule_id}]
+          _ -> []
+        end
       end)
 
-    {:ok, preferred || List.first(assignments)}
+    case rule_candidates do
+      [] ->
+        select_non_rule_assignment(assignments, invocation)
+
+      candidates ->
+        select_rule_owned_assignment(candidates, invocation, actor)
+    end
+  end
+
+  defp select_non_rule_assignment([single], _invocation), do: {:ok, single}
+
+  defp select_non_rule_assignment(assignments, invocation) do
+    preferred_ids = preferred_agent_ids(invocation)
+
+    case Enum.filter(assignments, &(&1.agent_uid in preferred_ids)) do
+      [single] ->
+        {:ok, single}
+
+      matches ->
+        log_ambiguous_assignment(invocation, assignments, matches)
+        {:error, :ambiguous_plugin_assignment}
+    end
+  end
+
+  defp select_rule_owned_assignment(candidates, invocation, actor) do
+    rule_ids = candidates |> Enum.map(&elem(&1, 1)) |> Enum.uniq()
+
+    with {:ok, rules_by_id} <- load_enabled_credential_rules(rule_ids, actor) do
+      matching_assignments =
+        if has_device_target_snapshots?(invocation) do
+          candidates
+          |> Enum.filter(fn {assignment, rule_id} ->
+            case Map.get(rules_by_id, rule_id) do
+              %NetworkCredentialRule{} = rule ->
+                CredentialGrants.rule_covers_invocation?(rule, assignment, invocation)
+
+              _ ->
+                false
+            end
+          end)
+          |> Enum.map(&elem(&1, 0))
+        else
+          candidates
+          |> Enum.filter(fn {_assignment, rule_id} -> Map.has_key?(rules_by_id, rule_id) end)
+          |> Enum.map(&elem(&1, 0))
+        end
+
+      case matching_assignments do
+        [winner] ->
+          {:ok, winner}
+
+        matches ->
+          log_ambiguous_assignment(invocation, Enum.map(candidates, &elem(&1, 0)), matches)
+          {:error, :ambiguous_plugin_assignment}
+      end
+    end
+  end
+
+  defp load_enabled_credential_rules([], _actor), do: {:ok, %{}}
+
+  defp load_enabled_credential_rules(rule_ids, actor) do
+    NetworkCredentialRule
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(id in ^rule_ids and enabled == true)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, rules} ->
+        {:ok, Map.new(rules, &{to_string(&1.id), &1})}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp has_device_target_snapshots?(%ActionInvocation{target_snapshots: snapshots})
+       when is_list(snapshots) do
+    Enum.any?(snapshots, fn snapshot ->
+      device_uid = map_get(snapshot, "device_uid")
+      is_binary(device_uid) and String.trim(device_uid) != ""
+    end)
+  end
+
+  defp has_device_target_snapshots?(_invocation), do: false
+
+  defp log_ambiguous_assignment(invocation, candidates, matches) do
+    Logger.warning(
+      "Northbound dispatcher refused ambiguous_plugin_assignment for invocation #{invocation.id}",
+      invocation_id: invocation.id,
+      plugin_package_id: invocation.provider && invocation.provider.plugin_package_id,
+      candidate_assignment_ids: Enum.map(candidates, & &1.id),
+      matched_assignment_ids: Enum.map(matches, & &1.id)
+    )
   end
 
   defp preferred_agent_ids(%ActionInvocation{target_snapshots: snapshots})

@@ -135,6 +135,15 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
         in_memory_invocation(package, %{"source_account" => @source_requirement}, %{})
 
       assert {:ok, _prepared} =
+               CredentialGrants.prepare_launch(invocation, first_assignment,
+                 grant_issuer: {FakeGrantIssuer, :issue}
+               )
+
+      assert_received {:grant_attrs, first_attrs}
+      assert first_attrs.secret_ref == secret_ref(first.secret_id)
+      refute first_attrs.secret_ref == secret_ref(second.secret_id)
+
+      assert {:ok, _prepared} =
                CredentialGrants.prepare_launch(invocation, bound,
                  grant_issuer: {FakeGrantIssuer, :issue}
                )
@@ -143,8 +152,14 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
       assert attrs.secret_ref == secret_ref(second.secret_id)
       refute attrs.secret_ref == secret_ref(first.secret_id)
 
+      unbound_assignment = %PluginAssignment{
+        id: Ecto.UUID.generate(),
+        agent_uid: "northbound-unbound-schedule-agent",
+        plugin_package_id: package.id
+      }
+
       assert {:error, {:no_bound_schedule_credential, "source_account", @schedule_ref}} =
-               CredentialGrants.prepare_launch(invocation, first_assignment,
+               CredentialGrants.prepare_launch(invocation, unbound_assignment,
                  grant_issuer: {FakeGrantIssuer, :issue}
                )
     end
@@ -733,6 +748,223 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
     refute Map.has_key?(interface_target, "if_name")
   end
 
+  describe "dispatcher assignment selection" do
+    test "returns {:error, :ambiguous_plugin_assignment} when an ambiguous rule-owned pair matches the target device" do
+      unique = System.unique_integer([:positive])
+      provider = "example-sat-ambig-#{unique}"
+      package = approved_package!("example-sat-ambig-#{unique}", provider)
+      agent_uid = "northbound-ambig-agent-#{unique}"
+
+      first_rule =
+        provider
+        |> rule!(agent_uid)
+        |> update_target_query!("in:devices")
+
+      second_rule =
+        provider
+        |> rule!(agent_uid)
+        |> update_target_query!("in:devices")
+
+      :ok = provision!(package, [first_rule, second_rule])
+
+      device =
+        target_device!(
+          "sr:example-sat-ambig-device-#{unique}",
+          "ambig-#{unique}.example.com",
+          agent_uid,
+          true
+        )
+
+      {:ok, descriptor} =
+        plugin_descriptor(package, %{"source_account" => @source_requirement}, scopes: ["device"])
+
+      assert {:ok, invocation} =
+               InvocationService.create_invocation(
+                 %{
+                   descriptor_id: descriptor.id,
+                   targets: [%{kind: :device, device_uid: device.uid}],
+                   input_values: %{}
+                 },
+                 actor: @system_actor
+               )
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert {:error, :ambiguous_plugin_assignment} =
+                   Dispatcher.dispatch_invocation(invocation,
+                     command_bus: CapturingCommandBus,
+                     grant_issuer: {FakeGrantIssuer, :issue}
+                   )
+        end)
+
+      assert log =~ "ambiguous_plugin_assignment"
+      refute_received {:dispatched, _agent_uid, _command_type, _stored, _transmitted}
+
+      assert {:ok, failed} = ActionInvocation.get_by_id(invocation.id, actor: @system_actor)
+      assert failed.state == :failed
+    end
+
+    test "resolves each target in a disjoint rule-scoped pair to its matching rule assignment in preference to a manual assignment" do
+      unique = System.unique_integer([:positive])
+      provider = "example-sat-disjoint-#{unique}"
+      package = approved_package!("example-sat-disjoint-#{unique}", provider)
+      agent_uid = "northbound-disjoint-agent-#{unique}"
+      manual_agent_uid = "northbound-disjoint-manual-agent-#{unique}"
+      register_control_session!(agent_uid)
+      register_control_session!(manual_agent_uid)
+
+      {:ok, manual_assignment} =
+        PluginAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            agent_uid: manual_agent_uid,
+            plugin_package_id: package.id,
+            source: :manual,
+            enabled: true
+          },
+          actor: @system_actor
+        )
+        |> Ash.create(actor: @system_actor, return_notifications?: true)
+        |> case do
+          {:ok, assignment, _notifications} -> {:ok, assignment}
+          other -> other
+        end
+
+      host_a = "switch-a-#{unique}.example.com"
+      host_b = "switch-b-#{unique}.example.com"
+
+      rule_a =
+        provider
+        |> rule!(agent_uid)
+        |> update_target_query!("in:devices hostname:#{host_a}")
+
+      rule_b =
+        provider
+        |> rule!(agent_uid)
+        |> update_target_query!("in:devices hostname:#{host_b}")
+
+      :ok = provision!(package, [rule_a, rule_b])
+      assignment_a = assignment_for!(rule_a)
+      assignment_b = assignment_for!(rule_b)
+      refute manual_assignment.id in [assignment_a.id, assignment_b.id]
+
+      device_a =
+        target_device!(
+          "sr:example-sat-disjoint-a-#{unique}",
+          host_a,
+          agent_uid,
+          true,
+          "192.0.2.101"
+        )
+
+      device_b =
+        target_device!(
+          "sr:example-sat-disjoint-b-#{unique}",
+          host_b,
+          agent_uid,
+          true,
+          "192.0.2.102"
+        )
+
+      {:ok, descriptor} =
+        plugin_descriptor(package, %{"source_account" => @source_requirement}, scopes: ["device"])
+
+      assert {:ok, invocation_a} =
+               InvocationService.create_invocation(
+                 %{
+                   descriptor_id: descriptor.id,
+                   targets: [%{kind: :device, device_uid: device_a.uid}],
+                   input_values: %{}
+                 },
+                 actor: @system_actor
+               )
+
+      assert {:ok, dispatched_a} =
+               Dispatcher.dispatch_invocation(invocation_a,
+                 command_bus: CapturingCommandBus,
+                 grant_issuer: {FakeGrantIssuer, :issue}
+               )
+
+      assert dispatched_a.metadata["plugin_assignment_id"] == assignment_a.id
+      assert_received {:grant_attrs, attrs_a}
+      assert attrs_a.secret_ref == secret_ref(rule_a.secret_id)
+      assert_received {:dispatched, ^agent_uid, "plugin.run_action", stored_a, _transmitted_a}
+      assert stored_a["plugin_assignment_id"] == assignment_a.id
+
+      assert {:ok, invocation_b} =
+               InvocationService.create_invocation(
+                 %{
+                   descriptor_id: descriptor.id,
+                   targets: [%{kind: :device, device_uid: device_b.uid}],
+                   input_values: %{}
+                 },
+                 actor: @system_actor
+               )
+
+      assert {:ok, dispatched_b} =
+               Dispatcher.dispatch_invocation(invocation_b,
+                 command_bus: CapturingCommandBus,
+                 grant_issuer: {FakeGrantIssuer, :issue}
+               )
+
+      assert dispatched_b.metadata["plugin_assignment_id"] == assignment_b.id
+      assert_received {:grant_attrs, attrs_b}
+      assert attrs_b.secret_ref == secret_ref(rule_b.secret_id)
+      assert_received {:dispatched, ^agent_uid, "plugin.run_action", stored_b, _transmitted_b}
+      assert stored_b["plugin_assignment_id"] == assignment_b.id
+    end
+
+    test "keeps single-assignment dispatch behaviour when there are no rule-owned candidates" do
+      unique = System.unique_integer([:positive])
+      provider = "example-sat-single-#{unique}"
+      package = approved_package!("example-sat-single-#{unique}", provider)
+      agent_uid = "northbound-single-agent-#{unique}"
+      register_control_session!(agent_uid)
+
+      {:ok, assignment} =
+        PluginAssignment
+        |> Ash.Changeset.for_create(
+          :create,
+          %{agent_uid: agent_uid, plugin_package_id: package.id, source: :manual, enabled: true},
+          actor: @system_actor
+        )
+        |> Ash.create(actor: @system_actor, return_notifications?: true)
+        |> case do
+          {:ok, created, _notifications} -> {:ok, created}
+          other -> other
+        end
+
+      device =
+        target_device!(
+          "sr:example-sat-single-device-#{unique}",
+          "single-#{unique}.example.com",
+          agent_uid,
+          true
+        )
+
+      {:ok, descriptor} =
+        plugin_descriptor(package, %{}, scopes: ["device"])
+
+      assert {:ok, invocation} =
+               InvocationService.create_invocation(
+                 %{
+                   descriptor_id: descriptor.id,
+                   targets: [%{kind: :device, device_uid: device.uid}],
+                   input_values: %{}
+                 },
+                 actor: @system_actor
+               )
+
+      assert {:ok, dispatched} =
+               Dispatcher.dispatch_invocation(invocation, command_bus: CapturingCommandBus)
+
+      assert dispatched.metadata["plugin_assignment_id"] == assignment.id
+      assert_received {:dispatched, ^agent_uid, "plugin.run_action", stored, _transmitted}
+      assert stored["plugin_assignment_id"] == assignment.id
+    end
+  end
+
   defp provisioned_package!(label, rule_count, opts \\ []) do
     unique = System.unique_integer([:positive])
     provider = "example-sat-#{label}-#{unique}"
@@ -1093,16 +1325,18 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
   defp secret_ref(secret_id), do: "credentialref:network-credential-secret:#{secret_id}"
 
   defp register_control_session!(agent_uid) do
-    assert {:ok, _pid} =
-             ProcessRegistry.register(
-               {:agent_control, @partition_id, agent_uid, node()},
-               %{
-                 agent_id: agent_uid,
-                 partition_id: @partition_id,
-                 gateway_node: node(),
-                 capabilities: ["wasm"]
-               }
-             )
+    case ProcessRegistry.register(
+           {:agent_control, @partition_id, agent_uid, node()},
+           %{
+             agent_id: agent_uid,
+             partition_id: @partition_id,
+             gateway_node: node(),
+             capabilities: ["wasm"]
+           }
+         ) do
+      {:ok, _pid} -> :ok
+      {:error, {:already_registered, _pid}} -> :ok
+    end
 
     await_control_partition!(agent_uid, 40)
   end

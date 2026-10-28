@@ -185,6 +185,50 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerStoreDbTest do
       refute dropped.enabled
       assert is_nil(dropped.plugin_assignment_id)
     end
+
+    test "reconciling two credential rules for one package binds each assignment's own schedule idempotently" do
+      unique = System.unique_integer([:positive])
+      agent_uid = "provisioner-agent-coexist-#{unique}"
+      register_control_session!(agent_uid)
+
+      package = approved_package!("provisioner-coexist-#{unique}")
+      profile = producer_schedule_profile(package, "provisioner-coexist-#{unique}")
+
+      first_rule = producer_schedule_rule(agent_uid, profile["provider"])
+      second_rule = producer_schedule_rule(agent_uid, profile["provider"])
+
+      assert {:ok, %{rules: 2, assignments_written: 2, schedules_bound: 2}} =
+               PluginIntegrationProvisioner.reconcile_all(
+                 actor: @system_actor,
+                 rules: [first_rule, second_rule],
+                 profiles: [profile]
+               )
+
+      first_assignment = provisioned_assignment!(first_rule)
+      second_assignment = provisioned_assignment!(second_rule)
+      refute first_assignment.id == second_assignment.id
+
+      assert {:ok, [first_schedule]} =
+               ScheduleStore.list_assignment_schedules(first_assignment.id, @system_actor)
+
+      assert {:ok, [second_schedule]} =
+               ScheduleStore.list_assignment_schedules(second_assignment.id, @system_actor)
+
+      refute first_schedule.id == second_schedule.id
+      assert first_schedule.enabled
+      assert second_schedule.enabled
+      assert first_schedule.credential_refs == %{"api_token" => credential_ref(first_rule)}
+      assert second_schedule.credential_refs == %{"api_token" => credential_ref(second_rule)}
+      assert first_schedule.metadata["credential_rule_id"] == first_rule.id
+      assert second_schedule.metadata["credential_rule_id"] == second_rule.id
+
+      assert {:ok, %{rules: 2, assignments_written: 0, schedules_bound: 0}} =
+               PluginIntegrationProvisioner.reconcile_all(
+                 actor: @system_actor,
+                 rules: [second_rule, first_rule],
+                 profiles: [profile]
+               )
+    end
   end
 
   defp provision_multi!(label) do
