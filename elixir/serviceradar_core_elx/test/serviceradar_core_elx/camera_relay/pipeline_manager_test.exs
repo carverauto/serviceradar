@@ -707,8 +707,10 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
         :ok
 
       {:ex_webrtc, ^peer, {:ice_candidate, candidate}} ->
+        candidate_json = ICECandidate.to_json(candidate)
+
         assert {:ok, _} =
-                 WebRTCSignalingManager.add_ice_candidate(relay, viewer, ICECandidate.to_json(candidate), server: manager)
+                 WebRTCSignalingManager.add_ice_candidate(relay, viewer, candidate_json, server: manager)
 
         await_managed_peer_connected(peer, manager, relay, viewer, session.remote_ice_candidates, deadline)
     after
