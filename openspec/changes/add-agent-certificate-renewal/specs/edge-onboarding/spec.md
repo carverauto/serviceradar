@@ -1,18 +1,18 @@
 ## ADDED Requirements
 
 ### Requirement: Explicit Configurable Edge Certificate Lifetimes
-The system SHALL enforce an explicit, configurable default validity period for edge component leaf certificates (`90` days by default, configurable within `7..825` days) across both `ServiceRadar.Edge.OnboardingPackages` and `ServiceRadarAgentGateway.CertIssuer`, and SHALL NOT default onboarding package certificates to a `1`-day validity period.
+The system SHALL enforce an explicit, configurable default validity period for edge component leaf certificates (using the bounds in `ServiceRadar.Edge.CertificateLifetimePolicy`) across both `ServiceRadar.Edge.OnboardingPackages` and `ServiceRadarAgentGateway.CertIssuer`, and SHALL NOT default onboarding package certificates to a `1`-day validity period.
 
 #### Scenario: Onboarding package created without explicit validity option
 - **GIVEN** an administrator or API client creates an edge onboarding package without specifying `cert_validity_days`
 - **WHEN** the platform issues the component leaf certificate
-- **THEN** the issued certificate SHALL have a validity period equal to the configured deployment default (`90` days)
+- **THEN** the issued certificate SHALL have a validity period equal to the shared policy default
 - **AND** the certificate SHALL NOT default to a `1`-day lifetime
 
 #### Scenario: Reject sub-minimum leaf certificate validity in production
 - **GIVEN** a production request to create an onboarding package with `cert_validity_days` less than `7`
 - **WHEN** certificate issuance is requested without an explicit test-only override
-- **THEN** the system SHALL reject the request with `{:error, :invalid_validity_days}`
+- **THEN** the system SHALL reject the request with a certificate lifetime validation error
 
 ### Requirement: In-Place Agent Re-Enrollment for Expired Certificates
 The system SHALL allow an administrator to issue an in-place re-enrollment package for an existing agent whose mTLS leaf certificate has expired, preserving the agent's `component_id` (`agent_uid`), `partition_id`, and assigned configuration while revoking the predecessor certificate.

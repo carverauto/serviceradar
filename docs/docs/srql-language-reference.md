@@ -400,6 +400,39 @@ fields; using a field that the entity does not support returns an
 Each subsection lists the fields you can filter and sort on for that entity. The
 subsection heading matches the `in:` name used to select the entity.
 
+### agents
+
+#### Agent certificate fields
+
+For `in:agents`, these nullable certificate fields support filtering and sorting:
+
+| Field | Filter/sort aliases | Meaning |
+|-------|---------------------|---------|
+| `cert_not_before` | | Certificate validity start |
+| `cert_expires_at` | `cert_not_after` | Certificate expiration |
+| `cert_serial` | `cert_serial_number` | Certificate serial number |
+| `cert_fingerprint_sha256` | `cert_fingerprint` | SHA-256 certificate fingerprint |
+| `cert_renewed_at` | `cert_last_renewed_at` | Time a replacement certificate was observed |
+
+Use the canonical field names when reading query results. Timestamp filters
+accept `now`, absolute UTC timestamps, or signed durations using `s`, `m`, `h`,
+`d`, `w`, and `y` (365 days). A positive duration means now plus the duration;
+a negative duration means now minus it. These comparisons differ from a
+historical `time:last_7d` window.
+
+```srql
+in:agents cert_expires_at:<7d sort:cert_expires_at:asc
+in:agents cert_expires_at:<=0d
+in:agents cert_expires_at:>0d cert_expires_at:<=7d
+in:agents cert_renewed_at:>-7d
+```
+
+The first query includes already expired certificates; the third restricts the
+results to certificates still valid and expiring within seven days. Missing
+certificate timestamps do not match these comparisons. Superseded identities
+remain excluded by default. See [certificate operations](./edge-agent-onboarding.md#certificate-lifetime-and-expiry-alerts)
+for issuance policy and alert handling.
+
 ### devices
 
 | Field | Aliases | Description |

@@ -485,18 +485,16 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   end
 
   @doc """
-  Creates a package with a component certificate signed by the platform CA.
+  Validates certificate lifetime options and delegates to platform CA generation.
 
-  This is the preferred way to create packages. It automatically:
-  1. Gets or generates the platform CA
-  2. Generates a component certificate signed by the platform CA
-  3. Includes the certificate bundle in the package
+  The current platform CA generator returns `{:error, :ca_not_available}`.
+  Web-NG onboarding uses the gateway certificate issuer instead.
 
   ## Options
 
   Same as `create/2`, plus:
     * `:partition_id` - Network partition (default: "default")
-    * `:cert_validity_days` - Component cert validity (default: 90)
+    * `:cert_validity_days` - Component cert validity; see `CertificateLifetimePolicy`
 
   """
   @spec create_with_platform_cert(map(), keyword()) ::
