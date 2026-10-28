@@ -246,7 +246,7 @@ defmodule ServiceRadar.EventWriter.ExposureSnapshotWarehouse do
     WHERE #{cursor_predicate(device, cve, package)}
       AND state IN (0, 2) AND resolved_at < '#{NaiveDateTime.to_string(cutoff)}'
       AND (payload_compacted = false OR pkgver_ord <> 0)
-    ORDER BY device_ord, cve_ord, pkg_ord LIMIT 500
+    ORDER BY device_ord, cve_ord, pkg_ord LIMIT 1000
     """)
   end
 

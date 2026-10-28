@@ -1902,7 +1902,7 @@ and reconciliation readiness retain their separate proof requirements.
 
 **Terminal payload compaction (task 1.7).** The daily EventWriter maintenance job
 uses a fixed seven-day cutoff and a durable keyset cursor in its Oban control
-record. Each invocation handles at most twenty pages of 500 facts, then resumes.
+record. Each invocation handles at most ten pages of 1000 facts, then resumes.
 Only resolved or retired rows strictly older than the cutoff qualify. Migration
 0035 adds a warehouse-only `payload_compacted` flag. Compaction clears package
 version, source scope, severity, score, flags and first-exposure time; package
