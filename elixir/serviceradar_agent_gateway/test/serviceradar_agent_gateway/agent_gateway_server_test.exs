@@ -506,8 +506,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
       {csr_der, 0} =
         System.cmd("openssl", [
-          "req", "-new", "-key", key_path, "-outform", "DER",
-          "-subj", "/CN=agent-renew-01.default.serviceradar",
+          "req",
+          "-new",
+          "-key",
+          key_path,
+          "-outform",
+          "DER",
+          "-subj",
+          "/CN=agent-renew-01.default.serviceradar",
           "-addext",
           "subjectAltName=URI:spiffe://serviceradar.local/agent/default/agent-renew-01,DNS:agent-renew-01.default.serviceradar"
         ])
@@ -630,7 +636,6 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
     :ok = :peer.call(peer, :persistent_term, :put, [:host_identity_test_owner, self()])
     assert Node.connect(core_node)
-
   end
 
   defp build_test_csr_der!(component_id, partition_id) do

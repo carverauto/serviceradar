@@ -1067,8 +1067,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp committed_plugin_result_error?(
          %{source: @plugin_result_source} = status,
          {:plugin_result_handlers_failed, _failures}
-       ),
-       do: strict_delivery_status?(status)
+       ), do: strict_delivery_status?(status)
 
   defp committed_plugin_result_error?(_status, _reason), do: false
 
