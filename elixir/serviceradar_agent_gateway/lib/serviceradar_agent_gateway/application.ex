@@ -96,6 +96,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
     # Attach OTEL auto-instrumentation handlers (SDK configured in runtime.exs)
     OtelSetup.attach_instrumentations(instrumentations: [])
+    ServiceRadarAgentGateway.TlsDiagnosticLogger.attach_logger_filter()
 
     Logger.info("Starting ServiceRadar Agent Gateway: #{gateway_id}, domain: #{domain}")
 
@@ -254,7 +255,8 @@ defmodule ServiceRadarAgentGateway.Application do
         keyfile: key_file,
         cacertfile: ca_file,
         verify: :verify_peer,
-        fail_if_no_peer_cert: true
+        fail_if_no_peer_cert: true,
+        verify_fun: {&ServiceRadarAgentGateway.TlsDiagnosticLogger.ssl_verify/3, %{}}
       ]
 
       Logger.info("Using mounted mTLS certs for agent gateway servers: #{cert_file}")

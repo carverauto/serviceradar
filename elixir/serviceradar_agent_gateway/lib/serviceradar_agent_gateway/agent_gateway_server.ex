@@ -50,6 +50,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   alias ServiceRadarAgentGateway.RuntimeMetrics
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.StatusProcessor
+  alias ServiceRadarAgentGateway.TlsDiagnosticLogger
 
   require Logger
 
@@ -1284,8 +1285,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     if is_list(capabilities), do: Map.put(metadata, :capabilities, capabilities), else: metadata
   end
 
-  defp ensure_agent_record(_identity, agent_id, partition_id, request, source_ip) do
-    attrs = agent_record_attrs(agent_id, partition_id, request, source_ip)
+  defp ensure_agent_record(identity, agent_id, partition_id, request, source_ip) do
+    attrs = agent_record_attrs(identity, agent_id, partition_id, request, source_ip)
 
     case core_call(AgentGatewaySync, :upsert_agent, [agent_id, attrs]) do
       {:ok, :ok} ->
@@ -1359,10 +1360,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
   end
 
-  defp touch_agent_record(_identity, agent_id, partition_id, source_ip, config_source) do
+  defp touch_agent_record(identity, agent_id, partition_id, source_ip, config_source) do
     attrs =
-      agent_id
-      |> agent_record_attrs(partition_id, nil, source_ip)
+      identity
+      |> agent_record_attrs(agent_id, partition_id, nil, source_ip)
       |> maybe_add_config_source(config_source)
 
     # Fire-and-forget: heartbeat updates are non-critical and must not block the
@@ -1389,7 +1390,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   defp maybe_add_config_source(attrs, config_source), do: Map.put(attrs, :config_source, config_source)
 
-  defp agent_record_attrs(agent_id, partition_id, request, source_ip) do
+  defp agent_record_attrs(identity, agent_id, partition_id, request, source_ip) do
     metadata =
       %{
         gateway_id: Config.gateway_id(),
@@ -1400,7 +1401,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       |> Map.merge(request_metadata(request))
       |> compact_metadata()
 
-    compact_metadata(%{
+    cert_attrs = extract_identity_cert_attrs(identity)
+
+    %{
       uid: agent_id,
       name: request_value(request, :hostname),
       version: request_value(request, :version),
@@ -1410,8 +1413,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       host: request_value(request, :hostname),
       ip: source_ip,
       metadata: metadata
+    }
+    |> Map.merge(cert_attrs)
+    |> compact_metadata()
+  end
+
+  defp extract_identity_cert_attrs(identity) when is_map(identity) do
+    cert_expires_at = Map.get(identity, :cert_expires_at) || Map.get(identity, :cert_not_after)
+
+    cert_fingerprint =
+      Map.get(identity, :cert_fingerprint_sha256) || Map.get(identity, :certificate_fingerprint)
+
+    compact_metadata(%{
+      cert_not_before: Map.get(identity, :cert_not_before),
+      cert_expires_at: cert_expires_at,
+      cert_serial: Map.get(identity, :cert_serial),
+      cert_fingerprint_sha256: cert_fingerprint
     })
   end
+
+  defp extract_identity_cert_attrs(_identity), do: %{}
 
   defp request_capabilities(request) do
     case request do
@@ -1554,18 +1575,41 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp extract_identity_context_from_stream(stream) do
-    with {:ok, cert_der} <- get_peer_cert(stream),
-         {:ok, identity} <- ComponentIdentityResolver.resolve_from_cert(cert_der) do
-      %{
-        identity: identity,
-        component_id: Map.get(identity, :component_id),
-        partition_id: Map.get(identity, :partition_id),
-        component_type: Map.get(identity, :component_type),
-        cert_fingerprint_sha256: cert_fingerprint_sha256(cert_der)
-      }
-    else
+    case get_peer_cert(stream) do
+      {:ok, cert_der} ->
+        case ComponentIdentityResolver.resolve_from_cert(cert_der) do
+          {:ok, identity} ->
+            %{
+              identity: identity,
+              component_id: Map.get(identity, :component_id),
+              partition_id: Map.get(identity, :partition_id),
+              component_type: Map.get(identity, :component_type),
+              cert_fingerprint_sha256: cert_fingerprint_sha256(cert_der),
+              cert_serial: Map.get(identity, :cert_serial),
+              cert_not_before: Map.get(identity, :cert_not_before),
+              cert_not_after: Map.get(identity, :cert_not_after),
+              cert_expires_at: Map.get(identity, :cert_expires_at)
+            }
+
+          {:error, reason} ->
+            _ =
+              TlsDiagnosticLogger.log_handshake_failure(
+                reason,
+                cert_der,
+                peer_ip: get_peer_ip(stream)
+              )
+
+            raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
+        end
+
       {:error, reason} ->
-        Logger.warning("Certificate validation failed: #{inspect(reason)}")
+        _ =
+          TlsDiagnosticLogger.log_handshake_failure(
+            reason,
+            nil,
+            peer_ip: get_peer_ip(stream)
+          )
+
         raise GRPC.RPCError, status: :unauthenticated, message: "invalid client certificate"
     end
   end

@@ -28,32 +28,114 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
           partition_id: String.t(),
           component_type: atom() | nil,
           certificate_fingerprint: String.t(),
-          serial_number: integer()
+          cert_fingerprint_sha256: String.t(),
+          serial_number: integer(),
+          cert_serial: String.t(),
+          cert_not_before: DateTime.t(),
+          cert_not_after: DateTime.t(),
+          cert_expires_at: DateTime.t()
         }
 
   @doc """
   Resolves component identity from a DER-encoded client certificate.
 
-  Returns component_id, partition_id, and optionally component_type.
+  Returns component_id, partition_id, component_type, and certificate lifecycle
+  metadata (`cert_not_before`, `cert_not_after`, `cert_expires_at`, `cert_serial`,
+  `cert_fingerprint_sha256`).
   Does NOT return or use any deployment metadata.
   """
-  @spec resolve_from_cert(binary()) :: {:ok, component_identity()} | {:error, atom()}
-  def resolve_from_cert(cert_der) when is_binary(cert_der) do
+  @spec resolve_from_cert(binary(), keyword()) :: {:ok, component_identity()} | {:error, atom()}
+  def resolve_from_cert(cert_der, opts \\ [])
+
+  def resolve_from_cert(cert_der, opts) when is_binary(cert_der) and is_list(opts) do
+    now = Keyword.get(opts, :now, DateTime.utc_now())
+
     with {:ok, otp_cert} <- decode_cert(cert_der),
+         {:ok, not_before, not_after} <- extract_validity(otp_cert),
+         :ok <- validate_validity_window(not_before, not_after, now),
          {:ok, cn} <- extract_cn(otp_cert),
          {:ok, parsed} <- parse_cn(cn) do
       component_type = extract_component_type(otp_cert)
+      fingerprint = certificate_fingerprint(cert_der)
+      serial_number = extract_serial_number(otp_cert)
+      serial_hex = format_serial_hex(serial_number)
 
       identity = %{
         component_id: parsed.component_id,
         partition_id: parsed.partition_id,
         component_type: component_type,
-        certificate_fingerprint: certificate_fingerprint(cert_der),
-        serial_number: extract_serial_number(otp_cert)
+        certificate_fingerprint: fingerprint,
+        cert_fingerprint_sha256: fingerprint,
+        serial_number: serial_number,
+        cert_serial: serial_hex,
+        cert_not_before: not_before,
+        cert_not_after: not_after,
+        cert_expires_at: not_after
       }
 
       reject_revoked(identity)
     end
+  end
+
+  @doc """
+  Extracts diagnostic metadata from a DER-encoded certificate or `:OTPCertificate`
+  tuple without enforcing CN format or validity window. Used for structured TLS
+  handshake failure diagnostics.
+  """
+  @spec extract_cert_metadata(binary() | tuple() | nil) :: map()
+  def extract_cert_metadata(cert_der) when is_binary(cert_der) do
+    case decode_cert(cert_der) do
+      {:ok, otp_cert} ->
+        otp_cert
+        |> extract_otp_cert_metadata()
+        |> Map.put(:fingerprint_sha256, certificate_fingerprint(cert_der))
+
+      {:error, _} ->
+        %{fingerprint_sha256: certificate_fingerprint(cert_der)}
+    end
+  end
+
+  def extract_cert_metadata({:OTPCertificate, _, _, _} = otp_cert) do
+    extract_otp_cert_metadata(otp_cert)
+  end
+
+  def extract_cert_metadata(_other), do: %{}
+
+  @doc false
+  @spec extract_otp_cert_metadata(tuple()) :: map()
+  def extract_otp_cert_metadata({:OTPCertificate, tbs_cert, _, _} = otp_cert) do
+    subject_cn =
+      case extract_cn(otp_cert) do
+        {:ok, cn} -> cn
+        _ -> format_rdn_sequence(elem(tbs_cert, 6))
+      end
+
+    issuer_cn = format_rdn_sequence(elem(tbs_cert, 4))
+    serial_number = extract_serial_number(otp_cert)
+    serial_hex = format_serial_hex(serial_number)
+
+    {not_before, not_after} =
+      case extract_validity(otp_cert) do
+        {:ok, nb, na} -> {nb, na}
+        _ -> {nil, nil}
+      end
+
+    {component_id, partition_id} =
+      case subject_cn && parse_cn_quiet(subject_cn) do
+        {:ok, %{component_id: cid, partition_id: pid}} -> {cid, pid}
+        _ -> {nil, nil}
+      end
+
+    %{
+      subject: subject_cn,
+      issuer: issuer_cn,
+      component_id: component_id,
+      partition_id: partition_id,
+      serial: serial_hex,
+      serial_number: serial_number,
+      not_before: not_before,
+      not_after: not_after
+    }
   end
 
   # Decode DER certificate to OTP certificate record
@@ -88,6 +170,17 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
 
   # Parse CN format: <component_id>.<partition_id>.serviceradar
   defp parse_cn(cn) do
+    case parse_cn_quiet(cn) do
+      {:ok, parsed} ->
+        {:ok, parsed}
+
+      {:error, reason} ->
+        Logger.warning("Invalid certificate CN format: #{cn}")
+        {:error, reason}
+    end
+  end
+
+  defp parse_cn_quiet(cn) when is_binary(cn) do
     case String.split(cn, ".") do
       [component_id, partition_id, "serviceradar"] ->
         {:ok, %{component_id: component_id, partition_id: partition_id}}
@@ -97,10 +190,125 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolver do
         {:ok, %{component_id: component_id, partition_id: partition_id}}
 
       _ ->
-        Logger.warning("Invalid certificate CN format: #{cn}")
         {:error, :invalid_cn_format}
     end
   end
+
+  defp format_rdn_sequence({:rdnSequence, rdns}) when is_list(rdns) do
+    rdns
+    |> List.flatten()
+    |> Enum.find_value(fn
+      {:AttributeTypeAndValue, {2, 5, 4, 3}, {:utf8String, cn}} -> cn
+      {:AttributeTypeAndValue, {2, 5, 4, 3}, {:printableString, cn}} -> List.to_string(cn)
+      _ -> nil
+    end)
+  end
+
+  defp format_rdn_sequence(_), do: nil
+
+  defp extract_validity({:OTPCertificate, tbs_cert, _, _}) do
+    case elem(tbs_cert, 5) do
+      {:Validity, not_before_asn1, not_after_asn1} ->
+        with {:ok, not_before} <- parse_asn1_time(not_before_asn1),
+             {:ok, not_after} <- parse_asn1_time(not_after_asn1) do
+          {:ok, not_before, not_after}
+        else
+          _ -> {:error, :invalid_validity}
+        end
+
+      _ ->
+        {:error, :invalid_validity}
+    end
+  end
+
+  defp validate_validity_window(%DateTime{} = not_before, %DateTime{} = not_after, %DateTime{} = now) do
+    cond do
+      DateTime.before?(now, not_before) ->
+        {:error, :certificate_not_yet_valid}
+
+      DateTime.compare(now, not_after) != :lt ->
+        {:error, :certificate_expired}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp parse_asn1_time({:utcTime, chars}) when is_list(chars) do
+    chars |> List.to_string() |> parse_utc_time()
+  end
+
+  defp parse_asn1_time({:utcTime, str}) when is_binary(str) do
+    parse_utc_time(str)
+  end
+
+  defp parse_asn1_time({:generalTime, chars}) when is_list(chars) do
+    chars |> List.to_string() |> parse_general_time()
+  end
+
+  defp parse_asn1_time({:generalTime, str}) when is_binary(str) do
+    parse_general_time(str)
+  end
+
+  defp parse_asn1_time(_), do: :error
+
+  defp parse_utc_time(
+         <<yy::binary-size(2), mm::binary-size(2), dd::binary-size(2), hh::binary-size(2), min::binary-size(2),
+           ss::binary-size(2), "Z">>
+       ) do
+    with {yy_int, ""} <- Integer.parse(yy),
+         year = if(yy_int >= 50, do: 1900 + yy_int, else: 2000 + yy_int),
+         {month, ""} <- Integer.parse(mm),
+         {day, ""} <- Integer.parse(dd),
+         {hour, ""} <- Integer.parse(hh),
+         {minute, ""} <- Integer.parse(min),
+         {second, ""} <- Integer.parse(ss),
+         {:ok, date} <- Date.new(year, month, day),
+         {:ok, time} <- Time.new(hour, minute, second),
+         {:ok, dt} <- DateTime.new(date, time, "Etc/UTC") do
+      {:ok, DateTime.add(dt, 0, :microsecond)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_utc_time(_), do: :error
+
+  defp parse_general_time(
+         <<yyyy::binary-size(4), mm::binary-size(2), dd::binary-size(2), hh::binary-size(2), min::binary-size(2),
+           ss::binary-size(2), "Z">>
+       ) do
+    with {year, ""} <- Integer.parse(yyyy),
+         {month, ""} <- Integer.parse(mm),
+         {day, ""} <- Integer.parse(dd),
+         {hour, ""} <- Integer.parse(hh),
+         {minute, ""} <- Integer.parse(min),
+         {second, ""} <- Integer.parse(ss),
+         {:ok, date} <- Date.new(year, month, day),
+         {:ok, time} <- Time.new(hour, minute, second),
+         {:ok, dt} <- DateTime.new(date, time, "Etc/UTC") do
+      {:ok, DateTime.add(dt, 0, :microsecond)}
+    else
+      _ -> :error
+    end
+  end
+
+  defp parse_general_time(_), do: :error
+
+  defp format_serial_hex(serial) when is_integer(serial) and serial >= 0 do
+    hex =
+      serial
+      |> Integer.to_string(16)
+      |> String.downcase()
+
+    if rem(byte_size(hex), 2) == 1 do
+      "0" <> hex
+    else
+      hex
+    end
+  end
+
+  defp format_serial_hex(serial), do: to_string(serial)
 
   # Extract component_type from SPIFFE URI in certificate extensions
   # Format: spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>

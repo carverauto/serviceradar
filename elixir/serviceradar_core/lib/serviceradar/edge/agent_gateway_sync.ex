@@ -1608,6 +1608,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp update_agent(agent, attrs, actor) do
+    attrs = normalize_cert_attrs(attrs)
+
     update_attrs =
       attrs
       |> Map.take([
@@ -1620,7 +1622,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :metadata,
         :gateway_id,
         :version,
-        :type_id
+        :type_id,
+        :cert_not_before,
+        :cert_expires_at,
+        :cert_serial,
+        :cert_fingerprint_sha256,
+        :cert_renewed_at
       ])
       |> compact_attrs()
 
@@ -1643,6 +1650,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp create_agent(agent_id, attrs, actor) do
     create_attrs =
       attrs
+      |> normalize_cert_attrs()
       |> Map.put_new(:type_id, 4)
       |> Map.put(:uid, agent_id)
       |> Map.take([
@@ -1661,7 +1669,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :ip,
         :port,
         :spiffe_identity,
-        :metadata
+        :metadata,
+        :cert_not_before,
+        :cert_expires_at,
+        :cert_serial,
+        :cert_fingerprint_sha256,
+        :cert_renewed_at
       ])
       |> compact_attrs()
 
@@ -1693,7 +1706,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   defp apply_heartbeat(agent, attrs, actor) do
     heartbeat_attrs =
       attrs
-      |> Map.take([:capabilities, :is_healthy, :config_source, :gateway_id, :ip])
+      |> normalize_cert_attrs()
+      |> Map.take([
+        :capabilities,
+        :is_healthy,
+        :config_source,
+        :gateway_id,
+        :ip,
+        :cert_not_before,
+        :cert_expires_at,
+        :cert_serial,
+        :cert_fingerprint_sha256,
+        :cert_renewed_at
+      ])
       |> compact_attrs()
 
     # DB connection's search_path determines the schema
@@ -1747,7 +1772,12 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :ip,
         :port,
         :spiffe_identity,
-        :metadata
+        :metadata,
+        :cert_not_before,
+        :cert_expires_at,
+        :cert_serial,
+        :cert_fingerprint_sha256,
+        :cert_renewed_at
       ])
       |> compact_attrs()
 
@@ -1759,6 +1789,20 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       {:error, reason} -> {:error, reason}
     end
   end
+
+  defp normalize_cert_attrs(attrs) when is_map(attrs) do
+    cert_expires_at = Map.get(attrs, :cert_expires_at) || Map.get(attrs, :cert_not_after)
+
+    cert_fingerprint =
+      Map.get(attrs, :cert_fingerprint_sha256) || Map.get(attrs, :certificate_fingerprint)
+
+    attrs
+    |> maybe_put_attr(:cert_expires_at, cert_expires_at)
+    |> maybe_put_attr(:cert_fingerprint_sha256, cert_fingerprint)
+  end
+
+  defp maybe_put_attr(attrs, _key, nil), do: attrs
+  defp maybe_put_attr(attrs, key, value), do: Map.put_new(attrs, key, value)
 
   defp compact_attrs(attrs) do
     attrs

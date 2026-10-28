@@ -3,8 +3,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
 
   alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.CertIssuer
-
-  @moduletag :requires_app
+  alias ServiceRadarAgentGateway.ComponentIdentityResolver
 
   test "issues bundles using secure temp staging under the configured parent and cleans up" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-test")
@@ -28,10 +27,15 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              )
 
     assert bundle.cn == "agent-1.default.serviceradar"
+    assert bundle.validity_days == 90
     assert bundle.validity_days == CertIssuer.default_validity_days()
     assert String.length(bundle.certificate_fingerprint) == 64
     assert bundle.private_key_pem =~ "PRIVATE KEY"
     assert bundle.certificate_pem =~ "CERTIFICATE"
+
+    [{:Certificate, cert_der, _}] = :public_key.pem_decode(bundle.certificate_pem)
+    assert {:ok, identity} = ComponentIdentityResolver.resolve_from_cert(cert_der)
+    assert DateTime.diff(identity.cert_not_after, identity.cert_not_before, :second) == 90 * 86_400
 
     leftover_dirs =
       parent_dir
@@ -130,6 +134,12 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     assert {:error, :invalid_validity_days} =
              CertIssuer.issue_agent_bundle("agent-1", "default", :agent, validity_days: 0)
 
+    assert {:error, {:invalid_certificate_validity_days, 1}} =
+             CertIssuer.issue_agent_bundle("agent-1", "default", :agent, validity_days: 1)
+
+    assert {:error, {:invalid_certificate_validity_days, 6}} =
+             CertIssuer.issue_agent_bundle("agent-1", "default", :agent, validity_days: 6)
+
     assert {:error, :invalid_validity_days} =
              CertIssuer.issue_agent_bundle("agent-1", "default", :agent, validity_days: "30")
 
@@ -140,6 +150,30 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                validity_days: CertIssuer.max_validity_days() + 1
              )
+  end
+
+  test "allows 1-day test certificate lifetime only when allow_short_test_lifetime is set" do
+    parent_dir = unique_tmp_dir!("gateway-cert-issuer-short-test")
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    assert {:ok, bundle} =
+             CertIssuer.issue_agent_bundle(
+               "agent-short-test",
+               "default",
+               :agent,
+               validity_days: 1,
+               allow_short_test_lifetime: true,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               audit_writer: nil
+             )
+
+    assert bundle.validity_days == 1
   end
 
   test "requires admin approval for certificate TTL above the default" do
@@ -283,7 +317,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-renewal-test")
 
     on_exit(fn ->
-      AgentCertificateRevocation.clear()
+      if Process.whereis(AgentCertificateRevocation), do: AgentCertificateRevocation.clear()
       File.rm_rf(parent_dir)
     end)
 

@@ -40,6 +40,11 @@ pub struct AgentRow {
     pub superseded_at: Option<DateTime<Utc>>,
     pub display_name: Option<String>,
     pub description: Option<String>,
+    pub cert_not_before: Option<DateTime<Utc>>,
+    pub cert_expires_at: Option<DateTime<Utc>>,
+    pub cert_serial: Option<String>,
+    pub cert_fingerprint_sha256: Option<String>,
+    pub cert_renewed_at: Option<DateTime<Utc>>,
 }
 
 impl AgentRow {
@@ -76,6 +81,12 @@ impl AgentRow {
             "superseded_at": self.superseded_at,
             "display_name": self.display_name,
             "description": self.description,
+            "cert_not_before": self.cert_not_before,
+            "cert_expires_at": self.cert_expires_at,
+            "cert_not_after": self.cert_expires_at,
+            "cert_serial": self.cert_serial,
+            "cert_fingerprint_sha256": self.cert_fingerprint_sha256,
+            "cert_renewed_at": self.cert_renewed_at,
         })
     }
 }

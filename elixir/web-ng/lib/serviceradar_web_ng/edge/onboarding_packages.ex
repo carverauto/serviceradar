@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   PostgreSQL search_path set by infrastructure.
   """
 
+  alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.OnboardingPackages, as: AshPackages
   alias ServiceRadar.Events.AuditWriter
@@ -122,7 +123,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
   ## Options
 
     * `:partition_id` - Network partition identifier (default: "default")
-    * `:cert_validity_days` - Component certificate validity (default: 1)
+    * `:cert_validity_days` - Component certificate validity (default: 90)
     * `:join_token_ttl_seconds` - TTL for join token (default: 86400)
     * `:download_token_ttl_seconds` - TTL for download token (default: 86400)
     * `:actor` - User/system creating the package
@@ -170,7 +171,8 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
     partition_id = attrs |> partition_attr_value() |> normalize_partition_id() || "default"
     attrs = attrs |> Map.put(:partition_id, partition_id) |> Map.put(:site, partition_id)
 
-    with true <- (is_binary(gateway_id) and gateway_id != "") or {:error, :gateway_unavailable},
+    with {:ok, validity_days} <- CertificateLifetimePolicy.resolve_validity_days(opts),
+         true <- (is_binary(gateway_id) and gateway_id != "") or {:error, :gateway_unavailable},
          true <- (is_binary(component_id) and component_id != "") or {:error, :invalid_identity},
          :ok <- authorize_partition(partition_id, opts),
          :ok <- enforce_issuance_quota(component_id, partition_id, opts),
@@ -180,6 +182,7 @@ defmodule ServiceRadarWebNG.Edge.OnboardingPackages do
              component_id,
              partition_id,
              opts
+             |> Keyword.put(:validity_days, validity_days)
              |> Keyword.put(:authorized_component_id, component_id)
              |> Keyword.put(:authorized_partition_id, actor_partition_id(opts))
              |> Keyword.put(:audit_actor, Keyword.get(opts, :actor))

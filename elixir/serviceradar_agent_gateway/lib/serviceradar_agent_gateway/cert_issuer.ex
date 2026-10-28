@@ -6,11 +6,14 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     <component_id>.<partition_id>.serviceradar
   """
 
+  alias ServiceRadar.Edge.CertificateLifetimePolicy
+
   require Logger
 
   @default_cert_dir "/etc/serviceradar/certs"
-  @default_validity_days 365
-  @max_validity_days 825
+  @default_validity_days CertificateLifetimePolicy.default_validity_days()
+  @min_validity_days CertificateLifetimePolicy.min_validity_days()
+  @max_validity_days CertificateLifetimePolicy.max_validity_days()
   @identity_token_regex ~r/\A[A-Za-z0-9_-]+\z/
   @dns_name_regex ~r/\A(?=.{1,253}\z)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\z/
 
@@ -39,6 +42,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
       )
     end
   end
+
+  def issue_agent_bundle(_, _, _, _), do: {:error, :invalid_identity}
 
   @doc """
   The URI SAN every edge-site NATS leaf client certificate in `partition_id`
@@ -79,10 +84,11 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
   defp server_host_san(_host), do: :error
 
-  def issue_agent_bundle(_, _, _, _), do: {:error, :invalid_identity}
-
   @doc false
   def default_validity_days, do: @default_validity_days
+
+  @doc false
+  def min_validity_days, do: @min_validity_days
 
   @doc false
   def max_validity_days, do: @max_validity_days
@@ -164,29 +170,51 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp normalize_identity_id(_value), do: nil
 
   defp validate_validity_days(opts) do
-    validity_days = Keyword.get(opts, :validity_days, @default_validity_days)
+    validity_days =
+      Keyword.get(opts, :validity_days) ||
+        Keyword.get(opts, :cert_validity_days, @default_validity_days)
 
-    cond do
-      not is_integer(validity_days) ->
-        {:error, :invalid_validity_days}
+    with :ok <- check_validity_bounds(validity_days, opts),
+         :ok <- check_long_ttl_approval(validity_days, opts) do
+      if validity_days > @default_validity_days do
+        Logger.warning("[CertIssuer] Issuing long-lived agent certificate: validity_days=#{validity_days}")
+      end
 
-      validity_days <= 0 ->
-        {:error, :invalid_validity_days}
-
-      validity_days > @max_validity_days and Keyword.get(opts, :allow_long_ttl?, false) != true ->
-        {:error, :validity_days_exceeds_limit}
-
-      validity_days > @default_validity_days and not long_ttl_approved?(opts) ->
-        {:error, :long_ttl_approval_required}
-
-      true ->
-        if validity_days > @default_validity_days do
-          Logger.warning("[CertIssuer] Issuing long-lived agent certificate: validity_days=#{validity_days}")
-        end
-
-        {:ok, validity_days}
+      {:ok, validity_days}
     end
   end
+
+  defp check_validity_bounds(validity_days, _opts) when not is_integer(validity_days) or validity_days <= 0 do
+    {:error, :invalid_validity_days}
+  end
+
+  defp check_validity_bounds(validity_days, opts) when validity_days < @min_validity_days do
+    if Keyword.get(opts, :allow_short_test_lifetime, false) == true do
+      :ok
+    else
+      {:error, {:invalid_certificate_validity_days, validity_days}}
+    end
+  end
+
+  defp check_validity_bounds(validity_days, opts) when validity_days > @max_validity_days do
+    if Keyword.get(opts, :allow_long_ttl?, false) == true do
+      :ok
+    else
+      {:error, :validity_days_exceeds_limit}
+    end
+  end
+
+  defp check_validity_bounds(_validity_days, _opts), do: :ok
+
+  defp check_long_ttl_approval(validity_days, opts) when validity_days > @default_validity_days do
+    if long_ttl_approved?(opts) do
+      :ok
+    else
+      {:error, :long_ttl_approval_required}
+    end
+  end
+
+  defp check_long_ttl_approval(_validity_days, _opts), do: :ok
 
   defp load_ca_paths(opts) do
     cert_dir = Keyword.get(opts, :cert_dir, System.get_env("GATEWAY_CERT_DIR", @default_cert_dir))

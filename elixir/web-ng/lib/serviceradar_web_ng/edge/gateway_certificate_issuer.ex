@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   Issues agent mTLS bundles by calling the agent-gateway over ERTS RPC.
   """
 
+  alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.GatewayTracker
 
@@ -61,7 +62,12 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
 
   defp rpc_issue(node, component_id, partition_id, opts) do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout)
-    validity_days = Keyword.get(opts, :validity_days)
+
+    validity_days =
+      Keyword.get(opts, :validity_days) ||
+        Keyword.get(opts, :cert_validity_days) ||
+        CertificateLifetimePolicy.default_validity_days()
+
     issuer_module = Keyword.get(opts, :cert_issuer_module, ServiceRadarAgentGateway.CertIssuer)
 
     rpc_opts = maybe_put([], :validity_days, validity_days)

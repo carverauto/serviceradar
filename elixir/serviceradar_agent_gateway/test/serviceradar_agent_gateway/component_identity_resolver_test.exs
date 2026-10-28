@@ -31,13 +31,35 @@ defmodule ServiceRadarAgentGateway.ComponentIdentityResolverTest do
     %{cert_der: CertificateTestHelpers.certificate_der!(bundle.certificate_pem)}
   end
 
-  test "resolves certificate identity with fingerprint and serial", %{cert_der: cert_der} do
+  test "resolves certificate identity with fingerprint, serial, and validity timestamps", %{
+    cert_der: cert_der
+  } do
     assert {:ok, identity} = ComponentIdentityResolver.resolve_from_cert(cert_der)
     assert identity.component_id == "agent-1"
     assert identity.partition_id == "default"
     assert identity.component_type == :agent
     assert byte_size(identity.certificate_fingerprint) == 64
+    assert identity.cert_fingerprint_sha256 == identity.certificate_fingerprint
     assert is_integer(identity.serial_number)
+    assert Regex.match?(~r/\A[0-9a-f]+\z/, identity.cert_serial)
+    assert %DateTime{} = identity.cert_not_before
+    assert %DateTime{} = identity.cert_not_after
+    assert identity.cert_expires_at == identity.cert_not_after
+    assert DateTime.diff(identity.cert_not_after, identity.cert_not_before, :second) == 90 * 86_400
+  end
+
+  test "rejects expired and not-yet-valid certificates", %{cert_der: cert_der} do
+    assert {:ok, identity} = ComponentIdentityResolver.resolve_from_cert(cert_der)
+
+    expired_now = DateTime.shift(identity.cert_not_after, minute: 1)
+
+    assert {:error, :certificate_expired} =
+             ComponentIdentityResolver.resolve_from_cert(cert_der, now: expired_now)
+
+    future_now = DateTime.shift(identity.cert_not_before, minute: -1)
+
+    assert {:error, :certificate_not_yet_valid} =
+             ComponentIdentityResolver.resolve_from_cert(cert_der, now: future_now)
   end
 
   test "rejects revoked certificate component ids", %{cert_der: cert_der} do

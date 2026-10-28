@@ -101,9 +101,19 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuerTest do
              )
 
     assert {"test-agent", "default", opts} = IssueProbe.last_issue()
+    assert Keyword.fetch!(opts, :validity_days) == 90
     assert Keyword.fetch!(opts, :authorized_component_id) == "test-agent"
     assert Keyword.fetch!(opts, :authorized_partition_id) == "default"
     assert Keyword.fetch!(opts, :audit_actor) == %{id: "operator-1", email: "operator@example.test"}
+
+    assert {:error, {:invalid_certificate_validity_days, 1}} =
+             GatewayCertificateIssuer.issue_agent_bundle(
+               gateway_id,
+               "test-agent",
+               "default",
+               validity_days: 1,
+               cert_issuer_module: IssueProbe
+             )
   end
 
   test "revokes agent certificates on the selected gateway" do
