@@ -37,4 +37,3 @@ open. Architecture approval neither qualifies a provider nor enables recording.
   [bounded capture](../add-vms-storage-playback-engine/capture-once.md).
 - No application, chart, database, credential, bucket or deployment change is
   included in this planning change.
-

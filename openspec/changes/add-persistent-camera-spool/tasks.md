@@ -36,4 +36,3 @@ All implementation, qualification and deployment acceptance work remains open.
 - [ ] 5.2 Deliver each PR through no-mistakes using Treehouse checkouts with ignored remote Bazel configuration.
 - [ ] 5.3 After synthetic acceptance and explicit installation approval, run one bounded local capture with independent viewer continuity and preserved private evidence.
 - [ ] 5.4 Complete provider qualification and fresh per-purpose archive authorities before upload/publication/replay acceptance. Keep continuous recording disabled until its own implementation and acceptance.
-

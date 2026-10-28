@@ -185,7 +185,6 @@ another viewer continues. Archive qualification/upload/publication and
 authorized browser replay remain separate acceptance steps. Do not report a
 retained PVC or local freeze as an available recording.
 
-
 Live runtime validation remains mandatory after implementation: exclusive mount,
 identity mismatch refusal, pod replacement, retention, bounded capture and viewer
 continuity must be exercised. This docs-only change cannot execute those future

@@ -51,4 +51,3 @@ The control plane SHALL verify the installed core controller kind, per-member st
 - **WHEN** persistent spools are installed but provider qualification or archive authority is missing
 - **THEN** hosted archive readiness SHALL remain unavailable
 - **AND** a local capture receipt SHALL NOT imply uploaded, published or playable archive media
-
