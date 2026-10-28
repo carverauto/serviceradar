@@ -17,6 +17,8 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   an address. DHCP moves addresses between interfaces. Observers report what they would
   really see:
   - Armis sync: the Armis device id, plus MACs when Armis reports them.
+  - Integration sync: an `IntOf` identifier from `IntIds` and the hostname at
+    the configured address. These IDs model one provider namespace.
   - Network discovery: every interface MAC.
   - ARP-style observation: one MAC and its address. A randomized MAC from this observer is
     not registered, so that sighting is address-only.
@@ -58,7 +60,9 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
     always take the address. A census carries no time of its own, only its record's last
     identity-bearing one, which the variable `idSeen` says the record has. A census record
     with none never displaces a holder that has one, and when both have one either may be
-    newer. A sweep, a census and an address-only poll never set `idSeen`.
+    newer. A sweep, a census, an address-only poll and a declarative integration
+    sync never set `idSeen`. An integration sync leaves an existing holder's
+    address in place.
   - A sweep seed that releases its address to an identified device and holds no identifier
     and no archived one is soft-deleted as `seed_released` in the same transaction (D8). The
     model writes it as a record that no longer exists.

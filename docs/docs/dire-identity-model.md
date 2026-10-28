@@ -83,9 +83,10 @@ in `SourcePolicy.sufficient_to_create?/1`.
 5. Deterministic (IP-seeded) or random UID
 
 A source-authoritative identifier (`armis_device_id`, `netbox_device_id`)
-decides identity. An `integration_id` is not source-authoritative and never
-causes a refusal. An update carrying a source-authoritative identifier never
-resolves, through a shared MAC or any other identifier, onto a record that
+decides identity. An `integration_id` is not source-authoritative; its role in
+hostname-adoption refusals is described below. An update carrying a
+source-authoritative identifier never resolves, through a shared MAC or any
+other identifier, onto a record that
 holds a different one of the same type in the same scope (the identifier
 partition; Armis partitions carry the sync source, and a NetBox device id
 carries its source in the value), whether that id is stored or was claimed
@@ -167,9 +168,8 @@ neither side holds a source-authoritative identifier (`armis_device_id`,
 `netbox_device_id`), with no disagreeing
 hardware serial, no disjoint integration identifiers under the same provider
 prefix (`conflicting_integration_identity`), and no third device claiming
-either side's identity. It never
-merges two existing devices and never adopts across a source-authoritative
-identifier or across disjoint same-provider integration identifiers. For an AWX inventory host, host-name agreement only corroborates
+either side's identity. It never merges two existing devices. For an AWX
+inventory host, host-name agreement only corroborates
 an exact `ansible_host` address match with the device holding that address; it
 is never identity on its own (see [Ansible](./ansible.md)). When the hostnames agree
 but adoption is refused, the two stay separate devices, the address is
@@ -177,6 +177,18 @@ decided as above, and the pair is recorded as
 a `policy_block` identity decision (reason `hostname_agreement_not_identity`),
 which opens a de-duplication task for an operator to merge, mark distinct or
 dismiss.
+
+The integration conflict check compares incoming claims with the holder's map
+claims and live registered `integration_id` rows in the same partition. It
+groups IDs by the normalized prefix before the first colon and refuses adoption
+if any shared provider has disjoint nonempty sets, recording
+`evidence["refusal"] == "conflicting_integration_identity"`. Different providers
+and IDs without a provider prefix do not trigger this refusal. Overlap through
+`legacy_integration_ids` preserves eligibility for adoption, subject to the
+other guards. A node moved between clusters of the same provider with a new ID
+and no legacy overlap is also refused automatic hostname adoption if it retains
+the hostname and IP in the same partition; operator review is the intentional
+trade-off for keeping distinct cluster nodes separate.
 
 A sweep seed that releases its address is soft-deleted in the same
 transaction, with `deleted_reason` `seed_released`, when the address is all it
