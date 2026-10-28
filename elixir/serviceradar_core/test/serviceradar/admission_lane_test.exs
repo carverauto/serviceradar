@@ -272,7 +272,7 @@ defmodule ServiceRadar.AdmissionLaneTest do
       {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}
     end
 
-    start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
+    start_supervised!({RuntimeMetrics, interval_ms: 3_600_000, publish_opts: [request: request]})
 
     lane =
       start_lane(
@@ -310,6 +310,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
     assert :ets.lookup(RuntimeMetrics, {:outcome, :retained_plugin_result, :not_accepted}) == [
              {{:outcome, :retained_plugin_result, :not_accepted}, 1}
            ]
+
+    send(RuntimeMetrics, :publish)
 
     assert_receive {:metric_publish, _publisher, "metrics.ingestion_lanes", frame}, 1_000
     batch = MetricBatch.decode(frame)
