@@ -15,12 +15,19 @@ trap 'chmod -R u+w "$test_root" 2>/dev/null || true; rm -rf "$test_root"' EXIT
 prepare_fixture() {
     chmod -R u+w "$test_root" 2>/dev/null || true
     rm -rf "$test_root"
-    mkdir -p "$test_root/usr/local/lib/serviceradar/agent"
+    mkdir -p "$test_root/bin" "$test_root/usr/local/lib/serviceradar/agent"
     cat > "$test_root/usr/local/lib/serviceradar/agent/serviceradar-agent-seed" <<'EOF'
 #!/bin/sh
 printf 'agent-started:%s\n' "$*"
 EOF
     chmod 0755 "$test_root/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"
+
+    for command in getent useradd groupadd systemctl sudo semanage restorecon; do
+        printf '#!/bin/sh\nexit 0\n' > "$test_root/bin/$command"
+        chmod +x "$test_root/bin/$command"
+    done
+    printf '#!/bin/sh\nprintf "Disabled\\n"\n' > "$test_root/bin/getenforce"
+    chmod +x "$test_root/bin/getenforce"
 
     # Build a test copy of the launcher mapped to $test_root and the current
     # test runner's seed owner UID while keeping the exact launcher logic intact.
@@ -33,10 +40,29 @@ EOF
     chmod 0755 "$test_root/launcher"
 }
 
+runner_owner="$(id -u):$(id -g)"
+service_owner="$runner_owner"
+if [[ "$(id -u)" == 0 ]]; then
+    service_owner=65534:65534
+fi
+
+run_agent_postinstall() {
+    local target_owner="${1:-$service_owner}"
+    sed -e "s|/var/lib/serviceradar|$test_root/var/lib/serviceradar|g" \
+        -e "s|/etc/serviceradar|$test_root/etc/serviceradar|g" \
+        -e "s|/usr/local/bin/|$test_root/usr/local/bin/|g" \
+        -e "s|/usr/lib/serviceradar|$test_root/usr/lib/serviceradar|g" \
+        -e "s|serviceradar:serviceradar|$target_owner|g" \
+        -e "s|root:serviceradar|$runner_owner|g" \
+        -e "s|root:root|$runner_owner|g" \
+        "$agent_postinstall" > "$test_root/agent_postinstall"
+    PATH="$test_root/bin:$PATH" sh "$test_root/agent_postinstall"
+}
+
 # 1. Fresh install via postinstall creates versions/ and versions/seed-installed/
 #    and allows the launcher to copy and exec the seed binary.
 prepare_fixture
-SERVICERADAR_POSTINSTALL_ROOT="$test_root" sh "$agent_postinstall"
+run_agent_postinstall "$runner_owner"
 for rel in \
     var/lib/serviceradar/agent \
     var/lib/serviceradar/agent/tmp \
@@ -95,11 +121,11 @@ fi
 
 # Self-heal on upgrade via postinstall.sh.
 if [[ "$(id -u)" == "0" ]]; then
-    SERVICERADAR_POSTINSTALL_ROOT="$test_root" SERVICERADAR_POSTINSTALL_OWNER="65534:65534" sh "$agent_postinstall"
+    run_agent_postinstall "65534:65534"
     [[ "$(stat -c '%u:%g' "$test_root/var/lib/serviceradar/agent/versions/seed-installed")" == "65534:65534" ]]
     healed_output="$(su -s /bin/sh nobody -c "\"$test_root/launcher\" --healed")"
 else
-    SERVICERADAR_POSTINSTALL_ROOT="$test_root" sh "$agent_postinstall"
+    run_agent_postinstall "$runner_owner"
     [[ "$(stat -c '%a' "$test_root/var/lib/serviceradar/agent/versions/seed-installed")" == "755" ]]
     healed_output="$("$test_root/launcher" --healed)"
 fi
@@ -115,7 +141,7 @@ for rel in agent agent/tmp agent/versions agent/versions/seed-installed; do
     chmod 0700 "$test_root/outside"
     before="$(stat -c '%u:%g:%a' "$test_root/outside")"
     ln -s "$test_root/outside" "$test_root/var/lib/serviceradar/$rel"
-    if SERVICERADAR_POSTINSTALL_ROOT="$test_root" sh "$agent_postinstall" > /dev/null 2>&1; then
+    if run_agent_postinstall "$runner_owner" > /dev/null 2>&1; then
         echo "postinstall accepted symlinked $rel" >&2
         exit 1
     fi
@@ -135,12 +161,6 @@ set +e
 status=$?
 set -e
 [[ "$status" == 78 ]]
-
-runner_owner="$(id -u):$(id -g)"
-service_owner="$runner_owner"
-if [[ "$(id -u)" == 0 ]]; then
-    service_owner=65534:65534
-fi
 
 for installer in "$agent_postinstall" "$rperf_postinstall" "$rperf_checker_postinstall" "$nats_postinstall" "$agent_spec"; do
     for link in none agent agent/tmp agent/versions agent/versions/seed-installed; do
@@ -203,8 +223,7 @@ for installer in "$agent_postinstall" "$rperf_postinstall" "$rperf_checker_posti
             -e "s|root:root|$runner_owner|g" \
             "$test_root/body" > "$test_root/installer"
         set +e
-        PATH="$test_root/bin:$PATH" SERVICERADAR_POSTINSTALL_ROOT= SERVICERADAR_POSTINSTALL_OWNER= \
-            sh "$test_root/installer" 2 > "$test_root/install.log" 2>&1
+        PATH="$test_root/bin:$PATH" sh "$test_root/installer" 2 > "$test_root/install.log" 2>&1
         status=$?
         set -e
         if [[ "$link" == none ]]; then
