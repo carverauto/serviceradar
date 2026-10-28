@@ -284,6 +284,15 @@ nats:
     port: 7422
     tls:
       extraDnsNames: []
+  # Do not set resources.limits.cpu by default: a CFS quota on nats-server can
+  # freeze JetStream RAFT heartbeats and readloops across multiple periods after
+  # a brief host/hypervisor vCPU pause (#5635).
+  resources:
+    limits:
+      memory: "4Gi"
+    requests:
+      cpu: "500m"
+      memory: "1Gi"
 certs:
   runtimeSecretName: serviceradar-runtime-certs
   # Empty preserves the self-managed single-Secret bootstrap. Hosted values
