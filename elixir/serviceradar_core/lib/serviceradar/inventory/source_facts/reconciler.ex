@@ -24,6 +24,20 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
   # source instance was stored under this one. See retire_legacy_instance_facts/2.
   @legacy_instance "nil"
 
+  # Rows per fact upsert: each row binds 12 parameters, under PostgreSQL's 65,535.
+  @upsert_chunk_size 1_000
+
+  @doc """
+  Records the facts of a sync batch's written `{update, device_uid}` pairs and reconciles
+  each device.
+
+  The batch costs a fixed number of statements, whatever its size: the facts are written
+  with one upsert and one absent mark, and the devices' facts, canonical values and open
+  disagreements are read once for all of them. A device is written on its own only when
+  its facts promote a canonical value or it has a disagreement to open, refresh or clear.
+  When a batch carries several updates of one source for a device, the last one decides
+  each fact, as writing them in order did.
+  """
   @spec ingest_resolved([{map(), String.t()}], keyword()) :: :ok
   def ingest_resolved(resolved_updates, opts \\ [])
 
@@ -31,16 +45,16 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
     now = Keyword.get(opts, :now, DateTime.utc_now())
     authorities = load_authorities()
 
-    by_device = Enum.group_by(resolved_updates, fn {_update, device_uid} -> device_uid end)
+    resolved_updates =
+      Enum.filter(resolved_updates, fn {_update, device_uid} -> is_binary(device_uid) end)
 
-    Enum.each(by_device, fn {device_uid, pairs} ->
-      Enum.each(pairs, fn {update, _} ->
-        persist_update_facts(device_uid, update, now)
-      end)
-    end)
-
+    persist_batch_facts(resolved_updates, now)
     retire_legacy_instance_facts(resolved_updates, now)
-    Enum.each(Map.keys(by_device), &reconcile_device(&1, authorities, now))
+
+    resolved_updates
+    |> Enum.map(fn {_update, device_uid} -> device_uid end)
+    |> Enum.uniq()
+    |> reconcile_devices(authorities, now)
 
     :ok
   rescue
@@ -55,35 +69,53 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
   def reconcile_device(device_uid, authorities \\ nil, now \\ DateTime.utc_now())
 
   def reconcile_device(device_uid, authorities, now) when is_binary(device_uid) do
-    authorities = authorities || load_authorities()
-    facts = load_present_facts(device_uid)
-    current = load_canonical(device_uid)
+    reconcile_devices([device_uid], authorities || load_authorities(), now)
+  end
 
+  def reconcile_device(_device_uid, _authorities, _now), do: :ok
+
+  defp reconcile_devices([], _authorities, _now), do: :ok
+
+  defp reconcile_devices(device_uids, authorities, now) do
+    facts = device_uids |> load_present_facts() |> Enum.group_by(& &1.device_uid)
+    current = load_canonical(device_uids)
+    open = load_open_disagreements(device_uids)
+
+    Enum.each(device_uids, fn device_uid ->
+      reconcile_loaded(
+        device_uid,
+        Map.get(facts, device_uid, []),
+        Map.get(current, device_uid),
+        open,
+        authorities,
+        now
+      )
+    end)
+  end
+
+  defp reconcile_loaded(device_uid, facts, current, open, authorities, now) do
     Enum.each(SourceFacts.keys(), fn fact_key ->
       key_facts = Enum.filter(facts, &(&1.fact_key == fact_key))
       key_authorities = Enum.filter(authorities, &(&1.fact_key == fact_key))
       current_value = current_for(current, fact_key)
+      key_open = Map.get(open, {device_uid, fact_key})
 
       case SourceFacts.decide(key_facts, key_authorities, current_value) do
         {:promote, winner, disagreement} ->
           promote(device_uid, winner, now)
-          sync_disagreement(device_uid, fact_key, disagreement, now)
+          sync_disagreement(device_uid, fact_key, key_open, disagreement, now)
 
         {:hold, disagreement} ->
-          sync_disagreement(device_uid, fact_key, disagreement, now)
+          sync_disagreement(device_uid, fact_key, key_open, disagreement, now)
 
         {:config_conflict, disagreement} ->
-          sync_disagreement(device_uid, fact_key, disagreement, now)
+          sync_disagreement(device_uid, fact_key, key_open, disagreement, now)
 
         :noop ->
-          sync_disagreement(device_uid, fact_key, nil, now)
+          sync_disagreement(device_uid, fact_key, key_open, nil, now)
       end
     end)
-
-    :ok
   end
-
-  def reconcile_device(_device_uid, _authorities, _now), do: :ok
 
   @doc """
   Records one fact an external caller reported under its own source and
@@ -144,8 +176,9 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
 
     %{
       fact: fact,
-      canonical: device_uid |> load_canonical() |> current_for(fact_key),
-      disagreement_open: not is_nil(open_disagreement(device_uid, fact_key))
+      canonical: [device_uid] |> load_canonical() |> Map.get(device_uid) |> current_for(fact_key),
+      disagreement_open:
+        [device_uid] |> load_open_disagreements() |> Map.has_key?({device_uid, fact_key})
     }
   end
 
@@ -176,7 +209,7 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
       # authority row.
       update = %{source: "armis", metadata: stringify_keys(row.metadata || %{})}
 
-      persist_update_facts(row.uid, update, now)
+      persist_batch_facts([{update, row.uid}], now)
       retire_legacy_instance_facts([{update, row.uid}], now)
       reconcile_device(row.uid, authorities, now)
     end)
@@ -204,21 +237,74 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
     %{promoted: promoted, scanned: scanned}
   end
 
-  defp persist_update_facts(device_uid, update, now) do
+  # What each `{device, source, instance, fact key}` the batch touches ends as, in update
+  # order: a reported fact is written present, an omitted key is marked absent. An omitted
+  # key that an earlier update of the batch reported keeps that fact, marked absent.
+  defp persist_batch_facts(resolved_updates, now) do
+    {written, absent} =
+      resolved_updates
+      |> Enum.reduce(%{}, &final_fact_states/2)
+      |> Enum.split_with(fn {_key, {fact, _present}} -> not is_nil(fact) end)
+
+    written
+    |> Enum.map(fn {{device_uid, source, instance, _fact_key}, {fact, present}} ->
+      fact_row(device_uid, source, instance, fact, present, now)
+    end)
+    |> Enum.chunk_every(@upsert_chunk_size)
+    |> Enum.each(&upsert_fact_rows/1)
+
+    absent
+    |> Enum.map(fn {key, _state} -> key end)
+    |> mark_absent_keys(now)
+  end
+
+  defp final_fact_states({update, device_uid}, states) do
     source = SourceFacts.source(update)
     instance = SourceFacts.source_instance(update)
     reported = SourceFacts.extract(update)
     reported_keys = MapSet.new(Enum.map(reported, & &1.fact_key))
 
-    Enum.each(reported, fn fact ->
-      upsert_fact(device_uid, source, instance, fact, true, now)
-    end)
+    states =
+      Enum.reduce(reported, states, fn fact, states ->
+        Map.put(states, {device_uid, source, instance, fact.fact_key}, {fact, true})
+      end)
 
     SourceFacts.keys()
     |> Enum.reject(&MapSet.member?(reported_keys, &1))
-    |> Enum.each(fn fact_key ->
-      mark_absent(device_uid, source, instance, fact_key, now)
+    |> Enum.reduce(states, fn fact_key, states ->
+      Map.update(states, {device_uid, source, instance, fact_key}, {nil, false}, fn
+        {fact, _present} -> {fact, false}
+      end)
     end)
+  end
+
+  defp mark_absent_keys([], _now), do: :ok
+
+  defp mark_absent_keys(keys, now) do
+    device_uids = Enum.map(keys, &elem(&1, 0))
+    sources = Enum.map(keys, &elem(&1, 1))
+    instances = Enum.map(keys, &elem(&1, 2))
+    fact_keys = Enum.map(keys, &elem(&1, 3))
+
+    Repo.update_all(
+      from(f in DeviceSourceFact,
+        join:
+          k in fragment(
+            "SELECT * FROM unnest(?::text[], ?::text[], ?::text[], ?::text[]) AS k(device_uid, source, source_instance, fact_key)",
+            ^device_uids,
+            ^sources,
+            ^instances,
+            ^fact_keys
+          ),
+        on:
+          f.device_uid == k.device_uid and f.source == k.source and
+            f.source_instance == k.source_instance and f.fact_key == k.fact_key,
+        where: f.present == true
+      ),
+      set: [present: false, updated_at: now]
+    )
+
+    :ok
   end
 
   # Facts a source stored under the legacy "nil" instance are superseded once the same
@@ -247,8 +333,12 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
   end
 
   defp upsert_fact(device_uid, source, instance, fact, present, now) do
+    upsert_fact_rows([fact_row(device_uid, source, instance, fact, present, now)])
+  end
+
+  defp fact_row(device_uid, source, instance, fact, present, now) do
     # insert_all on a table name skips Ecto UUID dumping; Postgrex needs 16 bytes.
-    row = %{
+    %{
       id: Ecto.UUID.bingenerate(),
       device_uid: device_uid,
       source: source,
@@ -262,8 +352,10 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
       inserted_at: now,
       updated_at: now
     }
+  end
 
-    Repo.insert_all(@facts_table, [row],
+  defp upsert_fact_rows(rows) do
+    Repo.insert_all(@facts_table, rows,
       prefix: @prefix,
       conflict_target: [:device_uid, :source, :source_instance, :fact_key],
       on_conflict: {:replace, [:compare_hash, :value, :raw, :present, :observed_at, :updated_at]}
@@ -299,11 +391,11 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
   end
 
   defp clear_unsupported_canonical(device_uid, fact_key, withdrawn_hash, now) do
-    canonical = device_uid |> load_canonical() |> current_for(fact_key)
+    canonical = [device_uid] |> load_canonical() |> Map.get(device_uid) |> current_for(fact_key)
     canonical_hash = canonical_compare_hash(fact_key, canonical)
 
     supported? =
-      device_uid
+      [device_uid]
       |> load_present_facts()
       |> Enum.any?(&(&1.fact_key == fact_key and &1.compare_hash == withdrawn_hash))
 
@@ -354,9 +446,7 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
 
   defp canonical_updates(_fact), do: []
 
-  defp sync_disagreement(device_uid, fact_key, nil, now) do
-    open = open_disagreement(device_uid, fact_key)
-
+  defp sync_disagreement(_device_uid, _fact_key, open, nil, now) do
     if open do
       Repo.update_all(from(d in SourceFactDisagreement, where: d.id == ^open.id),
         set: [status: "cleared", cleared_at: now, updated_at: now]
@@ -368,8 +458,7 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
     :ok
   end
 
-  defp sync_disagreement(device_uid, fact_key, disagreement, now) do
-    open = open_disagreement(device_uid, fact_key)
+  defp sync_disagreement(device_uid, fact_key, open, disagreement, now) do
     signature = disagreement.compare_signature
     values = disagreement.values
     config? = disagreement.configuration_conflict == true
@@ -424,27 +513,27 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
     :ok
   end
 
-  defp open_disagreement(device_uid, fact_key) do
-    Repo.one(
-      from(d in SourceFactDisagreement,
-        where: d.device_uid == ^device_uid and d.fact_key == ^fact_key and d.status == "open",
-        select: %{
-          id: d.id,
-          device_uid: d.device_uid,
-          fact_key: d.fact_key,
-          compare_signature: d.compare_signature,
-          configuration_conflict: d.configuration_conflict,
-          values: d.values
-        },
-        limit: 1
-      )
+  # The open disagreement of each `{device, fact key}`; at most one is open per pair.
+  defp load_open_disagreements(device_uids) do
+    from(d in SourceFactDisagreement,
+      where: d.device_uid in ^device_uids and d.status == "open",
+      select: %{
+        id: d.id,
+        device_uid: d.device_uid,
+        fact_key: d.fact_key,
+        compare_signature: d.compare_signature,
+        configuration_conflict: d.configuration_conflict,
+        values: d.values
+      }
     )
+    |> Repo.all()
+    |> Map.new(&{{&1.device_uid, &1.fact_key}, &1})
   end
 
-  defp load_present_facts(device_uid) do
+  defp load_present_facts(device_uids) do
     Repo.all(
       from(f in DeviceSourceFact,
-        where: f.device_uid == ^device_uid and f.present == true,
+        where: f.device_uid in ^device_uids and f.present == true,
         select: %{
           device_uid: f.device_uid,
           source: f.source,
@@ -460,14 +549,13 @@ defmodule ServiceRadar.Inventory.SourceFacts.Reconciler do
     )
   end
 
-  defp load_canonical(device_uid) do
-    Repo.one(
-      from(d in Device,
-        where: d.uid == ^device_uid,
-        select: %{switch_port_attachment: d.switch_port_attachment, vlan_uid: d.vlan_uid},
-        limit: 1
-      )
+  defp load_canonical(device_uids) do
+    from(d in Device,
+      where: d.uid in ^device_uids,
+      select: {d.uid, %{switch_port_attachment: d.switch_port_attachment, vlan_uid: d.vlan_uid}}
     )
+    |> Repo.all()
+    |> Map.new()
   end
 
   defp current_for(nil, _key), do: nil

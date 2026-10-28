@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
   alias ServiceRadar.Inventory.DeviceCleanupSettings
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
+  alias ServiceRadar.Inventory.Identity.Deduplication
   alias ServiceRadar.Inventory.Identity.PopulationGauges
   alias ServiceRadar.Inventory.Identity.SourceRetirement
   alias ServiceRadar.Inventory.Identity.SourceRetirementWorker
@@ -518,6 +519,37 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
     end
   end
 
+  describe "legacy Proxmox identifiers" do
+    test "a record left with only archived legacy ids is marked unless a task holds it for review",
+         ctx do
+      partition = "legacy-proxmox-#{ctx.n}"
+      [orphan, held, partner] = Enum.map(1..3, &create_device(ctx, &1))
+
+      for {record, vmid} <- [{orphan, 101}, {held, 102}] do
+        archive_legacy_proxmox_id!(record, "proxmox:vm:#{ctx.n}-#{vmid}", partition)
+      end
+
+      :ok =
+        Deduplication.open_for_decisions([
+          %{
+            decision_kind: :succession_review,
+            reason: "legacy_proxmox_test",
+            device_uids: [held.uid, partner.uid],
+            evidence: %{}
+          }
+        ])
+
+      assert {:ok, _counts} =
+               SourceRetirement.retire_legacy_proxmox_identifiers(
+                 partition: partition,
+                 actor: ctx.actor
+               )
+
+      assert %Device{source_retired_at: %DateTime{}} = device!(ctx, orphan)
+      assert %Device{source_retired_at: nil} = device!(ctx, held)
+    end
+  end
+
   describe "mass guard" do
     test "a pass over the fraction retires nothing, logs the counts and emits telemetry", ctx do
       {_a, absent} = mass_absence(ctx)
@@ -907,6 +939,21 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
         source: "test"
       })
       |> Ash.create(actor: ctx.actor)
+  end
+
+  # An id a release before scoped Proxmox identities registered, already archived.
+  defp archive_legacy_proxmox_id!(record, value, partition) do
+    %{num_rows: 1} =
+      Repo.query!(
+        """
+        INSERT INTO platform.device_identifier_archive
+          (id, device_id, identifier_type, identifier_value, partition, confidence, source,
+           first_seen, last_seen, verified, metadata, archived_at, archive_reason)
+        VALUES ($1, $2, 'integration_id', $3, $4, 'strong', 'test',
+                now(), now(), false, '{}'::jsonb, now(), 'source_absent')
+        """,
+        [System.unique_integer([:positive]), record.uid, value, partition]
+      )
   end
 
   defp identifier_partition(ctx, :armis_device_id), do: ctx.id_partition

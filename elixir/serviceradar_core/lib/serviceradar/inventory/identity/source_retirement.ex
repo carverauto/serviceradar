@@ -1106,28 +1106,35 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   RETURNING d.source_retired_at
   """
 
+  # Runs on every Proxmox result. The review hold is checked last, on the records every other
+  # condition kept: as a filter of the device scan it ran before the anti-joins, once for each
+  # record that still holds an identifier, and each call searches the open de-duplication tasks.
   @legacy_proxmox_unmarked_sql """
-  SELECT d.uid
-  FROM (
-    SELECT a.device_id, max(a.archived_at) AS archived_at
-    FROM platform.device_identifier_archive AS a
-    WHERE a.identifier_type = 'integration_id'
-      AND btrim(a.identifier_value) ~* '^proxmox:(vm|container|hypervisor):'
-      AND (CAST($4 AS text) IS NULL OR COALESCE(a.partition, 'default') = CAST($4 AS text))
-    GROUP BY a.device_id
-  ) AS r
-  JOIN platform.ocsf_devices AS d ON d.uid = r.device_id
-  WHERE #{@retired_only}
-    AND NOT EXISTS (
-      SELECT 1 FROM platform.device_identifiers AS di
-      WHERE di.device_id = d.uid
-    )
-    AND NOT EXISTS (
-      SELECT 1 FROM platform.device_revival_audit AS v
-      WHERE v.device_uid = d.uid AND v.revived_at >= (r.archived_at AT TIME ZONE 'UTC')
-    )
-    AND NOT platform.device_held_for_review(d.uid)
-  ORDER BY d.uid
+  WITH unmarked AS MATERIALIZED (
+    SELECT d.uid
+    FROM (
+      SELECT a.device_id, max(a.archived_at) AS archived_at
+      FROM platform.device_identifier_archive AS a
+      WHERE a.identifier_type = 'integration_id'
+        AND btrim(a.identifier_value) ~* '^proxmox:(vm|container|hypervisor):'
+        AND (CAST($4 AS text) IS NULL OR COALESCE(a.partition, 'default') = CAST($4 AS text))
+      GROUP BY a.device_id
+    ) AS r
+    JOIN platform.ocsf_devices AS d ON d.uid = r.device_id
+    WHERE #{@retired_only}
+      AND NOT EXISTS (
+        SELECT 1 FROM platform.device_identifiers AS di
+        WHERE di.device_id = d.uid
+      )
+      AND NOT EXISTS (
+        SELECT 1 FROM platform.device_revival_audit AS v
+        WHERE v.device_uid = d.uid AND v.revived_at >= (r.archived_at AT TIME ZONE 'UTC')
+      )
+  )
+  SELECT u.uid
+  FROM unmarked AS u
+  WHERE NOT platform.device_held_for_review(u.uid)
+  ORDER BY u.uid
   """
 
   @doc """

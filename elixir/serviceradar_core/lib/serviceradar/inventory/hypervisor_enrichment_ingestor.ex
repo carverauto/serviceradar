@@ -407,7 +407,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
     with {:ok, guests} <- hosted_guest_page(checkpoint, actor),
          {:ok, edges} <- hosted_projection_page(checkpoint),
-         :ok <- Enum.reduce_while(guests, :ok, &reconcile_saved_guest(&1, &2, actor)),
+         :ok <- reconcile_saved_guests(guests, actor),
          :ok <- Enum.reduce_while(edges, :ok, &reconcile_saved_projection(&1, &2, actor)) do
       checkpoint =
         checkpoint
@@ -488,17 +488,46 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
     with {:ok, page} <- Ash.read(query, actor: actor),
          {:ok, guests} <- Page.unwrap(page) do
-      Enum.reduce_while(guests, :ok, &reconcile_saved_guest(&1, &2, actor))
+      reconcile_saved_guests(guests, actor)
     end
   end
 
-  defp saved_hosted_link(guest, actor) do
+  # The owners' records are read once for the page. A live record is its own canonical
+  # record; only one that is not (merged, deleted or absent) is resolved on its own.
+  defp reconcile_saved_guests(guests, actor) do
+    live = live_owner_uids(guests, actor)
+    Enum.reduce_while(guests, :ok, &reconcile_saved_guest(&1, &2, actor, live))
+  end
+
+  defp live_owner_uids(guests, actor) do
+    uids =
+      guests
+      |> Enum.flat_map(fn guest -> [guest.device_uid, guest.host && guest.host.device_uid] end)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.uniq()
+
+    query =
+      Device
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(uid in ^uids and is_nil(deleted_at))
+      |> Ash.Query.select([:uid])
+
+    with [_ | _] <- uids,
+         {:ok, page} <- Ash.read(query, actor: actor, page: [limit: length(uids)]),
+         {:ok, devices} <- Page.unwrap(page) do
+      MapSet.new(devices, & &1.uid)
+    else
+      _ -> MapSet.new()
+    end
+  end
+
+  defp saved_hosted_link(guest, actor, live \\ MapSet.new()) do
     with %{host: host} when is_map(host) <- guest,
          false <- guest.identity_state == :quarantined or host.identity_state == :quarantined,
          guest_uid when is_binary(guest_uid) <- guest.device_uid,
          host_uid when is_binary(host_uid) <- host.device_uid,
-         {:ok, guest_uid} <- live_canonical_device_uid(guest_uid, actor),
-         {:ok, host_uid} <- live_canonical_device_uid(host_uid, actor),
+         {:ok, guest_uid} <- live_canonical_device_uid(guest_uid, actor, live),
+         {:ok, host_uid} <- live_canonical_device_uid(host_uid, actor, live),
          false <- guest_uid == host_uid do
       {:ok,
        %{
@@ -512,8 +541,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
   end
 
-  defp reconcile_saved_guest(guest, :ok, actor) do
-    case saved_hosted_link(guest, actor) do
+  defp reconcile_saved_guest(guest, :ok, actor, live) do
+    case saved_hosted_link(guest, actor, live) do
       # A valid owner without an observation can retain last-known evidence,
       # but cannot create or refresh it from a host heartbeat.
       {:ok, %{observed_at: nil}} -> {:cont, :ok}
@@ -617,7 +646,13 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     end
   end
 
-  defp live_canonical_device_uid(uid, actor) do
+  defp live_canonical_device_uid(uid, actor, live \\ MapSet.new()) do
+    if MapSet.member?(live, uid),
+      do: {:ok, uid},
+      else: resolve_live_canonical_device_uid(uid, actor)
+  end
+
+  defp resolve_live_canonical_device_uid(uid, actor) do
     with {:ok, canonical_uid} <- IdentityReconciler.resolve_canonical_device_id(uid, actor) do
       query =
         Device
@@ -2099,7 +2134,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       )
     """
 
-    case Repo.query(sql, [all_ips, all_macs, has_vmids?]) do
+    case query_without_jit(sql, [all_ips, all_macs, has_vmids?]) do
       {:ok, %{rows: rows}} ->
         {:ok, Enum.map(rows, &row_to_guest_candidate/1)}
 
@@ -2108,6 +2143,22 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
 
         {:error, {:identifier_lookup_failed, reason}}
     end
+  end
+
+  # The guest candidate query runs with JIT off. The planner cannot estimate how many
+  # records the MAC-token arm matches and assumes thousands, which puts the statement
+  # over `jit_inline_above_cost` and `jit_optimize_above_cost`; LLVM then spends
+  # hundreds of milliseconds compiling a statement that executes in a few, three times
+  # per Proxmox result. Inside an enclosing transaction, JIT stays off until it ends.
+  defp query_without_jit(sql, params) do
+    Repo.transaction(fn ->
+      with {:ok, _} <- Repo.query("SET LOCAL jit = off"),
+           {:ok, result} <- Repo.query(sql, params) do
+        result
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
   end
 
   defp row_to_guest_candidate([
