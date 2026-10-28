@@ -53,14 +53,16 @@ defmodule ServiceRadar.Events.AuditWriterTest do
         nil
       )
 
-    on_exit(fn -> :telemetry.detach(handler) end)
+    try do
+      assert {:error, {:missing_required, :action}} =
+               AuditWriter.write(resource_type: "agent_certificate", resource_id: "agent-1")
 
-    assert {:error, {:missing_required, :action}} =
-             AuditWriter.write(resource_type: "agent_certificate", resource_id: "agent-1")
-
-    assert_received {:publish_failed, measurements, metadata}
-    assert metadata.resource_type == "agent_certificate"
-    MetricContract.assert_exported(event, measurements, metadata)
+      assert_received {:publish_failed, measurements, metadata}
+      assert metadata.resource_type == "agent_certificate"
+      MetricContract.assert_exported(event, measurements, metadata)
+    after
+      :telemetry.detach(handler)
+    end
   end
 
   defp metadata_value(metadata, key) do
