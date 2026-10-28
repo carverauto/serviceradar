@@ -24,10 +24,10 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
+	"github.com/carverauto/serviceradar/go/pkg/agent/updaterflags"
 )
 
 var errVersionRequired = errors.New("version is required")
@@ -39,74 +39,46 @@ func main() {
 }
 
 func run() error {
-	var (
-		runtimeRoot      = flag.String("runtime-root", "", "ServiceRadar runtime root")
-		version          = flag.String("version", "", "Target staged release version")
-		commandID        = flag.String("command-id", "", "Command ID for activation result reporting")
-		commandType      = flag.String("command-type", "agent.update_release", "Command type for activation result reporting")
-		rollbackDeadline = flag.Duration("rollback-deadline", 3*time.Minute, "Rollback deadline after activation")
-
-		// Add-on file capabilities are applied only while installing a signature-verified
-		// systemd unit, and only to the root-owned binary that install materializes.
-		addonID   = flag.String("addon-id", "", "Add-on id (systemd install mode)")
-		addonBin  = flag.String("addon-binary", "", "Add-on binary filename inside the verified artifact")
-		addonCaps = flag.String("addon-capabilities", "", "Comma-separated Linux file capabilities to apply to the verified privileged binary (e.g. cap_net_raw,cap_bpf)")
-
-		// Add-on systemd supervision mode (delivery-models task 3.1 & harden-native-addon-privilege-boundary):
-		// install/enable or uninstall the add-on's bundled systemd units.
-		addonSystemdInstall     = flag.String("addon-systemd-install", "", "Comma-separated staged unit files to install (.service/.timer)")
-		addonSystemdEnable      = flag.String("addon-systemd-enable", "", "Unit to enable --now after install (must be one of --addon-systemd-install)")
-		addonSystemdUninstall   = flag.String("addon-systemd-uninstall", "", "Comma-separated installed unit files to disable + remove")
-		addonSystemdResources   = flag.String("addon-systemd-resources", "", "JSON resource limits applied to the enabled unit via a drop-in (cpu_max_percent, memory_max_bytes, ...)")
-		addonSystemdRunTimerNow = flag.Bool("addon-systemd-run-timer-now", false, "Reset the prior timer service failure and queue a fresh run of the staged candidate")
-		addonStateSnapshot      = flag.String("addon-state-snapshot", "", "Previous add-on state snapshot restored before re-enabling the prior unit")
-
-		// Privileged add-on materialization flags (harden-native-addon-privilege-boundary tasks 1.2, 1.3).
-		addonVersion   = flag.String("addon-version", "", "Target staged add-on version for privileged materialization")
-		addonSHA256    = flag.String("addon-sha256", "", "Expected staged add-on artifact SHA256 digest")
-		addonSignature = flag.String("addon-signature", "", "Ed25519 signature of staged add-on artifact")
-		addonArtifact  = flag.String("addon-artifact", "", "Path to the staged add-on artifact archive")
-		privilegedRoot = flag.String("privileged-root", "", "Privileged add-on runtime root (default /usr/lib/serviceradar/addons)")
-	)
+	opts := updaterflags.Register(flag.CommandLine)
 	flag.Parse()
 
 	ctx := context.Background()
 
 	switch {
-	case *addonSystemdInstall != "":
-		resources, err := parseAddonResources(*addonSystemdResources)
+	case opts.AddonSystemdInstall != "":
+		resources, err := parseAddonResources(opts.AddonSystemdResources)
 		if err != nil {
 			return err
 		}
-		privileged, err := agent.PrivilegedRootForSetuidInstall(*privilegedRoot, *runtimeRoot)
+		privileged, err := agent.PrivilegedRootForSetuidInstall(opts.PrivilegedRoot, opts.RuntimeRoot)
 		if err != nil {
 			return err
 		}
 
 		return agent.InstallAddonSystemdUnits(ctx, agent.AddonSystemdInstallRequest{
 			PrivilegedRoot:    privileged,
-			AddonID:           *addonID,
-			Version:           *addonVersion,
-			BinaryName:        *addonBin,
-			ArtifactPath:      *addonArtifact,
-			ArtifactSHA256:    *addonSHA256,
-			Signature:         *addonSignature,
-			Units:             splitCommaList(*addonSystemdInstall),
-			Enable:            *addonSystemdEnable,
+			AddonID:           opts.AddonID,
+			Version:           opts.AddonVersion,
+			BinaryName:        opts.AddonBinary,
+			ArtifactPath:      opts.AddonArtifact,
+			ArtifactSHA256:    opts.AddonSHA256,
+			Signature:         opts.AddonSignature,
+			Units:             splitCommaList(opts.AddonSystemdInstall),
+			Enable:            opts.AddonSystemdEnable,
 			Resources:         resources,
-			Capabilities:      splitCommaList(*addonCaps),
-			RunTimerNow:       *addonSystemdRunTimerNow,
-			StateSnapshotPath: *addonStateSnapshot,
+			Capabilities:      splitCommaList(opts.AddonCapabilities),
+			RunTimerNow:       opts.AddonSystemdRunTimerNow,
+			StateSnapshotPath: opts.AddonStateSnapshot,
 		})
-	case *addonSystemdUninstall != "":
-		return agent.UninstallAddonSystemdUnits(ctx, splitCommaList(*addonSystemdUninstall))
-	case *version != "":
+	case opts.AddonSystemdUninstall != "":
+		return agent.UninstallAddonSystemdUnits(ctx, splitCommaList(opts.AddonSystemdUninstall))
+	case opts.Version != "":
 		return agent.ActivateStagedRelease(agent.ReleaseActivationConfig{
-			RuntimeRoot:      *runtimeRoot,
-			Version:          *version,
-			CommandID:        *commandID,
-			CommandType:      *commandType,
-			RollbackDeadline: *rollbackDeadline,
+			RuntimeRoot:      opts.RuntimeRoot,
+			Version:          opts.Version,
+			CommandID:        opts.CommandID,
+			CommandType:      opts.CommandType,
+			RollbackDeadline: opts.RollbackDeadline,
 		})
 	default:
 		return errVersionRequired

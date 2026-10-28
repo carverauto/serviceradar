@@ -1857,15 +1857,7 @@ func (p *PushLoop) handleAgentUpdateRelease(ctx context.Context, cmd *proto.Comm
 		return
 	}
 
-	updaterCmd := exec.CommandContext(
-		ctx,
-		updaterPath,
-		"--runtime-root", result.RuntimeRoot,
-		"--version", execArgs.Version,
-		"--command-id", execArgs.CommandID,
-		"--command-type", execArgs.CommandType,
-		"--rollback-deadline", "3m0s",
-	)
+	updaterCmd := exec.CommandContext(ctx, updaterPath, releaseActivationUpdaterArgs(result.RuntimeRoot, execArgs).args...)
 	updaterCmd.Stdout = os.Stdout
 	updaterCmd.Stderr = os.Stderr
 	if err := updaterCmd.Run(); err != nil {

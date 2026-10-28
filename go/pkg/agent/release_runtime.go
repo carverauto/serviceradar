@@ -30,6 +30,8 @@ import (
 	"unicode"
 
 	"github.com/google/uuid"
+
+	"github.com/carverauto/serviceradar/go/pkg/agent/updaterflags"
 )
 
 const (
@@ -400,18 +402,50 @@ func validateAgentUpdaterSupportsFlags(path string, requiredFlags ...string) err
 	if err != nil {
 		return fmt.Errorf("inspect release updater flags: %w", err)
 	}
-	usage := string(out)
+	defined := updaterHelpFlagNames(string(out))
 	for _, flag := range requiredFlags {
 		name := strings.TrimLeft(strings.TrimSpace(flag), "-")
 		if name == "" {
 			continue
 		}
-		if !strings.Contains(usage, "-"+name) {
+		if !defined[name] {
 			return fmt.Errorf("%w: --%s", errReleaseUpdaterFlagUnsupported, name)
 		}
 	}
 
 	return nil
+}
+
+// updaterHelpFlagNames returns the flag names a Go flag-package usage text
+// defines. Each definition line starts with "-name"; matching whole names keeps a
+// required flag from being satisfied by a longer flag it prefixes, which Go's flag
+// parser would still reject.
+func updaterHelpFlagNames(usage string) map[string]bool {
+	names := make(map[string]bool)
+	for _, line := range strings.Split(usage, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 0 || !strings.HasPrefix(fields[0], "-") {
+			continue
+		}
+		if name := strings.TrimLeft(fields[0], "-"); name != "" {
+			names[name] = true
+		}
+	}
+
+	return names
+}
+
+// releaseActivationUpdaterArgs builds the agent-updater command line that
+// activates a staged agent release.
+func releaseActivationUpdaterArgs(runtimeRoot string, execArgs releaseActivationExecArgs) agentUpdaterArgs {
+	var cmd agentUpdaterArgs
+	cmd.set(updaterflags.RuntimeRoot, runtimeRoot)
+	cmd.set(updaterflags.Version, execArgs.Version)
+	cmd.set(updaterflags.CommandID, execArgs.CommandID)
+	cmd.set(updaterflags.CommandType, execArgs.CommandType)
+	cmd.set(updaterflags.RollbackDeadline, updaterflags.DefaultRollbackDeadline.String())
+
+	return cmd
 }
 
 func validateReleaseActivationExecArgs(version, commandID, commandType string) (releaseActivationExecArgs, error) {
