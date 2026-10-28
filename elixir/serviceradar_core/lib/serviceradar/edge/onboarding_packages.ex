@@ -12,6 +12,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
 
   import Ash.Expr
 
+  alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.Edge.Crypto
   alias ServiceRadar.Edge.OnboardingEvents
   alias ServiceRadar.Edge.OnboardingPackage
@@ -121,7 +122,7 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   @spec create(map(), keyword()) ::
           {:ok,
            %{package: OnboardingPackage.t(), join_token: String.t(), download_token: String.t()}}
-          | {:error, Ash.Error.t()}
+          | {:error, term()}
   def create(attrs, opts \\ []) do
     join_ttl = Keyword.get(opts, :join_token_ttl_seconds, @default_join_token_ttl_seconds)
 
@@ -484,40 +485,38 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   end
 
   @doc """
-  Creates a package with a component certificate signed by the platform CA.
+  Validates certificate lifetime options and delegates to platform CA generation.
 
-  This is the preferred way to create packages. It automatically:
-  1. Gets or generates the platform CA
-  2. Generates a component certificate signed by the platform CA
-  3. Includes the certificate bundle in the package
+  The current platform CA generator returns `{:error, :ca_not_available}`.
+  Web-NG onboarding uses the gateway certificate issuer instead.
 
   ## Options
 
   Same as `create/2`, plus:
     * `:partition_id` - Network partition (default: "default")
-    * `:cert_validity_days` - Component cert validity (default: 1)
+    * `:cert_validity_days` - Component cert validity; see `CertificateLifetimePolicy`
 
   """
   @spec create_with_platform_cert(map(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def create_with_platform_cert(attrs, opts \\ []) do
-    attrs = normalize_partition_attrs(attrs)
+    with {:ok, cert_validity} <- CertificateLifetimePolicy.resolve_validity_days(opts) do
+      attrs = normalize_partition_attrs(attrs)
 
-    partition_id =
-      normalize_partition_id(Keyword.get(opts, :partition_id) || attrs[:partition_id])
+      partition_id =
+        normalize_partition_id(Keyword.get(opts, :partition_id) || attrs[:partition_id])
 
-    cert_validity = Keyword.get(opts, :cert_validity_days, 1)
+      attrs = normalize_component_identity(attrs)
+      component_id = attrs[:component_id] || generate_component_id(attrs[:component_type])
+      component_type = attrs[:component_type] || :gateway
 
-    attrs = normalize_component_identity(attrs)
-    component_id = attrs[:component_id] || generate_component_id(attrs[:component_type])
-    component_type = attrs[:component_type] || :gateway
-
-    generate_component_certificate(
-      component_id,
-      component_type,
-      partition_id,
-      validity_days: cert_validity
-    )
+      generate_component_certificate(
+        component_id,
+        component_type,
+        partition_id,
+        validity_days: cert_validity
+      )
+    end
   end
 
   @doc """

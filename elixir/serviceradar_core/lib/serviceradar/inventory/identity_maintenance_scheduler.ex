@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.IdentityMaintenanceScheduler do
 
   use ServiceRadar.ObanEnsureScheduled,
     workers: [
+      ServiceRadar.Infrastructure.AgentCertExpiryMonitor,
       ServiceRadar.Inventory.AgentLinkRepairWorker,
       ServiceRadar.Inventory.DeviceIdentifierGcWorker,
       ServiceRadar.Jobs.ScheduleHealthWorker

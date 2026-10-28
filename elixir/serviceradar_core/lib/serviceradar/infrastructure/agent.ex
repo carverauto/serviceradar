@@ -176,77 +176,91 @@ defmodule ServiceRadar.Infrastructure.Agent do
 
   defp present_label(_value), do: nil
 
+  @cert_lifecycle_fields [
+    :cert_not_before,
+    :cert_expires_at,
+    :cert_serial,
+    :cert_fingerprint_sha256,
+    :cert_renewed_at
+  ]
   @agent_registration_fields [
-    :uid,
-    :name,
-    :type_id,
-    :type,
-    :uid_alt,
-    :vendor_name,
-    :version,
-    :policies,
-    :gateway_id,
-    :device_uid,
-    :capabilities,
-    :host,
-    :ip,
-    :port,
-    :spiffe_identity,
-    :metadata
-  ]
+                               :uid,
+                               :name,
+                               :type_id,
+                               :type,
+                               :uid_alt,
+                               :vendor_name,
+                               :version,
+                               :policies,
+                               :gateway_id,
+                               :device_uid,
+                               :capabilities,
+                               :host,
+                               :ip,
+                               :port,
+                               :spiffe_identity,
+                               :metadata
+                             ] ++ @cert_lifecycle_fields
   @agent_connected_upsert_fields [
-    :name,
-    :type_id,
-    :type,
-    :uid_alt,
-    :vendor_name,
-    :version,
-    :policies,
-    :gateway_id,
-    :device_uid,
-    :capabilities,
-    :host,
-    :ip,
-    :port,
-    :spiffe_identity,
-    :metadata,
-    :last_seen_time,
-    :modified_time,
-    :status,
-    :is_healthy
-  ]
+                                   :name,
+                                   :type_id,
+                                   :type,
+                                   :uid_alt,
+                                   :vendor_name,
+                                   :version,
+                                   :policies,
+                                   :gateway_id,
+                                   :device_uid,
+                                   :capabilities,
+                                   :host,
+                                   :ip,
+                                   :port,
+                                   :spiffe_identity,
+                                   :metadata,
+                                   :last_seen_time,
+                                   :modified_time,
+                                   :status,
+                                   :is_healthy
+                                 ] ++ @cert_lifecycle_fields
   @agent_update_fields [
-    :name,
-    :capabilities,
-    :host,
-    :ip,
-    :port,
-    :policies,
-    :metadata,
-    :plugin_engine_max_memory_mb,
-    :plugin_engine_max_cpu_ms,
-    :plugin_engine_max_concurrent,
-    :plugin_engine_max_open_connections
-  ]
+                         :name,
+                         :capabilities,
+                         :host,
+                         :ip,
+                         :port,
+                         :policies,
+                         :metadata,
+                         :plugin_engine_max_memory_mb,
+                         :plugin_engine_max_cpu_ms,
+                         :plugin_engine_max_concurrent,
+                         :plugin_engine_max_open_connections
+                       ] ++ @cert_lifecycle_fields
   @agent_gateway_sync_fields [
-    :name,
-    :capabilities,
-    :host,
-    :port,
-    :spiffe_identity,
-    :metadata,
-    :gateway_id,
-    :version,
-    :ip,
-    :type_id,
-    :device_uid,
-    :config_source,
-    :desired_version,
-    :release_rollout_state,
-    :last_update_at,
-    :last_update_error
-  ]
-  @agent_heartbeat_fields [:is_healthy, :capabilities, :config_source, :gateway_id, :host, :ip]
+                               :name,
+                               :capabilities,
+                               :host,
+                               :port,
+                               :spiffe_identity,
+                               :metadata,
+                               :gateway_id,
+                               :version,
+                               :ip,
+                               :type_id,
+                               :device_uid,
+                               :config_source,
+                               :desired_version,
+                               :release_rollout_state,
+                               :last_update_at,
+                               :last_update_error
+                             ] ++ @cert_lifecycle_fields
+  @agent_heartbeat_fields [
+                            :is_healthy,
+                            :capabilities,
+                            :config_source,
+                            :gateway_id,
+                            :host,
+                            :ip
+                          ] ++ @cert_lifecycle_fields
   @agent_config_ack_fields [:acked_config_version, :config_acked_at, :config_section_statuses]
   @agent_config_push_fields [:pushed_config_version, :config_pushed_at]
   @agent_gateway_fields [:gateway_id]
@@ -451,6 +465,14 @@ defmodule ServiceRadar.Infrastructure.Agent do
       description "Sync agent metadata from the agent-gateway"
 
       accept @agent_gateway_sync_fields
+
+      change set_attribute(:modified_time, &DateTime.utc_now/0)
+    end
+
+    update :update_certificate do
+      description "Record active mTLS leaf certificate lifecycle metadata"
+
+      accept @cert_lifecycle_fields
 
       change set_attribute(:modified_time, &DateTime.utc_now/0)
     end
@@ -930,6 +952,36 @@ defmodule ServiceRadar.Infrastructure.Agent do
       allow_nil? true
       public? true
       description "Max total open connections for Wasm plugins on this agent"
+    end
+
+    attribute :cert_not_before, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+      description "NotBefore timestamp of the agent's active mTLS leaf certificate"
+    end
+
+    attribute :cert_expires_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+      description "NotAfter expiration timestamp of the agent's active mTLS leaf certificate"
+    end
+
+    attribute :cert_serial, :string do
+      allow_nil? true
+      public? true
+      description "Hex-encoded X.509 serial number of the agent's active mTLS leaf certificate"
+    end
+
+    attribute :cert_fingerprint_sha256, :string do
+      allow_nil? true
+      public? true
+      description "Lowercase SHA-256 hex digest of the agent's active mTLS leaf certificate"
+    end
+
+    attribute :cert_renewed_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+      description "Timestamp when the agent's mTLS leaf certificate was most recently renewed"
     end
   end
 

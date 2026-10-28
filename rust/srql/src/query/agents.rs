@@ -6,7 +6,10 @@ use crate::{
     models::AgentRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::ocsf_agents::dsl::{
-        capabilities as col_capabilities, config_source as col_config_source,
+        capabilities as col_capabilities, cert_expires_at as col_cert_expires_at,
+        cert_fingerprint_sha256 as col_cert_fingerprint_sha256,
+        cert_not_before as col_cert_not_before, cert_renewed_at as col_cert_renewed_at,
+        cert_serial as col_cert_serial, config_source as col_config_source,
         created_time as col_created_time, desired_version as col_desired_version,
         first_seen_time as col_first_seen_time, gateway_id as col_gateway_id, host as col_host,
         ip as col_ip, last_seen_time as col_last_seen_time, last_update_at as col_last_update_at,
@@ -18,6 +21,7 @@ use crate::{
     },
     time::TimeRange,
 };
+use chrono::{DateTime, Duration as ChronoDuration, NaiveDate, NaiveDateTime, Utc};
 use diesel::PgTextExpressionMethods;
 use diesel::pg::Pg;
 use diesel::prelude::*;
@@ -46,7 +50,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
-    let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
+    let now = Utc::now();
+    let query = build_query_at(plan, now)?
+        .limit(plan.limit)
+        .offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
     let mut params = Vec::new();
@@ -57,7 +64,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     }
 
     for filter in &plan.filters {
-        collect_filter_params(&mut params, filter)?;
+        collect_filter_params_at(&mut params, filter, now)?;
     }
 
     super::reconcile_limit_offset_binds(&sql, &mut params, plan.limit, plan.offset)?;
@@ -86,6 +93,10 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn build_query(plan: &QueryPlan) -> Result<AgentsQuery<'static>> {
+    build_query_at(plan, Utc::now())
+}
+
+fn build_query_at(plan: &QueryPlan, now: DateTime<Utc>) -> Result<AgentsQuery<'static>> {
     let mut query = ocsf_agents.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
@@ -97,7 +108,7 @@ fn build_query(plan: &QueryPlan) -> Result<AgentsQuery<'static>> {
     }
 
     for filter in &plan.filters {
-        query = apply_filter(query, filter)?;
+        query = apply_filter(query, filter, now)?;
     }
 
     // A superseded identity stays in the table for history. Operational
@@ -119,7 +130,11 @@ fn includes_superseded(plan: &QueryPlan) -> bool {
         })
 }
 
-fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<AgentsQuery<'a>> {
+fn apply_filter<'a>(
+    mut query: AgentsQuery<'a>,
+    filter: &Filter,
+    now: DateTime<Utc>,
+) -> Result<AgentsQuery<'a>> {
     match filter.field.as_str() {
         "uid" => {
             query = apply_text_filter!(query, filter, col_uid)?;
@@ -196,6 +211,63 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
         "superseded_by" => {
             query = apply_text_filter!(query, filter, col_superseded_by)?;
         }
+        "cert_serial" | "cert_serial_number" => {
+            query = apply_text_filter!(query, filter, col_cert_serial)?;
+        }
+        "cert_fingerprint_sha256" | "cert_fingerprint" => {
+            query = apply_text_filter!(query, filter, col_cert_fingerprint_sha256)?;
+        }
+        "cert_expires_at" | "cert_not_after" => {
+            let ts = parse_cert_timestamp_filter_value(filter.value.as_scalar()?, now)?;
+            query = match filter.op {
+                FilterOp::Eq => query.filter(col_cert_expires_at.eq(ts)),
+                FilterOp::NotEq => query.filter(col_cert_expires_at.ne(ts)),
+                FilterOp::Lt => query.filter(col_cert_expires_at.lt(ts)),
+                FilterOp::Lte => query.filter(col_cert_expires_at.le(ts)),
+                FilterOp::Gt => query.filter(col_cert_expires_at.gt(ts)),
+                FilterOp::Gte => query.filter(col_cert_expires_at.ge(ts)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "unsupported operator for {}: {:?}",
+                        filter.field, filter.op
+                    )));
+                }
+            };
+        }
+        "cert_not_before" => {
+            let ts = parse_cert_timestamp_filter_value(filter.value.as_scalar()?, now)?;
+            query = match filter.op {
+                FilterOp::Eq => query.filter(col_cert_not_before.eq(ts)),
+                FilterOp::NotEq => query.filter(col_cert_not_before.ne(ts)),
+                FilterOp::Lt => query.filter(col_cert_not_before.lt(ts)),
+                FilterOp::Lte => query.filter(col_cert_not_before.le(ts)),
+                FilterOp::Gt => query.filter(col_cert_not_before.gt(ts)),
+                FilterOp::Gte => query.filter(col_cert_not_before.ge(ts)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "unsupported operator for cert_not_before: {:?}",
+                        filter.op
+                    )));
+                }
+            };
+        }
+        "cert_renewed_at" | "cert_last_renewed_at" => {
+            let ts = parse_cert_timestamp_filter_value(filter.value.as_scalar()?, now)?;
+            query = match filter.op {
+                FilterOp::Eq => query.filter(col_cert_renewed_at.eq(ts)),
+                FilterOp::NotEq => query.filter(col_cert_renewed_at.ne(ts)),
+                FilterOp::Lt => query.filter(col_cert_renewed_at.lt(ts)),
+                FilterOp::Lte => query.filter(col_cert_renewed_at.le(ts)),
+                FilterOp::Gt => query.filter(col_cert_renewed_at.gt(ts)),
+                FilterOp::Gte => query.filter(col_cert_renewed_at.ge(ts)),
+                _ => {
+                    return Err(ServiceError::InvalidRequest(format!(
+                        "unsupported operator for cert_renewed_at: {:?}",
+                        filter.op
+                    )));
+                }
+            };
+        }
         other => {
             return Err(ServiceError::InvalidRequest(format!(
                 "unsupported filter field for agents: '{other}'"
@@ -204,6 +276,91 @@ fn apply_filter<'a>(mut query: AgentsQuery<'a>, filter: &Filter) -> Result<Agent
     }
 
     Ok(query)
+}
+
+fn parse_cert_timestamp_filter_value(raw: &str, now: DateTime<Utc>) -> Result<DateTime<Utc>> {
+    let trimmed = raw.trim().trim_matches('"').trim_matches('\'');
+    if trimmed.eq_ignore_ascii_case("now") {
+        return Ok(now);
+    }
+
+    if let Some(dt) = parse_relative_duration_offset(trimmed, now)? {
+        return Ok(dt);
+    }
+
+    if let Ok(dt) = DateTime::parse_from_rfc3339(trimmed) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+
+    if let Ok(dt) = NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%d %H:%M:%S") {
+        return Ok(DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
+    }
+
+    if let Ok(date) = NaiveDate::parse_from_str(trimmed, "%Y-%m-%d")
+        && let Some(dt) = date.and_hms_opt(0, 0, 0)
+    {
+        return Ok(DateTime::<Utc>::from_naive_utc_and_offset(dt, Utc));
+    }
+
+    Err(ServiceError::InvalidRequest(format!(
+        "invalid certificate timestamp or duration filter '{raw}'"
+    )))
+}
+
+fn parse_relative_duration_offset(raw: &str, now: DateTime<Utc>) -> Result<Option<DateTime<Utc>>> {
+    let (sign, rest) = if let Some(s) = raw.strip_prefix('-') {
+        (-1i64, s)
+    } else if let Some(s) = raw.strip_prefix('+') {
+        (1i64, s)
+    } else {
+        (1i64, raw)
+    };
+
+    if rest.is_empty() || !rest.as_bytes()[0].is_ascii_digit() {
+        return Ok(None);
+    }
+
+    // Avoid treating YYYY-MM-DD timestamps as relative durations
+    if rest.contains('-') || rest.contains(':') {
+        return Ok(None);
+    }
+
+    let digit_len = rest.chars().take_while(|ch| ch.is_ascii_digit()).count();
+    let (digits, unit_raw) = rest.split_at(digit_len);
+    let unit = unit_raw.trim().to_ascii_lowercase();
+    if unit.is_empty() {
+        return Ok(None);
+    }
+
+    let amount: i64 = digits
+        .parse()
+        .map_err(|_| ServiceError::InvalidRequest(format!("invalid duration value '{raw}'")))?;
+    let signed_amount = amount.checked_mul(sign).ok_or_else(|| {
+        ServiceError::InvalidRequest(format!("duration value '{raw}' is out of bounds"))
+    })?;
+
+    let duration = match unit.as_str() {
+        "s" | "sec" | "secs" | "second" | "seconds" => ChronoDuration::try_seconds(signed_amount),
+        "m" | "min" | "mins" | "minute" | "minutes" => ChronoDuration::try_minutes(signed_amount),
+        "h" | "hr" | "hrs" | "hour" | "hours" => ChronoDuration::try_hours(signed_amount),
+        "d" | "day" | "days" => ChronoDuration::try_days(signed_amount),
+        "w" | "week" | "weeks" => signed_amount
+            .checked_mul(7)
+            .and_then(ChronoDuration::try_days),
+        "y" | "year" | "years" => signed_amount
+            .checked_mul(365)
+            .and_then(ChronoDuration::try_days),
+        _ => return Ok(None),
+    }
+    .ok_or_else(|| {
+        ServiceError::InvalidRequest(format!("duration value '{raw}' is out of bounds"))
+    })?;
+
+    let target = now.checked_add_signed(duration).ok_or_else(|| {
+        ServiceError::InvalidRequest(format!("duration value '{raw}' is out of bounds"))
+    })?;
+
+    Ok(Some(target))
 }
 
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
@@ -227,7 +384,11 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
     }
 }
 
-fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
+fn collect_filter_params_at(
+    params: &mut Vec<BindParam>,
+    filter: &Filter,
+    now: DateTime<Utc>,
+) -> Result<()> {
     match filter.field.as_str() {
         "uid"
         | "name"
@@ -241,7 +402,31 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         | "release_rollout_state"
         | "last_update_error"
         | "status"
-        | "superseded_by" => collect_text_params(params, filter),
+        | "superseded_by"
+        | "cert_serial"
+        | "cert_serial_number"
+        | "cert_fingerprint_sha256"
+        | "cert_fingerprint" => collect_text_params(params, filter),
+        "cert_expires_at"
+        | "cert_not_after"
+        | "cert_not_before"
+        | "cert_renewed_at"
+        | "cert_last_renewed_at" => match filter.op {
+            FilterOp::Eq
+            | FilterOp::NotEq
+            | FilterOp::Lt
+            | FilterOp::Lte
+            | FilterOp::Gt
+            | FilterOp::Gte => {
+                let ts = parse_cert_timestamp_filter_value(filter.value.as_scalar()?, now)?;
+                params.push(BindParam::timestamptz(ts));
+                Ok(())
+            }
+            _ => Err(ServiceError::InvalidRequest(format!(
+                "unsupported operator for {}: {:?}",
+                filter.field, filter.op
+            ))),
+        },
         "type_id" => {
             let value =
                 filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -342,6 +527,26 @@ fn apply_single_order<'a>(
             OrderDirection::Asc => query.order(col_last_update_at.asc()),
             OrderDirection::Desc => query.order(col_last_update_at.desc()),
         },
+        "cert_expires_at" | "cert_not_after" => match direction {
+            OrderDirection::Asc => query.order(col_cert_expires_at.asc()),
+            OrderDirection::Desc => query.order(col_cert_expires_at.desc()),
+        },
+        "cert_not_before" => match direction {
+            OrderDirection::Asc => query.order(col_cert_not_before.asc()),
+            OrderDirection::Desc => query.order(col_cert_not_before.desc()),
+        },
+        "cert_renewed_at" | "cert_last_renewed_at" => match direction {
+            OrderDirection::Asc => query.order(col_cert_renewed_at.asc()),
+            OrderDirection::Desc => query.order(col_cert_renewed_at.desc()),
+        },
+        "cert_serial" | "cert_serial_number" => match direction {
+            OrderDirection::Asc => query.order(col_cert_serial.asc()),
+            OrderDirection::Desc => query.order(col_cert_serial.desc()),
+        },
+        "cert_fingerprint_sha256" | "cert_fingerprint" => match direction {
+            OrderDirection::Asc => query.order(col_cert_fingerprint_sha256.asc()),
+            OrderDirection::Desc => query.order(col_cert_fingerprint_sha256.desc()),
+        },
         _ => query,
     }
 }
@@ -403,6 +608,26 @@ fn apply_secondary_order<'a>(
         "last_update_at" => match direction {
             OrderDirection::Asc => query.then_order_by(col_last_update_at.asc()),
             OrderDirection::Desc => query.then_order_by(col_last_update_at.desc()),
+        },
+        "cert_expires_at" | "cert_not_after" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_cert_expires_at.asc()),
+            OrderDirection::Desc => query.then_order_by(col_cert_expires_at.desc()),
+        },
+        "cert_not_before" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_cert_not_before.asc()),
+            OrderDirection::Desc => query.then_order_by(col_cert_not_before.desc()),
+        },
+        "cert_renewed_at" | "cert_last_renewed_at" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_cert_renewed_at.asc()),
+            OrderDirection::Desc => query.then_order_by(col_cert_renewed_at.desc()),
+        },
+        "cert_serial" | "cert_serial_number" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_cert_serial.asc()),
+            OrderDirection::Desc => query.then_order_by(col_cert_serial.desc()),
+        },
+        "cert_fingerprint_sha256" | "cert_fingerprint" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_cert_fingerprint_sha256.asc()),
+            OrderDirection::Desc => query.then_order_by(col_cert_fingerprint_sha256.desc()),
         },
         _ => query,
     }
@@ -711,6 +936,7 @@ mod tests {
         let seen = chrono::TimeZone::with_ymd_and_hms(&chrono::Utc, 2026, 10, 22, 17, 11, 46)
             .single()
             .expect("timestamp");
+        let expires = seen + ChronoDuration::days(90);
         let row = AgentRow {
             uid: "agent-1".into(),
             name: Some("Gateway Reported".into()),
@@ -739,6 +965,11 @@ mod tests {
             superseded_at: None,
             display_name: Some("North Sensor".into()),
             description: Some("Synthetic lab note".into()),
+            cert_not_before: Some(seen),
+            cert_expires_at: Some(expires),
+            cert_serial: Some("01a2b3".into()),
+            cert_fingerprint_sha256: Some("a".repeat(64)),
+            cert_renewed_at: Some(seen),
         };
 
         let json = row.into_json();
@@ -747,5 +978,109 @@ mod tests {
         assert_eq!(json["name"], "Gateway Reported");
         assert_eq!(json["display_name"], "North Sensor");
         assert_eq!(json["description"], "Synthetic lab note");
+        assert_eq!(json["cert_serial"], "01a2b3");
+        assert_eq!(json["cert_serial_number"], "01a2b3");
+        assert_eq!(json["cert_fingerprint"], "a".repeat(64));
+        assert_eq!(json["cert_last_renewed_at"], serde_json::json!(seen));
+        assert_eq!(json["cert_fingerprint_sha256"], "a".repeat(64));
+        assert!(json["cert_not_before"].is_string());
+        assert!(json["cert_expires_at"].is_string());
+        assert!(json["cert_renewed_at"].is_string());
+    }
+
+    #[test]
+    fn renewal_alias_filters_and_orders_like_canonical_field() {
+        for direction in [OrderDirection::Asc, OrderDirection::Desc] {
+            for secondary in [false, true] {
+                let mut plan = agent_plan(
+                    vec![eq_filter("cert_last_renewed_at", "2026-01-02T03:04:05Z")],
+                    false,
+                );
+                if secondary {
+                    plan.order.push(OrderClause {
+                        field: "uid".into(),
+                        direction: OrderDirection::Asc,
+                    });
+                }
+                plan.order.push(OrderClause {
+                    field: "cert_last_renewed_at".into(),
+                    direction,
+                });
+                let (alias_sql, alias_params) = to_sql_and_params(&plan).unwrap();
+                assert!(matches!(&alias_params[0], BindParam::Timestamptz(value)
+                    if value == "2026-01-02T03:04:05+00:00"));
+                plan.filters[0].field = "cert_renewed_at".into();
+                plan.order.last_mut().unwrap().field = "cert_renewed_at".into();
+                let (canonical_sql, _) = to_sql_and_params(&plan).unwrap();
+                assert_eq!(alias_sql, canonical_sql);
+            }
+        }
+    }
+
+    #[test]
+    fn builds_query_with_certificate_expiry_relative_duration_and_serial_filters() {
+        for (duration, seconds) in [
+            ("7d", 604_800),
+            ("0d", 0),
+            ("14d", 1_209_600),
+            ("-1d", -86_400),
+        ] {
+            let plan = agent_plan(
+                vec![Filter {
+                    field: "cert_expires_at".into(),
+                    op: FilterOp::Lt,
+                    value: FilterValue::Scalar(duration.to_string()),
+                }],
+                false,
+            );
+            let before = Utc::now() + ChronoDuration::seconds(seconds);
+            let (sql, params) =
+                to_sql_and_params(&plan).expect("cert_expires_at relative duration query");
+            let after = Utc::now() + ChronoDuration::seconds(seconds);
+            let BindParam::Timestamptz(bound) = &params[0] else {
+                panic!("expected timestamp parameter");
+            };
+            let bound = chrono::DateTime::parse_from_rfc3339(bound).unwrap();
+            assert!(bound >= before && bound <= after);
+            assert!(
+                sql.contains("\"cert_expires_at\" <"),
+                "expected cert_expires_at < comparison in SQL: {sql}"
+            );
+            assert!(
+                sql.contains("\"superseded_at\" IS NULL"),
+                "expected superseded exclusion in SQL: {sql}"
+            );
+            assert_eq!(
+                params.len(),
+                3,
+                "cert_expires_at timestamp plus limit and offset"
+            );
+        }
+
+        let mut serial_plan = agent_plan(
+            vec![
+                eq_filter("cert_serial", "01a2b3c4"),
+                eq_filter("cert_fingerprint_sha256", &"b".repeat(64)),
+            ],
+            false,
+        );
+        serial_plan.order = vec![OrderClause {
+            field: "cert_expires_at".into(),
+            direction: OrderDirection::Asc,
+        }];
+        let (sql, params) = to_sql_and_params(&serial_plan).expect("cert_serial query");
+        assert!(
+            sql.contains("\"cert_serial\" ="),
+            "expected cert_serial = comparison in SQL: {sql}"
+        );
+        assert!(
+            sql.contains("\"cert_fingerprint_sha256\" ="),
+            "expected cert_fingerprint_sha256 = comparison in SQL: {sql}"
+        );
+        assert!(
+            sql.contains("ORDER BY \"ocsf_agents\".\"cert_expires_at\" ASC"),
+            "expected ORDER BY cert_expires_at ASC in SQL: {sql}"
+        );
+        assert_eq!(params.len(), 4);
     }
 }

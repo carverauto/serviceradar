@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   Issues agent mTLS bundles by calling the agent-gateway over ERTS RPC.
   """
 
+  alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.GatewayTracker
 
@@ -16,8 +17,10 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
 
   def issue_agent_bundle(gateway_id, component_id, partition_id, opts)
       when is_binary(gateway_id) and is_binary(component_id) and is_binary(partition_id) do
-    with {:ok, node} <- lookup_gateway_node(gateway_id),
-         {:ok, _bundle} = ok <- rpc_issue(node, component_id, partition_id, opts) do
+    with {:ok, validity_days} <- CertificateLifetimePolicy.resolve_validity_days(opts),
+         {:ok, node} <- lookup_gateway_node(gateway_id),
+         {:ok, _bundle} = ok <-
+           rpc_issue(node, component_id, partition_id, Keyword.put(opts, :validity_days, validity_days)) do
       ok
     end
   end
@@ -61,10 +64,13 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
 
   defp rpc_issue(node, component_id, partition_id, opts) do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout)
-    validity_days = Keyword.get(opts, :validity_days)
+
+    validity_days = Keyword.fetch!(opts, :validity_days)
+
     issuer_module = Keyword.get(opts, :cert_issuer_module, ServiceRadarAgentGateway.CertIssuer)
 
     rpc_opts = maybe_put([], :validity_days, validity_days)
+    rpc_opts = maybe_put(rpc_opts, :allow_short_test_lifetime, Keyword.get(opts, :allow_short_test_lifetime))
     rpc_opts = maybe_put(rpc_opts, :authorized_component_id, Keyword.get(opts, :authorized_component_id))
     rpc_opts = maybe_put(rpc_opts, :authorized_partition_id, Keyword.get(opts, :authorized_partition_id))
     rpc_opts = maybe_put(rpc_opts, :audit_actor, Keyword.get(opts, :audit_actor) || Keyword.get(opts, :actor))

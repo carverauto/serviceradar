@@ -111,6 +111,10 @@ config :serviceradar_core, ServiceRadar.Analytics.StarRocks,
   cutover_datasets: [],
   shadow_datasets: []
 
+# Edge agent certificate expiry alerting (see AgentCertExpiryMonitor)
+config :serviceradar_core, ServiceRadar.Infrastructure.AgentCertExpiryMonitor,
+  reschedule_seconds: 900
+
 # Advisory-feed staging reaper. Oban :kill skips FeedWorker after-cleanup.
 config :serviceradar_core, ServiceRadar.Inventory.AdvisoryFeeds.StagingCleanupWorker,
   reschedule_seconds: 60

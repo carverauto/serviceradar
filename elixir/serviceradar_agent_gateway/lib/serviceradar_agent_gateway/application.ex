@@ -254,7 +254,8 @@ defmodule ServiceRadarAgentGateway.Application do
         keyfile: key_file,
         cacertfile: ca_file,
         verify: :verify_peer,
-        fail_if_no_peer_cert: true
+        fail_if_no_peer_cert: true,
+        verify_fun: {&ServiceRadarAgentGateway.TlsDiagnosticLogger.ssl_verify/3, %{}}
       ]
 
       Logger.info("Using mounted mTLS certs for agent gateway servers: #{cert_file}")

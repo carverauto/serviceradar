@@ -136,6 +136,38 @@ On the host:
 
 - Check the agent service logs (systemd) and confirm it connects to `agent-gateway`.
 
+## Certificate lifetime and expiry alerts
+
+New edge leaf certificates default to 90 days, with supported requested lifetimes
+of 7 through 365 days. The shared `ServiceRadar.Edge.CertificateLifetimePolicy`
+validates issuance options; `allow_short_test_lifetime: true` permits positive
+lifetimes below the minimum for explicit tests, without bypassing the maximum.
+Gateway issuance above the default also requires an admin or system actor in `long_ttl_approved_by`.
+Changing issuance options does not extend certificates already installed.
+
+The gateway records the peer certificate's validity, serial, and SHA-256
+fingerprint during Hello and heartbeats. A change from a previously recorded
+serial or fingerprint records the time the replacement was observed. Agents
+that have not reported certificate metadata can have empty certificate fields.
+See [SRQL agent certificate fields](./srql-language-reference.md#agent-certificate-fields)
+for queries to locate expiring agents.
+
+The expiry monitor runs every 15 minutes by default (core application setting
+`ServiceRadar.Infrastructure.AgentCertExpiryMonitor`, `reschedule_seconds`).
+It evaluates non-superseded agents with a recorded expiration:
+
+- More than 7 days and at most 14 days remaining: warning.
+- At most 7 days remaining, including already expired: critical.
+- More than 14 days remaining after replacement: active expiry alerts resolve.
+- Superseded agent identities: active expiry alerts resolve.
+
+This phase provides expiry visibility and alerts, not automatic renewal or
+renewal-failure alerts. Generate a fresh onboarding package and re-enroll when
+replacement is needed. Gateway certificate rejections log
+`Edge mTLS peer certificate rejected` with a normalized reason such as
+`certificate_expired`, `unknown_ca`, or `bad_cert`, and peer subject, issuer,
+serial, and expiration when available.
+
 ## Next: Turn On Collection
 
 Onboarding just gets the agent connected. The next step is enabling the collection features you want (all via the UI).

@@ -34,6 +34,11 @@ diesel::table! {
         superseded_at -> Nullable<Timestamptz>,
         display_name -> Nullable<Text>,
         description -> Nullable<Text>,
+        cert_not_before -> Nullable<Timestamptz>,
+        cert_expires_at -> Nullable<Timestamptz>,
+        cert_serial -> Nullable<Text>,
+        cert_fingerprint_sha256 -> Nullable<Text>,
+        cert_renewed_at -> Nullable<Timestamptz>,
     }
 }
 
