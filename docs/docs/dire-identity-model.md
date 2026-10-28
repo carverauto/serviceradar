@@ -45,8 +45,9 @@ inventory is classified, or an older agent sends none, core uses `host_macs` as 
 
 The inventory's addresses and the first label of the agent's hostname are corroboration,
 never identity. When another live device in the agent's partition holds one of the
-agent's addresses (primary or confirmed alias) and its hostname's first label equals the
-agent's, the pair is recorded as a `policy_block` decision with reason
+agent's addresses (primary or confirmed alias), its hostname's first label equals the
+agent's, and it shares no eligible MAC with the agent, the pair is recorded as a
+`policy_block` decision with reason
 `agent_corroboration_not_identity`, which opens a de-duplication task. Same-named hosts at
 different sites share no eligible MAC and never fuse, in either arrival order. A later
 integration record cannot adopt an agent-bound holder by hostname: it records
@@ -56,7 +57,9 @@ before Proxmox inventory therefore remains separate from its node record without
 identity, at the cost of an operator de-duplication task.
 
 Corroboration candidates are captured before resolution can clear a primary address or stale an
-alias, then recorded after successful check-in, excluding the resolved device.
+alias, then recorded after successful check-in, excluding the resolved device. Candidates
+sharing an eligible MAC are excluded even when a merge guard keeps the records separate;
+the merge path records its own refusal instead.
 
 An agent's eligible MACs may link it to, and merge it with, a record that holds or held an
 Armis id: the user's decision of 2026-10-28 is that an Armis record and what an agent learns

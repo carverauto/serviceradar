@@ -548,10 +548,10 @@ still describes the code. The switches today's code has are listed once, in `Cur
   reaches a source's record by a MAC-only sighting.
 - Hostnames reported by agents and the mapper. The model writes only the source's hostnames
   (`recFs`), with agent-bound refusal additionally using `HostOf` through `AgentOf`. The agent
-  corroboration review (`AgentCorroboration`: another device holding one of the agent's addresses
-  under the same first hostname label is recorded as an `agent_corroboration_not_identity`
-  decision) is not modeled: it never links, merges or moves anything, and the integration tests in
-  `agent_gateway_sync_test.exs` pin it. The trace projection excludes that decision reason.
+  [corroboration review](../../docs/docs/dire-identity-model.md#agent-host-evidence)
+  (`AgentCorroboration`) is not modeled: it never links, merges or moves anything, and the
+  integration tests in `agent_gateway_sync_test.exs` pin it. The trace projection excludes the
+  `agent_corroboration_not_identity` decision reason.
 - The agent's interface classification. Every modeled interface is a physical NIC with a
   permanent MAC; which interfaces are physical, and which MACs are permanent, is the agent's and
   `HostInterfaces`', pinned by `go/pkg/hostinventory` and the core unit tests.

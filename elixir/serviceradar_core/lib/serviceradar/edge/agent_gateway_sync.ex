@@ -339,7 +339,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   with a device in the inventory.
 
   The device identity is resolved using DIRE (Device Identity and Reconciliation Engine)
-  based on the agent's identifiers, hostname and source IP.
+  based on the agent's strong identifiers; hostname and source IP are evidence only.
 
   Host evidence (`link-agent-host-by-strong-identity`): besides the `agent_id`
   identifier, the check-in carries the host's own interface inventory

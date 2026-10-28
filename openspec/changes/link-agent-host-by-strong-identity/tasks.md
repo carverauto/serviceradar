@@ -14,7 +14,7 @@
 ## 3. Formal model
 - [x] 3.1 `AgentObserve` reports only eligible MACs; document the user's Armis decision
 - [x] 3.2 Goal configurations `agent_known_host`, `agent_same_name`, `agent_on_armis`; vacuity configurations for the known-host link and the Armis join
-- [x] 3.3 Golden traces `agent_known_host_shared_mac`, `agent_same_name_two_sites`
+- [x] 3.3 Agent host identity golden traces, including reverse arrival order (see [trace inventory](../../../formal/dire/README.md))
 - [x] 3.4 `formal/dire/README.md`: environments, traces, the old model/code divergence, what is not modeled
 
 ## 4. Tests

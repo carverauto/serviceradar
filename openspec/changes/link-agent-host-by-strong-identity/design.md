@@ -94,16 +94,10 @@ inventory says nothing about which MACs are the host's.
 
 ### D5. Hostname and address are corroboration, recorded for review
 
-When another live device in the agent's partition holds one of the agent's routable addresses
-(its primary address or a confirmed alias) and its hostname's first label equals the agent's
-(`host01` and `host01.site-a.example.com` agree), `AgentCorroboration` records a `policy_block`
-identity decision with reason `agent_corroboration_not_identity`, naming both devices, the
-address and the label. The decision opens a de-duplication task. It never links, merges or moves
-anything. A same-named host at another site, a re-imaged machine, a reused address and a cloned VM
-all present this evidence; only a shared eligible MAC tells them from the same host.
-
-The corroboration runs after the check-in's identity writes, best effort: a failed read is logged
-and records nothing.
+The [agent host evidence contract](../../../docs/docs/dire-identity-model.md#agent-host-evidence)
+owns the corroboration conditions and capture/record ordering. A same-named host at another
+site, a re-imaged machine, a reused address and a cloned VM can all present hostname/address
+agreement; it is review evidence rather than a safe automatic identity match.
 
 ### D6. Armis: an agent may link to and merge with an Armis-held record
 
@@ -148,9 +142,9 @@ existing explicit rule merges it: the Resolver finds both records through the ag
 That rule is backed by a strong identifier, so it is not an agreement merge.
 
 A pair that shares no strong identifier (an agent device and a hypervisor record holding only its
-integration id) is never merged automatically. It is already a de-duplication task: the check-in's
-`alias_invalidated` decision and its `agent_corroboration_not_identity` decision both name the
-pair. An operator merges it, marks it distinct or dismisses it. A dedicated de-duplication pass was
+integration id) is never merged automatically. The review paths in D5 and D8 open a
+de-duplication task when their evidence is present. An operator merges it, marks it distinct or
+dismisses it. A dedicated de-duplication pass was
 considered and rejected: it would need to decide what the agent's check-in already decides, with
 less evidence.
 
@@ -193,8 +187,9 @@ Proxmox API and the agent, is a separate follow-up.
 Three goal environments (`agent_known_host`, `agent_same_name`, `agent_on_armis`) check every goal
 property; `resolution_vacuity_agent_links_known_host` and `resolution_vacuity_agent_on_source_record`
 prove the goal links an agent to its known host and to an Armis record. Golden traces
-`agent_known_host_shared_mac` and `agent_same_name_two_sites` pin the code. Agent and mapper
-hostname spelling remains unmodeled; agent-bound holders use `HostOf` for hostname refusal.
+listed in [the formal model README](../../../formal/dire/README.md) pin the code in both arrival
+orders. Agent and mapper hostname spelling remains unmodeled; agent-bound holders use `HostOf`
+for hostname refusal.
 The corroboration decision is covered by the integration tests.
 
 ## Risks / Trade-offs

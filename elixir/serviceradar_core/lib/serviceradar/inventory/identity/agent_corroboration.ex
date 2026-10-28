@@ -3,19 +3,10 @@ defmodule ServiceRadar.Inventory.Identity.AgentCorroboration do
   Address and hostname corroboration for an agent's device: evidence for review, never
   identity.
 
-  An agent that shares no eligible MAC with another device gets a device of its own
-  (`HostInterfaces`), even when that other device sits at one of the agent's addresses
-  under the same name. A same-named host at another site, a re-imaged machine, a
-  DHCP lease handed on, a NAT'd address and a cloned VM all look exactly like that, and
-  only a shared hardware identifier tells them from the same host.
-
-  So the agreement is recorded, not acted on. When another live device in the agent's
-  partition holds one of the agent's routable addresses (its primary address, or a
-  confirmed alias of it) and its hostname's first label equals the agent's, the pair is
-  recorded as a `policy_block` identity decision with reason
-  `agent_corroboration_not_identity`. A decision naming two devices opens a
-  de-duplication task (`Identity.DecisionLog`), where an operator merges the pair, marks
-  it distinct or dismisses it.
+  See `docs/docs/dire-identity-model.md`, "Agent host evidence", for the review
+  contract. Capture candidates before identity writes can destroy address evidence,
+  then record after successful resolution. Shared eligible MACs belong to the merge
+  path and its guard decisions, even when a guard leaves the devices separate.
   """
 
   alias ServiceRadar.Inventory.Device
