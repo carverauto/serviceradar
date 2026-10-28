@@ -641,20 +641,13 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
       observers: ["Integration", "Agent"]
     }
 
-    trace =
-      "agent_first_same_name"
-      |> DireTrace.start(world, actor)
-      |> DireTrace.lease("x1", "p1")
-      |> DireTrace.agent("h1", "x1")
-      |> DireTrace.lease("x2", "p1")
-      |> DireTrace.integration("h2", "x2")
-
-    DireTrace.stop(trace)
-    state = List.last(trace.states)
-    assert state["owner"]["g1"] == "g1"
-    assert state["owner"]["m1"] == "g1"
-    assert state["owner"]["i2"] == "i2"
-    assert Enum.count(state["created"], fn {_id, created} -> created end) == 2
-    assert %{kind: "policy_block", recs: ["g1", "i2"]} in state["act"].recorded
+    "agent_first_same_name"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.agent("h1", "x1")
+    |> DireTrace.lease("x1", "NoIp")
+    |> DireTrace.lease("x2", "p1")
+    |> DireTrace.integration("h2", "x2")
+    |> DireTrace.assert_golden!()
   end
 end

@@ -851,6 +851,18 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_agent_first_same_name_test",
+    cfg = "traces/Trace_agent_first_same_name.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_first_same_name.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_router_mac_only_test",
     cfg = "traces/Trace_router_mac_only.cfg",
     expect = "violation:TraceIncomplete",

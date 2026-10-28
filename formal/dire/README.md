@@ -443,13 +443,15 @@ The traces of agent host identity (`link-agent-host-by-strong-identity`):
 - `agent_same_name_two_sites`: two same-named nodes at two sites, each synced by its own
   integration and each running an agent with its own MAC. Each agent gets a record of its own and
   nothing joins the two sites.
+- `agent_first_same_name`: an agent enrolls first, then a same-named integration node with
+  disjoint strong identity arrives at its address. The records stay separate and hostname
+  adoption records a `hostname_agreement_not_identity` policy block.
 
 Hostname adoption refuses agent-bound records in either arrival order (`AgentHeld(y) = {}`
 is required for `hostAdopt`). Agent-held records use their agent's `HostOf` value for the
 refusal decision; this abstracts hostname spelling. Mapper/MAC holders remain eligible.
 Agent-before-Proxmox hosts without shared strong identity remain split and need operator
-review. The DB trace scenario `agent_first_same_name` asserts separate owners and the policy
-block; its committed golden capture remains pending a permitted scratch-database run.
+review.
 
 Until this change the agent reported only the MAC of the interface owning its announced address
 (`go/pkg/agent/host_identity.go`), while `AgentObserve`, and the trace harness, reported every MAC
