@@ -21,8 +21,8 @@ across core replicas.
 
 The user approved the per-replica persistent-storage direction using an opt-in
 StatefulSet. The single-core demo alternative was not selected. Runtime
-member-identity selection is implemented in the first bounded pass; the
-initializer, chart packaging and installation remain unimplemented. This is not
+member-identity selection and the isolated filesystem initializer are implemented;
+physical-volume preflight, chart packaging and installation remain open. This is not
 rollout authorization. Maintenance-window approval and deployment acceptance
 remain open. Architecture approval neither qualifies a provider nor enables recording.
 
@@ -36,5 +36,6 @@ remain open. Architecture approval neither qualifies a provider nor enables reco
 - Related work: [VMS plan](../add-vms-storage-playback-engine/README.md),
   [spool identity](../add-vms-storage-playback-engine/spool-lifetime.md) and
   [bounded capture](../add-vms-storage-playback-engine/capture-once.md).
-- The first implementation pass changes runtime identity configuration only.
+- The implementation passes supply runtime identity configuration and an
+  explicitly invoked filesystem initializer.
   Chart, database, credential, bucket and deployment state remain unchanged.

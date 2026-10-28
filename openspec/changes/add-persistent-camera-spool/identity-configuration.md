@@ -64,6 +64,8 @@ Infrastructure must allocate each UUID independently, preserve its association
 with the actual volume lifetime, and install the document. Changing a member's
 mapping is not authorization to initialize, replace or adopt a volume.
 
-The explicit initializer, StatefulSet/claim packaging, controller conversion,
-Cloud materialization and live CSI/replacement/capture acceptance remain open.
-Existing filesystem and worker ownership checks remain mandatory.
+The [explicit filesystem initializer](../../../docs/camera-spool-initialization.md)
+uses the same identity modes. Actual-volume preflight, StatefulSet/claim
+packaging, controller conversion, Cloud materialization and live
+CSI/replacement/capture acceptance remain open. Existing filesystem and worker
+ownership checks remain mandatory.

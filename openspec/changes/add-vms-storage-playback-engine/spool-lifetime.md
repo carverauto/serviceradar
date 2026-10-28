@@ -11,10 +11,12 @@ for the actual volume/UUID association and preservation before replacement.
 Infrastructure explicitly calls
 `ServiceRadarCoreElx.CameraRecording.Storage.initialize(root, storage_uuid)`
 while it owns the volume exclusively, before starting recording. This is a
-release-callable provisioning function, not a recorder startup hook. The caller
-creates the root first with private permissions. The initializer never creates
-the directory, changes its permissions, scans for/adopts recordings, or enables
-recording.
+release-callable provisioning function, not a recorder startup hook. The
+[isolated filesystem command](../../../docs/camera-spool-initialization.md)
+creates a missing designated child with private permissions before calling it.
+`Storage.initialize/2` itself never creates the directory, changes its
+permissions, scans for/adopts recordings, or enables recording. Existing
+directory permissions remain unchanged in both paths.
 
 An unmarked root must be empty. The initializer exclusively creates
 `.storage-id`, sets mode `0600`, writes exactly the canonical lowercase UUID

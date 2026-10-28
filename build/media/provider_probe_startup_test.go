@@ -145,6 +145,229 @@ func TestInitStorageReleaseEntrypoint(t *testing.T) {
 	}
 }
 
+// Run the shipped command and configuration with no network or service secrets.
+// Storage's unit suite owns marker edge cases; this boundary owns packaging,
+// environment selection, directory creation and preservation across CLI retries.
+func TestSpoolInitializerReleaseEntrypoint(t *testing.T) {
+	archive, err := runfiles.Rlocation(os.Getenv("PROBE_RELEASE_RUNFILE"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := t.TempDir()
+	unpackRelease(t, archive, release)
+	const first = "00000000-0000-4000-8000-000000000011"
+	const second = "00000000-0000-4000-8000-000000000012"
+	writeStartupJSON(t, release, "members.json", map[string]any{
+		"version": 1, "members": map[string]string{"camera-core-0": first, "camera-core-1": second},
+	})
+	memberEnv := []string{
+		"SERVICERADAR_CAMERA_RECORDING_IDENTITY_FILE=" + filepath.Join(release, "members.json"),
+		"SERVICERADAR_CAMERA_RECORDING_MEMBER=camera-core-1",
+	}
+	volume := t.TempDir()
+	writeStartupFile(t, volume, "housekeeping", []byte("invented filesystem housekeeping"))
+	beforeVolume, err := os.Stat(volume)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, code := runSpoolInitializer(t, release, volume, memberEnv)
+	if code != 0 || len(result) != 1 || result["status"] != "initialized" {
+		t.Fatalf("member initialization = %v, exit %d", result, code)
+	}
+	spool := filepath.Join(volume, "recordings")
+	marker := filepath.Join(spool, ".storage-id")
+	markerBytes, err := os.ReadFile(marker)
+	if err != nil || string(markerBytes) != second+"\n" {
+		t.Fatalf("selected marker = %q (%v)", markerBytes, err)
+	}
+	for path, mode := range map[string]os.FileMode{spool: 0700, marker: 0600, volume: beforeVolume.Mode().Perm()} {
+		info, err := os.Stat(path)
+		if err != nil || info.Mode().Perm() != mode {
+			t.Fatalf("permissions for %s = %v (%v), want %o", path, info, err, mode)
+		}
+	}
+	retained := []byte("invented retained media bytes")
+	writeStartupFile(t, spool, "retained", retained)
+	stamp := time.Unix(946684800, 0)
+	if err := os.Chtimes(marker, stamp, stamp); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(marker)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, attempt := range []struct {
+		name   string
+		env    []string
+		status string
+		reason string
+		code   int
+	}{
+		{"exact retry", memberEnv, "initialized", "", 0},
+		{"conflicting volume identity", []string{"SERVICERADAR_CAMERA_RECORDING_STORAGE_ID=" + first}, "refused", "storage_identity_mismatch", 1},
+	} {
+		t.Run(attempt.name, func(t *testing.T) {
+			result, code := runSpoolInitializer(t, release, volume, attempt.env)
+			if code != attempt.code || result["status"] != attempt.status || result["reason"] != attempt.reason {
+				t.Fatalf("retry = %v, exit %d", result, code)
+			}
+			after, err := os.Stat(marker)
+			if err != nil || !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) {
+				t.Fatalf("retry rewrote marker: %v", err)
+			}
+			bytes, err := os.ReadFile(filepath.Join(spool, "retained"))
+			if err != nil || string(bytes) != string(retained) {
+				t.Fatalf("retry changed retained media: %v", err)
+			}
+		})
+	}
+	housekeeping, err := os.ReadFile(filepath.Join(volume, "housekeeping"))
+	if err != nil || string(housekeeping) != "invented filesystem housekeeping" {
+		t.Fatalf("changed volume housekeeping: %v", err)
+	}
+
+	for _, scenario := range []struct {
+		name   string
+		setup  func(string)
+		env    []string
+		reason string
+	}{
+		{"missing identity", nil, nil, "recording_storage_identity_required"},
+		{"invalid scalar", nil, []string{"SERVICERADAR_CAMERA_RECORDING_STORAGE_ID=not-a-uuid"}, "recording_storage_identity_required"},
+		{"ambiguous identity", nil, append(append([]string{}, memberEnv...), "SERVICERADAR_CAMERA_RECORDING_STORAGE_ID="+second), "invalid_identity_configuration"},
+		{"nonempty unmarked", func(root string) { writeStartupFile(t, root, "retained", retained) }, memberEnv, "storage_not_empty"},
+		{"partial marker", func(root string) { writeStartupFile(t, root, ".storage-id", []byte("00000000-0000")) }, memberEnv, "invalid_storage_marker"},
+		{"public permissions", func(root string) {
+			if err := os.Chmod(root, 0755); err != nil {
+				t.Fatal(err)
+			}
+		}, memberEnv, "root_not_private"},
+		{"aliased spool", func(root string) {
+			if err := os.Rename(root, root+"-original"); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(root+"-original", root); err != nil {
+				t.Fatal(err)
+			}
+		}, memberEnv, "invalid_root"},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			volume := t.TempDir()
+			spool := filepath.Join(volume, "recordings")
+			if scenario.setup != nil {
+				if err := os.Mkdir(spool, 0700); err != nil {
+					t.Fatal(err)
+				}
+				scenario.setup(spool)
+			}
+			before := snapshotSpoolVolume(t, volume)
+			result, code := runSpoolInitializer(t, release, volume, scenario.env)
+			if code != 1 || len(result) != 2 || result["status"] != "refused" || result["reason"] != scenario.reason {
+				t.Fatalf("refusal = %v, exit %d; want %s", result, code, scenario.reason)
+			}
+			after := snapshotSpoolVolume(t, volume)
+			if !bytes.Equal(before, after) {
+				t.Fatalf("refusal changed volume: before %s after %s", before, after)
+			}
+		})
+	}
+
+	t.Run("scalar on independent volume", func(t *testing.T) {
+		volume := t.TempDir()
+		result, code := runSpoolInitializer(t, release, volume, []string{"SERVICERADAR_CAMERA_RECORDING_STORAGE_ID=" + first})
+		data, err := os.ReadFile(filepath.Join(volume, "recordings", ".storage-id"))
+		if code != 0 || result["status"] != "initialized" || err != nil || string(data) != first+"\n" {
+			t.Fatalf("scalar initialization = %v, exit %d, marker %q (%v)", result, code, data, err)
+		}
+	})
+
+	t.Run("invalid mount paths preserve the intended volume", func(t *testing.T) {
+		volume := t.TempDir()
+		alias := volume + "-alias"
+		if err := os.Symlink(volume, alias); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Remove(alias) })
+		before := snapshotSpoolVolume(t, volume)
+		for _, path := range []string{"", "relative-volume", "/", volume + "/", volume + "/missing", alias} {
+			result, code := runSpoolInitializer(t, release, path, memberEnv)
+			if code != 1 || result["status"] != "refused" || result["reason"] != "invalid_volume_root" {
+				t.Fatalf("mount refusal = %v, exit %d", result, code)
+			}
+			if !bytes.Equal(before, snapshotSpoolVolume(t, volume)) {
+				t.Fatal("invalid mount path changed intended volume")
+			}
+		}
+	})
+}
+
+func runSpoolInitializer(t *testing.T, release, volume string, identity []string) (map[string]string, int) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, filepath.Join(release, "bin/serviceradar_core_elx"), "eval", "ServiceRadarCoreElx.CameraRecording.SpoolInitializer.main()")
+	cmd.Env = append([]string{
+		"PATH=/usr/bin:/bin", "HOME=" + release, "TMPDIR=" + release,
+		"RELEASE_SYS_CONFIG=" + filepath.Join(release, "camera-spool-init"),
+		"VMS_SPOOL_VOLUME_ROOT=" + volume,
+		"RELEASE_DISTRIBUTION=none", "ENABLE_TLS_DIST=false",
+		"RELEASE_COOKIE=synthetic_offline_cookie", "ERL_FLAGS=+S 2:2 +fnu", "ERL_CRASH_DUMP=/dev/null",
+	}, identity...)
+	var output cappedOutput
+	cmd.Stdout, cmd.Stderr = &output, &output
+	err := cmd.Run()
+	code := 0
+	if err != nil {
+		var exit *exec.ExitError
+		if !errors.As(err, &exit) || ctx.Err() != nil {
+			t.Fatalf("initializer process: %v; %s", err, output.String())
+		}
+		code = exit.ExitCode()
+	}
+	var result map[string]string
+	if err := json.Unmarshal(output.Bytes(), &result); err != nil {
+		t.Fatalf("initializer output is not one bounded JSON result: %s (%v)", output.String(), err)
+	}
+	return result, code
+}
+
+// Snapshot only the invented test volume's observable entries, permissions and
+// contents. WalkDir does not follow links into an aliased spool.
+func snapshotSpoolVolume(t *testing.T, volume string) []byte {
+	t.Helper()
+	entries := map[string]any{}
+	err := filepath.WalkDir(volume, func(path string, entry os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		var content []byte
+		if info.Mode().IsRegular() {
+			content, err = os.ReadFile(path)
+		}
+		if err != nil {
+			return err
+		}
+		link := ""
+		if info.Mode()&os.ModeSymlink != 0 {
+			link, err = os.Readlink(path)
+		}
+		entries[path] = []any{info.Mode(), content, link}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return data
+}
+
 func storageCertificate(t *testing.T, root string) (tls.Certificate, *x509.CertPool, string) {
 	t.Helper()
 	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
