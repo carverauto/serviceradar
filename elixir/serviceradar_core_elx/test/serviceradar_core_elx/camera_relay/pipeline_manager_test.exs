@@ -11,6 +11,12 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
   alias ServiceRadarCoreElx.CameraRelay.BoomboxBranchManager
   alias ServiceRadarCoreElx.CameraRelay.PipelineManager
   alias ServiceRadarCoreElx.CameraRelay.ViewerRegistry
+  alias ServiceRadarCoreElx.CameraRelay.WebRTCSignalingManager
+
+  defmodule RelaySessionLookup do
+    @moduledoc false
+    def fetch_session(relay_session_id), do: {:ok, %{relay_session_id: relay_session_id}}
+  end
 
   setup do
     previous_analysis_state = :sys.get_state(AnalysisBranchManager)
@@ -304,6 +310,85 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
       assert_receive {:camera_relay_viewer_chunk, %{relay_session_id: ^relay_session_id, sequence: 1_000}}, 1_000
       assert :ok = PipelineManager.close_session(relay_session_id)
     end
+  end
+
+  test "signaling DOWN cleans up a connected viewer without stopping its relay" do
+    relay_session_id = "relay-managed-disconnect-#{System.unique_integer([:positive])}"
+    observer = "viewer-managed-disconnect-observer"
+    :ok = RelayPubSub.subscribe_viewer(relay_session_id, observer)
+    :ok = RelayPubSub.viewer_join(relay_session_id, observer)
+    _ = :sys.get_state(ViewerRegistry)
+
+    assert {:ok, %{pipeline_pid: pipeline}} =
+             PipelineManager.open_session(%{relay_session_id: relay_session_id})
+
+    on_exit(fn -> PipelineManager.close_session(relay_session_id) end)
+
+    manager =
+      start_supervised!(
+        {WebRTCSignalingManager,
+         name: :disconnect_signaling_manager, session_tracker: RelaySessionLookup, pipeline_manager: PipelineManager}
+      )
+
+    assert {:ok, session} = WebRTCSignalingManager.create_session(relay_session_id, server: manager, ice_servers: [])
+    viewer_session_id = session.viewer_session_id
+    %{signaling_pid: signaling_pid} = :sys.get_state(manager).sessions[viewer_session_id]
+    signaling_ref = Process.monitor(signaling_pid)
+    {:ok, peer} = PeerConnection.start_link(ice_servers: [])
+    on_exit(fn -> if Process.alive?(peer), do: PeerConnection.close(peer) end)
+    :ok = PeerConnection.set_remote_description(peer, %SessionDescription{type: :offer, sdp: session.offer_sdp})
+    {:ok, answer} = PeerConnection.create_answer(peer)
+    :ok = PeerConnection.set_local_description(peer, answer)
+
+    assert {:ok, _} =
+             WebRTCSignalingManager.submit_answer(relay_session_id, viewer_session_id, answer.sdp, server: manager)
+
+    await_managed_peer_connected(
+      peer,
+      manager,
+      relay_session_id,
+      viewer_session_id,
+      [],
+      System.monotonic_time(:millisecond) + 5_000
+    )
+
+    await_peer_media(peer, relay_session_id, 1, System.monotonic_time(:millisecond) + 5_000)
+
+    signaling_state = :sys.get_state(signaling_pid)
+
+    %{pid: element} =
+      Enum.find([signaling_state.peer_a, signaling_state.peer_b], & &1.is_element)
+
+    :erlang.trace(manager, true, [:receive])
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :warning], fn ->
+        :ok = :sys.suspend(pipeline)
+
+        try do
+          send(element, {:ex_webrtc, self(), {:connection_state_change, :failed}})
+          assert_receive {:DOWN, ^signaling_ref, :process, ^signaling_pid, {:shutdown, :connection_failed}}, 5_000
+          assert_receive {:trace, ^manager, :receive, {:DOWN, _, :process, ^signaling_pid, _}}, 5_000
+        after
+          :sys.resume(pipeline)
+        end
+
+        assert_receive {:trace, ^manager, :receive,
+                        {:camera_relay_member_crashed, :webrtc_viewer, ^relay_session_id, ^viewer_session_id,
+                         {:shutdown, :connection_failed}}},
+                       5_000
+
+        assert {:error, :viewer_session_not_found} =
+                 WebRTCSignalingManager.get_session(relay_session_id, viewer_session_id, server: manager)
+      end)
+
+    :erlang.trace(manager, false, [:receive])
+    assert log == ""
+    assert Process.alive?(pipeline)
+    refute PipelineManager.webrtc_viewer_alive?(relay_session_id, viewer_session_id)
+    assert :ok = PipelineManager.record_chunk(relay_session_id, disconnect_test_chunk(1_000))
+    assert_receive {:camera_relay_viewer_chunk, %{relay_session_id: ^relay_session_id, sequence: 1_000}}, 1_000
+    assert :ok = PipelineManager.close_session(relay_session_id)
   end
 
   test "attaches a bounded analysis branch without creating another relay session" do
@@ -606,6 +691,28 @@ defmodule ServiceRadarCoreElx.CameraRelay.PipelineManagerTest do
         await_peer_connected(peer, signaling, deadline)
     after
       max(0, deadline - System.monotonic_time(:millisecond)) -> flunk("WebRTC test peer did not connect")
+    end
+  end
+
+  defp await_managed_peer_connected(peer, manager, relay, viewer, installed, deadline) do
+    assert System.monotonic_time(:millisecond) < deadline, "Managed WebRTC peer did not connect"
+    assert {:ok, session} = WebRTCSignalingManager.get_session(relay, viewer, server: manager)
+
+    for candidate <- session.remote_ice_candidates -- installed do
+      :ok = PeerConnection.add_ice_candidate(peer, ICECandidate.from_json(candidate))
+    end
+
+    receive do
+      {:ex_webrtc, ^peer, {:connection_state_change, :connected}} ->
+        :ok
+
+      {:ex_webrtc, ^peer, {:ice_candidate, candidate}} ->
+        assert {:ok, _} =
+                 WebRTCSignalingManager.add_ice_candidate(relay, viewer, ICECandidate.to_json(candidate), server: manager)
+
+        await_managed_peer_connected(peer, manager, relay, viewer, session.remote_ice_candidates, deadline)
+    after
+      20 -> await_managed_peer_connected(peer, manager, relay, viewer, session.remote_ice_candidates, deadline)
     end
   end
 
