@@ -39,7 +39,8 @@ To prevent identity spoofing if a CSR contains forged subject or SAN fields:
 2. The gateway extracts the caller's DER client certificate from the active gRPC transport (`GRPC.Stream.get_cert/1` / peer certificate metadata) and resolves `%{component_id, partition_id, component_type, certificate_fingerprint, serial_number}` via `ServiceRadarAgentGateway.ComponentIdentityResolver.resolve_from_cert/1`.
 3. `ComponentIdentityResolver` checks `ServiceRadarAgentGateway.AgentCertificateRevocation.revoked?/1` before the RPC handler proceeds. If the current certificate or `component_id` is revoked, the renewal call is rejected with `PERMISSION_DENIED` (`certificate_revoked`).
 4. The gateway verifies the client's PKCS#10 CSR signature over the DER-encoded `CertificationRequestInfo` using the public key from the CSR's `subjectPublicKeyInfo` and its supported signature algorithm (`:public_key.verify/4` or equivalent) to prove possession of the newly generated private key, enforces minimum key strength (ECDSA P-256 / Ed25519 or RSA >= 2048 bits), and **discards all Subject DN and SAN fields from the CSR**.
-5. `CertIssuer.issue_from_csr/5` constructs the new `OTPTBSCertificate` using the CSR's `subjectPublicKeyInfo` and the server-derived `component_id`, `partition_id`, and `component_type`:
+5. Immediately before signing on every `RenewCertificate` attempt, the gateway checks the authenticated transport peer certificate against its current UTC time, requiring `NotBefore <= now < NotAfter`, including on an existing TLS connection and after any issuance wait. It rejects an expired peer with `PERMISSION_DENIED` (`certificate_expired`) and a not-yet-valid peer with `PERMISSION_DENIED` (`certificate_not_yet_valid`), without issuing a successor. Handshake-time validation does not authorize later renewal attempts.
+6. `CertIssuer.issue_from_csr/5` constructs the new `OTPTBSCertificate` using the CSR's `subjectPublicKeyInfo` and the server-derived `component_id`, `partition_id`, and `component_type`:
    - Subject CN: `<component_id>.<partition_id>.serviceradar`
    - URI SAN: `spiffe://serviceradar.local/<component_type>/<partition_id>/<component_id>`
    - DNS SANs: `<component_id>.<partition_id>.serviceradar`, `<component_id>.serviceradar`, `localhost`
@@ -73,7 +74,7 @@ The gateway derives current certificate metadata for inventory and audit correla
   - Total lifetime: $L = \text{NotAfter} - \text{NotBefore}$
   - Target renewal timestamp: $T_{\text{renew}} = \text{NotBefore} + \frac{2}{3} L \pm \text{jitter}(0, \min(6\text{h}, 0.05 L))$
   - Example: For a 90-day certificate ($L = 90\text{d}$), renewal begins at day 60 ($\pm 6\text{h}$ jitter), leaving a 30-day operational buffer before expiry.
-- If `now >= T_renew`, the agent enters the renewal state machine. If renewal fails (e.g., transient gateway restart or core DB outage), the agent retries with exponential backoff (`1m`, `2m`, `5m`, `15m`, capped at `1h` with jitter) and reports `cert_renewal_error` on its next `PushStatus` / `Hello`. If the renewal response is lost, the predecessor remains usable for retries until its natural expiry or independent administrative revocation; issuance alone does not retire it.
+- If `now >= T_renew`, the agent enters the renewal state machine. If renewal fails (e.g., transient gateway restart or core DB outage), the agent retries with exponential backoff (`1m`, `2m`, `5m`, `15m`, capped at `1h` with jitter) and reports `cert_renewal_error` on its next `PushStatus` / `Hello`. If the renewal response is lost, the predecessor remains usable for retries until its natural expiry or independent administrative revocation; issuance alone does not retire it. Before every attempt, including retries on an existing connection, the agent checks local expiry; at `now >= NotAfter` it stops renewal attempts and reports the re-enrollment diagnostic. The gateway independently enforces current peer validity immediately before signing.
 
 ### Atomic Disk Write and Hot Reload
 1. **Keypair Generation & Staging**:
@@ -103,11 +104,11 @@ Allow `serviceradar-agent-gateway` to accept an expired client certificate for `
 - **Does not solve long offline periods**: An appliance powered off on a shelf for 30 days still misses a 7-day grace window and requires re-enrollment anyway.
 
 #### Option B: Re-Enroll Only on Expired Certificate, Paired with Single-Command In-Place Re-Enrollment (Recommended)
-Once `now > NotAfter`, `serviceradar-agent-gateway` strictly rejects the TLS handshake. An expired certificate CANNOT authenticate to `RenewCertificate`.
+Once `now >= NotAfter`, `serviceradar-agent-gateway` strictly rejects the TLS handshake. An expired certificate CANNOT authorize `RenewCertificate`, even on a TLS connection established before expiry: the gateway rechecks `NotBefore <= now < NotAfter` immediately before signing every attempt.
 
 **Why Option B is Recommended**:
-- With a 90-day default lifetime and automatic renewal starting at day 60 (a **30-day renewal window** before expiry), any agent that connects even once during its final 30 days renews automatically.
-- Only hosts offline continuously for more than 30 days (or hosts caught by the legacy 1-day default bug before migration) can reach expiration.
+- With a 90-day default lifetime and automatic renewal starting at day 60 (a **30-day renewal window** before expiry), an agent that connects during its final 30 days can renew automatically if issuance succeeds before expiry.
+- Hosts offline throughout the renewal window, hosts with persistent renewal failures, and hosts caught by the legacy 1-day default bug can reach expiration and require re-enrollment.
 - Preserves strict TLS handshake rejection (`verify_peer`, fail-closed on `:cert_expired`) with zero custom `:ssl` expiry bypasses.
 - To make recovery painless for operators when a host was powered off past expiry, Web-NG and `serviceradar-cli` provide an **in-place re-enrollment token** flow:
   - In Web-NG Agents UI (or `POST /api/admin/agents/:uid/reissue-enrollment-token`), an administrator clicks **Re-enroll Agent** on an expired agent.
@@ -170,8 +171,8 @@ Add a scheduled Ash/Oban worker (`ServiceRadar.Infrastructure.AgentCertExpiryMon
 
 ### Explicit Connection Error Diagnostics
 1. **Agent-side pre-flight and handshake error classification (`go/pkg/grpc/security.go` & `go/pkg/agent/`)**:
-   - Before dialing `serviceradar-agent-gateway` (and inside `GetClientCertificate`), the Go agent checks the local leaf certificate's `NotAfter` against `time.Now()`.
-   - If `time.Now().After(leaf.NotAfter)`, the agent logs a structured `ERROR` message:
+   - Before each renewal attempt or retry, before dialing `serviceradar-agent-gateway`, and inside `GetClientCertificate`, the Go agent checks the local leaf certificate's `NotAfter` against `time.Now()`.
+   - If `!time.Now().Before(leaf.NotAfter)`, the agent logs a structured `ERROR` message:
      `local mTLS client certificate expired (cn=..., serial=..., not_after=..., expired_ago=...); automatic renewal requires a valid certificate -- re-enroll this agent with 'serviceradar-cli enroll --token <token>'`
      and surfaces this exact reason instead of letting gRPC mask the TLS alert behind `context deadline exceeded`.
    - If the remote gateway rejects the TLS handshake with a TLS alert (`remote error: tls: expired certificate`, `tls: bad certificate`, `tls: certificate revoked`), the gRPC dial wrapper unwraps the underlying `tls.AlertError` / `x509` error before any context deadline expires and logs the specific TLS rejection reason.
@@ -201,7 +202,8 @@ Add a scheduled Ash/Oban worker (`ServiceRadar.Infrastructure.AgentCertExpiryMon
      - `expires_at` (`TIMESTAMPTZ` -- `notAfter` of the revoked cert, allowing automatic pruning of revocation entries once the underlying certificate has naturally expired).
 2. **Cluster-Wide Gateway Synchronization**:
    - `ServiceRadarAgentGateway.AgentCertificateRevocation` loads active (non-expired) revocation rows from CNPG on startup and subscribes to PubSub (`serviceradar:cert_revocations`) so any revocation takes effect across all `agent-gateway` pods within milliseconds and survives pod restarts.
-3. **Revocation Check Before Renewal**:
+3. **Validity and Revocation Checks Before Renewal**:
+   - Every `RenewCertificate` attempt enforces the current-time peer validity check in Decision 1 immediately before signing, including retries over existing connections.
    - `RenewCertificate` calls `ComponentIdentityResolver.resolve_from_cert/1`, which queries `AgentCertificateRevocation.revoked?/1` by `component_id`, `serial_number`, and `certificate_fingerprint`.
    - A revoked certificate or revoked `component_id` is immediately denied renewal (`PERMISSION_DENIED`) and its active `ControlStream` is terminated.
 4. **Predecessor Certificate Retirement on Renewal**:

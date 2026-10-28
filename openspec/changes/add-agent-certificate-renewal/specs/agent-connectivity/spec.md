@@ -31,12 +31,20 @@ Connected agents SHALL automatically renew their mTLS leaf certificate over the 
 - **AND** any subsequent connection attempt presenting $C_{\text{old}}$ SHALL be rejected
 
 ### Requirement: Expired and Revoked Certificate Rejection and Diagnostics
-The `serviceradar-agent-gateway` SHALL reject expired or revoked client certificates at the mTLS boundary with no expired-certificate renewal grace window, and both the Go agent and gateway SHALL emit explicit certificate-expiry diagnostics instead of generic timeout errors.
+The `serviceradar-agent-gateway` SHALL reject expired or revoked client certificates at the mTLS boundary and recheck the authenticated peer certificate against current gateway time immediately before signing every renewal attempt, including retries over existing TLS connections, with no expired-certificate renewal grace window, and both the Go agent and gateway SHALL emit explicit certificate-expiry diagnostics instead of generic timeout errors.
+
+#### Scenario: Certificate expires on an established connection before renewal
+- **GIVEN** an agent established mTLS while its peer certificate was valid and encountered a transient renewal failure
+- **WHEN** it retries `RenewCertificate` on that connection at or after the peer certificate's `NotAfter`
+- **THEN** the gateway SHALL reject renewal with `PERMISSION_DENIED` (`certificate_expired`) and SHALL NOT issue a successor
+- **AND** every renewal attempt SHALL require `NotBefore <= now < NotAfter` using current gateway UTC time immediately before signing, including after any issuance wait
+- **AND** a not-yet-valid peer SHALL be rejected with `PERMISSION_DENIED` (`certificate_not_yet_valid`) without issuance
 
 #### Scenario: Expired local certificate detected by agent
 - **GIVEN** an agent whose local `/etc/serviceradar/certs/component.pem` has `notAfter` in the past
-- **WHEN** the agent starts or attempts to connect to `serviceradar-agent-gateway`
+- **WHEN** the agent starts, attempts to connect to `serviceradar-agent-gateway`, or is about to attempt or retry renewal at `now >= NotAfter`
 - **THEN** the agent SHALL log an explicit error stating that the local mTLS client certificate has expired (including `notAfter` and certificate serial number) and instructing the operator to re-enroll the agent
+- **AND** the agent SHALL stop renewal attempts using the expired certificate
 - **AND** the failure SHALL NOT be reported solely as a generic `context deadline exceeded` error
 
 #### Scenario: Revoked agent or NATS leaf certificate denied renewal and connection
