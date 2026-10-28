@@ -238,6 +238,25 @@ Common failure patterns:
 - Unresolved custom IDs: the rollout cohort includes agent IDs that do not currently resolve to inventory records, so rollout creation is rejected until those entries are corrected.
 - Rolled back: the updater switched versions, but the new runtime did not become healthy before the deadline.
 
+On Linux, the launcher refreshes the package seed before starting the selected
+runtime. It requires `/var/lib/serviceradar/agent` and its `tmp`, `versions`, and
+`versions/seed-installed` directories to be writable, searchable directories,
+not symlinks, owned by the service user when running unprivileged. A failure
+exits with `77` (`EX_NOPERM`) and a diagnostic naming the affected path; an
+invalid package seed exits with `78` (`EX_CONFIG`). The systemd unit and runtime
+drop-in suppress automatic restarts for both exit codes.
+
+Package installation and upgrades repair these four directories to mode `0755`
+and owner `serviceradar:serviceradar`, rejecting symlinked directories and
+removing a stale `versions/seed-installed/serviceradar-agent.new`. This repair
+does not recursively change ownership of the shared `/var/lib/serviceradar`
+tree. Systemd also manages the four directories through `StateDirectory`, so
+ownership is repaired before the launcher starts even without a package upgrade.
+If the service remains stopped, inspect `journalctl -u serviceradar-agent` for
+the fatal diagnostic, correct the reported path or reinstall the package for an
+invalid seed, then explicitly start `serviceradar-agent.service` again. Do not
+use a recursive ownership change on the shared state tree as a recovery step.
+
 ## Recovery Playbook
 
 When a rollout is unhealthy:

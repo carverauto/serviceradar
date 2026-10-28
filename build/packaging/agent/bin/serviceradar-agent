@@ -9,7 +9,7 @@ CURRENT_LINK="${RUNTIME_ROOT}/current"
 
 # Exit codes matched by RestartPreventExitStatus= in serviceradar-agent.service
 # so a broken seed or unwritable runtime directory stops the unit loudly instead
-# of crash-looping every RestartSecforever.
+# of crash-looping indefinitely.
 EX_NOPERM=77
 EX_CONFIG=78
 
