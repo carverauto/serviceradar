@@ -1761,21 +1761,38 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert :ok = check.(other_scope)
     assert :ok = check.(nil)
 
-    # A legacy assessment may precede its retained publication. Its own device
-    # and deployment checks must detect it without blocking an unrelated device.
-    Repo.query!(
-      "UPDATE platform.endpoint_vulnerability_assessments SET last_exposure_publication = NULL WHERE device_uid = $1",
-      [ctx.device_uid]
-    )
+    set_publication = fn retained ->
+      assert {:ok, _} =
+               Repo.transaction(fn ->
+                 Repo.query!("""
+                 ALTER TABLE platform.endpoint_vulnerability_assessments
+                   DISABLE TRIGGER trg_exposure_assessment_sequence,
+                   DISABLE TRIGGER trg_exposure_assessment_publish_update
+                 """)
+
+                 assert %{num_rows: 1} =
+                          Repo.query!(
+                            "UPDATE platform.endpoint_vulnerability_assessments SET last_exposure_publication = $2 WHERE device_uid = $1",
+                            [ctx.device_uid, retained]
+                          )
+
+                 Repo.query!("""
+                 ALTER TABLE platform.endpoint_vulnerability_assessments
+                   ENABLE TRIGGER trg_exposure_assessment_sequence,
+                   ENABLE TRIGGER trg_exposure_assessment_publish_update
+                 """)
+               end)
+
+      assert publication(ctx.device_uid, cve) == retained
+    end
+
+    set_publication.(nil)
 
     assert {:error, :exposure_snapshot_preparation_required} = check.(scope)
     assert {:error, :exposure_snapshot_preparation_required} = check.(nil)
     assert :ok = check.(other_scope)
 
-    Repo.query!(
-      "UPDATE platform.endpoint_vulnerability_assessments SET last_exposure_publication = $2 WHERE device_uid = $1",
-      [ctx.device_uid, payload]
-    )
+    set_publication.(payload)
 
     assert :ok = check.(scope)
     assert :ok = check.(nil)
@@ -1786,12 +1803,17 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert :ok = check.(scope)
 
-    Repo.query!(
-      "UPDATE platform.exposure_fact_watermarks SET payload = NULL WHERE device_uid = $1",
-      [
-        ctx.device_uid
-      ]
-    )
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "UPDATE platform.exposure_fact_watermarks SET payload = NULL WHERE device_uid = $1",
+               [ctx.device_uid]
+             )
+
+    assert [[nil]] ==
+             Repo.query!(
+               "SELECT payload FROM platform.exposure_fact_watermarks WHERE device_uid = $1",
+               [ctx.device_uid]
+             ).rows
 
     assert {:error, :exposure_snapshot_preparation_required} = check.(scope)
     assert {:error, :exposure_snapshot_preparation_required} = check.(nil)

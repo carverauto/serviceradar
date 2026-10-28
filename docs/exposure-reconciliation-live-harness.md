@@ -315,3 +315,37 @@ about 30 ms in a separate probe. These are individual query observations, not
 p95 measurements. The runtime applies this extra predicate to scoped assessment
 and deletion-watermark checks; deployment-wide checks retain their original
 query. Neither repair changes a codec, page size, concurrency or readiness rule.
+
+The [combined-runtime two-worker run](https://carverauto.buildbuddy.io/invocation/0197fa12-88b5-4a62-bd23-d26afc692d5e)
+at source `6785872825e4a6fe8f3b5cff352d82124232191b`, tree
+`25a37cb931cf7321d9b91a6d33aa1494989dff35`, included both runtime changes.
+All 200 synthetic hosts matched in about 219 seconds of worker time and about
+220 seconds including verification; about 33 seconds of setup was excluded.
+There were zero remaining devices and zero content violations. The independent
+equal-count severity-corruption control was rejected. All thirteen child
+invocations passed, including the canonical observer, teardown and generation
+release. Scratch schemas and grants were independently verified absent in both
+execution contexts.
+
+This single observation is close to the readiness-only result of about 222
+seconds and the earlier untraced baseline of about 231-245 seconds. It does not
+demonstrate a large end-to-end speedup, a p95 bound or full-fleet capacity. Task
+1.6 and the full-fleet gate remain open. Runtime and benchmark files were
+verified byte-identical after rebase to `2a09d1b9df3ff574c5e99eb93c6cb0599f9f81cc`;
+the measurement remains attributed to the source and tree above.
+
+The [broad hosted validation](https://carverauto.buildbuddy.io/invocation/9f860e8a-4ec7-49ed-8d1a-db98e54ebe33)
+on that measured source passed all seven child invocations. Its main suite
+reported 453 passed and two skipped; `camera_storage_test` passed on its second
+attempt after a `transport_error`, so this was not a retry-free pass.
+
+The subsequent [full hosted live validation](https://carverauto.buildbuddy.io/invocation/c2deec14-3a08-4bf5-884f-0855dbecc979)
+at submitted source `2a09d1b9df3ff574c5e99eb93c6cb0599f9f81cc`, tree
+`d152f0ee9bf35208b038f7379bea021d50f17a1b`, failed the new preparation-gate
+case: the serial shard reported 472 tests and one failure. The fixture's
+publication-clearing UPDATE was undone by the publication-preserving trigger,
+so it never established the intended missing-publication state. Canonical
+observer, teardown and generation release passed, and external schema and grant
+absence was independently verified. This run is not a correctness pass. After
+repairing fixture setup, the full hosted live lifecycle must pass on the reviewed
+source with fresh scratch schemas; final hosted PR CI is also still required.
