@@ -80,7 +80,7 @@ defmodule ServiceRadarAgentGateway.Telemetry do
         tags: [:gateway_id],
         tag_values: &control_stream_tag_values/1
       )
-    ]
+    ] ++ ServiceRadar.Telemetry.audit_metrics()
   end
 
   def start_link(arg) do

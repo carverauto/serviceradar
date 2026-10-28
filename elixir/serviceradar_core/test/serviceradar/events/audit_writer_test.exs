@@ -10,6 +10,7 @@ defmodule ServiceRadar.Events.AuditWriterTest do
 
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.TestSupport
+  alias ServiceRadar.TestSupport.MetricContract
 
   @moduletag :integration
 
@@ -35,6 +36,33 @@ defmodule ServiceRadar.Events.AuditWriterTest do
     assert metadata_value(event.metadata, :correlation_uid) == "integration_source:#{resource_id}"
     assert event.log_name == "integration_source"
     assert Enum.any?(event.observables, &(&1.name == resource_id))
+  end
+
+  test "counts an audit record it could not publish on an exported metric" do
+    event = [:serviceradar, :audit, :publish_failed]
+    parent = self()
+    handler = "audit-writer-test-#{System.unique_integer([:positive])}"
+
+    :ok =
+      :telemetry.attach(
+        handler,
+        event,
+        fn ^event, measurements, metadata, _config ->
+          if self() == parent, do: send(parent, {:publish_failed, measurements, metadata})
+        end,
+        nil
+      )
+
+    try do
+      assert {:error, {:missing_required, :action}} =
+               AuditWriter.write(resource_type: "agent_certificate", resource_id: "agent-1")
+
+      assert_received {:publish_failed, measurements, metadata}
+      assert metadata.resource_type == "agent_certificate"
+      MetricContract.assert_exported(event, measurements, metadata)
+    after
+      :telemetry.detach(handler)
+    end
   end
 
   defp metadata_value(metadata, key) do

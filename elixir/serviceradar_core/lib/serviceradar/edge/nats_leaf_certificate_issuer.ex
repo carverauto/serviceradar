@@ -15,6 +15,8 @@ defmodule ServiceRadar.Edge.NatsLeafCertificateIssuer do
   Core never holds the CA key: it asks any live agent-gateway node over ERTS RPC.
   """
 
+  alias ServiceRadar.Edge.CertificateIssuanceAudit
+
   require Logger
 
   @gateway_cert_issuer ServiceRadarAgentGateway.CertIssuer
@@ -103,7 +105,7 @@ defmodule ServiceRadar.Edge.NatsLeafCertificateIssuer do
            @rpc_timeout
          ) do
       {:ok, %{certificate_pem: _, private_key_pem: _, ca_chain_pem: _} = bundle} ->
-        {:ok, bundle}
+        {:ok, CertificateIssuanceAudit.publish(bundle)}
 
       {:error, reason} ->
         {:error, {:leaf_certificate_issue_failed, reason}}

@@ -354,23 +354,24 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
         certificate_fingerprint = certificate_fingerprint(cert_pem)
         predecessor_revocation = revoke_predecessor_certificate(opts)
 
-        emit_issuance_audit(
-          opts,
-          component_id: component_id,
-          component_type: component_type,
-          requested_partition_id: partition_id,
-          granted_partition_id: partition_id,
-          authorized_component_id: normalize_identity_id(Keyword.get(opts, :authorized_component_id)),
-          authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
-          validity_days: validity_days,
-          long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
-          predecessor_certificate_fingerprint: predecessor_revocation.fingerprint,
-          predecessor_certificate_serial_number: predecessor_revocation.serial_number,
-          predecessor_certificate_revoked: predecessor_revocation.revoked?,
-          certificate_fingerprint: certificate_fingerprint,
-          cn: cn,
-          spiffe_id: spiffe_id
-        )
+        issuance_audit =
+          issuance_audit(
+            opts,
+            component_id: component_id,
+            component_type: component_type,
+            requested_partition_id: partition_id,
+            granted_partition_id: partition_id,
+            authorized_component_id: normalize_identity_id(Keyword.get(opts, :authorized_component_id)),
+            authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
+            validity_days: validity_days,
+            long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
+            predecessor_certificate_fingerprint: predecessor_revocation.fingerprint,
+            predecessor_certificate_serial_number: predecessor_revocation.serial_number,
+            predecessor_certificate_revoked: predecessor_revocation.revoked?,
+            certificate_fingerprint: certificate_fingerprint,
+            cn: cn,
+            spiffe_id: spiffe_id
+          )
 
         bundle_pem = build_bundle(cert_pem, key_pem, ca_chain_pem)
 
@@ -383,7 +384,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            spiffe_id: spiffe_id,
            cn: cn,
            validity_days: validity_days,
-           certificate_fingerprint: certificate_fingerprint
+           certificate_fingerprint: certificate_fingerprint,
+           issuance_audit: issuance_audit
          }}
       end
     rescue
@@ -801,26 +803,27 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
           revoked?: false
         }
 
-        emit_issuance_audit(
-          Keyword.put_new(opts, :audit_action, :agent_certificate_renew),
-          component_id: component_id,
-          component_type: component_type,
-          requested_partition_id: partition_id,
-          granted_partition_id: partition_id,
-          authorized_component_id: normalize_identity_id(Keyword.get(opts, :authorized_component_id)),
-          authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
-          validity_days: validity_days,
-          long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
-          predecessor_certificate_fingerprint: predecessor_info.fingerprint,
-          predecessor_certificate_serial_number: predecessor_info.serial_number,
-          predecessor_certificate_revoked: predecessor_info.revoked?,
-          certificate_fingerprint: cert_meta.certificate_fingerprint,
-          serial_number: cert_meta.serial_number,
-          not_before_unix: cert_meta.not_before_unix,
-          not_after_unix: cert_meta.not_after_unix,
-          cn: cn,
-          spiffe_id: spiffe_id
-        )
+        issuance_audit =
+          issuance_audit(
+            Keyword.put_new(opts, :audit_action, :agent_certificate_renew),
+            component_id: component_id,
+            component_type: component_type,
+            requested_partition_id: partition_id,
+            granted_partition_id: partition_id,
+            authorized_component_id: normalize_identity_id(Keyword.get(opts, :authorized_component_id)),
+            authorized_partition_id: normalize_identity_id(Keyword.get(opts, :authorized_partition_id)),
+            validity_days: validity_days,
+            long_ttl_approved_by: actor_identifier(Keyword.get(opts, :long_ttl_approved_by)),
+            predecessor_certificate_fingerprint: predecessor_info.fingerprint,
+            predecessor_certificate_serial_number: predecessor_info.serial_number,
+            predecessor_certificate_revoked: predecessor_info.revoked?,
+            certificate_fingerprint: cert_meta.certificate_fingerprint,
+            serial_number: cert_meta.serial_number,
+            not_before_unix: cert_meta.not_before_unix,
+            not_after_unix: cert_meta.not_after_unix,
+            cn: cn,
+            spiffe_id: spiffe_id
+          )
 
         {:ok,
          %{
@@ -835,7 +838,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            not_before: cert_meta.not_before,
            not_after: cert_meta.not_after,
            not_before_unix: cert_meta.not_before_unix,
-           not_after_unix: cert_meta.not_after_unix
+           not_after_unix: cert_meta.not_after_unix,
+           issuance_audit: issuance_audit
          }}
       end
     rescue
@@ -995,28 +999,18 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp normalize_serial_number(value) when is_integer(value) and value > 0, do: value
   defp normalize_serial_number(_value), do: nil
 
-  defp emit_issuance_audit(opts, details) do
-    action = Keyword.get(opts, :audit_action, :agent_certificate_issue)
-
-    event = %{
-      action: action,
+  # ServiceRadar.Edge.CertificateIssuanceAudit owns delivery on a repo-enabled node.
+  # This record carries issuance metadata only, never key material or certificates.
+  defp issuance_audit(opts, details) do
+    [
+      action: Keyword.get(opts, :audit_action, :agent_certificate_issue),
       resource_type: "agent_certificate",
       resource_id: Keyword.fetch!(details, :component_id),
       resource_name: Keyword.fetch!(details, :cn),
       actor: audit_actor(opts),
       details: Map.new(details),
       severity: audit_severity(Keyword.fetch!(details, :validity_days))
-    }
-
-    case Keyword.get(opts, :audit_writer, ServiceRadarAgentGateway.CertIssuanceAudit) do
-      writer when is_function(writer, 1) -> writer.(event)
-      nil -> :ok
-      writer when is_atom(writer) -> writer.write(event)
-    end
-  rescue
-    error ->
-      Logger.warning("[CertIssuer] Certificate issuance audit failed: #{inspect(error)}")
-      :ok
+    ]
   end
 
   defp audit_actor(opts) do

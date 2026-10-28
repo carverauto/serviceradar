@@ -175,8 +175,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         CertIssuer.issue_agent_bundle(agent_id, "default", :agent,
           ca_cert_file: ca_cert,
           ca_key_file: ca_key,
-          temp_parent_dir: parent_dir,
-          audit_writer: nil
+          temp_parent_dir: parent_dir
         )
 
       stream =
@@ -242,6 +241,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
       if !Process.whereis(AgentRegistryProxy), do: start_supervised!(AgentRegistryProxy)
       Config.setup(gateway_id: "gateway-renewal-test", domain: "default")
+      start_supervised!({Task.Supervisor, name: ServiceRadarAgentGateway.DeliveryTaskSupervisor})
 
       parent_dir = CertificateTestHelpers.unique_tmp_dir!("gateway-server-renewal")
       ca_cert = Path.join(parent_dir, "root.pem")
@@ -253,8 +253,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       Application.put_env(:serviceradar_agent_gateway, :cert_issuer_opts,
         ca_cert_file: ca_cert,
         ca_key_file: ca_key,
-        temp_parent_dir: parent_dir,
-        audit_writer: nil
+        temp_parent_dir: parent_dir
       )
 
       on_exit(fn ->
@@ -274,8 +273,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         CertIssuer.issue_agent_bundle(agent_id, "default", :agent,
           ca_cert_file: ca_cert,
           ca_key_file: ca_key,
-          temp_parent_dir: parent_dir,
-          audit_writer: nil
+          temp_parent_dir: parent_dir
         )
 
       old_cert_der = CertificateTestHelpers.certificate_der!(initial_bundle.certificate_pem)
@@ -291,6 +289,55 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         old_identity: old_identity,
         old_stream: CertificateTestHelpers.cert_stream(old_cert_der)
       }
+    end
+
+    test "renewal publishes its issuance audit on core without sending key material", context do
+      start_core_peer!()
+
+      response =
+        AgentGatewayServer.renew_certificate(
+          %Monitoring.CertificateRenewalRequest{csr_der: build_test_csr_der!(context.agent_id, "default")},
+          context.old_stream
+        )
+
+      assert_receive {:published_audit, event}, 5_000
+      assert event.log_name == "agent_certificate"
+      assert event.unmapped["action"] == "agent_certificate_renew"
+      assert event.unmapped["resource_id"] == context.agent_id
+      assert event.unmapped["details"]["certificate_fingerprint"] == response.certificate_fingerprint
+      refute inspect(event) =~ "PRIVATE KEY"
+      refute inspect(event) =~ "BEGIN CERTIFICATE"
+    end
+
+    test "renewal succeeds and counts the lost audit when core is unavailable", context do
+      handler = {__MODULE__, make_ref()}
+
+      :ok =
+        :telemetry.attach(
+          handler,
+          [:serviceradar, :audit, :publish_failed],
+          fn event, measurements, metadata, pid ->
+            send(pid, {event, measurements, metadata})
+          end,
+          self()
+        )
+
+      try do
+        response =
+          AgentGatewayServer.renew_certificate(
+            %Monitoring.CertificateRenewalRequest{csr_der: build_test_csr_der!(context.agent_id, "default")},
+            context.old_stream
+          )
+
+        assert byte_size(response.certificate_pem) > 0
+        assert response.not_after_unix > response.not_before_unix
+
+        assert_receive {[:serviceradar, :audit, :publish_failed], %{count: 1},
+                        %{action: :agent_certificate_renew, resource_type: "agent_certificate"}},
+                       5_000
+      after
+        :telemetry.detach(handler)
+      end
     end
 
     for transport <- [:unary, :control] do
@@ -670,6 +717,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
     :peer.call(peer, Code, :compile_string, [
       """
+      # Capture at the external publishing boundary; the core issuance helper and
+      # AuditWriter still build and dispatch the real event on the remote node.
+      defmodule ServiceRadar.Events.InternalLogPublisher do
+        def publish("audit", event) do
+          send(:persistent_term.get(:host_identity_test_owner), {:published_audit, event})
+          :ok
+        end
+      end
+
       defmodule ServiceRadar.Edge.AgentGatewaySync do
         def upsert_agent(agent_id, attrs) do
           notify(:upsert_agent, [agent_id, attrs])

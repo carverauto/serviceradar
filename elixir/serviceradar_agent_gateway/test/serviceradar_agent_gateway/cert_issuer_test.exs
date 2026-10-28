@@ -22,8 +22,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     assert bundle.cn == "agent-1.default.serviceradar"
@@ -63,8 +62,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                validity_days: 30,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     assert bundle.cn == "addon-assignment-1.default.serviceradar"
@@ -82,7 +80,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       ca_key = Path.join(parent_dir, "root-key.pem")
       assert :ok = generate_ca_bundle(ca_cert, ca_key)
 
-      %{opts: [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir, audit_writer: nil]}
+      %{opts: [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir]}
     end
 
     test "leaf client certificates carry the partition role URI the hub maps", %{opts: opts} do
@@ -171,8 +169,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                allow_short_test_lifetime: true,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     assert bundle.validity_days == 1
@@ -205,7 +202,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                  "default",
                  :agent,
                  requested ++
-                   [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir, audit_writer: nil]
+                   [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir]
                )
 
       [{:Certificate, cert_der, _}] = :public_key.pem_decode(bundle.certificate_pem)
@@ -277,16 +274,14 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                ca_key_file: ca_key,
                temp_parent_dir: parent_dir,
                validity_days: 180,
-               long_ttl_approved_by: %{id: "admin-1", role: :admin},
-               audit_writer: nil
+               long_ttl_approved_by: %{id: "admin-1", role: :admin}
              )
 
     assert bundle.validity_days == 180
   end
 
-  test "emits certificate issuance audit without certificate or private key material" do
+  test "returns the issuance audit for the requesting node, without key or certificate material" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-audit-test")
-    test_pid = self()
 
     on_exit(fn -> File.rm_rf(parent_dir) end)
 
@@ -295,11 +290,6 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     actor = %{id: "operator-1", email: "operator@example.test"}
 
     assert :ok = generate_ca_bundle(ca_cert, ca_key)
-
-    audit_writer = fn event ->
-      send(test_pid, {:cert_issuance_audit, event})
-      :ok
-    end
 
     assert {:ok, bundle} =
              CertIssuer.issue_agent_bundle(
@@ -310,11 +300,10 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                ca_key_file: ca_key,
                temp_parent_dir: parent_dir,
                authorized_partition_id: "partition-a",
-               audit_actor: actor,
-               audit_writer: audit_writer
+               audit_actor: actor
              )
 
-    assert_receive {:cert_issuance_audit, event}
+    event = Map.new(bundle.issuance_audit)
 
     assert event.action == :agent_certificate_issue
     assert event.resource_type == "agent_certificate"
@@ -376,8 +365,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                temp_parent_dir: parent_dir,
                predecessor_certificate_fingerprint: String.upcase(predecessor_fingerprint),
                predecessor_certificate_serial_number: predecessor_serial_number,
-               predecessor_revocation_reason: "renewed by test",
-               audit_writer: nil
+               predecessor_revocation_reason: "renewed by test"
              )
 
     assert AgentCertificateRevocation.revoked?(%{
@@ -386,9 +374,8 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
            })
   end
 
-  test "issues renewed certificate from a verified ECDSA CSR and emits agent_certificate_renew audit" do
+  test "issues renewed certificate from a verified ECDSA CSR and returns agent_certificate_renew audit" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-csr-test")
-    test_pid = self()
 
     on_exit(fn -> File.rm_rf(parent_dir) end)
 
@@ -403,11 +390,6 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
         "URI:spiffe://serviceradar.local/agent/default/agent-1,DNS:agent-1.default.serviceradar"
       )
 
-    audit_writer = fn event ->
-      send(test_pid, {:csr_renew_audit, event})
-      :ok
-    end
-
     assert {:ok, issued} =
              CertIssuer.issue_from_csr(
                csr_der,
@@ -416,8 +398,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: audit_writer
+               temp_parent_dir: parent_dir
              )
 
     assert issued.cn == "agent-1.default.serviceradar"
@@ -432,9 +413,8 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/agent/default/agent-1"} in sans
     assert {:dNSName, ~c"agent-1.default.serviceradar"} in sans
 
-    assert_receive {:csr_renew_audit, event}
-    assert event.action == :agent_certificate_renew
-    assert event.resource_id == "agent-1"
+    assert issued.issuance_audit[:action] == :agent_certificate_renew
+    assert issued.issuance_audit[:resource_id] == "agent-1"
   end
 
   test "rejects CSR with forged signature or weak key or mismatched CN/SAN" do
@@ -472,8 +452,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     weak_csr_der =
@@ -491,8 +470,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     mismatched_cn_csr =
@@ -510,8 +488,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
 
     mismatched_san_csr =
@@ -529,8 +506,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                :agent,
                ca_cert_file: ca_cert,
                ca_key_file: ca_key,
-               temp_parent_dir: parent_dir,
-               audit_writer: nil
+               temp_parent_dir: parent_dir
              )
   end
 

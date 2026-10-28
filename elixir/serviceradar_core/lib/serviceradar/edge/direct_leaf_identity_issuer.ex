@@ -10,6 +10,7 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadar.Edge.CertificateIssuanceAudit
   alias ServiceRadar.Edge.DirectLeafEligibility
   alias ServiceRadar.Edge.DirectLeafScope
   alias ServiceRadar.Edge.EdgeSite
@@ -138,7 +139,7 @@ defmodule ServiceRadar.Edge.DirectLeafIdentityIssuer do
            [component_id, partition_id, :addon, issuer_opts],
            timeout
          ) do
-      {:ok, bundle} when is_map(bundle) -> {:ok, bundle}
+      {:ok, bundle} when is_map(bundle) -> {:ok, CertificateIssuanceAudit.publish(bundle)}
       {:error, reason} -> {:error, {:gateway_identity_issue_failed, reason}}
       {:badrpc, reason} -> {:error, {:gateway_identity_issue_unreachable, reason}}
       other -> {:error, {:invalid_gateway_identity_response, other}}

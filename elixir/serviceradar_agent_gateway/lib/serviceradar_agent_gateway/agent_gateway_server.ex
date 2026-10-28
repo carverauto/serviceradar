@@ -194,6 +194,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     case CertIssuer.issue_from_csr(csr_der, agent_id, partition_id, component_type, opts) do
       {:ok, issued} ->
+        publish_renewal_audit(issued.issuance_audit)
         :ok = AgentCertificateRevocation.register_pending_renewal(agent_id, identity, issued)
 
         Logger.info(
@@ -1555,6 +1556,40 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       _ -> false
     end)
     |> Map.new()
+  end
+
+  # Renewal has no requesting core/web node. Forward only metadata, off the
+  # response path, through the same core discovery/RPC used by AgentGatewaySync.
+  defp publish_renewal_audit(audit) do
+    case Task.Supervisor.start_child(ServiceRadarAgentGateway.DeliveryTaskSupervisor, fn ->
+           forward_renewal_audit(audit)
+         end) do
+      {:ok, _pid} -> :ok
+      {:error, reason} -> renewal_audit_failed(audit, reason)
+    end
+  catch
+    :exit, reason -> renewal_audit_failed(audit, reason)
+  end
+
+  defp forward_renewal_audit(audit) do
+    case core_call(ServiceRadar.Edge.CertificateIssuanceAudit, :publish, [%{issuance_audit: audit}]) do
+      {:ok, _bundle} -> :ok
+      {:error, reason} -> renewal_audit_failed(audit, reason)
+    end
+  rescue
+    error -> renewal_audit_failed(audit, error)
+  catch
+    :exit, reason -> renewal_audit_failed(audit, reason)
+  end
+
+  defp renewal_audit_failed(audit, reason) do
+    :telemetry.execute(
+      [:serviceradar, :audit, :publish_failed],
+      %{count: 1},
+      %{resource_type: audit[:resource_type], action: audit[:action]}
+    )
+
+    Logger.warning("Certificate renewal audit forwarding failed: #{inspect(reason)}")
   end
 
   defp core_call(module, function, args, timeout \\ 5_000) do

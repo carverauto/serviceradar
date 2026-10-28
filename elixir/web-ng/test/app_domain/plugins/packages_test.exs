@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Storage
   alias ServiceRadarWebNG.Plugins.UploadSignature
+  alias ServiceRadarWebNG.TestSupport.PublishedMessages
 
   require Ash.Query
 
@@ -189,21 +190,6 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}
       end
-    end
-  end
-
-  defmodule CapturingPublisher do
-    @moduledoc false
-
-    # Stand-in for the acknowledged JetStream publisher: forwards each message
-    # to the test process registered by `capture_published_messages/0`.
-    def publish(subject, body, _opts) do
-      case Process.whereis(:packages_test_published_messages) do
-        nil -> :ok
-        pid -> send(pid, {:published, subject, body})
-      end
-
-      :ok
     end
   end
 
@@ -635,7 +621,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     test "a version within the approved grant is approved automatically and audited" do
       trust_suite_key_on_builtin_repository!()
       prior = approve_prior_version!(%{})
-      capture_published_messages()
+      PublishedMessages.capture()
 
       assert {:ok, %{imported: 1, failed: []}} = sync_builtin_repository()
 
@@ -661,7 +647,7 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
       assert prior_id == prior.id
 
-      audit = receive_audit_record(package.id)
+      audit = PublishedMessages.receive_audit_record(package.id)
       assert audit["unmapped"]["action"] == "auto_approve"
       assert audit["actor"]["user"]["uid"] == "system:first_party_plugin_auto_approval"
 
@@ -1213,38 +1199,6 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
                [set: [signing_key_id: "packages-test", signing_public_key: public_key]],
                prefix: "platform"
              )
-  end
-
-  # Routes acknowledged JetStream publishes to this test process, so the test
-  # reads the audit record exactly as it would be stored.
-  defp capture_published_messages do
-    previous = Application.get_env(:serviceradar_core, :internal_telemetry_publisher)
-    Process.register(self(), :packages_test_published_messages)
-    Application.put_env(:serviceradar_core, :internal_telemetry_publisher, __MODULE__.CapturingPublisher)
-
-    on_exit(fn ->
-      if is_nil(previous) do
-        Application.delete_env(:serviceradar_core, :internal_telemetry_publisher)
-      else
-        Application.put_env(:serviceradar_core, :internal_telemetry_publisher, previous)
-      end
-    end)
-  end
-
-  defp receive_audit_record(resource_id) do
-    receive do
-      {:published, subject, body} ->
-        record = Jason.decode!(body)
-
-        if String.ends_with?(subject, "logs.internal.audit") and
-             get_in(record, ["unmapped", "resource_id"]) == resource_id do
-          record
-        else
-          receive_audit_record(resource_id)
-        end
-    after
-      5_000 -> flunk("no audit record was published for plugin package #{resource_id}")
-    end
   end
 
   # Registers the worker-test repository row carrying this suite's generated

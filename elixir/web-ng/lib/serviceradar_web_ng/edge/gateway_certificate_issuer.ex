@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
   Issues agent mTLS bundles by calling the agent-gateway over ERTS RPC.
   """
 
+  alias ServiceRadar.Edge.CertificateIssuanceAudit
   alias ServiceRadar.Edge.CertificateLifetimePolicy
   alias ServiceRadar.GatewayRegistry
   alias ServiceRadar.GatewayTracker
@@ -84,7 +85,7 @@ defmodule ServiceRadarWebNG.Edge.GatewayCertificateIssuer do
            timeout
          ) do
       {:ok, bundle} ->
-        {:ok, bundle}
+        {:ok, CertificateIssuanceAudit.publish(bundle)}
 
       {:error, reason} ->
         Logger.warning("[GatewayCertificateIssuer] Issue bundle failed: #{inspect(reason)}")
