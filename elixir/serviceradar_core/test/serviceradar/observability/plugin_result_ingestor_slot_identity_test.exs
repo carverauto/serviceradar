@@ -263,13 +263,28 @@ defmodule ServiceRadar.Observability.PluginResultIngestorSlotIdentityTest do
   end
 
   # The ingestor reads ServiceStatus several times per result, each read bounded
-  # by a narrow timestamp window. The hypertable is partitioned and indexed on
-  # that column, so each read must reach it through an index on the timestamp.
-  # A read that compares a cast of the column matches no index and scans every
-  # chunk of the table.
-  test "the ingestor's ServiceStatus window reads are bounded by the timestamp index" do
+  # by a narrow timestamp window. service_status is a hypertable partitioned on
+  # that column, so a read must be planned against the chunk holding its window
+  # only. A read that compares a cast of the column cannot be pruned and scans
+  # every chunk of the retained history.
+  test "the ingestor's ServiceStatus window reads are pruned to the chunk of their window" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [SuccessfulHandler])
-    {payload, status, _observed_at} = plugin_result_fixture()
+    {payload, status, observed_at} = plugin_result_fixture()
+    distant_at = DateTime.shift(observed_at, day: -180)
+
+    {1, _} =
+      Repo.insert_all(
+        "service_status",
+        [
+          %{
+            timestamp: distant_at,
+            gateway_id: "#{status.gateway_id}-history",
+            service_name: status.service_name,
+            available: true
+          }
+        ],
+        prefix: "platform"
+      )
 
     reads =
       capture_service_status_reads(fn ->
@@ -277,16 +292,18 @@ defmodule ServiceRadar.Observability.PluginResultIngestorSlotIdentityTest do
       end)
 
     assert reads != []
-    # The table holds a handful of rows here, so make the planner show whether
-    # an index can serve the read rather than pick a cheaper sequential scan.
-    Repo.query!("SET LOCAL enable_seqscan = off")
+    current_chunk = service_status_chunk(observed_at)
+    distant_chunk = service_status_chunk(distant_at)
+    refute current_chunk == distant_chunk
+    # Plan with the bound values, as the ingestor's one-shot reads are planned.
+    Repo.query!("SET LOCAL plan_cache_mode = force_custom_plan")
 
     for {sql, params} <- reads do
-      assert sql
-             |> explain_json(params)
-             |> index_conditions()
-             |> Enum.any?(&(&1 =~ ~s("timestamp"))),
-             "service_status read is not bounded by a timestamp index:\n#{sql}"
+      relations = sql |> explain_json(params) |> plan_relations()
+
+      assert current_chunk in relations and distant_chunk not in relations,
+             "service_status read is not pruned to its window's chunk " <>
+               "(scans #{inspect(relations)}):\n#{sql}"
     end
   end
 
@@ -328,14 +345,27 @@ defmodule ServiceRadar.Observability.PluginResultIngestorSlotIdentityTest do
     plan
   end
 
-  defp index_conditions(plan) when is_list(plan), do: Enum.flat_map(plan, &index_conditions/1)
+  defp service_status_chunk(at) do
+    %{rows: [[chunk]]} =
+      Repo.query!(
+        """
+        SELECT chunk_name
+        FROM timescaledb_information.chunks
+        WHERE hypertable_schema = 'platform'
+          AND hypertable_name = 'service_status'
+          AND range_start <= $1
+          AND range_end > $1
+        """,
+        [at]
+      )
 
-  defp index_conditions(%{} = node) do
-    own = if is_binary(node["Index Cond"]), do: [node["Index Cond"]], else: []
+    chunk
+  end
 
-    children =
-      Enum.flat_map(List.wrap(node["Plan"]) ++ List.wrap(node["Plans"]), &index_conditions/1)
+  defp plan_relations(plan) when is_list(plan), do: Enum.flat_map(plan, &plan_relations/1)
 
-    own ++ children
+  defp plan_relations(%{} = node) do
+    own = if is_binary(node["Relation Name"]), do: [node["Relation Name"]], else: []
+    own ++ Enum.flat_map(List.wrap(node["Plan"]) ++ List.wrap(node["Plans"]), &plan_relations/1)
   end
 end
