@@ -81,19 +81,38 @@ defmodule ServiceRadar.Events.AuditWriter do
   """
   @spec write(opts()) :: :ok | {:error, term()}
   def write(opts) do
-    with {:ok, event} <- build_event(opts) do
-      InternalLogPublisher.publish("audit", event)
+    with {:ok, event} <- build_event(opts),
+         :ok <- InternalLogPublisher.publish("audit", event) do
+      :ok
+    else
+      {:error, reason} -> report_publish_failure(opts, reason)
     end
   rescue
     e ->
       Logger.error("Failed to publish audit log: #{inspect(e)}")
-      {:error, e}
+      report_publish_failure(opts, e)
   end
+
+  # A lost audit record must be countable, not only a log line: a caller of
+  # write_async/1 never sees the result.
+  defp report_publish_failure(opts, reason) do
+    :telemetry.execute(
+      [:serviceradar, :audit, :publish_failed],
+      %{count: 1},
+      %{resource_type: failure_tag(opts, :resource_type), action: failure_tag(opts, :action)}
+    )
+
+    {:error, reason}
+  end
+
+  defp failure_tag(opts, key) when is_list(opts), do: Keyword.get(opts, key)
+  defp failure_tag(_opts, _key), do: nil
 
   @doc """
   Write an audit event asynchronously (fire and forget).
 
-  Spawns a task to write the event. Errors are logged but not returned.
+  Spawns a task to write the event. A failure is logged and counted on the
+  `[:serviceradar, :audit, :publish_failed]` telemetry event, not returned.
   """
   @spec write_async(opts()) :: :ok
   def write_async(opts) do

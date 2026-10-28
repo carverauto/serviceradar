@@ -327,7 +327,27 @@ defmodule ServiceRadar.Telemetry do
       starrocks_load_metrics() ++
       prefix_tag_metrics() ++
       capacity_forecasting_metrics() ++
-      admission_lane_metrics() ++ identity_reconciliation_metrics() ++ notification_metrics()
+      admission_lane_metrics() ++
+      identity_reconciliation_metrics() ++ notification_metrics() ++ audit_metrics()
+  end
+
+  @doc """
+  Returns audit-trail delivery metrics.
+
+  `ServiceRadar.Events.AuditWriter` emits `[:serviceradar, :audit, :publish_failed]`
+  for every audit record it could neither publish nor queue for publish. Any
+  runtime that writes audit records (core and web-ng) exports this counter.
+  """
+  @spec audit_metrics() :: list()
+  def audit_metrics do
+    import Telemetry.Metrics
+
+    [
+      counter("serviceradar.audit.publish_failed.count",
+        tags: [:resource_type, :action],
+        description: "Audit records lost: neither published to JetStream nor queued for publish"
+      )
+    ]
   end
 
   @doc "Returns Stream Load counts, payload sizes, failures and duration by dataset."
