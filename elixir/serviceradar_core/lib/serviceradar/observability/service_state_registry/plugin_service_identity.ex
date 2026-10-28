@@ -3,17 +3,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginServiceIdentity 
 
   alias ServiceRadar.Repo
 
-  # The service name a plugin assignment's state and history live under.
-  #
-  # The earliest-created enabled assignment of a plugin on an agent (its
-  # primary) keeps the package name, so the rows and history series that
-  # predate coexisting assignments stay exactly where they are and no
-  # migration is needed; a replacement assignment superseding a disabled
-  # one is likewise primary and keeps the series. A later coexisting
-  # enabled assignment is disambiguated with its assignment id. Once an
-  # assignment has any state or history under the disambiguated name it
-  # keeps that name even if the primary assignment is later disabled or
-  # deleted, so its own series never splits.
+  # Naming contract: docs/docs/wasm-plugins.md. Keep the state/history
+  # existence check: recomputing solely from enabled siblings would rename
+  # a surviving assignment and split its existing series.
   @doc false
   @spec disambiguated_name(String.t(), String.t()) :: String.t()
   def disambiguated_name(package_name, assignment_id)

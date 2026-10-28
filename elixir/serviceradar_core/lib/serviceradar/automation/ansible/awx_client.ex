@@ -625,12 +625,8 @@ defmodule ServiceRadar.Automation.Ansible.AwxClient do
   The enabled `awx` plugin assignment on the controller's agent that a
   verb command should run through, when one can be identified.
 
-  A sole enabled awx assignment is identified directly. When several
-  coexist (one per credential-rule owner), the match is the assignment
-  whose owning rule holds the dispatch credential secret, else the one
-  whose params address the controller's base_url. `nil` when none can
-  be identified: the command then carries no assignment id and the
-  agent keeps its plugin-id lookup, as before.
+  See docs/docs/ansible.md for selection precedence and legacy routing.
+  Returns `nil` when no unique assignment can be identified.
   """
   @spec plugin_assignment_id_for(map(), String.t() | nil) :: String.t() | nil
   def plugin_assignment_id_for(controller, secret_id) when is_map(controller) do

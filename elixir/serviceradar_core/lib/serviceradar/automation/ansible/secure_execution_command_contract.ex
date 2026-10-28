@@ -339,10 +339,9 @@ defmodule ServiceRadar.Automation.Ansible.SecureExecutionCommandContract do
 
   defp broker_matches?(_broker, _attempt, _controller, _request), do: false
 
-  # `plugin_assignment_id` is the one optional payload key: AwxClient adds
-  # it when it can identify the assignment a verb must run through. When
-  # present it must name an awx assignment on the controller's agent, so a
-  # stored payload cannot be rerouted to another owner's assignment.
+  # Accept legacy payloads without assignment addressing. Explicit IDs must
+  # belong to the controller's agent and the awx plugin; selection policy
+  # is owned by AwxClient.plugin_assignment_id_for/2.
   defp payload_keys_match?(payload, expected_keys, controller) do
     keys = MapSet.new(Map.keys(payload))
 
