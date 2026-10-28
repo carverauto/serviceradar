@@ -94,7 +94,8 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
       end)
 
     attrs =
-      Enum.map(interface_rows, fn row ->
+      interface_rows
+      |> Enum.map(fn row ->
         %{
           sampler_address: row.sampler_address,
           if_index: row.if_index,
@@ -106,6 +107,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
           refreshed_at: now
         }
       end)
+      |> in_cache_key_order()
 
     case Ash.bulk_create(attrs, NetflowInterfaceCache, :upsert,
            actor: actor,
@@ -246,7 +248,8 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
       now = DateTime.utc_now()
 
       attrs =
-        Enum.map(pairs, fn {sampler_address, if_index} ->
+        pairs
+        |> Enum.map(fn {sampler_address, if_index} ->
           %{
             sampler_address: sampler_address,
             if_index: if_index,
@@ -256,6 +259,7 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
             updated_at: now
           }
         end)
+        |> in_cache_key_order()
 
       {count, _} =
         Repo.insert_all("netflow_interface_cache", attrs,
@@ -272,6 +276,11 @@ defmodule ServiceRadar.Observability.NetflowInterfaceCacheRefreshWorker do
   end
 
   def record_observed_interface_pairs(_rows), do: {:ok, 0}
+
+  # Flow batches and this worker upsert overlapping keys concurrently. Writing rows in one
+  # key order makes every writer request its row locks in the same sequence, so a writer
+  # waits for the key it needs instead of holding one another writer is waiting on.
+  defp in_cache_key_order(rows), do: Enum.sort_by(rows, &{&1.sampler_address, &1.if_index})
 
   @doc false
   @spec observed_interface_pairs_from_rows([map()]) :: [{String.t(), pos_integer()}]
