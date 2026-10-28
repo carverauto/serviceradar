@@ -111,7 +111,8 @@ policy stops the suite before object writes, without requesting bootstrap keys
 or broader credentials in the Job.
 
 The bounded `GET ?policy` response must contain two explicit `Deny` statements
-covering `s3:PutObject`, with principal `*` (or `{"AWS":"*"}`) and resource
+whose action is exactly `s3:PutObject` (a string or single-element list), with
+principal `*` (or `{"AWS":"*"}`) and a resource string or list containing
 `arn:aws:s3:::<bucket-a>/*` or `arn:aws:s3:::<bucket-a>/<run_id>/*`. Their conditions
 must be exactly:
 
@@ -203,6 +204,10 @@ operator reconciliation, never a claim of clean state. Delete the recovery Pod
 after retrieval; no sleep container or retrieval deadline is required.
 
 ## Measured contract and bounds
+
+The table describes the default `capabilities` suite. The separate
+[encryption-policy diagnostic](#encryption-policy-diagnostic) uses the same
+bounds and cleanup contract but does not run the capability suite's checks.
 
 | Check | Required observation |
 | --- | --- |
@@ -312,7 +317,8 @@ pretend these administration denials were measured. It always reports
 separate encryption-policy suite measures the four denials above.
 `atomic_no_overwrite` summarizes separately measured
 `conditional_put` and `conditional_multipart` checks. `explicit_sse_s3` summarizes
-`explicit_sse_s3_put` and `explicit_sse_s3_multipart`. A passing encryption check
+`explicit_sse_s3_put` and `explicit_sse_s3_multipart`. Both summaries remain
+`not_tested` in the encryption-policy suite. A passing explicit SSE-S3 check
 attests the tested object; it does not establish a policy rejecting unencrypted
 uploads. Missing HEAD evidence does not establish whether provider disks lack
 encryption. An earlier HEAD 404 remains collision hygiene for the isolated run,
