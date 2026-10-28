@@ -17,6 +17,7 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
   alias ServiceRadar.Observability.CapacityForecasting.Worker
   alias ServiceRadar.Observability.StatefulAlertEngine.RecoveryWorker
   alias ServiceRadar.Security.AuditVersionRetentionWorker
+  alias ServiceRadarCoreElx.CameraRecording.Storage
 
   @base_config Path.expand("../../config/config.exs", __DIR__)
   @prod_config Path.expand("../../config/prod.exs", __DIR__)
@@ -718,6 +719,75 @@ defmodule ServiceRadarCoreElx.ProductionRuntimeConfigTest do
                  120_000,
                "SYNC_INGESTOR_WORKER_TIMEOUT_MS=#{inspect(value)}"
       end
+    end
+  end
+
+  describe "camera recording storage identity" do
+    setup do
+      for name <-
+            ~w(SERVICERADAR_CAMERA_RECORDING_STORAGE_ID SERVICERADAR_CAMERA_RECORDING_IDENTITY_FILE SERVICERADAR_CAMERA_RECORDING_MEMBER SERVICERADAR_CAMERA_RECORDING_ENABLED) do
+        with_env(name, nil)
+      end
+
+      :ok
+    end
+
+    test "preserves disabled defaults and scalar compatibility" do
+      config = read_prod_config()[:serviceradar_core_elx]
+      assert config[:camera_recording_storage_id] == nil
+      assert config[:camera_recording_enabled] == false
+
+      scalar = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA"
+      with_env("SERVICERADAR_CAMERA_RECORDING_STORAGE_ID", scalar)
+      assert read_prod_config()[:serviceradar_core_elx][:camera_recording_storage_id] == scalar
+    end
+
+    test "selects the installed member without adopting or initializing a volume" do
+      root = Path.join(System.tmp_dir!(), "recording-runtime-#{System.unique_integer([:positive, :monotonic])}")
+      File.mkdir!(root)
+      on_exit(fn -> File.rm_rf!(root) end)
+      spool = Path.join(root, "spool")
+      File.mkdir!(spool)
+      File.chmod!(spool, 0o700)
+      path = Path.join(root, "identities.json")
+      first = "00000000-0000-4000-8000-000000000011"
+      second = "00000000-0000-4000-8000-000000000012"
+
+      File.write!(
+        path,
+        Jason.encode!(%{"version" => 1, "members" => %{"camera-core-0" => first, "camera-core-1" => second}})
+      )
+
+      with_env("SERVICERADAR_CAMERA_RECORDING_IDENTITY_FILE", path)
+      with_env("SERVICERADAR_CAMERA_RECORDING_MEMBER", "camera-core-1")
+      with_env("SERVICERADAR_CAMERA_RECORDING_SPOOL_ROOT", spool)
+
+      config = read_prod_config()[:serviceradar_core_elx]
+      assert config[:camera_recording_storage_id] == second
+      assert config[:camera_recording_enabled] == false
+      assert File.ls!(spool) == []
+
+      assert {:error, :storage_identity_missing} =
+               Storage.open(spool, config[:camera_recording_storage_id])
+
+      # The independently provisioned volume belongs to the other member.
+      assert {:ok, _} = Storage.initialize(spool, first)
+      marker = File.read!(Path.join(spool, ".storage-id"))
+
+      assert {:error, :storage_identity_mismatch} =
+               Storage.open(spool, config[:camera_recording_storage_id])
+
+      assert File.read!(Path.join(spool, ".storage-id")) == marker
+
+      with_env("SERVICERADAR_CAMERA_RECORDING_MEMBER", "camera-core-0")
+      matching = read_prod_config()[:serviceradar_core_elx][:camera_recording_storage_id]
+      assert matching == first
+      assert {:ok, _} = Storage.open(spool, matching)
+
+      with_env("SERVICERADAR_CAMERA_RECORDING_STORAGE_ID", first)
+      error = catch_error(read_prod_config())
+      assert Exception.message(error) =~ "conflicting_identity_sources"
+      assert File.read!(Path.join(spool, ".storage-id")) == marker
     end
   end
 

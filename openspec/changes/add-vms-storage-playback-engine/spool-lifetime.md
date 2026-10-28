@@ -19,8 +19,10 @@ recording.
 An unmarked root must be empty. The initializer exclusively creates
 `.storage-id`, sets mode `0600`, writes exactly the canonical lowercase UUID
 followed by one newline (37 bytes), and fsyncs the file and root directory.
-The existing `SERVICERADAR_CAMERA_RECORDING_STORAGE_ID` configuration must name
-that UUID. There is no generated default or hostname fallback.
+Runtime configuration must select that UUID, either through the existing
+`SERVICERADAR_CAMERA_RECORDING_STORAGE_ID` scalar or the explicit
+[per-member installation document](../add-persistent-camera-spool/identity-configuration.md).
+The two modes cannot be combined. There is no generated default or hostname fallback.
 
 An exact retry verifies and syncs the existing marker and directory without
 rewriting the marker, even if recording blocks now exist. A concurrent attempt

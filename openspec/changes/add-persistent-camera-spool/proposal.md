@@ -20,10 +20,11 @@ across core replicas.
   before hosted enablement. Cloud restore currently targets a Deployment.
 
 The user approved the per-replica persistent-storage direction using an opt-in
-StatefulSet. The single-core demo alternative was not selected. This remains a
-planning-only proposal, not an implemented installation or rollout authorization.
-Implementation, maintenance-window approval and deployment acceptance remain
-open. Architecture approval neither qualifies a provider nor enables recording.
+StatefulSet. The single-core demo alternative was not selected. Runtime
+member-identity selection is implemented in the first bounded pass; the
+initializer, chart packaging and installation remain unimplemented. This is not
+rollout authorization. Maintenance-window approval and deployment acceptance
+remain open. Architecture approval neither qualifies a provider nor enables recording.
 
 ## Impact
 
@@ -35,5 +36,5 @@ open. Architecture approval neither qualifies a provider nor enables recording.
 - Related work: [VMS plan](../add-vms-storage-playback-engine/README.md),
   [spool identity](../add-vms-storage-playback-engine/spool-lifetime.md) and
   [bounded capture](../add-vms-storage-playback-engine/capture-once.md).
-- No application, chart, database, credential, bucket or deployment change is
-  included in this planning change.
+- The first implementation pass changes runtime identity configuration only.
+  Chart, database, credential, bucket and deployment state remain unchanged.

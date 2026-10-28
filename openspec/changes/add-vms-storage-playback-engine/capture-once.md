@@ -12,7 +12,8 @@ Capture remains disabled by default. The owner core must have:
 - `SERVICERADAR_CAMERA_RECORDING_ENABLED=true` explicitly installed;
 - `SERVICERADAR_CAMERA_RECORDING_SPOOL_ROOT` set to an absolute private local
   spool directory;
-- `SERVICERADAR_CAMERA_RECORDING_STORAGE_ID` set to that storage lifetime UUID.
+- the expected storage lifetime UUID selected through
+  [member identity configuration](../add-persistent-camera-spool/identity-configuration.md).
 
 The spool must already satisfy the [provisioned spool identity
 contract](spool-lifetime.md#provision-once-verify-during-use) on its intended

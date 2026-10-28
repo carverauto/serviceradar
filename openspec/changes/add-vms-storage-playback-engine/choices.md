@@ -620,11 +620,9 @@ recorder attachment and admission of every access unit. The claim requires an
 active persisted relay with that same ID. Discovery only locates the pipeline;
 neither a PID nor distributed registration grants exclusive ownership.
 
-Runtime configuration requires SERVICERADAR_CAMERA_RECORDING_STORAGE_ID, a
-deployment-provisioned UUID passed through the existing core.extraEnv seam.
-There is no hostname, pod, Erlang-node or unrelated-volume fallback. This UUID
-must follow the actual storage across rescheduling and change when that storage
-is replaced. Local marker creation and verification are specified in
+Runtime identity selection is specified in
+[member identity configuration](../add-persistent-camera-spool/identity-configuration.md).
+The storage lifetime and local marker creation/verification contract is owned by
 [spool lifetime](spool-lifetime.md). This code does not provision a Cloud
 volume or enable recording.
 
