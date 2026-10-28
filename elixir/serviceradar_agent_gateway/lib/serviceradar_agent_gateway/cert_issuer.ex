@@ -998,8 +998,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp normalize_serial_number(value) when is_integer(value) and value > 0, do: value
   defp normalize_serial_number(_value), do: nil
 
-  # The gateway has neither an outbox repo nor permission to publish audit logs.
-  # Return issuance metadata only for publication by the requesting node or core.
+  # ServiceRadar.Edge.CertificateIssuanceAudit owns delivery on a repo-enabled node.
+  # This record carries issuance metadata only, never key material or certificates.
   defp issuance_audit(opts, details) do
     [
       action: Keyword.get(opts, :audit_action, :agent_certificate_issue),

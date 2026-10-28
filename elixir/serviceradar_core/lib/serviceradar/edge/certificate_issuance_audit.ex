@@ -20,6 +20,10 @@ defmodule ServiceRadar.Edge.CertificateIssuanceAudit do
 
   @doc """
   Publishes the bundle's issuance audit and returns the bundle without it.
+
+  An older gateway may omit the record during a mixed-version rollout. This
+  logs a warning and still returns the certificate; upgrading the gateway is
+  required to restore issuance auditing for those requests.
   """
   @spec publish(map()) :: map()
   def publish(bundle) when is_map(bundle) do
