@@ -3,13 +3,11 @@ sidebar_position: 4
 title: TLS Security
 ---
 
-:::warning Deprecated SPIRE runtime
-SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
-:::
+For SPIRE compatibility and upgrade guidance, see [Migrating off SPIRE](./migrating-off-spire.md).
 
 # TLS Security
 
-ServiceRadar uses mutual TLS (mTLS) between internal services and edge agents. The Helm chart and Docker Compose issue certificates through the deployment-managed CA. SPIFFE/SPIRE issuance is deprecated compatibility for explicitly opted-in Kubernetes installs.
+ServiceRadar uses mutual TLS (mTLS) between internal services and edge agents. The Helm chart and Docker Compose issue certificates through the deployment-managed CA.
 
 ## Summary
 
@@ -22,12 +20,9 @@ For deployment-specific TLS setup, see:
 - [Docker Setup](./docker-setup.md)
 - [Helm Deployment and Configuration](./helm-configuration.md)
 
-## Kubernetes Certificate Options
+## Kubernetes Certificates
 
-A Kubernetes deployment has two ways to obtain the mTLS material that internal
-services and edge agents need.
-
-### Option A: In-chart certificate generator (default, non-SPIRE)
+### In-chart certificate generator
 
 The Helm chart does **not** require SPIRE. By default it ships an in-chart
 certificate generator that issues the runtime mTLS certificates for you:
@@ -44,38 +39,9 @@ certificate generator that issues the runtime mTLS certificates for you:
   trigger unexpected certificate rotation. Set it to `true` for a single
   upgrade when you intend to rotate the runtime certificates, then set it back.
 
-This option is the right choice for clusters that do not run SPIRE.
-
-### Option B: SPIFFE/SPIRE workload identities (deprecated)
-
-For existing opt-in installs, the chart can deploy and integrate SPIRE as deprecated
-compatibility (see [Migrating off SPIRE](./migrating-off-spire.md)).
-
-- `spire.enabled` defaults to **`false`**. Existing installs can retain `spire.enabled=true` during deprecation to keep the SPIRE
-  server, SPIRE agent, and the `ClusterSPIFFEID` resources that bind workloads
-  to SPIFFE identities.
-- `spire.trustDomain` sets the SPIFFE trust domain (for example
-  `spire.trustDomain=example.org`). Choose a trust domain that is stable for the
-  life of the deployment.
-- `spire.clusterName` names the cluster within the SPIRE topology.
-- The chart wires per-service `*ServiceAccount` values (for example
-  `spire.coreServiceAccount`, `spire.webNgServiceAccount`,
-  `spire.serviceradarAgentServiceAccount`) to the matching SPIFFE IDs.
-- `spire.bundleConfigMap` names the ConfigMap that distributes the SPIRE trust
-  bundle to workloads.
-
-When SPIRE remains enabled during deprecation, core services use SPIFFE identities for
-service-to-service mTLS; no manual certificate management is required for most
-installs.
-
-Inspect the full SPIRE value tree for your chart version with
-`helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`.
-See [Helm Deployment and Configuration](./helm-configuration.md) for deployment
-mechanics.
-
 ### Dgraph server TLS (separate path)
 
-Neither option covers the topology graph. When the chart installs Dgraph
+The runtime certificate generator does not cover the topology graph. When the chart installs Dgraph
 (`dgraph.enabled=true`, the default), it mints a private CA and the Alpha
 serving certificate into Secrets. cert-manager is not required for that. The
 schema and migrator Jobs verify Dgraph against that CA; application pods
@@ -98,9 +64,7 @@ docker compose up -d
 
 ### Kubernetes
 
-Use the in-chart certificate generator for new deployments. Existing SPIFFE/SPIRE deployments can migrate to it, as described in [Kubernetes Certificate
-Options](#kubernetes-certificate-options). No manual certificate management is
-required for most installs.
+Use the [in-chart certificate generator](#in-chart-certificate-generator) for new deployments. For existing SPIRE deployments, follow [Migrating off SPIRE](./migrating-off-spire.md). No manual certificate management is required for most installs.
 
 ### Manual Setup
 

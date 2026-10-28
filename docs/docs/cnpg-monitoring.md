@@ -2,9 +2,7 @@
 title: CNPG Monitoring
 ---
 
-:::warning Deprecated SPIRE runtime
-SPIFFE/SPIRE runtime support is deprecated. Use mTLS with ServiceRadar's deployment-managed CA. Explicit SPIRE configuration remains compatible during this deprecation phase. See [Migrating off SPIRE](./migrating-off-spire.md). Existing `spiffe://` certificate URI identities remain supported.
-:::
+For SPIRE compatibility and upgrade guidance, see [Migrating off SPIRE](./migrating-off-spire.md).
 
 # CNPG Monitoring and Dashboards
 
@@ -240,12 +238,7 @@ LIMIT 20;
 
 Set the slow-query log threshold in your own values file or with `--set`;
 `helm show values oci://registry.carverauto.dev/serviceradar/charts/serviceradar --version <chart-version>`
-shows the default. Which key applies depends on which CNPG cluster the install runs:
-
-- `cnpg.postgresqlParameters.log_min_duration_statement` for a normal install.
-- `spire.postgres.postgresqlParameters.log_min_duration_statement` when
-  `spire.postgres.enabled` is true, because that template replaces the main CNPG
-  cluster entirely.
+shows the default. Set `cnpg.postgresqlParameters.log_min_duration_statement`.
 
 A reasonable starting value is `500ms`; raise it to reduce log noise or lower it
 for short deep-analysis windows. After enabling slow-query logging on a healthy
@@ -254,7 +247,7 @@ to tune alert thresholds.
 
 ### Bind parameters are deliberately not logged
 
-Both blocks also pin `log_parameter_max_length: "0"`, which keeps bind parameters
+The chart also pins `log_parameter_max_length: "0"`, which keeps bind parameters
 out of the slow-query log. PostgreSQL defaults this to `-1` (unlimited), and on a
 bulk-loading workload that is a real amplifier: a 2000-row insert logged roughly
 742 KB of parameters for a single statement.

@@ -83,7 +83,7 @@ To deploy edge agents:
 - Edge agents communicate only via gRPC (no ERTS/Erlang distribution)
 - Internal service-to-service traffic uses mTLS by default
 - Default Kubernetes installs use deployment-managed certificates published into a Kubernetes Secret and mounted into workloads
-- SPIFFE/SPIRE runtime support is deprecated; existing explicit opt-in configurations remain compatible during phase one
+- For legacy SPIRE installations, follow [Migrating off SPIRE](../../docs/docs/migrating-off-spire.md) before upgrading
 - Isolation is enforced by deployment boundaries and database credentials
 
 For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge-agents.md).
