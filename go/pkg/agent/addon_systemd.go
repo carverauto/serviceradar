@@ -41,6 +41,7 @@ import (
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
+	"github.com/carverauto/serviceradar/go/pkg/agent/updaterflags"
 	"github.com/carverauto/serviceradar/go/pkg/hashutil"
 )
 
@@ -1098,59 +1099,50 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSyst
 		return ErrAddonSystemdNoUnits
 	}
 
-	requiredFlags := []string{
-		"addon-id",
-		"addon-version",
-		"addon-bin",
-		"addon-sha256",
-		"addon-signature",
-		"addon-artifact",
-		"addon-systemd-install",
-		"addon-systemd-enable",
-	}
-	if req.RunTimerNow {
-		requiredFlags = append(requiredFlags, "addon-systemd-run-timer-now")
-	}
-	if !req.Resources.IsZero() {
-		requiredFlags = append(requiredFlags, "addon-systemd-resources")
-	}
-	if len(req.Capabilities) > 0 {
-		requiredFlags = append(requiredFlags, "addon-capabilities")
-	}
-	if req.StateSnapshotPath != "" {
-		requiredFlags = append(requiredFlags, "addon-state-snapshot")
+	cmd, err := systemdInstallUpdaterArgs(req)
+	if err != nil {
+		return err
 	}
 
-	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath(requiredFlags...)
+	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath(cmd.flags...)
 	if err != nil {
 		return fmt.Errorf("locate agent updater for systemd install: %w", err)
 	}
 
-	args := []string{
-		"--addon-id", req.AddonID,
-		"--addon-version", req.Version,
-		"--addon-bin", req.BinaryName,
-		"--addon-sha256", req.ArtifactSHA256,
-		"--addon-signature", req.Signature,
-		"--addon-artifact", req.ArtifactPath,
-		"--addon-systemd-install", strings.Join(req.Units, ","),
-		"--addon-systemd-enable", req.Enable,
+	if err := runAgentUpdaterCommand(ctx, updaterPath, cmd.args...); err != nil {
+		return fmt.Errorf("agent-updater systemd install failed: %w", err)
 	}
+
+	return nil
+}
+
+// systemdInstallUpdaterArgs builds the agent-updater command line that verifies,
+// materializes and enables a staged add-on's systemd units.
+func systemdInstallUpdaterArgs(req AddonSystemdInstallRequest) (agentUpdaterArgs, error) {
+	var cmd agentUpdaterArgs
+	cmd.set(updaterflags.AddonID, req.AddonID)
+	cmd.set(updaterflags.AddonVersion, req.Version)
+	cmd.set(updaterflags.AddonBinary, req.BinaryName)
+	cmd.set(updaterflags.AddonSHA256, req.ArtifactSHA256)
+	cmd.set(updaterflags.AddonSignature, req.Signature)
+	cmd.set(updaterflags.AddonArtifact, req.ArtifactPath)
+	cmd.set(updaterflags.AddonSystemdInstall, strings.Join(req.Units, ","))
+	cmd.set(updaterflags.AddonSystemdEnable, req.Enable)
 	if req.RunTimerNow {
-		args = append(args, "--addon-systemd-run-timer-now")
+		cmd.enable(updaterflags.AddonSystemdRunTimerNow)
 	}
 	if len(req.Capabilities) > 0 {
 		normalized, err := normalizeAddonCapabilities(req.Capabilities)
 		if err != nil {
-			return err
+			return agentUpdaterArgs{}, err
 		}
-		args = append(args, "--addon-capabilities", strings.Join(normalized, ","))
+		cmd.set(updaterflags.AddonCapabilities, strings.Join(normalized, ","))
 	}
 	if req.PrivilegedRoot != "" {
-		args = append(args, "--privileged-root", req.PrivilegedRoot)
+		cmd.set(updaterflags.PrivilegedRoot, req.PrivilegedRoot)
 	}
 	if req.StateSnapshotPath != "" {
-		args = append(args, "--addon-state-snapshot", req.StateSnapshotPath)
+		cmd.set(updaterflags.AddonStateSnapshot, req.StateSnapshotPath)
 	}
 
 	// Pass the manifest resource limits as JSON so the root-owned updater can write
@@ -1159,16 +1151,12 @@ func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, req AddonSyst
 	if !req.Resources.IsZero() {
 		encoded, err := json.Marshal(req.Resources)
 		if err != nil {
-			return fmt.Errorf("encode add-on systemd resource limits: %w", err)
+			return agentUpdaterArgs{}, fmt.Errorf("encode add-on systemd resource limits: %w", err)
 		}
-		args = append(args, "--addon-systemd-resources", string(encoded))
+		cmd.set(updaterflags.AddonSystemdResources, string(encoded))
 	}
 
-	if err := runAgentUpdaterCommand(ctx, updaterPath, args...); err != nil {
-		return fmt.Errorf("agent-updater systemd install failed: %w", err)
-	}
-
-	return nil
+	return cmd, nil
 }
 
 // uninstallAddonSystemdUnitsViaUpdater invokes the root-owned agent-updater to disable +
@@ -1178,16 +1166,26 @@ func uninstallAddonSystemdUnitsViaUpdater(ctx context.Context, units []string) e
 		return nil
 	}
 
-	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath("addon-systemd-uninstall")
+	cmd := systemdUninstallUpdaterArgs(units)
+	updaterPath, err := ValidatedPrivilegedAgentUpdaterPath(cmd.flags...)
 	if err != nil {
 		return fmt.Errorf("locate agent updater for systemd uninstall: %w", err)
 	}
 
-	if err := runAgentUpdaterCommand(ctx, updaterPath, "--addon-systemd-uninstall", strings.Join(units, ",")); err != nil {
+	if err := runAgentUpdaterCommand(ctx, updaterPath, cmd.args...); err != nil {
 		return fmt.Errorf("agent-updater systemd uninstall failed: %w", err)
 	}
 
 	return nil
+}
+
+// systemdUninstallUpdaterArgs builds the agent-updater command line that disables
+// and removes installed add-on units.
+func systemdUninstallUpdaterArgs(units []string) agentUpdaterArgs {
+	var cmd agentUpdaterArgs
+	cmd.set(updaterflags.AddonSystemdUninstall, strings.Join(units, ","))
+
+	return cmd
 }
 
 // stringsNotIn returns the elements of a that are not present in b.

@@ -25,6 +25,24 @@ import (
 
 const maxAgentUpdaterOutputBytes = 4096
 
+// agentUpdaterArgs is an agent-updater command line together with the names of
+// the flags it passes, so the flags probed on the installed updater are exactly
+// the flags the command uses.
+type agentUpdaterArgs struct {
+	flags []string
+	args  []string
+}
+
+func (a *agentUpdaterArgs) set(name, value string) {
+	a.flags = append(a.flags, name)
+	a.args = append(a.args, "--"+name, value)
+}
+
+func (a *agentUpdaterArgs) enable(name string) {
+	a.flags = append(a.flags, name)
+	a.args = append(a.args, "--"+name)
+}
+
 func runAgentUpdaterCommand(ctx context.Context, updaterPath string, args ...string) error {
 	cmd := exec.CommandContext(ctx, updaterPath, args...)
 
