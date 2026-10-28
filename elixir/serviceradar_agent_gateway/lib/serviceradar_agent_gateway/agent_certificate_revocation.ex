@@ -143,27 +143,22 @@ defmodule ServiceRadarAgentGateway.AgentCertificateRevocation do
       :ets.insert(state.table, {{:pending_renewal, component_id, {:fingerprint, succ_fp}}, entry})
     end
 
-    if is_integer(succ_serial) and succ_serial > 0 do
-      :ets.insert(state.table, {{:pending_renewal, component_id, {:serial_number, succ_serial}}, entry})
-    end
-
     {:reply, :ok, state}
   end
 
   def handle_call({:confirm_successor_hello, identity}, _from, state) do
     component_id = Map.get(identity, :component_id)
     succ_fp = extract_fingerprint(identity)
-    succ_serial = extract_serial_number(identity)
 
     pending =
-      find_pending_renewal(state.table, component_id, succ_fp, succ_serial)
+      find_pending_renewal(state.table, component_id, succ_fp)
 
     case pending do
       nil ->
         {:reply, {:ok, %{superseded: false}}, state}
 
       entry ->
-        retire_predecessor(state.table, entry, succ_fp, succ_serial)
+        retire_predecessor(state.table, entry, succ_fp)
         delete_pending_renewals_for_predecessor(state.table, component_id, entry)
 
         {:reply,
@@ -192,45 +187,28 @@ defmodule ServiceRadarAgentGateway.AgentCertificateRevocation do
     Logger.warning("Agent certificate revoked: key=#{inspect(key)} reason=#{inspect(reason)}")
   end
 
-  defp find_pending_renewal(table, component_id, succ_fp, succ_serial) when is_binary(component_id) do
-    keys =
-      Enum.reject(
-        [
-          if(is_binary(succ_fp) and succ_fp != "", do: {:pending_renewal, component_id, {:fingerprint, succ_fp}}),
-          if(is_integer(succ_serial) and succ_serial > 0,
-            do: {:pending_renewal, component_id, {:serial_number, succ_serial}}
-          )
-        ],
-        &is_nil/1
-      )
+  defp find_pending_renewal(table, component_id, succ_fp)
+       when is_binary(component_id) and is_binary(succ_fp) and succ_fp != "" do
+    key = {:pending_renewal, component_id, {:fingerprint, succ_fp}}
 
-    Enum.find_value(keys, fn key ->
-      case :ets.lookup(table, key) do
-        [{^key, entry}] -> entry
-        [] -> nil
-      end
-    end)
+    case :ets.lookup(table, key) do
+      [{^key, entry}] -> entry
+      [] -> nil
+    end
   end
 
-  defp find_pending_renewal(_table, _component_id, _succ_fp, _succ_serial), do: nil
+  defp find_pending_renewal(_table, _component_id, _succ_fp), do: nil
 
-  defp retire_predecessor(table, entry, succ_fp, succ_serial) do
+  defp retire_predecessor(table, entry, succ_fp) do
     reason = "superseded_by_renewal"
 
     if is_binary(entry.predecessor_fingerprint) and entry.predecessor_fingerprint != "" and
          entry.predecessor_fingerprint != succ_fp do
       insert_revocation(table, {:fingerprint, entry.predecessor_fingerprint}, reason)
     end
-
-    if is_integer(entry.predecessor_serial_number) and entry.predecessor_serial_number > 0 and
-         entry.predecessor_serial_number != succ_serial do
-      insert_revocation(table, {:serial_number, entry.predecessor_serial_number}, reason)
-    end
   end
 
   defp delete_pending_renewals_for_predecessor(table, component_id, target_entry) do
-    pattern = {{:pending_renewal, component_id, :_}, :"$1"}
-
     table
     |> :ets.match_object({{:pending_renewal, component_id, :_}, :_})
     |> Enum.each(fn {key, entry} ->
@@ -240,7 +218,6 @@ defmodule ServiceRadarAgentGateway.AgentCertificateRevocation do
       end
     end)
 
-    _ = pattern
     :ok
   end
 

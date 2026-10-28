@@ -184,12 +184,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     enforce_active_peer_certificate_for_renewal!(identity, cert_der, stream)
 
-    opts = renewal_cert_issuer_opts(identity)
+    opts =
+      identity
+      |> renewal_cert_issuer_opts()
+      |> Keyword.put(:before_sign, fn ->
+        enforce_active_peer_certificate_for_renewal!(identity, cert_der, stream)
+      end)
 
     case CertIssuer.issue_from_csr(csr_der, agent_id, partition_id, component_type, opts) do
       {:ok, issued} ->
         :ok = AgentCertificateRevocation.register_pending_renewal(agent_id, identity, issued)
-        record_renewed_agent_certificate(identity, agent_id, partition_id, issued, get_peer_ip(stream))
 
         Logger.info(
           "Agent certificate renewed: agent_id=#{agent_id}, partition=#{partition_id}, serial=#{issued.serial_number}"
@@ -1062,7 +1066,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp committed_plugin_result_error?(
          %{source: @plugin_result_source} = status,
          {:plugin_result_handlers_failed, _failures}
-       ), do: strict_delivery_status?(status)
+       ),
+       do: strict_delivery_status?(status)
 
   defp committed_plugin_result_error?(_status, _reason), do: false
 
@@ -2398,46 +2403,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       authorized_partition_id: Map.get(identity, :partition_id),
       predecessor_certificate_fingerprint: Map.get(identity, :certificate_fingerprint),
       predecessor_certificate_serial_number: Map.get(identity, :serial_number),
-      revoke_predecessor: false,
       audit_actor: %{
         id: Map.get(identity, :component_id),
         spiffe_id: Map.get(identity, :spiffe_id),
         certificate_fingerprint: Map.get(identity, :certificate_fingerprint)
       }
     )
-  end
-
-  defp record_renewed_agent_certificate(identity, agent_id, partition_id, issued, source_ip) do
-    now = DateTime.truncate(DateTime.utc_now(), :second)
-
-    renewed_identity =
-      identity
-      |> Map.put(:cert_not_before, issued.not_before)
-      |> Map.put(:cert_not_after, issued.not_after)
-      |> Map.put(:cert_expires_at, issued.not_after)
-      |> Map.put(:cert_serial, issued.serial_number)
-      |> Map.put(:cert_fingerprint_sha256, issued.certificate_fingerprint)
-      |> Map.put(:certificate_fingerprint, issued.certificate_fingerprint)
-      |> Map.put(:cert_renewed_at, now)
-
-    attrs = agent_record_attrs(renewed_identity, agent_id, partition_id, nil, source_ip)
-
-    if core_nodes() == [] do
-      :ok
-    else
-      case core_call(AgentGatewaySync, :heartbeat_agent, [agent_id, attrs]) do
-        {:ok, :ok} ->
-          :ok
-
-        {:ok, {:error, reason}} ->
-          Logger.warning("Failed to record renewed certificate for agent #{agent_id}: #{inspect(reason)}")
-          :ok
-
-        {:error, :core_unavailable} ->
-          Logger.warning("Core unavailable while recording renewed certificate for agent #{agent_id}")
-          :ok
-      end
-    end
   end
 
   defp register_control_session(session, agent_id, partition_id, capabilities, identity_context, hello) do

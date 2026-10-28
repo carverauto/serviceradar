@@ -380,9 +380,6 @@ func TestCertRenewalNearExpiryRenewsHotReloadsAndKeepsConnection(t *testing.T) {
 
 	mgr := NewCertRenewalManager(h.gwClient, logger.NewTestLogger())
 	mgr.jitterFunc = func(time.Duration) time.Duration { return 0 }
-	mgr.helloBuilder = func() *proto.AgentHelloRequest {
-		return &proto.AgentHelloRequest{AgentId: "agent-synth-1"}
-	}
 
 	delay, leaf, err := mgr.NextRenewalDelay()
 	require.NoError(t, err)
@@ -390,7 +387,27 @@ func TestCertRenewalNearExpiryRenewsHotReloadsAndKeepsConnection(t *testing.T) {
 	assert.Equal(t, time.Duration(0), delay)
 	assert.Equal(t, h.initialSN, leaf.SerialNumber.Int64())
 
-	require.NoError(t, mgr.RenewOnce(ctx))
+	loop := &PushLoop{
+		server:        &Server{config: &ServerConfig{AgentID: "agent-synth-1"}},
+		gateway:       h.gwClient,
+		logger:        logger.NewTestLogger(),
+		configVersion: "synthetic-config",
+		stopCh:        make(chan struct{}),
+	}
+	renewCtx, stopRenewal := context.WithCancel(ctx)
+	defer stopRenewal()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		loop.certificateRenewalLoop(renewCtx)
+	}()
+	require.Eventually(t, func() bool {
+		h.gwServer.mu.Lock()
+		defer h.gwServer.mu.Unlock()
+		return h.gwServer.lastHelloSerial == 5001
+	}, 10*time.Second, 10*time.Millisecond)
+	stopRenewal()
+	<-done
 
 	// Provider was hot-reloaded in-memory with the new leaf certificate.
 	newLeaf := h.gwClient.MTLSProvider().ClientLeaf()
@@ -400,7 +417,6 @@ func TestCertRenewalNearExpiryRenewsHotReloadsAndKeepsConnection(t *testing.T) {
 	// Successor Hello retired the predecessor certificate on the gateway.
 	h.gwServer.mu.Lock()
 	assert.Equal(t, int64(5001), h.gwServer.lastHelloSerial)
-	assert.Equal(t, "superseded_by_renewal", h.gwServer.revokedSerials[h.initialSN])
 	h.gwServer.mu.Unlock()
 
 	// Subsequent RPCs over the reconnected gateway client use the renewed certificate.

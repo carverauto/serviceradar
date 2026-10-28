@@ -70,8 +70,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
           {:ok, map()} | {:error, atom() | term()}
   def issue_from_csr(csr_der, component_id, partition_id, component_type \\ :agent, opts \\ [])
 
-  def issue_from_csr(csr_input, component_id, partition_id, component_type, opts)
-      when is_binary(csr_input) and byte_size(csr_input) > 0 and is_binary(component_id) and is_binary(partition_id) do
+  def issue_from_csr(csr_der, component_id, partition_id, component_type, opts)
+      when is_binary(csr_der) and byte_size(csr_der) > 0 and is_binary(component_id) and is_binary(partition_id) do
     component_type = normalize_component_type(component_type)
 
     with :ok <- validate_component_type(component_type),
@@ -79,7 +79,6 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
          {:ok, extra_sans} <- extra_sans(component_type, partition_id, opts),
          :ok <- authorize_identity(component_id, partition_id, opts),
          {:ok, validity_days} <- validate_validity_days(opts),
-         {:ok, csr_der} <- normalize_csr_der(csr_input),
          :ok <- verify_csr(csr_der, component_id, partition_id, component_type, extra_sans),
          {:ok, ca_cert, ca_key} <- load_ca_paths(opts) do
       sign_csr_certificate(
@@ -448,20 +447,6 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
   defp elem_bits(<<bits::bitstring-size(126), _::bitstring>>, 126), do: bits
 
-  defp normalize_csr_der(csr_input) when is_binary(csr_input) do
-    if String.starts_with?(String.trim_leading(csr_input), "-----BEGIN") do
-      case :public_key.pem_decode(csr_input) do
-        [{:CertificationRequest, der, :not_encrypted} | _] when is_binary(der) ->
-          {:ok, der}
-
-        _ ->
-          {:error, :invalid_csr}
-      end
-    else
-      {:ok, csr_input}
-    end
-  end
-
   defp verify_csr(csr_der, component_id, partition_id, component_type, extra_sans) do
     with {:ok, cert_req_info, sig_algo, signature} <- decode_csr(csr_der),
          {:CertificationRequestInfo, _version, subject, subject_pk_info, attributes} <- cert_req_info,
@@ -779,6 +764,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            :ok <-
              write_extfile(ext_path, component_type, partition_id, component_id, cn, Keyword.get(opts, :extra_sans, [])),
            :ok <- ensure_serial(serial_path),
+           :ok <- Keyword.get(opts, :before_sign, fn -> :ok end).(),
            :ok <-
              run_openssl([
                "x509",
@@ -808,16 +794,11 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            {:ok, cert_meta} <- extract_issued_cert_metadata(cert_pem) do
         spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
 
-        predecessor_info =
-          if Keyword.get(opts, :revoke_predecessor, false) == true do
-            revoke_predecessor_certificate(opts)
-          else
-            %{
-              fingerprint: normalize_fingerprint(Keyword.get(opts, :predecessor_certificate_fingerprint)),
-              serial_number: normalize_serial_number(Keyword.get(opts, :predecessor_certificate_serial_number)),
-              revoked?: false
-            }
-          end
+        predecessor_info = %{
+          fingerprint: normalize_fingerprint(Keyword.get(opts, :predecessor_certificate_fingerprint)),
+          serial_number: normalize_serial_number(Keyword.get(opts, :predecessor_certificate_serial_number)),
+          revoked?: false
+        }
 
         emit_issuance_audit(
           Keyword.put_new(opts, :audit_action, :agent_certificate_renew),
@@ -857,6 +838,9 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
          }}
       end
     rescue
+      error in GRPC.RPCError ->
+        reraise error, __STACKTRACE__
+
       error ->
         {:error, {:certificate_issue_failed, error}}
     after

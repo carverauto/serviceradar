@@ -299,6 +299,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
     setup do
       CertificateTestHelpers.ensure_revocation_store!()
       AgentCertificateRevocation.clear()
+      {:ok, _} = Application.ensure_all_started(:horde)
+      {:ok, _} = Application.ensure_all_started(:phoenix_pubsub)
+
+      if !Process.whereis(ServiceRadar.PubSub) do
+        start_supervised!({Phoenix.PubSub, name: ServiceRadar.PubSub})
+      end
+
+      if !Process.whereis(ProcessRegistry.registry_name()) do
+        Enum.each(ProcessRegistry.child_specs(), &start_supervised!/1)
+      end
+
+      if !Process.whereis(AgentRegistryProxy), do: start_supervised!(AgentRegistryProxy)
       Config.setup(gateway_id: "gateway-renewal-test", domain: "default")
 
       parent_dir = CertificateTestHelpers.unique_tmp_dir!("gateway-server-renewal")
@@ -351,60 +363,109 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       }
     end
 
-    test "issues renewed certificate, keeps predecessor valid across retry, and retires predecessor only on successor Hello",
-         context do
-      csr_der_1 = build_test_csr_der!(context.agent_id, "default")
+    for transport <- [:unary, :control] do
+      @transport transport
+      test "#{transport} Hello retires only the predecessor after renewal retries", context do
+        csr_der_1 = build_test_csr_der!(context.agent_id, "default")
 
-      resp_1 =
-        AgentGatewayServer.renew_certificate(
-          %Monitoring.CertificateRenewalRequest{csr_der: csr_der_1},
-          context.old_stream
-        )
+        resp_1 =
+          AgentGatewayServer.renew_certificate(
+            %Monitoring.CertificateRenewalRequest{csr_der: csr_der_1},
+            context.old_stream
+          )
 
-      assert byte_size(resp_1.certificate_pem) > 0
-      assert byte_size(resp_1.ca_chain_pem) > 0
-      assert byte_size(resp_1.serial_number) > 0
-      assert byte_size(resp_1.certificate_fingerprint) == 64
-      assert resp_1.not_after_unix > resp_1.not_before_unix
-      refute resp_1.certificate_fingerprint == context.old_identity.certificate_fingerprint
+        assert byte_size(resp_1.certificate_pem) > 0
+        assert byte_size(resp_1.ca_chain_pem) > 0
+        assert byte_size(resp_1.serial_number) > 0
+        assert byte_size(resp_1.certificate_fingerprint) == 64
+        assert resp_1.not_after_unix > resp_1.not_before_unix
+        refute resp_1.certificate_fingerprint == context.old_identity.certificate_fingerprint
 
-      # Predecessor MUST NOT be revoked before the agent completes Hello with the successor,
-      # so a lost response or mid-write crash allows retry on the predecessor certificate.
-      refute AgentCertificateRevocation.revoked?(context.old_identity)
+        # Predecessor MUST NOT be revoked before the agent completes Hello with the successor,
+        # so a lost response or mid-write crash allows retry on the predecessor certificate.
+        refute AgentCertificateRevocation.revoked?(context.old_identity)
 
-      csr_der_2 = build_test_csr_der!(context.agent_id, "default")
+        csr_der_2 = build_test_csr_der!(context.agent_id, "default")
 
-      resp_2 =
-        AgentGatewayServer.renew_certificate(
-          %Monitoring.CertificateRenewalRequest{csr_der: csr_der_2},
-          context.old_stream
-        )
-
-      assert byte_size(resp_2.certificate_pem) > 0
-      refute AgentCertificateRevocation.revoked?(context.old_identity)
-
-      # Once the agent reconnects and completes Hello presenting the successor certificate,
-      # the gateway confirms the handoff and retires the predecessor with superseded_by_renewal.
-      {:ok, %{superseded: true}} =
-        resp_2.certificate_pem
-        |> CertificateTestHelpers.certificate_der!()
-        |> ComponentIdentityResolver.resolve_from_cert()
-        |> elem(1)
-        |> AgentCertificateRevocation.confirm_successor_hello()
-
-      assert AgentCertificateRevocation.revoked?(context.old_identity)
-      assert AgentCertificateRevocation.revoked_reason(context.old_identity) == "superseded_by_renewal"
-
-      # Presenting the retired predecessor certificate for another renewal is now denied.
-      error =
-        assert_raise GRPC.RPCError, ~r/certificate_revoked/, fn ->
+        resp_2 =
           AgentGatewayServer.renew_certificate(
             %Monitoring.CertificateRenewalRequest{csr_der: csr_der_2},
             context.old_stream
           )
+
+        assert byte_size(resp_2.certificate_pem) > 0
+        refute AgentCertificateRevocation.revoked?(context.old_identity)
+
+        successor_stream =
+          resp_2.certificate_pem
+          |> CertificateTestHelpers.certificate_der!()
+          |> CertificateTestHelpers.cert_stream()
+
+        assert_enrolled(@transport, host_hello(@transport, context.agent_id), successor_stream)
+
+        unrelated_identity = %{
+          context.old_identity
+          | component_id: "agent-unrelated",
+            certificate_fingerprint: String.duplicate("a", 64)
+        }
+
+        refute AgentCertificateRevocation.revoked?(unrelated_identity)
+        assert AgentCertificateRevocation.revoked_reason(unrelated_identity) == nil
+
+        assert AgentCertificateRevocation.revoked?(context.old_identity)
+        assert AgentCertificateRevocation.revoked_reason(context.old_identity) == "superseded_by_renewal"
+
+        # Presenting the retired predecessor certificate for another renewal is now denied.
+        error =
+          assert_raise GRPC.RPCError, ~r/certificate_revoked/, fn ->
+            AgentGatewayServer.renew_certificate(
+              %Monitoring.CertificateRenewalRequest{csr_der: csr_der_2},
+              context.old_stream
+            )
+          end
+
+        assert error.status == GRPC.Status.permission_denied()
+      end
+    end
+
+    for failure <- [:expired, :revoked] do
+      @failure failure
+      test "rejects a peer that becomes #{@failure} at the signing boundary", context do
+        counter = :counters.new(1, [])
+        now = DateTime.utc_now()
+        failure = @failure
+
+        now_fn = fn ->
+          :counters.add(counter, 1, 1)
+
+          if :counters.get(counter, 1) == 1 do
+            now
+          else
+            case failure do
+              :expired ->
+                context.old_identity.cert_not_after
+
+              :revoked ->
+                AgentCertificateRevocation.revoke_fingerprint(context.old_identity.certificate_fingerprint)
+                now
+            end
+          end
         end
 
-      assert error.status == GRPC.Status.permission_denied()
+        opts = Application.fetch_env!(:serviceradar_agent_gateway, :cert_issuer_opts)
+        Application.put_env(:serviceradar_agent_gateway, :cert_issuer_opts, Keyword.put(opts, :now, now_fn))
+
+        error =
+          assert_raise GRPC.RPCError, fn ->
+            AgentGatewayServer.renew_certificate(
+              %Monitoring.CertificateRenewalRequest{csr_der: build_test_csr_der!(context.agent_id, "default")},
+              context.old_stream
+            )
+          end
+
+        assert error.status == GRPC.Status.permission_denied()
+        assert error.message == "certificate_#{@failure}"
+      end
     end
 
     test "rejects expired and not-yet-valid peer certificates with PERMISSION_DENIED", context do

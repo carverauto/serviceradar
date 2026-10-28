@@ -57,7 +57,6 @@ type CertificateRenewalGateway interface {
 	RenewCertificate(ctx context.Context, req *proto.CertificateRenewalRequest) (*proto.CertificateRenewalResponse, error)
 	MTLSProvider() *srgrpc.MTLSProvider
 	ReloadAndReconnect(ctx context.Context) error
-	Hello(ctx context.Context, req *proto.AgentHelloRequest) (*proto.AgentHelloResponse, error)
 }
 
 // CertRenewalWriteHooks allows tests to inject faults at exact points in the atomic persistence sequence.
@@ -71,7 +70,6 @@ type CertRenewalWriteHooks struct {
 type CertRenewalManager struct {
 	gateway         CertificateRenewalGateway
 	provider        *srgrpc.MTLSProvider
-	helloBuilder    func() *proto.AgentHelloRequest
 	onRenewed       func(ctx context.Context)
 	nowFunc         func() time.Time
 	jitterFunc      func(max time.Duration) time.Duration
@@ -293,12 +291,6 @@ func (m *CertRenewalManager) RenewOnce(ctx context.Context) error {
 
 	if err := m.gateway.ReloadAndReconnect(ctx); err != nil {
 		return fmt.Errorf("failed to reload mTLS credentials and reconnect gateway: %w", err)
-	}
-
-	if m.helloBuilder != nil {
-		if _, err := m.gateway.Hello(ctx, m.helloBuilder()); err != nil {
-			return fmt.Errorf("failed to complete Hello with renewed certificate: %w", err)
-		}
 	}
 
 	if m.onRenewed != nil {
