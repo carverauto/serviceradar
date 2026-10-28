@@ -112,42 +112,12 @@ volume under the old UUID.
 
 ## 3. Conversion, rollback and failure
 
-The initial conversion is an explicit operator procedure:
-
-1. Verify supported CSI/access mode, retention/encryption, proposed volume
-   associations, storage budget, compatible product/chart versions and Cloud
-   restore support. Keep recording admission disabled.
-2. Provision and initialize the new claims under exclusive ownership. Retain
-   evidence of both successful and unresolved attempts.
-3. Enter the approved maintenance window, stop new core work and drain/retire
-   the Deployment using its existing shutdown and lease semantics. If recording
-   had already been enabled manually, preserve every spool and wait for exact
-   owner retirement before proceeding. A stop request is not fleet-drain proof.
-4. Verify the old controller has no running owners, then install the
-   StatefulSet with the same service interfaces. Do not run both controller
-   kinds against overlapping core selectors as a migration strategy.
-5. Verify all requested members, actual claim associations, marker checks,
-   clustering, telemetry, jobs and shared camera ingest. Only later acceptance
-   may install recording admission.
-
-Cloud and local rollout tools must select and verify the installed controller
-kind explicitly. They must refuse ambiguous or mixed controller observations.
-An automatic Helm rollback must not resurrect the old Deployment alongside
-the StatefulSet. The migration implementation must define this guard and its
-failure recovery before it can be used.
-
-The [conversion protocol](conversion-protocol.md) specifies an independently
-owned admission fence, observed owner retirement, interrupted-operation recovery
-and controlled rollback. A new chart's lookup cannot constrain old Helm
-revisions. The guard remains an implementation and acceptance dependency, and
-installing it requires explicit operational approval. The preparatory chart fix
-honors zero core replicas without claiming that desired zero proves retirement.
-
-Rollback stops new recording/work, observes owner retirement and preserves
-claims and their inventory. Returning to a Deployment restores service only;
-it does not move provisional recordings or make inaccessible bytes available.
-Do not force-delete a stuck pod or attach its claim elsewhere to accelerate
-recovery. Resolve the old owner's status before any replacement writer.
+The [conversion protocol](conversion-protocol.md) owns the ordered conversion,
+rollback and interrupted-operation procedure, including the independently owned
+admission fence and observed owner retirement. A new chart's lookup cannot
+constrain old Helm revisions. The guard remains an implementation and acceptance
+dependency; installing it and entering the conversion maintenance window require
+explicit operational approval.
 
 A retained volume can still be inaccessible or lost. Report local-only coverage
 as unavailable; use only a verified archive for fallback. This installation
