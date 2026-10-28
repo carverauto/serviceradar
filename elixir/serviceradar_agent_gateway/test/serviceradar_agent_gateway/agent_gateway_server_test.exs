@@ -519,6 +519,54 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         ])
 
       request = %Monitoring.CertificateRenewalRequest{csr_der: csr_der}
+
+      {:CertificationRequest, info, algorithm, <<first, rest::binary>>} =
+        :public_key.der_decode(:CertificationRequest, csr_der)
+
+      tampered_csr =
+        :public_key.der_encode(
+          :CertificationRequest,
+          {:CertificationRequest, info, algorithm, <<Bitwise.bxor(first, 0xFF), rest::binary>>}
+        )
+
+      assert {:error, %GRPC.RPCError{status: 3, message: "invalid_csr_signature"}} =
+               stub.renew_certificate(old_channel, %Monitoring.CertificateRenewalRequest{csr_der: tampered_csr})
+
+      {wrong_san_csr, 0} =
+        System.cmd("openssl", [
+          "req",
+          "-new",
+          "-key",
+          key_path,
+          "-outform",
+          "DER",
+          "-subj",
+          "/CN=agent-renew-01.default.serviceradar",
+          "-addext",
+          "subjectAltName=DNS:other-agent.example.com"
+        ])
+
+      assert {:error, %GRPC.RPCError{status: 7, message: "csr_identity_mismatch"}} =
+               stub.renew_certificate(old_channel, %Monitoring.CertificateRenewalRequest{csr_der: wrong_san_csr})
+
+      {weak_csr, 0} =
+        System.cmd("openssl", [
+          "req",
+          "-new",
+          "-newkey",
+          "rsa:1024",
+          "-nodes",
+          "-keyout",
+          Path.join(context.parent_dir, "weak-key.pem"),
+          "-outform",
+          "DER",
+          "-subj",
+          "/CN=agent-renew-01.default.serviceradar"
+        ])
+
+      assert {:error, %GRPC.RPCError{status: 3, message: "weak_public_key"}} =
+               stub.renew_certificate(old_channel, %Monitoring.CertificateRenewalRequest{csr_der: weak_csr})
+
       assert {:ok, successor} = stub.renew_certificate(old_channel, request)
       assert {:ok, _retry} = stub.renew_certificate(old_channel, request)
 
@@ -531,6 +579,17 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
       # The protocol retires the predecessor only after Hello completes successfully.
       assert {:ok, _retry_after_failed_hello} = stub.renew_certificate(old_channel, request)
+
+      :ok = AgentCertificateRevocation.revoke_fingerprint(context.old_identity.certificate_fingerprint)
+
+      assert {:error, %GRPC.RPCError{status: 7, message: "certificate_revoked"}} =
+               stub.renew_certificate(old_channel, request)
+
+      IO.puts(
+        "Live mTLS RPC results: wrong CN/SAN=PERMISSION_DENIED; tampered signature/weak key=INVALID_ARGUMENT; " <>
+          "renewal and retry=OK; successor Hello=UNAVAILABLE; predecessor retry after failed Hello=OK; " <>
+          "revoked predecessor=PERMISSION_DENIED"
+      )
     end
 
     test "rejects forged CSR with mismatched identity or invalid signature", context do

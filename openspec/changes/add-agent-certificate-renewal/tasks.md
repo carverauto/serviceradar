@@ -26,5 +26,5 @@
 ## 5. SRQL, Alerting, Fleet UI & In-Place Re-Enrollment
 - [x] 5.1 Extend `rust/srql/src/query/agents.rs` and `rust/srql/src/schema.rs` to project and filter `cert_expires_at` (`cert_not_after`), `cert_serial_number`, and `cert_fingerprint` (including relative time queries like `in:agents cert_expires_at:<7d`).
 - [x] 5.2a Add `ServiceRadar.Infrastructure.AgentCertExpiryMonitor` for expiry alerts; thresholds and resolution behavior are documented in [certificate operations](../../../docs/docs/edge-agent-onboarding.md#certificate-lifetime-and-expiry-alerts).
-- [ ] 5.2b Add renewal-failure alerts when the renewal handler is implemented.
+- [ ] 5.2b Add renewal-failure alerts after the renewal status reporting in task 2.1c is implemented.
 - [ ] 5.3 Update Web-NG Agents LiveView (`elixir/web-ng/lib/serviceradar_web_ng_web/live/agent_live/`) to display certificate expiration status, serial/fingerprint metadata, renewal errors, and a single-click **Re-enroll Agent** action that issues an in-place onboarding token preserving the existing `agent_uid`.
