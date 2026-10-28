@@ -75,6 +75,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
 
   test "search runs on the server and shows at most 50 of many, with the total", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/logs")
+    render_async(lv)
     _ = catalog_queries()
 
     open_picker(lv, "logs")
@@ -98,6 +99,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
 
   test "the picker is scoped to the pane's signal", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    render_async(lv)
     _ = catalog_queries()
 
     open_picker(lv, "traces")
@@ -110,6 +112,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
   test "applying keeps every other filter, adds the selection and reloads from page one", %{conn: conn} do
     q = "in:logs time:last_1h severity_text:error"
     {:ok, lv, _html} = live(conn, ~p"/observability/logs?#{%{q: q}}")
+    render_async(lv)
 
     open_picker(lv, "logs")
     lv |> element(~s(#service-picker-options input[data-service-name="svc-0002"])) |> render_click()
@@ -126,6 +129,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
   test "a new selection replaces the previous service filter", %{conn: conn} do
     q = ~s(in:logs time:last_1h service_name:"svc-0001")
     {:ok, lv, _html} = live(conn, ~p"/observability/logs?#{%{q: q}}")
+    render_async(lv)
 
     assert has_element?(lv, "#logs-service-filter", "svc-0001")
 
@@ -142,6 +146,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
 
   test "a % typed into the free-text fallback is sent as a literal exact name", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/logs")
+    render_async(lv)
 
     open_picker(lv, "logs")
     lv |> form("#service-picker-search-form", %{search: "pay%"}) |> render_change()
@@ -157,18 +162,22 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
   test "the service filter follows a tab switch", %{conn: conn} do
     q = ~s(in:logs time:last_1h service_name:"svc-0001")
     {:ok, lv, _html} = live(conn, ~p"/observability/logs?#{%{q: q}}")
+    render_async(lv)
 
     lv |> element("#observability-tab-traces") |> render_click()
     assert_patch(lv)
+    render_async(lv)
 
     assert has_element?(lv, "#traces-service-filter", "svc-0001")
   end
 
   test "a wildcard filter is not carried to traces, and the traces pane says so", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/logs?#{%{q: "in:logs service_name:%pay%"}}")
+    render_async(lv)
 
     lv |> element("#observability-tab-traces") |> render_click()
     patched = assert_patch(lv)
+    render_async(lv)
 
     refute patched =~ "pay"
     assert has_element?(lv, "#service-filter-not-carried")
@@ -177,6 +186,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
 
   test "clicking a row's service applies that single-service filter", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{%{q: "in:otel_trace_summaries time:last_1h"}}")
+    render_async(lv)
 
     lv |> element("#traces-row-0-service") |> render_click()
 
@@ -189,6 +199,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
   test "stat cards are scoped to a multi-service selection", %{conn: conn} do
     q = ~s|in:logs service_name:("svc-0001","svc-0002")|
     {:ok, lv, _html} = live(conn, ~p"/observability/logs?#{%{q: q}}")
+    render_async(lv)
 
     assert_received {:srql_query, "in:logs time:last_24h rollup_stats:severity" <> filter}
     assert filter == ~s| service_name:("svc-0001","svc-0002")|
@@ -196,14 +207,16 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
   end
 
   test "the traces services card counts the catalog for the card window", %{conn: conn} do
-    {:ok, _lv, _html} = live(conn, ~p"/observability/traces")
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    render_async(lv)
 
     assert ~s|in:otel_services signal:traces time:last_24h stats:"count() as total"| in catalog_queries()
   end
 
   test "the OTLP points view scopes its metric-name rollup to a multi-service selection", %{conn: conn} do
     q = ~s|in:otel_metrics time:last_6h service_name:("svc-0001","svc-0002")|
-    {:ok, _lv, _html} = live(conn, ~p"/observability/metrics?#{%{q: q, mview: "points"}}")
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics?#{%{q: q, mview: "points"}}")
+    render_async(lv)
 
     queries = srql_queries()
 
@@ -220,6 +233,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
     test "count the traces the list shows, not the root-grouped rollup", %{conn: conn} do
       q = ~s(in:otel_trace_summaries time:last_6h sort:timestamp:desc service_name:"billing")
       {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{%{q: q}}")
+      render_async(lv)
 
       queries = srql_queries()
 
@@ -242,6 +256,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
 
     test "unfiltered, every trace card still comes from the rollup", %{conn: conn} do
       {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{%{q: "in:otel_trace_summaries time:last_6h"}}")
+      render_async(lv)
 
       queries = srql_queries()
 
@@ -258,12 +273,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
     test "a full-permission user sees the trigger and the stat-scope badge on traces and metrics", %{conn: conn} do
       q = ~s(in:otel_trace_summaries time:last_1h service_name:"svc-0001")
       {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{%{q: q}}")
+      render_async(lv)
 
       assert has_element?(lv, "#traces-service-filter", "svc-0001")
       assert has_element?(lv, "#service-stats-scope", "svc-0001")
 
       q = ~s(in:otel_metrics time:last_1h service_name:"svc-0001")
       {:ok, lv, _html} = live(conn, ~p"/observability/metrics?#{%{q: q}}")
+      render_async(lv)
 
       assert has_element?(lv, "#metrics-service-filter", "svc-0001")
       assert has_element?(lv, "#service-stats-scope", "svc-0001")
@@ -279,6 +296,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
 
       q = ~s(in:logs time:last_1h service_name:"svc-0001")
       {:ok, lv, _html} = live(conn, ~p"/observability/logs?#{%{q: q}}")
+      render_async(lv)
 
       assert has_element?(lv, "#logs-service-filter", "svc-0001")
       assert has_element?(lv, "#service-stats-scope", "svc-0001")
@@ -286,6 +304,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
       q = ~s(in:otel_trace_summaries time:last_1h service_name:"svc-0001")
       params = %{q: q, service_filter: "not_carried"}
       {:ok, lv, _html} = live(conn, ~p"/observability/traces?#{params}")
+      render_async(lv)
 
       refute has_element?(lv, "#traces-service-filter")
       refute has_element?(lv, "#service-stats-scope")
@@ -293,6 +312,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.ServicePickerTest do
 
       q = ~s(in:otel_metrics time:last_1h service_name:"svc-0001")
       {:ok, lv, _html} = live(conn, ~p"/observability/metrics?#{%{q: q}}")
+      render_async(lv)
 
       refute has_element?(lv, "#metrics-service-filter")
       refute has_element?(lv, "#service-stats-scope")

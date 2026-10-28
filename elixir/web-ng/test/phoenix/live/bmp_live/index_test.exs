@@ -30,11 +30,14 @@ defmodule ServiceRadarWebNGWeb.BmpLive.IndexTest do
            |> LazyHTML.query("#bmp-tab-loading[role='status']")
            |> Enum.any?()
 
+    render_async(view)
+
     assert has_element?(view, "#bmp-event-route-a", "192.0.2.1")
     assert has_element?(view, "#bmp-tab-content:not([hidden])")
     refute has_element?(view, "#bmp-tab-loading")
 
     render_patch(view, ~p"/observability/bmp?#{%{q: "in:bmp_events event_type:peer_up"}}")
+    render_async(view)
 
     assert has_element?(view, "#bmp-event-peer-a", "192.0.2.2")
     assert has_element?(view, "#bmp-tab-content:not([hidden])")

@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
      |> assign(:summary, empty_summary())
      |> assign(:bmp_live?, false)
      |> assign(:tab_loading, true)
+     |> assign(:bmp_list_request, nil)
      |> assign(:current_params, %{})
      |> stream(:bmp_events, [], dom_id: &bmp_event_dom_id/1)
      |> SRQLPage.init("bmp_events", default_limit: @default_limit)}
@@ -46,9 +47,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
      )
      |> then(fn socket ->
        if connected?(socket) do
-         socket
-         |> assign(:tab_loading, true)
-         |> tap(fn _ -> send(self(), {:load_bmp_list, params}) end)
+         start_bmp_load(socket, params)
        else
          socket
        end
@@ -141,28 +140,26 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
   end
 
   @impl true
-  def handle_info({:load_bmp_list, params}, socket) do
-    if Map.get(socket.assigns, :current_params, %{}) == params do
-      uri = Map.get(socket.assigns, :current_uri)
+  def handle_async(:bmp_list, {:ok, {result, summary}}, socket) when is_tuple(result) and is_map(summary) do
+    socket =
+      socket
+      |> apply_bmp_list_result(result)
+      |> assign(:bmp_list_request, nil)
+      |> assign(:summary, summary)
+      |> assign(:tab_loading, false)
 
-      socket =
-        SRQLPage.load_list(socket, params, uri, :bmp_events,
-          default_limit: @default_limit,
-          max_limit: @max_limit
-        )
-
-      summary = compute_summary(socket.assigns.bmp_events)
-
-      {:noreply,
-       socket
-       |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
-       |> assign(:summary, summary)
-       |> assign(:tab_loading, false)}
-    else
-      {:noreply, socket}
-    end
+    {:noreply, stream(socket, :bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)}
   end
 
+  def handle_async(:bmp_list, {:ok, {:error, reason}}, socket) do
+    {:noreply, assign_bmp_load_error(socket, reason)}
+  end
+
+  def handle_async(:bmp_list, {:exit, reason}, socket) do
+    {:noreply, assign_bmp_load_error(socket, reason)}
+  end
+
+  @impl true
   def handle_info({:causal_signal_ingested, _event}, socket) do
     # Causal signal batches carry BMP routing rows, so an ingest pulse can
     # surface newly arrived BMP events — but only while live tailing is on.
@@ -174,6 +171,64 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
     socket = assign(socket, :_refresh_timer, nil)
     {:noreply, maybe_refresh_head(socket)}
   end
+
+  defp start_bmp_load(socket, params) do
+    request =
+      SRQLPage.list_request(socket, params, :bmp_events,
+        default_limit: @default_limit,
+        max_limit: @max_limit
+      )
+
+    srql = Map.put(Map.get(socket.assigns, :srql, %{}), :loading, true)
+
+    socket
+    |> assign(:tab_loading, true)
+    |> assign(:srql, srql)
+    |> assign(:bmp_list_request, request)
+    |> cancel_async(:bmp_list)
+    |> start_async(:bmp_list, fn ->
+      {rows, _error, _viz, _pagination} = result = SRQLPage.fetch_list(request)
+      {result, compute_summary(rows)}
+    end)
+  end
+
+  defp apply_bmp_list_result(socket, result) do
+    case Map.get(socket.assigns, :bmp_list_request) do
+      %{} = request ->
+        SRQLPage.apply_list_result(socket, request, result)
+
+      _ ->
+        {rows, error, viz, pagination} = result
+
+        srql =
+          socket.assigns
+          |> Map.get(:srql, %{})
+          |> Map.merge(%{
+            loading: false,
+            error: error,
+            viz: viz,
+            pagination: pagination
+          })
+
+        socket
+        |> assign(:srql, srql)
+        |> assign(:bmp_events, rows)
+    end
+  end
+
+  defp assign_bmp_load_error(socket, reason) do
+    error = format_load_error(reason)
+
+    socket
+    |> apply_bmp_list_result({[], error, nil, %{}})
+    |> assign(:bmp_list_request, nil)
+    |> assign(:summary, empty_summary())
+    |> assign(:tab_loading, false)
+    |> stream(:bmp_events, [], reset: true, dom_id: &bmp_event_dom_id/1)
+  end
+
+  defp format_load_error(reason) when is_binary(reason), do: reason
+  defp format_load_error(reason), do: inspect(reason)
 
   defp maybe_schedule_live_refresh(socket) do
     if Map.get(socket.assigns, :bmp_live?, false) and
@@ -206,17 +261,13 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
     uri = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:page_path, "/observability/bmp")
 
-    socket =
-      SRQLPage.load_list(socket, params, uri, :bmp_events,
-        default_limit: @default_limit,
-        max_limit: @max_limit
-      )
-
-    summary = compute_summary(socket.assigns.bmp_events)
-
     socket
-    |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
-    |> assign(:summary, summary)
+    |> assign(:current_params, params)
+    |> SRQLPage.sync_from_params(params, uri,
+      default_limit: @default_limit,
+      max_limit: @max_limit
+    )
+    |> start_bmp_load(params)
   end
 
   @impl true

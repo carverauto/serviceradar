@@ -1484,10 +1484,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     {:noreply, ServicePicker.handle_async(result, socket)}
   end
 
+  def handle_async(:tab_load, {:ok, %{tab: tab, match_params: match_params} = payload}, socket) do
+    if current_tab_load?(socket, tab, match_params) do
+      {:noreply, apply_tab_load_payload(socket, payload)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async(:tab_load, {:ok, {:error, reason}}, socket) do
+    {:noreply, assign_tab_load_error(socket, reason)}
+  end
+
+  def handle_async(:tab_load, {:exit, reason}, socket) do
+    {:noreply, assign_tab_load_error(socket, reason)}
+  end
+
   @impl true
   def handle_info({:load_tab_data, tab, params, uri}, socket) do
     if current_tab_load?(socket, tab, params) do
-      {:noreply, load_tab(socket, tab, params, uri)}
+      {:noreply, start_tab_load(socket, tab, params, uri, match_params: params)}
     else
       {:noreply, socket}
     end
@@ -8436,6 +8452,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
+  @tab_secondary_assign_keys [
+    :service_stats_scope,
+    :trace_stats,
+    :trace_latency,
+    :trace_rollup_status,
+    :metrics_stats,
+    :otlp_metric_names,
+    :otlp_metric_series,
+    :event_summary,
+    :alert_summary,
+    :netflow_summary,
+    :netflow_rdns_map,
+    :netflow_threat_map,
+    :netflow_top_talkers,
+    :netflow_top_ports,
+    :netflow_timeseries,
+    :netflow_timeseries_compare,
+    :netflow_timeseries_stacked,
+    :netflow_protocol_activity,
+    :netflow_app_activity,
+    :netflow_frequent_talkers_packets,
+    :netflow_frequent_talkers_bytes,
+    :netflow_geo_heatmap,
+    :netflow_sankey,
+    :netflow_sankey_edges_json,
+    :selected_netflow,
+    :netflow_context,
+    :netflow_arin_lookup,
+    :netflow_auto_open,
+    :summary,
+    :logs_rollup_status,
+    :_summary_loaded,
+    :_summary_service_scope
+  ]
+
   defp apply_tab_assigns(socket, "netflows", srql_module) do
     scope = Map.get(socket.assigns, :current_scope)
     query = Map.get(socket.assigns.srql, :query)
@@ -8447,88 +8498,97 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
     talker_cidr = Map.get(socket.assigns, :netflow_talker_cidr)
     netflows = socket.assigns.netflows
+    default_timeseries = %{bucket_seconds: 300, points: []}
 
-    # Every loader below is one or more warehouse round trips. None in this
-    # first group needs another's answer, so they run at the same time and the
-    # page waits for the slowest instead of for the sum.
-    %{
-      summary: summary,
-      top_talkers: top_talkers,
-      threat_map: threat_map,
-      top_ports: top_ports,
-      timeseries: timeseries,
-      frequent_talkers_packets: frequent_talkers_packets,
-      frequent_talkers_bytes: frequent_talkers_bytes,
-      geo_heatmap: geo_heatmap,
-      sankey: sankey
-    } =
-      NetflowRuntime.run_concurrently([
-        {:summary, fn -> maybe_load_netflow_summary(socket, srql_module, scope) end, empty_netflow_summary()},
-        {:top_talkers, fn -> load_netflow_top_talkers(srql_module, query, scope, talker_cidr) end, []},
-        {:threat_map, fn -> load_netflow_threat_map(netflows, scope) end, %{}},
-        {:top_ports, fn -> load_netflow_top_ports(srql_module, query, scope) end, []},
-        {:timeseries, fn -> load_netflow_timeseries(srql_module, query, scope) end, %{bucket_seconds: 300, points: []}},
-        {:frequent_talkers_packets, fn -> load_netflow_frequent_talkers_packets(srql_module, query, scope) end, []},
-        {:frequent_talkers_bytes, fn -> load_netflow_frequent_talkers_bytes(srql_module, query, scope) end, []},
-        {:geo_heatmap, fn -> load_netflow_geo_heatmap(srql_module, query, scope, geo_side) end, []},
-        {:sankey,
-         fn ->
-           case NetflowRuntime.load_panel(tab, view, :sankey, fn ->
-                  load_netflow_sankey(srql_module, query, scope, sankey_prefix)
-                end) do
-             {:ok, value} -> value
-             {:error, _reason} = error -> error
-             {:skipped, :inactive_panel} -> empty_netflow_sankey()
-           end
-         end, empty_netflow_sankey()}
+    # Every loader below is one or more warehouse round trips. Active panels in
+    # the first wave run concurrently (bounded by NetflowRuntime) while panels
+    # inactive for the current view are skipped entirely.
+    first_wave_jobs =
+      List.flatten([
+        netflow_panel_job(tab, view, :summary, empty_netflow_summary(), fn ->
+          maybe_load_netflow_summary(socket, srql_module, scope)
+        end),
+        netflow_panel_job(tab, view, :top_talkers, [], fn ->
+          load_netflow_top_talkers(srql_module, query, scope, talker_cidr)
+        end),
+        netflow_panel_job(tab, view, :threat_map, %{}, fn ->
+          load_netflow_threat_map(netflows, scope)
+        end),
+        netflow_panel_job(tab, view, :top_ports, [], fn ->
+          load_netflow_top_ports(srql_module, query, scope)
+        end),
+        netflow_panel_job(tab, view, :timeseries, default_timeseries, fn ->
+          load_netflow_timeseries(srql_module, query, scope)
+        end),
+        netflow_panel_job(tab, view, :frequent_talkers_packets, [], fn ->
+          load_netflow_frequent_talkers_packets(srql_module, query, scope)
+        end),
+        netflow_panel_job(tab, view, :frequent_talkers_bytes, [], fn ->
+          load_netflow_frequent_talkers_bytes(srql_module, query, scope)
+        end),
+        netflow_panel_job(tab, view, :geo_heatmap, [], fn ->
+          load_netflow_geo_heatmap(srql_module, query, scope, geo_side)
+        end),
+        netflow_panel_job(tab, view, :sankey, empty_netflow_sankey(), fn ->
+          load_netflow_sankey(srql_module, query, scope, sankey_prefix)
+        end)
       ])
+
+    first_wave = NetflowRuntime.run_concurrently(first_wave_jobs)
+
+    summary = Map.get(first_wave, :summary, empty_netflow_summary())
+    top_talkers = Map.get(first_wave, :top_talkers, [])
+    threat_map = Map.get(first_wave, :threat_map, %{})
+    top_ports = Map.get(first_wave, :top_ports, [])
+    timeseries = Map.get(first_wave, :timeseries, default_timeseries)
+    frequent_talkers_packets = Map.get(first_wave, :frequent_talkers_packets, [])
+    frequent_talkers_bytes = Map.get(first_wave, :frequent_talkers_bytes, [])
+    geo_heatmap = Map.get(first_wave, :geo_heatmap, [])
+    sankey = Map.get(first_wave, :sankey, empty_netflow_sankey())
 
     bucket_seconds = Map.get(timeseries, :bucket_seconds, 300)
     points = Map.get(timeseries, :points, [])
     empty_series = %{bucket_seconds: bucket_seconds, keys: [], points: [], colors: %{}}
-
-    load_protocol_activity = fn ->
-      load_netflow_protocol_activity(srql_module, query, scope, bucket_seconds, points)
-    end
-
-    load_app_activity = fn ->
-      load_netflow_app_activity(srql_module, query, scope, bucket_seconds, points)
-    end
+    default_compare = %{bucket_seconds: bucket_seconds, points: []}
 
     # These need the total series' bucket and points, or the top talkers.
-    %{
-      rdns_map: rdns_map,
-      timeseries_compare: timeseries_compare,
-      timeseries_stacked: timeseries_stacked,
-      protocol_activity: protocol_activity,
-      app_activity: app_activity
-    } =
-      NetflowRuntime.run_concurrently([
-        {:rdns_map, fn -> load_netflow_rdns_map(netflows, top_talkers, scope) end, %{}},
-        {:timeseries_compare,
-         fn ->
-           load_netflow_timeseries_compare(srql_module, query, scope, compare_mode, bucket_seconds)
-         end, %{bucket_seconds: bucket_seconds, points: []}},
-        {:timeseries_stacked,
-         fn ->
-           case NetflowRuntime.load_panel(tab, view, :stacked_timeseries, fn ->
-                  load_netflow_timeseries_stacked(
-                    srql_module,
-                    query,
-                    scope,
-                    bucket_seconds,
-                    points,
-                    stack_mode
-                  )
-                end) do
-             {:ok, value} -> value
-             {:error, _reason} = error -> error
-             {:skipped, :inactive_panel} -> %{empty_series | bucket_seconds: 300}
-           end
-         end, empty_series},
-        {:protocol_activity, load_protocol_activity, empty_series},
-        {:app_activity, load_app_activity, empty_series}
+    second_wave_jobs =
+      List.flatten([
+        netflow_panel_job(tab, view, :rdns_map, %{}, fn ->
+          load_netflow_rdns_map(netflows, top_talkers, scope)
+        end),
+        if compare_mode in ["previous", "yesterday"] do
+          netflow_panel_job(tab, view, :timeseries_compare, default_compare, fn ->
+            load_netflow_timeseries_compare(srql_module, query, scope, compare_mode, bucket_seconds)
+          end)
+        else
+          []
+        end,
+        netflow_panel_job(tab, view, :stacked_timeseries, empty_series, fn ->
+          load_netflow_timeseries_stacked(
+            srql_module,
+            query,
+            scope,
+            bucket_seconds,
+            points,
+            stack_mode
+          )
+        end),
+        netflow_panel_job(tab, view, :protocol_activity, empty_series, fn ->
+          load_netflow_protocol_activity(srql_module, query, scope, bucket_seconds, points)
+        end),
+        netflow_panel_job(tab, view, :app_activity, empty_series, fn ->
+          load_netflow_app_activity(srql_module, query, scope, bucket_seconds, points)
+        end)
       ])
+
+    second_wave = NetflowRuntime.run_concurrently(second_wave_jobs)
+
+    rdns_map = Map.get(second_wave, :rdns_map, %{})
+    timeseries_compare = Map.get(second_wave, :timeseries_compare, default_compare)
+    timeseries_stacked = Map.get(second_wave, :stacked_timeseries, %{empty_series | bucket_seconds: 300})
+    protocol_activity = Map.get(second_wave, :protocol_activity, empty_series)
+    app_activity = Map.get(second_wave, :app_activity, empty_series)
 
     sankey_edges_json =
       try do
@@ -8580,6 +8640,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
+  defp netflow_panel_job(tab, view, panel, default, fun) when is_function(fun, 0) do
+    if NetflowRuntime.should_load_panel?(tab, view, panel) do
+      [
+        {panel,
+         fn ->
+           case NetflowRuntime.load_panel(tab, view, panel, fun) do
+             {:ok, value} -> value
+             {:error, _reason} = error -> error
+             {:skipped, :inactive_panel} -> default
+           end
+         end, default}
+      ]
+    else
+      []
+    end
+  end
+
   # The OTLP points view is loaded only when active: a metric-name rollup for
   # the list plus (when a metric is selected) its recent raw points.
   defp apply_otlp_points_assigns(socket, srql_module, scope) do
@@ -8628,35 +8705,155 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     # results; initial loads and tab switches display a loading state.
     loading? = !socket.assigns[:_initial_load_done] or tab != socket.assigns[:_loaded_tab]
 
-    send(self(), {:load_tab_data, tab, params, uri})
-    assign(socket, :tab_loading, loading?)
+    socket
+    |> assign(:tab_loading, loading?)
+    |> start_tab_load(tab, params, uri, match_params: params)
   end
 
-  # A patch schedules same-tab data loading through the LiveView mailbox. If a
-  # newer patch is already queued, its handle_params/3 call can run before this
-  # message. Do not let the older load overwrite the newer query's results.
+  # A patch schedules same-tab data loading asynchronously. If a newer patch is
+  # already queued, its handle_params/3 call can run before the async task
+  # finishes. Do not let an older load overwrite the newer query's results.
   defp current_tab_load?(socket, tab, params) do
     socket.assigns.active_tab == tab and
       Map.get(socket.assigns, :current_params, %{}) == params
   end
 
-  defp load_tab(socket, tab, params, uri) do
-    {_entity, list_key} = tab_entity(tab)
+  defp start_tab_load(socket, tab, params, uri, opts) do
+    {entity, list_key} = tab_entity(tab)
     {default_limit, max_limit} = tab_limits(tab)
-    params = maybe_default_netflows_query(params, tab)
+    query_params = maybe_default_netflows_query(params, tab)
+    match_params = Keyword.get(opts, :match_params, Map.get(socket.assigns, :current_params, %{}))
+
+    socket =
+      socket
+      |> ensure_srql_entity(entity, default_limit)
+      |> SRQLPage.sync_from_params(query_params, uri,
+        default_limit: default_limit,
+        max_limit: max_limit
+      )
+
+    request =
+      SRQLPage.list_request(socket, query_params, list_key,
+        default_limit: default_limit,
+        max_limit: max_limit
+      )
+
+    srql = Map.put(Map.get(socket.assigns, :srql, %{}), :loading, true)
+    worker_socket = %Phoenix.LiveView.Socket{assigns: socket.assigns, private: socket.private}
+    srql_mod = srql_module()
 
     socket
-    |> SRQLPage.load_list(params, uri, list_key,
-      default_limit: default_limit,
-      max_limit: max_limit
-    )
-    |> maybe_fallback_to_raw_traces(tab, params, uri, default_limit, max_limit)
-    |> apply_tab_assigns(tab, srql_module())
+    |> assign(:srql, srql)
+    |> assign(:tab_load_request, request)
+    |> cancel_async(:tab_load)
+    |> start_async(:tab_load, fn ->
+      run_tab_load_task(worker_socket, tab, match_params, query_params, request, srql_mod)
+    end)
+  end
+
+  defp run_tab_load_task(worker_socket, tab, match_params, query_params, request, srql_mod) do
+    {_entity, list_key} = tab_entity(tab)
+    list_result = SRQLPage.fetch_list(request)
+
+    {effective_request, effective_result, fallback_query} =
+      if tab == "traces" and blank_param?(Map.get(query_params, "q")) and
+           elem(list_result, 0) == [] and is_nil(elem(list_result, 1)) do
+        fq = raw_traces_fallback_query(request.limit)
+        freq = %{request | query: fq, cursor: nil}
+        {freq, SRQLPage.fetch_list(freq), fq}
+      else
+        {request, list_result, nil}
+      end
+
+    {rows, _error, _viz, _pagination} = effective_result
+
+    worker_srql =
+      worker_socket.assigns
+      |> Map.get(:srql, %{})
+      |> then(fn srql ->
+        if is_binary(fallback_query) do
+          Map.merge(srql, %{query: fallback_query, draft: fallback_query})
+        else
+          srql
+        end
+      end)
+
+    worker_socket =
+      worker_socket
+      |> assign(:srql, worker_srql)
+      |> assign(list_key, rows)
+      |> apply_tab_assigns(tab, srql_mod)
+
+    %{
+      tab: tab,
+      match_params: match_params,
+      request: effective_request,
+      list_result: effective_result,
+      fallback_query: fallback_query,
+      tab_assigns: Map.take(worker_socket.assigns, @tab_secondary_assign_keys)
+    }
+  end
+
+  defp apply_tab_load_payload(socket, %{
+         tab: tab,
+         request: request,
+         list_result: list_result,
+         fallback_query: fallback_query,
+         tab_assigns: tab_assigns
+       }) do
+    socket =
+      if is_binary(fallback_query) do
+        srql =
+          socket.assigns
+          |> Map.get(:srql, %{})
+          |> Map.merge(%{query: fallback_query, draft: fallback_query})
+
+        assign(socket, :srql, srql)
+      else
+        socket
+      end
+
+    socket
+    |> SRQLPage.apply_list_result(request, list_result)
+    |> assign(:tab_load_request, nil)
+    |> assign(tab_assigns)
     |> stream_active_tab(tab)
     |> assign(:tab_loading, false)
     |> assign(:_initial_load_done, true)
     |> assign(:_loaded_tab, tab)
   end
+
+  defp assign_tab_load_error(socket, reason) do
+    tab = Map.get(socket.assigns, :active_tab, "logs")
+    {_entity, list_key} = tab_entity(tab)
+    error = format_load_error(reason)
+
+    socket =
+      case Map.get(socket.assigns, :tab_load_request) do
+        %{} = request ->
+          SRQLPage.apply_list_result(socket, request, {[], error, nil, %{}})
+
+        _ ->
+          srql =
+            socket.assigns
+            |> Map.get(:srql, %{})
+            |> Map.merge(%{loading: false, error: error, viz: nil, pagination: %{}})
+
+          socket
+          |> assign(:srql, srql)
+          |> assign(list_key, [])
+      end
+
+    socket
+    |> assign(:tab_load_request, nil)
+    |> stream_active_tab(tab)
+    |> assign(:tab_loading, false)
+    |> assign(:_initial_load_done, true)
+    |> assign(:_loaded_tab, tab)
+  end
+
+  defp format_load_error(reason) when is_binary(reason), do: reason
+  defp format_load_error(reason), do: inspect(reason)
 
   defp schedule_debounced_refresh(socket, tab) do
     timers = socket.assigns[:_refresh_timers] || %{}
@@ -8753,16 +8950,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp refresh_tab(socket, tab) do
-    {entity, list_key} = tab_entity(tab)
-    {default_limit, max_limit} = tab_limits(tab)
     srql = Map.get(socket.assigns, :srql, %{})
     query = Map.get(srql, :query, "")
+    current_params = Map.get(socket.assigns, :current_params, %{})
 
     # Refresh reuses the active query; do not re-inject limit into URL params.
     # Drop cursor so live refresh returns to the head of the result set.
     params =
-      socket.assigns
-      |> Map.get(:current_params, %{})
+      current_params
       |> Map.put("q", query)
       |> Map.drop(["limit", "cursor", "page"])
 
@@ -8771,31 +8966,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket
     # Clear summary cache so PubSub refresh gets fresh counts
     |> assign(:_summary_loaded, false)
-    |> ensure_srql_entity(entity, default_limit)
-    |> SRQLPage.load_list(params, uri, list_key,
-      default_limit: default_limit,
-      max_limit: max_limit
-    )
-    |> maybe_fallback_to_raw_traces(tab, params, uri, default_limit, max_limit)
-    |> apply_tab_assigns(tab, srql_module())
-    |> stream_active_tab(tab)
+    |> start_tab_load(tab, params, uri, match_params: current_params)
   end
-
-  defp maybe_fallback_to_raw_traces(socket, "traces", params, uri, default_limit, max_limit) do
-    if blank_param?(Map.get(params, "q")) and Map.get(socket.assigns, :traces, []) == [] and
-         is_nil(get_in(socket.assigns, [:srql, :error])) do
-      fallback_params = Map.put(params, "q", raw_traces_fallback_query(Map.get(socket.assigns, :limit, default_limit)))
-
-      SRQLPage.load_list(socket, fallback_params, uri, :traces,
-        default_limit: default_limit,
-        max_limit: max_limit
-      )
-    else
-      socket
-    end
-  end
-
-  defp maybe_fallback_to_raw_traces(socket, _tab, _params, _uri, _default_limit, _max_limit), do: socket
 
   defp raw_traces_fallback_query(limit) when is_integer(limit) and limit > 0 do
     "in:traces time:last_24h sort:timestamp:desc limit:#{limit}"

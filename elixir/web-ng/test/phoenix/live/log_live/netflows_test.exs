@@ -38,7 +38,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
       "in:flows time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z] sort:time:desc"
 
     {:ok, lv, _html} = live(conn, ~p"/observability/netflows?#{%{q: filtered}}")
-    html = render(lv)
+    html = render_async(lv)
     assert html =~ "time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z]"
 
     lv
@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     refute Map.has_key?(params, "cursor")
     refute Map.has_key?(params, "page")
 
-    html = render(lv)
+    html = render_async(lv)
     assert html =~ "time:last_1h"
     refute html =~ "time:[2026-08-28T17:38:00.000000Z,2026-08-28T17:41:59.999999Z]"
   end
@@ -70,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     {:ok, lv, _html} = live(conn, to)
     # Overview panels of the netflows tab.
 
-    html = render(lv)
+    html = render_async(lv)
     assert html =~ "Avg PPS"
     assert html =~ "Total Packets"
   end
@@ -94,7 +94,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
     {:ok, lv, _html} = live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "Avg Bandwidth"
     assert html =~ "1.0 Kbps"
@@ -122,6 +122,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
     {:ok, lv, _html} =
       live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
+
+    render_async(lv)
 
     lv
     |> element(~s(button[phx-click="netflow_modal_filter"][phx-value-field="src_ip"]))
@@ -153,7 +155,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "Flow details"
     # dst port 443 resolves to the HTTPS service label.
@@ -189,6 +191,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
         conn,
         ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer", open_flow: "1"}}"
       )
+
+    render_async(lv)
 
     for {id, style} <- [
           {"netflow-row-time-0", "compact"},
@@ -251,6 +255,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, open_flow: "1"}}")
 
+    render_async(lv)
+
     map =
       lv
       |> element(~s([phx-hook="MapboxFlowMap"]))
@@ -280,7 +286,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "Prefix tag"
     assert has_element?(lv, ~s(form[phx-submit="netflow_prefix_tag_filter"] input[name="tag"]))
@@ -307,7 +313,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "netbox:tag:corp"
     assert html =~ "provider:cloudflare"
@@ -320,7 +326,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
         ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer", open_flow: "1"}}"
       )
 
-    detail_html = render(lv)
+    detail_html = render_async(lv)
 
     assert detail_html =~ "Flow details"
     assert detail_html =~ "netbox:tag:corp"
@@ -342,7 +348,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/netflows?#{%{q: q, limit: 50, view: "explorer"}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     refute html =~ "Filter flows with tag"
     refute html =~ "Prefix tag: "
