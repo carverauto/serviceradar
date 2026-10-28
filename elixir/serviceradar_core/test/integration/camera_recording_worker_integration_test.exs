@@ -12,6 +12,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Camera.Source
   alias ServiceRadar.Camera.StreamProfile
+  alias ServiceRadarCoreElx.CameraRecording.Capture
   alias ServiceRadarCoreElx.CameraRecording.Spool
   alias ServiceRadarCoreElx.CameraRecording.Storage
   alias ServiceRadarCoreElx.CameraRecording.Supervisor, as: RecordingSupervisor
@@ -30,6 +31,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     {:ok, _} = Application.ensure_all_started(:membrane_core)
     previous = Application.get_env(:serviceradar_core_elx, :camera_recording_enabled, false)
     previous_storage = Application.get_env(:serviceradar_core_elx, :camera_recording_storage_id)
+    previous_root = Application.get_env(:serviceradar_core_elx, :camera_recording_spool_root)
     Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, true)
 
     Application.put_env(
@@ -41,6 +43,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     on_exit(fn ->
       Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, previous)
       Application.put_env(:serviceradar_core_elx, :camera_recording_storage_id, previous_storage)
+      Application.put_env(:serviceradar_core_elx, :camera_recording_spool_root, previous_root)
     end)
 
     start_supervised!(RecordingSupervisor)
@@ -90,6 +93,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     root = Path.join(ctx.tmp_dir, "spool")
     File.mkdir!(root)
     File.chmod!(root, 0o700)
+    Application.put_env(:serviceradar_core_elx, :camera_recording_spool_root, root)
 
     {:ok, storage} =
       Storage.initialize(
@@ -110,6 +114,159 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
       storage: storage,
       media: media
     }
+  end
+
+  test "one-shot capture freezes only three complete fragments and releases its own consumer",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    {:ok, viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    {task, worker, ref} = start_capture(ctx, owner)
+
+    for unit <- Enum.take(ctx.media.units, 45) do
+      send(ctx.pipeline, {:media_chunk, unit})
+      assert :ok = await_capture_progress(worker, unit.sequence)
+    end
+
+    assert {:ok, %{snapshot: snapshot}} = Worker.status(worker)
+    assert snapshot.high_water > 0
+
+    repeated =
+      Enum.map(ctx.media.units, fn unit ->
+        %{unit | pts: unit.pts + 450_000, dts: unit.dts + 450_000, sequence: unit.sequence + 75}
+      end)
+
+    Enum.reduce_while(Enum.drop(ctx.media.units, 45) ++ repeated, nil, fn unit, _acc ->
+      send(ctx.pipeline, {:media_chunk, unit})
+
+      case await_capture_progress(worker, unit.sequence) do
+        :ok -> {:cont, nil}
+        :stopped -> {:halt, nil}
+      end
+    end)
+
+    assert {:ok, %{block_id: block_id} = receipt} = Task.await(task, 5_000)
+    assert Map.keys(receipt) == [:block_id]
+    assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
+    assert [%{id: viewer_id, kind: :viewer}] = consumers(owner, ctx.actor)
+    assert viewer_id == viewer.id
+    assert recorder_claim(ctx).state == :released
+
+    [block] = recording_blocks(ctx)
+    assert block.id == block_id
+    assert block.state == :sealed
+    assert block.archive_published_at == nil
+    assert block.descriptor["identity"]["clock"]["utc_mapping"] == "unknown"
+    assert length(block.descriptor["fragments"]) == 3
+    assert block.descriptor["init"]["length"] <= 1_048_576
+    assert block.descriptor["media"]["length"] <= 16_777_216
+    assert Enum.all?(block.descriptor["fragments"], &(&1["length"] <= 4_194_304))
+
+    assert {:ok, recovered} = Spool.recover(ctx.storage, snapshot.directory, snapshot.identity)
+    recovered = Spool.snapshot(recovered)
+    assert recovered.sealed?
+
+    assert Enum.map(recovered.entries, & &1["sha256"]) ==
+             Enum.map(block.descriptor["fragments"], & &1["sha256"])
+
+    assert recovered.sha256 == block.descriptor["media"]["sha256"]
+    assert_packet_count(recovered, ctx.tmp_dir, 105)
+    assert_live_delivery(ctx, List.last(repeated))
+  end
+
+  test "losing the one-shot caller stops recording while preserving local bytes and its viewer",
+       ctx do
+    owner = owner(ctx, 30_000)
+
+    {:ok, viewer} =
+      IngestOwnership.acquire_consumer(owner, :viewer, Ecto.UUID.generate(), 30_000,
+        actor: ctx.actor
+      )
+
+    {task, worker, ref} = start_capture(ctx, owner)
+
+    for unit <- Enum.take(ctx.media.units, 45) do
+      send(ctx.pipeline, {:media_chunk, unit})
+      assert :ok = await_capture_progress(worker, unit.sequence)
+    end
+
+    assert {:ok, %{snapshot: snapshot}} = Worker.status(worker)
+    assert snapshot.high_water > 0
+
+    files =
+      Map.new(
+        ~w(init.mp4 media.m4s journal),
+        &{&1, File.read!(Path.join(snapshot.directory, &1))}
+      )
+
+    Task.shutdown(task, :brutal_kill)
+    assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
+    assert [%{id: viewer_id, kind: :viewer}] = consumers(owner, ctx.actor)
+    assert viewer_id == viewer.id
+    assert recorder_claim(ctx).state == :released
+
+    assert [%{state: :open_local, descriptor: nil, archive_published_at: nil}] =
+             recording_blocks(ctx)
+
+    for {name, bytes} <- files do
+      assert File.read!(Path.join(snapshot.directory, name)) == bytes
+    end
+
+    assert_live_delivery(ctx, List.last(ctx.media.units))
+  end
+
+  test "one-shot deadline includes a stalled start and survives loss of its caller", ctx do
+    owner = owner(ctx, 90_000)
+    tasks = start_supervised!(Task.Supervisor)
+    workers = ServiceRadarCoreElx.CameraRecording.Workers
+    :ok = :sys.suspend(workers)
+
+    try do
+      task = Task.Supervisor.async_nolink(tasks, fn -> Capture.once(ctx.relay.id) end)
+      abandoned = Task.Supervisor.async_nolink(tasks, fn -> Capture.once(ctx.relay.id) end)
+      coordinator = await_stalled_capture(abandoned, workers)
+      coordinator_ref = Process.monitor(coordinator)
+      Task.shutdown(abandoned, :brutal_kill)
+      assert {:error, :capture_timeout} = Task.await(task, 35_000)
+      assert_receive {:DOWN, ^coordinator_ref, :process, ^coordinator, :killed}, 5_000
+    after
+      :ok = :sys.resume(workers)
+    end
+
+    # The call is ordered behind the late start request. That request must not
+    # create a recorder with a fresh budget after its coordinator has gone away.
+    assert [] == DynamicSupervisor.which_children(workers)
+    assert {:ok, current_owner} = IngestOwnership.for_relay(ctx.relay.id, actor: ctx.actor)
+    assert current_owner.id == owner.id
+    assert current_owner.epoch == owner.epoch
+    assert [] == recording_blocks(ctx)
+    assert [] == consumers(owner, ctx.actor)
+    assert_live_delivery(ctx, List.last(ctx.media.units))
+  end
+
+  test "one-shot admission cannot bypass installed opt-in or durable stop", ctx do
+    owner = owner(ctx, 30_000)
+    Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, false)
+    assert {:error, :recording_disabled} = Capture.once(ctx.relay.id)
+    assert [] == recording_blocks(ctx)
+    assert [] == consumers(owner, ctx.actor)
+    Application.put_env(:serviceradar_core_elx, :camera_recording_enabled, true)
+
+    assert {:ok, _control} =
+             RecordingControl.stop(
+               %{deployment_ref: Ecto.UUID.generate(), generation: 1},
+               %{"contract_version" => 1, "revision" => "1", "admission" => "stopped"},
+               actor: ctx.actor
+             )
+
+    assert {:error, :recording_stopped} = Capture.once(ctx.relay.id)
+    assert [] == recording_blocks(ctx)
+    assert [] == consumers(owner, ctx.actor)
+    assert_live_delivery(ctx, List.last(ctx.media.units))
   end
 
   test "recorder retains ingest after viewer release and seals real media under its own lease",
@@ -505,6 +662,92 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     assert_historical_receipt(ctx, worker, ref, snapshot)
     assert [%{kind: :viewer}] = consumers(owner, ctx.actor)
     assert_live_delivery(ctx, List.last(ctx.media.units))
+  end
+
+  defp recording_blocks(ctx) do
+    RecordingBlock
+    |> Ash.Query.filter(camera_source_id == ^ctx.source.id)
+    |> Ash.read!(actor: ctx.actor)
+  end
+
+  defp start_capture(ctx, owner) do
+    tasks = start_supervised!(Task.Supervisor)
+    task = Task.Supervisor.async_nolink(tasks, fn -> Capture.once(ctx.relay.id) end)
+    deadline = System.monotonic_time(:millisecond) + 5_000
+
+    worker =
+      await_capture(
+        fn ->
+          case Registry.lookup(
+                 ServiceRadarCoreElx.CameraRecording.Registry,
+                 {owner.id, owner.epoch}
+               ) do
+            [{worker, _}] ->
+              case Worker.status(worker) do
+                {:ok, _} -> {:ready, worker}
+                _ -> :waiting
+              end
+
+            [] ->
+              :waiting
+          end
+        end,
+        deadline
+      )
+
+    {task, worker, Process.monitor(worker)}
+  end
+
+  defp await_stalled_capture(task, workers) do
+    await_capture(
+      fn ->
+        {:monitors, monitors} = Process.info(task.pid, :monitors)
+        {:messages, messages} = Process.info(Process.whereis(workers), :messages)
+
+        case Enum.find_value(messages, fn
+               {:"$gen_call", {pid, _tag}, _request} ->
+                 if {:process, pid} in monitors, do: pid
+
+               _ ->
+                 nil
+             end) do
+          nil -> :waiting
+          coordinator -> {:ready, coordinator}
+        end
+      end,
+      System.monotonic_time(:millisecond) + 5_000
+    )
+  end
+
+  defp await_capture_progress(worker, sequence) do
+    await_capture(
+      fn ->
+        case Worker.status(worker) do
+          {:ok, %{last_sequence: ^sequence}} -> {:ready, :ok}
+          _ -> :waiting
+        end
+      end,
+      System.monotonic_time(:millisecond) + 5_000
+    )
+  catch
+    :exit, {:noproc, _} -> :stopped
+    :exit, {:normal, _} -> :stopped
+  end
+
+  defp await_capture(probe, deadline) do
+    case probe.() do
+      {:ready, result} ->
+        result
+
+      :waiting ->
+        assert System.monotonic_time(:millisecond) < deadline,
+               "one-shot recorder did not make bounded progress"
+
+        receive do
+        after
+          10 -> await_capture(probe, deadline)
+        end
+    end
   end
 
   defp owner(ctx, ttl) do

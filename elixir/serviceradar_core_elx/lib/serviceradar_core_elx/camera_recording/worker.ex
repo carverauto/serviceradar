@@ -30,6 +30,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   delivery. Draining uses the existing lease deadline and normal sealing path;
   it grants no extra time to finish or permission to start another block.
 
+  The one-shot capture coordinator supplies an owner monitor and an absolute
+  deadline. Both bound this worker even when its start reply is delayed; lease
+  renewal never extends the capture budget. Only a committed freeze supplies
+  `block_id` in the stopped notification.
+
   Teardown attempts consumer release and captured-relay idle close for at most
   one second of external work. This is separate from sealing and never upgrades
   a failed media outcome. Lease expiry/reaping remains the fallback after timeout,
@@ -68,6 +73,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     media_ingest_id = Keyword.fetch!(opts, :media_ingest_id)
 
     with true <- ServiceRadarCoreElx.CameraRecording.Supervisor.enabled?() || {:error, :recording_disabled},
+         {:ok, capture} <- capture(Keyword.get(opts, :capture)),
          {:ok, storage} <-
            Storage.open(
              Keyword.fetch!(opts, :spool_root),
@@ -79,6 +85,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
         media_ingest_id: media_ingest_id,
         claim_token: Ecto.UUID.generate(),
         block: nil,
+        capture: capture,
         init_format: nil,
         pipeline: pipeline,
         monitor: Process.monitor(pipeline),
@@ -109,14 +116,15 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   def handle_continue(:acquire, state) do
     request_start = System.monotonic_time(:millisecond)
 
-    with {:ok, owner} <- IngestOwnership.with_current_owner(state.owner, &{:ok, &1}, actor: state.actor),
+    with :ok <- current_capture(state.capture),
+         {:ok, owner} <- IngestOwnership.with_current_owner(state.owner, &{:ok, &1}, actor: state.actor),
          true <- is_binary(owner.relay_session_id) || {:error, :relay_unbound},
          :ok <- Storage.verify(state.storage),
          {:ok, claim} <-
            RecorderOwnership.acquire(owner, state.claim_token, state.media_ingest_id, state.storage.id, @lease_ms,
              actor: state.actor
            ) do
-      initialize(%{state | owner: owner, claim: claim}, deadline(request_start, claim))
+      initialize(%{state | owner: owner, claim: claim}, deadline(request_start, claim, state.capture))
     else
       {:error, reason} -> stop(state, reason)
     end
@@ -158,6 +166,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
 
   def handle_info({:recording_rejected, id, reason}, %{inbox: %{id: id}} = state), do: stop(state, reason)
   def handle_info({Packaging, pid, {:error, reason}}, %{packager: pid} = state), do: stop(state, reason)
+
+  def handle_info({:DOWN, ref, :process, _pid, _reason}, %{capture: %{monitor: ref}} = state),
+    do: stop(state, :capture_cancelled)
+
+  def handle_info({:capture_deadline, ref}, %{capture: %{monitor: ref}} = state), do: stop(state, :capture_timeout)
+
   def handle_info({:DOWN, ref, :process, _pid, _reason}, %{monitor: ref} = state), do: stop(state, :ingest_stopped)
 
   def handle_info(:renew_lease, %{drain_reason: reason} = state) when not is_nil(reason), do: {:noreply, state}
@@ -167,7 +181,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
 
     with :ok <- usable(state),
          {:ok, claim} <- RecorderOwnership.renew(state.owner, state.claim, @lease_ms, actor: state.actor),
-         :ok <- Inbox.renew(state.inbox, deadline(request_start, claim)) do
+         :ok <- Inbox.renew(state.inbox, deadline(request_start, claim, state.capture)) do
       {:noreply, schedule_renewal(%{state | claim: claim, timer: nil})}
     else
       {:error, :recording_stopped} -> drain(state)
@@ -182,6 +196,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     if state.inbox, do: Inbox.cancel(state.inbox)
     if state.timer, do: Process.cancel_timer(state.timer)
     if state.packager, do: Packaging.stop(state.packager)
+    if state.capture, do: Process.cancel_timer(state.capture.timer)
     release_consumer(state)
     :ok
   end
@@ -289,7 +304,18 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
     state = seal_committed_tail(state, reason)
     committed = stopped_snapshot(state)
     if state.inbox, do: Inbox.cancel(state.inbox)
-    notify(state, {:stopped, %{reason: reason, snapshot: committed, seal_error: state.seal_error}})
+
+    notify(
+      state,
+      {:stopped,
+       %{
+         reason: reason,
+         snapshot: committed,
+         seal_error: state.seal_error,
+         block_id: if(state.frozen_receipt, do: state.block.id)
+       }}
+    )
+
     {:stop, :normal, %{state | terminal: reason}}
   end
 
@@ -347,7 +373,30 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   end
 
   defp usable(state) do
-    with :ok <- Inbox.usable(state.inbox), do: Storage.verify(state.storage)
+    with :ok <- current_capture(state.capture),
+         :ok <- Inbox.usable(state.inbox),
+         do: Storage.verify(state.storage)
+  end
+
+  defp capture(nil), do: {:ok, nil}
+
+  defp capture(%{owner: owner, deadline: deadline} = capture) when is_pid(owner) and is_integer(deadline) do
+    with :ok <- current_capture(capture) do
+      monitor = Process.monitor(owner)
+      timer = Process.send_after(self(), {:capture_deadline, monitor}, max(0, deadline - now()))
+      {:ok, Map.merge(capture, %{monitor: monitor, timer: timer})}
+    end
+  end
+
+  defp capture(_), do: {:error, :invalid_capture}
+  defp current_capture(nil), do: :ok
+
+  defp current_capture(%{owner: owner, deadline: deadline}) do
+    cond do
+      deadline <= now() -> {:error, :capture_timeout}
+      not Process.alive?(owner) -> {:error, :capture_cancelled}
+      true -> :ok
+    end
   end
 
   defp snapshot(%{spool: nil}), do: nil
@@ -358,8 +407,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   defp continuous(previous, sequence) when sequence == previous + 1, do: :ok
   defp continuous(_previous, _sequence), do: {:error, :media_sequence_discontinuity}
 
-  defp deadline(request_start, claim),
-    do: request_start + max(0, DateTime.diff(claim.lease_expires_at, claim.database_now, :millisecond))
+  defp deadline(request_start, claim, capture) do
+    lease_deadline = request_start + max(0, DateTime.diff(claim.lease_expires_at, claim.database_now, :millisecond))
+    if capture, do: min(lease_deadline, capture.deadline), else: lease_deadline
+  end
+
+  defp now, do: System.monotonic_time(:millisecond)
 
   defp schedule_renewal(state) do
     delay = min(5_000, max(1, div(Inbox.remaining_ms(state.inbox), 2)))
