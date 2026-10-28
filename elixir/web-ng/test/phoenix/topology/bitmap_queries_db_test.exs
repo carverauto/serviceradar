@@ -403,35 +403,6 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueriesDBTest do
       end
     end
 
-    # Unwatch/reset must retain the occupied slot until the actual query exits,
-    # even when its native-index owner is temporarily unable to answer.
-    :ok = :sys.suspend(BitmapIndex)
-
-    try do
-      blocked_ref = push(socket, "membership:watch", params)
-      query_tasks = BitmapQueryTasks
-      await(fn -> Task.Supervisor.children(query_tasks) end, &(length(&1) == 1))
-
-      for event <- ["membership:unwatch", "membership:reset"] |> List.duplicate(4) |> List.flatten() do
-        ref = push(socket, event, %{})
-        assert_reply ref, :ok
-        ref = push(socket, "membership:watch", params)
-        assert_reply ref, :error, %{reason: "query_busy"}
-        assert [_] = Task.Supervisor.children(query_tasks)
-      end
-
-      assert_reply blocked_ref, :error, %{reason: "membership_replaced"}
-
-      other = Task.async(fn -> BitmapQueries.run(scope, %{"expression" => params["query"]}) end)
-      await(fn -> Task.Supervisor.children(query_tasks) end, &(length(&1) == 2))
-      :ok = :sys.resume(BitmapIndex)
-      assert {:ok, %{total: 1}} = Task.await(other)
-      await(fn -> Task.Supervisor.children(query_tasks) end, &(&1 == []))
-      refute_push "membership:frame", _cancelled_frame, 100
-    after
-      :sys.resume(BitmapIndex)
-    end
-
     ref = push(socket, "membership:watch", params)
     assert_reply ref, :ok, %{view_digest: digest, projection: %{mapped: 2, total: 2}}, 5_000
     assert_push "membership:frame", {:binary, frame}, 5_000

@@ -275,7 +275,7 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
     assert_receive {:socket_push, :binary, <<0, 1, 14, 16, "1topology:tilesmembership:frame", "SRMO", 1, 1, _::binary>>}
   end
 
-  test "a timed-out membership task keeps its slot until the task exits" do
+  test "cancelled and timed-out membership tasks keep their slot until completion" do
     keys = [:god_view_enabled]
     previous = Map.new(keys, &{&1, Application.fetch_env(:serviceradar_web_ng, &1)})
     for key <- keys, do: Application.put_env(:serviceradar_web_ng, key, true)
@@ -329,6 +329,50 @@ defmodule ServiceRadarWebNG.Topology.BitmapQueryControlTest do
         }
     }
 
+    # Exercise cancellation at its owner boundary: an admitted database query
+    # has a real deadline and cannot be held by suspending its index owner.
+    socket =
+      Phoenix.Socket.assign(socket, :bitmap_stream, %{
+        state
+        | request: params,
+          reply: Phoenix.Channel.socket_ref(socket)
+      })
+
+    events = List.flatten(List.duplicate(["membership:unwatch", "membership:reset"], 4))
+
+    cancelled =
+      Enum.reduce(events, socket, fn event, current ->
+        assert {:reply, :ok, cancelled} = TopologyTileChannel.handle_in(event, %{}, current)
+        assert cancelled.assigns.bitmap_stream.request == nil
+
+        assert {:reply, {:error, %{reason: "query_busy"}}, busy} =
+                 TopologyTileChannel.handle_in("membership:watch", params, cancelled)
+
+        assert busy.assigns.bitmap_stream.task.pid == held
+        assert Process.alive?(held)
+        busy
+      end)
+
+    assert_receive {:socket_push, :text, reply}
+
+    assert Jason.decode!(IO.iodata_to_binary(reply)) == [
+             "1",
+             "1",
+             "topology:tiles",
+             "phx_reply",
+             %{"status" => "error", "response" => %{"reason" => "membership_replaced"}}
+           ]
+
+    refute_receive {:socket_push, _, _}
+
+    assert {:noreply, completed} =
+             TopologyTileChannel.handle_info({:membership_built, token, {:ok, %{frame: "late"}}}, cancelled)
+
+    assert completed.assigns.bitmap_stream.task == nil
+    refute_receive {:socket_push, _, _}
+
+    # Restore a monitored slot to cover timeout independently of cancellation.
+    state = %{state | task: %{state.task | ref: Process.monitor(held)}}
     socket = Phoenix.Socket.assign(socket, :bitmap_stream, state)
 
     assert {:noreply, timed_out} = TopologyTileChannel.handle_info({:membership_timeout, token}, socket)
