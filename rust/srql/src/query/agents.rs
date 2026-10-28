@@ -1004,7 +1004,7 @@ mod tests {
                 }
                 plan.order.push(OrderClause {
                     field: "cert_last_renewed_at".into(),
-                    direction: direction.clone(),
+                    direction,
                 });
                 let (alias_sql, alias_params) = to_sql_and_params(&plan).unwrap();
                 assert!(matches!(&alias_params[0], BindParam::Timestamptz(value)
