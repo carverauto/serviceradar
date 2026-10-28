@@ -102,7 +102,12 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
         provisioned_package!("dispatch", 1)
 
       device =
-        target_device!("sr:example-sat-dispatch-1", "dispatch-terminal", assignment.agent_uid, true)
+        target_device!(
+          "sr:example-sat-dispatch-1",
+          "dispatch-terminal",
+          assignment.agent_uid,
+          true
+        )
 
       {:ok, descriptor} =
         plugin_descriptor(package, %{"source_account" => @source_requirement}, scopes: ["device"])
