@@ -14,14 +14,13 @@ Capture remains disabled by default. The owner core must have:
   spool directory;
 - `SERVICERADAR_CAMERA_RECORDING_STORAGE_ID` set to that storage lifetime UUID.
 
-The spool must already have been provisioned with `Storage.initialize/2` on its
-intended persistent filesystem. The chart does not yet provide a dedicated
+The spool must already satisfy the [provisioned spool identity
+contract](spool-lifetime.md#provision-once-verify-during-use) on its intended
+persistent filesystem. That reference owns initialization and marker verification;
+capture only verifies existing storage. The chart does not yet provide a dedicated
 recording spool mount; setting environment values alone does not provision one.
-The ordinary ephemeral `/tmp` mount is not a persistent recording volume. Capture
-calls the existing verifier: it never creates, changes or repairs the storage
-identity marker. It does not derive the
-UUID from the pod, process, relay or directory name. Startup configuration alone
-does not start a recorder or grant archive storage authority.
+The ordinary ephemeral `/tmp` mount is not a persistent recording volume. Startup
+configuration alone does not start a recorder or grant archive storage authority.
 
 A release operator invokes `Capture.once/1` through the existing trusted release
 RPC surface on the owning core, supplying the selected relay UUID. There is no

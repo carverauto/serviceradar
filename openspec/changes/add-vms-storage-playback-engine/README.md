@@ -26,7 +26,10 @@ checks from fresh recovery evidence. Allocation ownership is unresolved. The
 operation-bound creation proof or a separately specified and authorized adoption
 workflow before provider allocation or readiness.
 
-Production recording stays disabled. Preserve the confirmed live RTSP path and
+The private [bounded local capture](capture-once.md) entry point is now available
+for explicit opt-in; that reference owns its configuration, limits and receipt
+contract. Recording remains disabled by default, and this checkpoint does not
+authorize deployment or live capture. Preserve the confirmed live RTSP path and
 every ownership, manifest, archive, intent and dispatch assertion. New media,
 identifiers and failure injections are independently invented synthetic data.
 
