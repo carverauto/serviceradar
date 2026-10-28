@@ -40,10 +40,16 @@ identifiers and failure injections are independently invented synthetic data.
 1. Complete provider qualification and persistent spool installation before
    attempting deployment acceptance of the merged reader and bounded capture. Preserve all
    19 qualification checks, provisioned spool identity and fresh per-purpose
-   authorities; a chart switch cannot substitute for them. The proposed
+   authorities; a chart switch cannot substitute for them. The architecture-approved
    [persistent-spool installation](../add-persistent-camera-spool/proposal.md)
    scopes per-replica storage, controlled controller conversion and Cloud restore
-   changes. Its architecture choice remains pending; it does not enable capture.
+   changes. The user selected per-replica persistent storage through an opt-in
+   StatefulSet. Implementation, maintenance-window approval and deployment
+   acceptance remain open; this decision does not enable capture. Live runtime
+   validation remains mandatory after implementation, including exclusive mount,
+   identity mismatch refusal, pod replacement, retention, bounded capture and
+   viewer continuity. The user accepted the no-live-validation exception only for
+   this docs-only planning checkpoint, which cannot execute those future behaviors.
    Cloud #188 is merged; its independent next scope remains the
    [read-only reservation status](cloud-control-plane.md#next-bounded-cloud-checkpoint)
    in the operator environment console, without provider mutation.

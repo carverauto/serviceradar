@@ -1,9 +1,10 @@
 # Persistent recording installation
 
-## Decision under review
+## Approved architecture direction
 
+The user selected per-replica persistent storage through an opt-in StatefulSet.
 Retain the configured core replica count and give each replica its own persistent
-spool through an opt-in StatefulSet. Capture already runs on the relay owner;
+spool. Capture already runs on the relay owner;
 this placement reuses the existing pipeline without opening a second RTSP
 connection or introducing a distributed media transfer service.
 
@@ -12,7 +13,7 @@ capacity for all core responsibilities. It is a separate demo-only alternative,
 not a silent prerequisite for recording. A dedicated recorder service would
 require a new ingest/ownership boundary and is outside this installation slice.
 
-The recommended option has a migration cost: changing Kubernetes controller
+The selected option has a migration cost: changing Kubernetes controller
 kind is not an ordinary rolling upgrade. Plan a maintenance window for the
 initial conversion. Subsequent pod replacement retains that ordinal's claim;
 this does not replicate application journals or implement recorder takeover.
@@ -184,3 +185,9 @@ another viewer continues. Archive qualification/upload/publication and
 authorized browser replay remain separate acceptance steps. Do not report a
 retained PVC or local freeze as an available recording.
 
+
+Live runtime validation remains mandatory after implementation: exclusive mount,
+identity mismatch refusal, pod replacement, retention, bounded capture and viewer
+continuity must be exercised. This docs-only change cannot execute those future
+behaviors. The user accepted proceeding without live validation for this planning
+checkpoint only; implementation and all other acceptance gates remain required.

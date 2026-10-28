@@ -10,7 +10,7 @@ across core replicas.
 
 ## What Changes
 
-- Propose an opt-in core StatefulSet with one retained, exclusively mounted PVC
+- Plan the approved opt-in core StatefulSet with one retained, exclusively mounted PVC
   per replica. The existing Deployment remains the default.
 - Keep storage initialization separate from normal startup and capture
   enablement. Bind each volume lifetime to an explicitly provisioned UUID.
@@ -19,11 +19,11 @@ across core replicas.
 - Scope the corresponding Cloud inventory, chart preflight and restore changes
   before hosted enablement. Cloud restore currently targets a Deployment.
 
-This is a proposal, not an implemented installation or rollout authorization.
-The multi-replica option is recommended and awaits the operator's storage
-choice. A single-core demo with one claim remains an alternative; selecting
-that alternative requires updating this proposal before implementation.
-Neither choice qualifies a provider or enables recording.
+The user approved the per-replica persistent-storage direction using an opt-in
+StatefulSet. The single-core demo alternative was not selected. This remains a
+planning-only proposal, not an implemented installation or rollout authorization.
+Implementation, maintenance-window approval and deployment acceptance remain
+open. Architecture approval neither qualifies a provider nor enables recording.
 
 ## Impact
 

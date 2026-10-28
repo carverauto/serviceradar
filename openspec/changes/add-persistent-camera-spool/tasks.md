@@ -1,11 +1,12 @@
 # Implementation plan
 
-This proposal is pending the storage architecture decision. All implementation
-and deployment work below remains open.
+The user approved per-replica persistent storage through an opt-in StatefulSet.
+All implementation, qualification and deployment acceptance work remains open.
 
 ## 1. Confirm design
 
-- [ ] 1.1 Confirm per-replica StatefulSet storage versus the single-core demo alternative and the initial maintenance-window requirement.
+- [x] 1.1 Select per-replica StatefulSet storage; the user approved this architecture over the single-core demo alternative.
+- [ ] 1.1a Obtain approval for the initial conversion maintenance window.
 - [ ] 1.2 Verify qualified CSI ReadWriteOncePod support, PV retention and encryption for the intended installation.
 - [ ] 1.3 Specify the bounded installation-document schema, volume inventory association and guarded controller-kind conversion/rollback protocol.
 
