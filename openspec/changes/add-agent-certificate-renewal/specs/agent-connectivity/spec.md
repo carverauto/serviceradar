@@ -27,7 +27,7 @@ Connected agents SHALL automatically renew their mTLS leaf certificate over the 
 #### Scenario: Predecessor certificate retirement after renewal
 - **GIVEN** `serviceradar-agent-gateway` has issued a renewed certificate $C_{\text{new}}$ to replace an agent's current certificate $C_{\text{old}}$
 - **WHEN** the agent reconnects and completes `Hello` presenting $C_{\text{new}}$
-- **THEN** the gateway SHALL record $C_{\text{old}}$'s serial number and SHA-256 fingerprint in the gateway revocation registry (`ServiceRadarAgentGateway.AgentCertificateRevocation`) with reason `superseded_by_renewal`
+- **THEN** the gateway SHALL revoke $C_{\text{old}}$ by SHA-256 fingerprint, without revoking unrelated certificates sharing its serial number, in the gateway revocation registry (`ServiceRadarAgentGateway.AgentCertificateRevocation`) with reason `superseded_by_renewal`
 - **AND** any subsequent connection attempt presenting $C_{\text{old}}$ SHALL be rejected
 
 ### Requirement: Expired and Revoked Certificate Rejection and Diagnostics

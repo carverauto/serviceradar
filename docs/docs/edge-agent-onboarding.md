@@ -161,9 +161,32 @@ It evaluates non-superseded agents with a recorded expiration:
 - More than 14 days remaining after replacement: active expiry alerts resolve.
 - Superseded agent identities: active expiry alerts resolve.
 
-This phase provides expiry visibility and alerts, not automatic renewal or
-renewal-failure alerts. Generate a fresh onboarding package and re-enroll when
-replacement is needed. Gateway certificate rejections log
+### Automatic leaf certificate renewal
+
+Renewal-capable agents connected to a renewal-capable gateway renew over the
+existing mTLS connection without a process restart. Renewal starts at two-thirds
+of the current leaf lifetime plus random delay of up to 5% of that lifetime,
+capped at six hours. A certificate already past that target is renewed as soon
+as the agent connects. Failed attempts retry after 1, 2, 5, and 15 minutes, then
+hourly; near expiry the delay is shortened to stay inside the remaining lifetime.
+
+The agent generates a new key, persists the returned certificate, hot-reloads
+its TLS credentials, and reconnects with Hello. Keep `component-bundle.pem` in
+the certificate directory: this private-key-bearing recovery file has mode
+`0600` and lets startup repair an incomplete certificate/key replacement.
+Renewal rotates the leaf certificate, not the deployment CA.
+
+The predecessor remains usable until the successor completes Hello, so a lost
+renewal response does not immediately strand the agent. Retirement currently
+uses the gateway's in-memory registry; it is lost on gateway restart and is not
+shared across replicas. Durable cluster-wide revocation remains pending.
+
+Expired or revoked certificates cannot renew. Upgrade older agents before
+expiry; if renewal is no longer possible, generate a fresh onboarding package
+and re-enroll. Local expiry diagnostics report
+`local mTLS client certificate expired (notAfter=..., serial=...); re-enroll required`.
+Renewal failures are logged; dedicated renewal-failure alerts remain pending.
+Gateway certificate rejections log
 `Edge mTLS peer certificate rejected` with a normalized reason such as
 `certificate_expired`, `unknown_ca`, or `bad_cert`, and peer subject, issuer,
 serial, and expiration when available.

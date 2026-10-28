@@ -2,7 +2,7 @@
 
 ## 1. Protobuf & Certificate Lifetime Policy
 - [x] 1.1 Add `RenewCertificate(CertificateRenewalRequest) returns (CertificateRenewalResponse)` to `monitoring.AgentGatewayService` in `proto/monitoring.proto`, then regenerate Go and Elixir protobuf bindings.
-- [x] 1.2 Create `ServiceRadar.Edge.CertificateLifetimePolicy` in `elixir/serviceradar_core` defining the shared leaf certificate validity bounds, plus renewal scheduling constants (the renewal loop remains pending).
+- [x] 1.2 Create `ServiceRadar.Edge.CertificateLifetimePolicy` in `elixir/serviceradar_core` defining the shared leaf certificate validity bounds, plus renewal scheduling constants.
 - [x] 1.3 Fix `ServiceRadar.Edge.OnboardingPackages.create_with_platform_cert/2` and `ServiceRadarWebNG.Edge.OnboardingPackages` to use `CertificateLifetimePolicy.default_validity_days()` (`90` days) instead of `1` day.
 
 ## 2. CNPG Migrations, Ash Resources & Durable Revocation (`#5257`)
