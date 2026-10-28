@@ -126,7 +126,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       next_state =
         put_in(state, [:viewers, viewer_session_id], %{
           sink_name: sink_name,
-          output_pad: output_pad,
           notify: Keyword.get(opts, :notify)
         })
 
@@ -145,9 +144,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       {nil, _viewers} ->
         {[reply: {:error, :not_found}], state}
 
-      {%{sink_name: sink_name, output_pad: output_pad}, viewers} ->
-        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name]
-        {actions, defer_removal_reply(%{state | viewers: viewers}, sink_name, ctx.from)}
+      {%{sink_name: sink_name} = member, viewers} ->
+        actions = [remove_children: sink_name]
+
+        {actions,
+         defer_removal_reply(
+           %{state | viewers: viewers},
+           sink_name,
+           ctx.from,
+           {member, :webrtc_viewer, viewer_session_id}
+         )}
     end
   end
 
@@ -169,7 +175,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       next_state =
         put_in(state, [:boombox_branches, branch_id], %{
           sink_name: sink_name,
-          output_pad: output_pad,
           notify: Keyword.get(opts, :notify)
         })
 
@@ -198,7 +203,6 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       next_state =
         put_in(state, [:analysis_branches, branch_id], %{
           sink_name: sink_name,
-          output_pad: output_pad,
           notify: Keyword.get(opts, :notify)
         })
 
@@ -211,9 +215,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       {nil, _analysis_branches} ->
         {[reply: {:error, :not_found}], state}
 
-      {%{sink_name: sink_name, output_pad: output_pad}, analysis_branches} ->
-        actions = [remove_link: {@browser_tee, output_pad}, remove_children: sink_name]
-        {actions, defer_removal_reply(%{state | analysis_branches: analysis_branches}, sink_name, ctx.from)}
+      {%{sink_name: sink_name} = member, analysis_branches} ->
+        actions = [remove_children: sink_name]
+
+        {actions,
+         defer_removal_reply(
+           %{state | analysis_branches: analysis_branches},
+           sink_name,
+           ctx.from,
+           {member, :analysis_branch, branch_id}
+         )}
     end
   end
 
@@ -222,10 +233,25 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
       {nil, _boombox_branches} ->
         {[reply: {:error, :not_found}], state}
 
-      {%{sink_name: sink_name, output_pad: output_pad}, boombox_branches} ->
-        actions = [remove_link: {@webrtc_tee, output_pad}, remove_children: sink_name]
-        {actions, defer_removal_reply(%{state | boombox_branches: boombox_branches}, sink_name, ctx.from)}
+      {%{sink_name: sink_name} = member, boombox_branches} ->
+        actions = [remove_children: sink_name]
+
+        {actions,
+         defer_removal_reply(
+           %{state | boombox_branches: boombox_branches},
+           sink_name,
+           ctx.from,
+           {member, :boombox_branch, branch_id}
+         )}
     end
+  end
+
+  # A connected WebRTC bin loses its linked input as its internal crash group
+  # shuts down, before the viewer crash-group notification reaches us. Membrane
+  # already unlinks the tee; keep the relay alive for the existing cleanup.
+  @impl true
+  def handle_child_pad_removed({:webrtc_sink, viewer_session_id}, Pad.ref(:input, viewer_session_id), _ctx, state) do
+    {[], state}
   end
 
   # A remove call is answered only once its child has terminated. Replying when
@@ -234,12 +260,16 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
   # "Duplicated names in children specification". A child that crashes while
   # its removal is pending terminates here too, so the caller still gets :ok.
   @impl true
-  def handle_child_terminated(child, _ctx, state) do
+  def handle_child_terminated(child, ctx, state) do
     case Map.pop(state.pending_removals, child) do
       {nil, _pending_removals} ->
         {[], state}
 
-      {from, pending_removals} ->
+      {{from, {member, kind, member_id}}, pending_removals} ->
+        if ctx.exit_reason != :normal do
+          notify_member_crash(member, kind, state.relay_session_id, member_id, ctx.exit_reason)
+        end
+
         {[reply_to: {from, :ok}], %{state | pending_removals: pending_removals}}
     end
   end
@@ -293,8 +323,8 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
 
   defp notify_member_crash(_member, _kind, _relay_session_id, _member_id, _reason), do: :ok
 
-  defp defer_removal_reply(state, sink_name, from) do
-    %{state | pending_removals: Map.put(state.pending_removals, sink_name, from)}
+  defp defer_removal_reply(state, sink_name, from, member) do
+    %{state | pending_removals: Map.put(state.pending_removals, sink_name, {from, member})}
   end
 
   defp crash_group(spec, group), do: {spec, group: group, crash_group_mode: :temporary}
