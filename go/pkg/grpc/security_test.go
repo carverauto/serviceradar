@@ -18,6 +18,13 @@ package grpc
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
@@ -275,4 +282,158 @@ func TestNewSecurityProviderRejectsSPIFFE(t *testing.T) {
 			assert.Nil(t, provider)
 		})
 	}
+}
+
+func generateTestCAPEM(t *testing.T) (*x509.Certificate, *ecdsa.PrivateKey, []byte) {
+	t.Helper()
+
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	now := time.Now().UTC()
+	caTpl := &x509.Certificate{
+		SerialNumber:          big.NewInt(1),
+		Subject:               pkix.Name{CommonName: "ServiceRadar Synthetic Test CA"},
+		NotBefore:             now.Add(-time.Hour),
+		NotAfter:              now.Add(24 * time.Hour),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign,
+		BasicConstraintsValid: true,
+		IsCA:                  true,
+	}
+
+	caDER, err := x509.CreateCertificate(rand.Reader, caTpl, caTpl, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+
+	caCert, err := x509.ParseCertificate(caDER)
+	require.NoError(t, err)
+
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: caDER})
+	return caCert, caKey, caPEM
+}
+
+func generateTestLeafPEM(t *testing.T, caCert *x509.Certificate, caKey *ecdsa.PrivateKey, serial int64, notBefore, notAfter time.Time) ([]byte, []byte) {
+	t.Helper()
+
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+
+	leafTpl := &x509.Certificate{
+		SerialNumber: big.NewInt(serial),
+		Subject:      pkix.Name{CommonName: "agent-synth-1.default.serviceradar"},
+		NotBefore:    notBefore,
+		NotAfter:     notAfter,
+		KeyUsage:     x509.KeyUsageDigitalSignature,
+		ExtKeyUsage:  []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth},
+		DNSNames:     []string{"agent-synth-1.default.serviceradar"},
+	}
+
+	leafDER, err := x509.CreateCertificate(rand.Reader, leafTpl, caCert, &leafKey.PublicKey, caKey)
+	require.NoError(t, err)
+
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(leafKey)
+	require.NoError(t, err)
+
+	certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: leafDER})
+	keyPEM := pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: pkcs8Bytes})
+	return certPEM, keyPEM
+}
+
+func TestMTLSProviderHotReloadAndExpiryCheck(t *testing.T) {
+	tempDir := t.TempDir()
+	caCert, caKey, caPEM := generateTestCAPEM(t)
+	now := time.Now().UTC()
+
+	cert1PEM, key1PEM := generateTestLeafPEM(t, caCert, caKey, 1001, now.Add(-time.Hour), now.Add(2*time.Hour))
+	cert2PEM, key2PEM := generateTestLeafPEM(t, caCert, caKey, 1002, now.Add(-time.Minute), now.Add(4*time.Hour))
+
+	certPath := filepath.Join(tempDir, "component.pem")
+	keyPath := filepath.Join(tempDir, "component-key.pem")
+	caPath := filepath.Join(tempDir, "root.pem")
+
+	require.NoError(t, os.WriteFile(caPath, caPEM, 0o644))
+	require.NoError(t, os.WriteFile(certPath, cert1PEM, 0o644))
+	require.NoError(t, os.WriteFile(keyPath, key1PEM, 0o600))
+
+	cfg := &models.SecurityConfig{
+		Mode:    SecurityModeMTLS,
+		Role:    models.RoleAgent,
+		CertDir: tempDir,
+		TLS: models.TLSConfig{
+			CertFile: "component.pem",
+			KeyFile:  "component-key.pem",
+			CAFile:   "root.pem",
+		},
+	}
+
+	provider, err := NewMTLSProvider(cfg, createTestLogger(t))
+	require.NoError(t, err)
+	require.NotNil(t, provider.ClientLeaf())
+	assert.Equal(t, int64(1001), provider.ClientLeaf().SerialNumber.Int64())
+
+	require.NoError(t, os.WriteFile(keyPath, key2PEM, 0o600))
+	require.NoError(t, os.WriteFile(certPath, cert2PEM, 0o644))
+	require.NoError(t, provider.Reload())
+
+	require.NotNil(t, provider.ClientLeaf())
+	assert.Equal(t, int64(1002), provider.ClientLeaf().SerialNumber.Int64())
+
+	clientCert, err := provider.getClientCertificate(nil)
+	require.NoError(t, err)
+	assert.Equal(t, int64(1002), clientCert.Leaf.SerialNumber.Int64())
+
+	// Advance synthetic clock past NotAfter and verify pre-dial and handshake checks fail with ErrClientCertificateExpired.
+	provider.SetNowFunc(func() time.Time { return now.Add(5 * time.Hour) })
+
+	_, err = provider.GetClientCredentials(context.Background())
+	require.ErrorIs(t, err, ErrClientCertificateExpired)
+	assert.Contains(t, err.Error(), "local mTLS client certificate expired")
+	assert.Contains(t, err.Error(), "re-enroll required")
+}
+
+func TestMTLSProviderStartupSelfHealFromComponentBundle(t *testing.T) {
+	tempDir := t.TempDir()
+	caCert, caKey, caPEM := generateTestCAPEM(t)
+	now := time.Now().UTC()
+
+	oldCertPEM, _ := generateTestLeafPEM(t, caCert, caKey, 2001, now.Add(-time.Hour), now.Add(2*time.Hour))
+	newCertPEM, newKeyPEM := generateTestLeafPEM(t, caCert, caKey, 2002, now.Add(-time.Minute), now.Add(4*time.Hour))
+
+	certPath := filepath.Join(tempDir, "component.pem")
+	keyPath := filepath.Join(tempDir, "component-key.pem")
+	caPath := filepath.Join(tempDir, "root.pem")
+	bundlePath := filepath.Join(tempDir, "component-bundle.pem")
+
+	// Simulate a crash mid-write: component-bundle.pem has the new matching pair,
+	// component-key.pem was updated to newKeyPEM, but component.pem still has oldCertPEM.
+	bundleContent := "# Component Certificate\n" + string(newCertPEM) + "# Component Private Key\n" + string(newKeyPEM) + "# CA Chain\n" + string(caPEM)
+	require.NoError(t, os.WriteFile(caPath, caPEM, 0o644))
+	require.NoError(t, os.WriteFile(bundlePath, []byte(bundleContent), 0o600))
+	require.NoError(t, os.WriteFile(keyPath, newKeyPEM, 0o600))
+	require.NoError(t, os.WriteFile(certPath, oldCertPEM, 0o644))
+
+	cfg := &models.SecurityConfig{
+		Mode:    SecurityModeMTLS,
+		Role:    models.RoleAgent,
+		CertDir: tempDir,
+		TLS: models.TLSConfig{
+			CertFile: "component.pem",
+			KeyFile:  "component-key.pem",
+			CAFile:   "root.pem",
+		},
+	}
+
+	provider, err := NewMTLSProvider(cfg, createTestLogger(t))
+	require.NoError(t, err)
+	require.NotNil(t, provider.ClientLeaf())
+	assert.Equal(t, int64(2002), provider.ClientLeaf().SerialNumber.Int64())
+
+	// Verify component-bundle.pem was retained so a second crash during startup repair self-heals again.
+	_, err = os.Stat(bundlePath)
+	require.NoError(t, err)
+
+	// Corrupt component.pem again and verify a second startup self-heals deterministically.
+	require.NoError(t, os.WriteFile(certPath, oldCertPEM, 0o644))
+	provider2, err := NewMTLSProvider(cfg, createTestLogger(t))
+	require.NoError(t, err)
+	assert.Equal(t, int64(2002), provider2.ClientLeaf().SerialNumber.Int64())
 }

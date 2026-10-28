@@ -160,9 +160,9 @@ Immediate renewal-failure alerts remain pending with `RenewCertificate` and
 1. **Agent-side pre-flight and handshake error classification (`go/pkg/grpc/security.go` & `go/pkg/agent/`)**:
    - Before each renewal attempt or retry, before dialing `serviceradar-agent-gateway`, and inside `GetClientCertificate`, the Go agent checks the local leaf certificate's `NotAfter` against `time.Now()`.
    - If `!time.Now().Before(leaf.NotAfter)`, the agent logs a structured `ERROR` message:
-     `local mTLS client certificate expired (cn=..., serial=..., not_after=..., expired_ago=...); automatic renewal requires a valid certificate -- re-enroll this agent with 'serviceradar-cli enroll --token <token>'`
+     `local mTLS client certificate expired (notAfter=..., serial=...); re-enroll required`
      and surfaces this exact reason instead of letting gRPC mask the TLS alert behind `context deadline exceeded`.
-   - If the remote gateway rejects the TLS handshake with a TLS alert (`remote error: tls: expired certificate`, `tls: bad certificate`, `tls: certificate revoked`), the gRPC dial wrapper unwraps the underlying `tls.AlertError` / `x509` error before any context deadline expires and logs the specific TLS rejection reason.
+   - If the remote gateway rejects `RenewCertificate` with `PERMISSION_DENIED` (`certificate_expired` or `certificate_revoked`), the renewal manager logs the explicit re-enrollment diagnostic and halts further renewal retries.
 2. **Gateway-side TLS alert logging (`elixir/serviceradar_agent_gateway`)**:
    - Configure the gateway TLS listener / handshake telemetry hook to log peer certificate CN, serial number, `notAfter`, and failure reason (`certificate_expired`, `certificate_revoked`, `unknown_ca`) whenever a client TLS handshake fails.
 
@@ -170,12 +170,12 @@ Immediate renewal-failure alerts remain pending with `RenewCertificate` and
 
 ## Decision 5: Interaction with Leaf and Component Revocation (`#5257`)
 
-`#5257` tracks edge NATS leaf and component certificate revocation. Currently:
+`#5257` tracks edge NATS leaf and component certificate revocation. Phase 2 (`#6120`) implements predecessor-successor tracking in `ServiceRadarAgentGateway.AgentCertificateRevocation` and retires the predecessor (`reason = "superseded_by_renewal"`) only when the agent completes `Hello` presenting the successor certificate; durable CNPG revocation storage (`platform.revoked_component_certificates`) and NATS leaf auth callout remain deferred to `#5257` (tasks `2.1b` and `2.3`). Currently:
 - `ServiceRadarAgentGateway.AgentCertificateRevocation` is an in-memory ETS table local to a single `agent-gateway` pod (lost on pod restart and not shared across gateway replicas).
 - Edge NATS leaves share a partition-scoped URI SAN (`spiffe://serviceradar.local/nats-leaf/<partition_id>`), so revoking one compromised leaf certificate without durable fingerprint/serial revocation or per-leaf identity cannot isolate a single leaf.
 
 ### Unified Revocation & Renewal Integration
-1. **Durable CNPG Revocation Store (`platform.revoked_component_certificates`)**:
+1. **Durable CNPG Revocation Store (`platform.revoked_component_certificates`, deferred to `#5257` tasks `2.1b`/`2.3`)**:
    - Create `platform.revoked_component_certificates` storing:
      - `id` (UUID PK)
      - `component_id` (`TEXT`, indexed)
@@ -187,15 +187,15 @@ Immediate renewal-failure alerts remain pending with `RenewCertificate` and
      - `revoked_at` (`TIMESTAMPTZ`)
      - `revoked_by` (`TEXT`)
      - `expires_at` (`TIMESTAMPTZ` -- `notAfter` of the revoked cert, allowing automatic pruning of revocation entries once the underlying certificate has naturally expired).
-2. **Cluster-Wide Gateway Synchronization**:
+2. **Cluster-Wide Gateway Synchronization (`#5257` task `2.3`)**:
    - `ServiceRadarAgentGateway.AgentCertificateRevocation` loads active (non-expired) revocation rows from CNPG on startup and subscribes to PubSub (`serviceradar:cert_revocations`) so any revocation takes effect across all `agent-gateway` pods within milliseconds and survives pod restarts.
 3. **Validity and Revocation Checks Before Renewal**:
    - Every `RenewCertificate` attempt enforces the current-time peer validity check in Decision 1 immediately before signing, including retries over existing connections.
-   - `RenewCertificate` calls `ComponentIdentityResolver.resolve_from_cert/1`, which queries `AgentCertificateRevocation.revoked?/1` by `component_id`, `serial_number`, and `certificate_fingerprint`.
-   - A revoked certificate or revoked `component_id` is immediately denied renewal (`PERMISSION_DENIED`) and its active `ControlStream` is terminated.
+   - `RenewCertificate` calls `ComponentIdentityResolver.resolve_from_cert/2`, which queries `AgentCertificateRevocation.revoked?/1` by `component_id`, `serial_number`, and `certificate_fingerprint`.
+   - A revoked certificate or revoked `component_id` is immediately denied renewal (`PERMISSION_DENIED`).
 4. **Predecessor Certificate Retirement on Renewal**:
-   - When `RenewCertificate` issues a new certificate $C_{\text{new}}$ to replace $C_{\text{old}}$, the gateway durably records the predecessor-successor relationship for retirement upon confirmed successor use across gateway restarts and replicas. Issuance starts no retirement timer; a lost response leaves the still-valid predecessor usable for retry.
-   - As soon as the agent completes `Hello` presenting $C_{\text{new}}$, $C_{\text{old}}$'s `serial_number` and `fingerprint_sha256` are written to `platform.revoked_component_certificates` with `reason = "superseded_by_renewal"`.
+   - When `RenewCertificate` issues a new certificate $C_{\text{new}}$ to replace $C_{\text{old}}$, `ServiceRadarAgentGateway.AgentCertificateRevocation.register_pending_renewal/3` records the predecessor-successor relationship for retirement upon confirmed successor use. Issuance starts no retirement timer; a lost response leaves the still-valid predecessor usable for retry.
+   - As soon as the agent completes `Hello` presenting $C_{\text{new}}$, `AgentCertificateRevocation.confirm_successor_hello/1` retires $C_{\text{old}}$'s `serial_number` and `fingerprint` in `AgentCertificateRevocation` with `reason = "superseded_by_renewal"` (and once `#5257` lands, persists it to `platform.revoked_component_certificates`).
 5. **Alignment with `#5257` Edge NATS Leaf Certificates**:
    - Per-leaf certificates issued for edge NATS leaves include a distinct `component_id` in their CN (`<leaf_component_id>.<partition_id>.serviceradar`) and URI SAN (`spiffe://serviceradar.local/nats-leaf/<partition_id>/<leaf_component_id>`), and consult the same `platform.revoked_component_certificates` store during TLS verification / NATS auth callout.
 

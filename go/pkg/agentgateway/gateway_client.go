@@ -160,12 +160,11 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 		}
 		// Connection exists but isn't healthy; force reconnect.
 		staleConn = g.conn
-		staleProvider = g.securityProvider
 		g.conn = nil
 		g.client = nil
 		g.connected = false
-		g.securityProvider = nil
 	}
+	existingProvider := g.securityProvider
 
 	g.mu.Unlock()
 
@@ -178,9 +177,15 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 
 	g.logger.Info().Str("addr", g.addr).Msg("Connecting to agent-gateway")
 
-	opts, provider, err := g.buildDialOptions(ctx)
+	opts, provider, err := g.buildDialOptions(ctx, existingProvider)
 	if err != nil {
 		return fmt.Errorf("failed to build dial options: %w", err)
+	}
+
+	closeProviderOnError := func() {
+		if provider != nil && provider != existingProvider {
+			_ = provider.Close()
+		}
 	}
 
 	connectCtx, cancel := context.WithTimeout(ctx, defaultConnectTimeout)
@@ -188,9 +193,7 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 
 	conn, err := grpc.NewClient(g.addr, opts...)
 	if err != nil {
-		if provider != nil {
-			_ = provider.Close()
-		}
+		closeProviderOnError()
 		return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, err)
 	}
 
@@ -198,16 +201,12 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 	for state := conn.GetState(); state != connectivity.Ready; state = conn.GetState() {
 		if state == connectivity.Shutdown {
 			_ = conn.Close()
-			if provider != nil {
-				_ = provider.Close()
-			}
+			closeProviderOnError()
 			return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, ErrConnectionShutdown)
 		}
 		if !conn.WaitForStateChange(connectCtx, state) {
 			_ = conn.Close()
-			if provider != nil {
-				_ = provider.Close()
-			}
+			closeProviderOnError()
 			return fmt.Errorf("failed to connect to gateway at %s: %w", g.addr, connectCtx.Err())
 		}
 	}
@@ -216,9 +215,7 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 	if g.conn != nil && g.connected && g.conn.GetState() == connectivity.Ready {
 		g.mu.Unlock()
 		_ = conn.Close()
-		if provider != nil {
-			_ = provider.Close()
-		}
+		closeProviderOnError()
 		return nil
 	}
 	g.conn = conn
@@ -234,7 +231,7 @@ func (g *GatewayClient) Connect(ctx context.Context) error {
 }
 
 // buildDialOptions constructs gRPC dial options based on security configuration.
-func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption, srgrpc.SecurityProvider, error) {
+func (g *GatewayClient) buildDialOptions(ctx context.Context, existingProvider srgrpc.SecurityProvider) ([]grpc.DialOption, srgrpc.SecurityProvider, error) {
 	opts := []grpc.DialOption{
 		grpc.WithKeepaliveParams(keepalive.ClientParameters{
 			Time:                defaultKeepaliveTime,
@@ -246,16 +243,23 @@ func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption
 	}
 
 	if g.security != nil && g.security.Mode != "" && g.security.Mode != models.SecurityModeNone {
-		// Create security provider using the standard pattern
-		provider, err := srgrpc.NewSecurityProvider(ctx, g.security, g.logger)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create security provider: %w", err)
+		provider := existingProvider
+		created := false
+		if provider == nil {
+			var err error
+			provider, err = srgrpc.NewSecurityProvider(ctx, g.security, g.logger)
+			if err != nil {
+				return nil, nil, fmt.Errorf("failed to create security provider: %w", err)
+			}
+			created = true
 		}
 
 		// Get client credentials from the provider
 		creds, err := provider.GetClientCredentials(ctx)
 		if err != nil {
-			_ = provider.Close()
+			if created {
+				_ = provider.Close()
+			}
 			return nil, nil, fmt.Errorf("failed to get client credentials: %w", err)
 		}
 
@@ -569,6 +573,65 @@ func (g *GatewayClient) GetGatewayID() string {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.gatewayID
+}
+
+// MTLSProvider returns the active *srgrpc.MTLSProvider when mTLS security is enabled.
+func (g *GatewayClient) MTLSProvider() *srgrpc.MTLSProvider {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	provider, ok := g.securityProvider.(*srgrpc.MTLSProvider)
+	if !ok {
+		return nil
+	}
+
+	return provider
+}
+
+// ReloadAndReconnect hot-reloads the active MTLSProvider from disk and establishes
+// a fresh gRPC connection so the gateway observes the newly issued client certificate.
+func (g *GatewayClient) ReloadAndReconnect(ctx context.Context) error {
+	provider := g.MTLSProvider()
+	if provider != nil {
+		if err := provider.Reload(); err != nil {
+			return fmt.Errorf("failed to reload mTLS provider: %w", err)
+		}
+	}
+
+	g.mu.Lock()
+	oldConn := g.conn
+	g.conn = nil
+	g.client = nil
+	g.connected = false
+	g.mu.Unlock()
+
+	if oldConn != nil {
+		_ = oldConn.Close()
+	}
+
+	return g.Connect(ctx)
+}
+
+// RenewCertificate sends a PKCS#10 CSR over the authenticated mTLS connection to renew the leaf certificate.
+func (g *GatewayClient) RenewCertificate(ctx context.Context, req *proto.CertificateRenewalRequest) (*proto.CertificateRenewalResponse, error) {
+	g.mu.RLock()
+	client := g.client
+	connected := g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	renewCtx, cancel := context.WithTimeout(ctx, defaultPushTimeout)
+	defer cancel()
+
+	resp, err := client.RenewCertificate(renewCtx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to renew certificate: %w", err)
+	}
+
+	return resp, nil
 }
 
 // GetConfig fetches the agent's configuration from the gateway.

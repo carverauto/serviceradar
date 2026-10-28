@@ -2,10 +2,12 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadarAgentGateway.AgentCertificateRevocation
   alias ServiceRadarAgentGateway.AgentGatewayServer
   alias ServiceRadarAgentGateway.AgentRegistryProxy
   alias ServiceRadarAgentGateway.CertificateTestHelpers
   alias ServiceRadarAgentGateway.CertIssuer
+  alias ServiceRadarAgentGateway.ComponentIdentityResolver
   alias ServiceRadarAgentGateway.Config
 
   setup do
@@ -290,6 +292,227 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         assert error.status == GRPC.Status.permission_denied()
         refute_receive {:core_rpc, _, _}
       end
+    end
+  end
+
+  describe "renew_certificate/2 — mTLS certificate renewal and predecessor retirement" do
+    setup do
+      CertificateTestHelpers.ensure_revocation_store!()
+      AgentCertificateRevocation.clear()
+      Config.setup(gateway_id: "gateway-renewal-test", domain: "default")
+
+      parent_dir = CertificateTestHelpers.unique_tmp_dir!("gateway-server-renewal")
+      ca_cert = Path.join(parent_dir, "root.pem")
+      ca_key = Path.join(parent_dir, "root-key.pem")
+      CertificateTestHelpers.generate_ca_bundle!(ca_cert, ca_key)
+
+      previous_issuer_opts = Application.get_env(:serviceradar_agent_gateway, :cert_issuer_opts)
+
+      Application.put_env(:serviceradar_agent_gateway, :cert_issuer_opts,
+        ca_cert_file: ca_cert,
+        ca_key_file: ca_key,
+        temp_parent_dir: parent_dir,
+        audit_writer: nil
+      )
+
+      on_exit(fn ->
+        if previous_issuer_opts do
+          Application.put_env(:serviceradar_agent_gateway, :cert_issuer_opts, previous_issuer_opts)
+        else
+          Application.delete_env(:serviceradar_agent_gateway, :cert_issuer_opts)
+        end
+
+        if Process.whereis(AgentCertificateRevocation), do: AgentCertificateRevocation.clear()
+        File.rm_rf(parent_dir)
+      end)
+
+      agent_id = "agent-renew-01"
+
+      {:ok, initial_bundle} =
+        CertIssuer.issue_agent_bundle(agent_id, "default", :agent,
+          ca_cert_file: ca_cert,
+          ca_key_file: ca_key,
+          temp_parent_dir: parent_dir,
+          audit_writer: nil
+        )
+
+      old_cert_der = CertificateTestHelpers.certificate_der!(initial_bundle.certificate_pem)
+      {:ok, old_identity} = ComponentIdentityResolver.resolve_from_cert(old_cert_der)
+
+      %{
+        agent_id: agent_id,
+        parent_dir: parent_dir,
+        ca_cert: ca_cert,
+        ca_key: ca_key,
+        old_bundle: initial_bundle,
+        old_cert_der: old_cert_der,
+        old_identity: old_identity,
+        old_stream: CertificateTestHelpers.cert_stream(old_cert_der)
+      }
+    end
+
+    test "issues renewed certificate, keeps predecessor valid across retry, and retires predecessor only on successor Hello",
+         context do
+      csr_der_1 = build_test_csr_der!(context.agent_id, "default")
+
+      resp_1 =
+        AgentGatewayServer.renew_certificate(
+          %Monitoring.CertificateRenewalRequest{csr_der: csr_der_1},
+          context.old_stream
+        )
+
+      assert byte_size(resp_1.certificate_pem) > 0
+      assert byte_size(resp_1.ca_chain_pem) > 0
+      assert byte_size(resp_1.serial_number) > 0
+      assert byte_size(resp_1.certificate_fingerprint) == 64
+      assert resp_1.not_after_unix > resp_1.not_before_unix
+      refute resp_1.certificate_fingerprint == context.old_identity.certificate_fingerprint
+
+      # Predecessor MUST NOT be revoked before the agent completes Hello with the successor,
+      # so a lost response or mid-write crash allows retry on the predecessor certificate.
+      refute AgentCertificateRevocation.revoked?(context.old_identity)
+
+      csr_der_2 = build_test_csr_der!(context.agent_id, "default")
+
+      resp_2 =
+        AgentGatewayServer.renew_certificate(
+          %Monitoring.CertificateRenewalRequest{csr_der: csr_der_2},
+          context.old_stream
+        )
+
+      assert byte_size(resp_2.certificate_pem) > 0
+      refute AgentCertificateRevocation.revoked?(context.old_identity)
+
+      # Once the agent reconnects and completes Hello presenting the successor certificate,
+      # the gateway confirms the handoff and retires the predecessor with superseded_by_renewal.
+      {:ok, %{superseded: true}} =
+        resp_2.certificate_pem
+        |> CertificateTestHelpers.certificate_der!()
+        |> ComponentIdentityResolver.resolve_from_cert()
+        |> elem(1)
+        |> AgentCertificateRevocation.confirm_successor_hello()
+
+      assert AgentCertificateRevocation.revoked?(context.old_identity)
+      assert AgentCertificateRevocation.revoked_reason(context.old_identity) == "superseded_by_renewal"
+
+      # Presenting the retired predecessor certificate for another renewal is now denied.
+      error =
+        assert_raise GRPC.RPCError, ~r/certificate_revoked/, fn ->
+          AgentGatewayServer.renew_certificate(
+            %Monitoring.CertificateRenewalRequest{csr_der: csr_der_2},
+            context.old_stream
+          )
+        end
+
+      assert error.status == GRPC.Status.permission_denied()
+    end
+
+    test "rejects expired and not-yet-valid peer certificates with PERMISSION_DENIED", context do
+      csr_der = build_test_csr_der!(context.agent_id, "default")
+
+      expired_now = DateTime.shift(context.old_identity.cert_not_after, minute: 1)
+
+      Application.put_env(
+        :serviceradar_agent_gateway,
+        :cert_issuer_opts,
+        Keyword.put(
+          Application.get_env(:serviceradar_agent_gateway, :cert_issuer_opts, []),
+          :now,
+          expired_now
+        )
+      )
+
+      expired_error =
+        assert_raise GRPC.RPCError, ~r/certificate_expired/, fn ->
+          AgentGatewayServer.renew_certificate(
+            %Monitoring.CertificateRenewalRequest{csr_der: csr_der},
+            context.old_stream
+          )
+        end
+
+      assert expired_error.status == GRPC.Status.permission_denied()
+
+      future_now = DateTime.shift(context.old_identity.cert_not_before, minute: -1)
+
+      Application.put_env(
+        :serviceradar_agent_gateway,
+        :cert_issuer_opts,
+        Keyword.put(
+          Application.get_env(:serviceradar_agent_gateway, :cert_issuer_opts, []),
+          :now,
+          future_now
+        )
+      )
+
+      not_yet_valid_error =
+        assert_raise GRPC.RPCError, ~r/certificate_not_yet_valid/, fn ->
+          AgentGatewayServer.renew_certificate(
+            %Monitoring.CertificateRenewalRequest{csr_der: csr_der},
+            context.old_stream
+          )
+        end
+
+      assert not_yet_valid_error.status == GRPC.Status.permission_denied()
+    end
+
+    test "rejects forged CSR with mismatched identity or invalid signature", context do
+      forged_identity_csr = build_test_csr_der!("other-agent-99", "default")
+
+      mismatch_error =
+        assert_raise GRPC.RPCError, ~r/csr_identity_mismatch/, fn ->
+          AgentGatewayServer.renew_certificate(
+            %Monitoring.CertificateRenewalRequest{csr_der: forged_identity_csr},
+            context.old_stream
+          )
+        end
+
+      assert mismatch_error.status == GRPC.Status.permission_denied()
+
+      valid_csr = build_test_csr_der!(context.agent_id, "default")
+      {:CertificationRequest, info, sig_algo, sig} = :public_key.der_decode(:CertificationRequest, valid_csr)
+      <<first, rest::binary>> = sig
+      bad_sig = <<Bitwise.bxor(first, 0xFF), rest::binary>>
+      tampered_csr = :public_key.der_encode(:CertificationRequest, {:CertificationRequest, info, sig_algo, bad_sig})
+
+      sig_error =
+        assert_raise GRPC.RPCError, ~r/invalid_csr_signature/, fn ->
+          AgentGatewayServer.renew_certificate(
+            %Monitoring.CertificateRenewalRequest{csr_der: tampered_csr},
+            context.old_stream
+          )
+        end
+
+      assert sig_error.status == GRPC.Status.invalid_argument()
+    end
+  end
+
+  defp build_test_csr_der!(component_id, partition_id) do
+    cn = "#{component_id}.#{partition_id}.serviceradar"
+    spiffe = "spiffe://serviceradar.local/agent/#{partition_id}/#{component_id}"
+
+    args = [
+      "req",
+      "-new",
+      "-newkey",
+      "ec",
+      "-pkeyopt",
+      "ec_paramgen_curve:prime256v1",
+      "-nodes",
+      "-keyout",
+      "/dev/null",
+      "-subj",
+      "/CN=#{cn}",
+      "-addext",
+      "subjectAltName=URI:#{spiffe},DNS:#{cn}"
+    ]
+
+    case System.cmd("openssl", args, stderr_to_stdout: false) do
+      {pem, 0} ->
+        [{:CertificationRequest, der, :not_encrypted}] = :public_key.pem_decode(pem)
+        der
+
+      {output, status} ->
+        flunk("openssl CSR generation failed (#{status}): #{output}")
     end
   end
 

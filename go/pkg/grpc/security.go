@@ -20,11 +20,15 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/hex"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
+	"time"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -61,6 +65,9 @@ type MTLSProvider struct {
 	config      *models.SecurityConfig
 	clientCreds credentials.TransportCredentials
 	serverCreds credentials.TransportCredentials
+	clientCert  atomic.Pointer[tls.Certificate]
+	serverCert  atomic.Pointer[tls.Certificate]
+	nowFunc     func() time.Time
 	closeOnce   sync.Once
 	needsClient bool
 	needsServer bool
@@ -79,7 +86,11 @@ func NewMTLSProvider(config *models.SecurityConfig, log logger.Logger) (*MTLSPro
 		return nil, fmt.Errorf("%w: missing required TLS file paths in config", errSecurityConfigRequired)
 	}
 
-	provider := &MTLSProvider{config: config, logger: log}
+	provider := &MTLSProvider{
+		config:  config,
+		nowFunc: time.Now,
+		logger:  log,
+	}
 	if err := provider.setCredentialNeeds(); err != nil {
 		return nil, err
 	}
@@ -129,7 +140,7 @@ func (p *MTLSProvider) loadCredentials() error {
 	if p.needsClient {
 		p.logger.Info().Msg("Loading client credentials using paths from config.TLS")
 
-		p.clientCreds, err = loadClientCredentials(p.config, p.logger)
+		p.clientCreds, err = p.loadClientCredentials()
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToLoadClientCreds, err)
 		}
@@ -138,13 +149,149 @@ func (p *MTLSProvider) loadCredentials() error {
 	if p.needsServer {
 		p.logger.Info().Msg("Loading server credentials using paths from config.TLS")
 
-		p.serverCreds, err = loadServerCredentials(p.config, p.logger)
+		p.serverCreds, err = p.loadServerCredentials()
 		if err != nil {
 			return fmt.Errorf("%w: %w", errFailedToLoadServerCreds, err)
 		}
 	}
 
 	return nil
+}
+
+// Reload atomically reloads the client and server TLS certificates from disk
+// without recreating the provider or requiring a process restart.
+func (p *MTLSProvider) Reload() error {
+	if p.needsClient {
+		certPath, keyPath, _ := p.CertPaths()
+		cert, err := loadKeyPairWithSelfHeal(certPath, keyPath, p.logger)
+		if err != nil {
+			return fmt.Errorf("%w: %w", errFailedToLoadClientCert, err)
+		}
+
+		p.clientCert.Store(&cert)
+	}
+
+	if p.needsServer {
+		certPath, keyPath, _ := normalizePaths(p.config, p.logger)
+		cert, err := loadServerCert(certPath, keyPath, p.logger)
+		if err != nil {
+			return err
+		}
+
+		p.serverCert.Store(&cert)
+	}
+
+	return nil
+}
+
+// ClientLeaf returns the parsed leaf x509.Certificate for the currently loaded client certificate.
+func (p *MTLSProvider) ClientLeaf() *x509.Certificate {
+	cert := p.clientCert.Load()
+	if cert == nil {
+		return nil
+	}
+
+	return cert.Leaf
+}
+
+// CertPaths returns the resolved client certificate, private key, and CA file paths.
+func (p *MTLSProvider) CertPaths() (certPath, keyPath, caPath string) {
+	certPath = p.config.TLS.CertFile
+	keyPath = p.config.TLS.KeyFile
+	caPath = p.config.TLS.CAFile
+
+	if !filepath.IsAbs(certPath) && p.config.CertDir != "" {
+		certPath = filepath.Join(p.config.CertDir, certPath)
+	}
+
+	if !filepath.IsAbs(keyPath) && p.config.CertDir != "" {
+		keyPath = filepath.Join(p.config.CertDir, keyPath)
+	}
+
+	if !filepath.IsAbs(caPath) && p.config.CertDir != "" {
+		caPath = filepath.Join(p.config.CertDir, caPath)
+	}
+
+	return certPath, keyPath, caPath
+}
+
+// SetNowFunc overrides the clock used for local certificate expiry checks (for tests).
+func (p *MTLSProvider) SetNowFunc(fn func() time.Time) {
+	if fn != nil {
+		p.nowFunc = fn
+	}
+}
+
+func (p *MTLSProvider) now() time.Time {
+	if p.nowFunc != nil {
+		return p.nowFunc()
+	}
+
+	return time.Now()
+}
+
+// CheckClientCertificateExpiry verifies that the currently loaded client certificate
+// has not reached its NotAfter timestamp. When expired, it logs an explicit
+// re-enrollment diagnostic and returns ErrClientCertificateExpired.
+func (p *MTLSProvider) CheckClientCertificateExpiry() error {
+	cert := p.clientCert.Load()
+	if cert == nil {
+		return errFailedToLoadClientCert
+	}
+
+	return p.checkClientCertificateExpiry(cert)
+}
+
+func (p *MTLSProvider) checkClientCertificateExpiry(cert *tls.Certificate) error {
+	if cert == nil || cert.Leaf == nil {
+		return nil
+	}
+
+	if !p.now().Before(cert.Leaf.NotAfter) {
+		notAfterStr := cert.Leaf.NotAfter.UTC().Format(time.RFC3339)
+		serialStr := formatCertSerialHex(cert.Leaf)
+		msg := fmt.Sprintf("local mTLS client certificate expired (notAfter=%s, serial=%s); re-enroll required", notAfterStr, serialStr)
+		if p.logger != nil {
+			p.logger.Error().
+				Str("notAfter", notAfterStr).
+				Str("serial", serialStr).
+				Msg(msg)
+		}
+
+		return fmt.Errorf("%w: %s", ErrClientCertificateExpired, msg)
+	}
+
+	return nil
+}
+
+func formatCertSerialHex(leaf *x509.Certificate) string {
+	if leaf == nil || leaf.SerialNumber == nil {
+		return "unknown"
+	}
+
+	return strings.ToLower(hex.EncodeToString(leaf.SerialNumber.Bytes()))
+}
+
+func (p *MTLSProvider) getClientCertificate(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+	cert := p.clientCert.Load()
+	if cert == nil {
+		return nil, errFailedToLoadClientCert
+	}
+
+	if err := p.checkClientCertificateExpiry(cert); err != nil {
+		return nil, err
+	}
+
+	return cert, nil
+}
+
+func (p *MTLSProvider) getServerCertificate(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	cert := p.serverCert.Load()
+	if cert == nil {
+		return nil, errFailedToLoadServerCert
+	}
+
+	return cert, nil
 }
 
 func (p *MTLSProvider) Close() error {
@@ -158,34 +305,21 @@ func (p *MTLSProvider) Close() error {
 }
 
 // loadClientCredentials loads client TLS credentials using paths from config.TLS.
-func loadClientCredentials(config *models.SecurityConfig, log logger.Logger) (credentials.TransportCredentials, error) {
-	// Normalize paths with CertDir if they are relative
-	certPath := config.TLS.CertFile
-	keyPath := config.TLS.KeyFile
-	caPath := config.TLS.CAFile
+func (p *MTLSProvider) loadClientCredentials() (credentials.TransportCredentials, error) {
+	certPath, keyPath, caPath := p.CertPaths()
 
-	if !filepath.IsAbs(certPath) && config.CertDir != "" {
-		certPath = filepath.Join(config.CertDir, certPath)
-	}
-
-	if !filepath.IsAbs(keyPath) && config.CertDir != "" {
-		keyPath = filepath.Join(config.CertDir, keyPath)
-	}
-
-	if !filepath.IsAbs(caPath) && config.CertDir != "" {
-		caPath = filepath.Join(config.CertDir, caPath)
-	}
-
-	log.Info().
+	p.logger.Info().
 		Str("certPath", certPath).
 		Str("keyPath", keyPath).
 		Str("caPath", caPath).
 		Msg("Loading client certificate")
 
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	cert, err := loadKeyPairWithSelfHeal(certPath, keyPath, p.logger)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %w", errFailedToLoadClientCert, err)
 	}
+
+	p.clientCert.Store(&cert)
 
 	caCert, err := os.ReadFile(caPath)
 	if err != nil {
@@ -198,33 +332,35 @@ func loadClientCredentials(config *models.SecurityConfig, log logger.Logger) (cr
 	}
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		RootCAs:      caPool,
-		ServerName:   config.ServerName, // Use server name from config if needed for verification
-		MinVersion:   tls.VersionTLS13,
+		GetClientCertificate: p.getClientCertificate,
+		RootCAs:              caPool,
+		ServerName:           p.config.ServerName, // Use server name from config if needed for verification
+		MinVersion:           tls.VersionTLS13,
 	}
 
 	return credentials.NewTLS(tlsConfig), nil
 }
 
-func loadServerCredentials(config *models.SecurityConfig, log logger.Logger) (credentials.TransportCredentials, error) {
-	certPath, keyPath, clientCaPath := normalizePaths(config, log)
+func (p *MTLSProvider) loadServerCredentials() (credentials.TransportCredentials, error) {
+	certPath, keyPath, clientCaPath := normalizePaths(p.config, p.logger)
 
-	cert, err := loadServerCert(certPath, keyPath, log)
+	cert, err := loadServerCert(certPath, keyPath, p.logger)
 	if err != nil {
 		return nil, err
 	}
 
-	clientCaPool, err := loadClientCAPool(clientCaPath, log)
+	p.serverCert.Store(&cert)
+
+	clientCaPool, err := loadClientCAPool(clientCaPath, p.logger)
 	if err != nil {
 		return nil, err
 	}
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		ClientCAs:    clientCaPool,
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		MinVersion:   tls.VersionTLS13,
+		GetCertificate: p.getServerCertificate,
+		ClientCAs:      clientCaPool,
+		ClientAuth:     tls.RequireAndVerifyClientCert,
+		MinVersion:     tls.VersionTLS13,
 	}
 
 	return credentials.NewTLS(tlsConfig), nil
@@ -264,12 +400,157 @@ func normalizePaths(config *models.SecurityConfig, log logger.Logger) (certPath,
 func loadServerCert(certPath, keyPath string, log logger.Logger) (tls.Certificate, error) {
 	log.Info().Str("certPath", certPath).Str("keyPath", keyPath).Msg("Loading server certificate")
 
-	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	cert, err := loadKeyPairWithSelfHeal(certPath, keyPath, log)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("%w: %w", errFailedToLoadServerCert, err)
 	}
 
 	return cert, nil
+}
+
+func loadKeyPairWithSelfHeal(certPath, keyPath string, log logger.Logger) (tls.Certificate, error) {
+	cert, err := tls.LoadX509KeyPair(certPath, keyPath)
+	if err != nil {
+		healedCert, healErr := trySelfHealFromComponentBundle(certPath, keyPath, log)
+		if healErr != nil {
+			return tls.Certificate{}, err
+		}
+
+		cert = healedCert
+	}
+
+	if cert.Leaf == nil && len(cert.Certificate) > 0 {
+		leaf, parseErr := x509.ParseCertificate(cert.Certificate[0])
+		if parseErr != nil {
+			return tls.Certificate{}, parseErr
+		}
+		cert.Leaf = leaf
+	}
+
+	return cert, nil
+}
+
+func trySelfHealFromComponentBundle(certPath, keyPath string, log logger.Logger) (tls.Certificate, error) {
+	bundlePath := filepath.Join(filepath.Dir(certPath), "component-bundle.pem")
+	bundleBytes, err := os.ReadFile(bundlePath)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	certPEM, keyPEM, pair, err := extractKeyPairFromBundle(bundleBytes)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	if err := writeAtomicFile(keyPath, keyPEM, 0o600); err != nil {
+		return tls.Certificate{}, err
+	}
+
+	if err := writeAtomicFile(certPath, certPEM, 0o644); err != nil {
+		return tls.Certificate{}, err
+	}
+
+	if err := syncDirectory(filepath.Dir(certPath)); err != nil {
+		return tls.Certificate{}, err
+	}
+
+	if log != nil {
+		log.Warn().
+			Str("bundlePath", bundlePath).
+			Str("certPath", certPath).
+			Str("keyPath", keyPath).
+			Msg("Self-healed mTLS certificate and key from component-bundle.pem")
+	}
+
+	return pair, nil
+}
+
+func extractKeyPairFromBundle(bundleBytes []byte) ([]byte, []byte, tls.Certificate, error) {
+	var certBlocks [][]byte
+	var keyBlock []byte
+
+	rest := bundleBytes
+	for {
+		var block *pem.Block
+		block, rest = pem.Decode(rest)
+		if block == nil {
+			break
+		}
+
+		switch {
+		case block.Type == "CERTIFICATE":
+			certBlocks = append(certBlocks, pem.EncodeToMemory(block))
+		case strings.HasSuffix(block.Type, "PRIVATE KEY"):
+			if keyBlock == nil {
+				keyBlock = pem.EncodeToMemory(block)
+			}
+		}
+	}
+
+	if len(certBlocks) == 0 || len(keyBlock) == 0 {
+		return nil, nil, tls.Certificate{}, errFailedToLoadClientCert
+	}
+
+	for _, candidateCertPEM := range certBlocks {
+		pair, err := tls.X509KeyPair(candidateCertPEM, keyBlock)
+		if err == nil {
+			if pair.Leaf == nil && len(pair.Certificate) > 0 {
+				if leaf, parseErr := x509.ParseCertificate(pair.Certificate[0]); parseErr == nil {
+					pair.Leaf = leaf
+				}
+			}
+			return candidateCertPEM, keyBlock, pair, nil
+		}
+	}
+
+	return nil, nil, tls.Certificate{}, errFailedToLoadClientCert
+}
+
+func writeAtomicFile(destPath string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(destPath)
+	tmpPath := filepath.Join(dir, "."+filepath.Base(destPath)+".tmp")
+
+	f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, perm)
+	if err != nil {
+		return err
+	}
+
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if err := f.Chmod(perm); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if err := f.Sync(); err != nil {
+		_ = f.Close()
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	if err := f.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return err
+	}
+
+	return os.Rename(tmpPath, destPath)
+}
+
+func syncDirectory(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = d.Close()
+	}()
+
+	return d.Sync()
 }
 
 // loadClientCAPool loads and parses the client CA certificate into a pool.
@@ -292,6 +573,10 @@ func loadClientCAPool(clientCaPath string, log logger.Logger) (*x509.CertPool, e
 func (p *MTLSProvider) GetClientCredentials(_ context.Context) (grpc.DialOption, error) {
 	if !p.needsClient {
 		return nil, errServiceNotClient
+	}
+
+	if err := p.CheckClientCertificateExpiry(); err != nil {
+		return nil, err
 	}
 
 	return grpc.WithTransportCredentials(p.clientCreds), nil

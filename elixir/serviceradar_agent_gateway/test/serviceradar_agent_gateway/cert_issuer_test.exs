@@ -350,6 +350,170 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
            })
   end
 
+  test "issues renewed certificate from a verified ECDSA CSR and emits agent_certificate_renew audit" do
+    parent_dir = unique_tmp_dir!("gateway-cert-issuer-csr-test")
+    test_pid = self()
+
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    csr_der =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=agent-1.default.serviceradar",
+        "URI:spiffe://serviceradar.local/agent/default/agent-1,DNS:agent-1.default.serviceradar"
+      )
+
+    audit_writer = fn event ->
+      send(test_pid, {:csr_renew_audit, event})
+      :ok
+    end
+
+    assert {:ok, issued} =
+             CertIssuer.issue_from_csr(
+               csr_der,
+               "agent-1",
+               "default",
+               :agent,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               audit_writer: audit_writer
+             )
+
+    assert issued.cn == "agent-1.default.serviceradar"
+    assert issued.spiffe_id == "spiffe://serviceradar.local/agent/default/agent-1"
+    assert byte_size(issued.certificate_fingerprint) == 64
+    assert byte_size(issued.serial_number) > 0
+    assert is_integer(issued.serial_number_int) and issued.serial_number_int > 0
+    assert issued.not_after_unix > issued.not_before_unix
+
+    sans = subject_alt_names(issued.certificate_pem)
+
+    assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/agent/default/agent-1"} in sans
+    assert {:dNSName, ~c"agent-1.default.serviceradar"} in sans
+
+    assert_receive {:csr_renew_audit, event}
+    assert event.action == :agent_certificate_renew
+    assert event.resource_id == "agent-1"
+  end
+
+  test "rejects CSR with forged signature or weak key or mismatched CN/SAN" do
+    parent_dir = unique_tmp_dir!("gateway-cert-issuer-csr-reject-test")
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    valid_csr_der =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=agent-1.default.serviceradar",
+        "URI:spiffe://serviceradar.local/agent/default/agent-1,DNS:agent-1.default.serviceradar"
+      )
+
+    {:CertificationRequest, info, sig_algo, sig} =
+      :public_key.der_decode(:CertificationRequest, valid_csr_der)
+
+    <<first, rest::binary>> = sig
+    tampered_sig = <<Bitwise.bxor(first, 0xFF), rest::binary>>
+
+    forged_csr_der =
+      :public_key.der_encode(
+        :CertificationRequest,
+        {:CertificationRequest, info, sig_algo, tampered_sig}
+      )
+
+    assert {:error, :invalid_csr_signature} =
+             CertIssuer.issue_from_csr(
+               forged_csr_der,
+               "agent-1",
+               "default",
+               :agent,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               audit_writer: nil
+             )
+
+    weak_csr_der =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:secp256k1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=agent-1.default.serviceradar",
+        nil
+      )
+
+    assert {:error, :weak_public_key} =
+             CertIssuer.issue_from_csr(
+               weak_csr_der,
+               "agent-1",
+               "default",
+               :agent,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               audit_writer: nil
+             )
+
+    mismatched_cn_csr =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=agent-2.default.serviceradar",
+        nil
+      )
+
+    assert {:error, :csr_identity_mismatch} =
+             CertIssuer.issue_from_csr(
+               mismatched_cn_csr,
+               "agent-1",
+               "default",
+               :agent,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               audit_writer: nil
+             )
+
+    mismatched_san_csr =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=agent-1.default.serviceradar",
+        "URI:spiffe://serviceradar.local/agent/default/agent-2,DNS:agent-1.default.serviceradar"
+      )
+
+    assert {:error, :csr_identity_mismatch} =
+             CertIssuer.issue_from_csr(
+               mismatched_san_csr,
+               "agent-1",
+               "default",
+               :agent,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               audit_writer: nil
+             )
+  end
+
+  defp generate_csr_der!(base_args, subj, san) do
+    args =
+      base_args ++
+        ["-subj", subj] ++
+        if(is_binary(san), do: ["-addext", "subjectAltName=#{san}"], else: [])
+
+    case System.cmd("openssl", args, stderr_to_stdout: false) do
+      {pem, 0} ->
+        [{:CertificationRequest, der, :not_encrypted}] = :public_key.pem_decode(pem)
+        der
+
+      {output, status} ->
+        flunk("openssl CSR generation failed (#{status}): #{output}")
+    end
+  end
+
   defp subject_alt_names(cert_pem) do
     [{:Certificate, der, _}] = :public_key.pem_decode(cert_pem)
     cert = :public_key.pkix_decode_cert(der, :otp)
