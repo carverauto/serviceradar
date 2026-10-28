@@ -119,7 +119,9 @@ defmodule ServiceRadar.Inventory.ExposureReconciliationWorker do
         end
       end
 
-    ExposureReadiness.status(ordinal)
+    # A successful finish already checked and emitted readiness in its source view.
+    # Deferred or failed work still refreshes the readiness metrics here.
+    if result != :ok, do: ExposureReadiness.status(ordinal)
     result
   end
 

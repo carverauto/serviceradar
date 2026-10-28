@@ -139,7 +139,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
        notifier: PG,
        peer: Database,
        plugins: [],
-       queues: [maintenance: 8]}
+       queues: [maintenance: 2]}
     )
 
     assert {Database, _} = Oban.config().peer
@@ -180,7 +180,6 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
       "EXPOSURE_RECONCILIATION_CAPACITY " <>
         Jason.encode!(%{
           hosts: hosts,
-          diagnostic_concurrency: 8,
           active_facts: hosts * 2500,
           terminal_facts: hosts * 51,
           fixture_ms: fixture_ms,
