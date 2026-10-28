@@ -1763,8 +1763,9 @@ The outer driver executed the following fresh hosted runs at source
 `fe5e01f16c3d55148cf7fb613f001b7950452471`, tree
 `ccb76d0d65ed87b14b4694bf31d4b1ab687fd7be`; their source records and owner logs
 bind the results to that source. BuildBuddy's API commit field names the public
-patch base, not the measured patched tree. Later documentation-only commits do
-not change the measured source identity.
+patch base, not the measured patched tree. Later documentation and topology
+test corrections leave the measured exposure runtime and benchmark unchanged;
+the measured source identity remains the commit above, not the final PR head.
 
 | Run | Setup and baseline verification, excluded | Worker | Including full-row verification | Actual snoozes/resumptions | Remaining / violations |
 | --- | --- | --- | --- | --- | --- |
