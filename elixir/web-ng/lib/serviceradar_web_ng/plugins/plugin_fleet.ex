@@ -116,11 +116,6 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
       |> Enum.group_by(& &1.name)
       |> Map.new(fn {name, group} -> {name, MapSet.new(group, & &1.plugin_id)} end)
 
-    enabled_ids =
-      assignments
-      |> Enum.filter(& &1.enabled)
-      |> Enum.group_by(&{&1.partition_id, &1.agent_uid, &1.plugin_id}, & &1.id)
-
     assigned =
       Enum.map(assignments, fn assignment ->
         # The package the agent runs: a rollout candidate while one holds the
@@ -131,18 +126,9 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
           states_by_agent
           |> Map.get({assignment.partition_id, assignment.agent_uid}, [])
           |> Enum.filter(&matches_package?(&1, package, names))
-          |> assignment_state(assignment, package)
+          |> assignment_state(assignment)
 
-        # Owners of one plugin on an agent shared a service state before
-        # each assignment got its own result identity (#6006), so a legacy
-        # result another owner's assignment reported is not drift for this
-        # one.
-        siblings =
-          enabled_ids
-          |> Map.get({assignment.partition_id, assignment.agent_uid, assignment.plugin_id}, [])
-          |> List.delete(assignment.id)
-
-        row(assignment, package, state, now, siblings)
+        row(assignment, package, state, now)
       end)
 
     keys = MapSet.new(assignments, &{&1.partition_id, &1.agent_uid, &1.plugin_id})
@@ -154,7 +140,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
         is_binary(id) and not MapSet.member?(keys, {state.partition, state.agent_id, id})
       end)
       |> Enum.group_by(&{&1.partition, &1.agent_id, PluginStateContract.state_plugin_id(&1)})
-      |> Enum.map(fn {_key, group} -> row(nil, nil, winner(group), now, []) end)
+      |> Enum.map(fn {_key, group} -> row(nil, nil, winner(group), now) end)
 
     assigned ++ observed_only
   end
@@ -487,13 +473,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
   defp winner([]), do: nil
   defp winner(states), do: Enum.max_by(states, &PluginStateContract.state_rank/1)
 
-  # A state that names its assignment is that assignment's evidence first.
-  # A coexisting assignment's own disambiguated state never counts for
-  # this one. States under the bare package name that name no assignment,
-  # or that a sibling last stamped into the formerly shared row, remain
-  # shared legacy evidence until each assignment reports into its own
-  # state.
-  defp assignment_state(states, assignment, package) do
+  defp assignment_state(states, assignment) do
     assignment_id = assignment && to_string(assignment.id)
 
     {own, rest} =
@@ -504,8 +484,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     if own == [] do
       rest
       |> Enum.filter(fn state ->
-        PluginStateContract.state_assignment_id(state) == nil or
-          state.service_name == package.name
+        PluginStateContract.state_assignment_id(state) == nil
       end)
       |> winner()
     else
@@ -513,7 +492,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     end
   end
 
-  defp row(assignment, package, state, now, sibling_assignment_ids) do
+  defp row(assignment, package, state, now) do
     placeholder? = not is_nil(state) and PluginStateContract.placeholder_state?(state)
     reported_at = if state && not placeholder?, do: observed_at(state)
     age = if reported_at, do: max(DateTime.diff(now, reported_at, :second), 0)
@@ -528,12 +507,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     drift = known_drift(assigned_version, observed_version)
     observed_assignment_id = if reported_at, do: PluginStateContract.state_assignment_id(state)
 
-    # Another enabled assignment of this plugin, agent, and partition shares
-    # this service state, so its id is not drift.
-    assignment_drift =
-      if observed_assignment_id in sibling_assignment_ids,
-        do: false,
-        else: known_drift(if(assignment, do: assignment.id), observed_assignment_id)
+    assignment_drift = known_drift(if(assignment, do: assignment.id), observed_assignment_id)
 
     {category, reason} =
       cond do

@@ -30,10 +30,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
 
     with {:ok, package} <- load_package(assignment, actor),
          true <- StatusNormalizer.should_track_assignment_service?(assignment, package),
-         {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor) do
+         {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor),
+         {:ok, service_name} <- assignment_service_name(assignment, package) do
       assignment
       |> StatusNormalizer.build_attrs_from_assignment(agent, package,
-        service_name: assignment_service_name(assignment, package)
+        service_name: service_name
       )
       |> maybe_upsert_assignment_state(actor)
     else
@@ -316,17 +317,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
     |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
   end
 
-  # The name of the assignment's own service: the package name for the
-  # primary assignment of the plugin on the agent, disambiguated for a
-  # coexisting one. A resolution failure keeps the package name, matching
-  # the fail-soft placeholder behaviour.
   defp assignment_service_name(%PluginAssignment{} = assignment, %PluginPackage{} = package) do
     case PluginServiceIdentity.service_name_for_assignment(
            assignment.agent_uid,
            to_string(assignment.id)
          ) do
-      {:ok, service_name} -> service_name
-      :error -> package.name
+      :not_found -> {:ok, package.name}
+      result -> result
     end
   end
 

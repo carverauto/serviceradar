@@ -50,7 +50,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
     end
   end
 
-  test "known assignment drift and wrapped results preserve safe runtime evidence" do
+  test "wrapped results preserve only the matching assignment's safe runtime evidence" do
     package = package()
     assignment = assignment(package)
     old_id = Ecto.UUID.generate()
@@ -61,20 +61,18 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
       "labels" => %{"assignment_id" => old_id, "package_version" => "1.0.0", "token" => "synthetic-secret"}
     }
 
-    state = state(details: Jason.encode!(%{"reported_result" => result}))
+    for {reported_id, category, observed_id} <- [
+          {old_id, "unavailable", nil},
+          {assignment.id, "healthy", assignment.id}
+        ] do
+      result = put_in(result, ["labels", "assignment_id"], reported_id)
+      state = state(details: Jason.encode!(%{"reported_result" => result}))
 
-    assert [
-             %{
-               "assignment_drift" => true,
-               "observed_assignment_id" => ^old_id,
-               "version_drift" => false,
-               "result_status" => "OK",
-               "category" => "action_required"
-             } = row
-           ] =
-             PluginFleet.build_rows([assignment], [package], [state], @now)
-
-    refute Jason.encode!(row) =~ "synthetic-secret"
+      assert [row] = PluginFleet.build_rows([assignment], [package], [state], @now)
+      assert row["category"] == category
+      assert row["observed_assignment_id"] == observed_id
+      refute Jason.encode!(row) =~ "synthetic-secret"
+    end
   end
 
   test "an assignment a rollout holds is reported at the candidate it runs, not as version drift" do
@@ -168,7 +166,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
     assert id == newer.id
   end
 
-  test "each credential rule's enabled assignment of one plugin on an agent is its own healthy row" do
+  test "an attributed bare-name result supplies evidence only for its own assignment" do
     package = package()
     rule_a = %{assignment(package) | source: :policy, policy_id: "network-credential-rule:rule-a:inventory"}
     rule_a_older = %{rule_a | id: Ecto.UUID.generate(), updated_at: ~U[2026-01-01 12:00:00Z]}
@@ -182,13 +180,13 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
 
     assignments = [rule_a_older, rule_b, rule_a]
 
-    # Both owners report into one service state, last stamped by rule B's assignment.
     shared =
       state(
         details:
           Jason.encode!(%{
             "plugin_id" => package.plugin_id,
             "status" => "OK",
+            "assignment_id" => rule_a.id,
             "labels" => %{"assignment_id" => rule_b.id}
           })
       )
@@ -196,9 +194,13 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
     rows = PluginFleet.build_rows(assignments, [package], [shared], @now)
 
     assert rows |> Enum.map(& &1["assignment_id"]) |> Enum.sort() == Enum.sort([rule_a.id, rule_b.id])
-    assert Enum.map(rows, &{&1["category"], &1["assignment_drift"]}) == [{"healthy", false}, {"healthy", false}]
+    rows_by_assignment = Map.new(rows, &{&1["assignment_id"], &1})
+    assert rows_by_assignment[rule_a.id]["category"] == "unavailable"
+    assert rows_by_assignment[rule_a.id]["reported_at"] == nil
+    assert rows_by_assignment[rule_b.id]["category"] == "healthy"
+    assert rows_by_assignment[rule_b.id]["assignment_drift"] == false
 
-    assert [%{health: %{status: "healthy"}}] =
+    assert [%{health: %{status: "unavailable"}}] =
              PluginFleet.build_summaries(
                [%{plugin_id: package.plugin_id, name: package.name}],
                [package],

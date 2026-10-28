@@ -23,7 +23,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginServiceIdentity 
 
   @doc false
   @spec service_name_for_assignment(String.t(), String.t()) ::
-          {:ok, String.t()} | :error
+          {:ok, String.t()} | :not_found | {:error, term()}
   def service_name_for_assignment(agent_uid, assignment_id)
       when is_binary(agent_uid) and is_binary(assignment_id) do
     with {:ok, uuid} <- Ecto.UUID.cast(assignment_id),
@@ -35,11 +35,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginServiceIdentity 
         {:ok, package_name}
       end
     else
-      _ -> :error
+      :error -> :not_found
+      {:ok, %{rows: []}} -> :not_found
+      {:error, _reason} = error -> error
     end
   end
 
-  def service_name_for_assignment(_agent_uid, _assignment_id), do: :error
+  def service_name_for_assignment(_agent_uid, _assignment_id), do: :not_found
 
   defp service_name_sql do
     """

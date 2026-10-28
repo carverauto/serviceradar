@@ -76,28 +76,34 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     status_label = fetch_string(payload, ["status"])
     available = resolve_available(status, status_label)
 
-    status_row =
-      build_status_row(
-        payload,
-        remap_service_name(status),
-        observed_at,
-        created_at,
-        summary,
-        available
-      )
+    with {:ok, remapped_status} <- remap_service_name(status) do
+      status_row =
+        build_status_row(
+          payload,
+          remapped_status,
+          observed_at,
+          created_at,
+          summary,
+          available
+        )
 
-    case insert_status(status_row, actor) do
-      {:ok, reported_status, :inserted} ->
-        run_handlers(reported_status, payload, status, observed_at, actor)
+      case insert_status(status_row, actor) do
+        {:ok, reported_status, :inserted} ->
+          run_handlers(reported_status, payload, status, observed_at, actor)
 
-      {:ok, reported_status, :existing} ->
-        redeliver(reported_status, payload, status, observed_at, actor)
+        {:ok, reported_status, :existing} ->
+          redeliver(reported_status, payload, status, observed_at, actor)
 
-      {:error, persistence_error} ->
+        {:error, persistence_error} ->
+          PluginIngestor.discard_artifacts(payload, status)
+          error_text = handler_error_text(persistence_error)
+          Logger.error("Plugin result status persistence failed: #{error_text}")
+          {:error, {:plugin_result_status_persistence_failed, error_text}}
+      end
+    else
+      {:error, _reason} = error ->
         PluginIngestor.discard_artifacts(payload, status)
-        error_text = handler_error_text(persistence_error)
-        Logger.error("Plugin result status persistence failed: #{error_text}")
-        {:error, {:plugin_result_status_persistence_failed, error_text}}
+        error
     end
   rescue
     e ->
@@ -552,14 +558,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
              identity.agent_id,
              provenance["assignment_id"]
            ) do
-      {:ok, service_name} -> put_service_name(status, service_name)
-      _ -> status
+      {:ok, service_name} -> {:ok, put_service_name(status, service_name)}
+      {:error, reason} -> {:error, {:plugin_service_identity_resolution_failed, reason}}
+      :not_found -> {:ok, status}
+      nil -> {:ok, status}
     end
-  rescue
-    _ -> status
   end
 
-  defp remap_service_name(status), do: status
+  defp remap_service_name(status), do: {:ok, status}
 
   defp put_service_name(status, service_name) do
     if Map.has_key?(status, "service_name") and not Map.has_key?(status, :service_name) do

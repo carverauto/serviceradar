@@ -232,11 +232,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
     """
     CASE WHEN #{details} IS JSON THEN
       COALESCE(
-        #{details}::jsonb ->> 'assignment_id',
-        #{details}::jsonb #>> '{labels,assignment_id}',
         #{details}::jsonb #>> '{#{@reported_marker},provenance,assignment_id}',
         #{details}::jsonb #>> '{downstream_ingest,provenance,assignment_id}',
+        #{details}::jsonb #>> '{labels,assignment_id}',
         #{details}::jsonb #>> '{reported_result,labels,assignment_id}',
+        #{details}::jsonb ->> 'assignment_id',
         #{details}::jsonb #>> '{reported_result,assignment_id}'
       )
     END
@@ -496,11 +496,11 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
     reported_result = fetch(details, :reported_result) || %{}
 
     [
-      fetch(details, :assignment_id),
-      details |> fetch(:labels) |> fetch_nested(:assignment_id),
       details |> fetch(:_serviceradar_plugin_result) |> provenance_field(:assignment_id),
       details |> fetch(:downstream_ingest) |> provenance_field(:assignment_id),
+      details |> fetch(:labels) |> fetch_nested(:assignment_id),
       reported_result |> fetch(:labels) |> fetch_nested(:assignment_id),
+      fetch(details, :assignment_id),
       fetch(reported_result, :assignment_id)
     ]
     |> Enum.find_value(&normalize_optional_string/1)
