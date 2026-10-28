@@ -226,6 +226,11 @@
 {{- $podSelector = deepCopy $podSelector -}}
 {{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-media-storage"))) -}}
 {{- end -}}
+{{- $archiveReader := default (dict) .Values.archiveReader -}}
+{{- if $archiveReader.enabled -}}
+{{- $podSelector = deepCopy $podSelector -}}
+{{- $_ := set $podSelector "matchExpressions" (append (default (list) $podSelector.matchExpressions) (dict "key" "app" "operator" "NotIn" "values" (list "serviceradar-archive-reader"))) -}}
+{{- end -}}
 ---
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
@@ -284,7 +289,16 @@ spec:
     []
 {{- end }}
   egress:
-{{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasEgressNamespaces $hasCIDRs $hasKubeAPICIDRs }}
+{{- if or $allowDNS $allowKubeAPI $allowDefaultNs $allowSameNs $hasEgressNamespaces $hasCIDRs $hasKubeAPICIDRs $archiveReader.enabled }}
+{{- if $archiveReader.enabled }}
+    - to:
+        - podSelector:
+            matchLabels:
+              app: serviceradar-archive-reader
+      ports:
+        - protocol: TCP
+          port: {{ $archiveReader.port }}
+{{- end }}
 {{- if $allowDNS }}
     - to:
         - namespaceSelector:

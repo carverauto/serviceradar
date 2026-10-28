@@ -143,11 +143,6 @@ spec:
             mountPath: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}
             readOnly: {{ default false $agentEBPF.cgroupReadOnly }}
           {{- end }}
-          {{- if .Values.spire.enabled }}
-          - name: spire-agent-socket
-            mountPath: /run/spire/sockets
-            readOnly: true
-          {{- end }}
           env:
 {{ include "serviceradar.kvEnv" . | indent 12 }}
 {{ include "serviceradar.coreEnv" . | indent 12 }}
@@ -224,12 +219,6 @@ spec:
         hostPath:
           path: {{ default "/sys/fs/cgroup" $agentEBPF.cgroupPath | quote }}
           type: Directory
-      {{- end }}
-      {{- if .Values.spire.enabled }}
-      - name: spire-agent-socket
-        hostPath:
-          path: {{ include "serviceradar.spireSocketHostPath" . | quote }}
-          type: DirectoryOrCreate
       {{- end }}
 ---
 apiVersion: v1

@@ -4,10 +4,7 @@
 {{- $coldExportRoleName := default "cold_reader" $coldExportRole.name -}}
 {{- $starrocksCatalog := default (dict) (default (dict) (default (dict) .Values.analytics).starrocks).catalog -}}
 {{- $starrocksReaderName := default "serviceradar_starrocks_reader" $starrocksCatalog.user -}}
-{{- $spire := default (dict) .Values.spire -}}
-{{- $spirePg := default (dict) $spire.postgres -}}
-{{- $spiffeCnpgManaged := and (default false $spire.enabled) (default false $spirePg.enabled) -}}
-{{- if and (include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true") (not $spiffeCnpgManaged) }}
+{{- if include "serviceradar.boolDefaultTrue" (list $cnpg "enabled") | eq "true" }}
 {{- $ns := include "serviceradar.cnpgNamespace" . -}}
 {{- $globalStorage := default (dict) .Values.global.storage -}}
 {{- $backup := default (dict) $cnpg.backup -}}

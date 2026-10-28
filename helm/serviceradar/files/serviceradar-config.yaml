@@ -1,7 +1,7 @@
 {{- $lb := "{{" -}}
 {{- $rb := "}}" -}}
 {{- $trustDomain := include "serviceradar.trustDomain" .Values -}}
-{{- $spireNamespace := default .Release.Namespace .Values.spire.namespace -}}
+{{- $ns := .Release.Namespace -}}
 {{- $datasvcSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "datasvc")) -}}
 {{- $agentVals := default (dict) .Values.agent -}}
 {{- $pluginHTTPTrustedCAFiles := list "/etc/serviceradar/certs/root.pem" -}}
@@ -24,13 +24,10 @@
 {{- if not $searchPath -}}
   {{- $searchPath = printf "%s,ag_catalog" $appSchema -}}
 {{- end -}}
-{{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $logCollectorSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "logCollector")) -}}
 {{- $rperfCheckerSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "rperfChecker")) -}}
 {{- $trapdSA := (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "trapd")) -}}
-{{- $serverVals := default (dict) .Values.spire.server -}}
-{{- $spireServerService := default "spire-server" $serverVals.serviceName -}}
 {{- /*
   OTel/trace export for the Go services (agent, datasvc).
   These binaries read logging.otel from their JSON config (not the OTEL_*
@@ -140,12 +137,10 @@ data:
         "require_device_registry": true
       },
       "security": {
-        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "trust_domain": "{{$trustDomain}}",
-        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
-        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/core.pem",
           "key_file": "/etc/serviceradar/certs/core-key.pem",
@@ -155,44 +150,24 @@ data:
         }
       },
       "kv_security": {
-        "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+        "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
         "role": "core",
         "trust_domain": "{{$trustDomain}}",
-        "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
-        "workload_socket": "unix:/run/spire/sockets/agent.sock",
         "tls": {
           "cert_file": "/etc/serviceradar/certs/core.pem",
           "key_file": "/etc/serviceradar/certs/core-key.pem",
           "ca_file": "/etc/serviceradar/certs/root.pem"
         }
       },
-      "spire_admin": {
-        "enabled": true,
-        "server_address": "spire-server.{{$spireNamespace}}.svc.cluster.local:8081",
-        "server_spiffe_id": "spiffe://{{$trustDomain}}/spire/server",
-        "workload_socket": "unix:/run/spire/sockets/agent.sock",
-        "join_token_ttl": "15m"
-      },
       "edge_onboarding": {
         "enabled": true,
         "encryption_key": "",
-        "default_selectors": [
-          "unix:uid:0",
-          "unix:gid:0",
-          "unix:user:root",
-          "unix:group:root"
-        ],
         "default_metadata": {
           "gateway": {
             "core_address": "{{ include "serviceradar.coreAddress" . }}",
-            "core_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-core",
             "kv_address": "serviceradar-datasvc:50057",
-            "kv_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/serviceradar-datasvc",
-            "spire_parent_id": "spiffe://{{$trustDomain}}/ns/edge/gateway-nested-spire",
             "agent_address": "agent:50051",
-            "agent_spiffe_id": "spiffe://{{$trustDomain}}/services/agent",
-            "nested_spire_wait_attempts": "120",
             "log_level": "info",
             "logs_dir": "./logs"
           },
@@ -322,12 +297,10 @@ data:
         "remote_access_known_hosts_file": "{{ default "/var/lib/serviceradar/checkers/remote-access-known_hosts" $agentVals.remoteAccessKnownHostsFile }}",
         "kv_address": "serviceradar-datasvc:50057",
         "kv_security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "agent",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$datasvcSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -335,12 +308,10 @@ data:
           }
         },
         "security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "agent",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$agentSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -430,12 +401,10 @@ data:
         "type": "grpc",
         "address": "serviceradar-rperf:50081",
         "security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$rperfCheckerSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -451,12 +420,10 @@ data:
         "type": "grpc",
         "address": "serviceradar-trapd:50043",
         "security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$trapdSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -472,12 +439,10 @@ data:
         "type": "grpc",
         "address": "serviceradar-log-collector:50044",
         "security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "gateway",
           "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$logCollectorSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "agent.pem",
             "key_file": "agent-key.pem",
@@ -513,7 +478,7 @@ data:
   
       echo "Using runtime configuration at $CONFIG_PATH"
   
-      EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-{{$spireNamespace}}}"
+      EFFECTIVE_NAMESPACE="${KUBERNETES_NAMESPACE:-{{$ns}}}"
       CNPG_HOST_VALUE="${CNPG_HOST:-{{ $cnpgClusterName }}-rw.${EFFECTIVE_NAMESPACE}.svc.cluster.local}"
       CNPG_PORT_VALUE="${CNPG_PORT:-5432}"
       CNPG_DATABASE_VALUE="${CNPG_DATABASE:-serviceradar}"
@@ -860,10 +825,9 @@ data:
         },
         "grpc_listen_addr": "0.0.0.0:50043",
         "grpc_security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
-          "trust_domain": "{{ .Values.spire.trustDomain }}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
+          "trust_domain": "{{$trustDomain}}",
           "cert_file": "/etc/serviceradar/certs/trapd.pem",
           "key_file": "/etc/serviceradar/certs/trapd-key.pem",
           "ca_file": "/etc/serviceradar/certs/root.pem"
@@ -945,10 +909,9 @@ data:
         "type": "grpc",
         "timeout": "30s",
         "security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
           "trust_domain": "{{$trustDomain}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "rperf-checker.pem",
             "key_file": "rperf-checker-key.pem",
@@ -981,11 +944,10 @@ data:
           }
         },
         "security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
+          "mode": "mtls",
           "cert_dir": "/etc/serviceradar/certs",
           "role": "datasvc",
           "trust_domain": "{{$trustDomain}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
           "tls": {
             "cert_file": "kv.pem",
             "key_file": "kv-key.pem",
@@ -1001,15 +963,15 @@ data:
           "system_account_creds_file": "/etc/serviceradar/creds/system.creds",
         {{- end }}
           "allowed_client_identities": [
-            "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}",
+            "spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}",
             "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
           ]
         },
         "rbac": {
           "roles": [
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}", "role": "writer"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "reader"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ (include "serviceradar.componentServiceAccount" (dict "values" .Values "component" "core")) }}", "role": "writer"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ $logCollectorSA }}", "role": "reader"},
+            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $ns }}/sa/{{ $agentSA }}", "role": "reader"},
             {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
