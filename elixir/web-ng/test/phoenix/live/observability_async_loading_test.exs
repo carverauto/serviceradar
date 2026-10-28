@@ -24,7 +24,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
     @impl true
     def query(query, opts) when is_binary(query) do
       if pid = :persistent_term.get({__MODULE__, :test_pid}, nil) do
-        send(pid, {:srql_query, query, opts})
+        send(pid, {:srql_query, self(), query, opts})
       end
 
       delay = :persistent_term.get({__MODULE__, :delay_ms}, @latency_ms)
@@ -140,13 +140,10 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
     test "handle_params returns loading shell before slow SRQL finishes and transitions to loaded" do
       socket = mounted_connected_socket(ServiceIndex)
 
-      {elapsed_us, {:noreply, loading_socket}} =
-        :timer.tc(fn ->
-          ServiceIndex.handle_params(%{}, "http://localhost/services", socket)
-        end)
+      {:noreply, loading_socket} =
+        ServiceIndex.handle_params(%{}, "http://localhost/services", socket)
 
-      assert elapsed_us < 1_000,
-             "expected handle_params under 1,000us, took #{elapsed_us}us"
+      assert_no_sync_srql!()
 
       assert loading_socket.assigns.tab_loading == true
 
@@ -189,13 +186,10 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
     test "handle_params returns loading shell before slow SRQL finishes and transitions to loaded" do
       socket = mounted_connected_socket(BmpIndex)
 
-      {elapsed_us, {:noreply, loading_socket}} =
-        :timer.tc(fn ->
-          BmpIndex.handle_params(%{}, "http://localhost/observability/bmp", socket)
-        end)
+      {:noreply, loading_socket} =
+        BmpIndex.handle_params(%{}, "http://localhost/observability/bmp", socket)
 
-      assert elapsed_us < 1_000,
-             "expected handle_params under 1,000us, took #{elapsed_us}us"
+      assert_no_sync_srql!()
 
       assert loading_socket.assigns.tab_loading == true
       assert loading_socket.assigns.srql.loading == true
@@ -238,17 +232,14 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
     test "handle_params returns loading shell before slow SRQL finishes across observability tabs" do
       socket = mounted_connected_socket(LogIndex)
 
-      {elapsed_us, {:noreply, loading_socket}} =
-        :timer.tc(fn ->
-          LogIndex.handle_params(
-            %{},
-            "http://localhost/observability/logs",
-            socket
-          )
-        end)
+      {:noreply, loading_socket} =
+        LogIndex.handle_params(
+          %{},
+          "http://localhost/observability/logs",
+          socket
+        )
 
-      assert elapsed_us < 1_000,
-             "expected handle_params under 1,000us, took #{elapsed_us}us"
+      assert_no_sync_srql!()
 
       assert loading_socket.assigns.tab_loading == true
       assert loading_socket.assigns.srql.loading == true
@@ -330,17 +321,14 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
       socket = mounted_connected_socket(LogIndex)
       drain_queries()
 
-      {elapsed_us, {:noreply, loading_socket}} =
-        :timer.tc(fn ->
-          LogIndex.handle_params(
-            %{"q" => "in:flows time:last_1h"},
-            "http://localhost/observability/netflows?q=in:flows+time:last_1h",
-            socket
-          )
-        end)
+      {:noreply, loading_socket} =
+        LogIndex.handle_params(
+          %{"q" => "in:flows time:last_1h"},
+          "http://localhost/observability/netflows?q=in:flows+time:last_1h",
+          socket
+        )
 
-      assert elapsed_us < 1_000,
-             "expected handle_params under 1,000us, took #{elapsed_us}us"
+      assert_no_sync_srql!()
 
       payload = await_async_result(:tab_load)
 
@@ -455,6 +443,16 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
     %{mounted | root_pid: self(), transport_pid: self()}
   end
 
+  # handle_params must hand SRQL work to start_async. A synchronous query runs in
+  # the calling process, so it is visible here regardless of how fast the
+  # runner is; a query started by start_async runs in its own task process.
+  defp assert_no_sync_srql! do
+    caller = self()
+
+    refute_received {:srql_query, ^caller, _query, _opts},
+                    "handle_params ran an SRQL query synchronously in the LiveView process"
+  end
+
   defp await_async_result(expected_name) do
     receive do
       {:phoenix, :async_result, {:start, {_async_ref, _cid, ^expected_name, {:ok, result}}}} ->
@@ -467,7 +465,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
 
   defp drain_queries(acc \\ []) do
     receive do
-      {:srql_query, query, _opts} -> drain_queries([query | acc])
+      {:srql_query, _caller, query, _opts} -> drain_queries([query | acc])
     after
       0 -> Enum.reverse(acc)
     end
