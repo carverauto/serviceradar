@@ -1,15 +1,5 @@
 import Config
 
-for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
-  mode = name |> System.get_env("") |> String.trim() |> String.downcase()
-
-  if mode in ~w(spiffe spire workload_api) do
-    raise ArgumentError,
-          "#{name}=#{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
-  end
-end
-
-
 # Runtime configuration for production deployments.
 # This file is executed at runtime, not compile time.
 
@@ -43,6 +33,15 @@ alias ServiceRadar.Observability.ProductionSchedule
 alias ServiceRadar.Observability.SeasonalDisposition.Worker, as: SeasonalDispositionWorker
 alias ServiceRadar.Observability.ThreatIntelRawPayloadStore
 alias ServiceRadar.Security.AuditVersionRetentionWorker
+
+for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
+  mode = name |> System.get_env("") |> String.trim() |> String.downcase()
+
+  if mode in ~w(spiffe spire workload_api) do
+    raise ArgumentError,
+          "#{name}=#{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+  end
+end
 
 # Fail closed on invalid ingestion bounds; do not silently enable a larger queue.
 ingestion_positive_env = fn name, default ->

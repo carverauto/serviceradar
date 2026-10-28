@@ -1,5 +1,11 @@
 import Config
 
+# This file is executed at runtime before the application starts.
+# It is executed in both release and dev/test modes.
+
+alias Cluster.Strategy.DNSPoll
+alias ServiceRadar.NATS.Connection
+
 for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
   mode = name |> System.get_env("") |> String.trim() |> String.downcase()
 
@@ -8,13 +14,6 @@ for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
           "#{name}=#{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
   end
 end
-
-
-# This file is executed at runtime before the application starts.
-# It is executed in both release and dev/test modes.
-
-alias Cluster.Strategy.DNSPoll
-alias ServiceRadar.NATS.Connection
 
 # A new gateway never silently falls back when metadata admission is unavailable.
 reserved_core_admission =

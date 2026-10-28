@@ -1,15 +1,5 @@
 import Config
 
-for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE SERVICERADAR_SECURITY_MODE) do
-  mode = name |> System.get_env("") |> String.trim() |> String.downcase()
-
-  if mode in ~w(spiffe spire workload_api) do
-    raise ArgumentError,
-          "#{name}=#{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
-  end
-end
-
-
 alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Automation.Ansible.FileCallbackResponsePolicyProvider
 alias ServiceRadar.Automation.CallbackGrants.RuntimeConfig
@@ -20,6 +10,15 @@ alias ServiceRadarWebNG.Topology.BitmapSource
 alias Swoosh.Adapters.Local
 
 require Logger
+
+for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE SERVICERADAR_SECURITY_MODE) do
+  mode = name |> System.get_env("") |> String.trim() |> String.downcase()
+
+  if mode in ~w(spiffe spire workload_api) do
+    raise ArgumentError,
+          "#{name}=#{mode} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+  end
+end
 
 callback_deployment =
   RuntimeConfig.callback_deployment_config!(%{
