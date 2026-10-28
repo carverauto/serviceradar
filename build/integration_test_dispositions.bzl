@@ -361,6 +361,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/observability/mtr_graph_integration_test.exs": 1,
     "test/serviceradar/observability/netflow_dataset_refresh_worker_integration_test.exs": 1,
     "test/serviceradar/observability/netflow_dataset_refresh_worker_test.exs": 1,
+    "test/serviceradar/observability/netflow_interface_cache_lock_order_db_test.exs": 1,
     "test/serviceradar/observability/netflow_interface_cache_refresh_db_test.exs": 1,
     "test/serviceradar/observability/otel_service_catalog_backfill_worker_test.exs": 1,
     "test/serviceradar/observability/plugin_result_assignment_lifecycle_race_test.exs": 1,
