@@ -98,12 +98,24 @@ defmodule ServiceRadar.Automation.Northbound.PluginActionCredentialsTest do
 
   describe "credential_source: assignment_schedule" do
     test "dispatch mints the grant from the secret bound to the assignment's schedule" do
-      %{package: package, rules: [rule]} = provisioned_package!("dispatch", 1)
+      %{package: package, rules: [rule], assignments: [assignment]} =
+        provisioned_package!("dispatch", 1)
+
+      device =
+        target_device!("sr:example-sat-dispatch-1", "dispatch-terminal", assignment.agent_uid, true)
 
       {:ok, descriptor} =
-        plugin_descriptor(package, %{"source_account" => @source_requirement})
+        plugin_descriptor(package, %{"source_account" => @source_requirement}, scopes: ["device"])
 
-      {:ok, invocation} = create_event_invocation(descriptor)
+      {:ok, invocation} =
+        InvocationService.create_invocation(
+          %{
+            descriptor_id: descriptor.id,
+            targets: [%{kind: :device, device_uid: device.uid}],
+            input_values: %{}
+          },
+          actor: @system_actor
+        )
 
       assert {:ok, _invocation} =
                Dispatcher.dispatch_invocation(invocation,

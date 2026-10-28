@@ -281,9 +281,7 @@ defmodule ServiceRadar.Automation.Northbound.Dispatcher do
           end)
           |> Enum.map(&elem(&1, 0))
         else
-          candidates
-          |> Enum.filter(fn {_assignment, rule_id} -> Map.has_key?(rules_by_id, rule_id) end)
-          |> Enum.map(&elem(&1, 0))
+          []
         end
 
       case matching_assignments do

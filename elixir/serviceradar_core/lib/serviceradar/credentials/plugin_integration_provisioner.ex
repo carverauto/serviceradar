@@ -240,7 +240,7 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
     requirement = profile["provisioning"]["credential_requirement"]
 
     with {:ok, target_schedule, mode} <-
-           resolve_assignment_schedule(store, template_schedule, assignment.id, actor) do
+           store.resolve_assignment_schedule(template_schedule, assignment.id, actor) do
       base_metadata =
         case target_schedule do
           %{metadata: %{} = metadata} -> metadata
@@ -291,14 +291,6 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisioner do
             {:ok, created, true}
           end
       end
-    end
-  end
-
-  defp resolve_assignment_schedule(store, template_schedule, assignment_id, actor) do
-    if function_exported?(store, :resolve_assignment_schedule, 3) do
-      store.resolve_assignment_schedule(template_schedule, assignment_id, actor)
-    else
-      {:ok, template_schedule, :existing}
     end
   end
 
