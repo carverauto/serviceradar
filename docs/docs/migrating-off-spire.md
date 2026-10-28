@@ -5,13 +5,13 @@ sidebar_position: 5
 
 # Migrating off SPIRE
 
-The Helm chart no longer ships SPIRE workloads, registration CRDs, socket mounts or `spire.*` values and compatibility fallbacks. Use mTLS with ServiceRadar's deployment-managed CA. This chart removal does not convert existing `spire` onboarding packages or remove the remaining application runtime compatibility code.
+The Helm chart and application runtime no longer support SPIRE workloads, Workload API socket clients, registration CRDs, `spire` security modes, or `spire.*` values and compatibility fallbacks. Use mTLS with ServiceRadar's deployment-managed CA.
 
 The `spiffe://serviceradar.local/...` URI SANs issued by the in-house CA are still used by certificate identity resolution, NATS leaf authentication and datasvc authorization. Keep those identities, trust roots and role bindings. Removing SPIRE does not require renaming certificate URIs.
 
 ## Already using mTLS
 
-Keep `spiffe.mode=filesystem`, `kv.secMode=mtls`, `coreClient.secMode=mtls` and `webNg.datasvc.secMode=mtls`. No cluster move or SPIRE cleanup is needed if those resources were never installed. Existing package rows are not rewritten by the new database default.
+Keep `kv.secMode=mtls`, `coreClient.secMode=mtls` and `webNg.datasvc.secMode=mtls`. No cluster move or SPIRE cleanup is needed if those resources were never installed.
 
 ## Neutral chart values
 

@@ -39,7 +39,7 @@ This document describes the zero-touch checker configuration system that enables
 │     and displays them in a dropdown                                  │
 │  3. If checker_config_json not provided:                             │
 │     - Fetch templates/checkers/{security_mode}/{kind}.json from KV   │
-│     - Apply variable substitution (SPIFFE IDs, addresses, etc.)      │
+│     - Apply variable substitution (addresses, trust domain, etc.)    │
 │  4. Check if agents/{agent_id}/checkers/{kind}.json exists           │
 │  5. If NOT exists: Write customized config                           │
 │     If EXISTS: Skip write (preserve user modifications)              │
@@ -77,7 +77,7 @@ agents/
 
 | Path Pattern | Written By | Overwrite Allowed | Purpose |
 |-------------|------------|-------------------|---------|
-| `templates/checkers/{security_mode}/{kind}.json` (or `templates/checkers/{kind}.json` for SPIRE) | Seed job on deploy | ✅ Yes | Factory defaults, safe to update |
+| `templates/checkers/{security_mode}/{kind}.json` | Seed job on deploy | ✅ Yes | Factory defaults, safe to update |
 | `agents/{agent_id}/checkers/{kind}.json` | Edge onboarding | ❌ No | Instance config, user modifications protected |
 | `agents/{agent_id}/checkers/{kind}.json` | Web UI | ✅ Yes | User modifications |
 
@@ -89,13 +89,10 @@ Templates can include placeholders that are automatically substituted during edg
 
 **Available Variables:**
 
-- `{{DOWNSTREAM_SPIFFE_ID}}` - The checker's SPIFFE ID
 - `{{AGENT_ADDRESS}}` - Address of the parent agent
 - `{{CORE_ADDRESS}}` - Address of the core service
-- `{{CORE_SPIFFE_ID}}` - SPIFFE ID of the core service
 - `{{KV_ADDRESS}}` - Address of the KV service
-- `{{KV_SPIFFE_ID}}` - SPIFFE ID of the KV service
-- `{{TRUST_DOMAIN}}` - SPIFFE trust domain
+- `{{TRUST_DOMAIN}}` - Trust domain
 - `{{LOG_LEVEL}}` - Configured log level
 - `{{COMPONENT_ID}}` - Unique component identifier
 - `{{CHECKER_KIND}}` - Type of checker (sysmon, sweep, etc.)
@@ -111,11 +108,9 @@ Templates can include placeholders that are automatically substituted during edg
 {
   "listen_addr": "0.0.0.0:50083",
   "security": {
-    "mode": "spiffe",
+    "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
-    "trust_domain": "{{TRUST_DOMAIN}}",
-    "workload_socket": "unix:/run/spire/sockets/agent.sock",
-    "server_spiffe_id": "{{DOWNSTREAM_SPIFFE_ID}}"
+    "trust_domain": "{{TRUST_DOMAIN}}"
   },
   "poll_interval": 30,
   "log_level": "{{LOG_LEVEL}}",
@@ -207,7 +202,7 @@ The core service has been updated with the following changes in `/home/mfreeman/
 
 1. **Template Fetching** (Line ~1495-1517):
    - Checks if `checker_config_json` is provided
-   - If not, fetches from `templates/checkers/{security_mode}/{checker_kind}.json` (fallback to `templates/checkers/{checker_kind}.json` for SPIRE)
+   - If not, fetches from `templates/checkers/{security_mode}/{checker_kind}.json`
    - Returns error if template not found and no config provided
 
 2. **Variable Substitution** (Line ~1674-1743):
@@ -232,7 +227,6 @@ curl -X POST https://demo.serviceradar.cloud/api/admin/edge-packages \
     "component_type": "checker",
     "checker_kind": "sysmon",
     "parent_id": "agent-site-a",
-    "downstream_spiffe_id": "spiffe://example.com/site-a/sysmon",
     "metadata_json": "{...}"
   }'
 ```
@@ -351,7 +345,7 @@ curl -X POST .../edge-packages ...
 
 ## Security Considerations
 
-1. **SPIFFE Authentication**: Checkers must have SPIFFE credentials to write to KV
+1. **mTLS Authentication**: Services must have valid mTLS credentials to write to KV
 2. **Template Validation**: Templates should be validated before writing
 3. **Rate Limiting**: Consider rate limiting template writes to prevent abuse
 4. **Audit Logging**: All template writes should be logged

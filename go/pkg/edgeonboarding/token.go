@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -21,6 +22,23 @@ const (
 )
 
 var (
+	// ErrTokenRequired is returned when no onboarding token is provided.
+	ErrTokenRequired = errors.New("onboarding token is required")
+	// ErrUnsupportedTokenFormat is returned when a token does not use the signed structured format.
+	ErrUnsupportedTokenFormat = errors.New("unsupported onboarding token format (expected edgepkg-v2 or edgepkg-v3)")
+	// ErrUnsupportedComponentType is returned when component type is not supported.
+	ErrUnsupportedComponentType = errors.New("unsupported component type")
+	// ErrPackageIDEmpty is returned when package_id is empty.
+	ErrPackageIDEmpty = errors.New("package_id is empty")
+	// ErrDownloadTokenEmpty is returned when the download token segment is missing.
+	ErrDownloadTokenEmpty = errors.New("download token is empty")
+	// ErrCoreAPIURLRequired is returned when the Core API URL cannot be determined.
+	ErrCoreAPIURLRequired = errors.New("core API URL is required")
+	// ErrCoreAPIURLMissingHost indicates the base URL lacks a host.
+	ErrCoreAPIURLMissingHost = errors.New("core api url missing host")
+	// ErrCoreAPIURLMustUseHTTPS indicates the base URL uses an insecure scheme.
+	ErrCoreAPIURLMustUseHTTPS = errors.New("core api url must use https")
+
 	ErrOnboardingTokenPrivateKeyRequired = errors.New("onboarding token private key is not configured")
 	ErrOnboardingTokenPublicKeyRequired  = errors.New("onboarding token public key is not configured")
 	ErrOnboardingTokenInvalidSignature   = errors.New("onboarding token signature is invalid")
@@ -230,4 +248,31 @@ func normalizePartitionID(partitionID string) string {
 		return defaultPartitionID
 	}
 	return partitionID
+}
+
+func normalizeBaseURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ErrCoreAPIURLRequired
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse core api url: %w", err)
+	}
+	if u.Scheme == "" {
+		u.Scheme = "https"
+	}
+	if strings.ToLower(u.Scheme) != "https" {
+		return "", ErrCoreAPIURLMustUseHTTPS
+	}
+	if u.Host == "" {
+		return "", ErrCoreAPIURLMissingHost
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.Path = strings.TrimRight(u.Path, "/")
+	return strings.TrimRight(u.String(), "/"), nil
 }

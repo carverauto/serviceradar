@@ -73,8 +73,6 @@ impl Explanation {
             push("core.api_url", core.api_url.clone());
             push("core.security_mode", enum_name(core.security_mode, SecurityMode::try_from));
             push("core.server_name", core.server_name.clone());
-            push("core.trust_domain", core.trust_domain.clone());
-            push("core.server_spiffe_id", core.server_spiffe_id.clone());
         }
         if let Some(dgraph) = manager.dgraph() {
             push("dgraph.host", dgraph.host.clone());

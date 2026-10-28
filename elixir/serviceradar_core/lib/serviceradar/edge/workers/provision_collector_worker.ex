@@ -4,7 +4,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
   In single-deployment mode:
   - NATS account configuration comes from environment variables
-  - TLS certificates are handled by external infrastructure (SPIFFE/SPIRE, cert-manager)
+  - TLS certificates are handled by external infrastructure (cert-manager)
   - The worker generates NATS user credentials via datasvc gRPC
 
   ## Retries

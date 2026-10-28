@@ -24,7 +24,6 @@ pub enum SecurityMode {
     #[default]
     #[serde(alias = "", alias = "mtls")]
     Mtls,
-    Spiffe,
     None,
 }
 
@@ -42,10 +41,6 @@ pub struct SecurityConfig {
     pub ca_file: Option<String>,
     #[serde(default)]
     pub client_ca_file: Option<String>,
-    #[serde(default)]
-    pub trust_domain: Option<String>,
-    #[serde(default)]
-    pub workload_socket: Option<String>,
 }
 
 impl SecurityConfig {
@@ -121,9 +116,6 @@ impl Config {
         if let Some(sec) = &self.nats_security {
             match sec.mode {
                 SecurityMode::None => {}
-                SecurityMode::Spiffe => {
-                    anyhow::bail!("nats_security.mode \"spiffe\" is not supported")
-                }
                 SecurityMode::Mtls => {
                     if sec.cert_file.is_none() || sec.key_file.is_none() || sec.ca_file.is_none() {
                         anyhow::bail!(
@@ -154,16 +146,6 @@ impl Config {
                         anyhow::bail!(
                             "grpc_security requires cert_file, key_file, and client_ca_file or ca_file in mTLS mode"
                         );
-                    }
-                }
-                SecurityMode::Spiffe => {
-                    if sec
-                        .trust_domain
-                        .as_ref()
-                        .map(|v| v.trim().is_empty())
-                        .unwrap_or(true)
-                    {
-                        anyhow::bail!("grpc_security.trust_domain is required in spiffe mode");
                     }
                 }
             }
@@ -202,30 +184,30 @@ mod tests {
             nats_security: None,
             grpc_listen_addr: Some("0.0.0.0:50043".into()),
             grpc_security: Some(SecurityConfig {
-                mode: SecurityMode::Spiffe,
-                trust_domain: Some("carverauto.dev".into()),
-                workload_socket: Some("unix:/run/spire/sockets/agent.sock".into()),
-                ..Default::default()
+                mode: SecurityMode::Mtls,
+                cert_dir: Some("/etc/serviceradar/certs".into()),
+                cert_file: Some("trapd.pem".into()),
+                key_file: Some("trapd-key.pem".into()),
+                ca_file: Some("root.pem".into()),
+                client_ca_file: None,
             }),
         }
     }
 
     #[test]
-    fn spiffe_grpc_configuration_validates() {
+    fn mtls_grpc_configuration_validates() {
         let cfg = base_config();
         cfg.validate().expect("expected configuration to validate");
     }
 
     #[test]
-    fn spiffe_requires_trust_domain() {
-        let mut cfg = base_config();
-        if let Some(security) = cfg.grpc_security.as_mut() {
-            security.trust_domain = None;
-        }
-        let err = cfg.validate().expect_err("expected validation error");
+    fn spiffe_mode_is_rejected_on_deserialize() {
+        let raw = r#"{"mode":"spiffe"}"#;
+        let err = serde_json::from_str::<SecurityConfig>(raw)
+            .expect_err("expected spiffe security mode to fail deserialization");
         assert!(
-            err.to_string().contains("trust_domain"),
-            "error should mention missing trust_domain: {err}"
+            err.to_string().contains("unknown variant `spiffe`"),
+            "unexpected error: {err}"
         );
     }
 
@@ -234,28 +216,12 @@ mod tests {
         let mut cfg = base_config();
         if let Some(security) = cfg.grpc_security.as_mut() {
             security.mode = SecurityMode::None;
-            security.trust_domain = None;
-            security.workload_socket = None;
         }
 
         let err = cfg.validate().expect_err("expected validation error");
         assert!(
             err.to_string().contains("grpc_security.mode \"none\""),
             "error should mention rejected grpc none mode: {err}"
-        );
-    }
-
-    #[test]
-    fn nats_security_spiffe_not_supported() {
-        let mut cfg = base_config();
-        cfg.nats_security = Some(SecurityConfig {
-            mode: SecurityMode::Spiffe,
-            ..Default::default()
-        });
-        let err = cfg.validate().expect_err("expected validation error");
-        assert!(
-            err.to_string().contains("nats_security.mode \"spiffe\""),
-            "error should mention unsupported spiffe mode: {err}"
         );
     }
 

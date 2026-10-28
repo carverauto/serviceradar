@@ -41,7 +41,6 @@ jwks.json
 *.key
 *.crt
 .env
-docker/compose/spire/upstream-join-token
 docker/compose/creds/*
 !docker/compose/creds/.gitkeep
 # Logs

@@ -15,7 +15,6 @@ go_library(
         "jwt_keys.go",
         "nats_account_limits.go",
         "nats_bootstrap.go",
-        "spire.go",
         "tls.go",
         "types.go",
         "utils.go",

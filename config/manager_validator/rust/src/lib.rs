@@ -138,9 +138,6 @@ fn field<'a>(cfg: &'a EnvironmentConfig, path: &str) -> Result<Value<'a>, Unknow
             enum_name(c.security_mode, |i| SecurityMode::try_from(i).ok())
         }),
         "core.server_name" => core.map_or(Value::Absent, |c| opt_str(&c.server_name)),
-        "core.trust_domain" => core.map_or(Value::Absent, |c| opt_str(&c.trust_domain)),
-        "core.server_spiffe_id" => core.map_or(Value::Absent, |c| opt_str(&c.server_spiffe_id)),
-        "core.workload_socket" => core.map_or(Value::Absent, |c| opt_str(&c.workload_socket)),
 
         "dgraph.host" => dgraph.map_or(Value::Absent, |d| opt_str(&d.host)),
         "dgraph.port" => dgraph.map_or(Value::Absent, |d| opt_u32(d.port)),

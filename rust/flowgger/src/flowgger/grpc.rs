@@ -6,14 +6,11 @@ use std::{
 };
 
 use anyhow::{Context, Result, anyhow};
-use log::{error, info, warn};
+use log::{error, info};
 use tonic::transport::{Certificate, Identity, Server, ServerTlsConfig};
 use tonic_health::{ServingStatus, server::health_reporter};
 
 use super::config::Config;
-use super::spiffe;
-
-const DEFAULT_WORKLOAD_SOCKET: &str = "unix:/run/spire/sockets/agent.sock";
 
 pub fn maybe_spawn(config: &Config) {
     let settings = match GrpcSettings::from_config(config) {
@@ -61,9 +58,6 @@ fn run_server(settings: GrpcSettings) -> Result<()> {
         })?;
 
         match settings.security {
-            SecuritySettings::Spiffe(spiffe_cfg) => serve_with_spiffe(addr, spiffe_cfg)
-                .await
-                .context("flowgger gRPC server failed"),
             SecuritySettings::Mtls(tls) => {
                 let tls = tls
                     .tls_config()
@@ -88,15 +82,8 @@ struct TlsSettings {
 }
 
 #[derive(Debug, PartialEq, Eq)]
-struct SpiffeSettings {
-    workload_socket: String,
-    trust_domain: String,
-}
-
-#[derive(Debug, PartialEq, Eq)]
 enum SecuritySettings {
     Mtls(TlsSettings),
-    Spiffe(SpiffeSettings),
 }
 
 impl GrpcSettings {
@@ -117,25 +104,14 @@ impl GrpcSettings {
                     "grpc.mode \"none\" is not allowed for the flowgger gRPC sidecar"
                 ));
             }
-            "spiffe" => {
-                let trust_domain = read_string(config, "grpc.trust_domain")
-                    .ok_or_else(|| anyhow!("grpc.trust_domain is required for SPIFFE mode"))?;
-                let workload_socket = read_string(config, "grpc.workload_socket")
-                    .unwrap_or_else(|| DEFAULT_WORKLOAD_SOCKET.to_string());
-                if workload_socket.trim().is_empty() {
-                    return Err(anyhow!(
-                        "grpc.workload_socket cannot be empty in SPIFFE mode"
-                    ));
-                }
-                SecuritySettings::Spiffe(SpiffeSettings {
-                    trust_domain,
-                    workload_socket,
-                })
-            }
             "mtls" => {
                 SecuritySettings::Mtls(TlsSettings::from_config(cert_dir.as_deref(), config)?)
             }
-            other => return Err(anyhow!("unsupported grpc.mode '{other}'")),
+            other => {
+                return Err(anyhow!(
+                    "unsupported grpc.mode '{other}' (see https://docs.serviceradar.cloud/docs/migrating-off-spire)"
+                ));
+            }
         };
 
         Ok(Some(GrpcSettings {
@@ -214,72 +190,6 @@ async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
         .context("flowgger gRPC server failed")
 }
 
-async fn serve_with_spiffe(addr: SocketAddr, cfg: SpiffeSettings) -> Result<()> {
-    warn!(
-        "SPIFFE/SPIRE runtime support is deprecated; use mTLS. See https://docs.serviceradar.cloud/docs/migrating-off-spire"
-    );
-
-    let credentials = spiffe::load_server_credentials(&cfg.workload_socket, &cfg.trust_domain)
-        .await
-        .context("failed to load SPIFFE credentials for flowgger gRPC server")?;
-    let mut updates = credentials.watch_updates();
-
-    loop {
-        let (reporter, health_service) = health_reporter();
-        reporter
-            .set_service_status("", ServingStatus::Serving)
-            .await;
-        reporter
-            .set_service_status("flowgger", ServingStatus::Serving)
-            .await;
-
-        let (identity, client_ca) = credentials.tls_materials()?;
-        let tls = ServerTlsConfig::new()
-            .identity(identity)
-            .client_ca_root(client_ca);
-
-        let mut shutdown_rx = updates.clone();
-        let server_future = Server::builder()
-            .tls_config(tls)?
-            .add_service(health_service)
-            .serve_with_shutdown(addr, async move {
-                let _ = shutdown_rx.changed().await;
-            });
-
-        tokio::pin!(server_future);
-
-        let mut reload = false;
-        let mut channel_closed = false;
-
-        tokio::select! {
-            biased;
-            res = updates.changed() => {
-                match res {
-                    Ok(_) => reload = true,
-                    Err(_) => channel_closed = true,
-                }
-            }
-            res = &mut server_future => {
-                res.context("flowgger gRPC server encountered an error during SPIFFE serve")?;
-                return Ok(());
-            }
-        }
-
-        if reload {
-            info!("SPIFFE update detected; reloading flowgger gRPC server identity");
-            server_future.await?;
-            continue;
-        }
-
-        if channel_closed {
-            server_future.await?;
-            break;
-        }
-    }
-
-    Ok(())
-}
-
 fn read_string(config: &Config, key: &str) -> Option<String> {
     config
         .lookup(key)
@@ -306,68 +216,20 @@ mod tests {
     }
 
     #[test]
-    fn spiffe_defaults_workload_socket() {
+    fn spiffe_mode_is_rejected() {
         let config = load_config(
             r#"
             [grpc]
             listen_addr = "0.0.0.0:50044"
             mode = "spiffe"
             trust_domain = "example.test"
-        "#,
-        );
-
-        let settings = GrpcSettings::from_config(&config)
-            .expect("config parsing failed")
-            .expect("expected settings");
-
-        match settings.security {
-            SecuritySettings::Spiffe(spiffe) => {
-                assert_eq!(spiffe.trust_domain, "example.test");
-                assert_eq!(spiffe.workload_socket, DEFAULT_WORKLOAD_SOCKET);
-            }
-            other => panic!("expected SPIFFE security, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn spiffe_honors_custom_socket() {
-        let config = load_config(
-            r#"
-            [grpc]
-            listen_addr = "0.0.0.0:50044"
-            mode = "spiffe"
-            trust_domain = "example.test"
-            workload_socket = "unix:/custom.sock"
-        "#,
-        );
-
-        let settings = GrpcSettings::from_config(&config)
-            .expect("config parsing failed")
-            .expect("expected settings");
-
-        match settings.security {
-            SecuritySettings::Spiffe(spiffe) => {
-                assert_eq!(spiffe.trust_domain, "example.test");
-                assert_eq!(spiffe.workload_socket, "unix:/custom.sock");
-            }
-            other => panic!("expected SPIFFE security, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn spiffe_requires_trust_domain() {
-        let config = load_config(
-            r#"
-            [grpc]
-            listen_addr = "0.0.0.0:50044"
-            mode = "spiffe"
         "#,
         );
 
         let err = GrpcSettings::from_config(&config).expect_err("expected failure");
         assert!(
-            err.to_string().contains("trust_domain"),
-            "error message should reference trust_domain: {err}"
+            err.to_string().contains("unsupported grpc.mode 'spiffe'"),
+            "error should reject spiffe mode: {err}"
         );
     }
 
@@ -423,22 +285,18 @@ mod tests {
         let settings = GrpcSettings::from_config(&config)
             .expect("config parsing failed")
             .expect("expected settings");
-        match settings.security {
-            SecuritySettings::Mtls(tls) => {
-                assert_eq!(
-                    tls.cert_path,
-                    PathBuf::from("/etc/serviceradar/certs/flowgger.pem")
-                );
-                assert_eq!(
-                    tls.key_path,
-                    PathBuf::from("/etc/serviceradar/certs/flowgger-key.pem")
-                );
-                assert_eq!(
-                    tls.client_ca_path,
-                    PathBuf::from("/etc/serviceradar/certs/root.pem")
-                );
-            }
-            other => panic!("expected mTLS security, got {other:?}"),
-        }
+        let SecuritySettings::Mtls(tls) = settings.security;
+        assert_eq!(
+            tls.cert_path,
+            PathBuf::from("/etc/serviceradar/certs/flowgger.pem")
+        );
+        assert_eq!(
+            tls.key_path,
+            PathBuf::from("/etc/serviceradar/certs/flowgger-key.pem")
+        );
+        assert_eq!(
+            tls.client_ca_path,
+            PathBuf::from("/etc/serviceradar/certs/root.pem")
+        );
     }
 }

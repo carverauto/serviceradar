@@ -55,7 +55,7 @@ seed_template() {
     key="templates/checkers/${mode_segment}${checker_kind}.json"
 
     # Always overwrite templates (they're factory defaults, safe to update)
-    log "Seeding checker template (${mode:-spire}): ${key} from ${source_file}"
+    log "Seeding checker template (${mode:-mtls}): ${key} from ${source_file}"
     if ! nats_cmd kv put "${KV_BUCKET}" "${key}" <"${source_file}"; then
         log "Failed to seed ${key}"
         return 1

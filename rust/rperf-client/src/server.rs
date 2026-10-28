@@ -36,7 +36,6 @@ use crate::config::{Config, SecurityMode};
 use crate::poller::TargetPoller;
 use crate::rperf::{RPerfResult, RPerfRunner};
 use crate::server::monitoring::agent_service_server::{AgentService, AgentServiceServer};
-use crate::spiffe;
 
 const FILE_DESCRIPTOR_SET_RPERF: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/rperf_descriptor.bin"));
@@ -150,7 +149,6 @@ impl RPerfTestOrchestrator {
 
         let mut server_builder = Server::builder();
 
-        let mut spiffe_guard: Option<spiffe::SpiffeSourceGuard> = None;
         if let Some(security) = &self.config.security {
             match security.mode {
                 SecurityMode::None => {}
@@ -195,30 +193,6 @@ impl RPerfTestOrchestrator {
                     server_builder = server_builder.tls_config(tls_config)?;
                     info!("TLS configured with mTLS enabled");
                 }
-                SecurityMode::Spiffe => {
-                    warn!(
-                        "SPIFFE/SPIRE runtime support is deprecated; use mTLS. See https://docs.serviceradar.cloud/docs/migrating-off-spire"
-                    );
-
-                    let workload_socket = security
-                        .workload_socket
-                        .as_deref()
-                        .context("security.workload_socket is required for spiffe mode")?;
-                    let trust_domain = security
-                        .trust_domain
-                        .as_deref()
-                        .context("security.trust_domain is required for spiffe mode")?;
-
-                    let credentials =
-                        spiffe::load_server_credentials(workload_socket, trust_domain).await?;
-                    let (identity, client_ca, guard) = credentials.into_parts();
-                    let tls = tonic::transport::ServerTlsConfig::new()
-                        .identity(identity)
-                        .client_ca_root(client_ca);
-                    spiffe_guard = Some(guard);
-                    server_builder = server_builder.tls_config(tls)?;
-                    info!("TLS configured with SPIFFE mode");
-                }
             }
         }
 
@@ -242,7 +216,6 @@ impl RPerfTestOrchestrator {
             join_handle: server_handle,
             poller_handle,
             pollers: self.target_pollers.clone(),
-            spiffe_guard,
         })
     }
 }
@@ -773,8 +746,6 @@ pub struct ServerHandle {
     join_handle: JoinHandle<Result<()>>,
     poller_handle: JoinHandle<()>,
     pollers: Arc<RwLock<Vec<TargetPoller>>>,
-    #[allow(dead_code)]
-    spiffe_guard: Option<spiffe::SpiffeSourceGuard>,
 }
 
 impl ServerHandle {

@@ -58,7 +58,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 - **Website:** https://serviceradar.cloud
 - **Date Updated:** 2025-11-22
 - **Template Version:** v1.0
-- **Description:** ServiceRadar provides SPIFFE-based, multi-protocol service and device monitoring with SRQL analytics backed by CNPG (database name `serviceradar`) and a Phoenix LiveView web UI fronted by an edge proxy.
+- **Description:** ServiceRadar provides mTLS-secured, multi-protocol service and device monitoring with SRQL analytics backed by CNPG (database name `serviceradar`) and a Phoenix LiveView web UI fronted by an edge proxy.
 
 
 ## Day 0 - Planning Phase
@@ -70,7 +70,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Describe the target persona or user(s) for the project?  
   - Primary: platform/SRE/NOC teams operating fleets of Linux servers, appliances, and network gear; secondary: data/analyst users issuing SRQL queries.
 * Explain the primary use case for the project. What additional use cases are supported by the project?  
-  - Primary: service/device health monitoring via agents and gateways with SPIFFE identities and CNPG storage. Additional: SRQL analytics over timeseries/events, SNMP/syslog/flow ingestion, webhook alerting.
+  - Primary: service/device health monitoring via agents and gateways with mTLS X.509 URI SAN (`spiffe://...`) identities and CNPG storage. Additional: SRQL analytics over timeseries/events, SNMP/syslog/flow ingestion, webhook alerting.
 * Explain which use cases have been identified as unsupported by the project.  
   - Not an APM profiler, configuration manager, or general-purpose log lake; Proton is no longer used; no gateway-ng.
 * Describe the intended types of organizations who would benefit from adopting this project. (i.e. financial services, any software manufacturer, organizations providing platform engineering services)?  
@@ -85,18 +85,18 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Describe the user experience (UX) and user interface (UI) of the project.  
   - UI is a responsive Phoenix LiveView app with authenticated dashboards and SRQL query tooling; see `docs/docs/web-ui.md`.
 * Describe how this project integrates with other projects in a production environment.  
-  - Integrates with CNPG (Postgres/Timescale), NATS JetStream for events, SPIRE for identity, OTEL for telemetry export, and Discord/webhook targets for alerts.
+  - Integrates with CNPG (Postgres/Timescale), NATS JetStream for events, deployment-managed mTLS CA for identity, OTEL for telemetry export, and Discord/webhook targets for alerts.
 
 ### Design
 
 * Explain the design principles and best practices the project is following.  
-  - Secure-by-default (SPIFFE mTLS, Core-validated JWT auth), minimal dependencies, horizontally scalable stateless services, CNPG as the system of record, deterministic configs via KV overlays.
+  - Secure-by-default (deployment-managed mTLS, Core-validated JWT auth), minimal dependencies, horizontally scalable stateless services, CNPG as the system of record, deterministic configs via KV overlays.
 * Outline or link to the project’s architecture requirements? Describe how they differ for Proof of Concept, Development, Test and Production environments, as applicable.  
   - See `docs/docs/architecture.md`; POCs can run single-instance CNPG and one gateway, while prod uses CNPG HA, multiple gateways/agents, edge proxy routing, and OTEL collectors.
 * Define any specific service dependencies the project relies on in the cluster.  
-  - CNPG Postgres (`cnpg-rw` host, database `serviceradar`), NATS JetStream, SPIRE (Server/Agent), edge proxy (Caddy/Nginx/Ingress), OTEL collector, optional Discord/webhook endpoints.
+  - CNPG Postgres (`cnpg-rw` host, database `serviceradar`), NATS JetStream, edge proxy (Caddy/Nginx/Ingress), OTEL collector, optional Discord/webhook endpoints.
 * Describe how the project implements Identity and Access Management.  
-  - Workload identities via SPIFFE/SPIRE; user access via JWTs validated by the Core; service-to-service gRPC secured by mTLS.
+  - Workload identities via deployment-managed X.509 URI SAN (`spiffe://...`) certificates; user access via JWTs validated by the Core; service-to-service gRPC secured by mTLS.
 * Describe how the project has addressed sovereignty.  
   - All data persists in adopter-managed CNPG; no hosted Proton or third-party databases; outbound calls limited to configured webhooks/Discord.
 * Describe any compliance requirements addressed by the project.  
@@ -111,7 +111,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
     * Describe the project’s API topology and conventions  
       - REST/JSON routed through the edge proxy for user/API clients; gRPC for agents/gateways and internal services; SRQL exposed via `/api/query`.  
     * Describe the project defaults  
-      - CNPG host `cnpg-rw`, database `serviceradar`, SPIFFE mTLS enabled, Core enforces JWT, OTLP enabled to OTEL collector.  
+      - CNPG host `cnpg-rw`, database `serviceradar`, mTLS enabled, Core enforces JWT, OTLP enabled to OTEL collector.  
     * Outline any additional configurations from default to make reasonable use of the project  
       - Configure ingress hostnames, JWKS issuer/audience, webhook endpoints, and CNPG credentials; adjust OTEL exporters per environment.  
     * Describe any new or changed API types and calls \- including to cloud providers \- that will result from this project being enabled and used  
@@ -126,7 +126,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 ### Installation
 
 * Describe how the project is installed and initialized, e.g. a minimal install with a few lines of code or does it require more complex integration and configuration?  
-  - Helm chart (`helm/serviceradar`) with CNPG enabled by default, plus SPIRE, NATS, edge proxy, OTEL; Compose files exist for local dev; minimal config is CNPG credentials and ingress hosts.
+  - Helm chart (`helm/serviceradar`) with CNPG enabled by default, plus NATS, edge proxy, OTEL; Compose files exist for local dev; minimal config is CNPG credentials and ingress hosts.
 * How does an adopter test and validate the installation?  
   - `helm upgrade --install --wait`, check pod readiness, hit `/healthz` on core, verify agents connect, and run SRQL queries against CNPG via the UI/API.
 
@@ -136,21 +136,21 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
   - Not yet filed; current posture documented in `SECURITY.md` and `docs/docs/tls-security.md`.
 * Please review the [Cloud Native Security Tenets](https://github.com/cncf/tag-security/blob/main/community/resources/security-whitepaper/secure-defaults-cloud-native-8.md) from TAG Security.  
     * How are you satisfying the tenets of cloud native security projects?  
-      - mTLS everywhere via the deployment-managed CA (SPIFFE/SPIRE is deprecated and not a supported posture; see `docs/docs/tls-security.md` and `docs/docs/migrating-off-spire.md`), least-privilege service accounts, secure defaults on Helm (CNPG/TLS/edge proxy), SBOM + dependency updates.  
+      - mTLS everywhere via the deployment-managed CA (see `docs/docs/tls-security.md` and `docs/docs/migrating-off-spire.md`), least-privilege service accounts, secure defaults on Helm (CNPG/TLS/edge proxy), SBOM + dependency updates.  
     * Describe how each of the cloud native principles apply to your project.  
-      - Declarative configs (Helm/KV), automated identity bootstrapping (SPIRE), immutable container builds via Bazel, and observable OTEL signals.  
+      - Declarative configs (Helm/KV), automated mTLS certificate bootstrapping, immutable container builds via Bazel, and observable OTEL signals.  
     * How do you recommend users alter security defaults in order to "loosen" the security of the project? Please link to any documentation the project has written concerning these use cases.  
       - Non-production may relax JWT audience/issuer checks and disable webhook signing; documented in `docs/docs/helm-configuration.md`.  
 * Security Hygiene  
     * Please describe the frameworks, practices and procedures the project uses to maintain the basic health and security of the project.  
       - Weekly Dependabot updates, reproducible builds, SBOM via syft (`docs/LF/SBOM.spdx`), repolinter checks (`docs/LF/repo_lint.md`), and CI lint/test workflows.  
     * Describe how the project has evaluated which features will be a security risk to users if they are not maintained by the project?  
-      - SPIFFE/SPIRE, Core JWT auth, and CNPG credentials are treated as critical paths; defaults avoid Proton and external data sinks; secrets managed via Kubernetes secrets and Helm values.  
+      - Deployment-managed mTLS CA, Core JWT auth, and CNPG credentials are treated as critical paths; defaults avoid Proton and external data sinks; secrets managed via Kubernetes secrets and Helm values.  
 * Cloud Native Threat Modeling  
     * Explain the least minimal privileges required by the project and reasons for additional privileges.  
       - Services run as non-root, need network access to CNPG/NATS/OTEL/edge proxy; gateways/agents require only outbound gRPC; CNPG requires standard DB creds.  
     * Describe how the project is handling certificate rotation and mitigates any issues with certificates.  
-      - SPIRE handles workload cert rotation; edge proxy/ingress certs follow Kubernetes secret rotation; JWKS keys exposed by Core for JWT validation.  
+      - Deployment-managed CA and Kubernetes secret rotation handle workload and ingress certs; JWKS keys exposed by Core for JWT validation.  
     * Describe how the project is following and implementing [secure software supply chain best practices](https://project.linuxfoundation.org/hubfs/CNCF_SSCP_v1.pdf)  
       - Immutable container images, provenance via Bazel builds, SBOM publishing, dependency updates via Dependabot, and signed release tags.
 
@@ -161,14 +161,14 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 ### Project Installation and Configuration
 
 * Describe what project installation and configuration look like.  
-  - `helm upgrade --install serviceradar ./helm/serviceradar -f values.yaml` with CNPG enabled; configure ingress hosts, CNPG credentials (database `serviceradar`), and SPIRE/edge proxy endpoints; agents/gateways point at core gRPC with SPIFFE IDs.
+  - `helm upgrade --install serviceradar ./helm/serviceradar -f values.yaml` with CNPG enabled; configure ingress hosts, CNPG credentials (database `serviceradar`), and edge proxy endpoints; agents/gateways point at core gRPC with mTLS certificates.
 
 ### Project Enablement and Rollback
 
 * How can this project be enabled or disabled in a live cluster? Please describe any downtime required of the control plane or nodes.  
   - Enable via Helm values; disable components (e.g., Proton off, optional services scaled to zero) and uninstall via `helm uninstall`; core downtime only during DB unavailability.
 * Describe how enabling the project changes any default behavior of the cluster or running workloads.  
-  - Adds CNPG cluster, NATS, SPIRE, edge proxy ingress, OTEL collector, and service Deployments; no Kubernetes API changes.
+  - Adds CNPG cluster, NATS, edge proxy ingress, OTEL collector, and service Deployments; no Kubernetes API changes.
 * Describe how the project tests enablement and disablement.  
   - Helm `--wait` gating, pod readiness probes, and smoke SRQL queries; uninstall verified by absence of Deployments/Services and DB PVCs when removed.
 * How does the project clean up any resources created, including CRDs?  
@@ -185,7 +185,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Describe any specific metrics that should inform a rollback.  
   - Pod readiness failures, OTEL collector liveness, CNPG error rates, gRPC connection failures from gateways/agents.
 * Explain how upgrades and rollbacks were tested and how the upgrade->downgrade->upgrade path was tested.  
-  - Exercised in staging namespaces with Helm upgrades/rollbacks, validating KV SPIFFE connects and OTEL readiness before production.
+  - Exercised in staging namespaces with Helm upgrades/rollbacks, validating KV mTLS connects and OTEL readiness before production.
 * Explain how the project informs users of deprecations and removals of features and APIs.  
   - Release notes in `CHANGELOG`; helm values defaults updated (e.g., Proton disabled); docs updated in `docs/docs`.
 * Explain how the project permits utilization of alpha and beta capabilities as part of a rollout.  
@@ -223,7 +223,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 * Describe how the project surfaces project resource requirements for adopters to monitor cloud and infrastructure costs, e.g. FinOps  
   - Metrics include request rates, queue depth, and exporter failures; CNPG metrics expose storage and CPU utilization for cost tracking.
 * Which parameters is the project covering to ensure the health of the application/service and its workloads?  
-  - Pod readiness, CNPG connectivity, KV SPIFFE connection status, OTEL exporter success, gateway-agent gRPC health, webhook delivery.
+  - Pod readiness, CNPG connectivity, KV mTLS connection status, OTEL exporter success, gateway-agent gRPC health, webhook delivery.
 * How can an operator determine if the project is in use by workloads?  
   - Check active agent connections, gateway job counts, and SRQL query metrics; CNPG ingest tables should show fresh writes.
 * How can someone using this project know that it is working for their instance?  
@@ -236,7 +236,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 ### Dependencies
 
 * Describe the specific running services the project depends on in the cluster.  
-  - CNPG Postgres (database `serviceradar`), NATS JetStream, SPIRE, edge proxy, OTEL collector; optional Discord/webhooks.
+  - CNPG Postgres (database `serviceradar`), NATS JetStream, edge proxy, OTEL collector; optional Discord/webhooks.
 * Describe the project’s dependency lifecycle policy.  
   - Weekly Dependabot updates for Go/Rust/Actions; Bazel MODULE.lock maintained; Proton removed; gateway-ng unused.
 * How does the project incorporate and consider source composition analysis as part of its development and security hygiene? Describe how this source composition analysis (SCA) is tracked.  
@@ -247,9 +247,9 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 ### Troubleshooting
 
 * How does this project recover if a key component or feature becomes unavailable? e.g Kubernetes API server, etcd, database, leader node, etc.  
-  - Services retry CNPG/NATS/OTEL with backoff; gateways cache recent data; Helm rollbacks restore last-good revisions; SPIRE auto-rotates certs after outages.
+  - Services retry CNPG/NATS/OTEL with backoff; gateways cache recent data; Helm rollbacks restore last-good revisions.
 * Describe the known failure modes.  
-  - CNPG outages halt ingest; OTEL collector downtime buffers traces; missing secrets block pods; misconfigured SPIFFE IDs prevent KV connectivity.
+  - CNPG outages halt ingest; OTEL collector downtime buffers traces; missing secrets block pods; misconfigured mTLS certificate identities prevent KV connectivity.
 
 ### Compliance
 
@@ -268,7 +268,7 @@ If this is the case for your project, please mark it as not-applicable (N/A) and
 
 * Security Hygiene  
     * How is the project executing access control?  
-      - Core enforces JWT auth for UI/API; SPIFFE mTLS protects gRPC; CNPG credentials scoped per service; KV overlays gated by SPIFFE identities.
+      - Core enforces JWT auth for UI/API; mTLS protects gRPC; CNPG credentials scoped per service; KV overlays gated by X.509 URI SAN (`spiffe://...`) workload identities.
 * Cloud Native Threat Modeling  
     * How does the project ensure its security reporting and response team is representative of its community diversity (organizational and individual)?  
       - Security contacts listed in `SECURITY.md` and `SECURITY_CONTACTS.md`; additional org maintainers added via governance process.  

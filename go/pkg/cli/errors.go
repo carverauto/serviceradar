@@ -51,8 +51,6 @@ var (
 	ErrDecodeRootCAKeyPEM       = errors.New("failed to decode root CA key PEM")
 	errCantExtractPassword      = errors.New("failed to extract password")
 	errCoreURLRequired          = errors.New("core URL is required")
-	errDownstreamSelectors      = errors.New("downstream registration requires at least one --selector")
-	errDownstreamSPIFFEID       = errors.New("downstream registration requires --downstream-spiffe-id")
 	errEdgePackageID            = errors.New("edge package id is required")
 	errDownloadToken            = errors.New("edge package download token is required")
 	errEnrollTokenRequired      = errors.New("enrollment token is required")

@@ -764,13 +764,6 @@ go_deps.gazelle_override(
     ],
     path = "github.com/google/osv-scalibr",
 )
-go_deps.gazelle_override(
-    build_file_generation = "on",
-    directives = [
-        "gazelle:proto disable",
-    ],
-    path = "github.com/spiffe/spire-api-sdk",
-)
 go_deps.from_file(go_mod = "//:go.mod")
 
 # rules_go now embeds dependency build info, exposing wazero v1.12.0's
@@ -839,8 +832,6 @@ use_repo(
     "com_github_pkg_sftp",
     "com_github_rs_zerolog",
     "com_github_shirou_gopsutil_v3",
-    "com_github_spiffe_go_spiffe_v2",
-    "com_github_spiffe_spire_api_sdk",
     "com_github_stretchr_testify",
     "com_github_swaggo_swag",
     "com_github_tetratelabs_wazero",

@@ -20,10 +20,9 @@ defmodule ServiceRadar.DataService.Client do
 
   - `DATASVC_HOST` - hostname (default: "datasvc")
   - `DATASVC_PORT` - port (default: 50057)
-  - `DATASVC_SEC_MODE` - security mode: spiffe|mtls|tls|plaintext (optional)
+  - `DATASVC_SEC_MODE` - security mode: mtls|tls|plaintext (optional)
   - `DATASVC_SSL` - enable SSL/TLS (default: false)
   - `DATASVC_CERT_DIR` - directory containing certs for mTLS
-  - `DATASVC_SPIFFE_CERT_DIR` - directory containing SPIFFE SVID files (optional)
   - `DATASVC_CERT_NAME` - cert name prefix (default: "core", uses core.pem/core-key.pem)
   - `DATASVC_CONNECT_TIMEOUT_MS` - gRPC connect timeout in ms (default: 5000)
   - `DATASVC_RECONNECT_BASE_MS` - base reconnect backoff in ms (default: 1000)
@@ -361,8 +360,6 @@ defmodule ServiceRadar.DataService.Client do
       sec_mode: config_value(opts, app_config, :sec_mode, "DATASVC_SEC_MODE"),
       ssl: config_value_bool(opts, app_config, :ssl, "DATASVC_SSL", false),
       cert_dir: config_value(opts, app_config, :cert_dir, "DATASVC_CERT_DIR"),
-      spiffe_cert_dir:
-        config_value(opts, app_config, :spiffe_cert_dir, "DATASVC_SPIFFE_CERT_DIR"),
       cert_name: config_value(opts, app_config, :cert_name, "DATASVC_CERT_NAME", "core"),
       connect_timeout_ms:
         config_value_int(
@@ -466,19 +463,6 @@ defmodule ServiceRadar.DataService.Client do
 
   defp build_cred_opts(config) do
     case normalize_sec_mode(config) do
-      :spiffe ->
-        spiffe_cert_dir = config.spiffe_cert_dir || config.cert_dir
-
-        case ServiceRadar.SPIFFE.client_ssl_opts(cert_dir: spiffe_cert_dir) do
-          {:ok, ssl_opts} ->
-            Logger.debug("Connecting to datasvc with SPIFFE mTLS")
-            {:ok, [cred: GRPC.Credential.new(ssl: ssl_opts)]}
-
-          {:error, reason} ->
-            Logger.error("SPIFFE mTLS not available for datasvc: #{inspect(reason)}")
-            {:error, {:spiffe_unavailable, reason}}
-        end
-
       :mtls ->
         cert_dir = config.cert_dir
 
@@ -520,7 +504,6 @@ defmodule ServiceRadar.DataService.Client do
 
   defp normalize_sec_mode_value(value, ssl, config) when is_binary(value) do
     case String.downcase(String.trim(value)) do
-      "spiffe" -> :spiffe
       "mtls" -> :mtls
       "tls" -> :tls
       "plaintext" -> :plaintext

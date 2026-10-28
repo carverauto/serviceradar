@@ -22,7 +22,7 @@ var (
 )
 
 // BuildCoreDialOptionsFromEnv constructs gRPC dial options for reaching the core service
-// using the SPIFFE or mTLS settings provided via environment variables. It returns a
+// using the mTLS settings provided via environment variables. It returns a
 // closer function that callers should invoke to release any underlying security provider.
 func BuildCoreDialOptionsFromEnv(ctx context.Context, role models.ServiceRole, log logger.Logger) ([]grpc.DialOption, func(), error) {
 	noOpCloser := func() {}
@@ -57,21 +57,6 @@ func CoreSecurityProviderFromEnv(ctx context.Context, role models.ServiceRole, l
 		return nil, errCoreSecurityRequired
 	case "none":
 		return nil, errInsecureCoreSecMode
-	case "spiffe":
-		workloadSocket := strings.TrimSpace(os.Getenv("CORE_WORKLOAD_SOCKET"))
-		if workloadSocket == "" {
-			workloadSocket = "unix:/run/spire/sockets/agent.sock"
-		}
-
-		conf := &models.SecurityConfig{
-			Mode:           "spiffe",
-			CertDir:        strings.TrimSpace(os.Getenv("CORE_CERT_DIR")),
-			Role:           role,
-			TrustDomain:    strings.TrimSpace(os.Getenv("CORE_TRUST_DOMAIN")),
-			ServerSPIFFEID: strings.TrimSpace(os.Getenv("CORE_SERVER_SPIFFE_ID")),
-			WorkloadSocket: workloadSocket,
-		}
-		return coregrpc.NewSecurityProvider(ctx, conf, log)
 	case "mtls":
 		cert := strings.TrimSpace(os.Getenv("CORE_CERT_FILE"))
 		key := strings.TrimSpace(os.Getenv("CORE_KEY_FILE"))
@@ -93,6 +78,6 @@ func CoreSecurityProviderFromEnv(ctx context.Context, role models.ServiceRole, l
 		}
 		return coregrpc.NewSecurityProvider(ctx, conf, log)
 	default:
-		return nil, fmt.Errorf("%w %q", errUnsupportedCoreSecMode, mode)
+		return nil, fmt.Errorf("%w %q (see https://docs.serviceradar.cloud/docs/migrating-off-spire)", errUnsupportedCoreSecMode, mode)
 	}
 }

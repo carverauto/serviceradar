@@ -124,28 +124,14 @@ Gateway registry entries SHALL include tenant identifiers and SHALL be used for 
 - **THEN** the registry entry includes the tenant identifier
 - **AND** scheduling/routing queries only consider gateways for the same tenant
 
-### Requirement: Platform SPIFFE mTLS for internal gRPC
-Platform services, bootstrap tooling, and shipped runtime daemons that communicate over internal gRPC SHALL use authenticated transport and SHALL NOT silently fall back to plaintext when security configuration is omitted or explicitly set to insecure modes. Datasvc SHALL validate SPIFFE identities for platform services. When SPIFFE Workload API mode is enabled, Elixir and Rust services SHALL fetch X.509 SVIDs via the SPIRE agent socket. When SPIFFE is disabled for platform services, those services SHALL use file-based mTLS configuration so Docker Compose and non-SPIFFE environments remain functional.
+### Requirement: Platform mTLS for internal gRPC
+Platform services, bootstrap tooling, and shipped runtime daemons that communicate over internal gRPC SHALL use authenticated mTLS transport and SHALL NOT silently fall back to plaintext when security configuration is omitted or explicitly set to insecure modes. Datasvc SHALL validate `spiffe://` X.509 URI SAN identities from client certificates for platform services.
 
-#### Scenario: SPIFFE-enabled web-ng connects to datasvc
-- **GIVEN** SPIFFE is enabled for the cluster
-- **AND** web-ng has access to the SPIRE agent socket
-- **WHEN** web-ng establishes a gRPC channel to datasvc
-- **THEN** the connection uses a SPIFFE SVID for client authentication
-- **AND** datasvc validates the SPIFFE identity of web-ng
-
-#### Scenario: SPIFFE Workload API supplies SVIDs for Elixir services
-- **GIVEN** SPIFFE Workload API mode is enabled
-- **AND** the SPIRE agent socket is available in the pod
-- **WHEN** web-ng or core-elx needs a gRPC client certificate
-- **THEN** the service fetches an X.509 SVID and bundle from the Workload API
-- **AND** the resulting mTLS credentials are used for the gRPC connection
-
-#### Scenario: SPIFFE disabled uses file-based mTLS
-- **GIVEN** SPIFFE is disabled for the deployment
+#### Scenario: File-based mTLS connects to datasvc
+- **GIVEN** deployment-managed mTLS certificates are configured for the deployment
 - **WHEN** web-ng connects to datasvc
 - **THEN** web-ng uses file-based mTLS certificates configured via environment variables
-- **AND** the connection succeeds without SPIFFE dependencies
+- **AND** datasvc validates the `spiffe://` URI SAN identity of web-ng
 
 #### Scenario: Bootstrap tooling rejects missing transport security
 - **GIVEN** bootstrap tooling needs to register a configuration template with core over gRPC
@@ -282,16 +268,6 @@ Mapper discovery results SHALL be submitted by agents to the gateway via gRPC an
 - **WHEN** the results pipeline processes the payload
 - **THEN** it SHALL dispatch to the mapper discovery handler
 - **AND** results SHALL not be treated as generic status updates
-
-### Requirement: SPIFFE identity errors are actionable for Zen
-When the zen consumer runs with SPIFFE-enabled gRPC, it SHALL treat SPIFFE Workload API "no identity issued" responses as configuration errors, log actionable guidance, retry for a bounded interval, and then exit with a clear error.
-
-#### Scenario: Missing SPIFFE registration for zen
-- **GIVEN** zen is configured to use SPIFFE for gRPC
-- **AND** the SPIFFE Workload API returns PermissionDenied with "no identity issued"
-- **WHEN** zen attempts to load its X.509 SVID
-- **THEN** zen logs that SPIFFE registration is missing or mismatched and includes the trust domain
-- **AND** zen retries for a bounded interval before exiting with an error
 
 ### Requirement: Analysis branches stay platform-local
 The system SHALL run camera stream analysis from platform-local relay branches and SHALL NOT require browsers or external workers to connect directly to edge agents or customer cameras.
@@ -669,17 +645,13 @@ Generated edge-site NATS leaf setup artifacts SHALL shell-escape edge-site names
 - **THEN** the resulting script treats the site name as literal text
 - **AND** no command substitution or injected shell syntax is introduced
 
-### Requirement: Default Helm Kubernetes install omits host SPIRE socket mounts
-The default Helm Kubernetes installation path SHALL NOT mount host SPIRE Workload API sockets into workloads unless SPIRE is explicitly enabled through a dedicated opt-in path.
+### Requirement: Helm Kubernetes install omits host SPIRE socket mounts
+The Helm Kubernetes installation path SHALL NOT mount host SPIRE Workload API sockets into workloads.
 
 #### Scenario: Default Helm render
-- **WHEN** the Helm chart is rendered without optional SPIRE resources
+- **WHEN** the Helm chart is rendered
 - **THEN** rendered workloads do not include `hostPath` mounts for `/run/spire/sockets`
 - **AND** their runtime environment does not require a SPIRE workload socket to start
-
-#### Scenario: SPIRE opt-in render
-- **WHEN** an operator explicitly enables the SPIRE-specific Helm values
-- **THEN** only the SPIRE-enabled workloads receive the required socket mounts and SPIRE-specific runtime wiring
 
 ### Requirement: Helm demo values keep datasvc internal by default
 The shipped Helm demo values SHALL keep datasvc internal-only by default and SHALL NOT publish datasvc gRPC through an external service unless the operator explicitly opts in.

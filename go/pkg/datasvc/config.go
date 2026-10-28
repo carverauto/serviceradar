@@ -16,7 +16,6 @@ const (
 	defaultObjectBucket = "serviceradar-objects"
 
 	securityModeMTLS        = "mtls"
-	securityModeSPIFFE      = "spiffe"
 	securityModeNone        = "none"
 	defaultObjectMaxBytes   = 512 * 1024 * 1024
 	defaultObjectStoreBytes = 2 * 1024 * 1024 * 1024
@@ -102,7 +101,6 @@ func (c *Config) validateSecurity() error {
 
 	switch mode {
 	case securityModeMTLS:
-	case securityModeSPIFFE:
 	case securityModeNone:
 		return nil
 	default:

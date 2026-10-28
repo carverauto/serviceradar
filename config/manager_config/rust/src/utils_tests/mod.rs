@@ -47,9 +47,6 @@ pub fn valid_ci() -> EnvironmentConfig {
             api_url: Some("http://core:8090".into()),
             security_mode: Some(SecurityMode::Mtls as i32),
             server_name: Some("core".into()),
-            trust_domain: None,
-            server_spiffe_id: None,
-            workload_socket: None,
         }),
         dgraph: Some(DgraphConfig {
             host: Some("dgraph".into()),

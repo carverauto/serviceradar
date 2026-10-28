@@ -57,21 +57,9 @@ pub struct PackageResponse {
     #[serde(default)]
     pub site: Option<String>,
 
-    /// Assigned SPIFFE ID.
-    #[serde(default)]
-    pub downstream_spiffe_id: Option<String>,
-
     /// mTLS bundle (if mTLS mode).
     #[serde(default)]
     pub mtls_bundle: Option<MtlsBundle>,
-
-    /// SPIRE join token (if SPIRE mode).
-    #[serde(default)]
-    pub join_token: Option<String>,
-
-    /// SPIRE trust bundle PEM (if SPIRE mode).
-    #[serde(default)]
-    pub bundle_pem: Option<String>,
 }
 
 /// Request body for package download.

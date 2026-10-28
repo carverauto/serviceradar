@@ -1673,12 +1673,10 @@ if config_env() == :prod do
       local_mailer_requested
     end
 
-  # Security mode for edge onboarding: "mtls" for docker deployments, "spire" for k8s
+  # Security mode for edge onboarding: mTLS only
   security_mode =
     case System.get_env("SERVICERADAR_SECURITY_MODE") do
       "mtls" -> "mtls"
-      "spire" -> "spire"
-      # Default to mTLS for docker deployments
       _ -> "mtls"
     end
 
@@ -1893,12 +1891,6 @@ if config_env() == :prod do
     config :serviceradar_web_ng, ServiceRadarWebNG.Auth.ControlPlaneJWT, control_plane_jwt_config
   end
 
-  spiffe_mode =
-    case System.get_env("SPIFFE_MODE", "filesystem") do
-      "workload_api" -> :workload_api
-      _ -> :filesystem
-    end
-
   spiffe_bundle_path = System.get_env("SPIFFE_TRUST_BUNDLE_PATH")
 
   # Datasvc gRPC client configuration for KV store access
@@ -1906,10 +1898,9 @@ if config_env() == :prod do
   datasvc_address = System.get_env("DATASVC_ADDRESS")
 
   config :serviceradar_core, :spiffe,
-    mode: spiffe_mode,
+    mode: :filesystem,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do
@@ -1920,7 +1911,6 @@ if config_env() == :prod do
 
     datasvc_sec_mode =
       case datasvc_sec_mode && String.downcase(String.trim(datasvc_sec_mode)) do
-        "spiffe" -> "spiffe"
         "mtls" -> "mtls"
         "tls" -> "tls"
         "plaintext" -> "plaintext"
@@ -1930,21 +1920,6 @@ if config_env() == :prod do
 
     tls_config =
       case datasvc_sec_mode do
-        "spiffe" ->
-          ServiceRadar.SPIFFE.warn_if_deprecated(datasvc_sec_mode, spiffe_mode)
-
-          spiffe_cert_dir = System.get_env("DATASVC_SPIFFE_CERT_DIR")
-          spiffe_opts = if spiffe_cert_dir, do: [cert_dir: spiffe_cert_dir], else: []
-
-          case ServiceRadar.SPIFFE.client_ssl_opts(spiffe_opts) do
-            {:ok, ssl_opts} ->
-              ssl_opts
-
-            {:error, reason} ->
-              Logger.error("SPIFFE mTLS not available for datasvc: #{inspect(reason)}")
-              nil
-          end
-
         "mtls" ->
           if File.exists?(datasvc_cert_dir) do
             [

@@ -33,7 +33,6 @@
 //!     // Attempt onboarding from environment variables
 //!     if let Some(result) = try_onboard(ComponentType::Checker)? {
 //!         println!("Onboarded! Config path: {}", result.config_path);
-//!         println!("SPIFFE ID: {:?}", result.spiffe_id);
 //!     } else {
 //!         println!("No onboarding token found, using traditional config");
 //!     }
@@ -99,9 +98,6 @@ pub struct OnboardingResult {
     /// Raw configuration data.
     pub config_data: Vec<u8>,
 
-    /// Assigned SPIFFE ID (if using SPIRE).
-    pub spiffe_id: Option<String>,
-
     /// Package ID from the onboarding token.
     pub package_id: String,
 
@@ -137,7 +133,6 @@ pub struct MtlsBootstrapConfig {
 /// Checks for:
 /// - `ONBOARDING_TOKEN`: The signed edgepkg-v2 token
 /// - `CORE_API_URL`: Optional Core API base URL (fallback if not in token)
-/// - `KV_ENDPOINT`: Required for SPIRE-based onboarding
 ///
 /// Returns:
 /// - `Ok(Some(result))` if onboarding was performed
@@ -216,7 +211,6 @@ pub fn try_onboard(component_type: ComponentType) -> Result<Option<OnboardingRes
     Ok(Some(OnboardingResult {
         config_path: config_path.display().to_string(),
         config_data,
-        spiffe_id: package.downstream_spiffe_id.clone(),
         package_id: package.package_id.clone(),
         deployment_type,
         cert_dir: cert_dir.display().to_string(),
@@ -266,7 +260,6 @@ pub fn mtls_bootstrap(cfg: &MtlsBootstrapConfig) -> Result<OnboardingResult> {
         return Ok(OnboardingResult {
             config_path: config_path.display().to_string(),
             config_data,
-            spiffe_id: None,
             package_id: String::new(),
             deployment_type,
             cert_dir: cert_dir.display().to_string(),
@@ -303,7 +296,6 @@ pub fn mtls_bootstrap(cfg: &MtlsBootstrapConfig) -> Result<OnboardingResult> {
     Ok(OnboardingResult {
         config_path: config_path.display().to_string(),
         config_data,
-        spiffe_id: package.downstream_spiffe_id,
         package_id: package.package_id,
         deployment_type,
         cert_dir: cert_dir.display().to_string(),

@@ -37,17 +37,6 @@ type CmdConfig struct {
 	APIKey                     string
 	BearerToken                string
 	JoinTokenTTLSeconds        int
-	AgentSPIFFEID              string
-	DownstreamSPIFFEID         string
-	DownstreamSelectors        []string
-	DownstreamX509TTLSeconds   int
-	DownstreamJWTTTLSeconds    int
-	DownstreamAdmin            bool
-	DownstreamStoreSVID        bool
-	DownstreamDNSNames         []string
-	DownstreamFederates        []string
-	NoDownstream               bool
-	JoinTokenOutput            string
 	EdgePackageID              string
 	EdgePackageDownloadToken   string
 	EdgePackageOutput          string
@@ -68,7 +57,6 @@ type CmdConfig struct {
 	EdgePackageCheckerKind     string
 	EdgePackageCheckerConfig   string
 	EdgePackageDataSvc         string
-	EdgePackageDownstreamID    string
 	EdgePackageLimit           int
 	EdgePackageStatuses        []string
 	EdgePackageTypes           []string

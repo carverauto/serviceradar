@@ -37,7 +37,7 @@ func CreateCheckerDeviceUpdate(checkerID, checkerKind, agentID, gatewayID, hostI
 		IP:          hostIP,
 		Source:      DiscoverySourceServiceRadar,
 		AgentID:     agentID,
-		GatewayID:    gatewayID,
+		GatewayID:   gatewayID,
 		Partition:   normalizedPartition,
 		Timestamp:   time.Now(),
 		Metadata:    metadata,

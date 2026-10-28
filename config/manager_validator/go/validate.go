@@ -185,21 +185,6 @@ func field(cfg *configpb.EnvironmentConfig, path string) (value, error) {
 			return absentValue, nil
 		}
 		return strValue(core.ServerName), nil
-	case "core.trust_domain":
-		if core == nil {
-			return absentValue, nil
-		}
-		return strValue(core.TrustDomain), nil
-	case "core.server_spiffe_id":
-		if core == nil {
-			return absentValue, nil
-		}
-		return strValue(core.ServerSpiffeId), nil
-	case "core.workload_socket":
-		if core == nil {
-			return absentValue, nil
-		}
-		return strValue(core.WorkloadSocket), nil
 
 	case "dgraph.host":
 		if dgraph == nil {

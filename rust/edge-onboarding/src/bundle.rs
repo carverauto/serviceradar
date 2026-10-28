@@ -153,9 +153,6 @@ pub fn install_mtls_bundle(
         key_file: Some(key_filename),
         ca_file: Some("root.pem".to_string()),
         client_ca_file: Some("root.pem".to_string()),
-        trust_domain: None,
-        workload_socket: None,
-        server_spiffe_id: None,
     })
 }
 

@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"log"
 	"net"
-	"os"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/grpc"
@@ -71,9 +70,6 @@ func (s *Server) StartCoreRegistration(ctx context.Context, cfg *CoreRegistratio
 
 // runCoreRegistration runs the registration and heartbeat loop.
 func (s *Server) runCoreRegistration(ctx context.Context, cfg *CoreRegistration, listenAddr string, security *models.SecurityConfig, heartbeatInterval time.Duration) {
-	// Get SPIFFE ID from workload API if available
-	spiffeID := s.getSPIFFEID(ctx)
-
 	// Create gRPC connection to Core
 	grpcClient, coreClient, err := s.connectToCore(ctx, cfg.CoreEndpoint, security)
 	if err != nil {
@@ -90,7 +86,7 @@ func (s *Server) runCoreRegistration(ctx context.Context, cfg *CoreRegistration,
 	}()
 
 	// Initial registration
-	if err := s.registerWithCore(ctx, coreClient, cfg.InstanceID, listenAddr, spiffeID); err != nil {
+	if err := s.registerWithCore(ctx, coreClient, cfg.InstanceID, listenAddr); err != nil {
 		log.Printf("Failed initial registration with Core: %v (will retry)", err)
 		time.Sleep(registrationRetryDelay)
 		go s.runCoreRegistration(ctx, cfg, listenAddr, security, heartbeatInterval)
@@ -109,7 +105,7 @@ func (s *Server) runCoreRegistration(ctx context.Context, cfg *CoreRegistration,
 			log.Printf("Core registration stopped: context cancelled")
 			return
 		case <-ticker.C:
-			if err := s.registerWithCore(ctx, coreClient, cfg.InstanceID, listenAddr, spiffeID); err != nil {
+			if err := s.registerWithCore(ctx, coreClient, cfg.InstanceID, listenAddr); err != nil {
 				log.Printf("Heartbeat to Core failed: %v", err)
 				// Don't exit, keep trying
 			}
@@ -118,7 +114,6 @@ func (s *Server) runCoreRegistration(ctx context.Context, cfg *CoreRegistration,
 }
 
 // connectToCore creates a gRPC connection to the Core service using the security configuration.
-// Uses SPIFFE mTLS if configured, otherwise falls back based on security settings.
 func (s *Server) connectToCore(ctx context.Context, endpoint string, security *models.SecurityConfig) (*grpc.Client, proto.AgentGatewayServiceClient, error) {
 	log.Printf("Connecting to Core at %s for registration", endpoint)
 
@@ -152,7 +147,7 @@ func (s *Server) connectToCore(ctx context.Context, endpoint string, security *m
 
 // registerWithCore sends a registration request to Core using the standard PushStatus RPC.
 // This reuses the existing service registration infrastructure.
-func (s *Server) registerWithCore(ctx context.Context, client proto.AgentGatewayServiceClient, instanceID, endpoint, spiffeID string) error {
+func (s *Server) registerWithCore(ctx context.Context, client proto.AgentGatewayServiceClient, instanceID, endpoint string) error {
 	// Get source IP from the endpoint
 	host, _, err := net.SplitHostPort(endpoint)
 	if err != nil {
@@ -164,7 +159,7 @@ func (s *Server) registerWithCore(ctx context.Context, client proto.AgentGateway
 		ServiceName: instanceID,
 		ServiceType: "datasvc",
 		Available:   true,
-		Message:     []byte(fmt.Sprintf(`{"endpoint":"%s","spiffe_id":"%s"}`, endpoint, spiffeID)),
+		Message:     []byte(fmt.Sprintf(`{"endpoint":"%s"}`, endpoint)),
 		AgentId:     instanceID,
 		GatewayId:   instanceID, // DataSvc acts as its own "gateway"
 		KvStoreId:   endpoint,   // Store endpoint in kv_store_id for easy retrieval
@@ -190,19 +185,4 @@ func (s *Server) registerWithCore(ctx context.Context, client proto.AgentGateway
 	}
 
 	return nil
-}
-
-// getSPIFFEID attempts to get the SPIFFE ID from the workload API.
-func (s *Server) getSPIFFEID(ctx context.Context) string {
-	_ = ctx
-
-	// Try to get SPIFFE ID from environment or workload API
-	// For now, return empty - this can be enhanced later
-	spiffeID := os.Getenv("SPIFFE_ID")
-	if spiffeID != "" {
-		return spiffeID
-	}
-
-	// TODO: Query SPIFFE workload API if socket is available
-	return ""
 }

@@ -13,8 +13,7 @@ data:
         "mode": "mtls",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs",
-        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
-        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}"
+        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}"
       },
       "timeout": "30s",
       "logger": {
@@ -33,8 +32,7 @@ data:
       "security": {
         "mode": "mtls",
         "cert_dir": "/etc/serviceradar/certs",
-        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
-        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}"
+        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}"
       },
       "default_poll_interval": 300,
       "targets": []
@@ -50,8 +48,7 @@ data:
         "mode": "mtls",
         "role": "checker",
         "cert_dir": "/etc/serviceradar/certs",
-        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}",
-        "server_spiffe_id": "{{`{{DOWNSTREAM_SPIFFE_ID}}`}}"
+        "trust_domain": "{{`{{TRUST_DOMAIN}}`}}"
       }
     }
 {{- end }}

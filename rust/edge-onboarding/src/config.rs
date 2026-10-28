@@ -27,7 +27,6 @@ use crate::error::Result;
 #[serde(rename_all = "lowercase")]
 pub enum SecurityMode {
     Mtls,
-    Spiffe,
     #[default]
     None,
 }
@@ -55,15 +54,6 @@ pub struct SecurityConfig {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub client_ca_file: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub trust_domain: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub workload_socket: Option<String>,
-
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub server_spiffe_id: Option<String>,
 }
 
 /// ZFS configuration.

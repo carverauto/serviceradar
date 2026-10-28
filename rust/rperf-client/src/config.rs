@@ -27,7 +27,6 @@ pub enum SecurityMode {
     #[serde(alias = "", alias = "none")]
     None,
     Mtls,
-    Spiffe,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -44,12 +43,6 @@ pub struct SecurityConfig {
     pub mode: SecurityMode,
     #[serde(default)]
     pub cert_dir: Option<String>,
-    #[serde(default)]
-    pub trust_domain: Option<String>,
-    #[serde(default)]
-    pub workload_socket: Option<String>,
-    #[serde(default)]
-    pub server_spiffe_id: Option<String>,
     #[serde(default)]
     pub tls: Option<TlsConfig>,
 }
@@ -147,24 +140,6 @@ impl Config {
                     Self::ensure_present(&tls.key_file, "security.tls.key_file")?;
                     Self::ensure_present(&tls.ca_file, "security.tls.ca_file")?;
                 }
-                SecurityMode::Spiffe => {
-                    if security
-                        .workload_socket
-                        .as_ref()
-                        .map(|s| s.trim().is_empty())
-                        .unwrap_or(true)
-                    {
-                        bail!("security.workload_socket is required for spiffe mode");
-                    }
-                    if security
-                        .trust_domain
-                        .as_ref()
-                        .map(|s| s.trim().is_empty())
-                        .unwrap_or(true)
-                    {
-                        bail!("security.trust_domain is required for spiffe mode");
-                    }
-                }
             }
         }
 
@@ -181,5 +156,21 @@ impl Config {
             Some(val) if !val.trim().is_empty() => Ok(()),
             _ => bail!("{field} is required"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spiffe_mode_is_rejected_on_deserialize() {
+        let raw = r#"{"mode":"spiffe"}"#;
+        let err = serde_json::from_str::<SecurityConfig>(raw)
+            .expect_err("expected spiffe security mode to fail deserialization");
+        assert!(
+            err.to_string().contains("unknown variant `spiffe`"),
+            "unexpected error: {err}"
+        );
     }
 }

@@ -38,15 +38,13 @@ func TestConfigValidateRejectsBucketHistoryTooLarge(t *testing.T) {
 	require.ErrorIs(t, err, errBucketHistoryTooLarge)
 }
 
-func TestConfigValidateAllowsSPIFFE(t *testing.T) {
+func TestConfigValidateRejectsSPIFFE(t *testing.T) {
 	cfg := &Config{
 		ListenAddr:    "127.0.0.1:0",
 		NATSURL:       "nats://127.0.0.1:4222",
 		NATSCredsFile: "/etc/serviceradar/creds/platform.creds",
 		Security: &models.SecurityConfig{
-			Mode:           models.SecurityMode("spiffe"),
-			TrustDomain:    "example.org",
-			WorkloadSocket: "unix:/run/spire/sockets/agent.sock",
+			Mode: models.SecurityMode("spiffe"),
 			TLS: models.TLSConfig{
 				CertFile: "cert.pem",
 				KeyFile:  "key.pem",
@@ -63,7 +61,9 @@ func TestConfigValidateAllowsSPIFFE(t *testing.T) {
 		},
 	}
 
-	require.NoError(t, cfg.Validate())
+	err := cfg.Validate()
+	require.Error(t, err)
+	require.ErrorIs(t, err, errInvalidSecurityMode)
 }
 
 func TestConfigValidateRejectsUnknownSecurityMode(t *testing.T) {

@@ -10,7 +10,7 @@ Deploys:
 | `serviceradar-agent` | Outbound mTLS to **agent-gateway** (central or SaaS) |
 | `serviceradar-k8s-inventory` | Read-only kube API inventory of public VIP / Gateway ownership |
 
-Does **not** deploy: core, web-ng, NATS, CNPG, agent-gateway, SPIRE, flow
+Does **not** deploy: core, web-ng, NATS, CNPG, agent-gateway, flow
 collectors, or anything that requires an in-cluster control plane.
 
 ## When to use this chart

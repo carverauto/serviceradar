@@ -19,9 +19,6 @@ go_library(
         "//go/pkg/models",
         "//proto",
         "@com_github_rs_zerolog//:zerolog",
-        "@com_github_spiffe_go_spiffe_v2//spiffeid",
-        "@com_github_spiffe_go_spiffe_v2//spiffetls/tlsconfig",
-        "@com_github_spiffe_go_spiffe_v2//workloadapi",
         "@io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc//:otelgrpc",
         "@io_opentelemetry_go_otel_trace//:trace",
         "@org_golang_google_grpc//:grpc",
@@ -46,11 +43,8 @@ go_test(
     deps = [
         "//go/pkg/logger",
         "//go/pkg/models",
-        "@com_github_rs_zerolog//:zerolog",
-        "@com_github_spiffe_go_spiffe_v2//spiffeid",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_golang_google_grpc//:grpc",
-        "@org_uber_go_mock//gomock",
     ],
 )

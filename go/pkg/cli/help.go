@@ -15,7 +15,6 @@ Usage:
   srctl update-gateway [options]
   srctl generate-tls [options]
   srctl generate-jwt-keys [options]
-  srctl spire-join-token [options]
   srctl enroll [options]
   srctl auth login [options]
   srctl auth status [options]
@@ -28,7 +27,6 @@ Commands:
   update-gateway    Manage service checks in gateway.json
   generate-tls     Generate mTLS certificates for ServiceRadar services
   generate-jwt-keys Generate RS256 keypair and update core.json
-  spire-join-token  Request a join token from Core and optionally register a downstream entry
   enroll           Enroll an edge agent or collector using an onboarding token
   auth login       Authenticate via device-code flow (RFC 8628) and store the JWT
   auth status      Show stored logins without revealing tokens
@@ -90,36 +88,11 @@ Examples:
   srctl generate-tls --non-interactive
   srctl generate-tls --add-ips -ip 10.0.0.5
 
-  # Request a join token and downstream registration from core
-  srctl spire-join-token \
-    -core-url https://core.demo.serviceradar.cloud \
-    -api-key "$SERVICERADAR_API_KEY" \
-    -downstream-spiffe-id spiffe://carverauto.dev/ns/demo/gateway-nested-spire \
-    -selector unix:uid:0 -selector unix:gid:0 \
-    -selector unix:user:root -selector unix:path:/opt/spire/bin/spire-server
-
 Options for generate-jwt-keys:
   -file string       path to core.json (default /etc/serviceradar/config/core.json)
   -kid string        key id to embed in JWT header (default auto-derived)
   -bits int          RSA key size in bits (default 2048)
   -force             overwrite existing RS256 keys if present
-
-Options for spire-join-token:
-  -core-url string        Core API base URL (default http://localhost:8090)
-  -api-key string         API key used to authenticate with core
-  -bearer string          Bearer token used to authenticate with core
-  -ttl int                Join token TTL in seconds
-  -agent-spiffe-id string Optional alias SPIFFE ID to assign to the agent
-  -no-downstream          Do not register a downstream entry
-  -downstream-spiffe-id string  SPIFFE ID for the downstream gateway SPIRE server
-  -selector value         Downstream selector (repeatable, e.g. k8s:ns:demo)
-  -x509-ttl int           Downstream X.509 SVID TTL in seconds
-  -jwt-ttl int            Downstream JWT SVID TTL in seconds
-  -downstream-admin       Mark downstream entry as admin
-  -downstream-store-svid  Request downstream SVID storage
-  -dns-name value         Downstream DNS name (repeatable)
-  -federates-with value   Downstream federated trust domain (repeatable)
-  -output string          Write the response JSON to the given file path
 
 Options for enroll:
   -token string           Enrollment token (edgepkg-v3 or collectorpkg-v2)
@@ -167,10 +140,8 @@ Options for edge package create:
   --site string                Site/location note
   --metadata-json string       Metadata JSON payload
   --metadata-file string       Path to metadata JSON file (alternative to --metadata-json)
-  --selector value             SPIRE selector (repeatable, e.g. unix:uid:0)
   --join-ttl duration          Join token TTL (e.g., 30m, 2h)
   --download-ttl duration      Download token TTL (e.g., 15m, 24h)
-  --downstream-spiffe-id string Downstream SPIFFE ID override
   --datasvc-endpoint string    Datasvc/KV gRPC endpoint override
   --checker-kind string        Checker kind (when component-type checker)
   --checker-config-json string Checker configuration JSON

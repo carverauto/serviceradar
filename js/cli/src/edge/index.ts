@@ -35,14 +35,13 @@ export function printEdgeHelp(): void {
   console.log(`Usage:
   Edge packages (agent/gateway onboarding):
     serviceradar-cli edge package create   --instance <url> --label <name> [--component-type agent|gateway|checker|sync]
-                                           [--gateway-id <id>] [--site <partition>] [--security-mode mtls|spire] [--json]
+                                           [--gateway-id <id>] [--site <partition>] [--security-mode mtls] [--json]
     serviceradar-cli edge package list     --instance <url> [--status <s>] [--component-type <t>] [--json]
     serviceradar-cli edge package show     <id> --instance <url> [--json]
     serviceradar-cli edge package revoke   <id> --instance <url> [--reason <text>] [--json]
     serviceradar-cli edge package download <id> --instance <url> --token <onboarding-token> [-o file]
 
-  Package security defaults to mtls. The spire mode is deprecated;
-  see https://docs.serviceradar.cloud/docs/migrating-off-spire.
+  Package security uses mtls.
 
   Edge sites (local NATS leaf per site):
     serviceradar-cli edge site create --instance <url> --name <name> [--slug <slug>] [--json]

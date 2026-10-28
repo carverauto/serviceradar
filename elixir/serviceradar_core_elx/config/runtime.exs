@@ -500,15 +500,6 @@ if topologies != [] do
   config :libcluster, topologies: topologies
 end
 
-# =============================================================================
-# SPIFFE/mTLS Configuration
-# =============================================================================
-spiffe_mode =
-  case System.get_env("SPIFFE_MODE", "filesystem") do
-    "workload_api" -> :workload_api
-    _ -> :filesystem
-  end
-
 # Raw threat-intel payload object store. TTL 0 and max bucket size nil are both
 # "unbounded", so these are the only knobs bounding bucket growth.
 otx_raw_storage =
@@ -647,10 +638,9 @@ config :serviceradar_core, ThreatIntelRawPayloadStore,
   jetstream_storage: otx_raw_storage
 
 config :serviceradar_core, :spiffe,
-  mode: spiffe_mode,
+  mode: :filesystem,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
-  cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
 
 config :serviceradar_core,
   egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()

@@ -324,12 +324,6 @@ end
 # =============================================================================
 # TLS distribution is configured via ERL_FLAGS in rel/env.sh.eex
 
-spiffe_mode =
-  case System.get_env("SPIFFE_MODE", "filesystem") do
-    "workload_api" -> :workload_api
-    _ -> :filesystem
-  end
-
 sysmon_metrics_publish_enabled =
   System.get_env("AGENT_GATEWAY_SYSMON_METRICS_ENABLED", "true") in ~w(true 1 yes)
 
@@ -472,10 +466,9 @@ config :serviceradar_core, ServiceRadar.PubSub,
   adapter: Phoenix.PubSub.PG2
 
 config :serviceradar_core, :spiffe,
-  mode: spiffe_mode,
+  mode: :filesystem,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
-  cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
 
 # =============================================================================
 # serviceradar_core Dependencies

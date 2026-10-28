@@ -164,7 +164,7 @@ import it. `MODULE.bazel.lock` records the resolved versions and is checked in.
 
 A handful of modules need help and get it through overrides in `MODULE.bazel`. Some need their
 BUILD files generated (`build_file_generation = "on"`); `google.golang.org/protobuf` also needs
-`gazelle:proto disable`; `github.com/spiffe/go-spiffe/v2` is patched. Add to that list only when
+`gazelle:proto disable`. Add to that list only when
 a dependency genuinely fails without it.
 
 ## 7. Protobuf

@@ -46,6 +46,7 @@ const (
 )
 
 const (
+	defaultCoreURL   = "http://localhost:8090"
 	defaultCost      = 12
 	minCost          = 4
 	maxCost          = 31
@@ -425,55 +426,6 @@ func (UpdateGatewayHandler) Parse(args []string, cfg *CmdConfig) error {
 	return nil
 }
 
-// SpireJoinTokenHandler handles flags for the spire-join-token subcommand.
-type SpireJoinTokenHandler struct{}
-
-// Parse processes the command-line arguments for the spire-join-token subcommand.
-func (SpireJoinTokenHandler) Parse(args []string, cfg *CmdConfig) error {
-	fs := flag.NewFlagSet("spire-join-token", flag.ExitOnError)
-	coreURL := fs.String("core-url", defaultCoreURL, "ServiceRadar core base URL")
-	apiKey := fs.String("api-key", "", "API key for authenticating with core")
-	bearer := fs.String("bearer", "", "Bearer token for authenticating with core")
-	ttl := fs.Int("ttl", 0, "Join token TTL in seconds")
-	agentID := fs.String("agent-spiffe-id", "", "Optional alias SPIFFE ID to assign to the agent")
-	noDownstream := fs.Bool("no-downstream", false, "Do not register a downstream entry")
-	downstreamID := fs.String("downstream-spiffe-id", "", "SPIFFE ID for the downstream gateway SPIRE server")
-	x509TTL := fs.Int("x509-ttl", 0, "Downstream X.509 SVID TTL in seconds")
-	jwtTTL := fs.Int("jwt-ttl", 0, "Downstream JWT SVID TTL in seconds")
-	downstreamAdmin := fs.Bool("downstream-admin", false, "Mark downstream entry as admin")
-	downstreamStore := fs.Bool("downstream-store-svid", false, "Request downstream SVID storage")
-	output := fs.String("output", "", "Write response JSON to the given file path")
-
-	var selectors stringSliceFlag
-	fs.Var(&selectors, "selector", "Downstream selector (repeatable, e.g. k8s:ns:demo)")
-	var dnsNames stringSliceFlag
-	fs.Var(&dnsNames, "dns-name", "Downstream DNS name (repeatable)")
-	var federates stringSliceFlag
-	fs.Var(&federates, "federates-with", "Downstream federated trust domain (repeatable)")
-
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("parsing spire-join-token flags: %w", err)
-	}
-
-	cfg.CoreAPIURL = *coreURL
-	cfg.APIKey = *apiKey
-	cfg.BearerToken = *bearer
-	cfg.JoinTokenTTLSeconds = *ttl
-	cfg.AgentSPIFFEID = *agentID
-	cfg.NoDownstream = *noDownstream
-	cfg.DownstreamSPIFFEID = *downstreamID
-	cfg.DownstreamSelectors = append([]string(nil), selectors...)
-	cfg.DownstreamX509TTLSeconds = *x509TTL
-	cfg.DownstreamJWTTTLSeconds = *jwtTTL
-	cfg.DownstreamAdmin = *downstreamAdmin
-	cfg.DownstreamStoreSVID = *downstreamStore
-	cfg.DownstreamDNSNames = append([]string(nil), dnsNames...)
-	cfg.DownstreamFederates = append([]string(nil), federates...)
-	cfg.JoinTokenOutput = *output
-
-	return nil
-}
-
 // EdgePackageDownloadHandler handles flags for downloading onboarding artifacts.
 type EdgePackageDownloadHandler struct{}
 
@@ -646,19 +598,15 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 	parentID := fs.String("parent-id", "", "Parent component identifier")
 	gatewayID := fs.String("gateway-id", "", "Gateway identifier override")
 	site := fs.String("site", "", "Optional site/location note")
-	metadataJSON := fs.String("metadata-json", "", "Metadata JSON payload for endpoints and SPIRE config")
+	metadataJSON := fs.String("metadata-json", "", "Metadata JSON payload for endpoints")
 	metadataFile := fs.String("metadata-file", "", "Path to metadata JSON on disk")
 	checkerKind := fs.String("checker-kind", "", "Checker kind (used for component-type checker)")
 	checkerConfig := fs.String("checker-config-json", "", "Checker-specific config JSON")
 	notes := fs.String("notes", "", "Operator notes")
 	datasvc := fs.String("datasvc-endpoint", "", "Datasvc/KV gRPC endpoint override")
-	downstream := fs.String("downstream-spiffe-id", "", "Downstream SPIFFE ID override")
 	output := fs.String("output", "text", "Output format: text or json")
 	joinTTL := fs.String("join-ttl", "", "Join token TTL (e.g., 30m, 4h)")
 	downloadTTL := fs.String("download-ttl", "", "Download token TTL (e.g., 15m, 24h)")
-
-	var selectors stringSliceFlag
-	fs.Var(&selectors, "selector", "SPIRE selector (repeatable, key:value)")
 
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("parsing edge package create flags: %w", err)
@@ -673,11 +621,9 @@ func parseEdgePackageCreateFlags(args []string, cfg *CmdConfig) error {
 	cfg.EdgePackageParentID = strings.TrimSpace(*parentID)
 	cfg.EdgePackageGatewayID = strings.TrimSpace(*gatewayID)
 	cfg.EdgePackageSite = strings.TrimSpace(*site)
-	cfg.EdgePackageSelectors = append([]string(nil), selectors...)
 	cfg.EdgePackageNotes = *notes
 	cfg.EdgePackageCheckerConfig = *checkerConfig
 	cfg.EdgePackageDataSvc = strings.TrimSpace(*datasvc)
-	cfg.EdgePackageDownstreamID = strings.TrimSpace(*downstream)
 	cfg.EdgeOutputFormat = strings.ToLower(strings.TrimSpace(*output))
 
 	if trimmed := strings.TrimSpace(*checkerKind); trimmed != "" {
@@ -890,7 +836,6 @@ func ParseFlags() (*CmdConfig, error) {
 		"update-gateway":        UpdateGatewayHandler{},
 		"generate-tls":          GenerateTLSHandler{},
 		"generate-jwt-keys":     GenerateJWTKeysHandler{},
-		"spire-join-token":      SpireJoinTokenHandler{},
 		"enroll":                EnrollHandler{},
 		"edge-package-download": EdgePackageDownloadHandler{},
 		"edge-package-revoke":   EdgePackageRevokeHandler{},

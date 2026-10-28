@@ -1,9 +1,9 @@
 defmodule ServiceRadar.SPIFFE do
   @moduledoc """
-  SPIFFE/SPIRE integration for ServiceRadar distributed cluster.
+  SPIFFE URI SAN certificate helpers for ServiceRadar distributed cluster.
 
   This module provides helpers for:
-  - Loading X.509 SVIDs from SPIRE Workload API or filesystem
+  - Loading X.509 certificates from the filesystem
   - Verifying SPIFFE IDs for node authorization
   - Configuring TLS options for ERTS distribution
   - Certificate rotation monitoring
@@ -26,10 +26,8 @@ defmodule ServiceRadar.SPIFFE do
 
       config :serviceradar_core, :spiffe,
         trust_domain: "serviceradar.local",
-        workload_api_socket: "/run/spire/sockets/agent.sock",
         cert_dir: "/etc/serviceradar/certs",
-        # Or use filesystem mode for non-SPIRE deployments
-        mode: :filesystem  # or :workload_api
+        mode: :filesystem
 
   ## Usage
 
@@ -42,8 +40,6 @@ defmodule ServiceRadar.SPIFFE do
   ```
   """
 
-  alias ServiceRadar.SPIFFE.WorkloadAPI
-
   require Logger
 
   @type spiffe_id :: String.t()
@@ -55,17 +51,6 @@ defmodule ServiceRadar.SPIFFE do
 
   # SPIFFE ID URI prefix
   @spiffe_uri_prefix "spiffe://"
-
-  @doc "Logs the startup deprecation notice for SPIRE runtime configuration."
-  def warn_if_deprecated(security_mode, certificate_mode) do
-    if String.downcase(String.trim(to_string(security_mode || ""))) == "spiffe" or
-         certificate_mode == :workload_api do
-      Logger.warning(
-        "SPIFFE/SPIRE runtime support is deprecated; use mTLS. " <>
-          "See https://docs.serviceradar.cloud/docs/migrating-off-spire"
-      )
-    end
-  end
 
   @doc """
   Returns SSL/TLS options for ERTS distribution with SPIFFE certificates.
@@ -82,11 +67,10 @@ defmodule ServiceRadar.SPIFFE do
   """
   @spec ssl_dist_opts(keyword()) :: {:ok, ssl_opts()} | {:error, term()}
   def ssl_dist_opts(opts \\ []) do
-    mode = config(:mode, :filesystem)
+    mode = Keyword.get(opts, :mode, config(:mode, :filesystem))
 
     case mode do
       :filesystem -> ssl_dist_opts_filesystem(opts)
-      :workload_api -> ssl_dist_opts_workload_api(opts)
       other -> {:error, {:invalid_mode, other}}
     end
   end
@@ -249,17 +233,15 @@ defmodule ServiceRadar.SPIFFE do
   @spec certs_available?() :: boolean()
   def certs_available? do
     case config(:mode, :filesystem) do
-      :workload_api ->
-        socket = config(:workload_api_socket, "/run/spire/sockets/agent.sock")
-        socket_path = workload_api_socket_path(socket)
-        is_binary(socket_path) and File.exists?(socket_path)
-
-      _ ->
+      :filesystem ->
         dir = cert_dir()
 
         File.exists?(Path.join(dir, "svid.pem")) and
           File.exists?(Path.join(dir, "svid-key.pem")) and
           File.exists?(Path.join(dir, "bundle.pem"))
+
+      _ ->
+        false
     end
   end
 
@@ -271,54 +253,33 @@ defmodule ServiceRadar.SPIFFE do
   @spec cert_expiry(keyword()) :: {:ok, map()} | {:error, term()}
   def cert_expiry(opts \\ []) do
     case Keyword.get(opts, :mode, config(:mode, :filesystem)) do
-      :workload_api ->
-        cert_expiry_workload_api(opts)
-
-      _ ->
+      :filesystem ->
         cert_expiry_filesystem(opts)
+
+      other ->
+        {:error, {:invalid_mode, other}}
     end
   end
 
   @doc """
   Monitors certificate files for rotation and returns when they change.
 
-  This is useful for reloading TLS contexts when SPIRE rotates certificates.
+  This is useful for reloading TLS contexts when certificates rotate.
   """
   @spec watch_certificates(keyword()) :: {:ok, pid()} | {:error, term()}
   def watch_certificates(opts \\ []) do
     callback = Keyword.get(opts, :callback, fn -> :ok end)
 
-    case config(:mode, :filesystem) do
-      :workload_api ->
-        watch_workload_api(callback, opts)
-
-      _ ->
+    case Keyword.get(opts, :mode, config(:mode, :filesystem)) do
+      :filesystem ->
         watch_filesystem(callback, opts)
+
+      other ->
+        {:error, {:invalid_mode, other}}
     end
   end
 
   # Private functions
-
-  defp watch_workload_api(callback, opts) do
-    interval = Keyword.get(opts, :poll_interval, 60_000)
-
-    socket =
-      Keyword.get(
-        opts,
-        :workload_api_socket,
-        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
-      )
-
-    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
-    fingerprint = workload_api_fingerprint(socket, trust_domain)
-
-    pid =
-      spawn_link(fn ->
-        poll_workload_api(callback, interval, socket, trust_domain, fingerprint)
-      end)
-
-    {:ok, pid}
-  end
 
   defp watch_filesystem(callback, opts) do
     dir = cert_dir()
@@ -388,73 +349,6 @@ defmodule ServiceRadar.SPIFFE do
     end
   end
 
-  defp ssl_dist_opts_workload_api(opts) do
-    socket =
-      Keyword.get(
-        opts,
-        :workload_api_socket,
-        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
-      )
-
-    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
-
-    case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
-      {:ok, %{certs: certs, cacerts: cacerts, key: key}} ->
-        extra_cacerts = extra_cacerts(opts)
-        all_cacerts = cacerts ++ extra_cacerts
-
-        ssl_opts = [
-          cert: certs,
-          key: key,
-          verify: :verify_peer,
-          fail_if_no_peer_cert: true,
-          verify_fun: {&verify_peer_callback/3, %{trust_domain: trust_domain}},
-          depth: 2,
-          versions: [:"tlsv1.3", :"tlsv1.2"]
-        ]
-
-        ssl_opts = Keyword.put(ssl_opts, :cacerts, all_cacerts)
-
-        {:ok, ssl_opts}
-
-      {:error, {:workload_api_unavailable, _}} = error ->
-        error
-
-      {:error, _reason} = error ->
-        error
-    end
-  end
-
-  defp cert_expiry_workload_api(opts) do
-    socket =
-      Keyword.get(
-        opts,
-        :workload_api_socket,
-        config(:workload_api_socket, "/run/spire/sockets/agent.sock")
-      )
-
-    trust_domain = Keyword.get(opts, :trust_domain, config(:trust_domain, @trust_domain_default))
-
-    with {:ok, %{certs: [leaf | _]}} <-
-           WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain),
-         {:ok, validity} <- decode_validity(leaf),
-         {:ok, not_before} <- parse_asn1_time(elem(validity, 1)),
-         {:ok, not_after} <- parse_asn1_time(elem(validity, 2)) do
-      seconds_remaining = DateTime.diff(not_after, DateTime.utc_now(), :second)
-      days_remaining = div(seconds_remaining, 86_400)
-
-      {:ok,
-       %{
-         not_before: not_before,
-         expires_at: not_after,
-         seconds_remaining: seconds_remaining,
-         days_remaining: days_remaining
-       }}
-    else
-      {:error, _} = error -> error
-    end
-  end
-
   defp cert_expiry_filesystem(opts) do
     cert_dir = Keyword.get(opts, :cert_dir, cert_dir())
     cert_file = Keyword.get(opts, :cert_file, Path.join(cert_dir, "svid.pem"))
@@ -477,37 +371,6 @@ defmodule ServiceRadar.SPIFFE do
     else
       {:error, _} = error -> error
     end
-  end
-
-  defp workload_api_socket_path(socket) when is_binary(socket) do
-    case URI.parse(socket) do
-      %URI{scheme: "unix", path: path} when is_binary(path) -> path
-      %URI{scheme: nil} -> socket
-      %URI{scheme: "unix"} -> socket
-      _ -> nil
-    end
-  end
-
-  defp workload_api_socket_path(_), do: nil
-
-  defp workload_api_fingerprint(socket, trust_domain) do
-    case WorkloadAPI.fetch_x509_svid(socket, trust_domain: trust_domain) do
-      {:ok, %{certs: [leaf | _]}} -> :crypto.hash(:sha256, leaf)
-      _ -> nil
-    end
-  end
-
-  defp poll_workload_api(callback, interval, socket, trust_domain, last_fingerprint) do
-    current = workload_api_fingerprint(socket, trust_domain)
-
-    if last_fingerprint && current && current != last_fingerprint do
-      callback.()
-    end
-
-    :timer.sleep(interval)
-
-    next_fingerprint = if current, do: current, else: last_fingerprint
-    poll_workload_api(callback, interval, socket, trust_domain, next_fingerprint)
   end
 
   defp extract_der_cert(pem) do

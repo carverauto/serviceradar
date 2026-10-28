@@ -508,22 +508,16 @@ defmodule ServiceRadar.NATS.AccountClient do
 
     endpoint = "#{host}:#{port}"
 
-    case build_cred_opts() do
-      {:ok, cred_opts} ->
-        connect_opts = Keyword.put(cred_opts, :adapter_opts, connect_timeout: 5_000)
+    {:ok, cred_opts} = build_cred_opts()
+    connect_opts = Keyword.put(cred_opts, :adapter_opts, connect_timeout: 5_000)
 
-        case GRPC.Stub.connect(endpoint, connect_opts) do
-          {:ok, channel} ->
-            Logger.debug("Created fresh NATS account gRPC channel to #{endpoint}")
-            {:ok, channel}
-
-          {:error, reason} ->
-            Logger.error("Failed to create NATS account gRPC channel: #{inspect(reason)}")
-            {:error, {:connection_failed, reason}}
-        end
+    case GRPC.Stub.connect(endpoint, connect_opts) do
+      {:ok, channel} ->
+        Logger.debug("Created fresh NATS account gRPC channel to #{endpoint}")
+        {:ok, channel}
 
       {:error, reason} ->
-        Logger.error("Failed to build NATS account gRPC credentials: #{inspect(reason)}")
+        Logger.error("Failed to create NATS account gRPC channel: #{inspect(reason)}")
         {:error, {:connection_failed, reason}}
     end
   end
@@ -533,21 +527,6 @@ defmodule ServiceRadar.NATS.AccountClient do
     ssl = System.get_env("DATASVC_SSL", "false") in ["true", "1", "yes"]
 
     case normalize_sec_mode(sec_mode, ssl) do
-      :spiffe ->
-        spiffe_cert_dir =
-          System.get_env("DATASVC_SPIFFE_CERT_DIR") ||
-            System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
-
-        case ServiceRadar.SPIFFE.client_ssl_opts(cert_dir: spiffe_cert_dir) do
-          {:ok, ssl_opts} ->
-            Logger.info("Connecting to datasvc with SPIFFE mTLS (account service)")
-            {:ok, [cred: GRPC.Credential.new(ssl: ssl_opts)]}
-
-          {:error, reason} ->
-            Logger.error("SPIFFE mTLS not available for datasvc: #{inspect(reason)}")
-            {:error, {:spiffe_unavailable, reason}}
-        end
-
       :mtls ->
         cert_dir = System.get_env("DATASVC_CERT_DIR", "/etc/serviceradar/certs")
         cert_name = System.get_env("DATASVC_CERT_NAME", "core")
@@ -584,7 +563,6 @@ defmodule ServiceRadar.NATS.AccountClient do
 
   defp normalize_sec_mode(value, ssl) do
     case String.downcase(String.trim(value)) do
-      "spiffe" -> :spiffe
       "mtls" -> :mtls
       "tls" -> :tls
       "plaintext" -> :plaintext

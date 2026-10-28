@@ -17,20 +17,14 @@
 package grpc
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
-	"github.com/spiffe/go-spiffe/v2/spiffeid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.uber.org/mock/gomock"
 	"google.golang.org/grpc"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -163,99 +157,6 @@ func TestMTLSProvider(t *testing.T) {
 	})
 }
 
-func TestNormalizeServerSPIFFEID(t *testing.T) {
-	log := createTestLogger(t)
-	trustDomain := spiffeid.RequireTrustDomainFromString("carverauto.dev")
-
-	t.Run("alreadyQualified", func(t *testing.T) {
-		raw := "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
-		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
-		require.NoError(t, err)
-		assert.Equal(t, raw, id.String())
-	})
-
-	t.Run("alreadyQualifiedUppercaseScheme", func(t *testing.T) {
-		raw := "SPIFFE://carverauto.dev/ns/demo/sa/serviceradar-datasvc"
-		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
-		require.NoError(t, err)
-		assert.Equal(t, "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc", id.String())
-	})
-
-	t.Run("missingSchemeWithLeadingSlash", func(t *testing.T) {
-		raw := "/ns/demo/sa/serviceradar-datasvc"
-		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
-		require.NoError(t, err)
-		assert.Equal(t, "spiffe://carverauto.dev/ns/demo/sa/serviceradar-datasvc", id.String())
-	})
-
-	t.Run("missingSchemeWithoutLeadingSlash", func(t *testing.T) {
-		raw := "ns/demo/sa/serviceradar-agent"
-		id, err := normalizeServerSPIFFEID(raw, trustDomain, true, log)
-		require.NoError(t, err)
-		assert.Equal(t, "spiffe://carverauto.dev/ns/demo/sa/serviceradar-agent", id.String())
-	})
-
-	t.Run("missingSchemeWithoutTrustDomain", func(t *testing.T) {
-		raw := "/ns/demo/sa/serviceradar-datasvc"
-		_, err := normalizeServerSPIFFEID(raw, spiffeid.TrustDomain{}, false, log)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "trust_domain")
-	})
-}
-
-// TestSpiffeProvider tests the SpiffeProvider implementation.
-func TestSpiffeProvider(t *testing.T) {
-	ctrl, ctx := gomock.WithContext(context.Background(), t)
-	defer ctrl.Finish()
-
-	// Skip if no SPIFFE workload API is available
-	if _, err := os.Stat("/run/spire/sockets/agent.sock"); os.IsNotExist(err) {
-		t.Skip("Skipping SPIFFE tests - no workload API available")
-	}
-
-	_, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	config := &models.SecurityConfig{
-		Mode:           SecurityModeSpiffe,
-		TrustDomain:    "example.org",
-		WorkloadSocket: "unix:/run/spire/sockets/agent.sock",
-	}
-
-	t.Run("NewSpiffeProvider", func(t *testing.T) {
-		provider, err := NewSpiffeProvider(ctx, config, createTestLogger(t))
-		if err != nil {
-			// If we get a connection refused, skip the test
-			if strings.Contains(err.Error(), "connection refused") {
-				t.Skip("Skipping test - SPIFFE Workload API not responding")
-			}
-			// Otherwise, fail the test with the error
-			t.Fatalf("Expected NewSpiffeProvider to succeed, got error: %v", err)
-		}
-
-		assert.NotNil(t, provider)
-
-		if err == nil && provider != nil {
-			err := provider.Close()
-			if err != nil {
-				t.Fatalf("Expected Close to succeed, got error: %v", err)
-				return
-			}
-		}
-	})
-
-	t.Run("InvalidTrustDomain", func(t *testing.T) {
-		invalidConfig := &models.SecurityConfig{
-			Mode:        SecurityModeSpiffe,
-			TrustDomain: "invalid trust domain",
-		}
-
-		provider, err := NewSpiffeProvider(ctx, invalidConfig, createTestLogger(t))
-		require.Error(t, err)
-		assert.Nil(t, provider)
-	})
-}
-
 // TestNewSecurityProvider tests the factory function for creating security providers.
 func TestNewSecurityProvider(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -306,16 +207,13 @@ func TestNewSecurityProvider(t *testing.T) {
 			},
 			expectError: false,
 		},
-		/*
-			{
-				name: "SPIFFE",
-				config: &SecurityConfig{
-					Mode:        SecurityModeSpiffe,
-					TrustDomain: "example.org",
-				},
-				expectError: true, // Will fail without Workload API
+		{
+			name: "SPIFFE Mode Rejected",
+			config: &models.SecurityConfig{
+				Mode: "spiffe",
 			},
-		*/
+			expectError: true,
+		},
 		{
 			name: "Invalid Mode",
 			config: &models.SecurityConfig{
@@ -365,126 +263,16 @@ func TestNewClientRequiresSecurityProvider(t *testing.T) {
 	assert.Nil(t, client)
 }
 
-func TestSpiffeProviderFailsClosedWithoutIdentityConstraints(t *testing.T) {
-	t.Run("client credentials require server spiffe id", func(t *testing.T) {
-		provider := &SpiffeProvider{}
-		opt, err := provider.GetClientCredentials(context.Background())
-		require.Error(t, err)
-		require.ErrorIs(t, err, errServerSPIFFEIDRequired)
-		assert.Nil(t, opt)
-	})
-
-	t.Run("server credentials require trust domain", func(t *testing.T) {
-		provider := &SpiffeProvider{}
-		opt, err := provider.GetServerCredentials(context.Background())
-		require.Error(t, err)
-		require.ErrorIs(t, err, errTrustDomainRequired)
-		assert.Nil(t, opt)
-	})
-}
-
-// generateTestCertificatesWithCFSSL uses cfssl to generate real test certificates.
-/*
-func generateTestCertificatesWithCFSSL(t *testing.T, dir string) {
-	t.Helper()
-
-	// Write cfssl config
-	cfssl := []byte(`{
-        "signing": {
-            "default": {
-                "expiry": "24h"
-            },
-            "profiles": {
-                "server": {
-                    "usages": ["signing", "key encipherment", "server auth"],
-                    "expiry": "24h"
-                },
-                "client": {
-                    "usages": ["signing", "key encipherment", "client auth"],
-                    "expiry": "24h"
-                }
-            }
-        }
-    }`)
-
-	csr := []byte(`{
-        "hosts": ["localhost", "127.0.0.1"],
-        "key": {
-            "algo": "ecdsa",
-            "size": 256
-        },
-        "names": [{
-            "O": "Test Organization"
-        }]
-    }`)
-
-	cfssljsonPath := filepath.Join(dir, "cfssl.json")
-	csrPath := filepath.Join(dir, "csr.json")
-
-	require.NoError(t, os.WriteFile(cfssljsonPath, cfssl, 0600))
-	require.NoError(t, os.WriteFile(csrPath, csr, 0600))
-
-	// Generate CA
-	cmd := exec.Command("cfssl", "genkey", "-initca", csrPath)
-	cmd.Dir = dir
-	output, err := cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to generate CA: %s", output)
-
-	// Generate server cert
-	cmd = exec.Command("cfssl", "gencert", "-ca", "ca.pem", "-ca-key", "ca-key.pem", "-config", "cfssl.json", "-profile", "server", csrPath)
-	cmd.Dir = dir
-	output, err = cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to generate server cert: %s", output)
-
-	// Generate client cert
-	cmd = exec.Command("cfssl", "gencert", "-ca", "ca.pem", "-ca-key", "ca-key.pem", "-config", "cfssl.json", "-profile", "client", csrPath)
-	cmd.Dir = dir
-	output, err = cmd.CombinedOutput()
-	require.NoError(t, err, "Failed to generate client cert: %s", output)
-}
-
-*/
-
-// Capture only warnings while retaining the ordinary test logger for other levels.
-type warningCaptureLogger struct {
-	logger.Logger
-	output zerolog.Logger
-}
-
-func (l warningCaptureLogger) Warn() *zerolog.Event { return l.output.Warn() }
-
-func TestSecurityProviderDeprecationWarning(t *testing.T) {
-	for _, tc := range []struct {
-		mode       models.SecurityMode
-		deprecated bool
-	}{
-		{SecurityModeSpiffe, true}, {models.SecurityMode("SPIFFE"), true},
-		{SecurityModeNone, false}, {SecurityModeMTLS, false},
-	} {
-		t.Run(string(tc.mode), func(t *testing.T) {
-			var output bytes.Buffer
-			log := warningCaptureLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
-			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
-			provider, err := NewSecurityProvider(ctx, &models.SecurityConfig{
-				Mode: tc.mode, WorkloadSocket: "unix:" + filepath.Join(t.TempDir(), "absent.sock"),
-			}, log)
-			if err == nil && provider != nil {
-				require.NoError(t, provider.Close())
-			}
-			if !tc.deprecated {
-				assert.Empty(t, output.String())
-				return
-			}
-			require.Error(t, err, "warning must precede the unavailable Workload API")
-			var event struct {
-				Level   string `json:"level"`
-				Message string `json:"message"`
-			}
-			require.NoError(t, json.Unmarshal(output.Bytes(), &event))
-			assert.Equal(t, "warn", event.Level)
-			assert.Contains(t, event.Message, "deprecated")
-			assert.Contains(t, event.Message, "https://docs.serviceradar.cloud/docs/migrating-off-spire")
+func TestNewSecurityProviderRejectsSPIFFE(t *testing.T) {
+	for _, mode := range []models.SecurityMode{"spiffe", "SPIFFE"} {
+		t.Run(string(mode), func(t *testing.T) {
+			provider, err := NewSecurityProvider(context.Background(), &models.SecurityConfig{
+				Mode: mode,
+			}, createTestLogger(t))
+			require.Error(t, err)
+			require.ErrorIs(t, err, errUnknownSecurityMode)
+			assert.Contains(t, err.Error(), "https://docs.serviceradar.cloud/docs/migrating-off-spire")
+			assert.Nil(t, provider)
 		})
 	}
 }

@@ -214,7 +214,7 @@ defmodule ServiceRadarCore.MixProject do
     """
     Core business logic for ServiceRadar distributed monitoring platform.
     Contains Ash domains (Identity, Inventory, Infrastructure, Monitoring, Edge),
-    cluster management, partition-namespaced registries, and SPIFFE/SPIRE integration.
+    cluster management, partition-namespaced registries, and mTLS certificate helpers.
     """
   end
 

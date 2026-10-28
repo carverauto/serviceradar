@@ -116,7 +116,6 @@ fn test_onboarding_result_fields() {
     let result = OnboardingResult {
         config_path: "/etc/config/checker.json".to_string(),
         config_data: vec![1, 2, 3],
-        spiffe_id: Some("spiffe://example.com/service".to_string()),
         package_id: "pkg-123".to_string(),
         deployment_type: DeploymentType::Docker,
         cert_dir: "/etc/certs".to_string(),
@@ -124,10 +123,6 @@ fn test_onboarding_result_fields() {
 
     assert_eq!(result.config_path, "/etc/config/checker.json");
     assert_eq!(result.config_data, vec![1, 2, 3]);
-    assert_eq!(
-        result.spiffe_id,
-        Some("spiffe://example.com/service".to_string())
-    );
     assert_eq!(result.package_id, "pkg-123");
     assert_eq!(result.deployment_type, DeploymentType::Docker);
     assert_eq!(result.cert_dir, "/etc/certs");
