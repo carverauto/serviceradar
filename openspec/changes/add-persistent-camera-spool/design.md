@@ -86,6 +86,13 @@ Give it only the intended volume and installation identity, with no camera,
 database or object-store credentials. Restrict filesystem permissions to the
 existing core runtime UID/GID without recursive chmod/chown over retained bytes.
 
+The [filesystem entry point](../../../docs/camera-spool-initialization.md) is
+packaged in the core release with an isolated configuration. It creates only
+the `recordings` child of the supplied volume root and uses the existing
+identity resolver and marker initializer. Physical-volume checks and the
+exclusive Kubernetes Job remain infrastructure work; its success reports only
+local filesystem initialization.
+
 Verify the marker and recorded volume association, observe the Job exit and
 unmount, then start the matching StatefulSet member with recording disabled.
 Normal startup and capture only verify; replacement with an empty volume must

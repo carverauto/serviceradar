@@ -1,8 +1,9 @@
 # Implementation plan
 
 The user approved per-replica persistent storage through an opt-in StatefulSet.
-Runtime member-identity selection is implemented. Provisioning, packaging,
-qualification and deployment acceptance remain open.
+Runtime member-identity selection and the isolated filesystem initializer are
+implemented. Physical-volume preflight, packaging, qualification and deployment
+acceptance remain open.
 
 ## 1. Confirm design
 
@@ -14,8 +15,8 @@ qualification and deployment acceptance remain open.
 ## 2. Runtime identity and explicit provisioning
 
 - [x] 2.1 Add the versioned per-member identity resolver with scalar-mode compatibility and ambiguity refusal; see [configuration contract](identity-configuration.md).
-- [ ] 2.2 Package a bounded, explicit filesystem provisioning entry point without starting core or accessing credentials.
-- [ ] 2.3 Exercise real resolver/filesystem success, exact retry, conflicting identity, substituted volume and partial marker refusal; preserve the existing worker ownership assertions.
+- [x] 2.2 Package a bounded, explicit filesystem provisioning entry point without starting core or accessing credentials; see [initializer contract](../../../docs/camera-spool-initialization.md).
+- [x] 2.3 Exercise real resolver/filesystem success, exact retry, conflicting identity, substituted volume and partial marker refusal; preserve the existing worker ownership assertions. The release-process and retained storage tests cover this local boundary; physical-volume attestation remains task 3.2.
 
 ## 3. Chart packaging and migration
 
