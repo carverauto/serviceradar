@@ -294,10 +294,10 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
              current_state_rows_with_state(status)
   end
 
-  test "a replacement gets a pending placeholder instead of another assignment's evidence" do
+  test "replacement state survives predecessor evidence across gateways and delayed results" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
 
-    for snapshot_state <- ["active", "inactive"] do
+    for snapshot_state <- ["active", "inactive"], change_gateway? <- [false, true] do
       {payload, status, _observed_at} = plugin_result_fixture(assignment?: false)
       create_agent(status.agent_id, status.gateway_id)
       package = create_repair_package!(status.service_name)
@@ -318,13 +318,81 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
       assert [[true, "edge plugin completed", _at, ^snapshot_state]] =
                current_state_rows_with_state(status)
 
-      replacement = create_repair_assignment_for_package!(status, package)
+      replacement_status =
+        if change_gateway? do
+          gateway_id = status.gateway_id <> "-replacement"
+
+          ServiceRadar.Infrastructure.Gateway
+          |> Ash.Changeset.for_create(:register, %{id: gateway_id}, actor: system_actor())
+          |> Ash.create!(domain: ServiceRadar.Infrastructure)
+
+          {:ok, agent} =
+            ServiceRadar.Infrastructure.Agent.get_by_uid(status.agent_id, actor: system_actor())
+
+          agent
+          |> Ash.Changeset.for_update(:gateway_sync, %{gateway_id: gateway_id}, actor: system_actor())
+          |> Ash.update!(domain: ServiceRadar.Infrastructure)
+
+          %{status | gateway_id: gateway_id}
+        else
+          status
+        end
+
+      replacement = create_repair_assignment_for_package!(replacement_status, package)
       assert :ok = ServiceStateRegistry.upsert_for_assignment(replacement)
 
       assert [[false, "plugin assignment pending result", _at, "active"]] =
-               current_state_rows_with_state(status)
+               current_state_rows_with_state(replacement_status)
 
-      assert Jason.decode!(current_state_details(status))["assignment_id"] == replacement.id
+      assert Jason.decode!(current_state_details(replacement_status))["assignment_id"] == replacement.id
+
+      if change_gateway? do
+        assert [[true, "edge plugin completed", _at, "inactive"]] =
+                 current_state_rows_with_state(status)
+      end
+
+      for phase <- ["pending", "reported"] do
+        observed_at =
+          DateTime.utc_now()
+          |> DateTime.shift(second: if(phase == "pending", do: 2, else: 4))
+          |> DateTime.truncate(:microsecond)
+
+        if phase == "reported" do
+          replacement_payload =
+            Map.merge(payload, %{
+              "observed_at" => DateTime.to_iso8601(observed_at),
+              "summary" => "replacement result"
+            })
+
+          assert :ok =
+                   PluginResultIngestor.ingest(
+                     replacement_payload,
+                     provenance_status(replacement_status, replacement, package)
+                   )
+
+          assert [[true, "replacement result", _at, "active"]] =
+                   current_state_rows_with_state(replacement_status)
+        end
+
+        before_late_result = current_state_rows_with_state(replacement_status)
+        late_message = "disabled predecessor after " <> phase
+
+        late_payload =
+          Map.merge(payload, %{
+            "observed_at" => DateTime.to_iso8601(DateTime.shift(observed_at, second: 1)),
+            "summary" => late_message,
+            "status" => "CRITICAL"
+          })
+
+        assert :ok =
+                 PluginResultIngestor.ingest(late_payload, provenance_status(status, original, package))
+
+        assert current_state_rows_with_state(replacement_status) == before_late_result
+
+        assert Enum.any?(history_rows(status), fn [_at, available, message, _details] ->
+                 available == false and message == late_message
+               end)
+      end
     end
   end
 

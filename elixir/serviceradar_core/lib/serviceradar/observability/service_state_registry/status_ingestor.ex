@@ -73,7 +73,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
     actor = SystemActor.system(:service_state_registry)
     raw_attrs = StatusNormalizer.attrs_from_status(status, actor, opts)
 
-    with {:ok, attrs} <- PluginAssignmentEligibility.apply_to_attrs(raw_attrs) do
+    with {:ok, attrs} <- PluginAssignmentEligibility.apply_to_attrs(raw_attrs),
+         {:ok, false} <- assignment_owned_elsewhere?(attrs, actor) do
       previous = previous_service_availability(attrs, actor)
 
       case exact_service_state(attrs, actor) do
@@ -86,6 +87,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
         {:error, reason} ->
           {:error, reason}
       end
+    else
+      {:ok, true} -> {:ok, [], []}
+      {:error, _reason} = error -> error
     end
   rescue
     error -> {:error, error}
@@ -100,15 +104,34 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusIngestor do
     actor = SystemActor.system(:service_state_registry)
     raw_attrs = StatusNormalizer.attrs_from_status(status, actor, opts)
 
-    with {:ok, attrs} <- PluginAssignmentEligibility.apply_to_attrs(raw_attrs) do
+    with {:ok, attrs} <- PluginAssignmentEligibility.apply_to_attrs(raw_attrs),
+         {:ok, false} <- assignment_owned_elsewhere?(attrs, actor) do
       previous = previous_service_availability(attrs, actor)
       create_with_notifications(attrs, previous, actor)
+    else
+      {:ok, true} -> {:ok, [], []}
+      {:error, _reason} = error -> error
     end
   rescue
     error -> {:error, error}
   catch
     kind, reason -> {:error, {kind, reason}}
   end
+
+  defp assignment_owned_elsewhere?(%{service_type: "plugin"} = attrs, actor) do
+    with {:ok, states} <- PluginState.logical_plugin_states(attrs, actor) do
+      current =
+        Enum.max_by(
+          states,
+          &{&1.state == "active", DateTime.to_unix(&1.last_observed_at, :microsecond)},
+          fn -> nil end
+        )
+
+      {:ok, PluginState.assignment_conflict?(attrs, current)}
+    end
+  end
+
+  defp assignment_owned_elsewhere?(_attrs, _actor), do: {:ok, false}
 
   defp create_with_notifications(attrs, previous, actor) do
     ServiceState
