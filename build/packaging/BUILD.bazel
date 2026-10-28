@@ -29,8 +29,10 @@ sh_test(
         "$(rootpath //build/packaging/rperf-checker:scripts/postinstall.sh)",
         "$(rootpath //build/packaging/nats:nats_postinst)",
         "$(rootpath //build/packaging/agent:bin/serviceradar-agent)",
+        "$(rootpath :specs/serviceradar-agent.spec)",
     ],
     data = [
+        "specs/serviceradar-agent.spec",
         "//build/packaging/agent:bin/serviceradar-agent",
         "//build/packaging/agent:scripts/postinstall.sh",
         "//build/packaging/nats:nats_postinst",

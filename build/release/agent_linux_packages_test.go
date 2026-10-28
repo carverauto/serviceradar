@@ -183,7 +183,8 @@ func verifyRPMAgent(t *testing.T, file *os.File, arch string) {
 	}
 	_, signatureSize := readRPMHeader(t, file)
 	readPackageBytes(t, file, make([]byte, (8-signatureSize%8)%8))
-	tags, _ := readRPMHeader(t, file)
+	header, _ := readRPMHeader(t, file)
+	tags := header.values
 	expectedArch := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[arch]
 	if !slices.Equal(tags[1000], []string{"serviceradar-agent"}) || !slices.Equal(tags[1022], []string{expectedArch}) {
 		t.Fatalf("RPM name=%q architecture=%q, expected %s", tags[1000], tags[1022], expectedArch)
@@ -197,7 +198,7 @@ func verifyRPMAgent(t *testing.T, file *os.File, arch string) {
 		t.Fatalf("RPM %s has incorrect dependencies: Provides=%q Requires=%q", arch, provides, requires)
 	}
 	t.Logf("RPM %s Provides=%q Requires=%q", arch, provides, requires)
-	verifyCPIOPayload(t, decompressedPackage(t, file), arch)
+	verifyCPIOPayload(t, decompressedPackage(t, file), arch, header)
 }
 
 func rpmDependenciesMatch(provides, requires []string, arch string) bool {
@@ -246,7 +247,12 @@ func TestRPMDependencyISAValidation(t *testing.T) {
 	}
 }
 
-func readRPMHeader(t *testing.T, reader io.Reader) (map[uint32][]string, int) {
+type rpmHeader struct {
+	values           map[uint32][]string
+	directoryIndexes []uint32
+}
+
+func readRPMHeader(t *testing.T, reader io.Reader) (rpmHeader, int) {
 	t.Helper()
 	header := make([]byte, 16)
 	readPackageBytes(t, reader, header)
@@ -260,12 +266,21 @@ func readRPMHeader(t *testing.T, reader io.Reader) (map[uint32][]string, int) {
 	entries, store := make([]byte, count*16), make([]byte, size)
 	readPackageBytes(t, reader, entries)
 	readPackageBytes(t, reader, store)
-	tags := map[uint32][]string{}
+	tags := rpmHeader{values: map[uint32][]string{}}
 	for i := 0; i < count; i++ {
 		entry := entries[i*16 : (i+1)*16]
 		kind := binary.BigEndian.Uint32(entry[4:8])
+		if binary.BigEndian.Uint32(entry[:4]) == 1116 {
+			offset, count := uint64(binary.BigEndian.Uint32(entry[8:12])), uint64(binary.BigEndian.Uint32(entry[12:16]))
+			if kind != 4 || offset+count*4 > uint64(len(store)) {
+				t.Fatal("invalid RPM directory indexes")
+			}
+			for i := uint64(0); i < count; i++ {
+				tags.directoryIndexes = append(tags.directoryIndexes, binary.BigEndian.Uint32(store[offset+i*4:offset+i*4+4]))
+			}
+		}
 		if kind == 6 || kind == 8 {
-			tags[binary.BigEndian.Uint32(entry[:4])] = rpmHeaderStrings(t, store, entry)
+			tags.values[binary.BigEndian.Uint32(entry[:4])] = rpmHeaderStrings(t, store, entry)
 		}
 	}
 	return tags, 16 + count*16 + size
@@ -292,8 +307,21 @@ func rpmHeaderStrings(t *testing.T, store, entry []byte) []string {
 	return values
 }
 
-func verifyCPIOPayload(t *testing.T, reader io.Reader, arch string) {
+func verifyCPIOPayload(t *testing.T, reader io.Reader, arch string, metadata rpmHeader) {
 	t.Helper()
+	names, dirs := metadata.values[1117], metadata.values[1118]
+	owners, groups := metadata.values[1039], metadata.values[1040]
+	if len(names) == 0 || len(metadata.directoryIndexes) != len(names) || len(owners) != len(names) || len(groups) != len(names) {
+		t.Fatal("missing or inconsistent RPM file ownership metadata")
+	}
+	ownership := map[string][2]string{}
+	for i, name := range names {
+		index := metadata.directoryIndexes[i]
+		if int(index) >= len(dirs) {
+			t.Fatal("invalid RPM file directory index")
+		}
+		ownership[strings.Trim(dirs[index]+name, "/")] = [2]string{owners[i], groups[i]}
+	}
 	found := map[string]bool{}
 	foundDirs := map[string]bool{}
 	for {
@@ -315,7 +343,8 @@ func verifyCPIOPayload(t *testing.T, reader io.Reader, arch string) {
 		}
 		entryName := strings.TrimSuffix(string(name), "\x00")
 		entryMode := packageNumber(t, string(header[14:22]), 16)
-		verifyPackagedDirectory(t, foundDirs, entryName, entryMode, entryMode&0o170000 == 0o040000, "", "")
+		owner := ownership[strings.Trim(strings.TrimPrefix(entryName, "./"), "/")]
+		verifyPackagedDirectory(t, foundDirs, entryName, entryMode, entryMode&0o170000 == 0o040000, owner[0], owner[1])
 		limited := &io.LimitedReader{R: reader, N: size}
 		verifyPackagedExecutable(t, found, entryName, entryMode, limited, arch)
 		if _, err := io.Copy(io.Discard, limited); err != nil {
@@ -372,7 +401,7 @@ func verifyPackagedDirectory(t *testing.T, found map[string]bool, name string, m
 		if mode&0o777 != 0o755 {
 			t.Fatalf("%s has incorrect directory permissions %o, want 0755", normalized, mode&0o777)
 		}
-		if (uname != "" && uname != "serviceradar") || (gname != "" && gname != "serviceradar") {
+		if uname != "serviceradar" || gname != "serviceradar" {
 			t.Fatalf("%s has owner %s:%s, want serviceradar:serviceradar", normalized, uname, gname)
 		}
 		found[normalized] = true

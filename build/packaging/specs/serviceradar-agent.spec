@@ -65,6 +65,29 @@ else
 fi
 
 %post
+set -e
+for dir in /var/lib/serviceradar \
+    /var/lib/serviceradar/agent \
+    /var/lib/serviceradar/agent/tmp \
+    /var/lib/serviceradar/agent/versions \
+    /var/lib/serviceradar/agent/versions/seed-installed; do
+    if [ -L "$dir" ] || { [ -e "$dir" ] && [ ! -d "$dir" ]; }; then
+        echo "Error: refusing non-directory $dir" >&2
+        exit 1
+    fi
+    mkdir -p "$dir"
+    chown -h root:root "$dir"
+    chmod 0755 "$dir"
+done
+rm -f /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
+for dir in /var/lib/serviceradar/agent/versions/seed-installed \
+    /var/lib/serviceradar/agent/versions \
+    /var/lib/serviceradar/agent/tmp \
+    /var/lib/serviceradar/agent \
+    /var/lib/serviceradar; do
+    chown -h serviceradar:serviceradar "$dir"
+    chmod 0755 "$dir"
+done
 %systemd_post serviceradar-agent.service
 if [ $1 -eq 1 ]; then
     systemctl enable --now serviceradar-agent.service >/dev/null 2>&1 || :
@@ -72,11 +95,6 @@ else
     systemctl try-restart serviceradar-agent.service >/dev/null 2>&1 || :
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar
-install -d -m 0750 -o serviceradar -g serviceradar /var/lib/serviceradar
-install -d -m 0755 -o serviceradar -g serviceradar /var/lib/serviceradar/agent
-install -d -m 0755 -o serviceradar -g serviceradar /var/lib/serviceradar/agent/tmp
-install -d -m 0755 -o serviceradar -g serviceradar /var/lib/serviceradar/agent/versions
-install -d -m 0755 -o serviceradar -g serviceradar /var/lib/serviceradar/agent/versions/seed-installed
 chmod 755 /usr/local/bin/serviceradar-agent
 chown root:serviceradar /usr/local/bin/serviceradar-agent-updater
 chmod 4750 /usr/local/bin/serviceradar-agent-updater

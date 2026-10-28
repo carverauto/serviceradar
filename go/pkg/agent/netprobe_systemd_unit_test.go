@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -148,63 +150,98 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 
 func systemdDirectiveValues(unit []byte) map[string][]string {
 	out := map[string][]string{}
+	section := ""
 	for _, raw := range strings.Split(joinSystemdContinuations(string(unit)), "\n") {
 		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") || strings.HasPrefix(line, "[") {
+		if strings.HasPrefix(line, "[") {
+			section = line
+			continue
+		}
+		if section != "[Service]" || line == "" || strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
 			continue
 		}
 		key, value, ok := strings.Cut(line, "=")
 		if !ok {
 			continue
 		}
-		out[strings.TrimSpace(key)] = append(out[strings.TrimSpace(key)], strings.TrimSpace(value))
+		key, value = strings.TrimSpace(key), strings.TrimSpace(value)
+		if value == "" {
+			delete(out, key)
+			continue
+		}
+		switch key {
+		case "User", "Group", "Slice", "Delegate", "DelegateSubgroup", "StateDirectoryMode", "RuntimeDirectoryMode", "Restart":
+			out[key] = []string{value}
+		default:
+			out[key] = append(out[key], value)
+		}
 	}
 	return out
 }
 
 func TestAgentSystemdUnitDoesNotOwnSharedRuntimeDirectory(t *testing.T) {
-	unitBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "build", "packaging", "agent", "systemd", "serviceradar-agent.service"))
+	unit, err := os.ReadFile(filepath.Join("..", "..", "..", "build", "packaging", "agent", "systemd", "serviceradar-agent.service"))
 	if err != nil {
-		t.Fatalf("read agent unit: %v", err)
+		t.Fatal(err)
 	}
-	unit := string(unitBytes)
+	assertAgentRuntimeDirectives(t, unit)
+	directives := systemdDirectiveValues(unit)
+	for key, want := range map[string]string{"Slice": "serviceradar.slice", "Delegate": "yes"} {
+		if !slices.Equal(directives[key], []string{want}) {
+			t.Fatalf("%s = %v, want %s", key, directives[key], want)
+		}
+	}
+	if len(directives["DelegateSubgroup"]) != 0 {
+		t.Fatal("DelegateSubgroup requires newer systemd")
+	}
+	caps := strings.Fields(strings.Join(directives["CapabilityBoundingSet"], " "))
+	for _, cap := range []string{"CAP_NET_RAW", "CAP_SETFCAP", "CAP_DAC_OVERRIDE", "CAP_FOWNER", "CAP_CHOWN", "CAP_MAC_ADMIN"} {
+		if !slices.Contains(caps, cap) {
+			t.Fatalf("missing bounding capability %s", cap)
+		}
+	}
+}
 
-	if strings.Contains(unit, "\nRuntimeDirectory=serviceradar\n") {
-		t.Fatal("agent unit must not own /run/serviceradar as RuntimeDirectory; restarting the agent can remove netprobe's IPC socket")
+func assertAgentRuntimeDirectives(t *testing.T, unit []byte) {
+	t.Helper()
+	directives := systemdDirectiveValues(unit)
+	if slices.Contains(strings.Fields(strings.Join(directives["RuntimeDirectory"], " ")), "serviceradar") {
+		t.Fatal("agent must not own the shared runtime directory lifecycle")
 	}
-	if strings.Contains(unit, "\nRuntimeDirectoryMode=0700\n") {
-		t.Fatal("agent unit must not force /run/serviceradar to 0700; netprobe and agent share the runtime tree")
+	if values := directives["RuntimeDirectoryMode"]; len(values) > 0 {
+		mode, err := strconv.ParseUint(values[0], 8, 32)
+		if err != nil || mode == 0700 {
+			t.Fatalf("shared runtime mode = %v", values)
+		}
 	}
-
-	want := "ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar"
-	if !strings.Contains(unit, want) {
-		t.Fatalf("agent unit missing explicit shared runtime directory setup %q", want)
+	setup := false
+	for _, command := range directives["ExecStartPre"] {
+		if slices.Equal(strings.Fields(command), []string{"+/usr/bin/install", "-d", "-o", "serviceradar", "-g", "serviceradar", "-m", "0750", "/run/serviceradar"}) {
+			setup = true
+		}
 	}
-
-	wantStateDir := "StateDirectory=serviceradar/agent serviceradar/agent/tmp serviceradar/agent/versions serviceradar/agent/versions/seed-installed"
-	if !strings.Contains(unit, "\n"+wantStateDir+"\n") {
-		t.Fatalf("agent unit missing StateDirectory setup %q", wantStateDir)
+	if !setup {
+		t.Fatal("missing explicit shared runtime setup")
 	}
-	if !strings.Contains(unit, "\nStateDirectoryMode=0755\n") {
-		t.Fatal("agent unit missing StateDirectoryMode=0755")
+	states := strings.Fields(strings.Join(directives["StateDirectory"], " "))
+	for _, dir := range []string{"serviceradar/agent", "serviceradar/agent/tmp", "serviceradar/agent/versions", "serviceradar/agent/versions/seed-installed"} {
+		if !slices.Contains(states, dir) {
+			t.Fatalf("missing state directory %s", dir)
+		}
 	}
-	if !strings.Contains(unit, "\nRestartPreventExitStatus=77 78\n") {
-		t.Fatal("agent unit missing RestartPreventExitStatus=77 78 to prevent seed-refresh crash loops")
+	values := directives["StateDirectoryMode"]
+	if len(values) != 1 {
+		t.Fatalf("StateDirectoryMode = %v", values)
 	}
-
-	if !strings.Contains(unit, "\nSlice=serviceradar.slice\n") {
-		t.Fatal("agent unit must join serviceradar.slice for ServiceRadar host-component cgroup accounting")
+	mode, err := strconv.ParseUint(values[0], 8, 32)
+	if err != nil || mode != 0755 {
+		t.Fatalf("StateDirectoryMode = %v", values)
 	}
-	if !strings.Contains(unit, "\nDelegate=yes\n") {
-		t.Fatal("agent unit must delegate its cgroup so native add-on limits can be enforced")
-	}
-	if strings.Contains(unit, "\nDelegateSubgroup=") {
-		t.Fatal("agent unit must remain compatible with enterprise systemd releases before DelegateSubgroup")
-	}
-
-	wantCaps := "CapabilityBoundingSet=CAP_NET_RAW CAP_SETFCAP CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_MAC_ADMIN"
-	if !strings.Contains(unit, wantCaps) {
-		t.Fatalf("agent unit missing updater SELinux relabel capability %q", wantCaps)
+	exits := strings.Fields(strings.Join(directives["RestartPreventExitStatus"], " "))
+	for _, status := range []string{"77", "78"} {
+		if !slices.Contains(exits, status) {
+			t.Fatalf("exit %s would restart", status)
+		}
 	}
 }
 

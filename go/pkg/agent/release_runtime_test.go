@@ -137,9 +137,8 @@ func TestInstallAgentSharedRuntimeDropIn(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(%q) error = %v", dropInPath, err)
 	}
-	if got := string(data); got != agentSharedRuntimeDropInContents {
-		t.Fatalf("drop-in contents = %q, want %q", got, agentSharedRuntimeDropInContents)
-	}
+	assertAgentRuntimeDirectives(t, data)
+
 	info, err := os.Stat(dropInPath)
 	if err != nil {
 		t.Fatalf("Stat(%q) error = %v", dropInPath, err)
@@ -152,7 +151,7 @@ func TestInstallAgentSharedRuntimeDropIn(t *testing.T) {
 	}
 }
 
-func TestPackagedAgentSharedRuntimeDropInMatchesUpdaterMigration(t *testing.T) {
+func TestPackagedAgentSharedRuntimeDropInContract(t *testing.T) {
 	path := filepath.Join(
 		"..", "..", "..", "build", "packaging", "agent", "systemd", agentSharedRuntimeDropInName,
 	)
@@ -160,9 +159,7 @@ func TestPackagedAgentSharedRuntimeDropInMatchesUpdaterMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read packaged agent runtime drop-in: %v", err)
 	}
-	if got := string(data); got != agentSharedRuntimeDropInContents {
-		t.Fatalf("packaged drop-in diverges from updater migration:\n%s", got)
-	}
+	assertAgentRuntimeDirectives(t, data)
 }
 
 func TestRollbackReleaseActivationRestoresPreviousTarget(t *testing.T) {

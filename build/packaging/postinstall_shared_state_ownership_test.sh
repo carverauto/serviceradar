@@ -7,58 +7,7 @@ rperf_checker_postinstall="$3"
 nats_postinstall="$4"
 agent_launcher="$5"
 
-for script in "$agent_postinstall" "$rperf_postinstall" "$rperf_checker_postinstall" "$nats_postinstall"; do
-    if awk '
-        /^[[:space:]]*(chown|chmod)[[:space:]]+/ {
-            line = $0
-            sub(/[[:space:]]*#.*/, "", line)
-            gsub(/"/, "", line)
-            recursive = line ~ /(^|[[:space:]])--recursive([[:space:]]|$)/ ||
-                line ~ /(^|[[:space:]])-[A-Za-z]*R[A-Za-z]*([[:space:]]|$)/
-            shared_root = line ~ /\/(etc|var\/lib)\/serviceradar\/?([[:space:]]|$)/ ||
-                line ~ /\$\{?serviceradar_(etc|var)_dir\}?\/?([[:space:]]|$)/ ||
-                line ~ /\/var\/lib\/serviceradar\/agent(\/|[[:space:]]|$)/ ||
-                line ~ /\$\{?agent_(runtime|tmp|versions|seed)_dir\}?\/?([[:space:]]|$)/
-            if (recursive && shared_root) {
-                print FILENAME ": unsafe recursive shared-state permission change: " $0
-                failed = 1
-            }
-        }
-        END { exit failed }
-    ' "$script"; then
-        continue
-    fi
-    exit 1
-done
-
-if ! awk '
-    /\/var\/lib\/serviceradar\/agent(\/|[[:space:]]|$)/ {
-        line = $0
-        sub(/[[:space:]]*#.*/, "", line)
-        if (line != "" &&
-            line !~ /semanage[[:space:]]+fcontext/ &&
-            line !~ /^agent_(runtime|tmp|versions|seed)_dir=/ &&
-            line !~ /rm[[:space:]]+-f[[:space:]]+"?\$agent_seed_dir\/serviceradar-agent\.new"?/) {
-            print FILENAME ": unexpected privileged operation under service-writable agent runtime: " $0
-            failed = 1
-        }
-    }
-    /^[[:space:]]*(cp|mv|ln|restorecon)[[:space:]]+.*(\$agent_(runtime|tmp|versions|seed)_dir|\/var\/lib\/serviceradar\/agent)/ {
-        line = $0
-        sub(/[[:space:]]*#.*/, "", line)
-        if (line != "") {
-            print FILENAME ": unsafe file copy/link/relabel in service-writable agent runtime: " $0
-            failed = 1
-        }
-    }
-    END { exit failed }
-' "$agent_postinstall"; then
-    exit 1
-fi
-
-# Verify launcher hardcodes package-owned runtime root and seed binary paths.
-grep -qx 'RUNTIME_ROOT="/var/lib/serviceradar/agent"' "$agent_launcher"
-grep -qx 'SEED_BINARY="/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"' "$agent_launcher"
+agent_spec="$6"
 
 test_root="${TEST_TMPDIR:-/tmp}/agent_seed_test_$$"
 trap 'chmod -R u+w "$test_root" 2>/dev/null || true; rm -rf "$test_root"' EXIT
@@ -159,21 +108,118 @@ fi
 test ! -e "$test_root/var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new"
 test -x "$test_root/var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent"
 
-# 3. Symlinked seed-installed directory must be rejected by both postinstall and launcher.
+for rel in agent agent/tmp agent/versions agent/versions/seed-installed; do
+    prepare_fixture
+    mkdir -p "$test_root/var/lib/serviceradar/$(dirname "$rel")" "$test_root/outside"
+    printf 'protected\n' > "$test_root/outside/sentinel"
+    chmod 0700 "$test_root/outside"
+    before="$(stat -c '%u:%g:%a' "$test_root/outside")"
+    ln -s "$test_root/outside" "$test_root/var/lib/serviceradar/$rel"
+    if SERVICERADAR_POSTINSTALL_ROOT="$test_root" sh "$agent_postinstall" > /dev/null 2>&1; then
+        echo "postinstall accepted symlinked $rel" >&2
+        exit 1
+    fi
+    set +e
+    "$test_root/launcher" > /dev/null 2>&1
+    status=$?
+    set -e
+    [[ "$status" == 77 ]]
+    [[ "$(stat -c '%u:%g:%a' "$test_root/outside")" == "$before" ]]
+    [[ "$(cat "$test_root/outside/sentinel")" == protected ]]
+done
+
 prepare_fixture
-mkdir -p "$test_root/var/lib/serviceradar/agent/versions" "$test_root/outside"
-ln -s "$test_root/outside" "$test_root/var/lib/serviceradar/agent/versions/seed-installed"
-
-if SERVICERADAR_POSTINSTALL_ROOT="$test_root" sh "$agent_postinstall" >/dev/null 2>&1; then
-    echo "postinstall accepted symlinked versions/seed-installed" >&2
-    exit 1
-fi
-
+chmod 0777 "$test_root/usr/local/lib/serviceradar/agent/serviceradar-agent-seed"
 set +e
-symlink_err="$("$test_root/launcher" 2>&1)"
-symlink_status=$?
+"$test_root/launcher" > /dev/null 2>&1
+status=$?
 set -e
-if [[ "$symlink_status" -ne 77 ]] || [[ "$symlink_err" != *"path is a symbolic link"* ]]; then
-    echo "launcher did not reject symlinked versions/seed-installed with exit 77 ($symlink_status): $symlink_err" >&2
-    exit 1
+[[ "$status" == 78 ]]
+
+runner_owner="$(id -u):$(id -g)"
+service_owner="$runner_owner"
+if [[ "$(id -u)" == 0 ]]; then
+    service_owner=65534:65534
 fi
+
+for installer in "$agent_postinstall" "$rperf_postinstall" "$rperf_checker_postinstall" "$nats_postinstall" "$agent_spec"; do
+    for link in none agent agent/tmp agent/versions agent/versions/seed-installed; do
+        if [[ "$installer" != "$agent_postinstall" && "$installer" != "$agent_spec" && "$link" != none ]]; then
+            continue
+        fi
+        prepare_fixture
+        mkdir -p "$test_root/bin" "$test_root/etc/serviceradar/rperf" "$test_root/etc/serviceradar/checkers" \
+            "$test_root/var/lib/serviceradar/agent/tmp" "$test_root/var/lib/serviceradar/agent/versions/seed-installed" \
+            "$test_root/var/lib/serviceradar/protected" "$test_root/usr/local/bin"
+        for file in usr/local/bin/serviceradar-agent usr/local/bin/serviceradar-agent-updater \
+            usr/local/bin/serviceradar-rperf usr/local/bin/serviceradar-rperf-checker \
+            etc/serviceradar/rperf/rperf.conf etc/serviceradar/checkers/rperf.json; do
+            touch "$test_root/$file"
+        done
+        sentinel="$test_root/var/lib/serviceradar/protected"
+        printf 'protected\n' > "$sentinel/sentinel"
+        chmod 0700 "$sentinel"
+        before="$(stat -c '%u:%g:%a' "$sentinel")"
+        protected_paths=("$sentinel")
+        if [[ "$link" == none ]]; then
+            for rel in agent agent/tmp agent/versions agent/versions/seed-installed; do
+                protected="$test_root/var/lib/serviceradar/$rel/protected"
+                mkdir "$protected"
+                chmod 0700 "$protected"
+                printf 'protected\n' > "$protected/sentinel"
+                protected_paths+=("$protected")
+            done
+            if [[ "$installer" != "$agent_spec" ]]; then
+                protected="$test_root/etc/serviceradar/protected"
+                mkdir "$protected"
+                chmod 0700 "$protected"
+                printf 'protected\n' > "$protected/sentinel"
+                protected_paths+=("$protected")
+            fi
+        fi
+        if [[ "$link" != none ]]; then
+            rm -rf "$test_root/var/lib/serviceradar/$link"
+            ln -s "$sentinel" "$test_root/var/lib/serviceradar/$link"
+        fi
+        for command in getent useradd groupadd systemctl sudo semanage restorecon; do
+            printf '#!/bin/sh\nexit 0\n' > "$test_root/bin/$command"
+            chmod +x "$test_root/bin/$command"
+        done
+        printf '#!/bin/sh\nprintf "Disabled\\n"\n' > "$test_root/bin/getenforce"
+        chmod +x "$test_root/bin/getenforce"
+        if [[ "$installer" == "$agent_spec" ]]; then
+            awk '/^%post$/ { active=1; next } /^%preun/ { active=0 } active && !/^%systemd_post/ { print }' "$installer" > "$test_root/body"
+        else
+            cp "$installer" "$test_root/body"
+        fi
+        sed -e "s|/var/lib/serviceradar|$test_root/var/lib/serviceradar|g" \
+            -e "s|/etc/serviceradar|$test_root/etc/serviceradar|g" \
+            -e "s|/usr/local/bin/|$test_root/usr/local/bin/|g" \
+            -e "s|/usr/lib/serviceradar|$test_root/usr/lib/serviceradar|g" \
+            -e "s|/etc/nats|$test_root/etc/nats|g" \
+            -e "s|/lib/systemd/system|$test_root/lib/systemd/system|g" \
+            -e "s|serviceradar:serviceradar|$service_owner|g" \
+            -e "s|root:serviceradar|$runner_owner|g" \
+            -e "s|root:root|$runner_owner|g" \
+            "$test_root/body" > "$test_root/installer"
+        set +e
+        PATH="$test_root/bin:$PATH" SERVICERADAR_POSTINSTALL_ROOT= SERVICERADAR_POSTINSTALL_OWNER= \
+            sh "$test_root/installer" 2 > "$test_root/install.log" 2>&1
+        status=$?
+        set -e
+        if [[ "$link" == none ]]; then
+            if [[ "$status" != 0 ]]; then cat "$test_root/install.log"; exit 1; fi
+            if [[ "$installer" == "$agent_postinstall" || "$installer" == "$agent_spec" ]]; then
+                for rel in agent agent/tmp agent/versions agent/versions/seed-installed; do
+                    [[ "$(stat -c '%u:%g:%a' "$test_root/var/lib/serviceradar/$rel")" == "$service_owner:755" ]]
+                done
+            fi
+        else
+            [[ "$status" != 0 ]]
+        fi
+        for protected in "${protected_paths[@]}"; do
+            [[ "$(stat -c '%u:%g:%a' "$protected")" == "$before" ]]
+            [[ "$(cat "$protected/sentinel")" == protected ]]
+        done
+    done
+done
