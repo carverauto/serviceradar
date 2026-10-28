@@ -287,6 +287,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
       SELECT 1 FROM platform.endpoint_vulnerability_assessments a
       LEFT JOIN platform.device_fleet_ordinals o ON o.uid = a.device_uid
       WHERE NOT COALESCE(o.tombstoned, false) AND ($1::bigint IS NULL OR o.ordinal = $1)
+        #{prerequisite_device_filter(scope, "a")}
         AND (o.ordinal IS NULL OR a.last_exposure_publication IS NULL OR
           (a.last_exposure_publication->>'device_ord')::bigint IS DISTINCT FROM o.ordinal OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'cve'
@@ -297,6 +298,7 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
       SELECT 1 FROM platform.exposure_fact_watermarks w
       LEFT JOIN platform.device_fleet_ordinals o ON o.uid = w.device_uid
       WHERE NOT COALESCE(o.tombstoned, false) AND ($1::bigint IS NULL OR o.ordinal = $1)
+        #{prerequisite_device_filter(scope, "w")}
         AND (o.ordinal IS NULL OR w.payload IS NULL OR
           (w.payload->>'device_ord')::bigint IS DISTINCT FROM o.ordinal OR
           NOT EXISTS (SELECT 1 FROM platform.exposure_dimension_state d WHERE d.kind = 'cve'
@@ -311,6 +313,14 @@ defmodule ServiceRadar.Inventory.ExposureSnapshotWorker do
       {:ok, %{rows: [[true]]}} -> {:error, :exposure_snapshot_preparation_required}
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp prerequisite_device_filter(nil, _alias), do: ""
+
+  defp prerequisite_device_filter(_scope, table_alias) do
+    # Restrict the source scan before checking publications. Filtering only the
+    # joined ordinal can choose a fleet-wide assessment scan for every device.
+    "AND #{table_alias}.device_uid = (SELECT uid FROM platform.device_fleet_ordinals WHERE ordinal = $1)"
   end
 
   @doc "Bounded source pages shared by publication and reconciliation in one source view."

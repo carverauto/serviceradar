@@ -1745,6 +1745,81 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert Enum.map(resumed, &hd/1) == tl(expected)
   end
 
+  @tag sandbox: :unboxed
+  test "preparation gates retain scoped and global assessment and deletion checks", ctx do
+    cve = "EXAMPLE-PREPARATION-SCOPE-#{ctx.unique}"
+    {scope, payload, _} = reconciliation_source!(ctx, cve, false)
+    unique = System.unique_integer([:positive])
+    other = %{unique: unique, device_uid: "sr:preparation-other-#{unique}"}
+    {other_scope, _, _} = reconciliation_source!(other, "EXAMPLE-PREPARATION-OTHER", false)
+
+    check = fn ordinal ->
+      DirectSession.run(&ExposureSnapshotWorker.prerequisites(&1, ordinal))
+    end
+
+    assert :ok = check.(scope)
+    assert :ok = check.(other_scope)
+    assert :ok = check.(nil)
+
+    set_publication = fn retained ->
+      assert {:ok, _} =
+               Repo.transaction(fn ->
+                 Repo.query!("""
+                 ALTER TABLE platform.endpoint_vulnerability_assessments
+                   DISABLE TRIGGER trg_exposure_assessment_sequence,
+                   DISABLE TRIGGER trg_exposure_assessment_publish_update
+                 """)
+
+                 assert %{num_rows: 1} =
+                          Repo.query!(
+                            "UPDATE platform.endpoint_vulnerability_assessments SET last_exposure_publication = $2 WHERE device_uid = $1",
+                            [ctx.device_uid, retained]
+                          )
+
+                 Repo.query!("""
+                 ALTER TABLE platform.endpoint_vulnerability_assessments
+                   ENABLE TRIGGER trg_exposure_assessment_sequence,
+                   ENABLE TRIGGER trg_exposure_assessment_publish_update
+                 """)
+               end)
+
+      assert publication(ctx.device_uid, cve) == retained
+    end
+
+    set_publication.(nil)
+
+    assert {:error, :exposure_snapshot_preparation_required} = check.(scope)
+    assert {:error, :exposure_snapshot_preparation_required} = check.(nil)
+    assert :ok = check.(other_scope)
+
+    set_publication.(payload)
+
+    assert :ok = check.(scope)
+    assert :ok = check.(nil)
+
+    Repo.query!("DELETE FROM platform.endpoint_vulnerability_assessments WHERE device_uid = $1", [
+      ctx.device_uid
+    ])
+
+    assert :ok = check.(scope)
+
+    assert %{num_rows: 1} =
+             Repo.query!(
+               "UPDATE platform.exposure_fact_watermarks SET payload = NULL WHERE device_uid = $1",
+               [ctx.device_uid]
+             )
+
+    assert [[nil]] ==
+             Repo.query!(
+               "SELECT payload FROM platform.exposure_fact_watermarks WHERE device_uid = $1",
+               [ctx.device_uid]
+             ).rows
+
+    assert {:error, :exposure_snapshot_preparation_required} = check.(scope)
+    assert {:error, :exposure_snapshot_preparation_required} = check.(nil)
+    assert :ok = check.(other_scope)
+  end
+
   defp reconciliation_source!(ctx, cve, mock_warehouse? \\ true) do
     if mock_warehouse?, do: snapshot_http!()
     Repo.query!("INSERT INTO platform.ocsf_devices(uid) VALUES ($1)", [ctx.device_uid])
