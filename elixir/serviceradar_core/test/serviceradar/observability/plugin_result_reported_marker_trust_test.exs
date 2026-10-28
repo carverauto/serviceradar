@@ -8,6 +8,40 @@ defmodule ServiceRadar.Observability.PluginResultReportedMarkerTrustTest do
 
   @reported_marker "_serviceradar_plugin_result"
 
+  test "legacy host labels outrank forged downstream and payload assignment identities" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [])
+    {payload, status, _observed_at} = plugin_result_fixture(assignment?: false)
+    assignment = create_repair_assignment!(status)
+    forged_id = Ecto.UUID.generate()
+
+    payload =
+      Map.merge(payload, %{
+        "labels" => %{"assignment_id" => assignment.id},
+        "assignment_id" => forged_id,
+        "reported_result" => %{"assignment_id" => forged_id},
+        "downstream_ingest" => %{
+          "status" => "succeeded",
+          "provenance" => %{"assignment_id" => forged_id}
+        }
+      })
+
+    assert :ok = PluginResultIngestor.ingest(payload, status)
+    assert [[_timestamp, true, _message, details]] = reported_history_rows(status)
+    unlabelled_details = details |> Jason.decode!() |> Map.delete("labels") |> Jason.encode!()
+
+    for {details, expected_id} <- [{details, assignment.id}, {unlabelled_details, nil}] do
+      assert PluginStateContract.state_assignment_id(%{details: details}) == expected_id
+
+      assert {:ok, %{rows: [[assignment_id]]}} =
+               ServiceRadar.Repo.query(
+                 "SELECT " <> PluginStateContract.extracted_assignment_id_sql("$1::text"),
+                 [details]
+               )
+
+      assert assignment_id == expected_id
+    end
+  end
+
   test "a complete no-slot reported marker remains legacy raw history" do
     Application.put_env(:serviceradar_core, :plugin_result_handlers, [ReplayHandler])
     ReplayHandler.put_outcomes([:ok])

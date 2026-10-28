@@ -233,11 +233,15 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
     CASE WHEN #{details} IS JSON THEN
       COALESCE(
         #{details}::jsonb #>> '{#{@reported_marker},provenance,assignment_id}',
-        #{details}::jsonb #>> '{downstream_ingest,provenance,assignment_id}',
         #{details}::jsonb #>> '{labels,assignment_id}',
+        CASE WHEN NOT (#{details}::jsonb ? '#{@reported_marker}')
+          AND jsonb_typeof(#{details}::jsonb -> 'reported_result') = 'object'
+          AND #{details}::jsonb #>> '{downstream_ingest,status}' IN ('failed', 'succeeded')
+        THEN #{details}::jsonb #>> '{downstream_ingest,provenance,assignment_id}' END,
         #{details}::jsonb #>> '{reported_result,labels,assignment_id}',
-        #{details}::jsonb ->> 'assignment_id',
-        #{details}::jsonb #>> '{reported_result,assignment_id}'
+        CASE WHEN NOT (#{details}::jsonb ? '#{@reported_marker}')
+          AND NOT (#{details}::jsonb ? 'reported_result')
+        THEN #{details}::jsonb ->> 'assignment_id' END
       )
     END
     """
@@ -497,11 +501,17 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
 
     [
       details |> fetch(:_serviceradar_plugin_result) |> provenance_field(:assignment_id),
-      details |> fetch(:downstream_ingest) |> provenance_field(:assignment_id),
       details |> fetch(:labels) |> fetch_nested(:assignment_id),
+      if(not has_key?(details, :_serviceradar_plugin_result) and
+           is_map(fetch(details, :reported_result)) and
+           fetch_nested(fetch(details, :downstream_ingest), :status) in ["failed", "succeeded"],
+        do: details |> fetch(:downstream_ingest) |> provenance_field(:assignment_id)
+      ),
       reported_result |> fetch(:labels) |> fetch_nested(:assignment_id),
-      fetch(details, :assignment_id),
-      fetch(reported_result, :assignment_id)
+      if(not has_key?(details, :_serviceradar_plugin_result) and
+           not has_key?(details, :reported_result),
+        do: fetch(details, :assignment_id)
+      )
     ]
     |> Enum.find_value(&normalize_optional_string/1)
     |> normalize_uuid()
@@ -521,6 +531,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract do
   end
 
   defp normalize_uuid(_value), do: nil
+
+  defp has_key?(map, key), do: Map.has_key?(map, key) or Map.has_key?(map, Atom.to_string(key))
 
   defp fetch_nested(map, key) when is_map(map), do: fetch(map, key)
   defp fetch_nested(_value, _key), do: nil
