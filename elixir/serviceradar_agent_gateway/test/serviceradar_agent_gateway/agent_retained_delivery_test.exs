@@ -1,6 +1,8 @@
 defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Observability.MetricEnvelope
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.AgentGatewayServer
@@ -175,31 +177,47 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
            ] = directives
   end
 
-  test "one uncommitted retained plugin result negatively acknowledges the stream and names the committed chunks" do
+  test "one uncommitted retained plugin result negatively acknowledges the stream, names the committed chunks and logs the failing plugin" do
     parent = self()
     handler = start_controlled_status_handler(parent)
 
-    task =
-      Task.async(fn ->
-        AgentGatewayServer.process_status_stream([
-          {[plugin_service("first")], retained_metadata(0, 3)},
-          {[plugin_service("second")], retained_metadata(1, 3)},
-          {[plugin_service("third")], retained_metadata(2, 3)}
-        ])
+    second = %{
+      plugin_service("second")
+      | plugin_provenance: %Monitoring.PluginResultProvenance{
+          assignment_id: "assignment-0002",
+          plugin_id: "example-inventory"
+        }
+    }
+
+    log =
+      capture_log(fn ->
+        task =
+          Task.async(fn ->
+            AgentGatewayServer.process_status_stream([
+              {[plugin_service("first")], retained_metadata(0, 3)},
+              {[second], retained_metadata(1, 3)},
+              {[plugin_service("third")], retained_metadata(2, 3)}
+            ])
+          end)
+
+        assert_receive {:forward_started, _first_pair_member}
+        assert_receive {:forward_started, _second_pair_member}
+        send(handler, {:complete, "second", {:error, :admission_timeout}})
+        assert_receive {:forward_started, "third"}
+        send(handler, {:complete, "third", :ok})
+        send(handler, {:complete, "first", :ok})
+
+        assert %Monitoring.GatewayStatusResponse{
+                 received: false,
+                 directives: [],
+                 committed_chunk_indexes: [0, 2]
+               } = Task.await(task)
       end)
 
-    assert_receive {:forward_started, _first_pair_member}
-    assert_receive {:forward_started, _second_pair_member}
-    send(handler, {:complete, "second", {:error, :admission_timeout}})
-    assert_receive {:forward_started, "third"}
-    send(handler, {:complete, "third", :ok})
-    send(handler, {:complete, "first", :ok})
-
-    assert %Monitoring.GatewayStatusResponse{
-             received: false,
-             directives: [],
-             committed_chunk_indexes: [0, 2]
-           } = Task.await(task)
+    assert log =~
+             ~s|Failed to commit plugin-result status from agent agent-1 (service="second" | <>
+               ~s|plugin_id="example-inventory" assignment_id="assignment-0002" | <>
+               ~s|message_bytes=#{byte_size(second.message)}): :admission_timeout|
   end
 
   test "an undecodable retained payload is rejected before any item is forwarded" do

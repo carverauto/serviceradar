@@ -885,7 +885,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp handle_delivery_error(service, status, reason) do
     cond do
       agent_retained_status?(status) ->
-        Logger.warning("Failed to commit #{status.source} status from agent #{status.agent_id}: #{inspect(reason)}")
+        Logger.warning(
+          "Failed to commit #{status.source} status from agent #{status.agent_id}" <>
+            "#{retained_result_identity(status)}: #{inspect(reason)}"
+        )
 
         {:agent_retained_uncommitted, []}
 
@@ -903,6 +906,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         {:best_effort_accepted, []}
     end
   end
+
+  # The agent redelivers an uncommitted plugin result, so the same failure
+  # repeats. Naming the plugin, its assignment and the payload size lets an
+  # operator tell which result is failing.
+  defp retained_result_identity(%{source: @plugin_result_source} = status) do
+    provenance = Map.get(status, :plugin_provenance) || %{}
+
+    " (service=#{inspect(status.service_name)} plugin_id=#{inspect(provenance[:plugin_id])} " <>
+      "assignment_id=#{inspect(provenance[:assignment_id])} message_bytes=#{message_size(status.message)})"
+  end
+
+  defp retained_result_identity(_status), do: ""
 
   defp agent_retained_status?(%{source: @flow_attribution_source}), do: true
 

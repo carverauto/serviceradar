@@ -93,7 +93,13 @@ defmodule ServiceRadar.Observability.ServiceStatus do
   end
 
   attributes do
-    attribute :timestamp, :utc_datetime_usec do
+    # The column is `timestamptz`: the hypertable's partition key and the
+    # leading primary-key column. Ash casts both sides of a filter comparison to
+    # the attribute's storage type, and `:utc_datetime_usec` is stored as
+    # `timestamp`, so a window filter became `"timestamp"::timestamp > ...`.
+    # That expression matches no index and defeats chunk exclusion, so every
+    # window read scanned every chunk, several times per plugin result.
+    attribute :timestamp, AshPostgres.TimestamptzUsec do
       primary_key? true
       allow_nil? false
       public? true

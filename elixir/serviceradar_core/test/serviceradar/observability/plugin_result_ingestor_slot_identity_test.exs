@@ -261,4 +261,81 @@ defmodule ServiceRadar.Observability.PluginResultIngestorSlotIdentityTest do
     succeeded_at = marker_timestamp(shifted_reported_at, 1, "succeeded")
     assert [[true, "edge plugin completed", ^succeeded_at]] = current_state_rows(status)
   end
+
+  # The ingestor reads ServiceStatus several times per result, each read bounded
+  # by a narrow timestamp window. The hypertable is partitioned and indexed on
+  # that column, so each read must reach it through an index on the timestamp.
+  # A read that compares a cast of the column matches no index and scans every
+  # chunk of the table.
+  test "the ingestor's ServiceStatus window reads are bounded by the timestamp index" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [SuccessfulHandler])
+    {payload, status, _observed_at} = plugin_result_fixture()
+
+    reads =
+      capture_service_status_reads(fn ->
+        assert :ok = PluginResultIngestor.ingest(payload, status)
+      end)
+
+    assert reads != []
+    # The table holds a handful of rows here, so make the planner show whether
+    # an index can serve the read rather than pick a cheaper sequential scan.
+    Repo.query!("SET LOCAL enable_seqscan = off")
+
+    for {sql, params} <- reads do
+      assert sql
+             |> explain_json(params)
+             |> index_conditions()
+             |> Enum.any?(&(&1 =~ ~s("timestamp"))),
+             "service_status read is not bounded by a timestamp index:\n#{sql}"
+    end
+  end
+
+  defp capture_service_status_reads(fun) do
+    handler_id = {__MODULE__, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:service_radar, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        if String.starts_with?(metadata.query, "SELECT") and
+             String.contains?(metadata.query, ~s(FROM "platform"."service_status")) do
+          send(test_pid, {:service_status_read, metadata.query, metadata.params})
+        end
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler_id)
+    end
+
+    collect_service_status_reads([])
+  end
+
+  defp collect_service_status_reads(reads) do
+    receive do
+      {:service_status_read, sql, params} -> collect_service_status_reads([{sql, params} | reads])
+    after
+      0 -> Enum.reverse(reads)
+    end
+  end
+
+  defp explain_json(sql, params) do
+    %{rows: [[plan]]} = Repo.query!("EXPLAIN (FORMAT JSON) " <> sql, params)
+    plan
+  end
+
+  defp index_conditions(plan) when is_list(plan), do: Enum.flat_map(plan, &index_conditions/1)
+
+  defp index_conditions(%{} = node) do
+    own = if is_binary(node["Index Cond"]), do: [node["Index Cond"]], else: []
+
+    children =
+      Enum.flat_map(List.wrap(node["Plan"]) ++ List.wrap(node["Plans"]), &index_conditions/1)
+
+    own ++ children
+  end
 end
