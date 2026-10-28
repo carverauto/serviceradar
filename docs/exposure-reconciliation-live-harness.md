@@ -86,8 +86,8 @@ It asserts:
     transaction markers or noncanonical payload. An older active delivery loses;
     a snapshot replays the same terminal publication without creating a repair.
     A delayed compaction load loses to a newer active transition.
-11. A legacy repair obligation defers compaction of 501 synthetic facts. After
-    removing that test-owned obligation, the first 500-row page succeeds. Invalid
+11. A legacy repair obligation defers compaction of 1001 synthetic facts. After
+    removing that test-owned obligation, the first 1000-row page succeeds. Invalid
     synthetic HTTP credentials cause the warehouse to return an actual HTTP 401
     for the next page. The successful-page cursor and original cutoff remain
     durable, and restoring the credentials lets retry clear the final row.
@@ -96,7 +96,7 @@ The separate controlled-response test covers filtered-load cursor recovery;
 the live HTTP 401 case does not establish real warehouse filtered-row behavior.
 
 The finite paging fixture is a functional boundary check, not fleet throughput
-proof. Task 1.6 and the <=15-minute fleet-scale gate remain open. These assertions
+proof. Task 1.6 and the fleet reconciliation gate remain open. These assertions
 require a fresh coordinator-owned hosted run; their presence is not pass evidence.
 
 ## Cleanup and result collection
@@ -119,6 +119,58 @@ decoded retained publications, actual warehouse rows and up to twenty queued
 transition sequences per fact. Connection configuration and raw query errors
 are excluded; diagnostic failure does not replace the finalization failure.
 The coordinator must still drop and verify absence of the scratch schema, including when preflight or cleanup fails.
+
+## Compaction capacity (Decision 26)
+
+The approved workload and measured results are owned by
+[Decision 26](../openspec/changes/add-srql-exposure-intelligence/design.md#decision-26-define-the-maintenance-capacity-workload).
+
+The explicit target `//elixir/serviceradar_core:exposure_compaction_capacity`
+measures the production compactor with a real Oban Basic-engine queue. Run it
+alone on a fresh `serial_2` clone through the same canonical hosted Core
+Integration lifecycle (including its observer, teardown and generation release).
+Select this target for both precompilation and test execution instead of the
+ordinary lane suites. Do not run it beside or after the ordinary `serial_2`
+suite: the Oban stager needs an otherwise idle scratch database. The target is
+manual and is not part of ordinary PR CI.
+
+Supply all `EXPOSURE_LIVE_*` variables above, plus
+`EXPOSURE_CAPACITY_PROFILE=smoke` or `fleet`. Missing or other values fail.
+Each run still needs a never-used, empty warehouse schema provisioned from the
+actual migrations. The restricted identity additionally needs `INSERT` for
+synthetic fixture construction. No source assessments or deployment exports are
+copied. SQL generates the initial warehouse state outside the measured interval;
+the test does not claim transition publication or ingestion throughput.
+
+| Profile | Hosts | Active facts | Old terminal facts | Recent terminal controls |
+| --- | --- | --- | --- | --- |
+| smoke | 200 | 500,000 | 10,000 | 200 |
+| fleet | 20,000 | 50,000,000 | 1,000,000 | 20,000 |
+
+Both profiles cover 50,000 synthetic CVE ordinals. Each host has 2,500 active
+facts, 50 old terminal facts split between resolved and retired, and one recent
+resolved fact. The smoke profile exercises real scheduler resumption and the
+whole result oracle; it is not fleet-scale proof.
+
+The named test queue uses maintenance's concurrency of two, the real database
+peer and the default stager. It does not call `perform/1` or drain jobs inline.
+Elapsed time starts before enqueue and includes snoozes, queue scheduling and
+the independent storage verification. Fixture preparation is reported separately.
+At fifteen minutes an unfinished job fails and is cancelled before cleanup.
+
+`EXPOSURE_COMPACTION_CAPACITY` reports the selected profile, setup and worker
+durations, remaining rows and actual snooze count. A successful job is only an
+intermediate result: `EXPOSURE_COMPACTION_CAPACITY_VERIFIED` requires exact row
+counts and zero violations across every row. The oracle reconstructs expected
+identities and publication markers from primary keys, requires unchanged active
+and recent rows, and checks the complete canonical terminal payload. The final
+elapsed time must still fit within fifteen minutes. An absent verification line,
+failure, timeout or skipped execution is not a passing measurement.
+
+Read the test verdict and canonical cleanup statuses, then remove and verify
+absence of the external warehouse schema and its grants. A passed compaction
+run does not close reconciliation, snapshot, arbitrary terminal-backlog or
+concurrent-ingestion capacity gates.
 
 Collect the actual named test result and canonical suite/observer/teardown/
 release statuses. A compile/setup failure is not behavioral proof. Fresh hosted

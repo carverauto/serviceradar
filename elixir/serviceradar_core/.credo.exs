@@ -16,6 +16,7 @@ extra_checks = ex_slop_checks ++ ex_dna_checks ++ jump_checks
       name: "default",
       files: %{
         included: [
+          "bench/exposure_compaction_capacity_test.exs",
           "bench/ownership_replay_spike_test.exs",
           "lib/",
           "src/",

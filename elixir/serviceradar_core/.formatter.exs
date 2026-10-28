@@ -14,6 +14,7 @@
   inputs: [
     "{mix,.formatter}.exs",
     "{config,lib,test}/**/*.{ex,exs}",
+    "bench/exposure_compaction_capacity_test.exs",
     "bench/ownership_replay_spike_test.exs"
   ]
 ]

@@ -823,7 +823,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     initial = %{"cutoff" => cutoff, "cursor" => [ordinal, 0, 0]}
 
     facts =
-      for cve <- 1..501 do
+      for cve <- 1..1001 do
         payload =
           ctx
           |> inflight_transition(ordinal, 41, "resolved", 1)
@@ -843,7 +843,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                label: "synthetic-checkpoint-seed-" <> Ecto.UUID.generate()
              )
 
-    last = live_fact!([ordinal, 501, 40])
+    last = live_fact!([ordinal, 1001, 40])
     job = compaction_job!(initial)
 
     control = %{
@@ -864,7 +864,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
     assert {:snooze, 30} = ExposureTerminalCompactionWorker.perform(job)
     assert Repo.get!(Oban.Job, job.id).args == initial
 
-    assert {:ok, %{rows: [[501]]}} =
+    assert {:ok, %{rows: [[1001]]}} =
              MySQL.query(
                "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND payload_compacted = false AND pkgver_ord = 41"
              )
@@ -888,7 +888,7 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
                [:serviceradar, :starrocks, :stream_load, :request, :stop],
                fn _event, measurements, metadata, _config ->
                  if self() == parent and metadata.dataset == :exposure_compacted_facts and
-                      measurements.rows == 500 and measurements.failures == 0 do
+                      measurements.rows == 1000 and measurements.failures == 0 do
                    Application.put_env(
                      :serviceradar_core,
                      StarRocks,
@@ -916,25 +916,25 @@ defmodule ServiceRadar.Inventory.ExposureAssessmentTransitionsDbTest do
 
     assert Repo.get!(Oban.Job, job.id).args == %{
              "cutoff" => cutoff,
-             "cursor" => [ordinal, 500, 40]
+             "cursor" => [ordinal, 1000, 40]
            }
 
-    assert {:ok, %{rows: [[500]]}} =
+    assert {:ok, %{rows: [[1000]]}} =
              MySQL.query(
-               "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND cve_ord <= 500 AND payload_compacted = true AND pkgver_ord = 0"
+               "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND cve_ord <= 1000 AND payload_compacted = true AND pkgver_ord = 0"
              )
 
-    assert live_fact!([ordinal, 501, 40]) == last
+    assert live_fact!([ordinal, 1001, 40]) == last
 
     # Passing the original job proves that retry reloads the durable checkpoint.
     assert :ok = ExposureTerminalCompactionWorker.perform(job)
 
     assert Repo.get!(Oban.Job, job.id).args == %{
              "cutoff" => cutoff,
-             "cursor" => [ordinal, 501, 40]
+             "cursor" => [ordinal, 1001, 40]
            }
 
-    assert {:ok, %{rows: [[501]]}} =
+    assert {:ok, %{rows: [[1001]]}} =
              MySQL.query(
                "SELECT count(*) FROM exposure_facts WHERE device_ord = #{ordinal} AND payload_compacted = true AND pkgver_ord = 0"
              )

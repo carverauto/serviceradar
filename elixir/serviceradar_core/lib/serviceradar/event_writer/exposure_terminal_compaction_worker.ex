@@ -47,7 +47,7 @@ defmodule ServiceRadar.EventWriter.ExposureTerminalCompactionWorker do
       |> NaiveDateTime.to_iso8601()
 
     with {:ok, job} <- checkpoint(job, Map.put_new(job.args, "cutoff", cutoff)) do
-      compact_pages(job, 20)
+      compact_pages(job, 10)
     end
   end
 
@@ -77,7 +77,7 @@ defmodule ServiceRadar.EventWriter.ExposureTerminalCompactionWorker do
     with {:ok, _} <-
            Destination.persist_warehouse(:exposure_compacted_facts, rows,
              label: "exposure-compaction-" <> label,
-             stream_load: [max_rows: 500, max_bytes: 512 * 1024, max_in_flight: 1]
+             stream_load: [max_rows: 1000, max_bytes: 512 * 1024, max_in_flight: 1]
            ),
          {:ok, next} <-
            checkpoint(job, Map.put(job.args, "cursor", Warehouse.key(List.last(facts)))) do

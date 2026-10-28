@@ -1704,6 +1704,99 @@ the scratch database was removed after the warehouse benchmark. This verifies th
 allocation needed by the future address publisher without changing the shared identity
 implementation. The existing Elixir integration module was not re-run locally.
 
+### Decision 26: Define the maintenance capacity workload
+
+Approved by the product owner on 2026-10-27. This workload definition does not
+close a capacity gate or authorize a rollout.
+
+The capacity model fixes 20,000 hosts, 50 million active facts and 50,000 exposed
+CVEs, but does not size the additional permanent terminal watermarks or the
+backlog eligible for daily payload compaction. A timing result without those
+counts cannot establish the maintenance capacity gate.
+
+The first maintenance profile keeps all 50 million active facts and
+adds one million resolved or retired facts whose payloads are older than seven
+days. Distribute the additional facts across the same 20,000 hosts. One million
+is a synthetic workload choice, anchored to the already specified transition
+burst; it is not a measurement or estimate of any deployment's churn. Record
+that choice with every result. Larger historical terminal populations remain
+unmeasured; passing this profile must not be reported as an arbitrary-backlog
+guarantee.
+
+Measure compaction first, through the production worker and Stream Load path,
+on the documented reference warehouse profile. Include its durable job
+checkpoints, requested snoozes and queue scheduling in elapsed completion time.
+Exclude fixture construction from that interval and report its duration
+separately. Start with a bounded smaller run to catch harness defects before
+loading the full profile. Neither that run nor an extrapolation passes the
+fleet-scale gate. Stop a timed run at the 15-minute deadline and report the
+remaining eligible rows as a failure.
+
+Verify the stored result independently: all active rows remain active and
+unchanged; every eligible terminal payload is canonical and compacted; keys,
+states, transition sequences, transaction markers, lifecycle markers and
+snapshot markers remain intact. Include ineligible recent terminal rows as
+controls. Use only newly generated synthetic data in a never-used scratch
+schema, and verify schema and grant removal after the run.
+
+Daily reconciliation remains a separate gate. Its run must pair warehouse facts
+with the corresponding synthetic CNPG source and exercise the production fleet
+enumerator and per-device workers. Compaction results do not establish
+reconciliation throughput, source publication throughput or snapshot throughput.
+The existing 15-minute maintenance limit and all other capacity targets remain
+unchanged.
+
+#### Measured compaction result (2026-10-27)
+
+The initial 500-row implementation failed the unchanged fleet workload at
+900.092 seconds with 120,000 eligible payloads remaining and 88 actual snoozes.
+Fixture construction and baseline verification took 68.706 seconds separately.
+The full post-compaction oracle did not run after that deadline failure.
+This [failed fleet run](https://carverauto.buildbuddy.io/invocation/718f6022-b1fc-4d24-bcae-6af053ae8bc2)
+measured source `0dae9ee00452e2fd1cf20684bd19cca70a7a3a29`.
+The approved fix increased the compaction page and Stream Load row limit to
+1,000 and reduced the invocation to ten pages. The 10,000-fact invocation budget,
+512 KiB request limit, one in-flight load, durability and ordering contracts
+remain unchanged.
+
+The outer driver executed the following fresh hosted runs at source
+`fe5e01f16c3d55148cf7fb613f001b7950452471`, tree
+`ccb76d0d65ed87b14b4694bf31d4b1ab687fd7be`; their source records and owner logs
+bind the results to that source. BuildBuddy's API commit field names the public
+patch base, not the measured patched tree. Later documentation and topology
+test corrections leave the measured exposure runtime and benchmark unchanged;
+the measured source identity remains the commit above, not the final PR head.
+
+| Run | Setup and baseline verification, excluded | Worker | Including full-row verification | Actual snoozes/resumptions | Remaining / violations |
+| --- | --- | --- | --- | --- | --- |
+| [Smoke](https://carverauto.buildbuddy.io/invocation/321cb107-4174-4395-a4a2-1186b83153b2) | 1.81 s | 6.10 s | 6.21 s | 1 | 0 / 0 |
+| [Fleet](https://carverauto.buildbuddy.io/invocation/d257c091-dd00-4ece-8eda-f9a5d308ea59) | 57.86 s | 608.63 s | 609.47 s | 100 | 0 / 0 |
+
+Fleet used the approved 20,000 synthetic hosts, 50 million active facts,
+one million old terminal facts and 20,000 recent terminal controls. Smoke used
+500,000 active facts, 10,000 old terminal facts and 200 recent controls. Both ran
+on the shared reference warehouse: StarRocks 4.1.3, shared data, three compute
+nodes each requesting 2 CPUs and 8 GiB, with a 10 GiB memory limit. Each run
+passed its one test. The independent oracle checked every stored row: active
+and recent rows were unchanged; eligible payloads were canonical; keys, states,
+sequence/xid, lifecycle and snapshot markers were retained.
+
+[Hosted live correctness](https://carverauto.buildbuddy.io/invocation/09ff546f-da10-4960-8cea-2e4c6d5fd4ce)
+passed all 12 integration targets at the same source. The exposure owner passed
+479 tests with no failures or skips, including the enabled live warehouse
+1,000/1,001-row second-request HTTP 401 checkpoint and retry boundary.
+[Broad BazelCI](https://carverauto.buildbuddy.io/invocation/47b88f52-35c4-46b8-a33f-fbfbf67fa5ae)
+passed all seven child invocations. Canonical observer, teardown and release
+statuses were zero for the live and capacity runs, including the failed fleet
+run. Scratch schemas and grants in both execution contexts were removed and
+independently verified absent; no scratch resources remain from these runs.
+
+This passes the bounded compaction profile in one observed run, not a
+statistical p95 or arbitrary-terminal-backlog guarantee. Tasks 1.6 and 1.7 remain
+open overall: reconciliation, snapshot and source-publication throughput are
+not established. No rollout or codec tuning is included. Required hosted PR CI
+must still pass at the final publication head.
+
 ## Capacity model
 
 | Quantity | Target | Basis |
@@ -1860,7 +1953,7 @@ and reconciliation readiness retain their separate proof requirements.
 
 **Terminal payload compaction (task 1.7).** The daily EventWriter maintenance job
 uses a fixed seven-day cutoff and a durable keyset cursor in its Oban control
-record. Each invocation handles at most twenty pages of 500 facts, then resumes.
+record. Each invocation handles at most ten pages of 1000 facts, then resumes.
 Only resolved or retired rows strictly older than the cutoff qualify. Migration
 0035 adds a warehouse-only `payload_compacted` flag. Compaction clears package
 version, source scope, severity, score, flags and first-exposure time; package
@@ -1889,7 +1982,8 @@ proof field, preserving its full-row evidence until it settles. Legacy
 verification can also recheck the retained current source publication. Malformed
 cleared payload and mismatched markers remain repair obligations. A successful snapshot can
 restore terminal payload and set its generation without allocating a new source
-sequence. The fleet-scale completion gates remain open pending measurement.
+sequence. The bounded compaction measurement is recorded in Decision 26;
+snapshot and reconciliation fleet-scale completion gates remain open.
 
 This delivers the producer-side parts of tasks 1.1 (the `transition_seq` sequence,
 `transition_xid` on outbox rows, `exposure_fact_watermarks`, the advisory, package and
