@@ -208,6 +208,56 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleetTest do
              )
   end
 
+  test "each coexisting assignment reads its own state once identities split" do
+    package = package()
+    rule_a = %{assignment(package) | source: :policy, policy_id: "network-credential-rule:rule-a:inventory"}
+
+    rule_b = %{
+      rule_a
+      | id: Ecto.UUID.generate(),
+        policy_id: "network-credential-rule:rule-b:inventory",
+        updated_at: ~U[2026-01-02 12:00:00Z]
+    }
+
+    primary_state =
+      state(
+        details:
+          Jason.encode!(%{
+            "plugin_id" => package.plugin_id,
+            "status" => "OK",
+            "labels" => %{"assignment_id" => rule_a.id}
+          })
+      )
+
+    secondary_state =
+      state(
+        available: false,
+        service_name: "#{package.name}##{rule_b.id}",
+        details:
+          Jason.encode!(%{
+            "plugin_id" => package.plugin_id,
+            "status" => "CRITICAL",
+            "labels" => %{"assignment_id" => rule_b.id}
+          })
+      )
+
+    rows =
+      PluginFleet.build_rows(
+        [rule_a, rule_b],
+        [package],
+        [secondary_state, primary_state],
+        @now
+      )
+
+    by_assignment = Map.new(rows, &{&1["assignment_id"], &1})
+
+    assert by_assignment[rule_a.id]["category"] == "healthy"
+    assert by_assignment[rule_a.id]["observed_assignment_id"] == rule_a.id
+    assert by_assignment[rule_b.id]["category"] == "action_required"
+    assert by_assignment[rule_b.id]["observed_assignment_id"] == rule_b.id
+    assert by_assignment[rule_b.id]["available"] == false
+  end
+
   test "disabled assignment and ambiguous legacy name evidence never look like current healthy execution" do
     package = package()
     another = %{package | id: Ecto.UUID.generate(), plugin_id: "another-check"}

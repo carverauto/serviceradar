@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.ServiceState
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginServiceIdentity
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginState
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadar.Observability.ServiceStateRegistry.Queries
@@ -31,7 +32,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
          true <- StatusNormalizer.should_track_assignment_service?(assignment, package),
          {:ok, agent} <- Agent.get_by_uid(assignment.agent_uid, actor: actor) do
       assignment
-      |> StatusNormalizer.build_attrs_from_assignment(agent, package)
+      |> StatusNormalizer.build_attrs_from_assignment(agent, package,
+        service_name: assignment_service_name(assignment, package)
+      )
       |> maybe_upsert_assignment_state(actor)
     else
       false ->
@@ -313,6 +316,20 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
     |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
   end
 
+  # The name of the assignment's own service: the package name for the
+  # primary assignment of the plugin on the agent, disambiguated for a
+  # coexisting one. A resolution failure keeps the package name, matching
+  # the fail-soft placeholder behaviour.
+  defp assignment_service_name(%PluginAssignment{} = assignment, %PluginPackage{} = package) do
+    case PluginServiceIdentity.service_name_for_assignment(
+           assignment.agent_uid,
+           to_string(assignment.id)
+         ) do
+      {:ok, service_name} -> service_name
+      :error -> package.name
+    end
+  end
+
   # The package the agent runs for the assignment, which names its service.
   defp load_package(%PluginAssignment{} = assignment, actor) do
     package_id = PluginAssignment.effective_package_id(assignment)
@@ -351,7 +368,8 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
       state.service_name,
       @plugin_result_output,
       @streaming_plugin_output,
-      @streaming_plugin_capability
+      @streaming_plugin_capability,
+      Map.get(state, :details)
     ]
 
     case Repo.query(alternate_assignment_eligible_sql(), params) do
@@ -376,6 +394,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.AssignmentLifecycle do
           WHEN NULLIF($3, '') IS NOT NULL THEN package.plugin_id = $3
           ELSE package.name = $4
         END
+        AND #{PluginStateContract.assignment_match_sql("$8::text", "assignment.id::text")}
         AND #{PluginStateContract.result_reporting_package_sql("$5", "$6", "$7")}
     )
     """

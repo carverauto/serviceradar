@@ -310,8 +310,11 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
            expected_args
          ) do
       {:ok, scope} ->
-        MapSet.new(Map.keys(payload)) ==
-          common_payload_keys(expected_binding, scope.authorized_request_body_b64) and
+        payload_keys_match?(
+          payload,
+          common_payload_keys(expected_binding, scope.authorized_request_body_b64),
+          controller
+        ) and
           payload["schema"] == @awx_command_schema and
           payload["verb"] == value(attempt, :command_type) and
           to_string(payload["controller_id"]) == to_string(value(controller, :id)) and
@@ -397,6 +400,31 @@ defmodule ServiceRadar.Automation.Ansible.CallbackCommandContract do
       |> Map.put("credential_name", "sr-callback-#{value(execution, :id)}")
       |> Map.put("dispatch_agent_id", value(controller, :agent_id))
       |> Map.put("controller_id", value(controller, :id))
+    end
+  end
+
+  # `plugin_assignment_id` is the one optional payload key: AwxClient adds
+  # it when it can identify the assignment a verb must run through. When
+  # present it must name an awx assignment on the controller's agent, so a
+  # stored payload cannot be rerouted to another owner's assignment.
+  defp payload_keys_match?(payload, expected_keys, controller) do
+    keys = MapSet.new(Map.keys(payload))
+
+    (keys == expected_keys or
+       keys == MapSet.put(expected_keys, "plugin_assignment_id")) and
+      assignment_id_matches?(payload, controller)
+  end
+
+  defp assignment_id_matches?(payload, controller) do
+    case Map.fetch(payload, "plugin_assignment_id") do
+      :error ->
+        true
+
+      {:ok, assignment_id} ->
+        AwxClient.awx_assignment_on_agent?(
+          value(controller, :agent_id),
+          assignment_id
+        )
     end
   end
 

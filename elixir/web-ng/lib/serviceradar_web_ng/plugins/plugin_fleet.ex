@@ -131,11 +131,12 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
           states_by_agent
           |> Map.get({assignment.partition_id, assignment.agent_uid}, [])
           |> Enum.filter(&matches_package?(&1, package, names))
-          |> winner()
+          |> assignment_state(assignment, package)
 
-        # Owners of one plugin on an agent share a service state until each
-        # assignment has its own result identity (#6006), so a result another
-        # owner's assignment reported is not drift for this one.
+        # Owners of one plugin on an agent shared a service state before
+        # each assignment got its own result identity (#6006), so a legacy
+        # result another owner's assignment reported is not drift for this
+        # one.
         siblings =
           enabled_ids
           |> Map.get({assignment.partition_id, assignment.agent_uid, assignment.plugin_id}, [])
@@ -486,6 +487,32 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
   defp winner([]), do: nil
   defp winner(states), do: Enum.max_by(states, &PluginStateContract.state_rank/1)
 
+  # A state that names its assignment is that assignment's evidence first.
+  # A coexisting assignment's own disambiguated state never counts for
+  # this one. States under the bare package name that name no assignment,
+  # or that a sibling last stamped into the formerly shared row, remain
+  # shared legacy evidence until each assignment reports into its own
+  # state.
+  defp assignment_state(states, assignment, package) do
+    assignment_id = assignment && to_string(assignment.id)
+
+    {own, rest} =
+      Enum.split_with(states, fn state ->
+        PluginStateContract.state_assignment_id(state) == assignment_id
+      end)
+
+    if own == [] do
+      rest
+      |> Enum.filter(fn state ->
+        PluginStateContract.state_assignment_id(state) == nil or
+          state.service_name == package.name
+      end)
+      |> winner()
+    else
+      winner(own)
+    end
+  end
+
   defp row(assignment, package, state, now, sibling_assignment_ids) do
     placeholder? = not is_nil(state) and PluginStateContract.placeholder_state?(state)
     reported_at = if state && not placeholder?, do: observed_at(state)
@@ -499,7 +526,7 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     available = if reported_at, do: state.available
     {category, reason} = classify(assignment, package, state, reported_at, stale?)
     drift = known_drift(assigned_version, observed_version)
-    observed_assignment_id = if reported_at, do: reported_assignment_id(details)
+    observed_assignment_id = if reported_at, do: PluginStateContract.state_assignment_id(state)
 
     # Another enabled assignment of this plugin, agent, and partition shares
     # this service state, so its id is not drift.
@@ -622,13 +649,6 @@ defmodule ServiceRadarWebNG.Plugins.PluginFleet do
     # an explicitly reported package version; never infer it from desired state.
     value = get_in(details, ["labels", "package_version"]) || Map.get(details, "package_version")
     if is_binary(value) and byte_size(value) <= 64 and Regex.match?(~r/\A[0-9A-Za-z.+_-]+\z/, value), do: value
-  end
-
-  defp reported_assignment_id(details) do
-    case Ecto.UUID.cast(get_in(details, ["labels", "assignment_id"])) do
-      {:ok, id} -> id
-      :error -> nil
-    end
   end
 
   defp reported_status(%{"status" => status}) when is_binary(status) do

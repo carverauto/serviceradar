@@ -141,6 +141,72 @@ func TestPluginManagerRunPluginVerbWithFixtureWasm(t *testing.T) {
 	}
 }
 
+func TestPluginManagerRunPluginVerbRoutesToNamedAssignment(t *testing.T) {
+	manager := newActionFixtureManager(t, actionFixtureObjectKey, &proto.PluginAssignmentConfig{
+		AssignmentId:  actionFixtureAssignmentID,
+		PluginId:      "awx",
+		PackageId:     "fixture-package",
+		Name:          "Hello Wasm Verb",
+		Entrypoint:    "run_check",
+		Runtime:       "wasi-preview1",
+		Enabled:       true,
+		TimeoutSec:    5,
+		WasmObjectKey: actionFixtureObjectKey,
+		Capabilities:  []string{"get_config", "log", "submit_result"},
+	})
+	defer manager.Stop()
+
+	// A second awx assignment coexists on the agent. It has no staged
+	// module, so a verb routed to it fails differently from one routed to
+	// the fixture assignment.
+	const siblingAssignmentID = "assign-awx-sibling"
+	sibling := newPluginAssignment(&proto.PluginAssignmentConfig{
+		AssignmentId: siblingAssignmentID,
+		PluginId:     "awx",
+		Entrypoint:   "run_check",
+		Enabled:      true,
+	}, logger.NewTestLogger())
+	siblingRunner := newPluginRunner(manager, sibling)
+	close(siblingRunner.done)
+	manager.mu.Lock()
+	manager.runners[siblingAssignmentID] = siblingRunner
+	manager.mu.Unlock()
+
+	configJSON := json.RawMessage(`{"verb":"awx.ping"}`)
+
+	result, err := manager.RunPluginVerbForAssignment(
+		t.Context(), "awx", actionFixtureAssignmentID, configJSON, nil, 10*time.Second,
+	)
+	if err != nil {
+		t.Fatalf("verb for the fixture assignment returned error: %v", err)
+	}
+	var decoded map[string]interface{}
+	if err := json.Unmarshal(result, &decoded); err != nil {
+		t.Fatalf("decode verb result: %v\npayload: %s", err, result)
+	}
+	if got := decoded["status"]; got != "OK" {
+		t.Fatalf("status = %v, want OK from the fixture assignment; payload: %s", got, result)
+	}
+
+	if _, err := manager.RunPluginVerbForAssignment(
+		t.Context(), "awx", siblingAssignmentID, configJSON, nil, 10*time.Second,
+	); !errors.Is(err, errPluginWasmUnavailable) {
+		t.Fatalf("verb for the sibling assignment: want wasm-unavailable, got %v", err)
+	}
+
+	if _, err := manager.RunPluginVerbForAssignment(
+		t.Context(), "awx", "assign-awx-missing", configJSON, nil, 10*time.Second,
+	); !errors.Is(err, errPluginAssignmentNotFound) {
+		t.Fatalf("verb for an unknown assignment must not fall back to a sibling: got %v", err)
+	}
+
+	if _, err := manager.RunPluginVerbForAssignment(
+		t.Context(), "awx-inventory-sync", actionFixtureAssignmentID, configJSON, nil, 10*time.Second,
+	); !errors.Is(err, errPluginAssignmentNotFound) {
+		t.Fatalf("assignment id must not satisfy a different plugin id: got %v", err)
+	}
+}
+
 func TestPluginManagerRunActionWithSampleNorthboundWasm(t *testing.T) {
 	manager := newActionFixtureManager(t, sampleNorthboundFixtureObjectKey, &proto.PluginAssignmentConfig{
 		AssignmentId:  sampleNorthboundFixtureAssignmentID,

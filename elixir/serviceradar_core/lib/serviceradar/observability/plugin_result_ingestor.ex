@@ -31,6 +31,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginResultStateWinner
+  alias ServiceRadar.Observability.ServiceStateRegistry.PluginServiceIdentity
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginState
   alias ServiceRadar.Observability.ServiceStateRegistry.PluginStateContract
   alias ServiceRadar.Observability.ServiceStatus
@@ -78,7 +79,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     status_row =
       build_status_row(
         payload,
-        status,
+        remap_service_name(status),
         observed_at,
         created_at,
         summary,
@@ -532,6 +533,39 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       true -> true
       false -> false
       _ -> plugin_status_available(status_label)
+    end
+  end
+
+  # The agent reports every assignment of a plugin under the package name.
+  # When the host-stamped provenance names the assignment, core rewrites
+  # the service name to that assignment's own identity (bare for the
+  # primary assignment, disambiguated for a coexisting one) before any
+  # lock, lookup, slot, or marker key is derived from it, so the whole
+  # ingest keys per assignment. Results without provenance, or whose
+  # assignment no longer resolves, keep the reported name as before.
+  defp remap_service_name(status) when is_map(status) do
+    provenance = PluginResultProvenance.from_status(status)
+    identity = PluginStateContract.status_identity(status)
+
+    case provenance &&
+           PluginServiceIdentity.service_name_for_assignment(
+             identity.agent_id,
+             provenance["assignment_id"]
+           ) do
+      {:ok, service_name} -> put_service_name(status, service_name)
+      _ -> status
+    end
+  rescue
+    _ -> status
+  end
+
+  defp remap_service_name(status), do: status
+
+  defp put_service_name(status, service_name) do
+    if Map.has_key?(status, "service_name") and not Map.has_key?(status, :service_name) do
+      Map.put(status, "service_name", service_name)
+    else
+      Map.put(status, :service_name, service_name)
     end
   end
 

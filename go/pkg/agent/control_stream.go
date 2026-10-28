@@ -183,6 +183,7 @@ type awxCommandPayload struct {
 	Args                         map[string]any         `json:"args,omitempty"`
 	AuthorizedRequestBodyBase64  string                 `json:"authorized_request_body_b64,omitempty"`
 	BaseURL                      string                 `json:"base_url"`
+	PluginAssignmentID           string                 `json:"plugin_assignment_id,omitempty"`
 	ControllerID                 string                 `json:"controller_id,omitempty"`
 	ControllerName               string                 `json:"controller_name,omitempty"`
 	InsecureSkipVerify           bool                   `json:"insecure_skip_verify,omitempty"`
@@ -1193,9 +1194,10 @@ func (p *PushLoop) runAWXPluginVerb(
 		if len(bytes.TrimSpace(payload.CallbackCredentialBindingRaw)) > 0 {
 			return nil, errAWXCallbackCredentialBindingInvalid
 		}
-		return pluginManager.RunPluginVerbWithAuthorizedRequestBody(
+		return pluginManager.RunPluginVerbWithAuthorizedRequestBodyForAssignment(
 			ctx,
 			awxPluginID,
+			payload.PluginAssignmentID,
 			configJSON,
 			grants,
 			authorizedRequestBody,
@@ -1232,7 +1234,7 @@ func (p *PushLoop) runAWXPluginVerb(
 		if !ok || !positiveAWXID(credentialID) {
 			return nil, errAWXCallbackCredentialBindingInvalid
 		}
-		return pluginManager.RunPluginVerb(ctx, awxPluginID, configJSON, grants, timeout)
+		return pluginManager.RunPluginVerbForAssignment(ctx, awxPluginID, payload.PluginAssignmentID, configJSON, grants, timeout)
 	}
 
 	callbackInput, err := resolveAWXCallbackCredentialMemoryInput(
@@ -1246,9 +1248,10 @@ func (p *PushLoop) runAWXPluginVerb(
 	}
 	defer callbackInput.destroy()
 
-	return pluginManager.RunPluginVerbWithAWXCallbackCredential(
+	return pluginManager.RunPluginVerbWithAWXCallbackCredentialForAssignment(
 		ctx,
 		awxPluginID,
+		payload.PluginAssignmentID,
 		configJSON,
 		grants,
 		callbackInput,

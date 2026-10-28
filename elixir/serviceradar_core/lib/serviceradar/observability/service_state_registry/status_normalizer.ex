@@ -79,13 +79,15 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry.StatusNormalizer do
   def build_attrs_from_assignment(
         %PluginAssignment{} = assignment,
         agent,
-        %PluginPackage{} = package
+        %PluginPackage{} = package,
+        opts \\ []
       ) do
     plugin_type = assignment_plugin_type(package)
     {available, message} = assignment_initial_state(plugin_type)
+    service_name = Keyword.get(opts, :service_name, package.name)
 
     agent
-    |> identity_from_agent(package.name, "plugin", assignment.agent_uid)
+    |> identity_from_agent(service_name, "plugin", assignment.agent_uid)
     # `agent.metadata` is inventory-derived and can lag an enrollment or be
     # overwritten by a same-named agent in another partition. Assignment
     # placeholders instead inherit the immutable partition that was bound by
