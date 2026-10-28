@@ -228,6 +228,14 @@ defmodule ServiceRadarCoreElx.CameraRelay.Pipeline do
     end
   end
 
+  # A connected WebRTC bin loses its linked input as its internal crash group
+  # shuts down, before the viewer crash-group notification reaches us. Membrane
+  # already unlinks the tee; keep the relay alive for the existing cleanup.
+  @impl true
+  def handle_child_pad_removed({:webrtc_sink, viewer_session_id}, Pad.ref(:input, viewer_session_id), _ctx, state) do
+    {[], state}
+  end
+
   # A remove call is answered only once its child has terminated. Replying when
   # the removal is merely requested let a caller re-add the same viewer or
   # branch before the old child was gone, which Membrane rejects with
