@@ -301,7 +301,14 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
       {payload, status, _observed_at} = plugin_result_fixture(assignment?: false)
       create_agent(status.agent_id, status.gateway_id)
       package = create_repair_package!(status.service_name)
-      original = create_repair_assignment_for_package!(status, package)
+      suffix = System.unique_integer([:positive])
+
+      original =
+        create_repair_assignment_for_package!(status, package,
+          source: :policy,
+          source_key: "replacement-original-#{suffix}",
+          policy_id: "network-credential-rule:rule-original-#{suffix}:inventory"
+        )
 
       assert :ok =
                PluginResultIngestor.ingest(payload, provenance_status(status, original, package))
@@ -340,7 +347,13 @@ defmodule ServiceRadar.Observability.PluginResultAssignmentLifecycleTest do
           status
         end
 
-      replacement = create_repair_assignment_for_package!(replacement_status, package)
+      replacement =
+        create_repair_assignment_for_package!(replacement_status, package,
+          source: :policy,
+          source_key: "replacement-successor-#{suffix}",
+          policy_id: "network-credential-rule:rule-successor-#{suffix}:inventory"
+        )
+
       assert :ok = ServiceStateRegistry.upsert_for_assignment(replacement)
 
       assert [[false, "plugin assignment pending result", _at, "active"]] =
