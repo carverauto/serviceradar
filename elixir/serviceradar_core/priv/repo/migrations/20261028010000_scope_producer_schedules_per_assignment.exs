@@ -32,20 +32,6 @@ defmodule ServiceRadar.Repo.Migrations.ScopeProducerSchedulesPerAssignment do
     execute("DROP INDEX IF EXISTS platform.producer_schedules_plugin_package_uidx")
 
     execute("""
-    DELETE FROM platform.producer_schedules ps
-    USING (
-      SELECT id,
-             ROW_NUMBER() OVER (
-               PARTITION BY plugin_package_id, schedule_id
-               ORDER BY inserted_at ASC, id ASC
-             ) AS rn
-      FROM platform.producer_schedules
-      WHERE plugin_package_id IS NOT NULL
-    ) ranked
-    WHERE ps.id = ranked.id AND ranked.rn > 1
-    """)
-
-    execute("""
     CREATE UNIQUE INDEX producer_schedules_plugin_package_uidx
       ON platform.producer_schedules (plugin_package_id, schedule_id)
       WHERE plugin_package_id IS NOT NULL
