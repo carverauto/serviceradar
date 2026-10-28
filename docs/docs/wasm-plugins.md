@@ -140,6 +140,14 @@ What one rule then provisions:
   the next credential reconciliation.
 - **Run Now** on the credential rules page dispatches the primary schedule.
 
+Each assignment has its own schedule row for each declared schedule id, so
+multiple rules for the same package retain independent credential bindings and
+settings. Unbound templates remain unique per package and schedule id. Repeated
+reconciliation reuses the assignment's rows; an unchanged pass reports
+`schedules_bound: 0`. Package contract synchronization updates the label,
+description, and contract on every matching row while preserving operator
+settings.
+
 ServiceRadar validates this data while importing the signed package and builds
 the credentials UI, assignment reconciliation, schedule binding, and discovery
 source display from it. Adding another provider does not require a core catalog
@@ -154,6 +162,19 @@ validated descriptor, JSON Schema, generic discovery envelope, and nested
 reserved built-in provider are rejected.
 
 ### Northbound actions on discovered devices
+
+For both launch and poll, the dispatcher selects among enabled assignments for
+the provider's package. If any are credential-rule-owned, exactly one must have
+an enabled rule whose target query and edge scope (agent, gateway, or partition)
+cover every target device. That assignment takes precedence over manual
+assignments. Zero or multiple matches return `ambiguous_plugin_assignment` and
+log a warning without dispatching; invocations without device target snapshots,
+including event-only invocations, cannot select a rule-owned assignment.
+
+When no rule-owned candidates exist, a sole enabled assignment is selected as
+before. With multiple candidates, exactly one must run on a preferred agent
+from the invocation's target snapshots; otherwise dispatch returns the same
+ambiguity error instead of choosing the first assignment.
 
 A package that declares `inventory_sources` and northbound `actions` receives,
 on every device and interface target, `attributes.integration_ids`: the

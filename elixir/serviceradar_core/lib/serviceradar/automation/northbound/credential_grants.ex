@@ -296,6 +296,11 @@ defmodule ServiceRadar.Automation.Northbound.CredentialGrants do
     end
   end
 
+  @doc false
+  def rule_covers_invocation?(rule, assignment, invocation) do
+    ensure_rule_scope(rule, assignment, invocation) == :ok
+  end
+
   defp ensure_rule_scope(rule, assignment, invocation) do
     assignment_agent = to_string(Map.get(assignment, :agent_uid) || "")
     scope_value = to_string(rule_field(rule, :scope_value, "scope_value") || "")

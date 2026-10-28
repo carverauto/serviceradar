@@ -46,6 +46,17 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
     table "producer_schedules"
     repo ServiceRadar.Repo
     schema "platform"
+
+    identity_index_names unique_plugin_package_schedule: "producer_schedules_plugin_package_uidx",
+                         unique_plugin_assignment_schedule:
+                           "producer_schedules_plugin_assignment_uidx",
+                         unique_addon_package_schedule: "producer_schedules_addon_package_uidx"
+
+    identity_wheres_to_sql unique_plugin_package_schedule:
+                             "plugin_package_id IS NOT NULL AND plugin_assignment_id IS NULL",
+                           unique_plugin_assignment_schedule:
+                             "plugin_package_id IS NOT NULL AND plugin_assignment_id IS NOT NULL",
+                           unique_addon_package_schedule: "addon_package_id IS NOT NULL"
   end
 
   oban do
@@ -348,8 +359,21 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
   end
 
   identities do
-    identity :unique_plugin_package_schedule, [:plugin_package_id, :schedule_id]
-    identity :unique_addon_package_schedule, [:addon_package_id, :schedule_id]
+    identity :unique_plugin_package_schedule, [:plugin_package_id, :schedule_id] do
+      where expr(not is_nil(plugin_package_id) and is_nil(plugin_assignment_id))
+    end
+
+    identity :unique_plugin_assignment_schedule, [
+      :plugin_package_id,
+      :plugin_assignment_id,
+      :schedule_id
+    ] do
+      where expr(not is_nil(plugin_package_id) and not is_nil(plugin_assignment_id))
+    end
+
+    identity :unique_addon_package_schedule, [:addon_package_id, :schedule_id] do
+      where expr(not is_nil(addon_package_id))
+    end
   end
 
   defp validate_schedule(changeset, _context) do

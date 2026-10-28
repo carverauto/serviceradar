@@ -25,6 +25,9 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
   defmodule ScheduleStore do
     @moduledoc false
 
+    def resolve_assignment_schedule(template_schedule, _assignment_id, _actor),
+      do: {:ok, template_schedule, :existing}
+
     def get_package_schedule(package_id, schedule_id, _actor) do
       {:ok,
        %{
@@ -343,6 +346,9 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
     defmodule RepointScheduleStore do
       @moduledoc false
 
+      def resolve_assignment_schedule(template_schedule, _assignment_id, _actor),
+        do: {:ok, template_schedule, :existing}
+
       def get_package_schedule(package_id, schedule_id, _actor) do
         {:ok,
          %{
@@ -447,6 +453,9 @@ defmodule ServiceRadar.Credentials.PluginIntegrationProvisionerTest do
 
     defmodule MultiScheduleBoundScheduleStore do
       @moduledoc false
+
+      def resolve_assignment_schedule(template_schedule, _assignment_id, _actor),
+        do: {:ok, template_schedule, :existing}
 
       def get_package_schedule(package_id, schedule_id, _actor) do
         {:ok,
