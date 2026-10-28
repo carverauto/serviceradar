@@ -8,7 +8,7 @@ Core business logic library for the ServiceRadar distributed monitoring platform
 
 - **Ash Domains**: Identity, Inventory, Infrastructure, Monitoring, Edge
 - **Cluster Management**: libcluster + Horde for distributed process management
-- **SPIFFE/SPIRE Integration**: mTLS certificate helpers for secure cluster communication
+- **mTLS Integration**: X.509 certificate helpers for secure cluster communication
 - **Telemetry**: Shared metrics and event definitions
 
 This library is used as a dependency by:
@@ -66,7 +66,7 @@ config :libcluster,
 config :serviceradar_core, :spiffe,
   trust_domain: "serviceradar.local",
   cert_dir: "/etc/serviceradar/certs",
-  mode: :filesystem  # or :workload_api for SPIRE
+  mode: :filesystem
 ```
 
 ### Oban (Background Jobs)

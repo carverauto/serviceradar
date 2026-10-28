@@ -118,32 +118,6 @@ Generates an RS256 keypair for signing API JWTs and updates `core.json`.
 | `-bits` | RSA key size in bits (default `2048`). |
 | `-force` | Overwrite existing RS256 keys if present. |
 
-## `spire-join-token` (deprecated)
-
-Legacy command for a retired API route; do not use it for new onboarding. It requested a SPIRE join token from the core API and optionally registered a
-downstream (nested) SPIRE server entry.
-
-```bash
-srctl spire-join-token \
-  -core-url https://core.example.serviceradar.cloud \
-  -api-key "$SERVICERADAR_API_KEY" \
-  -downstream-spiffe-id spiffe://example.dev/ns/demo/gateway-nested-spire \
-  -selector unix:uid:0 -selector unix:gid:0
-```
-
-| Flag | Description |
-|------|-------------|
-| `-core-url` | Core API base URL (default `http://localhost:8090`). |
-| `-api-key` / `-bearer` | Credentials for authenticating with core. |
-| `-ttl` | Join token TTL in seconds. |
-| `-agent-spiffe-id` | Optional alias SPIFFE ID for the agent. |
-| `-no-downstream` | Skip registering a downstream entry. |
-| `-downstream-spiffe-id` | SPIFFE ID for the downstream gateway SPIRE server. |
-| `-selector` | Downstream selector; repeatable. |
-| `-x509-ttl` / `-jwt-ttl` | Downstream SVID TTLs in seconds. |
-| `-dns-name` / `-federates-with` | Downstream DNS names / federated trust domains; repeatable. |
-| `-output` | Write the response JSON to a file. |
-
 ## `enroll`
 
 Enrolls an edge agent or collector against core using an onboarding token
@@ -189,7 +163,7 @@ srctl edge package mtls --label "macbook-01"
 | `list` | List packages, with filters for status, component type, gateway, etc. |
 | `show` | Display detailed information for a package. |
 | `download` | Download onboarding artifacts as `tar.gz` or JSON. |
-| `revoke` | Revoke a package and its downstream entry. |
+| `revoke` | Revoke an onboarding package. |
 | `token` | Emit a signed `edgepkg-v3` token for an existing package. |
 | `mtls` | Shorthand for `create` with `checker:sysmon-osx` and mTLS defaults. |
 
@@ -205,7 +179,6 @@ authentication, and `--output text|json`. Key flags for `create`:
 | `--gateway-id` | Gateway identifier override. |
 | `--site` | Site/location note. |
 | `--metadata-json` / `--metadata-file` | Metadata JSON payload. |
-| `--selector` | SPIRE selector; repeatable. |
 | `--join-ttl` / `--download-ttl` | Token TTLs (e.g. `30m`, `24h`). |
 | `--checker-kind` / `--checker-config-json` | Checker kind and config (for `component-type checker`). |
 | `--datasvc-endpoint` | Datasvc/KV gRPC endpoint override. |

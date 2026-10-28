@@ -257,12 +257,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
     for transport <- [:unary, :control] do
       @transport transport
-      test "#{transport} hello forwards announced host MACs through core RPC", context do
+      test "#{transport} hello forwards announced host MACs and peer certificate metadata through core RPC",
+           context do
         request = host_hello(@transport, context.agent_id)
         assert_enrolled(@transport, request, context.stream)
 
-        assert_receive {:core_rpc, :upsert_agent, [agent_id, _attrs]}, 1_000
+        assert_receive {:core_rpc, :upsert_agent, [agent_id, agent_attrs]}, 1_000
         assert agent_id == context.agent_id
+        assert %DateTime{} = agent_attrs.cert_not_before
+        assert %DateTime{} = agent_attrs.cert_expires_at
+        assert DateTime.diff(agent_attrs.cert_expires_at, agent_attrs.cert_not_before, :second) == 90 * 86_400
+        assert byte_size(agent_attrs.cert_serial) > 0
+        assert byte_size(agent_attrs.cert_fingerprint_sha256) == 64
 
         assert_receive {:core_rpc, :ensure_device_for_agent, [^agent_id, attrs]}, 1_000
         assert attrs.source_ip == "192.0.2.37"

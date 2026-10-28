@@ -120,7 +120,7 @@ Once `now >= NotAfter`, `serviceradar-agent-gateway` strictly rejects the TLS ha
 ## Decision 3: Explicit, Configurable Certificate Lifetimes (Fixing the 1-Day Default)
 
 ### Root Cause of the 1-Day Default
-- `ServiceRadarAgentGateway.CertIssuer` defines `@default_validity_days 365` and `@max_validity_days 825`.
+- `ServiceRadarAgentGateway.CertIssuer` previously defined `@default_validity_days 365` and `@max_validity_days 825`.
 - `ServiceRadar.Edge.OnboardingPackages.create_with_platform_cert/2` (`elixir/serviceradar_core/lib/serviceradar/edge/onboarding_packages.ex:509`) had:
   ```elixir
   cert_validity = Keyword.get(opts, :cert_validity_days, 1)
@@ -128,46 +128,33 @@ Once `now >= NotAfter`, `serviceradar-agent-gateway` strictly rejects the TLS ha
 - Any code path or test helper calling `create_with_platform_cert/2` without `:cert_validity_days` issued a 1-day leaf certificate.
 
 ### Design Fix
-1. **Standardize Default Lifetime to 90 Days**:
-   - Define canonical constants in `ServiceRadar.Edge.CertificateLifetimePolicy` (shared across `serviceradar_core`, `serviceradar_agent_gateway`, and `web-ng`):
-     - `default_leaf_validity_days: 90` (configurable via deployment setting / env `AGENT_CERT_DEFAULT_VALIDITY_DAYS`, default `90`)
-     - `min_leaf_validity_days: 7`
-     - `max_leaf_validity_days: 825`
-     - `renewal_fraction: 2/3` (renew after `60` days for a `90`-day cert)
-2. **Update `OnboardingPackages` and `CertIssuer`**:
-   - Change `ServiceRadar.Edge.OnboardingPackages.create_with_platform_cert/2` and `ServiceRadarWebNG.Edge.OnboardingPackages` to read `CertificateLifetimePolicy.default_validity_days()` (`90` days) instead of `1`.
-   - Reject `validity_days < 7` in production (`CertIssuer.issue_agent_bundle/4` and `issue_from_csr/5`) unless an explicit `:allow_short_test_lifetime` option is passed in test environments.
-   - Expose the requested certificate validity in the Web-NG "Create Edge Package" modal (defaulting to `90 days`, with presets for `30 days`, `90 days`, `365 days`).
+Phase 1 implements the shared `ServiceRadar.Edge.CertificateLifetimePolicy`.
+See [certificate operations](../../../docs/docs/edge-agent-onboarding.md#certificate-lifetime-and-expiry-alerts)
+for the current issuance bounds and overrides. Deployment-level default
+configuration and a validity selector in the Web-NG package modal remain future
+work; Phase 1 validates issuance options and uses a fixed shared default.
 
 ---
 
 ## Decision 4: Visibility, SRQL Support, Alerting, and Diagnostics
 
 ### CNPG Schema & Ash Resource (`ServiceRadar.Infrastructure.Agent` / `platform.ocsf_agents`)
-Add the following columns to `platform.ocsf_agents`:
-- `cert_serial_number` (`TEXT`, nullable) -- Hex-encoded X.509 serial number of the active leaf certificate.
-- `cert_fingerprint_sha256` (`TEXT`, nullable) -- Lowercase SHA-256 hex digest of the DER certificate.
-- `cert_not_before` (`TIMESTAMPTZ`, nullable) -- Certificate `notBefore` timestamp.
-- `cert_not_after` (`TIMESTAMPTZ`, nullable, indexed) -- Certificate `notAfter` expiration timestamp.
-- `cert_last_renewed_at` (`TIMESTAMPTZ`, nullable) -- Timestamp of the most recent successful in-band renewal.
-- `cert_renewal_error` (`TEXT`, nullable) -- Most recent renewal error message (cleared on successful renewal).
-
-Whenever an agent completes `Hello`, `RenewCertificate`, or `ControlStream` handshake, `serviceradar-agent-gateway` extracts the verified peer certificate's `notBefore`, `notAfter`, `serial_number`, and `certificate_fingerprint` and updates the `ServiceRadar.Infrastructure.Agent` record.
+Phase 1 stores the nullable certificate lifecycle columns defined by
+`20261028120000_add_agent_certificate_lifecycle_columns.exs`; the Ash `Agent`
+resource maps those columns. Hello and heartbeats persist peer metadata, with
+replacement observation semantics described in [certificate operations](../../../docs/docs/edge-agent-onboarding.md#certificate-lifetime-and-expiry-alerts).
+`cert_renewal_error` and renewal-handler updates remain future work.
 
 ### SRQL Query Support (`rust/srql/src/query/agents.rs`)
-Extend the `in:agents` SRQL entity with:
-- Filterable and sortable timestamp field `cert_expires_at` (aliased to `cert_not_after` on `ocsf_agents`), supporting relative duration comparisons:
-  - `in:agents cert_expires_at:<7d` -> agents whose certificate expires within the next 7 days (including already-expired certificates where `cert_not_after < NOW() + INTERVAL '7 days'`).
-  - `in:agents cert_expires_at:<0d` -> agents whose certificate has already expired (`cert_not_after < NOW()`).
-  - `in:agents sort:cert_expires_at:asc` -> order fleet by soonest-expiring certificate.
-- Filterable text fields `cert_serial_number` and `cert_fingerprint` (`cert_fingerprint_sha256`).
-- Include `cert_expires_at`, `cert_not_before`, `cert_serial_number`, `cert_fingerprint_sha256`, `cert_last_renewed_at`, and `cert_renewal_error` in the JSON row projection returned by `AgentRow::into_json`.
+The implemented fields, aliases, and relative comparisons are documented in the
+[SRQL language reference](../../../docs/docs/srql-language-reference.md#agent-certificate-fields).
+Renewal-error projection remains pending with the renewal handler.
 
 ### Proactive Alerting
-Add a scheduled Ash/Oban worker (`ServiceRadar.Infrastructure.AgentCertExpiryMonitor`, running hourly) plus immediate event emission from `RenewCertificate`:
-1. **Expiring Soon Warning (`agent.cert_expiring_warning`)**: Emitted when `cert_not_after` is within `< 14 days` (or `< 1/6` of lifetime) and the agent has not yet renewed.
-2. **Expiring Critical (`agent.cert_expiring_critical`)**: Emitted when `cert_not_after` is within `< 7 days` or has already expired (`cert_not_after <= now`).
-3. **Renewal Failure (`agent.cert_renewal_failed`)**: Emitted when an agent's in-band `RenewCertificate` call fails or when an agent reports `cert_renewal_error` in status metadata.
+Phase 1 implements the expiry worker; its cadence, thresholds, and resolution
+behavior are documented in [certificate operations](../../../docs/docs/edge-agent-onboarding.md#certificate-lifetime-and-expiry-alerts).
+Immediate renewal-failure alerts remain pending with `RenewCertificate` and
+`cert_renewal_error` reporting.
 
 ### Explicit Connection Error Diagnostics
 1. **Agent-side pre-flight and handshake error classification (`go/pkg/grpc/security.go` & `go/pkg/agent/`)**:
@@ -222,7 +209,7 @@ Agents already deployed in the field fall into three cohorts when this change sh
    - As soon as the agent upgrades (via the in-band `agent-gateway` release rollout or OS package upgrade), the gateway derives its current `cert_not_after` from the TLS peer certificate on `Hello`.
    - Certificates already due under the renewal schedule in Decision 1 trigger renewal on startup (within jitter of `0..30s` when remaining lifetime is `< 24h`). A 1-day certificate is not necessarily due merely because its total lifetime is short; certificates not yet due follow that schedule. Successful renewal replaces the certificate with one using the configured deployment lifetime.
 2. **Cohort 2 -- Connected agents still running an older binary (`< renewal-capable version`) whose certificate is approaching expiry**:
-   - On first `Hello` after the gateway upgrades, `serviceradar-agent-gateway` inspects the peer TLS certificate's `notAfter` directly from the TLS socket and populates `ocsf_agents.cert_not_after`.
+   - On first `Hello` after the gateway upgrades, `serviceradar-agent-gateway` inspects the peer TLS certificate's `notAfter` directly from the TLS socket and populates `ocsf_agents.cert_expires_at`.
    - Operators can immediately query `in:agents cert_expires_at:<7d` in SRQL and prioritize rolling the agent release update to those hosts before `notAfter` arrives.
 3. **Cohort 3 -- Agents whose 1-day (or older) certificate has already expired (`notAfter <= now`)**:
    - Expired certificates cannot complete the mTLS handshake (Decision 2). These agents appear offline; `cert_expires_at < now` identifies them only if the gateway recorded their certificate metadata before expiry. Agents that expired before metadata collection began retain an unknown expiry and will not match that filter. Operators identify those certificates on the host via the new startup check or `openssl x509 -enddate -noout -in /etc/serviceradar/certs/component.pem`.

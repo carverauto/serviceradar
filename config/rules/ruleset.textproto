@@ -322,7 +322,7 @@ rules {
   phase: PHASE_CONFIG
   scope { except_kinds: ENVIRONMENT_KIND_LOCALHOST }
   description: "SECURITY_MODE_NONE is not admissible in a deployed environment."
-  one_of { enum_values: "SECURITY_MODE_MTLS" enum_values: "SECURITY_MODE_SPIFFE" }
+  one_of { enum_values: "SECURITY_MODE_MTLS" }
 }
 
 rules {
@@ -330,33 +330,6 @@ rules {
   code: "CORE_SERVER_NAME_NON_EMPTY"
   phase: PHASE_CONFIG
   non_empty {}
-}
-
-rules {
-  field_path: "core.trust_domain"
-  code: "CORE_TRUST_DOMAIN_REQUIRED_FOR_SPIFFE"
-  phase: PHASE_CONFIG
-  required_if {
-    other_field_path: "core.security_mode"
-    other_enum_value: "SECURITY_MODE_SPIFFE"
-  }
-}
-
-rules {
-  field_path: "core.server_spiffe_id"
-  code: "CORE_SERVER_SPIFFE_ID_FORMAT"
-  phase: PHASE_CONFIG
-  matches { pattern: "^spiffe://" }
-}
-
-rules {
-  field_path: "core.workload_socket"
-  code: "CORE_WORKLOAD_SOCKET_REQUIRED_FOR_SPIFFE"
-  phase: PHASE_CONFIG
-  required_if {
-    other_field_path: "core.security_mode"
-    other_enum_value: "SECURITY_MODE_SPIFFE"
-  }
 }
 
 # ---------------------------------------------------------------------------

@@ -470,7 +470,7 @@ defmodule ServiceRadarWebNG.AshTestHelpers do
       component_type: :gateway,
       gateway_id: "gateway-#{unique}",
       site: "site-#{unique}",
-      security_mode: :spire
+      security_mode: :mtls
     }
 
     attrs = Map.merge(defaults, Map.new(attrs))

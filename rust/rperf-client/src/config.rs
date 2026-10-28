@@ -21,13 +21,28 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "lowercase")]
+#[serde(rename_all = "lowercase", try_from = "String")]
 pub enum SecurityMode {
     #[default]
-    #[serde(alias = "", alias = "none")]
     None,
     Mtls,
-    Spiffe,
+}
+
+impl TryFrom<String> for SecurityMode {
+    type Error = String;
+
+    fn try_from(mode: String) -> Result<Self, Self::Error> {
+        match mode.as_str() {
+            "none" | "" => Ok(Self::None),
+            "mtls" => Ok(Self::Mtls),
+            "spiffe" | "spire" | "workload_api" => Err(format!(
+                "security mode {mode:?} is no longer supported; see https://docs.serviceradar.cloud/docs/migrating-off-spire"
+            )),
+            _ => Err(format!(
+                "unknown security mode {mode:?}; expected mtls or none"
+            )),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -44,12 +59,6 @@ pub struct SecurityConfig {
     pub mode: SecurityMode,
     #[serde(default)]
     pub cert_dir: Option<String>,
-    #[serde(default)]
-    pub trust_domain: Option<String>,
-    #[serde(default)]
-    pub workload_socket: Option<String>,
-    #[serde(default)]
-    pub server_spiffe_id: Option<String>,
     #[serde(default)]
     pub tls: Option<TlsConfig>,
 }
@@ -147,24 +156,6 @@ impl Config {
                     Self::ensure_present(&tls.key_file, "security.tls.key_file")?;
                     Self::ensure_present(&tls.ca_file, "security.tls.ca_file")?;
                 }
-                SecurityMode::Spiffe => {
-                    if security
-                        .workload_socket
-                        .as_ref()
-                        .map(|s| s.trim().is_empty())
-                        .unwrap_or(true)
-                    {
-                        bail!("security.workload_socket is required for spiffe mode");
-                    }
-                    if security
-                        .trust_domain
-                        .as_ref()
-                        .map(|s| s.trim().is_empty())
-                        .unwrap_or(true)
-                    {
-                        bail!("security.trust_domain is required for spiffe mode");
-                    }
-                }
             }
         }
 
@@ -180,6 +171,35 @@ impl Config {
         match value {
             Some(val) if !val.trim().is_empty() => Ok(()),
             _ => bail!("{field} is required"),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn spiffe_mode_is_rejected_on_deserialize() {
+        for mode in ["spiffe", "spire", "workload_api"] {
+            let raw = format!(r#"{{"mode":"{mode}"}}"#);
+            let err = serde_json::from_str::<SecurityConfig>(&raw)
+                .expect_err("expected spiffe security mode to fail deserialization");
+            assert!(
+                err.to_string()
+                    .contains("https://docs.serviceradar.cloud/docs/migrating-off-spire"),
+                "unexpected error: {err}"
+            );
+        }
+    }
+
+    #[test]
+    fn supported_security_modes_deserialize() {
+        for (raw, expected) in [
+            (r#""mtls""#, SecurityMode::Mtls),
+            (r#""none""#, SecurityMode::None),
+        ] {
+            assert_eq!(serde_json::from_str::<SecurityMode>(raw).unwrap(), expected);
         }
     }
 }

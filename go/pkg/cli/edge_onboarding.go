@@ -211,7 +211,6 @@ func buildEdgePackageCreatePayload(cfg *CmdConfig, componentType, parentType str
 	addOptionalString(payload, "checker_kind", cfg.EdgePackageCheckerKind)
 	addOptionalString(payload, "checker_config_json", cfg.EdgePackageCheckerConfig)
 	addOptionalString(payload, "notes", cfg.EdgePackageNotes)
-	addOptionalString(payload, "downstream_spiffe_id", cfg.EdgePackageDownstreamID)
 	addOptionalString(payload, "datasvc_endpoint", cfg.EdgePackageDataSvc)
 
 	if parentType != "" {

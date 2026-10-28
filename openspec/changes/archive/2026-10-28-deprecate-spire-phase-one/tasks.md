@@ -16,7 +16,7 @@
 - [x] 3.1 Add WARN-level deprecation logs to all effective Go/Rust/Elixir SPIFFE or Workload API startup paths using existing loggers.
 - [x] 3.2 Test warning emission without real credentials or a live Workload API, and verify mTLS/filesystem starts do not warn.
 - [x] 3.3 Change new-package defaults in Ash, the DB default migration, API and CLI to mTLS without rewriting existing rows.
-- [ ] 3.4 Prove omitted defaults and explicit SPIRE compatibility through public callers and hosted database tests.
+- [x] 3.4 Prove omitted defaults and explicit SPIRE compatibility through public callers and hosted database tests.
 
 ## 4. Documentation and delivery
 
@@ -24,4 +24,4 @@
 - [x] 4.2 Preserve historical records and all out-of-scope certificate URI/SRQL/env identity names.
 - [x] 4.3 Run focused remote tests, docs lint, strict OpenSpec validation, formatting/quality checks and full make test.
 - [x] 4.4 Upload the validated architecture diagram and portable OpenSpec review, retaining their source and evidence.
-- [ ] 4.5 Submit the phase-one PR to staging through no-mistakes without --yes, link sr-5413, and record current-head CI. Reference phase one of #5413 without prematurely closing the remaining phases.
+- [x] 4.5 Submit the phase-one PR to staging through no-mistakes without --yes, link sr-5413, and record current-head CI. Reference phase one of #5413 without prematurely closing the remaining phases.

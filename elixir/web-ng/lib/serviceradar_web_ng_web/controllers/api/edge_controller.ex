@@ -765,7 +765,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
       partition_id: package_partition_id(package),
       site: to_str(package.site || package_partition_id(package)),
       status: package.status,
-      security_mode: package.security_mode || "spire",
+      security_mode: package.security_mode || "mtls",
       downstream_spiffe_id: to_str(package.downstream_spiffe_id),
       selectors: package.selectors || [],
       checker_kind: to_str(package.checker_kind),

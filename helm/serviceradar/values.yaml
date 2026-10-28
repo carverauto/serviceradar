@@ -177,7 +177,6 @@ kv:
   address: serviceradar-datasvc:50057
   secMode: mtls
   trustDomain: ""
-  serverSPIFFEID: ""
   certDir: /etc/serviceradar/certs
 natsCreds:
   # Inline NATS .creds files for platform/system accounts.
@@ -319,7 +318,7 @@ otelExporter:
   enabled: true
   # OTLP/gRPC endpoint (uses the unified log-collector service)
   endpoint: "https://serviceradar-log-collector:4317"
-  # TLS certificate directory (SPIFFE-issued certs)
+  # TLS certificate directory
   certDir: "/etc/serviceradar/certs"
   # Trace sampling ratio (0.0 - 1.0). 1.0 = sample everything.
   samplingRatio: "1.0"
@@ -934,7 +933,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261028010000"
+    expectedVersion: "20261028120000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1159,7 +1158,6 @@ coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: mtls
   trustDomain: ""
-  serverSPIFFEID: ""
   certDir: /etc/serviceradar/certs
 cnpg:
   enabled: true
@@ -3116,10 +3114,6 @@ sweep:
       timeout: 5s
       maxBatch: 64
 
-# =============================================================================
-# SPIFFE Configuration (shared by all Elixir components)
-# =============================================================================
-
 # Optional telemetry warehouse for flows, scalar metrics, logs and events.
 # Disabled, metrics, logs and events are written to and read from CNPG.
 # NetFlow requires it: flows are written only to the warehouse, and
@@ -3287,7 +3281,3 @@ analytics:
       fePasswordSecretName: ""
       fePasswordSecretKey: password
 
-# Deprecated runtime selector. Filesystem certificate URI SAN names are unchanged.
-spiffe:
-  mode: "filesystem"
-  trustDomain: "serviceradar.local"

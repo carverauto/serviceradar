@@ -89,7 +89,7 @@ When the CNPG data volume already exists, the Docker Compose bootstrap MUST fail
 #### Scenario: Existing DB without credentials
 - **GIVEN** the CNPG data volume already exists
 - **AND** the credentials volume does not contain password files
-- **WHEN** the bootstrap job starts without `CNPG_PASSWORD`, `CNPG_SUPERUSER_PASSWORD`, or `CNPG_SPIRE_PASSWORD`
+- **WHEN** the bootstrap job starts without `CNPG_PASSWORD` or `CNPG_SUPERUSER_PASSWORD`
 - **THEN** the bootstrap job exits with an error before CNPG-dependent services start
 
 ### Requirement: Docker Compose CNPG binding is loopback by default
@@ -124,19 +124,6 @@ NetFlow records immediately after startup, retrying on transient KV failures.
 - **THEN** a `zen-put-rule` step SHALL seed the NetFlow rule bundle into KV
 - **AND** transient KV failures SHALL trigger retries before reporting failure
 - **AND** the NetFlow rule seeding step SHALL complete before NetFlow traffic is processed
-
-### Requirement: Docker Compose SPIRE bootstrap artifacts are integrity pinned
-The Docker Compose SPIRE bootstrap path MUST NOT download and execute unsigned binaries from the network at runtime.
-
-#### Scenario: SPIRE bootstrap uses vetted artifacts
-- **WHEN** the compose SPIRE bootstrap initializes the SPIRE server CLI or agent binary
-- **THEN** it uses binaries that are already present in the image or a vetted local artifact path
-- **OR** it verifies a pinned checksum or signature before extracting and executing a downloaded artifact
-
-#### Scenario: Unverified runtime download is rejected
-- **WHEN** the compose SPIRE bootstrap cannot establish the configured integrity material for a downloaded artifact
-- **THEN** bootstrap fails closed
-- **AND** it does not execute the downloaded binary
 
 ### Requirement: Docker Compose agent can reach the gateway
 The Docker Compose stack SHALL configure the agent and agent-gateway services so that the agent can resolve and connect to the gateway gRPC endpoint without manual edits.

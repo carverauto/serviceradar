@@ -52,7 +52,7 @@ fn every_credential_shape_is_detected() {
             "connection string with an embedded credential parameter",
         ),
         (
-            "core.workload_socket",
+            "core.server_name",
             "\"-----BEGIN PRIVATE KEY-----\\nMIIE\\n-----END PRIVATE KEY-----\"",
             "PEM-encoded key or certificate material",
         ),
@@ -97,8 +97,6 @@ fn legitimate_configuration_values_are_not_flagged() {
         ("nats.url", "\"tls://serviceradar-nats.demo.svc.cluster.local:4222\""),
         ("core.api_url", "\"http://serviceradar-core:8090\""),
         ("core.address", "\"serviceradar-core:50052\""),
-        ("core.server_spiffe_id", "\"spiffe://serviceradar.cloud/ns/demo/sa/core\""),
-        ("core.trust_domain", "\"serviceradar.cloud\""),
         ("dgraph.host", "\"dgraph.serviceradar.svc.cluster.local\""),
         ("kind", "ENVIRONMENT_KIND_DEMO"),
         ("database.tls_mode", "TLS_MODE_VERIFY_FULL"),

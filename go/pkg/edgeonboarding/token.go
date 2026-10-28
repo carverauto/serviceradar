@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 )
@@ -21,6 +22,23 @@ const (
 )
 
 var (
+	// ErrTokenRequired is returned when no onboarding token is provided.
+	ErrTokenRequired = errors.New("onboarding token is required")
+	// ErrUnsupportedTokenFormat is returned when a token does not use the signed structured format.
+	ErrUnsupportedTokenFormat = errors.New("unsupported onboarding token format (expected edgepkg-v2 or edgepkg-v3)")
+	// ErrUnsupportedComponentType is returned when component type is not supported.
+	ErrUnsupportedComponentType = errors.New("unsupported component type")
+	// ErrPackageIDEmpty is returned when package_id is empty.
+	ErrPackageIDEmpty = errors.New("package_id is empty")
+	// ErrDownloadTokenEmpty is returned when the download token segment is missing.
+	ErrDownloadTokenEmpty = errors.New("download token is empty")
+	// ErrCoreAPIURLRequired is returned when the Core API URL cannot be determined.
+	ErrCoreAPIURLRequired = errors.New("core API URL is required")
+	// ErrCoreAPIURLMissingHost indicates the base URL lacks a host.
+	ErrCoreAPIURLMissingHost = errors.New("core api url missing host")
+	// ErrCoreAPIURLMustUseHTTPS indicates the base URL uses an insecure scheme.
+	ErrCoreAPIURLMustUseHTTPS = errors.New("core api url must use https")
+
 	ErrOnboardingTokenPrivateKeyRequired = errors.New("onboarding token private key is not configured")
 	ErrOnboardingTokenPublicKeyRequired  = errors.New("onboarding token public key is not configured")
 	ErrOnboardingTokenInvalidSignature   = errors.New("onboarding token signature is invalid")
@@ -38,7 +56,7 @@ type tokenPayload struct {
 	version       int    `json:"-"`
 }
 
-func parseOnboardingToken(raw string, fallbackPackageID, overrideCoreURL string) (*tokenPayload, error) {
+func parseOnboardingToken(raw, overrideCoreURL string) (*tokenPayload, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
 		return nil, ErrTokenRequired
@@ -46,15 +64,15 @@ func parseOnboardingToken(raw string, fallbackPackageID, overrideCoreURL string)
 
 	switch {
 	case strings.HasPrefix(raw, tokenV3Prefix):
-		return parseSignedStructuredToken(raw, tokenV3Prefix, 3, fallbackPackageID, overrideCoreURL)
+		return parseSignedStructuredToken(raw, tokenV3Prefix, 3, overrideCoreURL)
 	case strings.HasPrefix(raw, tokenV2Prefix):
-		return parseSignedStructuredToken(raw, tokenV2Prefix, 2, fallbackPackageID, overrideCoreURL)
+		return parseSignedStructuredToken(raw, tokenV2Prefix, 2, overrideCoreURL)
 	default:
 		return nil, ErrUnsupportedTokenFormat
 	}
 }
 
-func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackageID, overrideCoreURL string) (*tokenPayload, error) {
+func parseSignedStructuredToken(raw, prefix string, version int, overrideCoreURL string) (*tokenPayload, error) {
 	encoded := strings.TrimPrefix(raw, prefix)
 	encodedPayload, encodedSignature, ok := strings.Cut(encoded, onboardingTokenSignatureSep)
 	if !ok || encodedPayload == "" || encodedSignature == "" {
@@ -85,9 +103,6 @@ func parseSignedStructuredToken(raw, prefix string, version int, fallbackPackage
 		return nil, fmt.Errorf("unmarshal onboarding token: %w", err)
 	}
 
-	if payload.PackageID == "" {
-		payload.PackageID = fallbackPackageID
-	}
 	// A caller-supplied URL is an operator override. The signed token remains
 	// authoritative for package identity and the download secret, but its API
 	// origin must not make an explicit --core-url impossible to use for recovery
@@ -230,4 +245,31 @@ func normalizePartitionID(partitionID string) string {
 		return defaultPartitionID
 	}
 	return partitionID
+}
+
+func normalizeBaseURL(raw string) (string, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return "", ErrCoreAPIURLRequired
+	}
+	if !strings.Contains(raw, "://") {
+		raw = "https://" + raw
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return "", fmt.Errorf("parse core api url: %w", err)
+	}
+	if u.Scheme == "" {
+		u.Scheme = "https"
+	}
+	if strings.ToLower(u.Scheme) != "https" {
+		return "", ErrCoreAPIURLMustUseHTTPS
+	}
+	if u.Host == "" {
+		return "", ErrCoreAPIURLMissingHost
+	}
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.Path = strings.TrimRight(u.Path, "/")
+	return strings.TrimRight(u.String(), "/"), nil
 }

@@ -19,7 +19,7 @@ package models
 type ServiceRole string
 
 const (
-	RoleGateway      ServiceRole = "gateway"  // Client and Server
+	RoleGateway     ServiceRole = "gateway" // Client and Server
 	RoleAgent       ServiceRole = "agent"   // Server only
 	RoleCore        ServiceRole = "core"    // Server only
 	RoleKVStore     ServiceRole = "kv"      // Server only
@@ -37,21 +37,17 @@ type TLSConfig struct {
 
 // SecurityConfig holds common security configuration.
 type SecurityConfig struct {
-	Mode           SecurityMode `json:"mode"`
-	CertDir        string       `json:"cert_dir"`
-	ServerName     string       `json:"server_name,omitempty"`
-	Role           ServiceRole  `json:"role"`
-	TLS            TLSConfig    `json:"tls"`
-	TrustDomain    string       `json:"trust_domain,omitempty"`     // For SPIFFE
-	ServerSPIFFEID string       `json:"server_spiffe_id,omitempty"` // Expected SPIFFE ID when acting as client
-	WorkloadSocket string       `json:"workload_socket,omitempty"`  // For SPIFFE
+	Mode       SecurityMode `json:"mode"`
+	CertDir    string       `json:"cert_dir"`
+	ServerName string       `json:"server_name,omitempty"`
+	Role       ServiceRole  `json:"role"`
+	TLS        TLSConfig    `json:"tls"`
 }
 
 // SecurityMode defines the type of security to use.
 type SecurityMode string
 
 const (
-	SecurityModeMTLS   SecurityMode = "mtls"
-	SecurityModeSPIFFE SecurityMode = "spiffe"
-	SecurityModeNone   SecurityMode = "none"
+	SecurityModeMTLS SecurityMode = "mtls"
+	SecurityModeNone SecurityMode = "none"
 )

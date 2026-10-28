@@ -64,13 +64,10 @@ func TestFilterSensitiveFields(t *testing.T) {
 				},
 			},
 			expected: map[string]interface{}{
-				"mode":             SecurityMode("secure"),
-				"cert_dir":         "/path/to/certs",
-				"server_name":      "localhost",
-				"role":             ServiceRole("server"),
-				"trust_domain":     "",
-				"server_spiffe_id": "",
-				"workload_socket":  "",
+				"mode":        SecurityMode("secure"),
+				"cert_dir":    "/path/to/certs",
+				"server_name": "localhost",
+				"role":        ServiceRole("server"),
 				"tls": map[string]interface{}{
 					"cert_file":      "/path/to/cert",
 					"key_file":       "/path/to/key",

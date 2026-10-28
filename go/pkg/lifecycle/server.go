@@ -207,13 +207,10 @@ func initializeSecurityProvider(ctx context.Context, security *models.SecurityCo
 // copySecurityConfig creates a deep copy of the security configuration.
 func copySecurityConfig(security *models.SecurityConfig) *models.SecurityConfig {
 	return &models.SecurityConfig{
-		Mode:           security.Mode,
-		CertDir:        security.CertDir,
-		Role:           security.Role,
-		ServerName:     security.ServerName,
-		ServerSPIFFEID: security.ServerSPIFFEID,
-		WorkloadSocket: security.WorkloadSocket,
-		TrustDomain:    security.TrustDomain,
+		Mode:       security.Mode,
+		CertDir:    security.CertDir,
+		Role:       security.Role,
+		ServerName: security.ServerName,
 		TLS: struct {
 			CertFile     string `json:"cert_file"`
 			KeyFile      string `json:"key_file"`

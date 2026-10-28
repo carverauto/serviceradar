@@ -58,7 +58,6 @@ defmodule Serviceradar.Config.V1.SecurityMode do
   field :SECURITY_MODE_UNSPECIFIED, 0
   field :SECURITY_MODE_NONE, 1
   field :SECURITY_MODE_MTLS, 2
-  field :SECURITY_MODE_SPIFFE, 3
 end
 
 defmodule Serviceradar.Config.V1.DatabaseConfig do
@@ -146,9 +145,6 @@ defmodule Serviceradar.Config.V1.CoreConfig do
     enum: true
 
   field :server_name, 4, proto3_optional: true, type: :string, json_name: "serverName"
-  field :trust_domain, 5, proto3_optional: true, type: :string, json_name: "trustDomain"
-  field :server_spiffe_id, 6, proto3_optional: true, type: :string, json_name: "serverSpiffeId"
-  field :workload_socket, 7, proto3_optional: true, type: :string, json_name: "workloadSocket"
 end
 
 defmodule Serviceradar.Config.V1.EnvironmentConfig do

@@ -56,7 +56,6 @@ var (
 	ErrEdgeOnboardingInvalidRequest    = errors.New("edge onboarding: invalid request")
 	ErrEdgeOnboardingGatewayConflict   = errors.New("edge onboarding: gateway already provisioned")
 	ErrEdgeOnboardingComponentConflict = errors.New("edge onboarding: component already provisioned")
-	ErrEdgeOnboardingSpireUnavailable  = errors.New("edge onboarding: spire admin unavailable")
 	ErrEdgeOnboardingDownloadRequired  = errors.New("edge onboarding: download token required")
 	ErrEdgeOnboardingDownloadInvalid   = errors.New("edge onboarding: download token invalid")
 	ErrEdgeOnboardingDownloadExpired   = errors.New("edge onboarding: download token expired")
@@ -125,24 +124,23 @@ type EdgeOnboardingListFilter struct {
 
 // EdgeOnboardingCreateRequest drives package provisioning.
 type EdgeOnboardingCreateRequest struct {
-	Label              string
-	ComponentID        string
-	ComponentType      EdgeOnboardingComponentType
-	ParentType         EdgeOnboardingComponentType
-	SecurityMode       string
-	ParentID           string
-	GatewayID          string
-	Site               string
-	Selectors          []string
-	MetadataJSON       string
-	CheckerKind        string
-	CheckerConfigJSON  string
-	Notes              string
-	CreatedBy          string
-	JoinTokenTTL       time.Duration
-	DownloadTokenTTL   time.Duration
-	DownstreamSPIFFEID string
-	DataSvcEndpoint    string // DataSvc gRPC endpoint (e.g., "192.0.2.10:50057")
+	Label             string
+	ComponentID       string
+	ComponentType     EdgeOnboardingComponentType
+	ParentType        EdgeOnboardingComponentType
+	SecurityMode      string
+	ParentID          string
+	GatewayID         string
+	Site              string
+	Selectors         []string
+	MetadataJSON      string
+	CheckerKind       string
+	CheckerConfigJSON string
+	Notes             string
+	CreatedBy         string
+	JoinTokenTTL      time.Duration
+	DownloadTokenTTL  time.Duration
+	DataSvcEndpoint   string // DataSvc gRPC endpoint (e.g., "192.0.2.10:50057")
 }
 
 // EdgeOnboardingCreateResult bundles the stored package and sensitive artifacts.
@@ -188,7 +186,7 @@ type EdgeOnboardingRevokeResult struct {
 type EdgeTemplate struct {
 	ComponentType EdgeOnboardingComponentType `json:"component_type"` // Component type (e.g., "checker")
 	Kind          string                      `json:"kind"`           // Component kind (e.g., "sysmon", "snmp", "rperf")
-	SecurityMode  string                      `json:"security_mode"`  // Security mode for the template (e.g., "mtls", "spire")
+	SecurityMode  string                      `json:"security_mode"`  // Security mode for the template (e.g., "mtls")
 	TemplateKey   string                      `json:"template_key"`   // Full KV key path (e.g., "templates/checkers/mtls/sysmon.json")
 }
 

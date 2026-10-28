@@ -379,7 +379,6 @@ defmodule ServiceRadar.Edge.AgentProcess do
     agent_info = %{
       partition_id: state.partition_id,
       capabilities: state.capabilities,
-      # TODO: Get from SPIFFE workload API
       spiffe_id: nil
     }
 

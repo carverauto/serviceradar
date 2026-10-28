@@ -14,7 +14,7 @@ import {
 import {attachmentFilename, printJson, printRecord, printTable, wantsJson, writeDownload} from "./output.js"
 
 const COMPONENT_TYPES = ["agent", "gateway", "checker", "sync"]
-const SECURITY_MODES = ["mtls", "spire"]
+const SECURITY_MODES = ["mtls"]
 
 export async function dispatchEdgePackage(subcommand: string, options: Record<string, any>): Promise<void> {
   switch (subcommand) {

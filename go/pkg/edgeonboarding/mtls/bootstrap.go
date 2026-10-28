@@ -14,9 +14,7 @@
  * limitations under the License.
  */
 
-// Package mtls provides mTLS bootstrap functionality for edge services.
-// This is a simpler alternative to SPIRE-based edge onboarding that uses
-// pre-generated mTLS certificates from an onboarding token or bundle file.
+// Package mtls provides mTLS-based bootstrap helpers for edge services.
 package mtls
 
 import (

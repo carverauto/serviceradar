@@ -237,7 +237,6 @@ const (
 	SecurityMode_SECURITY_MODE_UNSPECIFIED SecurityMode = 0
 	SecurityMode_SECURITY_MODE_NONE        SecurityMode = 1
 	SecurityMode_SECURITY_MODE_MTLS        SecurityMode = 2
-	SecurityMode_SECURITY_MODE_SPIFFE      SecurityMode = 3
 )
 
 // Enum value maps for SecurityMode.
@@ -246,13 +245,11 @@ var (
 		0: "SECURITY_MODE_UNSPECIFIED",
 		1: "SECURITY_MODE_NONE",
 		2: "SECURITY_MODE_MTLS",
-		3: "SECURITY_MODE_SPIFFE",
 	}
 	SecurityMode_value = map[string]int32{
 		"SECURITY_MODE_UNSPECIFIED": 0,
 		"SECURITY_MODE_NONE":        1,
 		"SECURITY_MODE_MTLS":        2,
-		"SECURITY_MODE_SPIFFE":      3,
 	}
 )
 
@@ -625,16 +622,13 @@ func (x *DgraphConfig) GetCaBundleUrl() string {
 // CORE_CERT_FILE, CORE_KEY_FILE, CORE_CA_FILE and CORE_CERT_DIR are deliberately absent:
 // they locate certificate material, which SecretManager resolves.
 type CoreConfig struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
-	Address        *string                `protobuf:"bytes,1,opt,name=address,proto3,oneof" json:"address,omitempty"`
-	ApiUrl         *string                `protobuf:"bytes,2,opt,name=api_url,json=apiUrl,proto3,oneof" json:"api_url,omitempty"`
-	SecurityMode   *SecurityMode          `protobuf:"varint,3,opt,name=security_mode,json=securityMode,proto3,enum=serviceradar.config.v1.SecurityMode,oneof" json:"security_mode,omitempty"`
-	ServerName     *string                `protobuf:"bytes,4,opt,name=server_name,json=serverName,proto3,oneof" json:"server_name,omitempty"`
-	TrustDomain    *string                `protobuf:"bytes,5,opt,name=trust_domain,json=trustDomain,proto3,oneof" json:"trust_domain,omitempty"`
-	ServerSpiffeId *string                `protobuf:"bytes,6,opt,name=server_spiffe_id,json=serverSpiffeId,proto3,oneof" json:"server_spiffe_id,omitempty"`
-	WorkloadSocket *string                `protobuf:"bytes,7,opt,name=workload_socket,json=workloadSocket,proto3,oneof" json:"workload_socket,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Address       *string                `protobuf:"bytes,1,opt,name=address,proto3,oneof" json:"address,omitempty"`
+	ApiUrl        *string                `protobuf:"bytes,2,opt,name=api_url,json=apiUrl,proto3,oneof" json:"api_url,omitempty"`
+	SecurityMode  *SecurityMode          `protobuf:"varint,3,opt,name=security_mode,json=securityMode,proto3,enum=serviceradar.config.v1.SecurityMode,oneof" json:"security_mode,omitempty"`
+	ServerName    *string                `protobuf:"bytes,4,opt,name=server_name,json=serverName,proto3,oneof" json:"server_name,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *CoreConfig) Reset() {
@@ -691,27 +685,6 @@ func (x *CoreConfig) GetSecurityMode() SecurityMode {
 func (x *CoreConfig) GetServerName() string {
 	if x != nil && x.ServerName != nil {
 		return *x.ServerName
-	}
-	return ""
-}
-
-func (x *CoreConfig) GetTrustDomain() string {
-	if x != nil && x.TrustDomain != nil {
-		return *x.TrustDomain
-	}
-	return ""
-}
-
-func (x *CoreConfig) GetServerSpiffeId() string {
-	if x != nil && x.ServerSpiffeId != nil {
-		return *x.ServerSpiffeId
-	}
-	return ""
-}
-
-func (x *CoreConfig) GetWorkloadSocket() string {
-	if x != nil && x.WorkloadSocket != nil {
-		return *x.WorkloadSocket
 	}
 	return ""
 }
@@ -857,26 +830,20 @@ const file_config_proto_config_proto_rawDesc = "" +
 	"\x05_hostB\a\n" +
 	"\x05_portB\v\n" +
 	"\t_tls_modeB\x10\n" +
-	"\x0e_ca_bundle_url\"\xb8\x03\n" +
+	"\x0e_ca_bundle_url\"\xbc\x02\n" +
 	"\n" +
 	"CoreConfig\x12\x1d\n" +
 	"\aaddress\x18\x01 \x01(\tH\x00R\aaddress\x88\x01\x01\x12\x1c\n" +
 	"\aapi_url\x18\x02 \x01(\tH\x01R\x06apiUrl\x88\x01\x01\x12N\n" +
 	"\rsecurity_mode\x18\x03 \x01(\x0e2$.serviceradar.config.v1.SecurityModeH\x02R\fsecurityMode\x88\x01\x01\x12$\n" +
 	"\vserver_name\x18\x04 \x01(\tH\x03R\n" +
-	"serverName\x88\x01\x01\x12&\n" +
-	"\ftrust_domain\x18\x05 \x01(\tH\x04R\vtrustDomain\x88\x01\x01\x12-\n" +
-	"\x10server_spiffe_id\x18\x06 \x01(\tH\x05R\x0eserverSpiffeId\x88\x01\x01\x12,\n" +
-	"\x0fworkload_socket\x18\a \x01(\tH\x06R\x0eworkloadSocket\x88\x01\x01B\n" +
+	"serverName\x88\x01\x01B\n" +
 	"\n" +
 	"\b_addressB\n" +
 	"\n" +
 	"\b_api_urlB\x10\n" +
 	"\x0e_security_modeB\x0e\n" +
-	"\f_server_nameB\x0f\n" +
-	"\r_trust_domainB\x13\n" +
-	"\x11_server_spiffe_idB\x12\n" +
-	"\x10_workload_socket\"\xbc\x03\n" +
+	"\f_server_nameJ\x04\b\x05\x10\x06J\x04\b\x06\x10\aJ\x04\b\a\x10\bR\ftrust_domainR\x10server_spiffe_idR\x0fworkload_socket\"\xbc\x03\n" +
 	"\x11EnvironmentConfig\x12@\n" +
 	"\x04kind\x18\x01 \x01(\x0e2'.serviceradar.config.v1.EnvironmentKindH\x00R\x04kind\x88\x01\x01\x12\x1f\n" +
 	"\binstance\x18\x02 \x01(\tH\x01R\binstance\x88\x01\x01\x12G\n" +
@@ -907,12 +874,11 @@ const file_config_proto_config_proto_rawDesc = "" +
 	"\x1bDGRAPH_TLS_MODE_UNSPECIFIED\x10\x00\x12\x1b\n" +
 	"\x17DGRAPH_TLS_MODE_DISABLE\x10\x01\x12%\n" +
 	"!DGRAPH_TLS_MODE_REQUIRE_NO_VERIFY\x10\x02\x12\x1d\n" +
-	"\x19DGRAPH_TLS_MODE_VERIFY_CA\x10\x03*w\n" +
+	"\x19DGRAPH_TLS_MODE_VERIFY_CA\x10\x03*y\n" +
 	"\fSecurityMode\x12\x1d\n" +
 	"\x19SECURITY_MODE_UNSPECIFIED\x10\x00\x12\x16\n" +
 	"\x12SECURITY_MODE_NONE\x10\x01\x12\x16\n" +
-	"\x12SECURITY_MODE_MTLS\x10\x02\x12\x18\n" +
-	"\x14SECURITY_MODE_SPIFFE\x10\x03B:Z8github.com/carverauto/serviceradar/config/proto;configpbb\x06proto3"
+	"\x12SECURITY_MODE_MTLS\x10\x02\"\x04\b\x03\x10\x03*\x14SECURITY_MODE_SPIFFEB:Z8github.com/carverauto/serviceradar/config/proto;configpbb\x06proto3"
 
 var (
 	file_config_proto_config_proto_rawDescOnce sync.Once

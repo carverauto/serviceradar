@@ -2,6 +2,9 @@
 
 ## Why
 
+This describes the pre-change motivation and full renewal roadmap. See
+[tasks](tasks.md) for Phase 1 completion; automatic renewal remains pending.
+
 Edge agents enrolled via `ServiceRadarWebNG.Edge.OnboardingPackages` receive a static leaf X.509 certificate and private key written once to `/etc/serviceradar/certs/component.pem` and `/etc/serviceradar/certs/component-key.pem`, with zero rotation or renewal mechanism after enrollment. Compounding this gap, `ServiceRadar.Edge.OnboardingPackages.create_with_platform_cert/2` defaults `:cert_validity_days` to `1` while `ServiceRadarAgentGateway.CertIssuer` defaults to `365`, causing enrolled agents to receive 1-day leaf certificates unless callers explicitly override `:cert_validity_days`.
 
 When an enrolled agent's leaf certificate expires:
@@ -21,9 +24,9 @@ When an enrolled agent's leaf certificate expires:
   - Reject expired client certificates at the TLS handshake boundary and recheck authenticated peer validity against current gateway time immediately before signing every renewal, including retries over existing connections, with no unauthenticated or expired-cert renewal grace window (preventing an attacker who compromises a decommissioned host or backups after expiry from silently minting a fresh certificate).
   - Provide a single-command operator re-enrollment path (`serviceradar-cli enroll --token <token>` / `POST /api/admin/agents/:uid/reissue-enrollment-token`) that preserves the existing `component_id` (`agent_uid`) and replaces the expired certificate bundle in place without duplicating inventory records.
 - **Explicit, Configurable Certificate Lifetimes**:
-  - Remove the accidental `1`-day default in `ServiceRadar.Edge.OnboardingPackages.create_with_platform_cert/2` and unify default leaf certificate validity at `90` days (configurable per deployment and per package within `7..825` days, with an explicit floor of `7` days for production onboarding packages).
+  - Replace the accidental short default with the shared lifetime policy; see [Decision 3](design.md#decision-3-explicit-configurable-certificate-lifetimes-fixing-the-1-day-default) for implemented scope and remaining configuration work.
 - **Fleet & SRQL Certificate Visibility, Alerting, and Diagnostics**:
-  - Persist `cert_serial_number`, `cert_fingerprint_sha256`, `cert_not_before`, `cert_not_after` (`cert_expires_at`), `cert_last_renewed_at`, and `cert_renewal_error` on `platform.ocsf_agents` (`ServiceRadar.Infrastructure.Agent`).
+  - Persist peer certificate lifecycle metadata on `platform.ocsf_agents`; see [Decision 4](design.md#decision-4-visibility-srql-support-alerting-and-diagnostics) for implemented inventory and pending renewal status.
   - Expose `cert_expires_at` (`cert_not_after`), `cert_serial_number`, and `cert_fingerprint` in SRQL `in:agents` queries (supporting relative time comparisons such as `in:agents cert_expires_at:<7d` and ordering by `cert_expires_at`).
   - Surface certificate expiry badges, countdowns, and renewal errors in the Web-NG Agents Fleet and detail views.
   - Emit proactive platform alerts for approaching expiry and renewal failures, with agent-side local expiry diagnostics and gateway-side peer rejection diagnostics as defined in [Decision 4](design.md#decision-4-visibility-srql-support-alerting-and-diagnostics).

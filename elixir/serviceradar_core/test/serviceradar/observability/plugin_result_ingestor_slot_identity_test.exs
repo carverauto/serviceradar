@@ -261,4 +261,111 @@ defmodule ServiceRadar.Observability.PluginResultIngestorSlotIdentityTest do
     succeeded_at = marker_timestamp(shifted_reported_at, 1, "succeeded")
     assert [[true, "edge plugin completed", ^succeeded_at]] = current_state_rows(status)
   end
+
+  # The ingestor reads ServiceStatus several times per result, each read bounded
+  # by a narrow timestamp window. service_status is a hypertable partitioned on
+  # that column, so a read must be planned against the chunk holding its window
+  # only. A read that compares a cast of the column cannot be pruned and scans
+  # every chunk of the retained history.
+  test "the ingestor's ServiceStatus window reads are pruned to the chunk of their window" do
+    Application.put_env(:serviceradar_core, :plugin_result_handlers, [SuccessfulHandler])
+    {payload, status, observed_at} = plugin_result_fixture()
+    distant_at = DateTime.shift(observed_at, day: -180)
+
+    {1, _} =
+      Repo.insert_all(
+        "service_status",
+        [
+          %{
+            timestamp: distant_at,
+            gateway_id: "#{status.gateway_id}-history",
+            service_name: status.service_name,
+            available: true
+          }
+        ],
+        prefix: "platform"
+      )
+
+    reads =
+      capture_service_status_reads(fn ->
+        assert :ok = PluginResultIngestor.ingest(payload, status)
+      end)
+
+    assert reads != []
+    current_chunk = service_status_chunk(observed_at)
+    distant_chunk = service_status_chunk(distant_at)
+    refute current_chunk == distant_chunk
+    # Plan with the bound values, as the ingestor's one-shot reads are planned.
+    Repo.query!("SET LOCAL plan_cache_mode = force_custom_plan")
+
+    for {sql, params} <- reads do
+      relations = sql |> explain_json(params) |> plan_relations()
+
+      assert current_chunk in relations and distant_chunk not in relations,
+             "service_status read is not pruned to its window's chunk " <>
+               "(scans #{inspect(relations)}):\n#{sql}"
+    end
+  end
+
+  defp capture_service_status_reads(fun) do
+    handler_id = {__MODULE__, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:service_radar, :repo, :query],
+      fn _event, _measurements, metadata, _config ->
+        if String.starts_with?(metadata.query, "SELECT") and
+             String.contains?(metadata.query, ~s(FROM "platform"."service_status")) do
+          send(test_pid, {:service_status_read, metadata.query, metadata.params})
+        end
+      end,
+      nil
+    )
+
+    try do
+      fun.()
+    after
+      :telemetry.detach(handler_id)
+    end
+
+    collect_service_status_reads([])
+  end
+
+  defp collect_service_status_reads(reads) do
+    receive do
+      {:service_status_read, sql, params} -> collect_service_status_reads([{sql, params} | reads])
+    after
+      0 -> Enum.reverse(reads)
+    end
+  end
+
+  defp explain_json(sql, params) do
+    %{rows: [[plan]]} = Repo.query!("EXPLAIN (FORMAT JSON) " <> sql, params)
+    plan
+  end
+
+  defp service_status_chunk(at) do
+    %{rows: [[chunk]]} =
+      Repo.query!(
+        """
+        SELECT chunk_name
+        FROM timescaledb_information.chunks
+        WHERE hypertable_schema = 'platform'
+          AND hypertable_name = 'service_status'
+          AND range_start <= $1
+          AND range_end > $1
+        """,
+        [at]
+      )
+
+    chunk
+  end
+
+  defp plan_relations(plan) when is_list(plan), do: Enum.flat_map(plan, &plan_relations/1)
+
+  defp plan_relations(%{} = node) do
+    own = if is_binary(node["Relation Name"]), do: [node["Relation Name"]], else: []
+    own ++ Enum.flat_map(List.wrap(node["Plan"]) ++ List.wrap(node["Plans"]), &plan_relations/1)
+  end
 end

@@ -88,23 +88,20 @@ type GatewayConfig struct {
 }
 
 var (
-	errInvalidDuration                  = fmt.Errorf("invalid duration")
-	errLoggingConfigRequired            = fmt.Errorf("logging configuration is required")
-	errListenAddrRequired               = fmt.Errorf("listen address is required")
-	errGRPCAddrRequired                 = fmt.Errorf("grpc address is required")
-	errSpireAdminServerAddressRequired  = fmt.Errorf("spire_admin.server_address is required when enabled")
-	errSpireAdminServerSPIFFEIDRequired = fmt.Errorf("spire_admin.server_spiffe_id is required when enabled")
-	errSpireAdminJoinTokenTTLInvalid    = fmt.Errorf("spire_admin.join_token_ttl must be non-negative")
-	errEdgeOnboardingKeyRequired        = fmt.Errorf("edge_onboarding.encryption_key is required when enabled")
-	errEdgeOnboardingKeyLength          = fmt.Errorf("edge_onboarding.encryption_key must decode to 32 bytes")
-	errEdgeOnboardingJoinTokenTTL       = fmt.Errorf("edge_onboarding.join_token_ttl must be non-negative")
-	errEdgeOnboardingDownloadTokenTTL   = fmt.Errorf("edge_onboarding.download_token_ttl must be non-negative")
-	errSRQLBaseURLRequired              = fmt.Errorf("srql.base_url is required when SRQL integration is enabled")
-	errCNPGConfigRequired               = fmt.Errorf("cnpg configuration is required")
-	errCNPGHostRequired                 = fmt.Errorf("cnpg.host is required when CNPG is enabled")
-	errCNPGPortInvalid                  = fmt.Errorf("cnpg.port must be between 0 and 65535 when CNPG is enabled")
-	errCNPGDatabaseRequired             = fmt.Errorf("cnpg.database is required when CNPG is enabled")
-	errCNPGUsernameRequired             = fmt.Errorf("cnpg.username is required when CNPG is enabled")
+	errInvalidDuration                = fmt.Errorf("invalid duration")
+	errLoggingConfigRequired          = fmt.Errorf("logging configuration is required")
+	errListenAddrRequired             = fmt.Errorf("listen address is required")
+	errGRPCAddrRequired               = fmt.Errorf("grpc address is required")
+	errEdgeOnboardingKeyRequired      = fmt.Errorf("edge_onboarding.encryption_key is required when enabled")
+	errEdgeOnboardingKeyLength        = fmt.Errorf("edge_onboarding.encryption_key must decode to 32 bytes")
+	errEdgeOnboardingJoinTokenTTL     = fmt.Errorf("edge_onboarding.join_token_ttl must be non-negative")
+	errEdgeOnboardingDownloadTokenTTL = fmt.Errorf("edge_onboarding.download_token_ttl must be non-negative")
+	errSRQLBaseURLRequired            = fmt.Errorf("srql.base_url is required when SRQL integration is enabled")
+	errCNPGConfigRequired             = fmt.Errorf("cnpg configuration is required")
+	errCNPGHostRequired               = fmt.Errorf("cnpg.host is required when CNPG is enabled")
+	errCNPGPortInvalid                = fmt.Errorf("cnpg.port must be between 0 and 65535 when CNPG is enabled")
+	errCNPGDatabaseRequired           = fmt.Errorf("cnpg.database is required when CNPG is enabled")
+	errCNPGUsernameRequired           = fmt.Errorf("cnpg.username is required when CNPG is enabled")
 )
 
 // ReaperConfig configures the stale device reaper.
@@ -182,7 +179,6 @@ type CoreServiceConfig struct {
 	SRQL            *SRQLConfig       `json:"srql,omitempty"`
 	// KV endpoints for admin config operations (hub/leaf mappings)
 	KVEndpoints    []KVEndpoint                  `json:"kv_endpoints,omitempty"`
-	SpireAdmin     *SpireAdminConfig             `json:"spire_admin,omitempty"`
 	EdgeOnboarding *EdgeOnboardingConfig         `json:"edge_onboarding,omitempty"`
 	Features       FeatureFlags                  `json:"features,omitempty"`
 	Reaper         *ReaperConfig                 `json:"reaper,omitempty"`
@@ -197,16 +193,6 @@ type KVEndpoint struct {
 	Domain  string `json:"domain"`
 	Type    string `json:"type,omitempty"` // hub | leaf | other
 	// Optional security for dialing KV from core (falls back to Core.Security if omitted)
-}
-
-// SpireAdminConfig captures SPIRE server access for administrative APIs.
-type SpireAdminConfig struct {
-	Enabled        bool     `json:"enabled"`
-	ServerAddress  string   `json:"server_address"`
-	ServerSPIFFEID string   `json:"server_spiffe_id"`
-	WorkloadSocket string   `json:"workload_socket,omitempty"`
-	BundlePath     string   `json:"bundle_path,omitempty"`
-	JoinTokenTTL   Duration `json:"join_token_ttl,omitempty"`
 }
 
 // EdgeOnboardingConfig configures secure edge gateway enrollment.
@@ -428,18 +414,6 @@ func (c *CoreServiceConfig) Validate() error {
 
 	if c.CNPG.Port < 0 || c.CNPG.Port > 65535 {
 		return errCNPGPortInvalid
-	}
-
-	if c.SpireAdmin != nil && c.SpireAdmin.Enabled {
-		if c.SpireAdmin.ServerAddress == "" {
-			return errSpireAdminServerAddressRequired
-		}
-		if c.SpireAdmin.ServerSPIFFEID == "" {
-			return errSpireAdminServerSPIFFEIDRequired
-		}
-		if c.SpireAdmin.JoinTokenTTL < 0 {
-			return errSpireAdminJoinTokenTTLInvalid
-		}
 	}
 
 	if c.EdgeOnboarding != nil && c.EdgeOnboarding.Enabled {

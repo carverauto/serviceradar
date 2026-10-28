@@ -67,11 +67,24 @@ defmodule ServiceRadar.Edge.OnboardingPackageTest do
       end
     end
 
-    test "supports all security modes" do
-      for mode <- [:spire, :mtls] do
-        package = onboarding_package_fixture(%{security_mode: mode})
-        assert package.security_mode == mode
-      end
+    test "supports mTLS security mode and rejects spire" do
+      package = onboarding_package_fixture(%{security_mode: :mtls})
+      assert package.security_mode == :mtls
+
+      assert {:error, _} =
+               OnboardingPackage
+               |> Ash.Changeset.for_create(
+                 :create,
+                 %{
+                   label: "Rejected SPIRE Package",
+                   component_id: "test-gateway-spire",
+                   component_type: :gateway,
+                   site: "datacenter-1",
+                   security_mode: :spire
+                 },
+                 actor: system_actor()
+               )
+               |> Ash.create()
     end
   end
 

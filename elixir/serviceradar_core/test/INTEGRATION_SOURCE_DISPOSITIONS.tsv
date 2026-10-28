@@ -264,6 +264,7 @@ test/serviceradar/edge/agent_gateway_sync_config_ack_test.exs	ServiceRadar.Edge.
 test/serviceradar/edge/agent_gateway_sync_host_evidence_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/agent_gateway_sync_test.exs	ServiceRadar.Edge.AgentGatewaySyncTest	data_case	serial	application_env	test:29-38 replaces agent_release_public_key
 test/serviceradar/edge/agent_release_manager_test.exs	ServiceRadar.Edge.AgentReleaseManagerTest	data_case	serial	application_env	test:75-94 replaces release key and artifact mirror module
+test/serviceradar/edge/certificate_lifetime_policy_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/direct_leaf_eligibility_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/direct_leaf_identity_issuer_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/edge/direct_leaf_scope_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
@@ -408,6 +409,7 @@ test/serviceradar/identity/user_group_role_profile_contract_test.exs	-	not_selec
 test/serviceradar/identity/validations/current_password_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/validations/password_confirmation_matches_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
 test/serviceradar/identity/validations/profile_timezone_test.exs	-	not_selected	load_only	not_selected	Static selection audit: this ALL_TEST_SRCS source has zero :integration/:requires_app identities; formatter not run.
+test/serviceradar/infrastructure/agent_cert_expiry_monitor_test.exs	ServiceRadar.Infrastructure.AgentCertExpiryMonitorTest	data_case	async	transaction_owner	test:11 DataCase owner; synchronous AgentGatewaySync, Agent, and AgentCertExpiryMonitor.evaluate/1 calls in the test process
 test/serviceradar/infrastructure/agent_health_test.exs	ServiceRadar.Infrastructure.AgentHealthTest	data_case	async	transaction_owner	test:12 DataCase owner; no database child
 test/serviceradar/infrastructure/agent_supersession_test.exs	ServiceRadar.Infrastructure.AgentSupersessionTest	data_case	async	transaction_owner	test:6 DataCase owner; AgentGatewaySync, AgentSupersession and AddonRolloutCoordinator calls run in the test process
 test/serviceradar/infrastructure/agent_test.exs	ServiceRadar.Infrastructure.AgentTest	data_case	async	transaction_owner	test:9 DataCase owner; no database child

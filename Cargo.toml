@@ -145,7 +145,6 @@ openssl-sys = "=0.9.116"
 p521 = { version = "0.14", default-features = false, features = ["ecdsa"] }
 parking_lot = "0.12"
 pcap = "2.4.0"
-pem = "3"
 phf = "0.14"
 phf_codegen = "0.11"
 # Exact-pinned: it selects the pq-src version that //third_party/rust_patches:pq_src_fortify_patch
@@ -188,7 +187,6 @@ serde_json = "1.0"
 serial_test = "3.2"
 sha2 = "0.11"
 snmp2 = { version = "0.5", default-features = false }
-spiffe = { version = "0.16", default-features = false }
 tempfile = "3"
 thiserror = "2"
 time = { version = ">=0.3.36, <0.3.47", default-features = false, features = ["std"] }

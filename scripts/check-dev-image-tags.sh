@@ -13,7 +13,7 @@ if ! rg -n 'imageTag: "latest"' helm/serviceradar/values-demo-staging.yaml >/dev
   fail=1
 fi
 
-compose_files=(docker-compose.yml docker-compose.spiffe.yml)
+compose_files=(docker-compose.yml)
 for file in "${compose_files[@]}"; do
   matched=$(rg -n 'image:\s+ghcr.io/carverauto/serviceradar-' "$file" || true)
   matched=$(printf '%s\n' "$matched" | rg -v 'serviceradar-cnpg' || true)

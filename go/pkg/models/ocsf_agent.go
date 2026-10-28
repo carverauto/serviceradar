@@ -24,17 +24,17 @@ import (
 // OCSF Agent Type IDs (aligned with OCSF v1.7.0)
 // See: https://schema.ocsf.io/1.7.0/objects/agent
 const (
-	OCSFAgentTypeUnknown                     = 0
-	OCSFAgentTypeEndpointDetectionResponse   = 1
-	OCSFAgentTypeDataLossPrevention          = 2
-	OCSFAgentTypeBackupRecovery              = 3
-	OCSFAgentTypePerformanceMonitoring       = 4
-	OCSFAgentTypeVulnerabilityManagement     = 5
-	OCSFAgentTypeLogManagement               = 6
-	OCSFAgentTypeMobileDeviceManagement      = 7
-	OCSFAgentTypeConfigurationManagement     = 8
-	OCSFAgentTypeRemoteAccess                = 9
-	OCSFAgentTypeOther                       = 99
+	OCSFAgentTypeUnknown                   = 0
+	OCSFAgentTypeEndpointDetectionResponse = 1
+	OCSFAgentTypeDataLossPrevention        = 2
+	OCSFAgentTypeBackupRecovery            = 3
+	OCSFAgentTypePerformanceMonitoring     = 4
+	OCSFAgentTypeVulnerabilityManagement   = 5
+	OCSFAgentTypeLogManagement             = 6
+	OCSFAgentTypeMobileDeviceManagement    = 7
+	OCSFAgentTypeConfigurationManagement   = 8
+	OCSFAgentTypeRemoteAccess              = 9
+	OCSFAgentTypeOther                     = 99
 )
 
 // Agent type name string constants
@@ -93,10 +93,10 @@ type OCSFAgentPolicy struct {
 // This is the full database record with ServiceRadar extensions.
 type OCSFAgentRecord struct {
 	// OCSF Core Identity (per https://schema.ocsf.io/1.7.0/objects/agent)
-	UID        string `json:"uid" db:"uid"`                       // Unique agent identifier (sensor ID)
-	Name       string `json:"name,omitempty" db:"name"`           // Agent designation (e.g., "serviceradar-agent")
-	TypeID     int    `json:"type_id" db:"type_id"`               // OCSF agent type enum
-	Type       string `json:"type,omitempty" db:"type"`           // Human-readable agent type name
+	UID    string `json:"uid" db:"uid"`             // Unique agent identifier (sensor ID)
+	Name   string `json:"name,omitempty" db:"name"` // Agent designation (e.g., "serviceradar-agent")
+	TypeID int    `json:"type_id" db:"type_id"`     // OCSF agent type enum
+	Type   string `json:"type,omitempty" db:"type"` // Human-readable agent type name
 
 	// OCSF Extended Identity
 	Version    string            `json:"version,omitempty" db:"version"`         // Semantic version of the agent
@@ -105,13 +105,13 @@ type OCSFAgentRecord struct {
 	Policies   []OCSFAgentPolicy `json:"policies,omitempty" db:"policies"`       // Applied policies array
 
 	// ServiceRadar Extensions
-	GatewayID      string    `json:"gateway_id,omitempty" db:"gateway_id"`           // Parent gateway reference
-	Capabilities  []string  `json:"capabilities,omitempty" db:"capabilities"`    // Registered checker capabilities
-	IP            string    `json:"ip,omitempty" db:"ip"`                         // Agent IP address
-	FirstSeenTime time.Time `json:"first_seen_time,omitempty" db:"first_seen_time"`
-	LastSeenTime  time.Time `json:"last_seen_time,omitempty" db:"last_seen_time"`
-	CreatedTime   time.Time `json:"created_time" db:"created_time"`
-	ModifiedTime  time.Time `json:"modified_time" db:"modified_time"`
+	GatewayID     string            `json:"gateway_id,omitempty" db:"gateway_id"`     // Parent gateway reference
+	Capabilities  []string          `json:"capabilities,omitempty" db:"capabilities"` // Registered checker capabilities
+	IP            string            `json:"ip,omitempty" db:"ip"`                     // Agent IP address
+	FirstSeenTime time.Time         `json:"first_seen_time,omitempty" db:"first_seen_time"`
+	LastSeenTime  time.Time         `json:"last_seen_time,omitempty" db:"last_seen_time"`
+	CreatedTime   time.Time         `json:"created_time" db:"created_time"`
+	ModifiedTime  time.Time         `json:"modified_time" db:"modified_time"`
 	Metadata      map[string]string `json:"metadata,omitempty" db:"metadata"`
 }
 
@@ -194,7 +194,7 @@ func NewOCSFAgentRecord(uid, gatewayID, ip string, capabilities []string) *OCSFA
 		TypeID:        typeID,
 		Type:          typeName,
 		VendorName:    "ServiceRadar",
-		GatewayID:      gatewayID,
+		GatewayID:     gatewayID,
 		Capabilities:  capabilities,
 		IP:            ip,
 		FirstSeenTime: now,

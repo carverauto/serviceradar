@@ -18,8 +18,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
   ## Security Modes
 
-  - `:spire` - SPIFFE/SPIRE workload identity
-  - `:mtls` - Manual mTLS certificate management
+  - `:mtls` - mTLS certificate management
   """
 
   use Ash.Resource,
@@ -339,23 +338,23 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     attribute :security_mode, :atom do
       default :mtls
       public? true
-      constraints one_of: [:spire, :mtls]
-      description "Security mode for edge identity (SPIRE is deprecated)"
+      constraints one_of: [:mtls]
+      description "Security mode for edge identity"
     end
 
     attribute :downstream_entry_id, :string do
-      description "SPIRE entry ID for downstream workload"
+      description "Legacy downstream entry ID"
     end
 
     attribute :downstream_spiffe_id, :string do
       public? true
-      description "SPIFFE ID for downstream workload"
+      description "Downstream workload identity URI"
     end
 
     attribute :selectors, {:array, :string} do
       default []
       public? true
-      description "SPIRE selectors for workload attestation"
+      description "Legacy selectors for workload attestation"
     end
 
     attribute :checker_kind, :string do
@@ -371,7 +370,7 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     attribute :join_token_ciphertext, :string do
       sensitive? true
-      description "Encrypted SPIRE join token"
+      description "Encrypted onboarding join token"
     end
 
     attribute :join_token_expires_at, :utc_datetime do

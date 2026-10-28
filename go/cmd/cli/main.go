@@ -61,8 +61,6 @@ func dispatchCommand(cfg *cli.CmdConfig) error {
 		return cli.RunGenerateTLS(cfg)
 	case "generate-jwt-keys":
 		return cli.RunGenerateJWTKeysCmd(cfg)
-	case "spire-join-token":
-		return cli.RunSpireJoinToken(cfg)
 	case "enroll":
 		return cli.RunEnroll(cfg)
 	case "edge-package-download":

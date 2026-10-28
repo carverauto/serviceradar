@@ -25,7 +25,7 @@ import (
 )
 
 const (
-	testAgentID      = "test-agent"
+	testAgentID       = "test-agent"
 	testGatewayID     = "test-gateway"
 	testGatewayHostIP = "192.168.1.100"
 )
@@ -294,84 +294,84 @@ func TestHighCardinalityCheckerIDs(t *testing.T) {
 
 func TestCreateCoreServiceDeviceUpdate(t *testing.T) {
 	tests := []struct {
-		name            string
-		serviceType     ServiceType
-		serviceID       string
-		hostIP          string
-		partition       string
-		metadata        map[string]string
-		expectedID      string
-		expectedSource  DiscoverySource
+		name           string
+		serviceType    ServiceType
+		serviceID      string
+		hostIP         string
+		partition      string
+		metadata       map[string]string
+		expectedID     string
+		expectedSource DiscoverySource
 	}{
 		{
-			name:            "Datasvc service",
-			serviceType:     ServiceTypeDatasvc,
-			serviceID:       "datasvc-primary",
-			hostIP:          "10.0.0.10",
-			partition:       "default",
-			metadata:        nil,
-			expectedID:      "serviceradar:datasvc:datasvc-primary",
-			expectedSource:  DiscoverySourceServiceRadar,
+			name:           "Datasvc service",
+			serviceType:    ServiceTypeDatasvc,
+			serviceID:      "datasvc-primary",
+			hostIP:         "10.0.0.10",
+			partition:      "default",
+			metadata:       nil,
+			expectedID:     "serviceradar:datasvc:datasvc-primary",
+			expectedSource: DiscoverySourceServiceRadar,
 		},
 		{
-			name:            "Sync service",
-			serviceType:     ServiceTypeSync,
-			serviceID:       "sync-service",
-			hostIP:          "10.0.0.11",
-			partition:       "prod",
-			metadata:        map[string]string{"region": "us-east"},
-			expectedID:      "serviceradar:sync:sync-service",
-			expectedSource:  DiscoverySourceServiceRadar,
+			name:           "Sync service",
+			serviceType:    ServiceTypeSync,
+			serviceID:      "sync-service",
+			hostIP:         "10.0.0.11",
+			partition:      "prod",
+			metadata:       map[string]string{"region": "us-east"},
+			expectedID:     "serviceradar:sync:sync-service",
+			expectedSource: DiscoverySourceServiceRadar,
 		},
 		{
-			name:            "Mapper service",
-			serviceType:     ServiceTypeMapper,
-			serviceID:       "mapper-01",
-			hostIP:          "172.20.0.5",
-			partition:       "",
-			metadata:        nil,
-			expectedID:      "serviceradar:mapper:mapper-01",
-			expectedSource:  DiscoverySourceServiceRadar,
+			name:           "Mapper service",
+			serviceType:    ServiceTypeMapper,
+			serviceID:      "mapper-01",
+			hostIP:         "172.20.0.5",
+			partition:      "",
+			metadata:       nil,
+			expectedID:     "serviceradar:mapper:mapper-01",
+			expectedSource: DiscoverySourceServiceRadar,
 		},
 		{
-			name:            "Otel service",
-			serviceType:     ServiceTypeOtel,
-			serviceID:       "otel-collector",
-			hostIP:          "192.168.1.50",
-			partition:       "monitoring",
-			metadata:        nil,
-			expectedID:      "serviceradar:otel:otel-collector",
-			expectedSource:  DiscoverySourceServiceRadar,
+			name:           "Otel service",
+			serviceType:    ServiceTypeOtel,
+			serviceID:      "otel-collector",
+			hostIP:         "192.168.1.50",
+			partition:      "monitoring",
+			metadata:       nil,
+			expectedID:     "serviceradar:otel:otel-collector",
+			expectedSource: DiscoverySourceServiceRadar,
 		},
 		{
-			name:            "Zen service",
-			serviceType:     ServiceTypeZen,
-			serviceID:       "zen-primary",
-			hostIP:          "192.168.1.60",
-			partition:       "default",
-			metadata:        nil,
-			expectedID:      "serviceradar:zen:zen-primary",
-			expectedSource:  DiscoverySourceServiceRadar,
+			name:           "Zen service",
+			serviceType:    ServiceTypeZen,
+			serviceID:      "zen-primary",
+			hostIP:         "192.168.1.60",
+			partition:      "default",
+			metadata:       nil,
+			expectedID:     "serviceradar:zen:zen-primary",
+			expectedSource: DiscoverySourceServiceRadar,
 		},
 		{
-			name:            "Core service",
-			serviceType:     ServiceTypeCore,
-			serviceID:       "core-main",
-			hostIP:          "10.0.0.1",
-			partition:       "default",
-			metadata:        nil,
-			expectedID:      "serviceradar:core:core-main",
-			expectedSource:  DiscoverySourceServiceRadar,
+			name:           "Core service",
+			serviceType:    ServiceTypeCore,
+			serviceID:      "core-main",
+			hostIP:         "10.0.0.1",
+			partition:      "default",
+			metadata:       nil,
+			expectedID:     "serviceradar:core:core-main",
+			expectedSource: DiscoverySourceServiceRadar,
 		},
 		{
-			name:            "KV service alias",
-			serviceType:     ServiceTypeKV,
-			serviceID:       "kv-primary",
-			hostIP:          "10.0.0.12",
-			partition:       "default",
-			metadata:        nil,
-			expectedID:      "serviceradar:kv:kv-primary",
-			expectedSource:  DiscoverySourceServiceRadar,
+			name:           "KV service alias",
+			serviceType:    ServiceTypeKV,
+			serviceID:      "kv-primary",
+			hostIP:         "10.0.0.12",
+			partition:      "default",
+			metadata:       nil,
+			expectedID:     "serviceradar:kv:kv-primary",
+			expectedSource: DiscoverySourceServiceRadar,
 		},
 	}
 

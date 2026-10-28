@@ -39,6 +39,13 @@ deletes the row.
 Admission timeouts do not count. They mean the lane could not start the result,
 which says the lane is congested, not that this result is too expensive.
 
+For a failed retained plugin delivery, the gateway's `Failed to commit
+plugin-result status` warning identifies the agent, `service`, `plugin_id`,
+`assignment_id`, and `message_bytes`, followed by the failure reason. Plugin and
+assignment IDs come from host-stamped provenance; `message_bytes` is the raw
+message size. Use these fields to identify the result being redelivered, not to
+infer which in-flight result caused admission congestion.
+
 An empty table means no attempt history or quarantine is currently stored; it
 does not prove that agents have no pending results, because expired rows are
 pruned. To monitor pruning and distinguish it from store failures, read the
