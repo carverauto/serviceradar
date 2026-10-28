@@ -114,6 +114,15 @@ config :serviceradar_core,
 
 config :serviceradar_core, ServiceRadar.Observability.StatefulAlertEngine.Rollout.runtime_config!()
 
+# Opt-in permits only explicit one-shot capture; it does not start recorders.
+config :serviceradar_core_elx,
+       :camera_recording_enabled,
+       System.get_env("SERVICERADAR_CAMERA_RECORDING_ENABLED", "false") == "true"
+
+config :serviceradar_core_elx,
+       :camera_recording_spool_root,
+       System.get_env("SERVICERADAR_CAMERA_RECORDING_SPOOL_ROOT")
+
 # Provisioned identity of the recording storage lifetime. It follows that volume
 # across rescheduling and changes on replacement; never derive it from a pod/PID.
 config :serviceradar_core_elx, :camera_recording_storage_id, System.get_env("SERVICERADAR_CAMERA_RECORDING_STORAGE_ID")
