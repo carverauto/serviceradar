@@ -185,6 +185,15 @@ with the same `EXPOSURE_LIVE_*` inputs and `EXPOSURE_CAPACITY_PROFILE` selector 
 the compaction target. Keep the canonical observer, teardown and generation
 release. The ordinary integration lane does not select this manual benchmark.
 
+The warehouse identity must also support the negative control's `UPDATE` on
+`exposure_facts`. The disposable CNPG clone's identity must be able to disable
+and restore user triggers on the fixture tables and truncate them during cleanup.
+The harness parks existing bootstrap jobs in an unserved queue and temporarily
+stops `ObanFailureEventReporter`, because the exposure-only warehouse has no
+generic event tables. It restores the bootstrap queues and original supervised
+Oban and reporter processes after the run; persisted Oban errors remain the
+failure oracle during measurement.
+
 Smoke pairs 200 hosts and 500,000 active facts in CNPG and StarRocks. Fleet pairs
 20,000 hosts and 50 million active facts. Both use all 50,000 synthetic CVEs,
 2,551 shared package versions and 51 resolved controls per host. SQL constructs
