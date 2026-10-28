@@ -408,6 +408,36 @@ mediaStorage:
       memory: 512Mi
       ephemeral-storage: 64Mi
 
+# Separate read-only archive service and its Web client. This does not enable
+# recording, qualify a provider, or install upload authority. Existing Secrets
+# must contain the fixed binding/destination and separate read credentials.
+archiveReader:
+  enabled: false
+  # Bump when changing any mounted configuration, token or certificate.
+  revision: ""
+  port: 4444
+  configSecretName: ""
+  providerSecretName: ""
+  authSecretName: ""
+  tlsSecretName: ""
+  client:
+    configSecretName: ""
+    tlsSecretName: ""
+  nodeSelector:
+    kubernetes.io/arch: amd64
+  providerEgress:
+    cidrs: []
+    port: 443
+  egressProxy: ""
+  resources:
+    requests:
+      cpu: "250m"
+      memory: 256Mi
+    limits:
+      cpu: "2"
+      memory: 512Mi
+      ephemeral-storage: 64Mi
+
 core:
   replicas: 3
   # Graceful shutdown for the core-elx pod, which runs every core Oban queue.

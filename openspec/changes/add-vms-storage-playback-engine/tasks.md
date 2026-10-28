@@ -40,6 +40,7 @@ or live acceptance task below.
   - [x] Add a [separate archive player](archive-player.md) with measured HLS seeking, cancellation and cleanup; preserve live relay ownership. Merged #6096's [validation](validation.md#published-head-archive-player-validation) owns the final evidence, first failure and assertion-preserving correction.
   - [ ] Add capture-time timeline and spatial links once trustworthy clock mapping and uncertainty semantics are qualified.
 - [ ] 1.7 Ship disabled by default with storage/capability validation, admission budgets and observability through JetStream/EventWriter. Local marker verification and the explicit upload's single-slot byte/deadline limits are implemented; coordinated admission, observability and hosted enablement remain open, and recording stays disabled.
+- [ ] 1.8 Add a per-viewer live camera graph for browser-received bitrate, with resolution, FPS and playback health. Keep relay diagnostics collapsed, distinguish unavailable measurements from zero, and bound history with reconnect/teardown cleanup. Label source-ingest rate separately from browser receipt; any persisted telemetry must flow through JetStream/EventWriter.
 
 ## 2. Production lifecycle and Cloud
 
@@ -61,6 +62,10 @@ or live acceptance task below.
 - [ ] 3.4 Evaluate Smelter composition and actual GPU/ARM64 support independently of core recording.
 - [ ] 3.5 Coordinate PostGIS field-of-view and OCR/POS search with spatial/observation owners; select extensions through measured compatibility gates.
 - [ ] 3.6 Extend #4914 with high-quality local/substream policy and on-demand historical fetch without weakening offline admission/archive receipts.
+- [ ] 3.7 Add low-cost object/person detection through the existing shared ingest, Boombox analysis branch and result contract; do not create a second camera ingest. Current `ExternalBoomboxAnalysisWorker.build_results` reports decoded keyframe dimensions/reference labels and `BoomboxSidecarWorker` reports capture summaries, not semantic object/person detections.
+  - Evaluate sampled/substream or motion-triggered frames and a small local model on CPU versus available GPUs, including ARM64 and runtime compatibility. No paid per-frame service is the default.
+  - Cap queue length, concurrency and result age; drop overloaded or stale analysis rather than stall live playback or recording. Measure end-to-end decode, inference and storage costs alongside missed/false detections before selecting model or cadence.
+  - Show bounded recent detections with thumbnail, time, class and confidence, linking an independently authorized clip only when available. Preserve clock uncertainty, retention and recording-permission boundaries for results and thumbnails; do not imply capture UTC or footage availability from an analysis result.
 
 ## 4. Release acceptance and delivery
 

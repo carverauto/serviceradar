@@ -77,10 +77,13 @@ contains the original immutable destination, provider credential file reference
 and its own listener TLS/authentication configuration. These are ServiceRadar
 infrastructure credentials, not camera credentials.
 
-This pass supplies a runtime entry point and synthetic validation, not a Helm
-installation or Cloud readiness acknowledgment. Cloud must provision separate
-read credentials and install the matching binding and identities through its
-future lifecycle contract. The unresolved bucket ownership gate remains binding.
+The [Helm installation contract](../../../docs/archive-init-storage.md#separate-archive-reader-installation)
+installs this entry point and the Web client together behind the default-disabled
+`archiveReader.enabled` gate. It requires existing separate read credentials,
+server/client identities, a matching binding and destination, and explicit
+provider egress. Chart rendering is not provider qualification or a Cloud
+readiness acknowledgment. Cloud must supply these through its future lifecycle
+contract. The unresolved bucket ownership gate remains binding.
 
 ## Validation ownership
 

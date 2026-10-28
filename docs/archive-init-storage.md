@@ -14,7 +14,8 @@ owns manifest transfer and index publication. This page owns the Helm and
 mounted-file contract for all three purposes. Existing qualification
 receipts are diagnostics; they cannot substitute for applying fresh authority.
 The separate [archive reader](../openspec/changes/add-vms-storage-playback-engine/archive-reads.md#isolated-installation)
-has its own runtime configuration; this chart does not install it.
+has its own default-disabled installation, described below. Reader installation
+does not enable recording or install upload authority.
 Cloud provisioning and preservation remain tracked in
 [control issue #182](https://github.com/carverauto/serviceradar-control/issues/182)
 and [control issue #183](https://github.com/carverauto/serviceradar-control/issues/183).
@@ -137,3 +138,89 @@ Expiry and stop do not prove drain, credential retirement, safe bucket
 teardown or safe local deletion. Recording and archive readiness stay unavailable.
 After expiry, status retains the historical `applied_revision` with
 `remaining_ms: 0`; consumers must not use that revision alone as permission.
+
+## Separate archive reader installation
+
+`archiveReader.enabled` defaults to false. Enabling it installs the isolated
+reader and its Web client configuration together; it requires `webNg.enabled`,
+a nonempty `archiveReader.revision`, all six Secret references below, and explicit
+`archiveReader.providerEgress.cidrs`. It does not require the upload service to
+be running: historical reads use current archive proofs, independently of
+recording admission or expired upload grants.
+
+| Workload/value | Projected keys | Mount directory |
+| --- | --- | --- |
+| `archiveReader.configSecretName` | `config.json` | `/etc/serviceradar/archive-read-storage/config` |
+| `archiveReader.providerSecretName` | `credentials.json` | `/etc/serviceradar/archive-read-storage/provider` |
+| `archiveReader.authSecretName` in reader | `reader-token` as `token` | `/etc/serviceradar/archive-read-storage/auth` |
+| `archiveReader.tlsSecretName` | `tls.crt`, `tls.key`, `ca.crt` | `/etc/serviceradar/archive-read-storage/tls` |
+| `archiveReader.client.configSecretName` in Web | `config.json` | `/etc/serviceradar/archive-reader/config` |
+| `archiveReader.authSecretName` in Web | `reader-token` as `token` | `/etc/serviceradar/archive-reader/auth` |
+| `archiveReader.client.tlsSecretName` in Web | `tls.crt`, `tls.key`, `ca.crt` | `/etc/serviceradar/archive-reader/tls` |
+
+The reader config contains exactly `schema_version: 1`, `binding_id`, the
+original immutable `destination` document, `provider_credentials_file` and
+`listener`. Set the credential path to
+`/etc/serviceradar/archive-read-storage/provider/credentials.json`. That file
+contains `reference`, integer `generation`, `access_key_id` and
+`secret_access_key`. The listener contains `port`, `certfile`, `keyfile`,
+`cacertfile`, `reader_certificate_sha256` and `token_file`; use the reader's
+mounted absolute paths. Its certificate pin is the SHA-256 of the Web client's
+DER certificate, not the server certificate.
+
+The Web config contains exactly `schema_version: 1`, the same `binding_id`, its
+canonical `destination_sha256` and `storage`. The storage connection contains
+`base_url`, `certfile`, `keyfile`, `cacertfile` and `token_file`, using Web's
+mounted absolute paths. With the default port, its base URL is
+`https://serviceradar-archive-reader:4444`. Web receives no provider credential
+file or provider endpoint. The chart owns `VMS_ARCHIVE_READER_CONFIG` and rejects
+attempts to supply it through `webNg.extraEnv` or `extraEnvValueFrom`.
+
+Use separate reader server and Web client certificates. The server leaf must
+permit server authentication and contain the Service DNS name used by Web; the
+client leaf must permit client authentication and match the installed pin.
+Both trust stores must contain the appropriate issuing CA chain. Reader and
+Web share only the reader bearer token, whose file must contain exactly 32 to
+512 bytes without surrounding whitespace or a newline.
+
+The chart rejects using the same Secret name for reader server/client TLS, or
+reusing the configured writer provider, authentication or TLS Secret names.
+Distinct names do not prove distinct credential bytes or read-only IAM rights.
+Infrastructure custody must supply a dedicated read identity restricted to the
+qualified destination and required reads; it must deny writes and other
+unnecessary provider operations. Token and certificate identities must also be
+separate from recorder/upload identities. The provider's denial checks and
+full qualification remain required; Helm cannot verify Secret contents or IAM.
+
+The reader runs one replica with `Recreate` updates through
+`ServiceRadarCoreElx.CameraStorage.Service.main_read()`, with empty release
+configuration and distribution disabled. Its read-only root filesystem has
+only a bounded 32 MiB temporary mount. It receives no CNPG/NATS credentials,
+core distribution cookie, recorder spool or Kubernetes API token. The private
+`serviceradar-archive-reader` ClusterIP listens on `archiveReader.port` (4444 by
+default); set `listener.port` and Web's base URL to the same port. No public
+Service port or Gateway route is added.
+
+The reader's NetworkPolicy always limits ingress to Web on the reader port,
+and egress to DNS in `kube-system` plus the explicit provider or CONNECT proxy
+CIDRs/port. Set `archiveReader.egressProxy` only when a CONNECT proxy is needed.
+The chart excludes the reader from its broader Kubernetes and Calico policies,
+including custom match-all selectors. When ordinary Kubernetes network
+isolation is enabled, its existing egress policy gains the reader destination
+and port without expanding the selected workloads. The reader's ingress still
+restricts callers to Web. The optional Calico policy has an explicit Web-only
+allow rule. No new Web-isolating policy is added, including when an operator's
+general policy excludes Web. Policies outside the chart and actual cluster
+enforcement still require inspection.
+
+Bump `archiveReader.revision` to coordinate reader and Web rollout after changing
+configuration or identity files. The reader loads its installation at startup;
+Web reloads its client configuration on each read request. A rollout is not a
+readiness handshake. The existing single read slot, ten-second deadline, exact
+range/digest checks and final human-authorization/proof check remain unchanged.
+
+This chart wiring does not create a bucket, adopt an allocation, qualify a
+provider, start a recording or publish an archive. Production activation still
+requires all 19 qualification checks and fresh per-purpose upload authorities
+within their at-most-30-second installation windows. A running reader pod alone
+does not prove those gates, available archive footage or hosted readiness.

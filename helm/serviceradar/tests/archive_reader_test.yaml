@@ -1,0 +1,407 @@
+suite: isolated archive reader installation and network boundary
+templates:
+  - templates/archive-reader.yaml
+  - templates/web.yaml
+  - templates/network-policy.yaml
+  - templates/calico-network-policy.yaml
+set:
+  archiveReader.revision: "4"
+  archiveReader.configSecretName: example-archive-reader-config
+  archiveReader.providerSecretName: example-archive-read-credentials
+  archiveReader.authSecretName: example-archive-reader-auth
+  archiveReader.tlsSecretName: example-archive-reader-server-tls
+  archiveReader.client.configSecretName: example-archive-reader-client-config
+  archiveReader.client.tlsSecretName: example-archive-reader-client-tls
+  archiveReader.providerEgress.cidrs: [192.0.2.90/32]
+tests:
+  - it: leaves all reader resources absent by default
+    template: templates/archive-reader.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: leaves the default web workload without a reader installation
+    template: templates/web.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - notExists:
+          path: spec.template.metadata.annotations["serviceradar.io/archive-reader-revision"]
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: VMS_ARCHIVE_READER_CONFIG}
+          any: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {name: archive-reader-config}
+          any: true
+
+  - it: launches only the nondistributed reader with bounded writable space and dedicated secrets
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.replicas
+          value: 1
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/archive-reader-revision"]
+          value: "4"
+      - equal:
+          path: spec.template.spec.automountServiceAccountToken
+          value: false
+      - equal:
+          path: spec.template.spec.securityContext
+          value:
+            runAsNonRoot: true
+            runAsUser: 10001
+            runAsGroup: 10001
+            fsGroup: 10001
+            seccompProfile: {type: RuntimeDefault}
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: [eval, "ServiceRadarCoreElx.CameraStorage.Service.main_read()"]
+      - equal:
+          path: spec.template.spec.containers[0].env
+          value:
+            - {name: VMS_ARCHIVE_READ_STORAGE_CONFIG, value: /etc/serviceradar/archive-read-storage/config/config.json}
+            - {name: RELEASE_SYS_CONFIG, value: /etc/serviceradar/archive-read-storage/release/isolated}
+            - {name: RELEASE_DISTRIBUTION, value: none}
+            - {name: ENABLE_TLS_DIST, value: "false"}
+            - {name: RELEASE_COOKIE, value: unused_isolated_archive_reader_cookie}
+            - {name: ERL_CRASH_DUMP, value: /dev/null}
+            - {name: ERL_FLAGS, value: "+S 2:2 +fnu"}
+            - {name: TMPDIR, value: /tmp}
+      - equal:
+          path: spec.template.spec.containers[0].securityContext
+          value:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: {drop: [ALL]}
+      - equal:
+          path: spec.template.spec.containers[0].volumeMounts
+          value:
+            - {name: tmp, mountPath: /tmp}
+            - {name: release, mountPath: /etc/serviceradar/archive-read-storage/release, readOnly: true}
+            - {name: config, mountPath: /etc/serviceradar/archive-read-storage/config, readOnly: true}
+            - {name: provider, mountPath: /etc/serviceradar/archive-read-storage/provider, readOnly: true}
+            - {name: auth, mountPath: /etc/serviceradar/archive-read-storage/auth, readOnly: true}
+            - {name: tls, mountPath: /etc/serviceradar/archive-read-storage/tls, readOnly: true}
+      - equal:
+          path: spec.template.spec.volumes
+          value:
+            - name: tmp
+              emptyDir: {sizeLimit: 32Mi}
+            - name: release
+              configMap: {name: serviceradar-archive-reader-release}
+            - name: config
+              secret:
+                secretName: example-archive-reader-config
+                defaultMode: 288
+                items: [{key: config.json, path: config.json}]
+            - name: provider
+              secret:
+                secretName: example-archive-read-credentials
+                defaultMode: 288
+                items: [{key: credentials.json, path: credentials.json}]
+            - name: auth
+              secret:
+                secretName: example-archive-reader-auth
+                defaultMode: 288
+                items: [{key: reader-token, path: token}]
+            - name: tls
+              secret:
+                secretName: example-archive-reader-server-tls
+                defaultMode: 288
+                items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}, {key: ca.crt, path: ca.crt}]
+
+  - it: mounts only the private reader connection and client identity in web
+    template: templates/web.yaml
+    set:
+      archiveReader.enabled: true
+    documentSelector:
+      path: kind
+      value: Deployment
+    asserts:
+      - equal:
+          path: spec.template.metadata.annotations["serviceradar.io/archive-reader-revision"]
+          value: "4"
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: VMS_ARCHIVE_READER_CONFIG, value: /etc/serviceradar/archive-reader/config/config.json}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: archive-reader-config, mountPath: /etc/serviceradar/archive-reader/config, readOnly: true}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: archive-reader-auth, mountPath: /etc/serviceradar/archive-reader/auth, readOnly: true}
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: archive-reader-tls, mountPath: /etc/serviceradar/archive-reader/tls, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: archive-reader-config
+            secret:
+              secretName: example-archive-reader-client-config
+              defaultMode: 288
+              items: [{key: config.json, path: config.json}]
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: archive-reader-auth
+            secret:
+              secretName: example-archive-reader-auth
+              defaultMode: 288
+              items: [{key: reader-token, path: token}]
+      - contains:
+          path: spec.template.spec.volumes
+          content:
+            name: archive-reader-tls
+            secret:
+              secretName: example-archive-reader-client-tls
+              defaultMode: 288
+              items: [{key: tls.crt, path: tls.crt}, {key: tls.key, path: tls.key}, {key: ca.crt, path: ca.crt}]
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {secret: {secretName: example-archive-read-credentials}}
+          any: true
+      - notContains:
+          path: spec.template.spec.volumes
+          content: {secret: {secretName: example-archive-reader-server-tls}}
+          any: true
+
+  - it: exposes the reader only as a private ClusterIP
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+    documentSelector:
+      path: kind
+      value: Service
+    asserts:
+      - equal:
+          path: spec
+          value:
+            type: ClusterIP
+            selector: {app: serviceradar-archive-reader}
+            ports: [{name: reader-https, port: 4444, targetPort: reader-https}]
+
+  - it: leaves public web service ports unchanged
+    template: templates/web.yaml
+    set:
+      archiveReader.enabled: true
+    documentSelector:
+      path: metadata.labels["app.kubernetes.io/component"]
+      value: web-ng
+    asserts:
+      - notContains:
+          path: spec.ports
+          content: {port: 4444}
+          any: true
+
+  - it: allows only web ingress DNS and the explicit provider or proxy destination
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+    documentSelector:
+      path: kind
+      value: NetworkPolicy
+    asserts:
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+      - equal:
+          path: spec.ingress
+          value:
+            - from:
+                - podSelector: {matchLabels: {app: serviceradar-web-ng}}
+              ports: [{protocol: TCP, port: 4444}]
+      - equal:
+          path: spec.egress
+          value:
+            - to:
+                - namespaceSelector: {matchLabels: {kubernetes.io/metadata.name: kube-system}}
+              ports: [{protocol: UDP, port: 53}, {protocol: TCP, port: 53}]
+            - to:
+                - ipBlock: {cidr: 192.0.2.90/32}
+              ports: [{protocol: TCP, port: 443}]
+
+  - it: does not newly isolate web egress when ordinary network isolation is disabled
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      networkPolicy.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 4
+
+  - it: supplements existing network isolation with only the reader destination
+    template: templates/network-policy.yaml
+    set:
+      archiveReader.enabled: true
+      networkPolicy.enabled: true
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress
+    asserts:
+      - contains:
+          path: spec.egress
+          content:
+            to:
+              - podSelector: {matchLabels: {app: serviceradar-archive-reader}}
+            ports: [{protocol: TCP, port: 4444}]
+
+  - it: preserves a custom policy selector that excludes web
+    template: templates/network-policy.yaml
+    set:
+      archiveReader.enabled: true
+      networkPolicy.enabled: true
+      networkPolicy.podSelector:
+        matchLabels: {app: example-worker}
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value:
+            matchLabels: {app: example-worker, app.kubernetes.io/part-of: serviceradar}
+            matchExpressions:
+              - {key: app, operator: NotIn, values: [serviceradar-archive-reader]}
+
+  - it: does not newly isolate web when the enabled general policy excludes it
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      networkPolicy.enabled: true
+      networkPolicy.podSelector:
+        matchLabels: {app: example-worker}
+    asserts:
+      - hasDocuments:
+          count: 4
+
+  - it: excludes both isolated services from the ordinary match-all policy
+    template: templates/network-policy.yaml
+    set:
+      archiveReader.enabled: true
+      mediaStorage.enabled: true
+      networkPolicy.enabled: true
+      networkPolicy.podSelectorMatchAll: true
+    documentSelector:
+      path: metadata.name
+      value: serviceradar-egress
+    asserts:
+      - equal:
+          path: spec.podSelector
+          value:
+            matchExpressions:
+              - {key: app, operator: NotIn, values: [serviceradar-media-storage]}
+              - {key: app, operator: NotIn, values: [serviceradar-archive-reader]}
+
+  - it: excludes both isolated services from Calico while allowing only web to call the reader
+    template: templates/calico-network-policy.yaml
+    set:
+      archiveReader.enabled: true
+      mediaStorage.enabled: true
+      networkPolicy.calicoLogDenied.enabled: true
+      networkPolicy.calicoLogDenied.selector: all()
+    asserts:
+      - equal:
+          path: spec.selector
+          value: "((all()) && app != 'serviceradar-media-storage') && app != 'serviceradar-archive-reader'"
+      - equal:
+          path: spec.egress[0]
+          value:
+            action: Allow
+            protocol: TCP
+            source: {selector: "app == 'serviceradar-web-ng'"}
+            destination:
+              selector: "app == 'serviceradar-archive-reader'"
+              ports: [4444]
+
+  - it: rejects a reader installation without the web client workload
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      webNg.enabled: false
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader requires webNg.enabled
+
+  - it: requires a revision for mounted identity changes
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.revision: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.revision is required
+
+  - it: rejects missing provider credential custody
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.providerSecretName: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.providerSecretName is required
+
+  - it: rejects a missing client identity
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.client.tlsSecretName: ""
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.client.tlsSecretName is required
+
+  - it: rejects missing explicit provider or proxy egress
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.providerEgress.cidrs: []
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.providerEgress.cidrs must explicitly allow the provider or CONNECT proxy
+
+  - it: rejects reusing the reader server certificate as the web client
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      archiveReader.client.tlsSecretName: example-archive-reader-server-tls
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader server and client TLS Secrets must be distinct
+
+  - it: rejects reusing the writer provider credential secret
+    template: templates/archive-reader.yaml
+    set:
+      archiveReader.enabled: true
+      mediaStorage.providerSecretName: example-archive-read-credentials
+    asserts:
+      - failedTemplate:
+          errorMessage: archiveReader.providerSecretName must be distinct from mediaStorage.providerSecretName
+
+  - it: rejects bypassing the reader gate through generic environment values
+    template: templates/web.yaml
+    set:
+      webNg.extraEnv.VMS_ARCHIVE_READER_CONFIG: /example/config.json
+    asserts:
+      - failedTemplate:
+          errorMessage: VMS_ARCHIVE_READER_CONFIG must be configured through archiveReader
+
+  - it: rejects bypassing the reader gate through generic environment references
+    template: templates/web.yaml
+    set:
+      webNg.extraEnvValueFrom.VMS_ARCHIVE_READER_CONFIG:
+        secretKeyRef: {name: example-other-config, key: path}
+    asserts:
+      - failedTemplate:
+          errorMessage: VMS_ARCHIVE_READER_CONFIG must be configured through archiveReader

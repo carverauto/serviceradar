@@ -60,6 +60,10 @@
 {{- if (default (dict) .Values.mediaStorage).enabled -}}
 {{- $selector = printf "(%s) && app != 'serviceradar-media-storage'" $selector -}}
 {{- end -}}
+{{- $archiveReader := default (dict) .Values.archiveReader -}}
+{{- if $archiveReader.enabled -}}
+{{- $selector = printf "(%s) && app != 'serviceradar-archive-reader'" $selector -}}
+{{- end -}}
 ---
 apiVersion: projectcalico.org/v3
 kind: NetworkPolicy
@@ -75,6 +79,16 @@ spec:
   order: {{ $calico.order }}
 {{- end }}
   egress:
+{{- if $archiveReader.enabled }}
+    - action: Allow
+      protocol: TCP
+      source:
+        selector: "app == 'serviceradar-web-ng'"
+      destination:
+        selector: "app == 'serviceradar-archive-reader'"
+        ports:
+          - {{ $archiveReader.port }}
+{{- end }}
 {{- if $allowDNS }}
     - action: Allow
       protocol: UDP

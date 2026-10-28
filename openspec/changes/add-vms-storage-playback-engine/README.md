@@ -19,9 +19,11 @@ are merged prerequisites. Their detailed evidence remains below. None enables
 recording or qualifies a live provider.
 
 [Cloud reservation #188](https://github.com/carverauto/serviceradar-control/pull/188)
-is the next checkpoint: recover its interrupted validation, preserve its
-immutable reservation and sticky preservation fence, and distinguish historical
-checks from fresh recovery evidence. Allocation ownership is unresolved. The
+is merged with its immutable reservation and sticky preservation fence retained.
+The current checkpoint supplies a
+[default-disabled reader installation](../../../docs/archive-init-storage.md#separate-archive-reader-installation)
+as a prerequisite for the requested deployment acceptance. It does not start
+recording or claim that archives are available. Allocation ownership is unresolved. The
 [ownership gate](cloud-control-plane.md#allocation-ownership-gate) requires
 operation-bound creation proof or a separately specified and authorized adoption
 workflow before provider allocation or readiness.
@@ -35,10 +37,13 @@ identifiers and failure injections are independently invented synthetic data.
 
 ## Priority order
 
-1. Recover Cloud #188 through no-mistakes and fresh hosted checks, retaining
-   reservation identity and the preservation fence. Then expose the
+1. Complete the default-disabled reader installation and the separate bounded
+   capture/start wiring before attempting deployment acceptance. Preserve all
+   19 qualification checks, provisioned spool identity and fresh per-purpose
+   authorities; a chart switch cannot substitute for them. Cloud #188 is merged;
+   its independent next scope remains the
    [read-only reservation status](cloud-control-plane.md#next-bounded-cloud-checkpoint)
-   in the operator environment console. Neither step requires provider mutation.
+   in the operator environment console, without provider mutation.
 2. Resolve Cloud's [allocation ownership gate](cloud-control-plane.md#allocation-ownership-gate)
    before provider creation. A matching name or successful create response does
    not prove ownership. [Issue #182](https://github.com/carverauto/serviceradar-control/issues/182)
@@ -52,6 +57,15 @@ identifiers and failure injections are independently invented synthetic data.
 4. Keep tasks 0.4 and 0.6 open: codec/RTCP/logical-byte experiments do not select
    production support, synchronization tolerances or capacity objectives. Complete
    synthetic security/failure/capacity acceptance before designated live acceptance.
+
+The requested [follow-ups](tasks.md) remain unchecked: task 1.8 adds a bounded
+per-viewer bitrate/health graph with source-ingest rate labeled separately;
+task 3.7 adds low-cost object/person detection and authorized recent-detection
+thumbnails/clip links. Reuse the existing shared ingest and Boombox analysis
+contract. Its current keyframe labels, dimensions and capture summaries are not
+semantic detections. Benchmark small local models, sampling and CPU/GPU costs
+before choosing a default; analysis overload must not stall live or recording
+consumers. These are future implementation tasks, not part of reader installation.
 
 ## Evidence ledger
 
@@ -68,7 +82,7 @@ identifiers and failure injections are independently invented synthetic data.
 | Cloud media installation | #187 merged; all five checks passed; Timescale CI 3230 tests, zero failures, 10 skips, all 17 required cases enabled | Provider provisioning, qualification, isolated workload and lifecycle preservation |
 | Init-object authority | #5996 merged; published head `447f594b` passed 19 checks; Core `551008e0` and Web `a4308a82` passed all 12/seven guarded targets with lifecycle exit statuses zero | Cloud provisioning/qualification and complete archive transport |
 | Private archive registration | #6000 merged at `8974fcdd`; published head `e639b4fd` passed 19 checks; Web `1452ccca` executed all seven guarded targets uncached, including owning shard 0, with all lifecycle statuses zero; [validation](validation.md) retains the approved pre-push exception | Cloud-retained allocation identity and matching product receipt |
-| Cloud media reservation | #188 remains a draft under recovery. Its prior head `9caedaa8` passed five checks, including 3,241 tests with zero failures and 10 skips; the historical Dialyzer run had 11 warnings also present on its exact base | Fresh proxy/hosted checks and merge, then allocation inventory and preservation-release workflow |
+| Cloud media reservation | #188 merged at `349e37bb` from head `1f0297a0`, after security maintenance #189. Final PR CI and [post-merge main CI](https://github.com/carverauto/serviceradar-control/actions/runs/40599450501) each passed 3,241 Timescale tests with zero failures and 10 skips, 294 contract tests, both dependency audits and image build; independent scratch absence checks returned zero. CI skipped Dialyzer; prior historical warnings are not a new pass | Bounded reservation visibility, allocation ownership and preservation-release workflow |
 | Provisioned spool identity | #6004 merged at `0ba042ba` from head `30566cec`; [local marker contract](spool-lifetime.md) and [validation](validation.md#provisioned-spool-identity) | All eight worker cases passed in final media Core `773fd2dc`; Cloud volume/UUID association and full restart acceptance remain open |
 | Sealed-media upload | #6007 merged at `575dfc1f`; head `4c965ee8` passed 19 checks. Core `773fd2dc` and Web `7fd98129` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. [Byte-path contract](media-upload.md) | Publication is complete below; hosted qualification and deployment acceptance remain open |
 | Archive publication | #6047 merged at `35078ce5`; final head `3bd7402a` passed 20 checks. Core `cb53539e` and Web `78dee076` executed all 12/seven guarded targets uncached with successful lifecycle cleanup; [validation](validation.md#published-head-archive-publication-validation) | Byte access is covered by [archive reads](archive-reads.md); reconciliation, hosted qualification and deployment acceptance remain open |
@@ -87,13 +101,15 @@ runtime or live acceptance tasks.
 
 ## Next agent prompt
 
-Start with [tasks](tasks.md) and [Cloud ownership](cloud-control-plane.md).
-Reconcile Cloud #188's current branch custody and recovery evidence before
-editing it. Preserve every reservation, preservation and runtime assertion.
+Start with [tasks](tasks.md), the
+[reader installation](../../../docs/archive-init-storage.md#separate-archive-reader-installation)
+and [Cloud ownership](cloud-control-plane.md).
+Cloud #188 and its separate security dependency #189 are merged. Preserve every
+reservation, preservation and runtime assertion.
 Product #6096's final database gate is complete; its approved prepublication
 deferral and first failed run remain in the validation history.
 
-After Cloud #188 merges, implement bounded reservation visibility in the existing
+The independent Cloud scope is bounded reservation visibility in the existing
 operator environment console, following the
 [Cloud checkpoint](cloud-control-plane.md#next-bounded-cloud-checkpoint), which
 owns the scope and acceptance boundaries.
@@ -113,4 +129,6 @@ responses cannot authorize bucket adoption or cleanup.
 
 Use Treehouse with linked Bazel rc files, remote Bazel and no-mistakes. Do not
 merge, deploy, enable recording, provision live storage or run live probes in
-this checkpoint. Keep #4913/#4915 open until their own acceptance passes.
+this reader-installation checkpoint. Plan the requested deployment activation
+against the remaining qualification and authority gates separately. Keep
+#4913/#4915 open until their own acceptance passes.
