@@ -33,8 +33,17 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
     # warehouse schema. Refuse reuse before registering any destructive cleanup.
     for table <- @source, do: assert([[0]] == pg!("SELECT count(*) FROM platform.#{table}"))
     for table <- @warehouse, do: assert([[0]] == warehouse!("SELECT count(*) FROM #{table}"))
-    assert [[0]] = pg!("SELECT count(*) FROM platform.oban_jobs")
+
+    assert [[0]] =
+             pg!(
+               "SELECT count(*) FROM platform.oban_jobs WHERE state IN ('executing', 'scheduled', 'retryable')"
+             )
+
     assert Oban.config().testing == :manual
+    bootstrap_jobs = pg!("SELECT id, queue FROM platform.oban_jobs")
+    # Fresh core startup admits bootstrap jobs even with testing=:manual. Park
+    # them in an unserved queue, retain their rows, and restore the queues later.
+    pg!("UPDATE platform.oban_jobs SET queue = 'capacity_bootstrap'")
     assert :ok = Supervisor.terminate_child(ServiceRadar.Supervisor, Oban)
 
     try do
@@ -56,6 +65,10 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
     after
       stop_queue!()
       cleanup!()
+
+      for [id, queue] <- bootstrap_jobs,
+          do: Repo.query!("UPDATE platform.oban_jobs SET queue = $2 WHERE id = $1", [id, queue])
+
       assert {:ok, _} = Supervisor.restart_child(ServiceRadar.Supervisor, Oban)
     end
   end
@@ -179,7 +192,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
       pg!("""
       SELECT count(*) FILTER (WHERE worker = '#{@worker}' AND state = 'completed'),
         count(*) FILTER (WHERE errors <> '{}' OR state IN ('cancelled', 'discarded')),
-        count(*) FILTER (WHERE worker <> '#{@worker}') FROM platform.oban_jobs
+      count(*) FILTER (WHERE worker <> '#{@worker}') FROM platform.oban_jobs WHERE queue = 'maintenance'
       """)
 
     cond do
@@ -205,7 +218,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
 
         ids =
           pg!(
-            "SELECT id FROM platform.oban_jobs WHERE state NOT IN ('completed', 'cancelled', 'discarded')"
+            "SELECT id FROM platform.oban_jobs WHERE queue = 'maintenance' AND state NOT IN ('completed', 'cancelled', 'discarded')"
           )
 
         for [id] <- ids, do: :ok = Oban.cancel_job(id)
@@ -360,11 +373,12 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
       (id, device_uid, endpoint_package_ref, cve_id, status, assessment, disposition,
        applicability_reason, package_identity_key, package_name, installed_version, source_scope,
        severity, cvss_score, kev, exploit_available, first_seen_at, last_seen_at,
-       last_transition_seq, exposed_at, last_exposure_publication)
+       last_transition_seq, exposed_at, resolved_at, last_exposure_publication)
     SELECT lpad(to_hex(n+1),32,'0')::uuid, 'sr:capacity-' || host,
       lpad(to_hex(pkg),32,'0')::uuid, cve, state, 'confirmed', 'affected', 'synthetic capacity fixture',
       'capacity-package-' || pkg, 'capacity-package-' || pkg, '1.0', 'host',
       'critical', 7.5, true, true, '2000-01-01', '2000-01-02', 100000+n, '2000-01-01',
+      CASE WHEN pkg>2500 THEN timestamp '2000-01-02' ELSE NULL END,
       jsonb_build_object('schema_version',1, 'device_uid','sr:capacity-' || host,
         'package_identity_key','capacity-package-' || pkg, 'cve_id',cve, 'installed_version','1.0',
         'device_ord',host, 'cve_ord',#{@cve_base}+cve_number, 'pkg_ord',pkg, 'pkgver_ord',pkg,
@@ -417,7 +431,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
     # The initial emptiness guard establishes ownership. TRUNCATE avoids firing
     # deletion-publication triggers for fifty million synthetic source rows.
     pg!("TRUNCATE platform.endpoint_vulnerability_assessments")
-    pg!("DELETE FROM platform.oban_jobs")
+    pg!("DELETE FROM platform.oban_jobs WHERE queue = 'maintenance'")
 
     assert {:ok, _} =
              Repo.transaction(fn ->
@@ -427,7 +441,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
              end)
 
     for table <- @source, do: assert([[0]] == pg!("SELECT count(*) FROM platform.#{table}"))
-    assert [[0]] = pg!("SELECT count(*) FROM platform.oban_jobs")
+    assert [[0]] = pg!("SELECT count(*) FROM platform.oban_jobs WHERE queue = 'maintenance'")
 
     for table <- @warehouse do
       warehouse!("TRUNCATE TABLE #{table}")
