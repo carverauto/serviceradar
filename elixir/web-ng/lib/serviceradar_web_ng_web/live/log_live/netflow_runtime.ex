@@ -94,11 +94,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntime do
   @spec run_concurrently([job()], keyword()) :: %{optional(term()) => term()}
   def run_concurrently(jobs, opts \\ []) when is_list(jobs) do
     timeout = Keyword.get(opts, :timeout, @load_timeout_ms)
-    concurrency_cap = Keyword.get(opts, :max_concurrency, max_panel_concurrency())
 
     jobs
     |> Task.async_stream(fn {_key, fun, _default} -> fun.() end,
-      max_concurrency: min(max(length(jobs), 1), max(concurrency_cap, 1)),
+      max_concurrency: min(max(length(jobs), 1), max_panel_concurrency()),
       timeout: timeout,
       on_timeout: :kill_task,
       ordered: true

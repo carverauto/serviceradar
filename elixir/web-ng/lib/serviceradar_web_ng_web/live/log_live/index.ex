@@ -381,8 +381,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   def handle_event("srql_paginate", params, socket) do
     tab = socket.assigns.active_tab
-    {_entity, list_key} = tab_entity(tab)
-    {default_limit, max_limit} = tab_limits(tab)
+
+    params =
+      socket.assigns.current_params
+      |> Map.drop(["cursor", "page", "open_flow"])
+      |> Map.merge(Map.take(params, ["cursor", "page"]))
+      |> Map.put("q", socket.assigns.srql.query)
 
     socket =
       socket
@@ -393,15 +397,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:traces_live?, false)
       |> assign(:metrics_live?, false)
       |> assign(:alerts_live?, false)
-      |> then(fn sock ->
-        SRQLPage.handle_event(sock, "srql_paginate", params,
-          list_assign_key: list_key,
-          default_limit: default_limit,
-          max_limit: max_limit
-        )
-      end)
-      |> apply_tab_assigns(tab, srql_module())
-      |> stream_active_tab(tab)
+      |> assign(:current_params, params)
+      |> assign(:netflow_auto_open, false)
+      |> start_tab_load(tab, params, socket.assigns.srql.page_path, match_params: params)
 
     {:noreply, socket}
   end
@@ -436,6 +434,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     {:noreply,
      socket
+     |> assign(:netflow_auto_open, false)
      |> assign(:selected_netflow, selected)
      |> assign(:netflow_context, ctx)
      |> assign(:netflow_arin_lookup, %{})}
@@ -444,6 +443,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   def handle_event("netflow_close", _params, socket) do
     {:noreply,
      socket
+     |> assign(:netflow_auto_open, false)
      |> assign(:selected_netflow, nil)
      |> assign(:netflow_context, nil)
      |> assign(:netflow_arin_lookup, %{})}
@@ -483,6 +483,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   def handle_event("netflow_lookup_asn", %{"asn" => asn_raw}, socket) do
+    socket = assign(socket, :netflow_auto_open, false)
+
     asn =
       case Integer.parse(to_string(asn_raw || "")) do
         {n, ""} when n > 0 -> n
@@ -770,6 +772,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
       {:noreply,
        socket
+       |> assign(:netflow_auto_open, false)
        |> assign(:selected_netflow, nil)
        |> assign(:netflow_context, nil)
        |> assign(:netflow_arin_lookup, %{})
@@ -8477,10 +8480,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     :netflow_geo_heatmap,
     :netflow_sankey,
     :netflow_sankey_edges_json,
-    :selected_netflow,
-    :netflow_context,
-    :netflow_arin_lookup,
-    :netflow_auto_open,
     :summary,
     :logs_rollup_status,
     :_summary_loaded,
@@ -8752,6 +8751,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp run_tab_load_task(worker_socket, tab, match_params, query_params, request, srql_mod) do
+    auto_open? = tab == "netflows" and Map.get(worker_socket.assigns, :netflow_auto_open, false)
     {_entity, list_key} = tab_entity(tab)
     list_result = SRQLPage.fetch_list(request)
 
@@ -8790,6 +8790,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       request: effective_request,
       list_result: effective_result,
       fallback_query: fallback_query,
+      auto_open:
+        if(auto_open?,
+          do: Map.take(worker_socket.assigns, [:selected_netflow, :netflow_context, :netflow_arin_lookup]),
+          else: %{}
+        ),
       tab_assigns: Map.take(worker_socket.assigns, @tab_secondary_assign_keys)
     }
   end
@@ -8799,7 +8804,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
          request: request,
          list_result: list_result,
          fallback_query: fallback_query,
-         tab_assigns: tab_assigns
+         tab_assigns: tab_assigns,
+         auto_open: auto_open
        }) do
     socket =
       if is_binary(fallback_query) do
@@ -8817,6 +8823,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> SRQLPage.apply_list_result(request, list_result)
     |> assign(:tab_load_request, nil)
     |> assign(tab_assigns)
+    |> then(fn socket ->
+      if tab == "netflows" and socket.assigns.netflow_auto_open do
+        socket |> assign(auto_open) |> assign(:netflow_auto_open, false)
+      else
+        socket
+      end
+    end)
     |> stream_active_tab(tab)
     |> assign(:tab_loading, false)
     |> assign(:_initial_load_done, true)
@@ -8947,6 +8960,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     else
       socket
     end
+  end
+
+  defp refresh_tab(%{assigns: %{tab_load_request: request}} = socket, tab)
+       when not is_nil(request) do
+    schedule_debounced_refresh(socket, tab)
   end
 
   defp refresh_tab(socket, tab) do

@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
 
@@ -186,7 +186,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
              ) == %{stuck: :stuck_default, fine: :loaded}
     end
 
-    test "respects explicit max_concurrency option" do
+    test "respects configured panel concurrency" do
+      previous = Application.get_env(:serviceradar_web_ng, :netflow_panel_max_concurrency)
+      Application.put_env(:serviceradar_web_ng, :netflow_panel_max_concurrency, 2)
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:serviceradar_web_ng, :netflow_panel_max_concurrency)
+        else
+          Application.put_env(:serviceradar_web_ng, :netflow_panel_max_concurrency, previous)
+        end
+      end)
+
       parent = self()
       supervisor = start_supervised!(Task.Supervisor)
 
@@ -204,7 +215,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
 
       task =
         Task.Supervisor.async_nolink(supervisor, fn ->
-          NetflowRuntime.run_concurrently(jobs, max_concurrency: 2)
+          NetflowRuntime.run_concurrently(jobs)
         end)
 
       first_wave =

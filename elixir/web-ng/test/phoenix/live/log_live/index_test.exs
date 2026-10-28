@@ -413,6 +413,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("button[phx-click='srql_paginate']", "Next")
     |> render_click()
 
+    render_async(lv)
+
     assert has_element?(lv, "#logs-live-status", "Off")
 
     html = render(lv)
@@ -485,6 +487,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     lv
     |> element("button[phx-click='srql_paginate']", "Next")
     |> render_click()
+
+    render_async(lv)
 
     assert has_element?(lv, "#events-live-status", "Off")
     assert [%{cursor: "cursor-page-2"}] = drain_srql_calls()

@@ -145,10 +145,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
           ServiceIndex.handle_params(%{}, "http://localhost/services", socket)
         end)
 
-      elapsed_ms = div(elapsed_us, 1_000)
-
-      assert elapsed_ms < SlowSRQLStub.latency_ms(),
-             "expected handle_params to return before #{SlowSRQLStub.latency_ms()}ms SRQL stub, took #{elapsed_ms}ms"
+      assert elapsed_us < 1_000,
+             "expected handle_params under 1,000us, took #{elapsed_us}us"
 
       assert loading_socket.assigns.tab_loading == true
 
@@ -196,10 +194,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
           BmpIndex.handle_params(%{}, "http://localhost/observability/bmp", socket)
         end)
 
-      elapsed_ms = div(elapsed_us, 1_000)
-
-      assert elapsed_ms < SlowSRQLStub.latency_ms(),
-             "expected BmpLive handle_params to return before #{SlowSRQLStub.latency_ms()}ms SRQL stub, took #{elapsed_ms}ms"
+      assert elapsed_us < 1_000,
+             "expected handle_params under 1,000us, took #{elapsed_us}us"
 
       assert loading_socket.assigns.tab_loading == true
       assert loading_socket.assigns.srql.loading == true
@@ -251,10 +247,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
           )
         end)
 
-      elapsed_ms = div(elapsed_us, 1_000)
-
-      assert elapsed_ms < SlowSRQLStub.latency_ms(),
-             "expected LogLive handle_params to return before #{SlowSRQLStub.latency_ms()}ms SRQL stub, took #{elapsed_ms}ms"
+      assert elapsed_us < 1_000,
+             "expected handle_params under 1,000us, took #{elapsed_us}us"
 
       assert loading_socket.assigns.tab_loading == true
       assert loading_socket.assigns.srql.loading == true
@@ -345,10 +339,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
           )
         end)
 
-      elapsed_ms = div(elapsed_us, 1_000)
-
-      assert elapsed_ms < SlowSRQLStub.latency_ms(),
-             "expected NetFlow handle_params to return before #{SlowSRQLStub.latency_ms()}ms SRQL stub, took #{elapsed_ms}ms"
+      assert elapsed_us < 1_000,
+             "expected handle_params under 1,000us, took #{elapsed_us}us"
 
       payload = await_async_result(:tab_load)
 
@@ -367,6 +359,75 @@ defmodule ServiceRadarWebNGWeb.ObservabilityAsyncLoadingTest do
       refute Enum.any?(queries, &String.contains?(&1, "by src_country_iso2"))
       refute Enum.any?(queries, &String.contains?(&1, "by app"))
     end
+  end
+
+  test "pagination replaces active loads and refresh pulses let them finish" do
+    for {view, path, name, live_key, timer_message} <- [
+          {BmpIndex, "/observability/bmp", :bmp_list, :bmp_live?, {:debounced_refresh}},
+          {LogIndex, "/observability/logs", :tab_load, :logs_live?, {:debounced_refresh, "logs"}}
+        ] do
+      socket = mounted_connected_socket(view)
+      {:noreply, loading} = view.handle_params(%{}, "http://localhost" <> path, socket)
+      loading = Phoenix.Component.assign(loading, live_key, true)
+      {:noreply, coalesced} = view.handle_info(timer_message, loading)
+
+      timer =
+        if view == BmpIndex,
+          do: coalesced.assigns[:_refresh_timer],
+          else: get_in(coalesced.assigns, [:_refresh_timers, "logs"])
+
+      assert is_reference(timer)
+      assert is_integer(Process.read_timer(timer))
+      Process.cancel_timer(timer)
+      payload = await_async_result(name)
+      {:noreply, loaded} = view.handle_async(name, {:ok, payload}, coalesced)
+      refute loaded.assigns.srql.loading
+
+      {:noreply, refreshing} = view.handle_info(timer_message, loaded)
+      stale_payload = await_async_result(name)
+
+      {:noreply, paging} =
+        view.handle_event("srql_paginate", %{"cursor" => "synthetic-next", "page" => "2"}, refreshing)
+
+      assert paging.assigns.srql.loading
+      refute Map.fetch!(paging.assigns, live_key)
+
+      if view == LogIndex do
+        assert {:noreply, ^paging} = view.handle_async(name, {:ok, stale_payload}, paging)
+      end
+
+      page_payload = await_async_result(name)
+      {:noreply, paged} = view.handle_async(name, {:ok, page_payload}, paging)
+      assert paged.assigns.pagination_page == 2
+      refute paged.assigns.srql.loading
+    end
+  end
+
+  test "flow completion preserves modal interaction state" do
+    socket = mounted_connected_socket(LogIndex)
+
+    {:noreply, loading} =
+      LogIndex.handle_params(%{"q" => "in:flows time:last_1h"}, "http://localhost/observability/netflows", socket)
+
+    payload = await_async_result(:tab_load)
+
+    interaction = %{
+      selected_netflow: %{"src_endpoint_ip" => "192.0.2.42"},
+      netflow_context: %{source: :selected},
+      netflow_arin_lookup: %{asn: 64_512, data: %{name: "Example"}},
+      netflow_auto_open: false
+    }
+
+    opened = Phoenix.Component.assign(loading, interaction)
+    {:noreply, completed} = LogIndex.handle_async(:tab_load, {:ok, payload}, opened)
+    assert Map.take(completed.assigns, Map.keys(interaction)) == interaction
+
+    {:noreply, closed} = LogIndex.handle_event("netflow_close", %{}, opened)
+    {:noreply, completed} = LogIndex.handle_async(:tab_load, {:ok, payload}, closed)
+    assert is_nil(completed.assigns.selected_netflow)
+    assert is_nil(completed.assigns.netflow_context)
+    assert completed.assigns.netflow_arin_lookup == %{}
+    refute completed.assigns.netflow_auto_open
   end
 
   defp mounted_connected_socket(view) do

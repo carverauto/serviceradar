@@ -109,24 +109,17 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
   end
 
   def handle_event("srql_paginate", params, socket) do
-    socket =
-      socket
-      # Paging is session position — drop live tailing.
-      |> assign(:bmp_live?, false)
-      |> then(fn sock ->
-        SRQLPage.handle_event(sock, "srql_paginate", params,
-          list_assign_key: :bmp_events,
-          default_limit: @default_limit,
-          max_limit: @max_limit
-        )
-      end)
-
-    summary = compute_summary(socket.assigns.bmp_events)
+    params =
+      socket.assigns.current_params
+      |> Map.drop(["cursor", "page"])
+      |> Map.merge(Map.take(params, ["cursor", "page"]))
+      |> Map.put("q", socket.assigns.srql.query)
 
     {:noreply,
      socket
-     |> stream(:bmp_events, socket.assigns.bmp_events, reset: true, dom_id: &bmp_event_dom_id/1)
-     |> assign(:summary, summary)}
+     |> assign(:bmp_live?, false)
+     |> assign(:current_params, params)
+     |> start_bmp_load(params)}
   end
 
   def handle_event("toggle_bmp_live", _params, socket) do
@@ -250,6 +243,11 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
 
   # Live refresh reuses the active query and drops cursor/page position so the
   # tail returns to the head of the result set.
+  defp refresh_bmp_head(%{assigns: %{bmp_list_request: request}} = socket)
+       when not is_nil(request) do
+    maybe_schedule_live_refresh(socket)
+  end
+
   defp refresh_bmp_head(socket) do
     query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query, "")
 
@@ -398,9 +396,9 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
     """
   end
 
-  attr :id, :string, required: true
-  attr :value, :any, required: true
-  attr :timezone, :string, required: true
+  attr(:id, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:timezone, :string, required: true)
 
   def bmp_event_time(assigns) do
     ~H"""
@@ -449,7 +447,7 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
     """
   end
 
-  attr :summary, :map, required: true
+  attr(:summary, :map, required: true)
 
   defp summary_cards(assigns) do
     total = Map.get(assigns.summary, :total, 0)
@@ -519,12 +517,12 @@ defmodule ServiceRadarWebNGWeb.BmpLive.Index do
     """
   end
 
-  attr :title, :string, required: true
-  attr :value, :integer, required: true
-  attr :total, :integer, required: true
-  attr :tone, :string, required: true
-  attr :icon, :string, required: true
-  attr :query, :string, required: true
+  attr(:title, :string, required: true)
+  attr(:value, :integer, required: true)
+  attr(:total, :integer, required: true)
+  attr(:tone, :string, required: true)
+  attr(:icon, :string, required: true)
+  attr(:query, :string, required: true)
 
   defp summary_card(assigns) do
     pct =
