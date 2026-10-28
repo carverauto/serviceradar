@@ -86,8 +86,8 @@ It asserts:
     transaction markers or noncanonical payload. An older active delivery loses;
     a snapshot replays the same terminal publication without creating a repair.
     A delayed compaction load loses to a newer active transition.
-11. A legacy repair obligation defers compaction of 501 synthetic facts. After
-    removing that test-owned obligation, the first 500-row page succeeds. Invalid
+11. A legacy repair obligation defers compaction of 1001 synthetic facts. After
+    removing that test-owned obligation, the first 1000-row page succeeds. Invalid
     synthetic HTTP credentials cause the warehouse to return an actual HTTP 401
     for the next page. The successful-page cursor and original cutoff remain
     durable, and restoring the credentials lets retry clear the final row.
@@ -96,7 +96,7 @@ The separate controlled-response test covers filtered-load cursor recovery;
 the live HTTP 401 case does not establish real warehouse filtered-row behavior.
 
 The finite paging fixture is a functional boundary check, not fleet throughput
-proof. Task 1.6 and the <=15-minute fleet-scale gate remain open. These assertions
+proof. Task 1.6 and the fleet reconciliation gate remain open. These assertions
 require a fresh coordinator-owned hosted run; their presence is not pass evidence.
 
 ## Cleanup and result collection
@@ -121,6 +121,9 @@ are excluded; diagnostic failure does not replace the finalization failure.
 The coordinator must still drop and verify absence of the scratch schema, including when preflight or cleanup fails.
 
 ## Compaction capacity (Decision 26)
+
+The approved workload and measured results are owned by
+[Decision 26](../openspec/changes/add-srql-exposure-intelligence/design.md#decision-26-define-the-maintenance-capacity-workload).
 
 The explicit target `//elixir/serviceradar_core:exposure_compaction_capacity`
 measures the production compactor with a real Oban Basic-engine queue. Run it
