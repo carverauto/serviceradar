@@ -19,6 +19,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DistinctDeviceAssertion
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Repo
@@ -1421,6 +1422,49 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       review = decision(:policy_block, [agent_uid, identifier.device_id], actor)
       assert review.reason == "hostname_agreement_not_identity"
       assert review.evidence["refusal"] == "agent_bound_holder"
+    end
+
+    test "shared eligible MACs do not create corroboration for an operator-distinct pair",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      name = "node#{uniq}"
+      [agent_mac, holder_mac] = host_macs(uniq, 2)
+      agent_ip = doc_ip(uniq, 0)
+      holder_ip = doc_ip(uniq, 1)
+      agent_id = "agent-distinct-#{uniq}"
+
+      attrs = %{
+        hostname: "#{name}.example.com",
+        source_ip: agent_ip,
+        partition: "default",
+        host_interfaces: [host_nic("eno1", agent_mac, [agent_ip])]
+      }
+
+      assert {:ok, agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+      holder_uid = known_host!(name, holder_ip, [holder_mac], actor)
+      operator = %{id: "identity-test-operator", email: "operator@example.com", role: :operator}
+
+      DistinctDeviceAssertion
+      |> Ash.Changeset.for_create(:assert, %{device_a: agent_uid, device_b: holder_uid},
+        actor: operator
+      )
+      |> Ash.create!(actor: operator)
+
+      attrs = %{
+        attrs
+        | host_interfaces: [
+            host_nic("eno1", agent_mac, [agent_ip]),
+            host_nic("eno2", holder_mac, [holder_ip])
+          ]
+      }
+
+      assert {:ok, ^agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+      assert {:ok, %{deleted_at: nil}} = Device.get_by_uid(holder_uid, false, actor: actor)
+      assert identifiers(holder_uid, actor) == [{:mac, mac_value(holder_mac)}]
+      assert decision(:guard_block, [agent_uid, holder_uid], actor).reason == "asserted_distinct"
+
+      assert {:ok, decisions} = IdentityDecision.for_device(agent_uid, actor: actor)
+      refute Enum.any?(decisions, &(&1.reason == "agent_corroboration_not_identity"))
     end
 
     test "primary address corroboration survives address reassignment", %{actor: actor} do

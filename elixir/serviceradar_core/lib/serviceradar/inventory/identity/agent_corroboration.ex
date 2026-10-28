@@ -19,7 +19,9 @@ defmodule ServiceRadar.Inventory.Identity.AgentCorroboration do
   """
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.Identity.DecisionLog
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.Resolver
 
   require Ash.Query
@@ -28,13 +30,14 @@ defmodule ServiceRadar.Inventory.Identity.AgentCorroboration do
   @reason "agent_corroboration_not_identity"
 
   @spec capture(map(), term()) :: map()
-  def capture(%{hostname: hostname, partition: partition, ips: ips}, actor) do
+  def capture(%{hostname: hostname, partition: partition, ips: ips, macs: macs}, actor) do
     label = first_label(hostname)
 
     candidates =
       with true <- is_binary(label) and ips != [],
-           {:ok, found} <- corroborated(label, partition, ips, actor) do
-        found
+           {:ok, found} <- corroborated(label, partition, ips, actor),
+           {:ok, shared} <- shared_mac_owners(macs, partition, actor) do
+        Enum.reject(found, fn {uid, _ip} -> MapSet.member?(shared, uid) end)
       else
         {:error, reason} ->
           Logger.warning("Agent corroboration capture skipped: #{inspect(reason)}")
@@ -109,6 +112,20 @@ defmodule ServiceRadar.Inventory.Identity.AgentCorroboration do
 
       error ->
         error
+    end
+  end
+
+  defp shared_mac_owners(macs, partition, actor) do
+    values = macs |> Mac.universal_macs() |> Enum.reject(&Mac.multicast_mac?/1)
+
+    DeviceIdentifier
+    |> Ash.Query.filter(
+      identifier_type == :mac and identifier_value in ^values and partition == ^partition
+    )
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, identifiers} -> {:ok, MapSet.new(identifiers, & &1.device_id)}
+      error -> error
     end
   end
 

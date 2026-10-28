@@ -551,7 +551,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     %{
       hostname: Map.get(attrs, :hostname),
       partition: agent_partition(attrs),
-      ips: Enum.uniq(announced ++ HostInterfaces.host_ips(agent_host_interfaces(attrs)))
+      ips: Enum.uniq(announced ++ HostInterfaces.host_ips(agent_host_interfaces(attrs))),
+      macs: agent_identity_macs(attrs)
     }
   end
 
