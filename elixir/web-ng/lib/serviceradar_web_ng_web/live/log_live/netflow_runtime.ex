@@ -71,6 +71,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntime do
 
   @doc """
   Returns the bounded concurrency cap for NetFlow panel loaders.
+
+  Reads `:netflow_panel_max_concurrency` from the `:serviceradar_web_ng`
+  application environment. Positive integers are accepted; missing or invalid
+  values use the default of four concurrent loaders.
   """
   @spec max_panel_concurrency() :: pos_integer()
   def max_panel_concurrency do
@@ -83,12 +87,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntime do
   @doc """
   Runs independent panel loaders at the same time and returns their results by key.
 
-  Each NetFlow panel is one or more warehouse round trips, and none of them
-  needs another's answer, so up to four loaders can overlap. A loader that
+  Each NetFlow panel is one or more warehouse round trips. Independent loaders
+  overlap up to the cap returned by `max_panel_concurrency/0`. A loader that
   outlives the timeout is killed and its default is used, so one stuck query
   costs its own panel and not the page.
 
-  Loaders that depend on another's result belong in a later call. The fixed
+  Loaders that depend on another's result belong in a later call. The
   concurrency cap bounds each viewer's warehouse fan-out.
   """
   @spec run_concurrently([job()], keyword()) :: %{optional(term()) => term()}
