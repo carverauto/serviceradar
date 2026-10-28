@@ -1,6 +1,37 @@
 #!/bin/sh
 set -e
 
+lock_runtime_dir() {
+    dir="$1"
+    mode="$2"
+    if [ -L "$dir" ]; then
+        echo "Error: refusing symlinked $dir" >&2
+        exit 1
+    fi
+    if [ -e "$dir" ] && [ ! -d "$dir" ]; then
+        echo "Error: expected directory at $dir" >&2
+        exit 1
+    fi
+    mkdir -p "$dir"
+    if [ -L "$dir" ] || [ ! -d "$dir" ]; then
+        echo "Error: refusing non-directory $dir" >&2
+        exit 1
+    fi
+    chown -h root:root "$dir"
+    chmod "$mode" "$dir"
+}
+
+own_runtime_dir() {
+    dir="$1"
+    mode="$2"
+    if [ -L "$dir" ] || [ ! -d "$dir" ]; then
+        echo "Error: refusing non-directory $dir" >&2
+        exit 1
+    fi
+    chown -h serviceradar:serviceradar "$dir"
+    chmod "$mode" "$dir"
+}
+
 # Create serviceradar group if it doesn't exist
 if ! getent group serviceradar >/dev/null; then
     groupadd --system serviceradar
@@ -13,11 +44,27 @@ fi
 
 # Create required directories
 mkdir -p /etc/serviceradar
-mkdir -p /var/lib/serviceradar
 mkdir -p /var/lib/serviceradar/cache
 mkdir -p /usr/lib/serviceradar/addons
 chmod 755 /usr/lib/serviceradar/addons
-chown root:root /usr/lib/serviceradar/addons
+chown -h root:root /usr/lib/serviceradar/addons
+
+# Repair or create the agent runtime directory skeleton without recursive chown.
+# Lock parents to root:root 0755 top-down before creating/checking children so a
+# running service process cannot swap an intermediate path with a symlink, then
+# restore service ownership bottom-up while each parent remains root-locked.
+lock_runtime_dir /var/lib/serviceradar 0755
+lock_runtime_dir /var/lib/serviceradar/agent 0755
+lock_runtime_dir /var/lib/serviceradar/agent/tmp 0755
+lock_runtime_dir /var/lib/serviceradar/agent/versions 0755
+lock_runtime_dir /var/lib/serviceradar/agent/versions/seed-installed 0755
+rm -f /var/lib/serviceradar/agent/versions/seed-installed/serviceradar-agent.new
+own_runtime_dir /var/lib/serviceradar/agent/versions/seed-installed 0755
+own_runtime_dir /var/lib/serviceradar/agent/versions 0755
+own_runtime_dir /var/lib/serviceradar/agent/tmp 0755
+own_runtime_dir /var/lib/serviceradar/agent 0755
+own_runtime_dir /var/lib/serviceradar 0755
+
 # Endpoint-inventory state dirs: the agent writes its runtime profile here as the
 # serviceradar user. Create and own this subtree explicitly so a stale root-owned
 # directory cannot permanently defer the config-version ack (fj #4301).
@@ -27,25 +74,22 @@ mkdir -p /var/lib/serviceradar/endpoint-inventory/cache
 mkdir -p /var/lib/serviceradar/endpoint-inventory/tmp
 mkdir -p /etc/serviceradar/sidecars
 
-
 # Create checkers/sweep directory if it doesnt already exist
 mkdir -p /etc/serviceradar/checkers/sweep
 
 # Set permissions
 if [ -f /etc/serviceradar/agent.json ]; then
-    chown serviceradar:serviceradar /etc/serviceradar/agent.json
+    chown -h serviceradar:serviceradar /etc/serviceradar/agent.json
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 chown -R serviceradar:serviceradar /etc/serviceradar/sidecars
 # Do not recursively chown the shared state root. Native add-ons keep root-owned
 # state below it and may intentionally drop CAP_DAC_OVERRIDE; taking ownership of
 # those directories while the add-on remains running makes its next write fail.
-chown serviceradar:serviceradar /var/lib/serviceradar
 chown -R serviceradar:serviceradar /var/lib/serviceradar/cache
 chown -R serviceradar:serviceradar /var/lib/serviceradar/endpoint-inventory
 chmod 755 /etc/serviceradar/
 chmod 750 /etc/serviceradar/sidecars
-chmod 755 /var/lib/serviceradar
 chmod 755 /var/lib/serviceradar/cache
 chmod 750 /var/lib/serviceradar/endpoint-inventory
 

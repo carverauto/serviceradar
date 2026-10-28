@@ -19,6 +19,8 @@ Delegate=yes
 # Netprobe also publishes /run/serviceradar/netprobe/ipc.sock; if systemd owns the
 # shared parent as the agent RuntimeDirectory, an agent restart can remove or
 # recreate the parent after netprobe has bound its socket.
+StateDirectory=serviceradar/agent serviceradar/agent/tmp serviceradar/agent/versions serviceradar/agent/versions/seed-installed
+StateDirectoryMode=0755
 ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar
 Environment="CONFIG_SOURCE=file"
 Environment="KV_ADDRESS=127.0.0.1:50057"
@@ -38,6 +40,7 @@ AmbientCapabilities=CAP_NET_RAW
 CapabilityBoundingSet=CAP_NET_RAW CAP_SETFCAP CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN CAP_MAC_ADMIN
 Restart=always
 RestartSec=10
+RestartPreventExitStatus=77 78
 LimitNPROC=512
 LimitNOFILE=65535
 
