@@ -977,8 +977,7 @@ defmodule ServiceRadarAgentGateway.AgentRetainedDeliveryTest do
         :agent,
         ca_cert_file: context.ca_cert,
         ca_key_file: context.ca_key,
-        temp_parent_dir: context.parent_dir,
-        audit_writer: nil
+        temp_parent_dir: context.parent_dir
       )
 
     CertificateTestHelpers.certificate_der!(bundle.certificate_pem)

@@ -175,8 +175,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         CertIssuer.issue_agent_bundle(agent_id, "default", :agent,
           ca_cert_file: ca_cert,
           ca_key_file: ca_key,
-          temp_parent_dir: parent_dir,
-          audit_writer: nil
+          temp_parent_dir: parent_dir
         )
 
       stream =

@@ -111,6 +111,8 @@ SERIAL_COMPOSITE_CHECK_SRCS = (
 )
 ASYNC_ON_EXIT_ALLOWED_SOURCES = {
     "test/serviceradar/event_writer/device_correlation_test.exs",
+    # Detaches a per-test telemetry handler; no database cleanup.
+    "test/serviceradar/events/audit_writer_test.exs",
     "test/serviceradar/integrations/armis_northbound_runner_test.exs",
     "test/serviceradar/inventory/agent_link_repair_worker_test.exs",
     "test/serviceradar/notifications/dispatcher_delivery_test.exs",
@@ -2307,6 +2309,9 @@ print(open(sys.argv[2]).read().strip())
             "test/serviceradar/event_writer/device_correlation_test.exs",
         }
         allowed_callbacks = {
+            "test/serviceradar/events/audit_writer_test.exs": {
+                "on_exit(fn -> :telemetry.detach(handler) end)": 1,
+            },
             "test/serviceradar/integrations/armis_northbound_runner_test.exs": {
                 "on_exit(stop_server)": 1,
             },
