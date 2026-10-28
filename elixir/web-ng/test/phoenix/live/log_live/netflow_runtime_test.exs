@@ -1,5 +1,5 @@
 defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadarWebNGWeb.LogLive.NetflowRuntime
 
@@ -41,6 +41,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
                NetflowRuntime.load_panel("netflows", view, :sankey, fn ->
                  flunk("loaded sankey on #{view}")
                end)
+    end
+
+    # Overview only loads summary and timeseries panels; talker/topology/explorer
+    # panels are skipped on overview to bound warehouse fan-out.
+    for panel <- [
+          :top_talkers,
+          :top_ports,
+          :frequent_talkers_packets,
+          :frequent_talkers_bytes,
+          :protocol_activity,
+          :app_activity,
+          :geo_heatmap,
+          :threat_map,
+          :rdns_map
+        ] do
+      refute NetflowRuntime.should_load_panel?("netflows", "overview", panel)
+
+      assert {:skipped, :inactive_panel} =
+               NetflowRuntime.load_panel("netflows", "overview", panel, fn ->
+                 flunk("loaded #{panel} on overview")
+               end)
+    end
+
+    for panel <- [:summary, :timeseries, :stacked_timeseries, :timeseries_compare] do
+      assert NetflowRuntime.should_load_panel?("netflows", "overview", panel)
+    end
+
+    for panel <- [:top_talkers, :top_ports, :frequent_talkers_packets, :frequent_talkers_bytes, :rdns_map, :sankey] do
+      assert NetflowRuntime.should_load_panel?("netflows", "talkers", panel)
+    end
+
+    for panel <- [:geo_heatmap, :sankey] do
+      assert NetflowRuntime.should_load_panel?("netflows", "topology", panel)
+    end
+
+    for panel <- [:threat_map, :rdns_map] do
+      assert NetflowRuntime.should_load_panel?("netflows", "explorer", panel)
     end
   end
 
@@ -147,6 +184,55 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntimeTest do
                ],
                timeout: 50
              ) == %{stuck: :stuck_default, fine: :loaded}
+    end
+
+    test "respects configured panel concurrency" do
+      previous = Application.get_env(:serviceradar_web_ng, :netflow_panel_max_concurrency)
+      Application.put_env(:serviceradar_web_ng, :netflow_panel_max_concurrency, 2)
+
+      on_exit(fn ->
+        if is_nil(previous) do
+          Application.delete_env(:serviceradar_web_ng, :netflow_panel_max_concurrency)
+        else
+          Application.put_env(:serviceradar_web_ng, :netflow_panel_max_concurrency, previous)
+        end
+      end)
+
+      parent = self()
+      supervisor = start_supervised!(Task.Supervisor)
+
+      jobs =
+        for n <- 1..4 do
+          {n,
+           fn ->
+             send(parent, {:panel_started_bounded, self()})
+
+             receive do
+               :release -> n
+             end
+           end, :default}
+        end
+
+      task =
+        Task.Supervisor.async_nolink(supervisor, fn ->
+          NetflowRuntime.run_concurrently(jobs)
+        end)
+
+      first_wave =
+        for _ <- 1..2 do
+          assert_receive {:panel_started_bounded, pid}
+          pid
+        end
+
+      refute_receive {:panel_started_bounded, _pid}
+      Enum.each(first_wave, &send(&1, :release))
+
+      for _ <- 1..2 do
+        assert_receive {:panel_started_bounded, pid}
+        send(pid, :release)
+      end
+
+      assert Task.await(task) == Map.new(1..4, &{&1, &1})
     end
   end
 end

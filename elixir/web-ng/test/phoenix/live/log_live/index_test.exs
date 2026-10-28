@@ -54,7 +54,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "Page 1 log"
     assert has_element?(lv, "#logs-live-status", "Off")
@@ -63,7 +63,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     send(lv.pid, {:logs_ingested, %{}})
     send(lv.pid, {:debounced_refresh, "logs"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#logs-live-status", "Off")
@@ -73,6 +73,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   test "log level cards render the severity rollup payload", %{conn: conn} do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
+
+    render_async(lv)
 
     assert has_element?(lv, "#logs-level-summary", "100")
     assert has_element?(lv, "#logs-level-summary", "Fatal")
@@ -91,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert has_element?(lv, "#logs-rollup-warning", "Log level rollup unavailable")
     assert html =~ "Page 1 log"
@@ -108,6 +110,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h", limit: 20}}")
 
+    render_async(lv)
+
     assert has_element?(lv, "#logs-rollup-warning", "24-hour card window")
     assert has_element?(lv, "#logs-level-summary", "100")
   end
@@ -120,6 +124,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: current_query, limit: 20}}")
 
+    render_async(lv)
     _ = drain_srql_calls()
 
     stale_query = "in:logs time:last_24h sort:timestamp:desc"
@@ -141,7 +146,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     # SEVERITY_NUMBER_INFO -> INFO label + info color (was "SEVER" truncation +
     # ghost color before the fix).
@@ -203,7 +208,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     path = ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc"}}"
     {:ok, lv, _html} = live_following_redirect(conn, path)
 
-    html = render(lv)
+    html = render_async(lv)
     document = LazyHTML.from_fragment(html)
     times = LazyHTML.query(document, "#logs time")
     ids = LazyHTML.attribute(times, "id")
@@ -227,6 +232,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "trace and metric rows localize labels while metric pivots retain exact UTC bounds", %{conn: conn} do
     {:ok, traces, _html} = live(conn, ~p"/observability/traces")
+    render_async(traces)
 
     assert has_element?(
              traces,
@@ -234,6 +240,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
            )
 
     {:ok, metrics, _html} = live(conn, ~p"/observability/metrics")
+    render_async(metrics)
 
     assert has_element?(
              metrics,
@@ -261,9 +268,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "event and alert rows use the shared user-time contract", %{conn: conn} do
     {:ok, events, _html} = live(conn, ~p"/observability/events")
+    render_async(events)
     assert has_element?(events, ~s(#events time[datetime="2026-08-30T18:00:00Z"]))
 
     {:ok, alerts, _html} = live(conn, ~p"/observability/alerts")
+    render_async(alerts)
     assert has_element?(alerts, ~s(#alerts time[datetime="2026-08-30T18:00:00Z"][data-user-time-zone="America/Chicago"]))
     refute has_element?(alerts, "#alerts span", "2026-08-30T18:00:00")
   end
@@ -314,7 +323,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
       ids =
         lv
-        |> render()
+        |> render_async()
         |> LazyHTML.from_fragment()
         |> LazyHTML.query("##{table} time")
         |> LazyHTML.attribute("id")
@@ -338,18 +347,21 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
 
+    render_async(lv)
     _ = drain_srql_calls()
 
     lv
     |> element("#logs-live-toggle")
     |> render_click()
 
+    render_async(lv)
+
     assert has_element?(lv, "#logs-live-status", "On")
     assert [%{cursor: nil} | _] = drain_srql_calls()
 
     send(lv.pid, {:logs_ingested, %{}})
     send(lv.pid, {:debounced_refresh, "logs"})
-    render(lv)
+    render_async(lv)
 
     assert [%{cursor: nil} | _] = drain_srql_calls()
   end
@@ -359,6 +371,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs sort:timestamp:desc", limit: 20}}")
 
+    render_async(lv)
     assert [%{query: initial_query, cursor: nil} | _] = drain_srql_calls()
     assert initial_query == "in:logs time:last_24h sort:timestamp:desc"
 
@@ -366,11 +379,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("#logs-live-toggle")
     |> render_click()
 
+    render_async(lv)
     _ = drain_srql_calls()
 
     send(lv.pid, {:logs_ingested, %{}})
     send(lv.pid, {:debounced_refresh, "logs"})
-    render(lv)
+    render_async(lv)
 
     assert [%{query: refresh_query, cursor: nil} | _] = drain_srql_calls()
     assert refresh_query == "in:logs time:last_24h sort:timestamp:desc"
@@ -381,7 +395,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/logs?#{%{q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "Page 1 log"
     _ = drain_srql_calls()
@@ -390,6 +404,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("#logs-live-toggle")
     |> render_click()
 
+    render_async(lv)
     assert has_element?(lv, "#logs-live-status", "On")
     _ = drain_srql_calls()
 
@@ -397,6 +412,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     lv
     |> element("button[phx-click='srql_paginate']", "Next")
     |> render_click()
+
+    render_async(lv)
 
     assert has_element?(lv, "#logs-live-status", "Off")
 
@@ -406,7 +423,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     send(lv.pid, {:logs_ingested, %{}})
     send(lv.pid, {:debounced_refresh, "logs"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
   end
@@ -414,13 +431,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "events default to non-live browsing", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/events")
+    render_async(lv)
 
     assert has_element?(lv, "#events-live-status", "Off")
     _ = drain_srql_calls()
 
     send(lv.pid, {:ocsf_event, %{}})
     send(lv.pid, {:debounced_refresh, "events"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#events-live-status", "Off")
@@ -429,6 +447,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "enabling live mode allows event-ingest refreshes", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/events")
+    render_async(lv)
 
     _ = drain_srql_calls()
 
@@ -436,12 +455,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("#events-live-toggle")
     |> render_click()
 
+    render_async(lv)
+
     assert has_element?(lv, "#events-live-status", "On")
     assert [%{cursor: nil} | _] = drain_srql_calls()
 
     send(lv.pid, {:ocsf_event, %{}})
     send(lv.pid, {:debounced_refresh, "events"})
-    render(lv)
+    render_async(lv)
 
     assert [%{cursor: nil} | _] = drain_srql_calls()
   end
@@ -449,12 +470,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "manual pagination pauses events live mode before subsequent refreshes", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/events")
+    render_async(lv)
 
     _ = drain_srql_calls()
 
     lv
     |> element("#events-live-toggle")
     |> render_click()
+
+    render_async(lv)
 
     assert has_element?(lv, "#events-live-status", "On")
     _ = drain_srql_calls()
@@ -464,12 +488,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("button[phx-click='srql_paginate']", "Next")
     |> render_click()
 
+    render_async(lv)
+
     assert has_element?(lv, "#events-live-status", "Off")
     assert [%{cursor: "cursor-page-2"}] = drain_srql_calls()
 
     send(lv.pid, {:ocsf_event, %{}})
     send(lv.pid, {:debounced_refresh, "events"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
   end
@@ -477,13 +503,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "traces default to non-live browsing", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    render_async(lv)
 
     assert has_element?(lv, "#traces-live-status", "Off")
     _ = drain_srql_calls()
 
     send(lv.pid, {:otel_traces_ingested, %{count: 3}})
     send(lv.pid, {:debounced_refresh, "traces"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#traces-live-status", "Off")
@@ -492,6 +519,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "enabling live mode allows trace-ingest refreshes", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    render_async(lv)
 
     _ = drain_srql_calls()
 
@@ -499,12 +527,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("#traces-live-toggle")
     |> render_click()
 
+    render_async(lv)
+
     assert has_element?(lv, "#traces-live-status", "On")
     assert drain_srql_calls() != []
 
     send(lv.pid, {:otel_traces_ingested, %{count: 3}})
     send(lv.pid, {:debounced_refresh, "traces"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() != []
   end
@@ -512,6 +542,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "trace summary refreshes drive live mode, not just span ingest", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    render_async(lv)
 
     _ = drain_srql_calls()
 
@@ -519,12 +550,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("#traces-live-toggle")
     |> render_click()
 
+    render_async(lv)
+
     assert has_element?(lv, "#traces-live-status", "On")
     assert drain_srql_calls() != []
 
     send(lv.pid, {:otel_trace_summaries_refreshed, %{count: 2}})
     send(lv.pid, {:debounced_refresh, "traces"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() != []
   end
@@ -532,13 +565,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "trace summary refreshes stay quiet when live is off", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    render_async(lv)
 
     assert has_element?(lv, "#traces-live-status", "Off")
     _ = drain_srql_calls()
 
     send(lv.pid, {:otel_trace_summaries_refreshed, %{count: 2}})
     send(lv.pid, {:debounced_refresh, "traces"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#traces-live-status", "Off")
@@ -547,13 +581,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "metrics default to non-live browsing", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/metrics")
+    render_async(lv)
 
     assert has_element?(lv, "#metrics-live-status", "Off")
     _ = drain_srql_calls()
 
     send(lv.pid, {:otel_metrics_ingested, %{count: 5}})
     send(lv.pid, {:debounced_refresh, "metrics"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#metrics-live-status", "Off")
@@ -562,6 +597,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "enabling live mode allows metric-ingest refreshes", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/metrics")
+    render_async(lv)
 
     _ = drain_srql_calls()
 
@@ -569,12 +605,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("#metrics-live-toggle")
     |> render_click()
 
+    render_async(lv)
+
     assert has_element?(lv, "#metrics-live-status", "On")
     assert drain_srql_calls() != []
 
     send(lv.pid, {:otel_metrics_ingested, %{count: 5}})
     send(lv.pid, {:debounced_refresh, "metrics"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() != []
   end
@@ -582,13 +620,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "alerts default to non-live browsing", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+    render_async(lv)
 
     assert has_element?(lv, "#alerts-live-status", "Off")
     _ = drain_srql_calls()
 
     send(lv.pid, {:ocsf_event, %{}})
     send(lv.pid, {:debounced_refresh, "alerts"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#alerts-live-status", "Off")
@@ -597,11 +636,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "unrelated events do not schedule live alert refreshes", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+    render_async(lv)
 
     lv
     |> element("#alerts-live-toggle")
     |> render_click()
 
+    render_async(lv)
     _ = drain_srql_calls()
     send(lv.pid, {:ocsf_event, %{}})
     render(lv)
@@ -614,6 +655,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "alert creation drives live mode", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+    render_async(lv)
 
     _ = drain_srql_calls()
 
@@ -621,12 +663,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> element("#alerts-live-toggle")
     |> render_click()
 
+    render_async(lv)
+
     assert has_element?(lv, "#alerts-live-status", "On")
     assert [%{cursor: nil} | _] = drain_srql_calls()
 
     send(lv.pid, {:alert_created, %{id: "alert-1"}})
     send(lv.pid, {:debounced_refresh, "alerts"})
-    render(lv)
+    render_async(lv)
 
     assert [%{cursor: nil} | _] = drain_srql_calls()
   end
@@ -634,13 +678,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "alert creation stays quiet when live is off", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/alerts")
+    render_async(lv)
 
     assert has_element?(lv, "#alerts-live-status", "Off")
     _ = drain_srql_calls()
 
     send(lv.pid, {:alert_created, %{id: "alert-1"}})
     send(lv.pid, {:debounced_refresh, "alerts"})
-    render(lv)
+    render_async(lv)
 
     assert drain_srql_calls() == []
     assert has_element?(lv, "#alerts-live-status", "Off")
@@ -648,12 +693,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "alerts tab clamps requested limit to 100 rows", %{conn: conn} do
-    {:ok, _lv, _html} =
+    {:ok, lv, _html} =
       live(
         conn,
         ~p"/observability/alerts?#{%{q: "in:alerts time:last_24h sort:triggered_at:desc limit:200"}}"
       )
 
+    render_async(lv)
     calls = drain_srql_calls()
     alert_call = Enum.find(calls, fn c -> String.starts_with?(c.query, "in:alerts") end)
 
@@ -663,12 +709,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
   @tag :web_ng_shared_fixture_db
   test "netflows tab clamps requested limit to 100 rows", %{conn: conn} do
-    {:ok, _lv, _html} =
+    {:ok, lv, _html} =
       live(
         conn,
         ~p"/observability/netflows?#{%{q: "in:flows time:last_1h sort:timestamp:desc limit:200"}}"
       )
 
+    render_async(lv)
     calls = drain_srql_calls()
     netflow_call = Enum.find(calls, fn c -> String.starts_with?(c.query, "in:flows") end)
 
@@ -681,7 +728,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/netflows?#{%{q: "in:flows time:last_1h sort:timestamp:desc", limit: 20}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "Observability"
     assert html =~ "Unified view of logs, traces, metrics, and infrastructure signals."
@@ -697,6 +744,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
            |> LazyHTML.query("#observability-tab-loading[role='status']")
            |> Enum.any?()
 
+    render_async(lv)
+
     assert has_element?(lv, "#metrics-row-0", "metrics-service")
     assert has_element?(lv, "#observability-tab-content:not([hidden])")
     refute has_element?(lv, "#metrics", "No metrics found.")
@@ -704,6 +753,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     # Tab switching still works after the initial load.
     render_patch(lv, ~p"/observability/logs")
+    render_async(lv)
     assert has_element?(lv, "#logs", "Page 1 log")
     assert has_element?(lv, "#observability-tab-content:not([hidden])")
     refute has_element?(lv, "#observability-tab-loading")
@@ -714,7 +764,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "span sample"
     assert html =~ "sum (cumulative)"
@@ -728,7 +778,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "Span samples (slow-span exemplars)"
     assert html =~ "OTLP metrics"
@@ -740,7 +790,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics?#{%{mview: "points"}}")
 
-    html = render(lv)
+    html = render_async(lv)
 
     # Name rows: name, type badge, unit, point count.
     assert html =~ "falco.outputs.queue"
@@ -776,13 +826,14 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics?#{%{mview: "points"}}")
 
+    render_async(lv)
     _ = drain_srql_calls()
 
     lv
     |> element("#otlp-metric-name-0 a", "falco.outputs.queue")
     |> render_click()
 
-    render(lv)
+    render_async(lv)
 
     calls = drain_srql_calls()
 
@@ -800,7 +851,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         ~p"/observability/metrics?#{%{mview: "points", metric: "falco.outputs.queue"}}"
       )
 
-    html = render(lv)
+    html = render_async(lv)
 
     # 60/minute counter -> 1/s, labeled from the stored temporality field.
     assert html =~ "current rate"
@@ -814,7 +865,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/metrics")
 
-    html = render(lv)
+    html = render_async(lv)
 
     # Cards reflect the spans_red_1h rollup payload, not zeros.
     assert html =~ "1.2k"
@@ -834,7 +885,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/traces")
 
-    html = render(lv)
+    html = render_async(lv)
 
     # Total -> reset; Successful -> error_count:0; Errors -> error_count:>0.
     assert html =~ "q=in%3Aotel_trace_summaries+sort%3Atimestamp%3Adesc"
@@ -850,7 +901,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         ~p"/observability/traces?#{%{q: "in:otel_trace_summaries time:last_24h sort:timestamp:desc", limit: 20}}"
       )
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "Click a trace to open the span waterfall."
     assert html =~ "/observability/traces/aabbccddeeff00112233445566778899"
@@ -864,22 +915,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   @tag :web_ng_shared_fixture_db
   test "Multi-span toggles a numeric summary query and explains an empty filtered result", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces")
+    render_async(lv)
     assert has_element?(lv, "#traces-row-1", "orphan summary")
     drain_srql_calls()
 
     lv |> element("#traces-multi-span-toggle") |> render_click()
+    render_async(lv)
     assert has_element?(lv, "#traces-multi-span-toggle[title='Show all traces']")
     refute has_element?(lv, "#traces-row-1")
     assert has_element?(lv, "#traces-row-0 td:nth-child(5)", "3")
     assert Enum.any?(drain_srql_calls(), &String.contains?(&1.query, "span_count:>1"))
 
     lv |> element("#traces-multi-span-toggle") |> render_click()
+    render_async(lv)
     assert has_element?(lv, "#traces-row-1", "orphan summary")
     refute Enum.any?(drain_srql_calls(), &String.contains?(&1.query, "span_count:>1"))
 
     :persistent_term.put({__MODULE__, :empty_trace_summaries?}, true)
     on_exit(fn -> :persistent_term.erase({__MODULE__, :empty_trace_summaries?}) end)
     lv |> element("#traces-multi-span-toggle") |> render_click()
+    render_async(lv)
     assert has_element?(lv, "#traces", "No multi-span traces found. Single-span traces are excluded by this filter.")
     refute has_element?(lv, "#traces-row-0")
     refute Enum.any?(drain_srql_calls(), &String.starts_with?(&1.query, "in:traces "))
@@ -896,7 +951,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     {:ok, lv, _html} =
       live(conn, ~p"/observability/traces")
 
-    html = render(lv)
+    html = render_async(lv)
 
     assert html =~ "serviceradar-web-ng"
     assert html =~ "GET /observability"
@@ -928,7 +983,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   defp time_ids_by_datetime(live_view, table) do
     times =
       live_view
-      |> render()
+      |> render_async()
       |> LazyHTML.from_fragment()
       |> LazyHTML.query("##{table} time")
 

@@ -38,12 +38,18 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index.Data do
   end
 
   defp load_plugin_states(scope) do
-    ServiceState
-    |> Ash.Query.for_read(:active_plugin_cards, %{})
-    |> Ash.read(scope: scope)
-    |> case do
-      {:ok, states} when is_list(states) -> {:ok, ServiceHealth.dedupe_states(states)}
-      {:error, reason} -> {:error, reason}
+    case Application.get_env(:serviceradar_web_ng, :service_plugin_states_loader) do
+      loader when is_function(loader, 1) ->
+        loader.(scope)
+
+      _ ->
+        ServiceState
+        |> Ash.Query.for_read(:active_plugin_cards, %{})
+        |> Ash.read(scope: scope)
+        |> case do
+          {:ok, states} when is_list(states) -> {:ok, ServiceHealth.dedupe_states(states)}
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 

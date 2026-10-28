@@ -50,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
     publish([alert_fixture()])
 
     {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/observability/alerts")
+    render_async(lv)
 
     refute has_element?(lv, "button[phx-click='alert_bulk_acknowledge']")
     refute has_element?(lv, "input[phx-click='alert_select_toggle']")
@@ -61,6 +62,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
     publish([alert])
 
     {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/observability/alerts")
+    render_async(lv)
 
     # Even the selection event is server-side; drive the mutating event directly.
     render_click(lv, "alert_select_toggle", %{"id" => alert.id})
@@ -81,6 +83,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
     publish([pending, escalated, already_resolved])
 
     {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/observability/alerts")
+    render_async(lv)
 
     for alert <- [pending, escalated, already_resolved] do
       render_click(lv, "alert_select_toggle", %{"id" => alert.id})
@@ -111,6 +114,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
     publish([visible])
 
     {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/observability/alerts")
+    render_async(lv)
 
     render_click(lv, "alert_select_toggle", %{"id" => visible.id})
     # A crafted toggle for a row the server never rendered must not enter the
@@ -132,6 +136,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
     publish([one, two])
 
     {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/observability/alerts")
+    render_async(lv)
 
     render_click(lv, "alert_select_toggle", %{"id" => one.id})
     render_click(lv, "alert_select_toggle", %{"id" => two.id})
@@ -153,6 +158,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
     publish([alert])
 
     {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/observability/alerts")
+    render_async(lv)
 
     render_click(lv, "alert_select_toggle", %{"id" => alert.id})
     render_submit(lv, "alert_bulk_snooze", %{"duration" => "until_the_heat_death"})
@@ -180,7 +186,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.AlertsBulkTest do
 
     {:ok, lv, _html} = live(log_in_user(conn, user), ~p"/observability/alerts")
 
-    assert render(lv) =~ "limit #{AlertActions.bulk_limit()}"
+    assert render_async(lv) =~ "limit #{AlertActions.bulk_limit()}"
   end
 
   # --- helpers --------------------------------------------------------------

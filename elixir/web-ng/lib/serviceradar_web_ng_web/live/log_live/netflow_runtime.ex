@@ -10,11 +10,37 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntime do
   # Must match the `:if={@view ...}` conditions in LogLive.Index. The talkers
   # icicle is drawn from the Sankey edges, so `:sankey` covers both views.
   @panel_views %{
+    summary: ["overview", "all"],
+    timeseries: ["overview", "traffic", "all"],
     stacked_timeseries: ["overview", "traffic", "all"],
-    sankey: ["topology", "talkers", "all"]
+    timeseries_compare: ["overview", "traffic", "all"],
+    protocol_activity: ["traffic", "all"],
+    app_activity: ["traffic", "all"],
+    top_talkers: ["talkers", "all"],
+    top_ports: ["talkers", "all"],
+    frequent_talkers_packets: ["talkers", "all"],
+    frequent_talkers_bytes: ["talkers", "all"],
+    sankey: ["topology", "talkers", "all"],
+    geo_heatmap: ["topology", "geo", "all"],
+    threat_map: ["explorer", "all"],
+    rdns_map: ["talkers", "explorer", "all"]
   }
 
-  @type panel :: :stacked_timeseries | :sankey
+  @type panel ::
+          :summary
+          | :timeseries
+          | :stacked_timeseries
+          | :timeseries_compare
+          | :protocol_activity
+          | :app_activity
+          | :top_talkers
+          | :top_ports
+          | :frequent_talkers_packets
+          | :frequent_talkers_bytes
+          | :sankey
+          | :geo_heatmap
+          | :threat_map
+          | :rdns_map
 
   @spec active_tab?(term()) :: boolean()
   def active_tab?("netflows"), do: true
@@ -44,14 +70,29 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntime do
   @max_panel_concurrency 4
 
   @doc """
+  Returns the bounded concurrency cap for NetFlow panel loaders.
+
+  Reads `:netflow_panel_max_concurrency` from the `:serviceradar_web_ng`
+  application environment. Positive integers are accepted; missing or invalid
+  values use the default of four concurrent loaders.
+  """
+  @spec max_panel_concurrency() :: pos_integer()
+  def max_panel_concurrency do
+    case Application.get_env(:serviceradar_web_ng, :netflow_panel_max_concurrency, @max_panel_concurrency) do
+      cap when is_integer(cap) and cap > 0 -> cap
+      _ -> @max_panel_concurrency
+    end
+  end
+
+  @doc """
   Runs independent panel loaders at the same time and returns their results by key.
 
-  Each NetFlow panel is one or more warehouse round trips, and none of them
-  needs another's answer, so up to four loaders can overlap. A loader that
+  Each NetFlow panel is one or more warehouse round trips. Independent loaders
+  overlap up to the cap returned by `max_panel_concurrency/0`. A loader that
   outlives the timeout is killed and its default is used, so one stuck query
   costs its own panel and not the page.
 
-  Loaders that depend on another's result belong in a later call. The fixed
+  Loaders that depend on another's result belong in a later call. The
   concurrency cap bounds each viewer's warehouse fan-out.
   """
   @spec run_concurrently([job()], keyword()) :: %{optional(term()) => term()}
@@ -60,7 +101,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowRuntime do
 
     jobs
     |> Task.async_stream(fn {_key, fun, _default} -> fun.() end,
-      max_concurrency: min(max(length(jobs), 1), @max_panel_concurrency),
+      max_concurrency: min(max(length(jobs), 1), max_panel_concurrency()),
       timeout: timeout,
       on_timeout: :kill_task,
       ordered: true
