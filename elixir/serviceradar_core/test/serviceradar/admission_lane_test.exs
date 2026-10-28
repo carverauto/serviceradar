@@ -264,6 +264,73 @@ defmodule ServiceRadar.AdmissionLaneTest do
     refute log =~ "Ingestion lane metrics publish failing"
   end
 
+  test "committed lane completions record accepted terminal metrics and do not count as not_accepted" do
+    parent = self()
+
+    request = fn subject, body, _opts ->
+      send(parent, {:metric_publish, self(), subject, body})
+      {:ok, %{body: Jason.encode!(%{stream: "METRICS", seq: 1})}}
+    end
+
+    start_supervised!({RuntimeMetrics, interval_ms: 20, publish_opts: [request: request]})
+
+    lane =
+      start_lane(
+        fn
+          %{message: "ok-atom"} -> :ok
+          %{message: "ok-tuple"} -> {:ok, %{event_count: 1}}
+          %{message: "fail-tuple"} -> {:error, :persistence_failed}
+        end,
+        lane: :retained_plugin_result,
+        preserve_result: true
+      )
+
+    ref1 = admit(lane, status("agent01.example.com", "ok-atom"))
+    assert_receive {^ref1, :ok}, 250
+
+    ref2 = admit(lane, status("agent01.example.com", "ok-tuple"))
+    assert_receive {^ref2, {:ok, %{event_count: 1}}}, 250
+
+    assert_empty(lane)
+
+    assert :ets.lookup(RuntimeMetrics, {:outcome, :retained_plugin_result, :accepted}) == [
+             {{:outcome, :retained_plugin_result, :accepted}, 2}
+           ]
+
+    assert :ets.lookup(RuntimeMetrics, {:outcome, :retained_plugin_result, :not_accepted}) == []
+
+    ref3 = admit(lane, status("agent01.example.com", "fail-tuple"))
+    assert_receive {^ref3, {:error, :persistence_failed}}, 250
+    assert_empty(lane)
+
+    assert :ets.lookup(RuntimeMetrics, {:outcome, :retained_plugin_result, :accepted}) == [
+             {{:outcome, :retained_plugin_result, :accepted}, 2}
+           ]
+
+    assert :ets.lookup(RuntimeMetrics, {:outcome, :retained_plugin_result, :not_accepted}) == [
+             {{:outcome, :retained_plugin_result, :not_accepted}, 1}
+           ]
+
+    assert_receive {:metric_publish, _publisher, "metrics.ingestion_lanes", frame}, 1_000
+    batch = MetricBatch.decode(frame)
+
+    assert point!(
+             find_metric!(
+               batch,
+               "result_ingestion_terminals_accepted",
+               "retained_plugin_result"
+             )
+           ).value == 2.0
+
+    assert point!(
+             find_metric!(
+               batch,
+               "result_ingestion_terminals_not_accepted",
+               "retained_plugin_result"
+             )
+           ).value == 1.0
+  end
+
   test "a timed-out submit never dispatches while an independent lane stays responsive" do
     parent = self()
 
@@ -1183,6 +1250,8 @@ defmodule ServiceRadar.AdmissionLaneTest do
 
   defp lane_opts(task_supervisor, processor, overrides) do
     source_max_bytes = Keyword.get(overrides, :source_max_bytes, 1_024)
+    lane_name = Keyword.get(overrides, :lane, :test)
+    preserve_result = Keyword.get(overrides, :preserve_result, false)
 
     config =
       Keyword.merge(
@@ -1194,14 +1263,15 @@ defmodule ServiceRadar.AdmissionLaneTest do
           worker_timeout_ms: 100,
           gateway_call_timeout_ms: 3_200
         ],
-        Keyword.delete(overrides, :source_max_bytes)
+        Keyword.drop(overrides, [:source_max_bytes, :lane, :preserve_result])
       )
 
     [
-      lane: :test,
+      lane: lane_name,
       concurrency: 1,
       task_supervisor: task_supervisor,
       processor: processor,
+      preserve_result: preserve_result,
       source_max_bytes: source_max_bytes,
       gateway_max_ms: 10_000,
       config: config

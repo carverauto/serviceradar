@@ -1128,7 +1128,7 @@ defmodule ServiceRadar.Admission.Lane do
 
     runtime_measurements =
       if suffix == :completion do
-        accepted = metadata[:result] == :ok or match?({:ok, _}, metadata[:result])
+        accepted = metadata[:result] in [:committed, :ok] or match?({:ok, _}, metadata[:result])
         Map.put(runtime_measurements, :outcome, if(accepted, do: :accepted, else: :not_accepted))
       else
         runtime_measurements
