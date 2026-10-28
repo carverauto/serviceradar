@@ -1423,8 +1423,29 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       partition: partition_id,
       source_ip: device_ip,
       host_macs: request_value(request, :host_macs) || [],
+      host_interfaces: host_interfaces_from_request(request),
       capabilities: capabilities
     }
+  end
+
+  # The agent's classified interface inventory, as plain maps: core decides which of these
+  # MACs identify the host (AgentGatewaySync). Agents that predate it send none.
+  defp host_interfaces_from_request(request) do
+    request
+    |> request_value(:host_interfaces)
+    |> List.wrap()
+    |> Enum.map(fn iface ->
+      %{
+        name: Map.get(iface, :name),
+        mac: Map.get(iface, :mac),
+        permanent_mac: Map.get(iface, :permanent_mac),
+        ips: Map.get(iface, :ips) || [],
+        oper_state: Map.get(iface, :oper_state),
+        kind: Map.get(iface, :kind),
+        mac_provenance: Map.get(iface, :mac_provenance),
+        master: Map.get(iface, :master)
+      }
+    end)
   end
 
   defp touch_agent_record(identity, agent_id, partition_id, source_ip, config_source) do

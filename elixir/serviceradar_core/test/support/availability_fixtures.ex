@@ -11,6 +11,7 @@ defmodule ServiceRadar.TestSupport.AvailabilityFixtures do
   alias ServiceRadar.Inventory.Availability.ResolverWorker
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Inventory.SyncIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -270,6 +271,67 @@ defmodule ServiceRadar.TestSupport.AvailabilityFixtures do
     }
 
     :ok = SyncIngestor.ingest_updates([update], actor: actor)
+  end
+
+  @doc """
+  Activates an exact Armis collection of `source` that reports `devices` (maps with `:uid`,
+  `:armis_id`, `:hostname`, `:ip` and `:mac`): the population a northbound run pushes from.
+  """
+  def activate_armis_collection!(source, devices) do
+    observed_at = ~U[2026-09-01 08:00:00.000000Z]
+    content_hash = String.duplicate("a", 64)
+    count = length(devices)
+
+    snapshot = %{
+      partition: "default",
+      source: "armis",
+      source_instance: to_string(source.id),
+      collection_id: "collection-" <> Ash.UUID.generate(),
+      content_hash: content_hash,
+      query_hash: nil,
+      observed_at: observed_at,
+      metadata: %{
+        "accounting_status" => "exact",
+        "raw_rows" => count,
+        "excluded_rows" => 0,
+        "invalid_rows" => 0,
+        "valid_occurrences" => count,
+        "distinct_source_ids" => count,
+        "duplicate_occurrences" => 0,
+        "conflicting_duplicate_ids" => 0
+      }
+    }
+
+    observations =
+      Enum.map(devices, fn device ->
+        %{
+          device_id: device.uid,
+          partition: "default",
+          source: "armis",
+          source_instance: snapshot.source_instance,
+          source_object_id: device.armis_id,
+          source_integration_id: "armis:source:#{source.id}:#{device.armis_id}",
+          collection_id: snapshot.collection_id,
+          content_hash: content_hash,
+          query_hash: nil,
+          present: true,
+          first_observed_at: observed_at,
+          last_observed_at: observed_at,
+          absent_since: nil,
+          hostname: device.hostname,
+          ip: device.ip,
+          mac: device.mac,
+          serial_number: nil,
+          vendor_name: nil,
+          model: nil,
+          device_type: nil,
+          site_name: nil,
+          management_status: nil,
+          metadata: %{"identifier_metadata" => %{"sync_service_id" => to_string(source.id)}}
+        }
+      end)
+
+    assert :ok = DeviceSourceObservationIngestor.activate_resolved(snapshot, observations)
   end
 
   defp unique_mac do

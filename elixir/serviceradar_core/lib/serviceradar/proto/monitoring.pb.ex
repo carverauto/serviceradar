@@ -1,3 +1,38 @@
+defmodule Monitoring.HostInterfaceKind do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "monitoring.HostInterfaceKind",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :HOST_INTERFACE_KIND_UNSPECIFIED, 0
+  field :HOST_INTERFACE_KIND_PHYSICAL, 1
+  field :HOST_INTERFACE_KIND_BOND, 2
+  field :HOST_INTERFACE_KIND_BRIDGE, 3
+  field :HOST_INTERFACE_KIND_VLAN, 4
+  field :HOST_INTERFACE_KIND_VIRTUAL, 5
+  field :HOST_INTERFACE_KIND_TUNNEL, 6
+  field :HOST_INTERFACE_KIND_LOOPBACK, 7
+end
+
+defmodule Monitoring.MacProvenance do
+  @moduledoc false
+
+  use Protobuf,
+    enum: true,
+    full_name: "monitoring.MacProvenance",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :MAC_PROVENANCE_UNSPECIFIED, 0
+  field :MAC_PROVENANCE_PERMANENT, 1
+  field :MAC_PROVENANCE_RANDOM, 2
+  field :MAC_PROVENANCE_INHERITED, 3
+  field :MAC_PROVENANCE_ASSIGNED, 4
+end
+
 defmodule Monitoring.SNMPVersion do
   @moduledoc false
 
@@ -471,6 +506,29 @@ defmodule Monitoring.AgentHelloRequest do
   field :config_source, 10, type: :string, json_name: "configSource"
   field :host_ip, 11, type: :string, json_name: "hostIp"
   field :host_macs, 12, repeated: true, type: :string, json_name: "hostMacs"
+
+  field :host_interfaces, 13,
+    repeated: true,
+    type: Monitoring.HostInterface,
+    json_name: "hostInterfaces"
+end
+
+defmodule Monitoring.HostInterface do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.HostInterface",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :name, 1, type: :string
+  field :mac, 2, type: :string
+  field :permanent_mac, 3, type: :string, json_name: "permanentMac"
+  field :ips, 4, repeated: true, type: :string
+  field :oper_state, 5, type: :string, json_name: "operState"
+  field :kind, 6, type: Monitoring.HostInterfaceKind, enum: true
+  field :mac_provenance, 7, type: Monitoring.MacProvenance, json_name: "macProvenance", enum: true
+  field :master, 8, type: :string
 end
 
 defmodule Monitoring.AgentHelloResponse do
@@ -662,6 +720,11 @@ defmodule Monitoring.ControlStreamHello do
     repeated: true,
     type: Monitoring.ConfigSectionStatus,
     json_name: "configSectionStatuses"
+
+  field :host_interfaces, 15,
+    repeated: true,
+    type: Monitoring.HostInterface,
+    json_name: "hostInterfaces"
 end
 
 defmodule Monitoring.CommandRequest do

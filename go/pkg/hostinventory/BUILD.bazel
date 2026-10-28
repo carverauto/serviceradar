@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+package(default_visibility = ["//visibility:public"])
+
+go_library(
+    name = "hostinventory",
+    srcs = [
+        "inventory.go",
+        "platform_linux.go",
+        "platform_other.go",
+        "sysfs.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/hostinventory",
+)
+
+go_test(
+    name = "hostinventory_test",
+    srcs = ["sysfs_test.go"],
+    embed = [":hostinventory"],
+)

@@ -507,10 +507,18 @@ ArpObserve(h, x) ==
     /\ \E ra \in BOOLEAN : Resolve(h, x, {IfMac[x]} \cap HwIds, ra, "none", "Arp", {}, {})
 
 \* Agent check-in: AgentGatewaySync.ensure_device_for_agent/2 resolves through the Resolver,
-\* so AliasGuard runs on the strong-match branch.
+\* so AliasGuard runs on the strong-match branch. The agent reports its host's whole interface
+\* inventory, and HostInterfaces.eligible_macs/1 keeps the permanent, globally-unique MACs of
+\* its physical NICs: every interface here is one, so those are its globally-unique MACs, and a
+\* randomized MAC is never one. Its hostname and addresses are corroboration only and identify
+\* nothing (AgentCorroboration). An agent update carries no source-authoritative identifier, so
+\* srcMismatch never refuses a match: by the user's decision of 2026-10-28 an agent's eligible
+\* MACs link it to, and merge it with, a record holding or having held a source id. Step 1's
+\* SrcConflict and DistinctAgents guards still keep two source ids, or two agents, apart.
 AgentObserve(h, x) ==
     /\ AgentOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), ra, "guard", "Agent", {}, {})
+    /\ \E ra \in BOOLEAN :
+         Resolve(h, x, {AgentOf[h]} \cup (MacsOf(h) \cap HwIds), ra, "guard", "Agent", {}, {})
 
 \* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
 \* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs

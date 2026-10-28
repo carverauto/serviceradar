@@ -264,6 +264,36 @@ tlc_test(
     deps = ["DireResolution.tla"],
 )
 
+# An agent on a host a hypervisor integration and network discovery know (one device, two NICs).
+tlc_test(
+    name = "resolution_goal_agent_known_host_test",
+    size = "medium",
+    cfg = "resolution_goal_agent_known_host.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+# Two same-named hosts at two sites, each with its own integration id and agent, and disjoint MACs.
+tlc_test(
+    name = "resolution_goal_agent_same_name_test",
+    size = "medium",
+    cfg = "resolution_goal_agent_same_name.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+# An Armis device that also runs an agent (user decision 2026-10-28: the two may share a record).
+tlc_test(
+    name = "resolution_goal_agent_on_armis_test",
+    size = "medium",
+    cfg = "resolution_goal_agent_on_armis.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
 tlc_test(
     name = "resolution_goal_armis_rekey_test",
     size = "medium",
@@ -331,6 +361,24 @@ tlc_test(
     name = "resolution_vacuity_router_merges_test",
     cfg = "resolution_vacuity_router_merges.cfg",
     expect = "violation:NeverMerged",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+# The goal links an agent to the record its host's MACs already identify.
+tlc_test(
+    name = "resolution_vacuity_agent_links_known_host_test",
+    cfg = "resolution_vacuity_agent_links_known_host.cfg",
+    expect = "violation:NeverAgentOnDiscoveredRecord",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+# The goal lets an agent share a record with an Armis id of the same endpoint (2026-10-28).
+tlc_test(
+    name = "resolution_vacuity_agent_on_source_record_test",
+    cfg = "resolution_vacuity_agent_on_source_record.cfg",
+    expect = "violation:NeverAgentOnSourceRecord",
     spec = "MCDireResolution.tla",
     deps = ["DireResolution.tla"],
 )
@@ -771,6 +819,30 @@ tlc_test(
     cfg = "traces/Trace_agent_mac_split.cfg",
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_agent_mac_split.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_agent_known_host_shared_mac_test",
+    cfg = "traces/Trace_agent_known_host_shared_mac.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_known_host_shared_mac.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_agent_same_name_two_sites_test",
+    cfg = "traces/Trace_agent_same_name_two_sites.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_agent_same_name_two_sites.tla",
     deps = [
         "CurrentBugs.tla",
         "DireResolution.tla",

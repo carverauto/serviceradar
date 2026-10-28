@@ -19,6 +19,19 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncHostEvidenceTest do
     AgentGatewaySync.build_device_update_from_agent("agent-evidence-test", attrs)
   end
 
+  defp iface(name, kind, mac, permanent_mac, provenance) do
+    %{
+      name: name,
+      mac: mac,
+      permanent_mac: permanent_mac,
+      ips: [],
+      oper_state: "up",
+      kind: kind,
+      mac_provenance: provenance,
+      master: ""
+    }
+  end
+
   describe "build_device_update_from_agent/2 — today's gateway payload (no MACs)" do
     test "carries no MAC evidence but keeps agent_id and host facts" do
       update =
@@ -127,6 +140,139 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncHostEvidenceTest do
       # No identifier slot carries the hostname or machine-id values.
       refute "pod-host-1" in Map.values(ids)
       refute "3f1a9c2e8b7d4e5fa6b1c2d3e4f5a6b7" in Map.values(ids)
+    end
+  end
+
+  # `link-agent-host-by-strong-identity`: the agent reports its whole classified inventory and
+  # core keeps only the permanent, globally administered MACs of physical NICs and bond members.
+  describe "build_device_update_from_agent/2 — classified host interface inventory" do
+    test "a bridge, a bond, a veth, a tap and a randomized MAC are not identity; the NICs are" do
+      update =
+        build(%{
+          # What an older core would read: the announced bridge's MAC.
+          host_macs: ["00:00:5e:00:53:a1"],
+          host_interfaces: [
+            iface(
+              "eno1",
+              :HOST_INTERFACE_KIND_PHYSICAL,
+              "00:00:5e:00:53:a1",
+              "00:00:5e:00:53:a1",
+              :MAC_PROVENANCE_PERMANENT
+            ),
+            # A bond member's MAC is the bond's; its own is perm_hwaddr.
+            iface(
+              "eno2",
+              :HOST_INTERFACE_KIND_PHYSICAL,
+              "00:00:5e:00:53:a1",
+              "00:00:5e:00:53:a2",
+              :MAC_PROVENANCE_ASSIGNED
+            ),
+            iface(
+              "vmbr0",
+              :HOST_INTERFACE_KIND_BRIDGE,
+              "00:00:5e:00:53:a1",
+              nil,
+              :MAC_PROVENANCE_INHERITED
+            ),
+            iface(
+              "bond0",
+              :HOST_INTERFACE_KIND_BOND,
+              "00:00:5e:00:53:a1",
+              nil,
+              :MAC_PROVENANCE_ASSIGNED
+            ),
+            iface(
+              "veth7c1",
+              :HOST_INTERFACE_KIND_VIRTUAL,
+              "02:00:5e:00:53:b1",
+              nil,
+              :MAC_PROVENANCE_RANDOM
+            ),
+            # A guest NIC's host side can carry a globally administered MAC; it is a guest's.
+            iface(
+              "tap101i0",
+              :HOST_INTERFACE_KIND_VIRTUAL,
+              "00:00:5e:00:53:b2",
+              "00:00:5e:00:53:b2",
+              :MAC_PROVENANCE_PERMANENT
+            ),
+            iface(
+              "wlp2s0",
+              :HOST_INTERFACE_KIND_PHYSICAL,
+              "02:00:5e:00:53:b3",
+              nil,
+              :MAC_PROVENANCE_ASSIGNED
+            ),
+            iface(
+              "eno3",
+              :HOST_INTERFACE_KIND_PHYSICAL,
+              "02:00:5e:00:53:b4",
+              "02:00:5e:00:53:b4",
+              :MAC_PROVENANCE_PERMANENT
+            ),
+            iface(
+              "lo",
+              :HOST_INTERFACE_KIND_LOOPBACK,
+              "00:00:00:00:00:00",
+              nil,
+              :MAC_PROVENANCE_UNSPECIFIED
+            )
+          ]
+        })
+
+      assert update.mac_addresses == ["00005E0053A1", "00005E0053A2"]
+    end
+
+    test "an inventory of only guest, container and randomized interfaces identifies nothing" do
+      update =
+        build(%{
+          host_macs: ["02:00:5e:00:53:c1"],
+          host_interfaces: [
+            iface(
+              "veth3e9",
+              :HOST_INTERFACE_KIND_VIRTUAL,
+              "02:00:5e:00:53:c1",
+              nil,
+              :MAC_PROVENANCE_RANDOM
+            ),
+            iface(
+              "tap102i0",
+              :HOST_INTERFACE_KIND_VIRTUAL,
+              "00:00:5e:00:53:c2",
+              nil,
+              :MAC_PROVENANCE_RANDOM
+            )
+          ]
+        })
+
+      assert update.mac_addresses == []
+    end
+
+    # Outside Linux the agent cannot classify; core keeps the announced interface's MAC, as
+    # it did before the inventory existed.
+    test "an unclassified inventory falls back to host_macs" do
+      update =
+        build(%{
+          host_macs: ["00:00:5e:00:53:d1"],
+          host_interfaces: [
+            iface(
+              "en0",
+              :HOST_INTERFACE_KIND_UNSPECIFIED,
+              "00:00:5e:00:53:d1",
+              nil,
+              :MAC_PROVENANCE_UNSPECIFIED
+            ),
+            iface(
+              "en1",
+              :HOST_INTERFACE_KIND_UNSPECIFIED,
+              "00:00:5e:00:53:d2",
+              nil,
+              :MAC_PROVENANCE_UNSPECIFIED
+            )
+          ]
+        })
+
+      assert update.mac_addresses == ["00005E0053D1"]
     end
   end
 end

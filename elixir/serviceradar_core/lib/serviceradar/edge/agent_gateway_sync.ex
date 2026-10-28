@@ -31,8 +31,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.Availability.LegacyWrites
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.AgentCorroboration
   alias ServiceRadar.Inventory.Identity.DecisionLog
   alias ServiceRadar.Inventory.Identity.Fence
+  alias ServiceRadar.Inventory.Identity.HostInterfaces
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -339,18 +341,25 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   The device identity is resolved using DIRE (Device Identity and Reconciliation Engine)
   based on the agent's identifiers, hostname and source IP.
 
-  Host evidence (task 6.1, `refactor-device-identity-reconciliation`): in
-  addition to the `agent_id` identifier, enrollment registers the agent host's
-  own interface MACs whenever the hello attrs carry them (`:host_macs`,
-  `:mac_addresses` or `:macs`, top-level or under `:metadata`; list or
-  delimited string). Values are normalized/validated through
-  `IdentityReconciler.normalize_mac_list/1`, so malformed entries and
-  multi-MAC blobs can never become identifiers. Producers MUST only put the
-  agent host's own interface MACs in these fields (never neighbour/sweep
-  observations). Hostname (normalized) and machine-id are NOT identifier
-  types today; they are surfaced in the device-update metadata
-  (`"hostname_normalized"`, `"machine_id"`) so DIRE-side bridging can use
-  them as corroborating evidence.
+  Host evidence (`link-agent-host-by-strong-identity`): besides the `agent_id`
+  identifier, the check-in carries the host's own interface inventory
+  (`:host_interfaces`), and `HostInterfaces.eligible_macs/1` decides which of its
+  MACs are identity: the permanent, globally administered MACs of physical NICs and
+  bond members, never a bridge's, a guest device's, a container's or a randomized
+  one. Those MACs resolve the agent to the device that already holds one of them,
+  whatever its hostname or address, and register on its device. An inventory no
+  interface of which was classified (agents outside Linux), or none at all (agents
+  that predate it), falls back to the announced interface's MAC (`:host_macs`,
+  `:mac_addresses` or `:macs`, top-level or under `:metadata`; list or delimited
+  string), as before. Every value is normalized through
+  `IdentityReconciler.normalize_mac_list/1`, so malformed entries and multi-MAC
+  blobs never become identifiers.
+
+  The inventory's addresses and the hostname's first label are corroboration only
+  (`AgentCorroboration`): they never link the agent to a device, and agreement
+  without a shared MAC is recorded for review. Hostname (normalized) and
+  machine-id are surfaced in the device-update metadata (`"hostname_normalized"`,
+  `"machine_id"`) as evidence, never as identifiers.
   """
   @spec ensure_device_for_agent(String.t(), map()) ::
           {:ok, String.t()} | {:error, term()}
@@ -466,6 +475,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   defp finish_agent_device_sync(device_uid, agent_id, attrs, actor) do
+    AgentCorroboration.record(device_uid, corroboration_evidence(attrs), actor)
     backfill_endpoint_inventory_device_uid(agent_id, device_uid)
     retire_superseded_agents(agent_id, device_uid, attrs, actor)
     {:ok, device_uid}
@@ -503,9 +513,34 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       device_id: nil,
       ip: agent_source_ip(attrs),
       mac: nil,
-      mac_addresses: agent_host_macs(attrs),
+      mac_addresses: agent_identity_macs(attrs),
       partition: Map.get(attrs, :partition, "default"),
       metadata: metadata
+    }
+  end
+
+  # The MACs that identify the agent's host: the eligible MACs of its classified
+  # inventory, or, when it reports none classified, the announced interface's MAC.
+  defp agent_identity_macs(attrs) do
+    case attrs |> agent_host_interfaces() |> HostInterfaces.eligible_macs() do
+      {:ok, macs} -> macs
+      :unclassified -> agent_host_macs(attrs)
+    end
+  end
+
+  defp agent_host_interfaces(attrs) do
+    HostInterfaces.normalize(
+      Map.get(attrs, :host_interfaces) || Map.get(attrs, "host_interfaces")
+    )
+  end
+
+  defp corroboration_evidence(attrs) do
+    announced = attrs |> agent_source_ip() |> List.wrap()
+
+    %{
+      hostname: Map.get(attrs, :hostname),
+      partition: agent_partition(attrs),
+      ips: Enum.uniq(announced ++ HostInterfaces.host_ips(agent_host_interfaces(attrs)))
     }
   end
 

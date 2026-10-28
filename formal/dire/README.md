@@ -20,6 +20,9 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   - Integration sync: an `IntOf` identifier from `IntIds` and the hostname at
     the configured address. These IDs model one provider namespace.
   - Network discovery: every interface MAC.
+  - Agent check-in: its agent id and the eligible MACs of its host's interface inventory
+    (`HostInterfaces.eligible_macs/1`). Every modeled interface is a physical NIC, so these are
+    the device's globally-unique MACs; a randomized MAC is never one.
   - ARP-style observation: one MAC and its address. A randomized MAC from this observer is
     not registered, so that sighting is address-only.
   - Sweep: the address only.
@@ -162,6 +165,16 @@ environment: a census reports a MAC at an address an Armis record holds, the cen
 no identity-bearing observation, and the Armis record keeps the address. `ObservedAddressHeld`
 allows that after a census only, so the property must fail, or that allowance is vacuous.
 
+`resolution_vacuity_agent_links_known_host` checks `NeverAgentOnDiscoveredRecord` in the
+`agent_known_host` environment: the agent lands on the record discovery identified, so the property
+must fail. `resolution_vacuity_agent_on_source_record` checks `NeverAgentOnSourceRecord` in the
+`agent_on_armis` environment: an agent update carries no source-authoritative identifier, so
+`srcMismatch` never refuses its match, and by the user's decision of 2026-10-28 ("armis records and
+stuff learned about an endpoint through an agent should be fine to merge together") the agent shares
+the Armis record. The property must fail, or that allowance is vacuous. The model over-approximates
+the reach: Armis files the MACs it reports under its own partition, which an agent's lookup never
+reaches, so in the code an agent meets an Armis record only through a MAC discovery registered there.
+
 Every `resolution_goal_*` configuration also checks `AddressNeverMerges`: no merge is ever
 caused by address or IP-alias evidence. No address-only record in the model ever holds an alias
 (sweep-created records get no alias sightings, as in the code), so absorbing one is unreachable
@@ -273,6 +286,9 @@ Each environment stands for a real situation:
 | `armis_clones` | Two devices cloned from one image, reporting the same MAC and the same hostname. Armis may stop reporting either, and the hostname must not make them one device. Both are in Armis from the start, so their lifetimes overlap. |
 | `armis_rekey_new_first_seen` | `armis_rekey`, except that Armis reports the device with a new first-seen time under its new id. Only the hostname corroborates the re-keyed pair, so the time guard must let a true re-key converge. |
 | `integration_clones` | Two same-named hypervisor nodes in different clusters under one non-source-authoritative integration provider (`IntIds`), with no MAC, serial or source-authoritative id. Disjoint integration ids refuse hostname-agreement adoption (`conflicting_integration_identity`, #6042). |
+| `agent_known_host` | One host with two NICs, known to a hypervisor integration (which reports no MAC), the census and discovery, and running an agent. The agent links to the record its MACs name, whichever NIC it announces. |
+| `agent_same_name` | Two same-named hypervisor nodes at two sites, each with its own integration id, agent and MAC. Disjoint MACs keep them apart whatever their names. |
+| `agent_on_armis` | An Armis device (Armis reports its MAC) that also runs an agent. By the user's decision of 2026-10-28 the agent may share the Armis record. |
 
 The `Spare` constant holds record names that no identifier or address names. A re-issued id
 whose own uid already names an old record creates a record under one of them.
@@ -417,6 +433,25 @@ clusters colliding on an address under one integration provider (`proxmox:v3:...
 agreement is refused with `conflicting_integration_identity`, recording a `policy_block`
 decision alongside the `ip_conflict` decision, and the second node stays a separate device.
 
+The traces of agent host identity (`link-agent-host-by-strong-identity`):
+
+- `agent_known_host_shared_mac`: a hypervisor integration syncs a node, which it reports with no
+  MAC; the census sees the node's second NIC; the node's agent, with an FQDN hostname, announces
+  the first NIC's address and reports both NICs. The agent lands on the census record through the
+  second NIC's MAC, which takes the announced address from the integration record. The
+  integration record shares no strong identifier with the host and stays its own record.
+- `agent_same_name_two_sites`: two same-named nodes at two sites, each synced by its own
+  integration and each running an agent with its own MAC. Each agent gets a record of its own and
+  nothing joins the two sites.
+
+Until this change the agent reported only the MAC of the interface owning its announced address
+(`go/pkg/agent/host_identity.go`), while `AgentObserve`, and the trace harness, reported every MAC
+of the device. The model described an agent that did not exist: the divergence sat at the Go
+boundary, where the traces, which drive core with the model's MAC set, could not see it. The agent
+now reports its classified inventory, and `AgentObserve` reports the eligible MACs core keeps from
+it. Outside Linux the agent cannot classify, and core keeps the announced interface's MAC; the
+model does not express that platform.
+
 The lifecycle regression traces:
 
 - `stale_redirect` (#4616) records the fixed resolver keeping a device deleted after an unmerge
@@ -503,7 +538,14 @@ still describes the code. The switches today's code has are listed once, in `Cur
   trace `armis_dhcp` and the tests pin the fix. For the same reason a lifecycle trace never
   reaches a source's record by a MAC-only sighting.
 - Hostnames reported by agents and the mapper. The model writes only the source's hostnames
-  (`recFs`), so the hostname agreement it records is the source's.
+  (`recFs`), so the hostname agreement it records is the source's. For the same reason the agent
+  corroboration review (`AgentCorroboration`: another device holding one of the agent's addresses
+  under the same first hostname label is recorded as an `agent_corroboration_not_identity`
+  decision) is not modeled: it never links, merges or moves anything, and the integration tests in
+  `agent_gateway_sync_test.exs` pin it. No recorded trace reaches it.
+- The agent's interface classification. Every modeled interface is a physical NIC with a
+  permanent MAC; which interfaces are physical, and which MACs are permanent, is the agent's and
+  `HostInterfaces`', pinned by `go/pkg/hostinventory` and the core unit tests.
 - Absorbing a provisional address-only record into an identified device. The goal never merges
   on address evidence, so such a record stays separate; whether it should be absorbed, and how
   that would be recorded, is an open question in

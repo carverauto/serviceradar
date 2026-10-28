@@ -545,4 +545,80 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.integration("h2", "x2")
     |> DireTrace.assert_golden!()
   end
+
+  # link-agent-host-by-strong-identity: an agent links to the record of the host it runs on through
+  # a MAC it shares with that record, whatever its hostname. Steps: node A (`i1`, hostname `n1`)
+  # is synced at `p1` by its hypervisor integration, which reports no MAC; the census sees A's
+  # second NIC (`m2`) at `p2`; A's agent (`g1`, FQDN hostname) checks in announcing `p1` and
+  # reporting both NICs. Expected: the agent lands on the census record through `m2`, a MAC its
+  # announced interface does not carry, which takes `p1` (the integration record, observed by
+  # no one, releases it and the conflict is recorded). The integration record shares no strong
+  # identifier with the host and stays its own record.
+  test "agent_known_host_shared_mac", %{actor: actor} do
+    world = %{
+      phys: ["h1"],
+      ifaces: %{"x1" => %{phys: "h1", mac: "m1"}, "x2" => %{phys: "h1", mac: "m2"}},
+      src_of: %{},
+      int_of: %{"h1" => "i1"},
+      int_ids: ["i1"],
+      host_of: %{"h1" => "n1"},
+      agent_of: %{"h1" => "g1"},
+      agent_ids: ["g1"],
+      agent_hostname: %{"h1" => "trace-n1.site-a.example.com"},
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: ["m1", "m2"],
+      laa_ids: [],
+      ips: ["p1", "p2"],
+      observers: ["Integration", "Arp", "Agent"]
+    }
+
+    "agent_known_host_shared_mac"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.lease("x2", "p2")
+    |> DireTrace.integration("h1", "x1")
+    |> DireTrace.arp("h1", "x2")
+    |> DireTrace.agent("h1", "x1")
+    |> DireTrace.assert_golden!()
+  end
+
+  # link-agent-host-by-strong-identity: two same-named hypervisor nodes at two sites, each with its
+  # own integration id and agent, and disjoint MACs. Steps: node A (`i1`, `n1`) is synced at
+  # `p1` and its agent (`g1`, `m1`) checks in there; node B (`i2`, `n1`) is synced at `p2` and
+  # its agent (`g2`, `m2`) checks in there. Expected: each agent gets a record of its own and
+  # takes its node's address from the integration record; nothing joins the two sites' records,
+  # whatever their names.
+  test "agent_same_name_two_sites", %{actor: actor} do
+    world = %{
+      phys: ["h1", "h2"],
+      ifaces: %{"x1" => %{phys: "h1", mac: "m1"}, "x2" => %{phys: "h2", mac: "m2"}},
+      src_of: %{},
+      int_of: %{"h1" => "i1", "h2" => "i2"},
+      int_ids: ["i1", "i2"],
+      host_of: %{"h1" => "n1", "h2" => "n1"},
+      agent_of: %{"h1" => "g1", "h2" => "g2"},
+      agent_ids: ["g1", "g2"],
+      agent_hostname: %{
+        "h1" => "trace-n1.site-a.example.com",
+        "h2" => "trace-n1.site-b.example.com"
+      },
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: ["m1", "m2"],
+      laa_ids: [],
+      ips: ["p1", "p2"],
+      observers: ["Integration", "Agent"]
+    }
+
+    "agent_same_name_two_sites"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.integration("h1", "x1")
+    |> DireTrace.agent("h1", "x1")
+    |> DireTrace.lease("x2", "p2")
+    |> DireTrace.integration("h2", "x2")
+    |> DireTrace.agent("h2", "x2")
+    |> DireTrace.assert_golden!()
+  end
 end
