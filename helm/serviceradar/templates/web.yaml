@@ -916,6 +916,8 @@ spec:
           value: {{ $datasvcTLS | quote }}
         - name: DATASVC_CERT_DIR
           value: {{ $datasvcCertDir | quote }}
+        - name: SPIFFE_CERT_DIR
+          value: {{ $datasvcCertDir | quote }}
         - name: DATASVC_CERT_NAME
           value: {{ $datasvcCertName | quote }}
         - name: DATASVC_SERVER_NAME

@@ -323,6 +323,8 @@ spec:
           value: "+fnu"
         - name: ERL_FLAGS
           value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
+        - name: SPIFFE_CERT_DIR
+          value: "/etc/serviceradar/certs"
         - name: SERVICERADAR_CLUSTER_COORDINATOR
           value: "true"
         - name: SERVICERADAR_COORDINATOR_DB_HOST

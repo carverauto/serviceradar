@@ -177,6 +177,8 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: cloak-key
+        - name: SPIFFE_CERT_DIR
+          value: "/etc/serviceradar/certs"
         args:
         - |
           set -eu
