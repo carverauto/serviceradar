@@ -173,7 +173,7 @@ defmodule ServiceRadar.ExposureCompactionCapacityTest do
       assert remaining == 0
       assert stored.errors == []
 
-      assert stored.meta["snoozed"] >= 1,
+      assert (stored.meta["snoozed"] || 0) >= 1,
              "smoke and fleet must exercise actual scheduler resumption"
 
       verify!(profile, dates, true)
