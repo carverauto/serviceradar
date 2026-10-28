@@ -20,7 +20,7 @@ recording or qualifies a live provider.
 
 [Cloud reservation #188](https://github.com/carverauto/serviceradar-control/pull/188)
 is merged with its immutable reservation and sticky preservation fence retained.
-The current checkpoint supplies a
+Merged [PR #6126](https://github.com/carverauto/serviceradar/pull/6126) supplies a
 [default-disabled reader installation](../../../docs/archive-init-storage.md#separate-archive-reader-installation)
 as a prerequisite for the requested deployment acceptance. It does not start
 recording or claim that archives are available. Allocation ownership is unresolved. The
@@ -37,8 +37,8 @@ identifiers and failure injections are independently invented synthetic data.
 
 ## Priority order
 
-1. Complete the default-disabled reader installation and the separate bounded
-   capture/start wiring before attempting deployment acceptance. Preserve all
+1. Complete provider qualification and persistent spool installation before
+   attempting deployment acceptance of the merged reader and bounded capture. Preserve all
    19 qualification checks, provisioned spool identity and fresh per-purpose
    authorities; a chart switch cannot substitute for them. Cloud #188 is merged;
    its independent next scope remains the
@@ -65,7 +65,14 @@ thumbnails/clip links. Reuse the existing shared ingest and Boombox analysis
 contract. Its current keyframe labels, dimensions and capture summaries are not
 semantic detections. Benchmark small local models, sampling and CPU/GPU costs
 before choosing a default; analysis overload must not stall live or recording
-consumers. These are future implementation tasks, not part of reader installation.
+consumers. These are future implementation tasks, not part of provider diagnostics.
+
+The current checkpoint adds an opt-in
+[encryption-policy diagnostic](../../../build/media/provider-probe.md#encryption-policy-diagnostic).
+It pairs all four denials with compliant writes and policy inspection, retaining
+exact cleanup authority. Task 0.5 remains open: synthetic TLS validation tests
+the diagnostic, not a live provider or the mediated workload boundary. Recording
+and reader installation in a deployment still require the authorities above.
 
 ## Evidence ledger
 
@@ -92,7 +99,7 @@ consumers. These are future implementation tasks, not part of reader installatio
 | Bounded publication inventory | #6089 merged at `e0635e06`; head `76d4c063` passed 19 checks. Core `90e51d24` and Web `f755112a` executed all 12/seven guarded targets uncached; all lifecycle statuses zero. Core owner 324 tests and Web owner 836 tests plus two properties passed | [Player status](archive-player.md#validation-boundaries); capture-time timeline and hosted acceptance |
 | Per-camera archive player | #6096 merged; [final validation](validation.md#published-head-archive-player-validation) | [Remaining acceptance boundaries](archive-player.md#validation-boundaries), broader browser/codec support, capture-time timeline and hosted acceptance |
 | Media experiments | #5959 merged at `ad424ac6`; codec, RTCP and logical-byte experiments; 120-second fixture deadlines and direct `pion/rtcp` dependency retained | Production audio/HEVC, trusted UTC and measured deployment objectives |
-| Provider/Cloud | Synthetic conditional-write/SSE diagnostics; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; policy-denial, Object Lock and full provider qualification remain unproved |
+| Provider/Cloud | Synthetic conditional-write/SSE diagnostics, including the separate encryption-policy suite; both prior live exercises cleaned and rechecked; Cloud planning #185 merged | Live readiness remains failed; live policy-denial, Object Lock and full provider qualification remain unproved |
 
 [Validation history](validation.md) retains invocation links, exact-head results,
 negative controls and prepublication exceptions. [Choices](choices.md) records
@@ -129,6 +136,6 @@ responses cannot authorize bucket adoption or cleanup.
 
 Use Treehouse with linked Bazel rc files, remote Bazel and no-mistakes. Do not
 merge, deploy, enable recording, provision live storage or run live probes in
-this reader-installation checkpoint. Plan the requested deployment activation
+this diagnostic checkpoint. Plan the requested deployment activation
 against the remaining qualification and authority gates separately. Keep
 #4913/#4915 open until their own acceptance passes.

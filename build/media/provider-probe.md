@@ -95,6 +95,65 @@ The operator supplies this input shape; all values below are invented:
 }
 ```
 
+## Encryption-policy diagnostic
+
+Set `"suite": "encryption_policy"` in a fresh input to run the four encryption
+denials separately. Omission or `"suite": "capabilities"` retains the capability
+workflow below; other values are rejected. Each suite needs a new run, empty
+unversioned buckets and an unused cleanup journal. Do not reuse a capability
+run's buckets or journal for this suite.
+
+Before running, the operator must have established ownership and installed the
+intended policy on the new bucket A, preserving provider-managed limited-key
+statements. This diagnostic does not create, replace or remove policy. Its
+existing bucket-A writer must be allowed to read that policy; an unreadable
+policy stops the suite before object writes, without requesting bootstrap keys
+or broader credentials in the Job.
+
+The bounded `GET ?policy` response must contain two explicit `Deny` statements
+covering `s3:PutObject`, with principal `*` (or `{"AWS":"*"}`) and resource
+`arn:aws:s3:::<bucket-a>/*` or `arn:aws:s3:::<bucket-a>/<run_id>/*`. Their conditions
+must be exactly:
+
+```json
+[
+  {"Null":{"s3:x-amz-server-side-encryption":"true"}},
+  {"StringNotEquals":{"s3:x-amz-server-side-encryption":"AES256"}}
+]
+```
+
+This deliberately recognizes only that policy shape. Extra conditions, negated
+action/resource/principal fields, missing statements and other scopes are not
+qualified. Other statements are preserved by the operator and are not a complete
+ACL or policy audit by this diagnostic. The policy is read again after all four
+checks; any byte change makes enforcement `not_confirmed`. Keep other writers,
+credential rotations and policy changes excluded throughout the isolated run.
+
+| Check | Rejected request |
+| --- | --- |
+| `put_missing_aes256_denied` | PutObject without the encryption header |
+| `put_noncompliant_aes256_denied` | PutObject requesting `aws:kms` |
+| `multipart_missing_aes256_denied` | CreateMultipartUpload without the header |
+| `multipart_noncompliant_aes256_denied` | CreateMultipartUpload requesting `aws:kms` |
+
+Each denial must be HTTP 403 with the exact `AccessDenied` error code. The same
+identity must successfully write `AES256` before and after the denied attempt,
+using the same key and operation, with per-object HEAD encryption attestation and
+verified bytes. A signature error, unsupported-algorithm response, generic 403,
+failed control or ambiguous initiation cannot pass. Multipart controls use one
+64 KiB final part; encryption is requested at initiation, not on parts or
+completion, following the [SSE-S3 request contract](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingServerSideEncryption.html).
+
+The suite stops at the first unsuccessful check and leaves later checks
+`not_tested`. Unexpectedly accepted writes retain their exact cleanup receipts;
+an accepted multipart initiation with a usable upload ID is aborted and checked
+absent. An initiation without a usable ID remains pending for operator
+reconciliation. The existing 80 diagnostic requests, 30 cleanup requests and
+64 MiB body limits apply unchanged. `policy_enforcement` summarizes the policy
+reads and four denials, while `cloud_ready` remains false. This direct-provider
+diagnostic cannot produce a mediated archive qualification report or enable
+recording.
+
 ## Job and durable receipts
 
 Prepare a private copy of [provider-probe-job.yaml](provider-probe-job.yaml) with
@@ -184,7 +243,7 @@ are application body limits, not a claim about exact TLS wire bytes. No media is
 downloaded or captured. The Job is limited to 2 CPUs, 512 MiB RAM, and 128 MiB
 ephemeral storage in addition to its receipt PVC.
 
-The combined successful path is budgeted as follows; the TLS fixture checks the
+The successful capability path is budgeted as follows; the TLS fixture checks the
 actual request counts and keeps charged bodies below a conservative 20 MiB bound:
 
 | Work | Requests |
@@ -248,8 +307,10 @@ Provider limited keys are broader than recorder-only authority: documented
 permissions include operations such as object deletion and bucket creation/listing.
 The diagnostic does not try to modify bucket policy, lifecycle or versioning, or
 pretend these administration denials were measured. It always reports
-`recorder_credentials: unsupported`, `policy_enforcement: not_tested` and
-`object_lock: not_tested`. `atomic_no_overwrite` summarizes separately measured
+`recorder_credentials: unsupported` and `object_lock: not_tested`.
+`policy_enforcement` remains `not_tested` in the default capability suite; only the
+separate encryption-policy suite measures the four denials above.
+`atomic_no_overwrite` summarizes separately measured
 `conditional_put` and `conditional_multipart` checks. `explicit_sse_s3` summarizes
 `explicit_sse_s3_put` and `explicit_sse_s3_multipart`. A passing encryption check
 attests the tested object; it does not establish a policy rejecting unencrypted
@@ -260,8 +321,9 @@ not an atomic archive-write guarantee.
 The candidate conditional-write semantics come from the
 [AWS conditional-write contract](https://docs.aws.amazon.com/AmazonS3/latest/userguide/conditional-writes.html).
 They are not evidence that an Akamai endpoint supports those operations. Synthetic
-TLS results qualify the diagnostic, not the provider. Conditional writes and
-explicit SSE-S3 have not yet been exercised against the real provider; the two
+TLS results qualify the diagnostic, not the provider. Conditional writes,
+explicit SSE-S3 and the encryption-policy suite have not yet been exercised
+against the real provider; the two
 historical exercises below do not establish either capability.
 
 Cloud provisioning, storage-broker credentials, object

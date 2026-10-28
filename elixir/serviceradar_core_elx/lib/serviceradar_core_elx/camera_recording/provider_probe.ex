@@ -22,6 +22,14 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   @management_bytes 16_384
   @conditional_headers [{"if-none-match", "*"}]
   @encryption_headers [{"x-amz-server-side-encryption", "AES256"}]
+  @policy_checks [
+    :policy_document,
+    :put_missing_aes256_denied,
+    :put_noncompliant_aes256_denied,
+    :multipart_missing_aes256_denied,
+    :multipart_noncompliant_aes256_denied,
+    :policy_unchanged
+  ]
 
   def main do
     Logger.configure(level: :none)
@@ -58,10 +66,12 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          true <- is_binary(region) and Regex.match?(~r/^[a-z0-9-]{1,40}$/, region),
          %URI{scheme: "https", host: host, userinfo: nil, query: nil, fragment: nil, path: path} <- URI.parse(endpoint),
          true <- is_binary(host) and path in [nil, "", "/"],
-         true <- Enum.all?([writer_a, writer_b, reader_a], &credential?/1) do
+         true <- Enum.all?([writer_a, writer_b, reader_a], &credential?/1),
+         suite when suite in ["capabilities", "encryption_policy"] <- Map.get(raw, "suite", "capabilities") do
       {:ok,
        %{
          run_id: run,
+         suite: suite,
          region: region,
          endpoint: String.trim_trailing(endpoint, "/"),
          bucket_a: "sr-vms-probe-#{run}-a",
@@ -90,13 +100,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
       requests: 0,
       bytes: 0,
       deadline: now() + @run_ms,
-      checks: %{
-        conditional_put: :not_tested,
-        conditional_multipart: :not_tested,
-        multipart_abort: :not_tested,
-        explicit_sse_s3_put: :not_tested,
-        explicit_sse_s3_multipart: :not_tested
-      },
+      checks: initial_checks(config.suite),
       failures: %{},
       request_limit: @requests,
       byte_limit: @total_bytes - 2 * 1_024 * 1_024,
@@ -135,8 +139,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          cleanup_requests: state.requests - diagnostic_requests,
          body_budget_charged_bytes: state.bytes,
          cloud_ready: false,
+         diagnostic_suite: config.suite,
          recorder_credentials: :unsupported,
-         policy_enforcement: :not_tested,
+         policy_enforcement: capability(state, @policy_checks),
          explicit_sse_s3: capability(state, [:explicit_sse_s3_put, :explicit_sse_s3_multipart]),
          atomic_no_overwrite: capability(state, [:conditional_put, :conditional_multipart]),
          object_lock: :not_tested
@@ -146,21 +151,52 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
 
   def run(_, _), do: {:error, :invalid_journal}
 
+  defp initial_checks("encryption_policy"), do: Map.new(@policy_checks, &{&1, :not_tested})
+
+  defp initial_checks("capabilities") do
+    Map.new(
+      [:conditional_put, :conditional_multipart, :multipart_abort, :explicit_sse_s3_put, :explicit_sse_s3_multipart],
+      &{&1, :not_tested}
+    )
+  end
+
   defp execute_steps(state) do
+    execute_steps(state, steps(state.config.suite))
+  end
+
+  defp steps("encryption_policy") do
+    wrong = [{"x-amz-server-side-encryption", "aws:kms"}]
+
+    [
+      {:empty_buckets, &preflight/1},
+      {:policy_document, &policy_document/1},
+      {:put_missing_aes256_denied, &policy_denial(&1, :put, "policy-put-missing", [])},
+      {:put_noncompliant_aes256_denied, &policy_denial(&1, :put, "policy-put-other", wrong)},
+      {:multipart_missing_aes256_denied, &policy_denial(&1, :post, "policy-multipart-missing", [])},
+      {:multipart_noncompliant_aes256_denied, &policy_denial(&1, :post, "policy-multipart-other", wrong)},
+      {:policy_unchanged, &policy_document/1}
+    ]
+  end
+
+  defp steps("capabilities") do
+    [
+      {:empty_buckets, &preflight/1},
+      {:objects, &objects/1},
+      {:private_access, &private_access/1},
+      {:roles, &roles/1},
+      {:range_identity_hash, &ranges/1},
+      {:checksum_rejection, &checksum/1},
+      {:multipart, &multipart/1},
+      {:conditional_put, &conditional_put/1},
+      {:conditional_multipart, &conditional_multipart/1},
+      {:explicit_sse_s3_put, &explicit_put/1},
+      {:explicit_sse_s3_multipart, &explicit_multipart/1}
+    ]
+  end
+
+  defp execute_steps(state, steps) do
     Enum.reduce_while(
-      [
-        {:empty_buckets, &preflight/1},
-        {:objects, &objects/1},
-        {:private_access, &private_access/1},
-        {:roles, &roles/1},
-        {:range_identity_hash, &ranges/1},
-        {:checksum_rejection, &checksum/1},
-        {:multipart, &multipart/1},
-        {:conditional_put, &conditional_put/1},
-        {:conditional_multipart, &conditional_multipart/1},
-        {:explicit_sse_s3_put, &explicit_put/1},
-        {:explicit_sse_s3_multipart, &explicit_multipart/1}
-      ],
+      steps,
       state,
       fn {name, operation}, current ->
         case operation.(current) do
@@ -170,10 +206,111 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
           {:error, reason, next} ->
             next = %{next | failures: Map.put(next.failures, name, safe_reason(reason))}
             status = failure(reason)
-            {if(status in [:unsupported, :not_confirmed], do: :cont, else: :halt), check(next, name, status)}
+            continue = state.config.suite == "capabilities" and status in [:unsupported, :not_confirmed]
+            {if(continue, do: :cont, else: :halt), check(next, name, status)}
         end
       end
     )
+  end
+
+  defp policy_document(state) do
+    with {:ok, response, state} <- request(state, :a, :writer, :get, nil, "policy"),
+         {:ok, state} <- verify(state, response.status == 200, :policy_not_verified),
+         {:ok, state} <- verify(state, required_policy?(response.body, state.config), :policy_not_verified),
+         observed = digest(response.body),
+         previous = Map.get(state.receipts, :policy_digest, observed),
+         {:ok, state} <- verify(state, previous == observed, :policy_changed) do
+      {:ok, put_in(state.receipts[:policy_digest], observed)}
+    end
+  end
+
+  defp required_policy?(bytes, config) do
+    case Jason.decode(bytes) do
+      {:ok, %{"Statement" => statements}} when is_list(statements) ->
+        Enum.all?(
+          [
+            %{"Null" => %{"s3:x-amz-server-side-encryption" => "true"}},
+            %{"StringNotEquals" => %{"s3:x-amz-server-side-encryption" => "AES256"}}
+          ],
+          &policy_condition?(statements, &1, config)
+        )
+
+      _ ->
+        false
+    end
+  end
+
+  defp policy_condition?(statements, condition, config), do: Enum.any?(statements, &policy_deny?(&1, condition, config))
+
+  defp policy_deny?(statement, condition, config) when is_map(statement) do
+    resource = "arn:aws:s3:::#{config.bucket_a}/"
+
+    statement["Effect"] == "Deny" and statement["Principal"] in ["*", %{"AWS" => "*"}] and
+      List.wrap(statement["Action"]) == ["s3:PutObject"] and
+      Enum.any?(List.wrap(statement["Resource"]), &(&1 in [resource <> "*", resource <> config.run_id <> "/*"])) and
+      statement["Condition"] == condition and
+      not Enum.any?(["NotAction", "NotResource", "NotPrincipal"], &Map.has_key?(statement, &1))
+  end
+
+  defp policy_deny?(_, _, _), do: false
+
+  defp policy_denial(state, method, key, headers) do
+    with {:ok, state} <- own(state, :a, key),
+         {:ok, state} <- policy_control(state, method, key),
+         {:ok, response, state} <- policy_attempt(state, method, key, headers),
+         {:ok, state} <- verify(state, access_denied?(response), :encryption_policy_denial_unproven) do
+      policy_control(state, method, key)
+    end
+  end
+
+  defp policy_control(state, :put, key) do
+    with {:ok, r, state} <- request(state, :a, :writer, :put, key, nil, small(), headers: @encryption_headers),
+         {:ok, state} <- expect(state, r, [200]),
+         {:ok, r, state} <- verified_object(state, key, small()) do
+      verify(state, encryption(r) == :passed, :encryption_not_confirmed)
+    end
+  end
+
+  defp policy_control(state, :post, key) do
+    with {:ok, upload, body, state} <- short_upload(state, key, small(), @encryption_headers),
+         {:ok, r, state} <- request(state, :a, :writer, :post, key, upload_query(upload), body),
+         {:ok, state} <- completed(state, r),
+         state = %{state | uploads: List.delete(state.uploads, upload)},
+         {:ok, r, state} <- verified_object(state, key, small()) do
+      verify(state, encryption(r) == :passed, :encryption_not_confirmed)
+    end
+  end
+
+  defp policy_attempt(state, :put, key, headers),
+    do: request(state, :a, :writer, :put, key, nil, small(), headers: headers)
+
+  defp policy_attempt(state, :post, key, headers) do
+    state = %{state | pending_uploads: [key | state.pending_uploads]}
+    :ok = journal(state)
+
+    with {:ok, r, state} <- request(state, :a, :writer, :post, key, "uploads", nil, headers: headers) do
+      policy_initiation(state, key, r)
+    end
+  end
+
+  defp policy_initiation(state, key, response) do
+    cond do
+      access_denied?(response) ->
+        state = %{state | pending_uploads: List.delete(state.pending_uploads, key)}
+        :ok = journal(state)
+        {:ok, response, state}
+
+      response.status == 200 ->
+        with {:ok, _upload, state} <- remember_upload(state, key, response), do: {:ok, response, state}
+
+      true ->
+        {:error, :encryption_policy_denial_unproven, state}
+    end
+  end
+
+  defp access_denied?(response) do
+    response.status == 403 and
+      Regex.scan(~r/<Code>([^<]*)<\/Code>/, response.body) == [["<Code>AccessDenied</Code>", "AccessDenied"]]
   end
 
   defp preflight(state) do
@@ -409,18 +546,22 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
          :ok <- journal(state),
          {:ok, r, state} <- request(state, :a, :writer, :post, key, "uploads", nil, headers: headers),
          {:ok, state} <- expect(state, r, [200]) do
-      # Admit bounded URL tokens, including every RFC3986 unreserved character.
-      # Other XML/text forms stay pending for exact operator reconciliation.
-      case Regex.run(~r/<UploadId>([A-Za-z0-9+\/=._~-]{1,1024})<\/UploadId>/, r.body) do
-        [_, id] ->
-          upload = %{key: key, id: id}
-          state = %{state | pending_uploads: List.delete(state.pending_uploads, key), uploads: [upload | state.uploads]}
-          :ok = journal(state)
-          {:ok, upload, state}
+      remember_upload(state, key, r)
+    end
+  end
 
-        _ ->
-          {:error, :missing_upload_receipt, state}
-      end
+  defp remember_upload(state, key, r) do
+    # Admit bounded URL tokens, including every RFC3986 unreserved character.
+    # Other XML/text forms stay pending for exact operator reconciliation.
+    case Regex.run(~r/<UploadId>([A-Za-z0-9+\/=._~-]{1,1024})<\/UploadId>/, r.body) do
+      [_, id] ->
+        upload = %{key: key, id: id}
+        state = %{state | pending_uploads: List.delete(state.pending_uploads, key), uploads: [upload | state.uploads]}
+        :ok = journal(state)
+        {:ok, upload, state}
+
+      _ ->
+        {:error, :missing_upload_receipt, state}
     end
   end
 
@@ -740,7 +881,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
   defp check(state, name, result), do: put_in(state.checks[name], result)
 
   defp capability(state, names) do
-    results = Enum.map(names, &Map.fetch!(state.checks, &1))
+    results = Enum.map(names, &Map.get(state.checks, &1, :not_tested))
     Enum.find([:failed, :unsupported, :not_confirmed, :not_tested], :passed, &(&1 in results))
   end
 
@@ -760,6 +901,10 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbe do
     do: :unsupported
 
   defp failure(:encryption_not_confirmed), do: :not_confirmed
+
+  defp failure(reason) when reason in [:policy_not_verified, :policy_changed, :encryption_policy_denial_unproven],
+    do: :not_confirmed
+
   defp failure(_), do: :failed
   defp safe_reason(reason) when is_atom(reason), do: reason
   defp safe_reason({:http_status, status}) when is_integer(status), do: %{http_status: status}

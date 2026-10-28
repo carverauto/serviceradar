@@ -9,7 +9,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
   @moduletag :tmp_dir
   @run String.duplicate("a", 32)
 
-  setup do
+  setup ctx do
     {:ok, _} = Application.ensure_all_started(:ssl)
     alg = [{:digest, :sha256}, {:key, {:namedCurve, :secp256r1}}]
     san = {:Extension, {2, 5, 29, 17}, false, [dNSName: ~c"localhost"]}
@@ -20,7 +20,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
         client_chain: %{root: alg, intermediates: [], peer: alg}
       })
 
-    {:ok, store} = Agent.start_link(fn -> %{objects: %{}, uploads: %{}, requests: [], races: %{}, mode: :normal} end)
+    {:ok, store} =
+      Agent.start_link(fn ->
+        %{objects: %{}, uploads: %{}, requests: [], races: %{}, mode: :normal, policy_fault: nil}
+      end)
+
     {:ok, listener} = :ssl.listen(0, certs.server_config ++ [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
     {:ok, {_, port}} = :ssl.sockname(listener)
     server = spawn_link(fn -> accept(listener, store) end)
@@ -37,6 +41,7 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
 
     {:ok, config} =
       ProviderProbe.configuration(%{
+        "suite" => Map.get(ctx, :suite, "capabilities"),
         "run_id" => @run,
         "endpoint" => "https://localhost:#{port}",
         "region" => "test-region",
@@ -252,6 +257,141 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
     assert %{"objects" => []} = Jason.decode!(File.read!(path))
   end
 
+  describe "encryption policy diagnostic" do
+    @describetag suite: "encryption_policy"
+
+    setup ctx do
+      Agent.update(ctx.store, &%{&1 | mode: :policy, policy_fault: Map.get(ctx, :fault)})
+      :ok
+    end
+
+    test "four denials are bracketed by signed AES256 controls and never qualify Cloud", ctx do
+      path = Path.join(ctx.tmp_dir, "policy.json")
+
+      assert {:ok,
+              %{
+                status: :passed,
+                cloud_ready: false,
+                diagnostic_suite: "encryption_policy",
+                policy_enforcement: :passed,
+                atomic_no_overwrite: :not_tested,
+                checks: checks,
+                diagnostic_requests: diagnostics,
+                cleanup_requests: cleanup
+              }} = ProviderProbe.run(ctx.config, path)
+
+      assert %{
+               put_missing_aes256_denied: :passed,
+               put_noncompliant_aes256_denied: :passed,
+               multipart_missing_aes256_denied: :passed,
+               multipart_noncompliant_aes256_denied: :passed,
+               policy_document: :passed,
+               policy_unchanged: :passed,
+               cleanup: :passed
+             } = checks
+
+      assert diagnostics <= 80 and cleanup <= 30
+      assert %{objects: objects, uploads: uploads, requests: requests} = Agent.get(ctx.store, & &1)
+      assert {objects, uploads} == {%{}, %{}}
+
+      for {suffix, method, denied_header} <- [
+            {"policy-put-missing", "PUT", nil},
+            {"policy-put-other", "PUT", "aws:kms"},
+            {"policy-multipart-missing", "POST", nil},
+            {"policy-multipart-other", "POST", "aws:kms"}
+          ] do
+        attempts =
+          requests
+          |> Enum.reverse()
+          |> Enum.filter(fn {verb, target, _} ->
+            uri = URI.parse(target)
+
+            verb == method and String.ends_with?(uri.path, "/" <> suffix) and
+              (method == "PUT" or uri.query == "uploads")
+          end)
+
+        assert Enum.map(attempts, fn {_, _, h} -> h["x-amz-server-side-encryption"] end) ==
+                 ["AES256", denied_header, "AES256"]
+
+        for {_, _, headers} <- attempts do
+          assert role(headers) == :writer_a
+
+          if headers["x-amz-server-side-encryption"] do
+            assert [_, signed] = Regex.run(~r/SignedHeaders=([^,]+)/, headers["authorization"])
+            assert "x-amz-server-side-encryption" in String.split(signed, ";")
+          end
+        end
+      end
+
+      assert %{"objects" => [], "uploads" => [], "pending_uploads" => []} = Jason.decode!(File.read!(path))
+    end
+
+    for {suffix, check} <- [
+          {"policy-put-missing", :put_missing_aes256_denied},
+          {"policy-put-other", :put_noncompliant_aes256_denied},
+          {"policy-multipart-missing", :multipart_missing_aes256_denied},
+          {"policy-multipart-other", :multipart_noncompliant_aes256_denied}
+        ] do
+      @tag fault: {:allow, suffix}, check: check
+      test "an accepted #{suffix} attempt is unconfirmed and its actual artifacts are cleaned", ctx do
+        assert {:ok, %{status: :failed, policy_enforcement: :not_confirmed, checks: checks}} =
+                 ProviderProbe.run(ctx.config, Path.join(ctx.tmp_dir, "cleanup.json"))
+
+        assert checks[ctx.check] == :not_confirmed
+        assert checks.policy_unchanged == :not_tested
+        assert checks.cleanup == :passed
+        assert Agent.get(ctx.store, &{&1.objects, &1.uploads}) == {%{}, %{}}
+
+        if String.starts_with?(elem(ctx.fault, 1), "policy-multipart") do
+          assert Enum.count(Agent.get(ctx.store, & &1.requests), fn {method, target, _} ->
+                   method == "DELETE" and String.contains?(target, "uploadId=")
+                 end) == 1
+        end
+      end
+    end
+
+    for fault <- [:missing_policy, :wrong_resource, :extra_condition, :unreadable_policy] do
+      @tag fault: fault
+      test "#{fault} refuses writes before interpreting denials", ctx do
+        assert {:ok,
+                %{
+                  status: :failed,
+                  policy_enforcement: :not_confirmed,
+                  checks: %{policy_document: :not_confirmed, put_missing_aes256_denied: :not_tested, cleanup: :passed}
+                }} = ProviderProbe.run(ctx.config, Path.join(ctx.tmp_dir, "cleanup.json"))
+
+        refute Enum.any?(Agent.get(ctx.store, & &1.requests), fn {method, _, _} -> method in ["PUT", "POST"] end)
+      end
+    end
+
+    for {fault, check, expected} <- [
+          {:deny_controls, :put_missing_aes256_denied, :failed},
+          {:deny_late_control, :put_missing_aes256_denied, :failed},
+          {:wrong_error, :put_missing_aes256_denied, :not_confirmed},
+          {:unsupported_algorithm, :put_missing_aes256_denied, :not_confirmed},
+          {:policy_drift, :policy_unchanged, :not_confirmed}
+        ] do
+      @tag fault: fault, check: check, expected: expected
+      test "#{fault} cannot produce a policy pass", ctx do
+        assert {:ok, %{status: :failed, policy_enforcement: result, checks: checks}} =
+                 ProviderProbe.run(ctx.config, Path.join(ctx.tmp_dir, "cleanup.json"))
+
+        assert result == ctx.expected
+        assert checks[ctx.check] == ctx.expected
+        assert checks.cleanup == :passed
+        assert Agent.get(ctx.store, &{&1.objects, &1.uploads}) == {%{}, %{}}
+      end
+    end
+
+    @tag fault: :ambiguous_policy_upload
+    test "an unexpected multipart initiation without a usable receipt stays pending", ctx do
+      path = Path.join(ctx.tmp_dir, "cleanup.json")
+      assert {:ok, %{status: :failed, checks: %{cleanup: :incomplete}}} = ProviderProbe.run(ctx.config, path)
+      assert %{"pending_uploads" => ["policy-multipart-missing"]} = Jason.decode!(File.read!(path))
+      assert map_size(Agent.get(ctx.store, & &1.uploads)) == 1
+    end
+  end
+
   defp key(id), do: %{"access_key_id" => id, "secret_access_key" => "invented-secret-#{id}"}
 
   # Smokescreen's HTTP/1.0 CONNECT response deliberately has no headers.
@@ -406,12 +546,51 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
     uri = URI.parse(target)
     query = URI.decode_query(uri.query || "")
 
-    if denied?(role(headers), uri.path, method, state.mode) do
-      {{403, %{}, "<Error><Code>AccessDenied</Code></Error>"}, state}
-    else
-      route(state, method, uri.path, query, headers, body)
+    cond do
+      denied?(role(headers), uri.path, method, state.mode) ->
+        {{403, %{}, "<Error><Code>AccessDenied</Code></Error>"}, state}
+
+      response = policy_rejection(state, method, uri.path, query, headers) ->
+        {response, state}
+
+      true ->
+        route(state, method, uri.path, query, headers, body)
     end
   end
+
+  defp policy_rejection(%{mode: :policy} = state, method, path, query, headers) do
+    initiation = method == "POST" and Map.has_key?(query, "uploads")
+    put = method == "PUT" and not Map.has_key?(query, "uploadId")
+
+    if initiation or put, do: policy_write_response(state, method, path, headers)
+  end
+
+  defp policy_rejection(_, _, _, _, _), do: nil
+
+  defp policy_write_response(%{policy_fault: :deny_controls}, _, _, _), do: policy_denied()
+
+  defp policy_write_response(state, method, path, %{"x-amz-server-side-encryption" => "AES256"}) do
+    prior_denial =
+      Enum.any?(state.requests, fn {verb, target, h} ->
+        verb == method and URI.parse(target).path == path and h["x-amz-server-side-encryption"] != "AES256"
+      end)
+
+    if state.policy_fault == :deny_late_control and prior_denial, do: policy_denied()
+  end
+
+  defp policy_write_response(%{policy_fault: {:allow, suffix}}, _, path, _),
+    do: if(Path.basename(path) != suffix, do: policy_denied())
+
+  defp policy_write_response(%{policy_fault: :ambiguous_policy_upload}, "POST", _, _), do: nil
+
+  defp policy_write_response(%{policy_fault: :wrong_error}, _, _, _),
+    do: {403, %{}, "<Error><Code>SignatureDoesNotMatch</Code></Error>"}
+
+  defp policy_write_response(%{policy_fault: :unsupported_algorithm}, _, _, _),
+    do: {400, %{}, "<Error><Code>InvalidArgument</Code></Error>"}
+
+  defp policy_write_response(_, _, _, _), do: policy_denied()
+  defp policy_denied, do: {403, %{}, "<Error><Code>AccessDenied</Code></Error>"}
 
   defp role(headers) do
     auth = headers["authorization"] || ""
@@ -447,9 +626,49 @@ defmodule ServiceRadarCoreElx.CameraRecording.ProviderProbeTest do
     {{200, %{}, body}, state}
   end
 
-  defp route(state, _, path, %{"uploads" => _}, _, _) do
+  defp route(state, "GET", path, %{"policy" => _}, _, _) do
+    resource =
+      if state.policy_fault == :wrong_resource,
+        do: "arn:aws:s3:::unrelated-bucket/*",
+        else: "arn:aws:s3:::#{String.trim_leading(path, "/")}/*"
+
+    statements =
+      for condition <- [
+            %{"Null" => %{"s3:x-amz-server-side-encryption" => "true"}},
+            %{"StringNotEquals" => %{"s3:x-amz-server-side-encryption" => "AES256"}}
+          ] do
+        condition =
+          if state.policy_fault == :extra_condition,
+            do: Map.put(condition, "Bool", %{"aws:SecureTransport" => "false"}),
+            else: condition
+
+        %{
+          "Effect" => "Deny",
+          "Principal" => "*",
+          "Action" => "s3:PutObject",
+          "Resource" => resource,
+          "Condition" => condition
+        }
+      end
+
+    bytes = Jason.encode!(%{"Version" => "2012-10-17", "Statement" => statements})
+
+    cond do
+      state.policy_fault == :unreadable_policy -> {{403, %{}, "<Error><Code>AccessDenied</Code></Error>"}, state}
+      state.policy_fault == :missing_policy -> {{200, %{}, "{}"}, state}
+      state.policy_fault == :policy_drift and map_size(state.objects) > 0 -> {{200, %{}, bytes <> " "}, state}
+      true -> {{200, %{}, bytes}, state}
+    end
+  end
+
+  defp route(state, _, path, %{"uploads" => _}, headers, _) do
     id = "invented~receipt-#{map_size(state.uploads)}.+/="
-    receipt = if(state.mode == :ambiguous_initiation, do: "invented&amp;opaque", else: id)
+
+    ambiguous =
+      state.mode == :ambiguous_initiation or
+        (state.policy_fault == :ambiguous_policy_upload and headers["x-amz-server-side-encryption"] != "AES256")
+
+    receipt = if(ambiguous, do: "invented&amp;opaque", else: id)
 
     {{200, %{}, "<InitiateMultipartUploadResult><UploadId>#{receipt}</UploadId></InitiateMultipartUploadResult>"},
      put_in(state.uploads[id], %{path: path, parts: %{}})}

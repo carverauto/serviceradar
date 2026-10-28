@@ -126,9 +126,12 @@ Lock must not be inferred from this recording report.
 
 Existing direct-provider diagnostic results cannot be mechanically promoted to
 these broader claims. In particular, the current probe deliberately reports
-`cloud_ready: false`, unsupported recorder credentials and untested policy
-enforcement. It does not execute the four encryption-policy denial checks or
-establish the mediated workload boundary.
+`cloud_ready: false` and unsupported recorder credentials. Its separate opt-in
+[encryption-policy suite](../../../build/media/provider-probe.md#encryption-policy-diagnostic)
+executes the four denial checks with compliant controls and policy inspection,
+but does not establish the mediated workload boundary. Synthetic TLS tests of
+that diagnostic are not provider qualification. Task 0.5 remains open pending
+live provider evidence and the remaining capability checks.
 
 Before any provider adapter sends an operation, it must match the retained binding
 and frozen intent, enforce current authenticated authority and isolated credential
