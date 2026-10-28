@@ -141,23 +141,23 @@ jobs:
           check 1Ti           8GB 1024MB 307GB
           echo "CNPG WAL sizing derivation is correct"
 
-      - name: Verify SPIRE-managed CNPG carries the same WAL budget
+      - name: Verify staging CNPG carries the same WAL budget
         run: |
           set -euo pipefail
           out="$(./scripts/run-helm.sh template serviceradar helm/serviceradar \
             --set global.imageTag=v1.0.0 \
             -f helm/serviceradar/values-demo-staging.yaml \
-            --show-only templates/spire-postgres.yaml)"
+            --show-only templates/cnpg-cluster.yaml)"
           # grep -q exits at the first match. Under pipefail that closes the
           # pipe while echo is still writing and the shell reports the setting
           # missing (exit 141) even though the manifest contains it.
           for want in '"max_slot_wal_keep_size": "5GB"' '"max_wal_size": "1GB"' '"min_wal_size": "256MB"'; do
             if ! printf '%s\n' "$out" | grep -F "$want" >/dev/null; then
-              echo "missing $want in spire-postgres render" >&2
+              echo "missing $want in cnpg-cluster render" >&2
               exit 1
             fi
           done
-          echo "SPIRE CNPG WAL budget is present"
+          echo "Staging CNPG WAL budget is present"
 
       - name: Verify tenant bootstrap hook order
         run: ./scripts/check-tenant-chart-hook-order.sh
