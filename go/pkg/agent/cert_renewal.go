@@ -43,13 +43,16 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	maxRenewalScheduleJitter = 6 * time.Hour
+	unknownCertificateField  = "unknown"
+)
+
 var (
-	errRenewalResponseEmpty       = errors.New("certificate renewal response is empty")
-	errRenewalInvalidCAChain      = errors.New("certificate renewal CA chain is invalid")
-	errRenewalCertAlreadyExpired  = errors.New("renewed certificate is already expired")
-	errRenewalCertRevoked         = errors.New("local mTLS client certificate revoked; re-enroll required")
-	defaultRenewalBackoffSchedule = []time.Duration{1 * time.Minute, 2 * time.Minute, 5 * time.Minute, 15 * time.Minute, 1 * time.Hour}
-	maxRenewalScheduleJitter      = 6 * time.Hour
+	errRenewalResponseEmpty      = errors.New("certificate renewal response is empty")
+	errRenewalInvalidCAChain     = errors.New("certificate renewal CA chain is invalid")
+	errRenewalCertAlreadyExpired = errors.New("renewed certificate is already expired")
+	errRenewalCertRevoked        = errors.New("local mTLS client certificate revoked; re-enroll required")
 )
 
 // CertificateRenewalGateway defines the gateway client operations required by CertRenewalManager.
@@ -83,13 +86,12 @@ type CertRenewalManager struct {
 // NewCertRenewalManager creates a new CertRenewalManager.
 func NewCertRenewalManager(gateway CertificateRenewalGateway, log logger.Logger) *CertRenewalManager {
 	return &CertRenewalManager{
-		gateway:         gateway,
-		nowFunc:         time.Now,
-		jitterFunc:      cryptoRandomJitter,
-		backoffSchedule: defaultRenewalBackoffSchedule,
-		keyGenFunc:      generateECDSAP256Key,
-		csrBuilderFunc:  buildRenewalCSRFromLeaf,
-		logger:          log,
+		gateway:        gateway,
+		nowFunc:        time.Now,
+		jitterFunc:     cryptoRandomJitter,
+		keyGenFunc:     generateECDSAP256Key,
+		csrBuilderFunc: buildRenewalCSRFromLeaf,
+		logger:         log,
 	}
 }
 
@@ -221,7 +223,7 @@ func (m *CertRenewalManager) Run(ctx context.Context) error {
 func (m *CertRenewalManager) backoffDelay(index int) time.Duration {
 	schedule := m.backoffSchedule
 	if len(schedule) == 0 {
-		schedule = defaultRenewalBackoffSchedule
+		schedule = []time.Duration{1 * time.Minute, 2 * time.Minute, 5 * time.Minute, 15 * time.Minute, 1 * time.Hour}
 	}
 	if index < 0 {
 		index = 0
@@ -332,7 +334,7 @@ func (m *CertRenewalManager) classifyRenewRPCError(err error, leaf *x509.Certifi
 }
 
 func (m *CertRenewalManager) logExpiredAndWrap(leaf *x509.Certificate) error {
-	notAfterStr := "unknown"
+	notAfterStr := unknownCertificateField
 	if leaf != nil {
 		notAfterStr = leaf.NotAfter.UTC().Format(time.RFC3339)
 	}
@@ -350,7 +352,7 @@ func (m *CertRenewalManager) logExpiredAndWrap(leaf *x509.Certificate) error {
 
 func formatLeafSerial(leaf *x509.Certificate) string {
 	if leaf == nil || leaf.SerialNumber == nil {
-		return "unknown"
+		return unknownCertificateField
 	}
 
 	return strings.ToLower(hex.EncodeToString(leaf.SerialNumber.Bytes()))

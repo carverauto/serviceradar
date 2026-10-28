@@ -53,6 +53,11 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+var (
+	errCrashBeforeBundleRename = errors.New("simulated crash before bundle rename")
+	errCrashAfterKeyRename     = errors.New("simulated crash after key rename before cert rename")
+)
+
 type syntheticRenewalGatewayServer struct {
 	proto.UnimplementedAgentGatewayServiceServer
 	mu                 sync.Mutex
@@ -290,7 +295,8 @@ func setupRenewalTestHarness(t *testing.T, notBefore, notAfter time.Time) *renew
 		MinVersion:   tls.VersionTLS13,
 	}
 
-	lis, err := net.Listen("tcp", "127.0.0.1:0")
+	var listenConfig net.ListenConfig
+	lis, err := listenConfig.Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 
 	gwServer := newSyntheticRenewalGatewayServer(caCert, caKey, caPEM)
@@ -484,7 +490,7 @@ func TestCertRenewalCrashMidWriteAndStartupSelfHeal(t *testing.T) {
 		mgr := NewCertRenewalManager(h.gwClient, logger.NewTestLogger())
 		mgr.writeHooks = CertRenewalWriteHooks{
 			BeforeBundleRename: func(_ string) error {
-				return errors.New("simulated crash before bundle rename")
+				return errCrashBeforeBundleRename
 			},
 		}
 
@@ -510,7 +516,7 @@ func TestCertRenewalCrashMidWriteAndStartupSelfHeal(t *testing.T) {
 		mgr := NewCertRenewalManager(h.gwClient, logger.NewTestLogger())
 		mgr.writeHooks = CertRenewalWriteHooks{
 			AfterKeyRename: func(_ string) error {
-				return errors.New("simulated crash after key rename before cert rename")
+				return errCrashAfterKeyRename
 			},
 		}
 
