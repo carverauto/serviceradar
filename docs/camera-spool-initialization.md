@@ -67,14 +67,13 @@ the storage owner verifies its type and private permissions. Filesystem
 housekeeping at the volume root remains untouched. There is no recursive scan,
 permission repair, deletion or fallback spool.
 
-`Storage.initialize/2` creates and fsyncs the canonical UUID marker, then syncs
-the spool directory. The command also fsyncs the volume directory before
-reporting success so the new child entry is durable. Exact retries verify and
-sync the same marker without rewriting it, including when retained blocks exist.
-Conflicting or partial markers, nonprivate or aliased entries and nonempty
-unmarked spools are preserved and refused. A failed operation can leave a newly
-created directory or partial marker; inspect and reconcile it explicitly rather
-than deleting it or adding an automatic repair loop.
+The [storage initialization contract](../openspec/changes/add-vms-storage-playback-engine/spool-lifetime.md#provision-once-verify-during-use)
+owns marker durability, exact retries and refusal without repair.
+After `Storage.initialize/2` succeeds, this command also fsyncs the volume
+directory before reporting success so the new child entry is durable. A failed
+operation can leave a newly created directory or partial marker; inspect and
+reconcile it explicitly rather than deleting it or adding an automatic repair
+loop.
 
 The command prints one JSON result and exits:
 
