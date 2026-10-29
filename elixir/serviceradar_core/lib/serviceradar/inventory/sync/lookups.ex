@@ -118,15 +118,15 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
       from(di in DeviceIdentifier,
         join:
           k in fragment(
-            "unnest(?::text[], ?::text[], ?::text[]) AS k(identifier_type, identifier_value, partition)",
+            "SELECT * FROM unnest(?::text[], ?::text[], ?::text[]) AS k(identifier_type, identifier_value, partition)",
             ^types,
             ^values,
             ^partitions
           ),
         on:
-          di.identifier_type == fragment("k.identifier_type") and
-            di.identifier_value == fragment("k.identifier_value") and
-            di.partition == fragment("k.partition"),
+          di.identifier_type == k.identifier_type and
+            di.identifier_value == k.identifier_value and
+            di.partition == k.partition,
         select: {di.identifier_type, di.identifier_value, di.partition, di.device_id}
       )
 

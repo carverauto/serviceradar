@@ -404,14 +404,23 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
           {{type, value, partition}, device.uid}
         end)
 
+      wrong_partition_keys =
+        Enum.map(specs, fn {type, value, _partition} -> {type, value, "wrong-partition"} end)
+
+      assert {:ok, mappings} = Lookups.lookup_identifiers_strict(wrong_partition_keys)
+      assert mappings == %{}
+
       unmatched = [
-        {:armis_device_id, "armis-lookup-#{suffix}", "wrong-partition"},
         {:mac, "00005EFFFFFF", "default"},
         {:integration_id, "missing-#{suffix}", "default"}
       ]
 
-      # Include duplicates and string/atom key representations to verify deduplication.
-      query_keys = specs ++ unmatched ++ Enum.take(specs, 3)
+      string_keys =
+        Enum.map(specs, fn {type, value, partition} ->
+          {to_string(type), value, partition}
+        end)
+
+      query_keys = specs ++ unmatched ++ Enum.take(specs, 3) ++ string_keys
 
       parent = self()
       handler_id = "lookups-unnest-query-#{suffix}"
@@ -421,7 +430,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
           handler_id,
           [:service_radar, :repo, :query],
           fn _event, _measurements, %{query: sql, params: params}, _config ->
-            if String.contains?(sql, "device_identifiers") and String.contains?(sql, "unnest") do
+            if self() == parent and String.contains?(sql, "device_identifiers") do
               send(parent, {:identifier_lookup_query, sql, params})
             end
           end,
@@ -431,13 +440,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
       on_exit(fn -> :telemetry.detach(handler_id) end)
 
       assert {:ok, ^expected} = Lookups.lookup_identifiers_strict(query_keys)
-      assert ^expected = Lookups.bulk_lookup_identifiers(query_keys)
+      :ok = :telemetry.detach(handler_id)
 
       assert_receive {:identifier_lookup_query, sql, [types, values, partitions]}
+      refute_receive {:identifier_lookup_query, _, _}
+      assert sql =~ "unnest"
       refute sql =~ " OR "
       assert length(types) == length(specs) + length(unmatched)
       assert length(values) == length(types)
       assert length(partitions) == length(types)
+
+      assert ^expected = Lookups.bulk_lookup_identifiers(query_keys)
     end
   end
 
