@@ -7,13 +7,20 @@ defmodule ServiceRadar.Edge.SweepProjection do
   microbatch never claims that the whole execution completed. A lock on the slot
   serializes batches of one execution, including the first batch before its domain
   execution exists. The assignment lock keeps a concurrent fence change from
-  authorizing a stale domain write.
+  authorizing a stale domain write. Signed range digests authorize the persisted
+  plan's actual targets and checks, not caller-supplied replacements for them.
   """
 
   import Ecto.Query
 
+  alias ServiceRadar.Edge.HashGrammar
+  alias ServiceRadar.Edge.PlanValidate
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
+  alias Serviceradar.Edge.V1.SweepMode
+  alias Serviceradar.Edge.V1.TransportProtocol
+  alias ServiceRadar.Edge.WireDecode
   alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadar.Policies.NetworkAddressPolicy
   alias ServiceRadar.SweepJobs.SweepExecutionSlot
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepHostResult
@@ -32,7 +39,7 @@ defmodule ServiceRadar.Edge.SweepProjection do
            ),
          :ok <- slot_matches(slot, record, batch),
          %Partition{slug: partition} <- repo.get(Partition, slot.network_scope_id),
-         {:ok, header} <- ServiceRadar.Edge.WireDecode.decode_plan_header(slot.plan_header) do
+         {:ok, header} <- authorized_plan(slot, record, batch) do
       results = results(batch)
 
       opts = [
@@ -50,6 +57,71 @@ defmodule ServiceRadar.Edge.SweepProjection do
     else
       nil -> {:error, :sweep_partition_not_found}
       {:error, _} = error -> error
+    end
+  end
+
+  defp authorized_plan(slot, record, batch) do
+    with {:ok, header} <- WireDecode.decode_plan_header(slot.plan_header),
+         {:ok, pages} <- decode_pages(slot.plan_pages),
+         {:ok, _windows} <- PlanValidate.validate(header, pages),
+         :ok <- plan_matches(header, slot, record, batch),
+         range when not is_nil(range) <- PlanValidate.find_range(pages, batch.target_range_id),
+         :ok <- range_matches(range, batch) do
+      {:ok, header}
+    else
+      nil -> {:error, :sweep_range_not_found}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp decode_pages(bytes) do
+    bytes
+    |> Enum.reduce_while({:ok, []}, fn bytes, {:ok, pages} ->
+      case WireDecode.decode_plan_page(bytes) do
+        {:ok, page} -> {:cont, {:ok, [page | pages]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+    |> case do
+      {:ok, pages} -> {:ok, Enum.reverse(pages)}
+      {:error, _} = error -> error
+    end
+  end
+
+  defp plan_matches(header, slot, record, batch) do
+    checks =
+      Enum.map(batch.tested_checks, fn check ->
+        {SweepMode.value(check.mode), TransportProtocol.value(check.protocol), check.port}
+      end)
+
+    cond do
+      header.execution_plan_sha256 != slot.plan_sha256 or
+        header.execution_plan_id != batch.execution_plan_id or
+        header.network_scope_id != record.network_scope_id or
+          header.availability_policy_id != batch.availability_policy_id ->
+        {:error, :sweep_plan_mismatch}
+
+      header.check_set_sha256 != slot.check_set_sha256 or
+          HashGrammar.check_set_digest(checks) != header.check_set_sha256 ->
+        {:error, :sweep_check_set_mismatch}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp range_matches(range, batch) do
+    cond do
+      range.range_sha256 != batch.target_range_sha256 ->
+        {:error, :sweep_range_mismatch}
+
+      not Enum.all?(batch.hosts, fn host ->
+        NetworkAddressPolicy.cidr_contains?(address_tuple(host.address), range.cidr)
+      end) ->
+        {:error, :sweep_target_outside_range}
+
+      true ->
+        :ok
     end
   end
 
@@ -166,10 +238,12 @@ defmodule ServiceRadar.Edge.SweepProjection do
     end)
   end
 
-  defp address(<<a, b, c, d>>), do: to_string(:inet.ntoa({a, b, c, d}))
+  defp address(bytes), do: bytes |> address_tuple() |> :inet.ntoa() |> to_string()
 
-  defp address(<<a::16, b::16, c::16, d::16, e::16, f::16, g::16, h::16>>),
-    do: to_string(:inet.ntoa({a, b, c, d, e, f, g, h}))
+  defp address_tuple(<<a, b, c, d>>), do: {a, b, c, d}
+
+  defp address_tuple(<<a::16, b::16, c::16, d::16, e::16, f::16, g::16, h::16>>),
+    do: {a, b, c, d, e, f, g, h}
 
   defp icmp_available?(nil), do: false
   defp icmp_available?(icmp), do: icmp.target_reached
