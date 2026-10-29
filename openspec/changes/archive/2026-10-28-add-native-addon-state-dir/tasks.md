@@ -19,5 +19,5 @@
 
 ## 4. Verification
 
-- [ ] 4.1 After the agent and 0.3.9 roll: `checkpoint.json` appears under `addons/anomaly/state/` on a host agent, and an add-on upgrade re-warms (series count non-zero right after `configure()`, open episodes cleared by the producer rather than stale-closed).
-- [ ] 4.2 Remove the interim explicit `checkpoint_path` from the demo profile once 0.3.9 is on the fleet, so the default path is the one in use.
+- [x] 4.1 After the agent and 0.3.9 roll: `checkpoint.json` appears under `addons/anomaly/state/` on a host agent, and an add-on upgrade re-warms (series count non-zero right after `configure()`, open episodes cleared by the producer rather than stale-closed).
+- [x] 4.2 Remove the interim explicit `checkpoint_path` from the demo profile once 0.3.9 is on the fleet, so the default path is the one in use.
