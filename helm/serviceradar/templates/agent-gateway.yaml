@@ -97,6 +97,14 @@ spec:
           containerPort: 9100
           protocol: TCP
         env:
+        {{- if (default dict .Values.edgeRecords).enabled }}
+        - name: AGENT_GATEWAY_EDGE_RECORDS_ENABLED
+          value: "true"
+        - name: AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE
+          value: "core"
+        - name: AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY
+          value: {{ include "serviceradar.edgeRecordContractRegistry" . | quote }}
+        {{- end }}
         - name: TMPDIR
           value: /tmp
         {{- include "serviceradar.agentCertValidityEnv" $ | nindent 8 }}

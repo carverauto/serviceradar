@@ -1,5 +1,14 @@
 # Tasks: Build the durable extensible edge producer data plane
 
+> **Immediate delivery target (2026-10-28, maintainer-directed):** get one
+> real static-target ICMP/TCP sweep running end to end in farm01 within 24 hours.
+> Work on runtime trust, agent emission, normal sweep domain projection and
+> deployment wiring concurrently. Close this checkpoint only with fresh
+> post-rollout execution, ledger and domain-row evidence. The 24-hour parallel
+> comparison, reconnect grants, audit routes and fault drills remain owed;
+> they do not block the first current-epoch canary run. Preserve authentication,
+> durable PubAck, replay idempotency and a finite spool bound throughout.
+
 > **ACTIVE WORK ORDER (scope amendment 2026-09-28, maintainer-approved):**
 > task 0.12 is closed. The active work is the four end-to-end milestones M1-M4
 > below and nothing else. Each milestone closes only on evidence from the
