@@ -834,6 +834,125 @@ func TestCameraRelayManagerRejectsDuplicateRelaySession(t *testing.T) {
 	}
 }
 
+// gatedCameraRelayStream keeps source teardown pending after upstream has closed.
+type gatedCameraRelayStream struct {
+	blockingCameraRelayStream
+	closing chan struct{}
+	release chan struct{}
+	ctx     context.Context
+}
+
+func (s *gatedCameraRelayStream) Close() error {
+	close(s.closing)
+	select {
+	case <-s.release:
+	case <-s.ctx.Done():
+	}
+	return nil
+}
+
+func TestCameraRelayManagerReservesSourceProfileUntilClose(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	gateway := newFakeCameraRelayGateway()
+	manager := newCameraRelayManager(gateway, createTestLogger())
+	spec := cameraRelaySessionSpec{
+		RelaySessionID: "relay-owner", AgentID: "agent-synthetic", CameraSourceID: "camera-synthetic",
+		StreamProfileID: "main", LeaseToken: "lease-synthetic",
+	}
+	opening := make(chan struct{})
+	releaseOpen := make(chan struct{})
+	stream := &gatedCameraRelayStream{closing: make(chan struct{}), release: make(chan struct{}), ctx: ctx}
+	manager.sourceFactory = func(candidate cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+		if candidate.RelaySessionID != spec.RelaySessionID {
+			return &blockingCameraRelayStream{}, nil
+		}
+		close(opening)
+		select {
+		case <-releaseOpen:
+			return stream, nil
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+	started := make(chan error, 1)
+	go func() { _, err := manager.Start(ctx, spec); started <- err }()
+	select {
+	case <-opening:
+	case <-ctx.Done():
+		t.Fatal("source startup did not begin")
+	}
+
+	competitor := spec
+	competitor.RelaySessionID = "relay-replacement"
+	// Normalization must not turn whitespace into a distinct physical owner.
+	competitor.CameraSourceID = " " + spec.CameraSourceID + " "
+	competitor.StreamProfileID = " " + spec.StreamProfileID + " "
+	assertRejected := func(phase string) {
+		t.Helper()
+		gateway.mu.Lock()
+		before := len(gateway.openRequests)
+		gateway.mu.Unlock()
+		if _, err := manager.Start(ctx, competitor); err == nil {
+			t.Fatalf("%s: another relay opened the same camera/profile", phase)
+		}
+		gateway.mu.Lock()
+		after := len(gateway.openRequests)
+		gateway.mu.Unlock()
+		if after != before {
+			t.Fatalf("%s: rejected source reached upstream admission", phase)
+		}
+	}
+	assertRejected("source opening")
+	close(releaseOpen)
+	select {
+	case err := <-started:
+		if err != nil {
+			t.Fatalf("Start: %v", err)
+		}
+	case <-ctx.Done():
+		t.Fatal("source startup did not complete")
+	}
+	assertRejected("source running")
+
+	// Profiles are independent; a reservation must not block other cameras either.
+	for _, sibling := range []cameraRelaySessionSpec{
+		{RelaySessionID: "relay-sub", AgentID: spec.AgentID, CameraSourceID: spec.CameraSourceID, StreamProfileID: "sub", LeaseToken: "lease-sub"},
+		{RelaySessionID: "relay-other", AgentID: spec.AgentID, CameraSourceID: "camera-other", StreamProfileID: spec.StreamProfileID, LeaseToken: "lease-other"},
+	} {
+		if _, err := manager.Start(ctx, sibling); err != nil {
+			t.Fatalf("independent source/profile refused: %v", err)
+		}
+		if err := manager.Stop(ctx, cameraRelayStopPayload{RelaySessionID: sibling.RelaySessionID}); err != nil {
+			t.Fatalf("independent source/profile cleanup: %v", err)
+		}
+	}
+
+	// A caller giving up on Stop must not release the still-closing source.
+	stopCtx, cancelStop := context.WithCancel(ctx)
+	cancelStop()
+	if err := manager.Stop(stopCtx, cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Stop with expired caller: %v", err)
+	}
+	select {
+	case <-stream.closing:
+	case <-ctx.Done():
+		t.Fatal("source teardown did not begin")
+	}
+	assertRejected("source closing")
+	close(stream.release)
+	if err := manager.Stop(ctx, cameraRelayStopPayload{RelaySessionID: spec.RelaySessionID}); err != nil && !errors.Is(err, errCameraRelaySessionNotFound) {
+		t.Fatalf("source teardown: %v", err)
+	}
+	if _, err := manager.Start(ctx, competitor); err != nil {
+		t.Fatalf("replacement after source close: %v", err)
+	}
+	if err := manager.Stop(ctx, cameraRelayStopPayload{RelaySessionID: competitor.RelaySessionID}); err != nil {
+		t.Fatalf("replacement cleanup: %v", err)
+	}
+}
+
 func TestCameraRelayManagerDoesNotRetryFailedUpload(t *testing.T) {
 	t.Parallel()
 	gateway := newFakeCameraRelayGateway()

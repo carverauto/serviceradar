@@ -32,6 +32,7 @@ import (
 var (
 	errCameraRelayGatewayUnavailable = errors.New("camera relay gateway unavailable")
 	errCameraRelaySessionExists      = errors.New("camera relay session already active")
+	errCameraRelaySourceActive       = errors.New("camera source profile already active")
 	errCameraRelaySessionNotFound    = errors.New("camera relay session not found")
 	errCameraRelayDrainRequested     = errors.New("camera relay drain requested")
 	errCameraRelayPluginUnavailable  = errors.New("camera relay streaming plugin unavailable")
@@ -136,14 +137,21 @@ type cameraRelayGateway interface {
 	CloseRelaySession(context.Context, *proto.CloseRelaySessionRequest) (*proto.CloseRelaySessionResponse, error)
 }
 
+type cameraRelaySourceKey struct {
+	cameraSourceID  string
+	streamProfileID string
+}
+
 type cameraRelayHandle struct {
 	cancel context.CancelCauseFunc
 	done   chan struct{}
+	source cameraRelaySourceKey
 }
 
 type cameraRelayManager struct {
 	mu                  sync.Mutex
 	sessions            map[string]*cameraRelayHandle
+	sources             map[cameraRelaySourceKey]*cameraRelayHandle
 	gateway             cameraRelayGateway
 	sourceFactory       cameraRelaySourceFactory
 	pluginSourceFactory func(context.Context, cameraRelaySessionSpec) (cameraRelayChunkStream, error)
@@ -154,6 +162,7 @@ type cameraRelayManager struct {
 func newCameraRelayManager(gateway cameraRelayGateway, log logger.Logger) *cameraRelayManager {
 	return &cameraRelayManager{
 		sessions:        make(map[string]*cameraRelayHandle),
+		sources:         make(map[cameraRelaySourceKey]*cameraRelayHandle),
 		gateway:         gateway,
 		sourceFactory:   defaultCameraRelaySource,
 		logger:          log,
@@ -180,7 +189,10 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 	}
 
 	runCtx, cancel := context.WithCancelCause(ctx)
-	handle := &cameraRelayHandle{cancel: cancel, done: make(chan struct{})}
+	handle := &cameraRelayHandle{
+		cancel: cancel, done: make(chan struct{}),
+		source: cameraRelaySourceKey{cameraSourceID: spec.CameraSourceID, streamProfileID: spec.StreamProfileID},
+	}
 
 	if err := m.registerSession(spec.RelaySessionID, handle); err != nil {
 		cancel(nil)
@@ -439,7 +451,14 @@ func (m *cameraRelayManager) registerSession(relaySessionID string, handle *came
 		return errCameraRelaySessionExists
 	}
 
+	if _, exists := m.sources[handle.source]; exists {
+		return errCameraRelaySourceActive
+	}
+
+	// Reserve before upstream admission; retain ownership through source teardown,
+	// even if Stop's caller times out or a replacement uses a new relay ID.
 	m.sessions[relaySessionID] = handle
+	m.sources[handle.source] = handle
 	return nil
 }
 
@@ -449,6 +468,7 @@ func (m *cameraRelayManager) unregisterSession(relaySessionID string, handle *ca
 
 	if current, exists := m.sessions[relaySessionID]; exists && current == handle {
 		delete(m.sessions, relaySessionID)
+		delete(m.sources, handle.source)
 	}
 }
 

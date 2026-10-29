@@ -1040,6 +1040,7 @@ func (m *PluginManager) OpenCameraRelayStream(
 	bridge := newPluginCameraMediaBridge(stream)
 
 	go func() {
+		defer close(stream.done)
 		defer cancel()
 		defer m.unregisterStreamingExecution(executionID)
 		defer m.releaseSlot()

@@ -1226,6 +1226,9 @@ func TestPluginManagerOpenCameraRelayStreamCloseCancelsPluginAndReleasesSlot(t *
 	manager.mu.Unlock()
 
 	cancelObserved := make(chan struct{}, 1)
+	releaseCleanup := make(chan struct{})
+	var releaseOnce sync.Once
+	defer releaseOnce.Do(func() { close(releaseCleanup) })
 	manager.streamExecutor = func(
 		ctx context.Context,
 		assignment *pluginAssignment,
@@ -1240,6 +1243,7 @@ func TestPluginManagerOpenCameraRelayStreamCloseCancelsPluginAndReleasesSlot(t *
 
 		<-ctx.Done()
 		cancelObserved <- struct{}{}
+		<-releaseCleanup
 		return bridge.Close(handle, "cancelled")
 	}
 
@@ -1256,9 +1260,8 @@ func TestPluginManagerOpenCameraRelayStreamCloseCancelsPluginAndReleasesSlot(t *
 		t.Fatalf("OpenCameraRelayStream returned error: %v", err)
 	}
 
-	if err := stream.Close(); err != nil {
-		t.Fatalf("Close returned error: %v", err)
-	}
+	closed := make(chan error, 1)
+	go func() { closed <- stream.Close() }()
 
 	select {
 	case <-cancelObserved:
@@ -1266,27 +1269,35 @@ func TestPluginManagerOpenCameraRelayStreamCloseCancelsPluginAndReleasesSlot(t *
 		t.Fatal("timed out waiting for plugin context cancellation")
 	}
 
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		_, err = manager.OpenCameraRelayStream(t.Context(), "streaming-1", cameraRelaySessionSpec{
-			RelaySessionID:     "relay-cancel-2",
-			AgentID:            "agent-1",
-			GatewayID:          "gateway-1",
-			CameraSourceID:     "camera-2",
-			StreamProfileID:    "main",
-			LeaseToken:         "lease-2",
-			PluginAssignmentID: "streaming-1",
-		})
-		if err == nil {
-			break
+	select {
+	case err := <-closed:
+		t.Fatalf("Close returned before plugin cleanup completed: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	releaseOnce.Do(func() { close(releaseCleanup) })
+	select {
+	case err := <-closed:
+		if err != nil {
+			t.Fatalf("Close returned error: %v", err)
 		}
-		if !strings.Contains(err.Error(), "admission denied") {
-			t.Fatalf("expected transient admission-denied during slot release, got %v", err)
-		}
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for streaming slot release: %v", err)
-		}
-		time.Sleep(10 * time.Millisecond)
+	case <-time.After(3 * time.Second):
+		t.Fatal("Close did not finish after plugin cleanup")
+	}
+
+	next, err := manager.OpenCameraRelayStream(t.Context(), "streaming-1", cameraRelaySessionSpec{
+		RelaySessionID:     "relay-cancel-2",
+		AgentID:            "agent-1",
+		GatewayID:          "gateway-1",
+		CameraSourceID:     "camera-2",
+		StreamProfileID:    "main",
+		LeaseToken:         "lease-2",
+		PluginAssignmentID: "streaming-1",
+	})
+	if err != nil {
+		t.Fatalf("Close returned without releasing streaming slot: %v", err)
+	}
+	if err := next.Close(); err != nil {
+		t.Fatalf("replacement Close: %v", err)
 	}
 }
 
