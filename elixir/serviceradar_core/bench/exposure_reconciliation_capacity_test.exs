@@ -120,16 +120,15 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
 
     measurement =
       capture_errors(fn ->
-        for repetition <- ["first", "repeat"] do
-          ServiceRadar.ExposureAudit.Prototype.measure!(hosts, &verify_fixture!/1, repetition)
-        end
+        ServiceRadar.ExposureAudit.Prototype.measure!(hosts, &verify_fixture!/1, "first")
       end)
 
+    diagnostics = capture_errors(&ServiceRadar.ExposureAudit.Prototype.diagnose!/0)
     controls = capture_errors(&ServiceRadar.ExposureAudit.Controls.verify!/0)
     stop_queue!()
 
-    if measurement ++ controls != [],
-      do: raise(ExUnit.MultiError, errors: measurement ++ controls)
+    if measurement ++ diagnostics ++ controls != [],
+      do: raise(ExUnit.MultiError, errors: measurement ++ diagnostics ++ controls)
   end
 
   defp profile! do

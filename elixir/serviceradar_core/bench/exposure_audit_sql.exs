@@ -12,12 +12,33 @@ defmodule ServiceRadar.ExposureAudit.SQL do
   @modulus Integer.pow(2, 256)
 
   def source!(reader, ordinals) do
+    rows = Postgrex.query!(reader, source_sql(), [ordinals], timeout: 30_000).rows
+
+    Map.new(rows, fn [ordinal | values] ->
+      {digest, [drift]} = Enum.split(values, 9)
+      {ordinal, {summary(digest), drift}}
+    end)
+  end
+
+  def explain_source!(reader, ordinals) do
+    [[plan]] =
+      Postgrex.query!(
+        reader,
+        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " <> source_sql(),
+        [ordinals],
+        timeout: 30_000
+      ).rows
+
+    IO.puts("EXPOSURE_AUDIT_PLAN " <> Jason.encode!(%{query: "source_fact", plan: plan}))
+  end
+
+  defp source_sql do
     fields = Map.new(@columns, &{&1, "current_#{&1}"})
 
     equality =
       Enum.map_join(@columns, " AND ", &"current_#{&1} IS NOT DISTINCT FROM #{replay_field(&1)}")
 
-    sql = """
+    """
     WITH input AS MATERIALIZED (
       SELECT o.ordinal, a.last_exposure_publication AS replay,
         o.ordinal AS current_device_ord,
@@ -56,11 +77,6 @@ defmodule ServiceRadar.ExposureAudit.SQL do
     SELECT ordinal,count(h),#{limbs(:pg)},count(*) FILTER (WHERE drift)
     FROM hashes GROUP BY ordinal
     """
-
-    Map.new(Postgrex.query!(reader, sql, [ordinals], timeout: 30_000).rows, fn [ordinal | values] ->
-      {digest, [drift]} = Enum.split(values, 9)
-      {ordinal, {summary(digest), drift}}
-    end)
   end
 
   # This validator is independently compared to ExposureTransitions.decode/1.

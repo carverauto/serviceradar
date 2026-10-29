@@ -30,3 +30,16 @@ authorized merely to fill this checkbox.
 
 - [ ] 3.1 Publish measured results through no-mistakes with current-head hosted checks. Keep parent task 1.6 open unless the actual fleet gate passes.
 - [ ] 3.2 Review production migration/backfill cost, restore integration and rollback. Adopt only through a separately approved runtime PR and scheduled rollout.
+
+## 4. Explicitly approved bounded diagnostic follow-up
+
+- [x] 4.1 Record the later native fix approval for one separate small-profile hosted diagnostic allocation. Preserve the original failed report and source attribution.
+- [x] 4.2 Add separate inclusive phase timings, batch sorted per-device session-lock calls, and remove the second measurement. Preserve two workers, 32-device cohorts, codec, snapshots, deadlines and all performance assertions.
+- [x] 4.3 Add actual source/coverage plan capture outside measured intervals and extend the existing contention control for lock retention/release and caller-order outcomes.
+- [ ] 4.4 Complete prerequisite remote format/compile/core-quality through the outer executor, then execute one committed exact-tree hosted small-profile diagnostic using the canonical lifecycle and fresh scratch schema.
+- [ ] 4.5 Inspect plans for physical amplification, intermediate widths/copies/spills and replay cost. Do not change SQL based on hypotheses; stop if another design or run is needed.
+- [ ] 4.6 Record separate measured/control verdicts and verified row/schema/grant/observer/teardown/release cleanup; refresh the portable result only when new results exist. No runtime validation has occurred for these edits.
+
+The earlier allocation remains spent. Section 4 authorizes one new first
+measurement only, never a second repetition or fleet run. Full normal unit and
+hosted PR CI requirements remain with the outer executor.

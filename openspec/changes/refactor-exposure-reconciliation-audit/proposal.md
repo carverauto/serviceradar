@@ -48,9 +48,10 @@ The product owner approved the complete design and disabled prototype in the
 conversation on 2026-10-28. The approval includes cross-view reuse of
 content-bound dimension evidence and the component budgets. The implementation
 is confined to a manual scratch target. The separately approved hosted allocation
-has completed and triggered the stop-on-failure rule. No further performance
-run, a 50-million-row run, production adoption or rollout is approved. Task 1.6
-remains open.
+has completed and triggered the stop-on-failure rule. A later explicit native
+fix decision approves one separately identified small-profile diagnostic
+follow-up, documented in prototype.md. No repeat, 50-million-row run, production
+adoption or rollout is approved. Task 1.6 remains open.
 
 See [prototype.md](prototype.md) for measurements, passed controls, cleanup
 evidence, implemented boundaries and checks that remain pending.

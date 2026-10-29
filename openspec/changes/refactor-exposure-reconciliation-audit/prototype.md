@@ -3,7 +3,9 @@
 Status: the one approved hosted small-profile run completed. Its implemented
 correctness controls passed, but the fact-comparison performance screen failed.
 Performance experimentation stopped; there was no repeat or fleet attempt.
-Production adoption and parent task 1.6 remain open.
+Production adoption and parent task 1.6 remain open. A later explicit approval
+allows the bounded diagnostic follow-up below; it does not turn the historical
+failure into a pass.
 
 ## Measured result
 
@@ -55,9 +57,11 @@ before their schema grants were revoked and schemas dropped. Follow-up reads
 verified both schema absence and grant absence. Raw operational identifiers and
 credential-bearing runtime records remain outside the repository.
 
-The approved stop rule now applies. No further benchmark, codec tuning, extra
-workers, wider cohorts, fleet attempt or runtime adoption follows from this
-result. Independent no-mistakes review and publication remain outstanding.
+The original experiment stopped at this failure. The separately approved
+follow-up below supersedes the prohibition on one additional small diagnostic
+allocation only. Codec tuning, extra workers, wider cohorts, fleet attempts and
+runtime adoption remain forbidden. Independent no-mistakes review and
+publication remain outstanding.
 
 ## Executable boundary
 
@@ -150,11 +154,11 @@ observer/teardown/release workflow described in
 Run the manual audit target explicitly; never enable it for ordinary CI discovery.
 
 The run first verifies the existing production baseline on the synthetic fixture,
-then attempts two independent audit runs. The second runs only if the first
-passes every component screen. Correctness controls still run after a failed
-screen so a performance failure cannot hide their verdict. Do not call either
+then attempts one audit measurement. The follow-up removes the repeat path,
+even if all screens pass. Query-plan diagnostics and correctness controls still
+run after a failed screen so a performance failure cannot hide their verdict. Do not call either
 run a cold-database measurement: the fixture and production baseline warm the
-storage engines. Report first/repeat evidence and this limitation explicitly.
+storage engines. Report the first measurement and this limitation explicitly.
 
 Required reports: original fixture/baseline markers, `EXPOSURE_AUDIT_PARITY`,
 `EXPOSURE_AUDIT_CAPACITY`, `EXPOSURE_AUDIT_CONTROLS`, named ExUnit result and
@@ -193,3 +197,56 @@ callbacks. Independent no-mistakes review, full repository checks, actual
 process-death injection, production restore-hook integration and adopted-runtime
 live validation remain pending. The hosted manual execution above does not
 replace those checks.
+
+## Approved bounded diagnostic follow-up (not yet executed)
+
+The product owner explicitly approved the recommended follow-up on 2026-10-28
+in the native fix decision. The historical source and failed report above remain
+unchanged. This follow-up starts from submitted source
+`e35474ae115fcf81696db22ba63c4e5dd5780cad`; its eventual hosted execution must
+identify its own committed source and exact tree separately.
+
+The disabled harness now batches sorted advisory-lock acquisition into one
+round trip per cohort, retaining the same lock IDs and physical DirectSession
+through result publication/readiness. The existing busy-device control also
+checks caller-order outcomes and lock retention/release from another backend.
+No pooled sessions or transaction locks replace the prototype's session locks.
+
+Capacity output adds `summed_worker_ms`: source-fact execution, warehouse-fact
+execution, coverage, lifecycle, session start, lock calls including first
+checkout, source-view setup, result commit, readiness and deferral commits.
+Each cohort attempt is counted once, including proof retries. These inclusive
+worker sums overlap and are not wall-clock critical-path durations or CPU time.
+The existing elapsed, fact-interval-union, dimension and residual orchestration
+counters and every performance assertion remain unchanged. Lazy connection
+setup/checkout cannot be isolated from the first lock call at this boundary.
+
+After that single measurement, outside every measured interval, the harness
+requests actual `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for source facts and
+coverage on the first 32 synthetic devices using the measured run's proofs.
+The exact same SQL supplies execution and diagnostic plans. Plans belong in
+private execution evidence; only synthetic rounded summaries may be published.
+No lookup hoist, CTE removal, width correction or codec change has been made:
+physical amplification, copies, spills and replay cost remain unmeasured.
+Diagnostic failures and measurement failures are retained while implemented
+correctness controls and owned cleanup still execute. There is no repetition.
+
+Execution remains pending. This native Test fix phase prohibits lint/format and
+static analysis and does not own the prerequisite format/compile/core-quality
+phases. The outer executor must complete those on the committed follow-up before
+the one authorized hosted diagnostic allocation. No before/after runtime pass,
+current-head plan evidence, cleanup evidence or performance improvement is
+claimed by these edits. The supplied historical failure is not a reproduction
+on this source. A separate pre-fix run would exceed the one post-commit
+allocation, so none was attempted.
+
+Remaining execution: use the existing credential-bound adapter, a fresh unique
+prefix/schema, ready generation and canonical serial_2 clone; prove the exact
+source/tree; run only this manual target once; inspect both plans; retain every
+failed screen and control result; count owned runtime rows empty; verify removal
+of warehouse schemas/grants; finish canonical observer/teardown/release. Adapter
+runtime/evidence paths must stay within the workspace or the explicitly allowed
+private evidence directory, without modifying the checkpoint adapter in place.
+Normal unit gate, hosted PR CI and substantive review remain outer-pipeline
+requirements. Parent task 1.6 and the fleet gate remain open. The portable
+historical report is unchanged because no new measurements exist.

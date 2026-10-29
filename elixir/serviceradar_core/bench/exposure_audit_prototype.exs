@@ -63,6 +63,7 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
           dimension_rows: dimension_rows,
           cohorts_ms: cohorts_ms,
           fact_ms: fact_ms,
+          summed_worker_ms: worker_timings(attempts),
           orchestration_ms: orchestration_ms,
           finish_ms: finish_ms,
           readiness_ms: readiness_ms,
@@ -197,14 +198,31 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
     assert length(ordinals) in 1..32
     assert Enum.all?(ordinals, &(is_integer(&1) and &1 in 1..4_294_967_295))
 
-    DirectSession.run(fn session ->
-      locks =
-        Map.new(Enum.sort(ordinals), fn ordinal ->
-          [[acquired]] =
-            Postgrex.query!(session, "SELECT pg_try_advisory_lock($1)", [@lock_base + ordinal]).rows
+    session_started = now_ms()
+    cohort_id = make_ref()
 
-          {ordinal, acquired}
+    DirectSession.run(fn session ->
+      session_setup_ms = now_ms() - session_started
+      # The first query also includes connection checkout/handshake when lazy.
+      # Materialize sorted input before evaluating the volatile lock function.
+      {locks, lock_ms} =
+        timed(fn ->
+          rows =
+            Postgrex.query!(
+              session,
+              """
+              WITH requested AS MATERIALIZED (
+                SELECT ordinal FROM unnest($1::bigint[]) AS requested(ordinal) ORDER BY ordinal
+              )
+              SELECT ordinal,pg_try_advisory_lock($2::bigint+ordinal) FROM requested ORDER BY ordinal
+              """,
+              [Enum.sort(ordinals), @lock_base]
+            ).rows
+
+          Map.new(rows, fn [ordinal, acquired] -> {ordinal, acquired} end)
         end)
+
+      view_started = now_ms()
 
       results =
         source_view!(session, fn reader, deadline ->
@@ -215,13 +233,14 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
               []
             ).rows
 
+          view_setup_ms = now_ms() - view_started
           after_view.(reader)
-          coverage = coverage!(reader, run, ordinals)
-          lifecycles = lifecycle!(reader, ordinals)
+          {coverage, coverage_ms} = timed(fn -> coverage!(reader, run, ordinals) end)
+          {lifecycles, lifecycle_ms} = timed(fn -> lifecycle!(reader, ordinals) end)
           fact_started = now_ms()
 
-          {{source, stored}, _fact_ms} =
-            timed(fn -> {SQL.source!(reader, ordinals), SQL.warehouse_summary!(ordinals)} end)
+          {source, source_fact_ms} = timed(fn -> SQL.source!(reader, ordinals) end)
+          {stored, warehouse_fact_ms} = timed(fn -> SQL.warehouse_summary!(ordinals) end)
 
           assert now_ms() < deadline, "cohort source view exceeded sixty seconds"
 
@@ -249,7 +268,17 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
               evidence_at: evidence,
               fact_started_at: started,
               view: view,
-              fact_interval: [fact_started, now_ms()]
+              fact_interval: [fact_started, now_ms()],
+              cohort_id: cohort_id,
+              worker_ms: %{
+                session_start: session_setup_ms,
+                locks_including_first_checkout: lock_ms,
+                source_view_setup: view_setup_ms,
+                coverage: coverage_ms,
+                lifecycle: lifecycle_ms,
+                source_fact: source_fact_ms,
+                warehouse_fact: warehouse_fact_ms
+              }
             }
           end)
         end)
@@ -263,29 +292,56 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
     rows =
       Postgrex.query!(
         reader,
-        """
-        WITH refs AS MATERIALIZED (
-          SELECT o.ordinal,a.last_exposure_publication payload FROM platform.device_fleet_ordinals o
-          JOIN platform.endpoint_vulnerability_assessments a ON a.device_uid=o.uid WHERE o.ordinal=ANY($2)
-          UNION ALL
-          SELECT o.ordinal,w.payload FROM platform.device_fleet_ordinals o
-          JOIN platform.exposure_fact_watermarks w ON w.device_uid=o.uid WHERE o.ordinal=ANY($2)
-        ), keys AS (SELECT r.ordinal device_ord,k.kind,k.key FROM refs r CROSS JOIN LATERAL
-          (VALUES ('cve',(payload->>'cve_ord')::bigint),('package',(payload->>'pkgver_ord')::bigint)) k(kind,key))
-        SELECT k.device_ord,count(*) FILTER(WHERE d.ordinal IS NULL OR p.run_id IS NULL OR p.checked_at<g.updated_at),min(p.checked_at)
-        FROM keys k LEFT JOIN platform.exposure_dimension_state d ON d.kind=k.kind AND d.ordinal=k.key
-        LEFT JOIN platform.exposure_audit_proofs p ON p.run_id=$1::text::uuid AND p.kind=d.kind
-          AND p.ordinal=d.ordinal AND p.source_seq=d.transition_seq AND p.source_hash=d.audit_content_hash
-        LEFT JOIN LATERAL (SELECT updated_at FROM platform.exposure_snapshot_generations
-          WHERE status='complete' AND (control->>'scope' IS NULL OR (control->>'scope')::bigint=k.device_ord)
-          ORDER BY id DESC LIMIT 1) g ON true
-        GROUP BY k.device_ord
-        """,
+        coverage_sql(),
         [run.id, ordinals],
         timeout: 30_000
       ).rows
 
     Map.new(rows, fn [ordinal, missing, time] -> {ordinal, {missing, time}} end)
+  end
+
+  # Query plans execute only after the single measurement, outside its intervals.
+  def diagnose! do
+    [[id]] =
+      State.query!(
+        "SELECT id::text FROM platform.exposure_audit_runs ORDER BY started_at DESC LIMIT 1"
+      )
+    ordinals = Enum.to_list(1..32)
+
+    view!(fn reader, _deadline ->
+      SQL.explain_source!(reader, ordinals)
+
+      [[plan]] =
+        Postgrex.query!(
+          reader,
+          "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " <> coverage_sql(),
+          [id, ordinals],
+          timeout: 30_000
+        ).rows
+
+      IO.puts("EXPOSURE_AUDIT_PLAN " <> Jason.encode!(%{query: "coverage", plan: plan}))
+    end)
+  end
+
+  defp coverage_sql do
+    """
+    WITH refs AS MATERIALIZED (
+      SELECT o.ordinal,a.last_exposure_publication payload FROM platform.device_fleet_ordinals o
+      JOIN platform.endpoint_vulnerability_assessments a ON a.device_uid=o.uid WHERE o.ordinal=ANY($2)
+      UNION ALL
+      SELECT o.ordinal,w.payload FROM platform.device_fleet_ordinals o
+      JOIN platform.exposure_fact_watermarks w ON w.device_uid=o.uid WHERE o.ordinal=ANY($2)
+    ), keys AS (SELECT r.ordinal device_ord,k.kind,k.key FROM refs r CROSS JOIN LATERAL
+      (VALUES ('cve',(payload->>'cve_ord')::bigint),('package',(payload->>'pkgver_ord')::bigint)) k(kind,key))
+    SELECT k.device_ord,count(*) FILTER(WHERE d.ordinal IS NULL OR p.run_id IS NULL OR p.checked_at<g.updated_at),min(p.checked_at)
+    FROM keys k LEFT JOIN platform.exposure_dimension_state d ON d.kind=k.kind AND d.ordinal=k.key
+    LEFT JOIN platform.exposure_audit_proofs p ON p.run_id=$1::text::uuid AND p.kind=d.kind
+      AND p.ordinal=d.ordinal AND p.source_seq=d.transition_seq AND p.source_hash=d.audit_content_hash
+    LEFT JOIN LATERAL (SELECT updated_at FROM platform.exposure_snapshot_generations
+      WHERE status='complete' AND (control->>'scope' IS NULL OR (control->>'scope')::bigint=k.device_ord)
+      ORDER BY id DESC LIMIT 1) g ON true
+    GROUP BY k.device_ord
+    """
   end
 
   defp lifecycle!(reader, ordinals) do
@@ -362,12 +418,15 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
           fn cohort ->
             result =
               compare!(run, cohort, fn _ -> :ok end, fn comparisons ->
-                recorded =
-                  run
-                  |> State.record!(Enum.reject(comparisons, & &1.lock_busy))
-                  |> Map.new(&{&1["device_ord"], &1["status"]})
+                {recorded, commit_ms} =
+                  timed(fn ->
+                    run
+                    |> State.record!(Enum.reject(comparisons, & &1.lock_busy))
+                    |> Map.new(&{&1["device_ord"], &1["status"]})
+                  end)
 
-                readiness = Readiness.status_many!(cohort)
+                {readiness, readiness_ms} = timed(fn -> Readiness.status_many!(cohort) end)
+                deferral_started = now_ms()
 
                 for comparison <- comparisons do
                   if !(comparison.matches and readiness[comparison.ordinal].ready) do
@@ -380,10 +439,19 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
                   end
                 end
 
-                Enum.map(
-                  comparisons,
-                  &Map.put(&1, :recorded_status, Map.get(recorded, &1.ordinal, "busy"))
-                )
+                deferral_ms = now_ms() - deferral_started
+
+                Enum.map(comparisons, fn comparison ->
+                  comparison
+                  |> Map.put(:recorded_status, Map.get(recorded, comparison.ordinal, "busy"))
+                  |> Map.update!(:worker_ms, fn timings ->
+                    Map.merge(timings, %{
+                      result_commit: commit_ms,
+                      readiness: readiness_ms,
+                      deferral_commit: deferral_ms
+                    })
+                  end)
+                end)
               end)
 
             for comparison <- result do
@@ -451,6 +519,16 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
       nil -> total
       {first, last} -> total + last - first
     end
+  end
+
+  # A cohort's timings occur on every device result; count each attempt once.
+  # These sums include overlapping workers and are not critical-path durations.
+  defp worker_timings(attempts) do
+    attempts
+    |> Enum.uniq_by(& &1.cohort_id)
+    |> Enum.reduce(%{}, fn attempt, totals ->
+      Map.merge(totals, attempt.worker_ms, fn _phase, left, right -> left + right end)
+    end)
   end
 
   defp timed(fun) do

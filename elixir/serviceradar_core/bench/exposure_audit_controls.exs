@@ -349,10 +349,24 @@ defmodule ServiceRadar.ExposureAudit.Controls do
     {:ok, _} =
       ServiceRadar.Repo.transaction(fn ->
         State.query!("SELECT pg_advisory_xact_lock($1)", [320_102_347_440_129])
-        [first, second] = Prototype.compare!(run, [1, 2])
+        [second, first] =
+          Prototype.compare!(run, [2, 1], fn _ -> :ok end, fn comparisons ->
+            # Result publication still owns the second device's session lock.
+            assert [[false]] =
+                     State.query!("SELECT pg_try_advisory_xact_lock($1)", [320_102_347_440_130])
+
+            comparisons
+          end)
+
+        assert first.ordinal == 1
+        assert second.ordinal == 2
         assert first.lock_busy
         refute first.matches
         assert second.matches
+
+        # The dedicated session has exited; another backend can now acquire it.
+        assert [[true]] =
+                 State.query!("SELECT pg_try_advisory_xact_lock($1)", [320_102_347_440_130])
       end)
   end
 
