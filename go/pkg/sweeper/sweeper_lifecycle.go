@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
@@ -115,6 +116,13 @@ func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
 // the same update that publishes the completed sweep's LastSweep, and it is
 // not visible on the previous cycle while this run is still in progress.
 func (s *NetworkSweeper) RunOnceWithExecution(ctx context.Context, executionID string) error {
+	return s.RunOnceWithObserver(ctx, executionID, nil)
+}
+
+// RunOnceWithObserver delivers each final scanner result during this cycle.
+// The observer may be called concurrently by different scan modes. These signed
+// plan runs enumerate every configured CIDR address, including IPv4 endpoints.
+func (s *NetworkSweeper) RunOnceWithObserver(ctx context.Context, executionID string, observer func(*models.Result) error) error {
 	done := s.ensureControlChannels()
 
 	select {
@@ -129,7 +137,7 @@ func (s *NetworkSweeper) RunOnceWithExecution(ctx context.Context, executionID s
 	sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
 	defer sweepCancel()
 
-	if err := s.runSweepWithExecution(sweepCtx, executionID); err != nil {
+	if err := s.runSweepWithObserver(sweepCtx, executionID, observer); err != nil {
 		s.logRunError(err, "Run-once sweep failed")
 		return err
 	}

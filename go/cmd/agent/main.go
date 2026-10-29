@@ -193,7 +193,17 @@ func runPushMode(
 			interval = maxPushInterval
 		}
 	}
+	edgeSpool, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		return err
+	}
+	if edgeSpool != nil {
+		defer func() { _ = edgeSpool.Close() }()
+	}
 	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
+	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.SweepEnabled {
+		pushLoop.SetEdgeSweepSpool(edgeSpool)
+	}
 	if cfg.StatusDebounceInterval > 0 {
 		pushLoop.SetStatusDebounceInterval(time.Duration(cfg.StatusDebounceInterval))
 	}
@@ -225,7 +235,7 @@ func runPushMode(
 
 	// Optionally start the minimum edge-record spool sender (task 0.12 of
 	// openspec/changes/unify-sweep-results-proto). No-op unless configured.
-	go runEdgeRecordSender(pushCtx, cfg, log)
+	go runEdgeRecordSender(pushCtx, cfg, edgeSpool, log)
 
 	// Wait for shutdown signal or error
 	select {

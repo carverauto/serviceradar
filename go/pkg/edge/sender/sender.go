@@ -21,8 +21,8 @@
 // Scope, per task 0.12 of openspec/changes/unify-sweep-results-proto: one
 // bounded lane-open/send/drain-acks cycle sufficient to carry a committed
 // spool record through the real composed path end to end. Reconnect/replay,
-// credit renewal, recovery/rollover, and the agent-local positive reclaim
-// watermark are explicitly out of scope and are NOT implemented here.
+// credit renewal and recovery/rollover remain outside this sender. Optional local
+// disposition persistence advances the resolved prefix, without byte reclamation.
 //
 // # The negative reclaim rule
 //
@@ -30,10 +30,9 @@
 // reports is a REMOTE watermark. The agent's LOCAL reclaim watermark
 // (spool.Spool.Resolve) may only advance after the agent's own local
 // durability for that sequence commits -- never directly from the wire ack.
-// This package tracks the remote watermark only in memory (Result) for
-// observability and tests; it never calls (*spool.Spool).Resolve. Physically
-// reclaiming the spool from confirmed remote delivery remains the explicit
-// responsibility of a later milestone (task 0.12's own scope note, group D).
+// Without PersistAcknowledgements the remote watermark remains in memory only.
+// With it, the validated acknowledgement is fsynced before the local watermark
+// advances. Physical reclamation remains a separate operation.
 //
 // # Ambiguous sequence gaps
 //
@@ -57,6 +56,7 @@ import (
 	"path/filepath"
 
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/durablefs"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
@@ -114,6 +114,9 @@ type Config struct {
 	TrafficClass          edgev1.EdgeRecordTrafficClass
 	RequestedByteCredits  uint64
 	RequestedFrameCredits uint32
+	// PersistAcknowledgements saves validated terminal dispositions locally before
+	// suppressing their replay. It does not physically reclaim segment bytes.
+	PersistAcknowledgements bool
 }
 
 func (c Config) validate() error {
@@ -131,7 +134,7 @@ func (c Config) validate() error {
 
 // Result reports what one RunOnce call observed. RemoteResolvedThrough is the
 // gateway's cumulative remote watermark ONLY -- it is informational and is
-// never fed back into the spool's local reclaim watermark.
+// never used alone as the spool's local reclaim watermark.
 type Result struct {
 	Sent                  []uint64
 	Dispositions          []*edgev1.EdgeRecordDisposition
@@ -162,7 +165,7 @@ func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 // RunOnce opens one lane session, sends every currently-unresolved spool
 // record up to the gateway-granted credit window, and drains dispositions
 // until every sent sequence is resolved, the stream ends, or ctx is done. It
-// never calls (*spool.Spool).Resolve -- see the package doc for why.
+// persists validated dispositions only when configured to do so.
 func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -232,7 +235,7 @@ func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 		return partialSendResult(sent, sess.ResolvedThrough), fmt.Errorf("sender: close send: %w", err)
 	}
 
-	dispositions, err := drainAcks(ctx, stream, &sess)
+	dispositions, err := s.drainAcks(ctx, stream, &sess)
 	result := Result{
 		Sent:                  sent,
 		Dispositions:          dispositions,
@@ -337,9 +340,9 @@ func buildFrame(spoolID []byte, rec spool.Record) *edgev1.EdgeDeliveryFrameV1 {
 }
 
 // drainAcks reads dispositions until every sent sequence is resolved, the
-// stream ends, or ctx is canceled. sess.ResolvedThrough is updated in memory
-// ONLY; it is never passed to (*spool.Spool).Resolve (see package doc).
-func drainAcks(
+// stream ends, or ctx is canceled. Optional durable disposition evidence precedes
+// the local resolved watermark.
+func (s *Sender) drainAcks(
 	ctx context.Context,
 	stream grpc.BidiStreamingClient[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage],
 	sess *edgerecord.Session,
@@ -366,13 +369,30 @@ func drainAcks(
 			return dispositions, fmt.Errorf("sender: ack: %w", err)
 		}
 
+		if err := s.persistAcknowledgement(ack, sess.ResolvedThrough); err != nil {
+			return dispositions, err
+		}
+
 		dispositions = append(dispositions, ack.GetDispositions()...)
-		// In-memory bookkeeping only. The remote watermark never drives local
-		// reclaim: see the package doc and design.md's two-watermark rule.
+		// Advance the session only after any required local durability barrier.
 		sess.ResolvedThrough = ack.GetResolvedThroughSequence()
 	}
 
 	return dispositions, nil
+}
+
+func (s *Sender) persistAcknowledgement(ack *edgev1.EdgeDeliveryAckV1, previous uint64) error {
+	if !s.cfg.PersistAcknowledgements || ack.GetResolvedThroughSequence() <= previous {
+		return nil
+	}
+	evidence, err := proto.MarshalOptions{Deterministic: true}.Marshal(ack)
+	if err != nil {
+		return err
+	}
+	if err := s.spool.ResolveWithEvidence(ack.GetResolvedThroughSequence(), evidence); err != nil {
+		return fmt.Errorf("sender: persist terminal acknowledgement: %w", err)
+	}
+	return nil
 }
 
 func randomNonce() ([]byte, error) {

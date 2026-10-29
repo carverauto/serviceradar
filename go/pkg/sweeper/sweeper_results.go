@@ -60,6 +60,13 @@ func (s *NetworkSweeper) processBasicResult(ctx context.Context, result *models.
 		return fmt.Errorf("store error: %w", err)
 	}
 
+	s.mu.RLock()
+	observer := s.resultObserver
+	s.mu.RUnlock()
+	if observer != nil {
+		return observer(result)
+	}
+
 	return nil
 }
 

@@ -23,7 +23,14 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
-func forEachCIDRHost(cidr string, fn func(string) error) (int, error) {
+func (s *NetworkSweeper) forEachTargetCIDR(cidr string, fn func(string) error) (int, error) {
+	s.mu.RLock()
+	exactPlan := s.resultObserver != nil
+	s.mu.RUnlock()
+	return forEachCIDRAddress(cidr, exactPlan, fn)
+}
+
+func forEachCIDRAddress(cidr string, includeEndpoints bool, fn func(string) error) (int, error) {
 	baseIP, ipNet, err := net.ParseCIDR(cidr)
 	if err != nil {
 		return 0, err
@@ -34,7 +41,7 @@ func forEachCIDRHost(cidr string, fn func(string) error) (int, error) {
 	count := 0
 
 	for ; ipNet.Contains(currentIP); incCIDRIP(currentIP) {
-		if currentIP.To4() != nil && ones != 32 {
+		if !includeEndpoints && currentIP.To4() != nil && ones != 32 {
 			if currentIP.Equal(ipNet.IP) || isCIDRBroadcast(currentIP, ipNet) {
 				continue
 			}

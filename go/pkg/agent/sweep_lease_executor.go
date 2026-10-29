@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
+	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -48,10 +49,8 @@ import (
 // (ValidatePlanPages, ValidateCapability, claim bindings). Cryptographic
 // signature verification is the gateway's: it alone receives issuer public
 // keys (M2.0f), while the lease reached the agent over the authenticated
-// control path. Producing edge records from the runs is M2.1; until then a
-// leased run's results flow the existing sweep-results path under the
-// slot's execution id, and M2.2's per-agent opt-in decides which groups
-// core leases at all.
+// control path. An installed edge spool routes leased runs through bounded
+// observation batches; other agents retain the legacy sweep-results path.
 
 const (
 	// sweepLeaseStateActive and sweepLeaseStateExhausted are the lease
@@ -89,6 +88,7 @@ type sweepLeaseRunner interface {
 // pass through runnerFor because config pushes replace group services while
 // the executor keeps running.
 type sweepLeaseExecutor struct {
+	edgeSpool *spool.Spool
 	store     *sweepLeaseStore
 	runnerFor func() sweepLeaseRunner
 	logger    logger.Logger
@@ -312,7 +312,21 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 		}
 		return validateSweepLeaseSlot(current, installed, now)
 	})
-	err := runner.RunSweepGroupExecution(runCtx, groupID, executionID)
+	var err error
+	if e.edgeSpool != nil {
+		edgeRunner, ok := runner.(interface {
+			RunSweepGroupLease(context.Context, string, *edgev1.SweepLeaseV1, *edgev1.SweepLeaseSlotV1, *spool.Spool, func() error) error
+		})
+		if !ok {
+			err = errSweepRunnerUnavailable
+		} else {
+			err = edgeRunner.RunSweepGroupLease(runCtx, groupID, lease, slot, e.edgeSpool, func() error {
+				return e.store.MarkExecuted(groupID, executionID, slot.GetCollectionExpiresUnixNano(), now)
+			})
+		}
+	} else {
+		err = runner.RunSweepGroupExecution(runCtx, groupID, executionID)
+	}
 	if err != nil && (errors.Is(err, errSweepGroupNotFound) || errors.Is(err, errSweepRunnerUnavailable)) {
 		// The group's service is not running yet (its config push may lag
 		// the lease push); retry until the collection window closes.
@@ -328,7 +342,8 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 		e.logger.Error().Err(err).
 			Str("sweep_group_id", groupID).
 			Str("execution_id", executionID).
-			Msg("Leased sweep slot run failed; it stays due until the collection window closes")
+			Bool("publication_started", e.edgeSpool != nil && e.store.Executed(groupID, executionID)).
+			Msg("Leased sweep slot incomplete")
 
 		return
 	}
@@ -504,6 +519,7 @@ func (p *PushLoop) startSweepLeaseExecutor(ctx context.Context) {
 	p.sweepLeaseMu.Unlock()
 
 	executor := newSweepLeaseExecutor(store, p.sweepLeaseRunner, wake, p.logger)
+	executor.edgeSpool = p.edgeSweepSpool
 	go executor.run(ctx)
 }
 

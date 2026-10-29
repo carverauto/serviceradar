@@ -17,10 +17,13 @@
 package sender
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -30,6 +33,7 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
 	"google.golang.org/grpc/test/bufconn"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
@@ -644,4 +648,57 @@ func toU64(b []byte) []uint64 {
 		out[i] = uint64(v)
 	}
 	return out
+}
+
+func TestTerminalAcknowledgementSurvivesReopenBeforeSuppressingReplay(t *testing.T) {
+	dir := t.TempDir()
+	sp, err := spool.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := mustEventID(t)
+	if _, err = sp.Append(id, id); err != nil {
+		t.Fatal(err)
+	}
+	srv := &fakeIngestServer{grantedByteCredits: 1 << 20, grantedFrameCredits: 100, dispositionKind: edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE}
+	cfg := testConfig(t)
+	cfg.PersistAcknowledgements = true
+	sender, err := New(sp, dialFakeIngest(t, srv), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err = sender.RunOnce(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err = sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := spool.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reopened.Close() }()
+	if reopened.Resolved() != 1 {
+		t.Fatalf("resolved after reopen=%d", reopened.Resolved())
+	}
+	records, err := reopened.Unresolved()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 0 {
+		t.Fatalf("replayed %d terminal records", len(records))
+	}
+	evidence, err := os.ReadFile(filepath.Join(dir, "terminal-00000000000000000001.pb"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ack := &edgev1.EdgeDeliveryAckV1{}
+	if err = proto.Unmarshal(evidence, ack); err != nil {
+		t.Fatal(err)
+	}
+	if ack.GetResolvedThroughSequence() != 1 || len(ack.GetDispositions()) != 1 || !bytes.Equal(ack.GetDispositions()[0].GetEventId(), id) {
+		t.Fatalf("persisted ack does not prove the resolved event: %v", ack)
+	}
 }

@@ -109,14 +109,16 @@ type Target struct {
 
 // Result represents the outcome of a sweep against a target.
 type Result struct {
-	Target     Target
-	Available  bool
-	FirstSeen  time.Time
-	LastSeen   time.Time
-	RespTime   time.Duration
-	PacketLoss float64
-	Error      error
-	Metadata   map[string]interface{}
+	Target          Target
+	Available       bool
+	FirstSeen       time.Time
+	LastSeen        time.Time
+	RespTime        time.Duration
+	PacketLoss      float64
+	PacketsSent     uint32
+	PacketsReceived uint32
+	Error           error
+	Metadata        map[string]interface{}
 }
 
 // ResultFilter defines criteria for retrieving results.
