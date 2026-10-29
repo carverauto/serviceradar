@@ -75,16 +75,16 @@ defmodule ServiceRadar.EventWriter.ConsumerSetup do
   end
 
   @doc """
-  Rejects a flow consumer that resolved onto a stream other than the one it
-  names, unless it allows fallback: binding a flow durable on `events` strands it
-  after the subjects move to `flows`.
+  Rejects a resolved stream other than the configured one when fallback is not
+  allowed. Flow consumers refuse fallback unless they opt in. Any other
+  consumer does so when `allow_stream_fallback` is false, so `EDGE_RECORD`
+  stays on `TELEMETRY_EDGE_RECORD_V1_BULK` instead of a conflicting owner.
   """
   @spec validate_resolved_stream(map(), String.t()) :: :ok | {:error, term()}
   def validate_resolved_stream(stream, resolved) do
     expected = Config.jetstream_stream_name(stream)
 
-    if Config.flows_stream_consumer?(stream) and resolved != expected and
-         Map.get(stream, :allow_stream_fallback, false) == false do
+    if resolved != expected and allow_stream_fallback?(stream) == false do
       {:error, {:unexpected_stream, expected: expected, resolved: resolved}}
     else
       :ok
