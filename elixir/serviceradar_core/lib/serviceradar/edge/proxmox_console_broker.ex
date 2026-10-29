@@ -26,15 +26,25 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBroker do
   end
 
   def send_input(pid, data) when is_pid(pid) and is_binary(data) do
-    GenServer.call(pid, {:send_input, data})
+    call_broker(pid, {:send_input, data})
   end
 
   def resize(pid, cols, rows) when is_pid(pid) and is_integer(cols) and is_integer(rows) do
-    GenServer.call(pid, {:resize, cols, rows})
+    call_broker(pid, {:resize, cols, rows})
   end
 
   def close(pid, reason) when is_pid(pid) do
     GenServer.cast(pid, {:close, reason})
+  end
+
+  # The broker stops normally once the agent closes the console, and browser
+  # frames already in flight still reach the owner after that. Report the
+  # stopped broker to the caller instead of exiting the owner's process.
+  defp call_broker(pid, request) do
+    GenServer.call(pid, request)
+  catch
+    :exit, {reason, {GenServer, :call, _args}} when reason in [:noproc, :normal] ->
+      {:error, :console_broker_closed}
   end
 
   @impl true

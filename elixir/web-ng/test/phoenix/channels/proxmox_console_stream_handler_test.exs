@@ -133,6 +133,26 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
     end
   end
 
+  defmodule ClosedBrokerStub do
+    @moduledoc false
+
+    defdelegate start_link(session, owner, opts), to: BrokerStub
+    defdelegate close(pid, reason), to: BrokerStub
+
+    def send_input(_pid, _data), do: {:error, :console_broker_closed}
+    def resize(_pid, _cols, _rows), do: {:error, :console_broker_closed}
+  end
+
+  defmodule RejectingBrokerStub do
+    @moduledoc false
+
+    defdelegate start_link(session, owner, opts), to: BrokerStub
+    defdelegate close(pid, reason), to: BrokerStub
+
+    def send_input(_pid, _data), do: {:error, :console_gateway_unavailable}
+    def resize(_pid, _cols, _rows), do: {:error, :console_gateway_unavailable}
+  end
+
   defmodule FailedBrokerStub do
     @moduledoc false
 
@@ -546,6 +566,89 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandlerTest do
 
     ProxmoxConsoleStreamHandler.terminate(:normal, closed_state)
     refute_receive {:request_close, "session-4", _opts}
+  end
+
+  test "browser frames after the broker stopped close the stream instead of failing it" do
+    for frame <- [
+          %{type: "resize", cols: 162, rows: 41},
+          %{type: "data", data: Base.encode64("ls\r")}
+        ] do
+      {:ok, state} = init_state("session-broker-gone")
+      state = %{state | broker_module: ClosedBrokerStub}
+
+      {:push, _response, attached} =
+        ProxmoxConsoleStreamHandler.handle_in({attach_payload("session-broker-gone"), [opcode: :text]}, state)
+
+      assert {:stop, :normal, 1000, [{:text, response}], closed_state} =
+               ProxmoxConsoleStreamHandler.handle_in({Jason.encode!(frame), [opcode: :text]}, attached)
+
+      assert %{"type" => "close", "reason" => "closed"} = Jason.decode!(response)
+      assert closed_state.closing_action == :closed
+      assert_receive {:close_session, "session-broker-gone", opts}
+      assert opts[:reason] == "closed"
+      refute_received {:fail_session, "session-broker-gone", _reason, _opts}
+
+      ProxmoxConsoleStreamHandler.terminate(:normal, closed_state)
+    end
+  end
+
+  test "in-flight frames against a stopped broker process close the stream" do
+    dead =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    ref = Process.monitor(dead)
+    send(dead, :stop)
+    assert_receive {:DOWN, ^ref, :process, ^dead, _}
+
+    for {frame, session_id} <- [
+          {%{type: "resize", cols: 162, rows: 41}, "session-broker-dead-resize"},
+          {%{type: "data", data: Base.encode64("ls\r")}, "session-broker-dead-data"}
+        ] do
+      {:ok, state} = init_state(session_id)
+
+      {:push, _response, attached} =
+        ProxmoxConsoleStreamHandler.handle_in({attach_payload(session_id), [opcode: :text]}, state)
+
+      attached = %{attached | broker: dead, broker_module: ServiceRadar.Edge.ProxmoxConsoleBroker}
+
+      assert {:stop, :normal, 1000, [{:text, response}], closed_state} =
+               ProxmoxConsoleStreamHandler.handle_in({Jason.encode!(frame), [opcode: :text]}, attached)
+
+      assert %{"type" => "close", "reason" => "closed"} = Jason.decode!(response)
+      assert closed_state.closing_action == :closed
+      assert_receive {:close_session, ^session_id, opts}
+      assert opts[:reason] == "closed"
+      refute_received {:fail_session, ^session_id, _reason, _opts}
+
+      ProxmoxConsoleStreamHandler.terminate(:normal, closed_state)
+    end
+  end
+
+  test "other broker errors still fail the session" do
+    for {frame, session_id} <- [
+          {%{type: "resize", cols: 80, rows: 24}, "session-broker-rejected-resize"},
+          {%{type: "data", data: Base.encode64("ls\r")}, "session-broker-rejected-data"}
+        ] do
+      {:ok, state} = init_state(session_id)
+      state = %{state | broker_module: RejectingBrokerStub}
+
+      {:push, _response, attached} =
+        ProxmoxConsoleStreamHandler.handle_in({attach_payload(session_id), [opcode: :text]}, state)
+
+      assert {:stop, :normal, 1011, [{:text, response}], failed_state} =
+               ProxmoxConsoleStreamHandler.handle_in({Jason.encode!(frame), [opcode: :text]}, attached)
+
+      assert %{"type" => "error", "message" => "Proxmox console stream failed."} = Jason.decode!(response)
+      assert failed_state.closing_action == :failed
+      assert_receive {:fail_session, ^session_id, :console_gateway_unavailable, _opts}
+      refute_received {:close_session, ^session_id, _opts}
+
+      ProxmoxConsoleStreamHandler.terminate(:normal, failed_state)
+    end
   end
 
   defp init_state(session_id, session_overrides \\ %{}, permissions \\ @console_permissions) do

@@ -127,6 +127,24 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
 
     assert_receive {:proxmox_console_closed, "complete"}
     assert_receive {:DOWN, ^ref, :process, ^broker, :normal}
+
+    # Browser frames already in flight when the agent closed the console.
+    assert {:error, :console_broker_closed} = ProxmoxConsoleBroker.resize(broker, 162, 41)
+    assert {:error, :console_broker_closed} = ProxmoxConsoleBroker.send_input(broker, "ls\r")
+  end
+
+  test "a wedged broker still exits the caller" do
+    wedged =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert catch_exit(ProxmoxConsoleBroker.resize(wedged, 80, 24)) ==
+             {:timeout, {GenServer, :call, [wedged, {:resize, 80, 24}, 5_000]}}
+
+    send(wedged, :stop)
   end
 
   test "fails closed when the session lacks an exact assignment policy binding" do
