@@ -267,6 +267,46 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
       assert html =~ ~s(datetime="#{expected_not_after(45)}")
     end
 
+    test "persists non-default partition and host IP entered on the form", %{
+      conn: conn,
+      actor: actor,
+      gateway_id: gateway_id
+    } do
+      track_gateway_on_this_node(gateway_id)
+
+      {:ok, lv, _html} = live(conn, ~p"/admin/edge-packages/new?component_type=agent")
+
+      label = "test-agent-partition-host-ip-#{System.unique_integer([:positive])}"
+
+      html =
+        lv
+        |> form("#create_package_form",
+          form: %{
+            label: label,
+            gateway_id: gateway_id,
+            partition: "edge-site-west",
+            host_ip: "192.0.2.44"
+          }
+        )
+        |> render_submit()
+
+      assert html =~ "Package Created Successfully"
+      assert html =~ "agent-#{label}.edge-site-west.serviceradar"
+
+      [package] =
+        %{limit: 50}
+        |> OnboardingPackages.list(actor: actor)
+        |> Enum.filter(&(&1.label == label))
+
+      assert package.site == "edge-site-west"
+      assert package.cert_spiffe_id == "spiffe://serviceradar.local/agent/edge-site-west/agent-#{label}"
+
+      assert Jason.decode!(package.metadata_json) == %{
+               "partition" => "edge-site-west",
+               "host_ip" => "192.0.2.44"
+             }
+    end
+
     test "rejects a certificate validity outside the policy bounds", %{conn: conn, gateway_id: gateway_id} do
       track_gateway_on_this_node(gateway_id)
 

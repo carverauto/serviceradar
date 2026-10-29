@@ -714,7 +714,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 <div class="sr-ui-collapse-content space-y-4">
                   <%= if @selected_component_type == "agent" do %>
                     <.input
-                      name="partition"
+                      id="create_package_partition"
+                      name="form[partition]"
                       label="Partition"
                       value={@partition_value}
                       placeholder="default"
@@ -724,7 +725,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                     </p>
 
                     <.input
-                      name="host_ip"
+                      id="create_package_host_ip"
+                      name="form[host_ip]"
                       label="Host IP (Optional)"
                       value={@host_ip_value}
                       placeholder="Leave blank to auto-detect during enrollment"
@@ -1329,7 +1331,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       transform_params: fn _form, params, _action ->
         # Convert component_type string to atom if needed (allowlist prevents DoS via atom exhaustion)
         params = Map.put(params, "component_type", :agent)
-        params = Map.drop(params, ["initial_addon_package_ids", "cert_validity_days"])
+        params = Map.drop(params, ["initial_addon_package_ids", "cert_validity_days", "partition", "host_ip"])
 
         # Set security mode from environment config
         params = Map.put(params, "security_mode", security_mode)
@@ -1354,8 +1356,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     component_type = params["component_type"] || "agent"
     label = params["label"] || ""
     component_id = generate_component_id(label, component_type)
-    metadata_json = build_metadata_json(component_type, params)
-    partition_id = params["partition"] || "default"
+    partition_id = normalized_partition(params["partition"])
+    metadata_json = build_metadata_json(component_type, Map.put(params, "partition", partition_id))
 
     add_parent_type(
       %{
@@ -1430,11 +1432,26 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "gateway")
   defp add_parent_type(attrs, _), do: attrs
 
+  defp normalized_partition(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "default"
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalized_partition(_), do: "default"
+
   defp build_metadata_json("agent", params) do
     host_ip =
       case params["host_ip"] do
-        value when is_binary(value) and value != "" -> value
-        _ -> "PLACEHOLDER_HOST_IP"
+        value when is_binary(value) ->
+          case String.trim(value) do
+            "" -> "PLACEHOLDER_HOST_IP"
+            trimmed -> trimmed
+          end
+
+        _ ->
+          "PLACEHOLDER_HOST_IP"
       end
 
     metadata =
