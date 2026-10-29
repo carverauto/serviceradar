@@ -45,8 +45,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   ## Deliberately narrow scope
 
   This server does NOT implement the exact-byte/retained-memory binding of task 3.4, the
-  six-outcome-to-five-wire-disposition mapping of task 3.5 (including rejection codes on
-  dispositions), the transport-provenance stamping of task 3.9, or the two-watermark reclaim state
+  six-outcome-to-five-wire-disposition mapping of task 3.5, the transport-provenance stamping of task 3.9, or the two-watermark reclaim state
   machine of task 3.10.
 
   Two authorization decisions therefore have nowhere to go yet: an AUDIT publication (a
@@ -667,7 +666,12 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
     %EdgeRecordDisposition{
       sequence: sequence,
       event_id: Map.get(state.event_ids, sequence, ""),
-      kind: Map.fetch!(state.resolved, sequence)
+      kind: Map.fetch!(state.resolved, sequence),
+      rejection_code:
+        if(Map.fetch!(state.resolved, sequence) == @permanent,
+          do: "REJECTED_PERMANENT",
+          else: ""
+        )
     }
   end
 

@@ -115,7 +115,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                            resolved_through_sequence: 1,
                            session_nonce: @session_nonce,
                            dispositions: [
-                             %EdgeRecordDisposition{sequence: 1, event_id: ^event_id, kind: @accepted}
+                             %EdgeRecordDisposition{sequence: 1, event_id: ^event_id, kind: @accepted, rejection_code: ""}
                            ]
                          }}
                     }}
@@ -248,7 +248,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                         {:ack,
                          %EdgeDeliveryAckV1{
                            resolved_through_sequence: 1,
-                           dispositions: [%EdgeRecordDisposition{sequence: 1, event_id: "", kind: @permanent}]
+                           dispositions: [%EdgeRecordDisposition{sequence: 1, event_id: "", kind: @permanent, rejection_code: "REJECTED_PERMANENT"}]
                          }}
                     }}
 

@@ -858,3 +858,58 @@ func TestRetainedSweepCompletionMetadata(t *testing.T) {
 		})
 	}
 }
+
+type snapshotBlockingSweeper struct {
+	*sameSecondSweeper
+	snapshotStarted chan struct{}
+	releaseSnapshot chan struct{}
+	runStarted chan string
+	once sync.Once
+}
+
+func (s *snapshotBlockingSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
+	s.once.Do(func() {
+		close(s.snapshotStarted)
+		<-s.releaseSnapshot
+	})
+	return s.sameSecondSweeper.GetStatus(ctx)
+}
+
+func (s *snapshotBlockingSweeper) RunOnce(ctx context.Context) error {
+	return s.RunOnceWithExecution(ctx, "on-demand")
+}
+
+func (s *snapshotBlockingSweeper) RunOnceWithExecution(ctx context.Context, id string) error {
+	s.runStarted <- id
+	return s.sameSecondSweeper.RunOnceWithExecution(ctx, id)
+}
+
+func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
+	sw := &snapshotBlockingSweeper{
+		sameSecondSweeper: newSameSecondSweeper(),
+		snapshotStarted: make(chan struct{}), releaseSnapshot: make(chan struct{}),
+		runStarted: make(chan string, 2),
+	}
+	service := &SweepService{sweeper: sw, config: &models.Config{}, logger: logger.NewTestLogger()}
+	first := make(chan error, 1)
+	second := make(chan error, 1)
+	go func() { first <- service.RunOnceForExecution(context.Background(), "leased") }()
+	<-sw.snapshotStarted
+	require.Equal(t, "leased", <-sw.runStarted)
+	go func() { second <- service.RunOnce(context.Background()) }()
+	select {
+	case id := <-sw.runStarted:
+		t.Errorf("%s started before prior snapshot retained", id)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(sw.releaseSnapshot)
+	require.NoError(t, <-first)
+	require.NoError(t, <-second)
+	sequence := ""
+	for _, id := range []string{"leased", "on-demand"} {
+		result, err := service.GetSweepResults(context.Background(), sequence)
+		require.NoError(t, err)
+		require.Equal(t, id, result.ExecutionId)
+		sequence = result.CurrentSequence
+	}
+}

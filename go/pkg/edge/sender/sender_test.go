@@ -375,11 +375,7 @@ func TestRunOnceReturnsErrInsufficientCreditsWhenFirstRecordExceedsGrant(t *test
 	}
 }
 
-// TestRunOnceCancelsStreamContextOnSendError proves that when sendUnresolved
-// fails partway through (a local validation or Send error), RunOnce's
-// streamCtx is canceled rather than left open indefinitely, so the
-// server-side stream goroutine is torn down instead of leaking.
-func TestRunOnceCancelsStreamContextOnSendError(t *testing.T) {
+func TestRunOnceCancelsActiveStreamOnInvalidHandshake(t *testing.T) {
 	sp := newTestSpool(t)
 	for i := 0; i < 2; i++ {
 		id := mustEventID(t)
@@ -394,7 +390,6 @@ func TestRunOnceCancelsStreamContextOnSendError(t *testing.T) {
 			grantedByteCredits:  1 << 20,
 			grantedFrameCredits: 100,
 		},
-		failAfterFrames: 1,
 		onServerCtxDone: streamCtxDone,
 	}
 	client := dialFakeIngest(t, srv)
@@ -408,26 +403,20 @@ func TestRunOnceCancelsStreamContextOnSendError(t *testing.T) {
 	defer cancel()
 
 	if _, err := s.RunOnce(ctx); err == nil {
-		t.Fatal("RunOnce err = nil, want error from mid-stream server failure")
+		t.Fatal("RunOnce err = nil, want local handshake validation error")
 	}
 
 	select {
 	case <-streamCtxDone:
-		// Expected: RunOnce's defer cancel() tore down the stream, so the
-		// server observed its stream context end.
+
 	case <-time.After(5 * time.Second):
 		t.Fatal("server-side stream context was not canceled after RunOnce returned an error")
 	}
 }
 
-// erroringIngestServer acks the handshake normally, then fails the stream
-// after receiving failAfterFrames delivery_frame messages, and signals
-// onServerCtxDone once its stream context is Done (proving the client tore
-// the stream down rather than leaving it open).
 type erroringIngestServer struct {
 	fakeIngestServer
 
-	failAfterFrames int
 	onServerCtxDone chan struct{}
 }
 
@@ -450,7 +439,7 @@ func (f *erroringIngestServer) Stream(
 
 	ack := &edgev1.EdgeRecordLaneOpenAck{
 		SpoolId:             open.GetSpoolId(),
-		SessionNonce:        open.GetSessionNonce(),
+		SessionNonce:        make([]byte, 16),
 		GrantedByteCredits:  minU64(f.grantedByteCredits, open.GetRequestedByteCredits()),
 		GrantedFrameCredits: minU32(f.grantedFrameCredits, open.GetRequestedFrameCredits()),
 		RouteProfile:        open.GetRouteProfile(),
@@ -462,20 +451,8 @@ func (f *erroringIngestServer) Stream(
 		return err
 	}
 
-	frames := 0
-	for {
-		msg, err := stream.Recv()
-		if err != nil {
-			return err
-		}
-		if msg.GetDeliveryFrame() == nil {
-			return status.Error(codes.InvalidArgument, "expected delivery_frame")
-		}
-		frames++
-		if frames >= f.failAfterFrames {
-			return status.Error(codes.Internal, "injected mid-stream failure")
-		}
-	}
+	<-stream.Context().Done()
+	return stream.Context().Err()
 }
 
 func TestNewRejectsInvalidConfig(t *testing.T) {

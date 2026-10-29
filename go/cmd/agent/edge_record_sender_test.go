@@ -18,11 +18,17 @@ package main
 
 import (
 	"context"
+ "bytes"
+ "encoding/json"
+ "os"
+ "path/filepath"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+ "github.com/carverauto/serviceradar/go/pkg/models"
+ "github.com/rs/zerolog"
 )
 
 // runEdgeRecordSender must return promptly (not block on a ticker or dial)
@@ -52,36 +58,43 @@ func TestRunEdgeRecordSenderNoopWhenNil(t *testing.T) {
 	})
 }
 
-func TestRunEdgeRecordSenderNoopWhenDisabled(t *testing.T) {
-	t.Parallel()
-	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: false}}
-	mustReturnPromptly(t, func() {
-		runEdgeRecordSender(context.Background(), cfg, logger.NewTestLogger())
-	})
+type senderGuardLogger struct {
+ logger.Logger
+ output zerolog.Logger
 }
 
-func TestRunEdgeRecordSenderRequiresGatewayAddr(t *testing.T) {
-	t.Parallel()
-	cfg := &agent.ServerConfig{
-		EdgeRecordSender: &agent.EdgeRecordSenderConfig{
-			Enabled:  true,
-			SpoolDir: t.TempDir(),
-		},
-	}
-	mustReturnPromptly(t, func() {
-		runEdgeRecordSender(context.Background(), cfg, logger.NewTestLogger())
-	})
-}
+func (l *senderGuardLogger) Error() *zerolog.Event { return l.output.Error() }
 
-func TestRunEdgeRecordSenderRequiresSpoolDir(t *testing.T) {
-	t.Parallel()
-	cfg := &agent.ServerConfig{
-		GatewayAddr: "gateway.example.test:50052",
-		EdgeRecordSender: &agent.EdgeRecordSenderConfig{
-			Enabled: true,
-		},
-	}
-	mustReturnPromptly(t, func() {
-		runEdgeRecordSender(context.Background(), cfg, logger.NewTestLogger())
-	})
+func TestRunEdgeRecordSenderConfigurationGuards(t *testing.T) {
+ for _, tc := range []struct { name, message string }{
+  {"disabled", ""},
+  {"address", "Edge record sender enabled without a gateway address"},
+  {"spool", "Edge record sender enabled without a spool_dir"},
+ } {
+  t.Run(tc.name, func(t *testing.T) {
+   dir := filepath.Join(t.TempDir(), "spool")
+   cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{
+    Enabled: true, GatewayAddr: "127.0.0.1:1", SpoolDir: dir,
+    Security: &models.SecurityConfig{Mode: models.SecurityModeNone},
+   }}
+   switch tc.name {
+   case "disabled": cfg.EdgeRecordSender.Enabled = false
+   case "address": cfg.EdgeRecordSender.GatewayAddr = ""
+   case "spool": cfg.EdgeRecordSender.SpoolDir = ""
+   }
+   var output bytes.Buffer
+   log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
+   ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+   defer cancel()
+   mustReturnPromptly(t, func() { runEdgeRecordSender(ctx, cfg, log) })
+   if tc.message == "" {
+    if output.Len() != 0 { t.Fatalf("disabled sender emitted error: %s", output.String()) }
+   } else {
+    var event struct { Message string `json:"message"` }
+    if err := json.Unmarshal(output.Bytes(), &event); err != nil { t.Fatal(err) }
+    if event.Message != tc.message { t.Fatalf("message = %q, want %q", event.Message, tc.message) }
+   }
+   if _, err := os.Stat(dir); !os.IsNotExist(err) { t.Fatalf("guard created spool: %v", err) }
+  })
+ }
 }

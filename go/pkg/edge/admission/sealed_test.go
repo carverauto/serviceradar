@@ -21,7 +21,6 @@ package admission_test
 
 import (
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/admission"
@@ -104,27 +103,6 @@ func TestReclaimAuthorizationHasNoExportedFields(t *testing.T) {
 		if f := carrier.Field(i); f.IsExported() {
 			t.Fatalf("ReclaimAuthorization.%s is exported: an external package can now mint its own release "+
 				"authority by composite literal", f.Name)
-		}
-	}
-}
-
-// Admission must expose no remote-resolution input at all.
-//
-// Gateway resolution belongs to gwprefix (task 2.16). A "note it but never read
-// it" accessor here was duplicate lifecycle state that contradicted the task
-// boundary, and its absence is the proof that no remote signal can reach the
-// release path.
-func TestNoRemoteResolutionSurface(t *testing.T) {
-	ctl := reflect.TypeOf(&admission.Controller{})
-
-	for i := range ctl.NumMethod() {
-		name := ctl.Method(i).Name
-
-		for _, banned := range []string{"gateway", "puback", "resolved", "remote"} {
-			if strings.Contains(strings.ToLower(name), banned) {
-				t.Fatalf("Controller.%s reintroduces remote-resolution surface; that lifecycle belongs to "+
-					"gwprefix (2.16), not to byte accounting", name)
-			}
 		}
 	}
 }

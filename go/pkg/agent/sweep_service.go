@@ -36,6 +36,7 @@ import (
 type SweepService struct {
 	sweeper sweeper.SweepService // Use the full SweepService interface
 	mu      sync.RWMutex
+	runMu   sync.Mutex
 	config  *models.Config
 	stats   *ScanStats
 	logger  logger.Logger
@@ -183,6 +184,8 @@ func (s *SweepService) RunOnceForExecution(ctx context.Context, executionID stri
 // to read the live summary. Otherwise a push that lands between completion
 // and the copy publishes that summary, and the copy publishes it again.
 func (s *SweepService) runAndRetain(ctx context.Context, run func(context.Context) error) error {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
 	s.mu.Lock()
 	s.sweepRunInProgress = true
 	s.mu.Unlock()
