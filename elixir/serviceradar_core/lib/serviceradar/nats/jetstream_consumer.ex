@@ -369,7 +369,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   # The requested stream is excluded — it just failed to own the subject, and
   # retrying the same name could only repeat the overlap error.
   def overlap_fallback_stream({:ok, streams}, requested) when is_list(streams) do
-    case Enum.filter(streams, &(is_binary(&1) and not same_configured_stream?(&1, requested))) do
+    case Enum.filter(streams, &(is_binary(&1) and &1 != requested)) do
       [stream | _rest] -> {:ok, stream}
       [] -> :error
     end
@@ -1081,11 +1081,6 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-  defp same_configured_stream?(candidate, requested)
-       when is_binary(candidate) and is_binary(requested) do
-    String.downcase(candidate) == String.downcase(requested)
-  end
-
   defp resolve_empty_streams(requested, subject) do
     if valid_requested_stream?(requested) do
       {:ok, requested}
@@ -1141,19 +1136,13 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         {:ok, requested}
 
       true ->
-        discovered = hd(streams)
+        Logger.warning("Requested stream not matched by subject; using discovered stream",
+          requested_stream: requested,
+          subject: subject,
+          discovered_stream: hd(streams)
+        )
 
-        if same_configured_stream?(discovered, requested) do
-          {:ok, requested}
-        else
-          Logger.warning("Requested stream not matched by subject; using discovered stream",
-            requested_stream: requested,
-            subject: subject,
-            discovered_stream: discovered
-          )
-
-          {:ok, discovered}
-        end
+        {:ok, hd(streams)}
     end
   end
 
