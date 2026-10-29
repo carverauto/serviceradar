@@ -19,6 +19,7 @@ go_library(
     deps = [
         "//go/pkg/agent/core",
         "//go/pkg/cpufreq",
+        "//go/pkg/hostinventory",
         "//go/pkg/logger",
         "@com_github_shirou_gopsutil_v3//cpu",
         "@com_github_shirou_gopsutil_v3//disk",

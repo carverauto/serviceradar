@@ -3,7 +3,7 @@
 - [x] 1.2 Move the host-internal interface name prefixes into `hostinventory` and use them for host IP selection
 - [x] 1.3 `HostInterface`, `HostInterfaceKind`, `MacProvenance` in `proto/monitoring.proto`; `host_interfaces` on `AgentHelloRequest` (13) and `ControlStreamHello` (15); regenerate Go and Elixir bindings
 - [x] 1.4 Both hellos report the inventory beside unchanged `host_ip` / `host_macs`
-- [ ] 1.5 Follow-up: move sysmon's interface walkers (`network.go`, `host.go`) onto `hostinventory`
+- [x] 1.5 Follow-up: move sysmon's interface walkers (`network.go`, `host.go`) onto `hostinventory`
 
 ## 2. Gateway and core
 - [x] 2.1 The agent gateway forwards `host_interfaces` to `AgentGatewaySync`

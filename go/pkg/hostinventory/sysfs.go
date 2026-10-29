@@ -68,7 +68,7 @@ func sysfsKind(dir string, iface net.Interface) Kind {
 	devType := ueventDevType(filepath.Join(dir, "uevent"))
 
 	switch {
-	case iface.Flags&net.FlagLoopback != 0:
+	case iface.Flags&net.FlagLoopback != 0 || readTrimmed(filepath.Join(dir, "type")) == "772":
 		return KindLoopback
 	case exists(filepath.Join(dir, "bridge")):
 		return KindBridge

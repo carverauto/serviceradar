@@ -51,11 +51,10 @@ looser name or address match. It has to be more strong identity.
 - Affected specs: `device-identity-reconciliation`, `dire-formal-model`.
 - Affected code: `proto/monitoring.proto` (`HostInterface`, `AgentHelloRequest.host_interfaces`,
   `ControlStreamHello.host_interfaces`), `go/pkg/hostinventory`, `go/pkg/agent/host_identity.go`,
-  the agent gateway's hello bridge, `ServiceRadar.Edge.AgentGatewaySync`,
+  `go/pkg/sysmon`, the agent gateway's hello bridge, `ServiceRadar.Edge.AgentGatewaySync`,
   `ServiceRadar.Inventory.Identity.HostInterfaces`, `ServiceRadar.Inventory.Identity.AgentCorroboration`,
   `formal/dire`.
 - Armis northbound: an agent linked to an Armis endpoint makes that endpoint's pushed availability
   follow the merged device (design D6).
 - Not in this change: a strong identifier for a hypervisor node that has no MAC from its API
-  (the TLS certificate fingerprint follow-up), moving sysmon's interface walkers onto
-  `go/pkg/hostinventory`, and the sweep alias handling of #6107.
+  (the TLS certificate fingerprint follow-up) and the sweep alias handling of #6107.

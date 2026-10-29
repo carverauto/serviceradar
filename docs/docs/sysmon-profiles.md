@@ -28,6 +28,20 @@ Sysmon Profiles let you control:
 - Which disk paths to monitor
 - Alert thresholds for each metric type
 
+## Network Interface Filtering
+
+Network metrics exclude loopback, tunnels, and interfaces with host-internal
+container, guest, bridge, or overlay names. Physical and virtual uplinks
+(including container `eth0` and SR-IOV VFs), bonds, VLANs, and external bridges
+such as `vmbr0` and `br0` remain eligible; virtual classification alone does not
+exclude an interface. Linux uses kernel interface classification as well as
+names; other platforms rely on interface flags and names.
+
+Sysmon's host IPv4 selection uses the same interface filter and additionally
+requires an up interface and a global-unicast IPv4 address outside
+`172.17.0.0/16`, `172.18.0.0/16`, and `172.19.0.0/16`. If none is found, it
+falls back to the local address selected by a UDP dial.
+
 ## Accessing Sysmon Profiles
 
 Navigate to **Settings → Host Health** (`/settings/sysmon`) in the web UI

@@ -104,6 +104,29 @@ func Classify(iface net.Interface, addresses []net.Addr, class Classification) I
 	}
 }
 
+// ClassifyName classifies an interface when the caller has a kernel counter
+// name without a net.Interface snapshot entry, using platform classification
+// (sysfs on Linux) when available.
+func ClassifyName(name string) Interface {
+	iface := net.Interface{Name: name}
+	return Classify(iface, nil, platformClassify(iface))
+}
+
+// IsHostInternal reports whether the classified interface is loopback, a
+// tunnel, or has a host-internal container/guest/bridge/overlay
+// name. Host IP selection and sysmon network metrics use it to skip internal
+// interfaces while keeping physical and virtual uplinks, bonds, VLANs, and external bridges
+// such as vmbr* and br0.
+func (i Interface) IsHostInternal() bool {
+	if i.Flags&net.FlagLoopback != 0 {
+		return true
+	}
+	if i.Kind == KindLoopback || i.Kind == KindTunnel {
+		return true
+	}
+	return IsHostInternalName(i.Name)
+}
+
 // IPs returns every address on the interface, IPv4 and IPv6, without its
 // prefix length, sorted and de-duplicated.
 func (i Interface) IPs() []string {
@@ -136,16 +159,19 @@ func (i Interface) IPs() []string {
 }
 
 // IsHostInternalName reports whether an interface name is one of the host's
-// internal container, overlay or guest interfaces. It works on every platform,
-// so it is how host IP selection skips them where sysfs is not available.
+// internal container, overlay, tunnel, loopback or guest interfaces. It works
+// on every platform, so it is how host IP selection and sysmon network metrics
+// skip them where sysfs is not available.
 func IsHostInternalName(name string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(name))
 	if normalized == "" {
 		return false
 	}
+	if normalized == "lo" || normalized == "lo0" {
+		return true
+	}
 	// These prefixes name container bridges, CNI overlays, guest
-	// devices and other interfaces internal to the host. It mirrors
-	// ServiceRadar.Inventory.Identity.GuestAddress on the core side.
+	// devices, tunnels and other interfaces internal to the host.
 	hostInternalNamePrefixes := []string{
 		"docker",
 		"br-",
@@ -153,15 +179,18 @@ func IsHostInternalName(name string) bool {
 		"flannel",
 		"veth",
 		"virbr",
+		"vnet",
 		"cali",
 		"vxlan",
-		"tunl",
+		"tun",
+		"tap",
 		"cilium",
 		"kube-",
 		"weave",
 		"podman",
 		"lxcbr",
 		"lxdbr",
+		"bridge",
 	}
 
 	for _, prefix := range hostInternalNamePrefixes {

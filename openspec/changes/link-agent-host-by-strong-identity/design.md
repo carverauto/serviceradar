@@ -22,8 +22,7 @@ was split.
   same-named hosts that share no strong identifier; keep older cores and agents working; keep the
   formal model describing the code.
 - Non-goals: a strong identifier for a hypervisor node that its API reports without a MAC (a
-  follow-up, D11); changing the sweep's alias handling (#6107, D9); moving sysmon onto the shared
-  inventory (D10).
+  follow-up, D11); changing the sweep's alias handling (#6107, D9).
 
 ## Decisions
 
@@ -175,11 +174,12 @@ aliases unless another source records them, as before.
 
 ### D10. One interface classifier
 
-`go/pkg/hostinventory` owns interface classification and the host-internal name prefixes the agent
-used for host IP selection. sysmon still has its own walkers (`go/pkg/sysmon/network.go`
-`shouldSkipInterface`, `host.go` `firstUsableIPv4`); moving them onto the shared package changes
-which interfaces report metrics, so it is a follow-up rather than part of this change. Identity
-flows only through the hellos, never through sysmon metrics.
+`go/pkg/hostinventory` owns interface classification and the host-internal name prefixes used by
+both the agent and sysmon. Sysmon's `filterNetworkCounters` and `firstUsableIPv4FromInventory`
+use `(hostinventory.Interface).IsHostInternal()`; counters missing from the inventory snapshot
+use `hostinventory.ClassifyName` for platform classification. The operator-facing filtering
+contract is documented in [Sysmon Profiles](../../../docs/docs/sysmon-profiles.md#network-interface-filtering).
+Identity flows only through the hellos, never through sysmon metrics.
 
 ### D11. Hypervisor nodes without a MAC
 

@@ -18,8 +18,8 @@ package sysmon
 
 import (
 	"context"
-	"strings"
 
+	"github.com/carverauto/serviceradar/go/pkg/hostinventory"
 	"github.com/shirou/gopsutil/v3/net"
 )
 
@@ -30,11 +30,27 @@ func CollectNetwork(ctx context.Context) ([]NetworkMetric, error) {
 		return nil, err
 	}
 
+	return filterNetworkCounters(counters, hostinventory.Collect(), hostinventory.ClassifyName), nil
+}
+
+func filterNetworkCounters(
+	counters []net.IOCountersStat,
+	inventory []hostinventory.Interface,
+	classifyByName func(string) hostinventory.Interface,
+) []NetworkMetric {
+	byName := make(map[string]hostinventory.Interface, len(inventory))
+	for _, iface := range inventory {
+		byName[iface.Name] = iface
+	}
+
 	metrics := make([]NetworkMetric, 0, len(counters))
 
 	for _, counter := range counters {
-		// Skip loopback and virtual interfaces
-		if shouldSkipInterface(counter.Name) {
+		iface, ok := byName[counter.Name]
+		if !ok {
+			iface = classifyByName(counter.Name)
+		}
+		if iface.IsHostInternal() {
 			continue
 		}
 
@@ -51,35 +67,5 @@ func CollectNetwork(ctx context.Context) ([]NetworkMetric, error) {
 		})
 	}
 
-	return metrics, nil
-}
-
-// shouldSkipInterface returns true for interfaces that should be excluded from monitoring.
-func shouldSkipInterface(name string) bool {
-	name = strings.ToLower(name)
-
-	// Skip loopback
-	if name == "lo" || name == "lo0" {
-		return true
-	}
-
-	// Skip Docker virtual interfaces
-	skipPrefixes := []string{
-		"docker",
-		"br-",
-		"veth",
-		"virbr",
-		"vnet",
-		"tun",
-		"tap",
-		"bridge",
-	}
-
-	for _, prefix := range skipPrefixes {
-		if strings.HasPrefix(name, prefix) {
-			return true
-		}
-	}
-
-	return false
+	return metrics
 }
