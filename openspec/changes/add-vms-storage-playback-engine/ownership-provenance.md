@@ -18,9 +18,12 @@ that baseline. This pass now serializes source/profile opens through
 
 The existing uplink lease token is required to be nonempty by the gateway but is
 not carried through the core activation check. It is not proof of recorder
-ownership. The Go deduplication key is a relay session ID. At the audit baseline,
-two independently created relay sessions could open two upstream pulls for the
-same profile. New admissions now fail while more than one unexpired legacy
+ownership. At the audit baseline, the Go deduplication key was a relay
+session ID, and two independently created relay sessions could open two
+upstream pulls for the same profile. The agent manager's later source/profile
+reservation is recorded in
+[add-scalable-camera-recording-plane tasks](../add-scalable-camera-recording-plane/tasks.md)
+and is not the fence in this document. New admissions now fail while more than one unexpired legacy
 session is live. Already authenticated active sessions may keep heartbeating
 until one remains, and that exception does not grant a recorder an ownership
 handle.
