@@ -1,7 +1,9 @@
 # Proposal: one bounded source scan per exposure cohort
 
 Status: disabled implementation approved by the product owner on 2026-10-29.
-Implementation is prepared for review; executable measurements need a separate allocation.
+One hosted measurement allocation has been consumed. Correctness controls passed
+and physical sharing was observed. The fact screen failed. This is a negative
+performance result, not an improvement or a waiver.
 Related epic: [#5745](https://github.com/carverauto/serviceradar/issues/5745).
 
 ## Why
@@ -25,9 +27,24 @@ moving validation into a persistent cache.
 - Require physical-work evidence and unchanged correctness controls before
   interpreting a timing improvement.
 
-This approval covers a disabled manual-harness implementation only. Another hosted
-allocation needs separate authorization with a concrete run count and profile.
-It does not authorize a fleet run, runtime adoption, schema changes or rollout.
+This approval covers a disabled manual-harness implementation only. The one
+later measurement allocation is spent. No further hosted run, fleet execution,
+runtime adoption, schema change, rollout, or performance waiver is approved.
+
+## Measured result
+
+Commit `768bb8cebc1edcab762624c130c410eb9e6654ec` was tree-verified remotely
+and executed once. The synthetic profile was 200 devices, 500,000 active facts
+and 10,200 resolved assessments. All 200 devices matched. Implemented
+correctness controls passed, and one diagnostic cohort showed a single
+assessment read with compact typed materialization. The fact interval was
+about 16.5 seconds against the 6-second screen. Recorded orchestration was
+about 2.0 seconds against 0.9 seconds; that assertion was not reached. The
+whole audit was about 34 seconds, compared with about 31 seconds previously.
+Fact and orchestration use different accounting in the two runs, so those
+columns cannot be read as isolated speedups. Fleet selectivity,
+mostly-unique-key evidence, parent task 1.6, and adoption remain open.
+Rounded figures and limits are in [design.md](design.md).
 
 ## Impact
 

@@ -237,15 +237,82 @@ Distinct reference memberships resolve cohort dimension keys before applying
 each device's covering-generation floor and evidence time.
 
 Malformed reference ordinals become missing coverage rather than unsafe casts
-or omitted dependencies. The existing audit controls now exercise duplicate
+or omitted dependencies. The existing audit controls exercise duplicate
 source contributions, malformed assessment and terminal references, a
 terminal-only dependency, and distinct device generation/evidence ages.
-These controls are authored but have not run against the new query yet.
+Those implemented controls passed in the single hosted run below.
+Process-death and live-finalization controls remain open.
 
 The full fused statement is charged to the fact interval. Output separates
 assessment rows, reference occurrences, device/key memberships and cohort
-dimension keys; the diagnostic plan includes actual buffers and verbose
-intermediate outputs. These counters describe logical work. Actual plan
-execution must establish physical sharing and selectivity before any
-performance claim. Existing thresholds, publication and readiness fences,
+dimension keys. Existing thresholds, publication and readiness fences,
 decoder/normalization functions and v1 digest encoding are unchanged.
+
+## One authorized measurement
+
+Commit `768bb8cebc1edcab762624c130c410eb9e6654ec` was tree-verified remotely
+and executed once on the existing small synthetic profile: 200 devices,
+500,000 active facts and 10,200 resolved assessments. All 200 devices matched.
+Decoder and digest parity passed. The implemented owning-harness controls
+passed, including duplicate source facts, malformed source and reference
+values, terminal-watermark-only coverage, distinct generation floors,
+unchanged proof age, current-only drift, warehouse-only data, proof-after-view
+ordering, recovery fences, expiry and timeout behavior.
+
+Physical sharing was observed for one 32-device diagnostic cohort. The fused
+statement read the assessment table once, still scanning about 510,000 rows
+to select about 82,000. The validator result executed once per selected row.
+Rounded inclusive node time for that per-row work is about 2.2 seconds, and
+the complete typed projection took about 3.1 seconds. Those figures are
+inclusive plan timings, not a CPU profile. Typed and compact projection
+widths were about 180 and 60 bytes. Neither shared materialization retained
+raw replay JSON.
+
+The fused statement took about 5.1 seconds, compared with about 4.6 seconds
+for the preceding separate source and coverage plans combined. Proof
+resolution used about 53,000 key and proof lookups, compared with about
+82,000 before. Device and key memberships still equaled all 163,000 reference
+occurrences in this fixture. Distinct removal dropped no rows, spilled into
+five batches, and was followed by sort and join work. Temporary writes fell
+to about 5,500 blocks from about 8,000 for the old source statement alone.
+Fewer scans and lookups are confirmed. The screen still failed.
+
+| Measurement | This run | Previous corrected run | Gate |
+| --- | ---: | ---: | --- |
+| Whole audit | about 34 s | about 31 s | fleet gate remains open |
+| Fact interval | about 16.5 s, including coverage | about 12 s, excluding coverage | 6 s; assertion failed |
+| Remaining orchestration | about 2.0 s, excluding fused coverage | about 4.4 s, including coverage | 0.9 s; assertion not reached |
+| Dimensions | about 15.4 s | about 14.6 s | unchanged |
+| Inclusive source plus coverage worker time | about 31 s | about 27 s | diagnostic, not wall time |
+| Existing production baseline | about 156 s | about 153 s | 900 s small-run cap |
+
+Fact and orchestration use different accounting in the two runs, so those
+columns cannot be read as isolated speedups. Whole-audit time and combined
+source and coverage work show no improvement. This single execution is not a
+p95, cold, repeated, or fleet result. Execution stopped after the fact-screen
+failure. No rerun, tuning sweep, codec change, higher concurrency, persistent
+validation state, or fleet attempt is authorized. The result is not a
+performance waiver.
+
+Both scratch warehouse schemas had zero rows in all five scratch tables before
+removal. Both schemas and their grants were independently verified absent.
+Hosted database teardown and generation release passed. Separate operator
+checks found zero run-owned databases in both possible execution locations.
+No deployment addresses or raw plans are recorded here.
+
+Task 2.2 stays incomplete. This fixture does not supply fleet selectivity or
+a mostly-unique-key case. A small-fixture scan of about 510,000 rows does not
+bound work at 32 of 20,000 devices. Parent task 1.6, the fleet gate, and
+runtime adoption stay open. Publication remains blocked until a later decision
+authorizes disposition of this negative experiment.
+
+Remote checks that do not replace the measurement above: the first full unit
+gate passed 486 tests, failed one unrelated camera storage transport
+assertion, and skipped two Swift tests. That unchanged camera test passed on
+retry. A pre-rebase retry passed 487 tests with the same two Swift skips and
+does not cover the rebased head. The exact-head remote unit gate passed 487
+tests with two Swift skips. Explicit remote assembly of the manual audit
+target passed. Assembly does not execute the SQL. `.bazelrc.remote` is a
+physical mode 0600 copy in this checkout. `.bazelrc.local` is absent and was
+not copied. Provenance links are in the
+[review receipt](../../../docs/architecture/exposure-source-validation.receipt.md).
