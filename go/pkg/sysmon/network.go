@@ -50,7 +50,7 @@ func filterNetworkCounters(
 		if !ok {
 			iface = classifyByName(counter.Name)
 		}
-		if iface.IsHostInternal() {
+		if iface.IsTrafficInternal() {
 			continue
 		}
 
