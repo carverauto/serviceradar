@@ -9,6 +9,23 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrustTest do
     %{keys: EdgeRecordFactory.keypair()}
   end
 
+  test "live trust expires and an invalid replacement cannot extend its deadline", %{keys: keys} do
+    document = EdgeRecordFactory.trust_document(keys.public)
+    now = System.monotonic_time(:millisecond)
+
+    assert :ok = EdgeRecordTrust.install(document, now + 30_000)
+    assert EdgeRecordTrust.available?()
+    assert :ok = EdgeRecordTrust.install(document, now - 1)
+    assert {:error, :trust_unavailable} = EdgeRecordTrust.snapshot()
+    refute EdgeRecordTrust.available?()
+
+    assert {:error, :no_keys} = EdgeRecordTrust.install(%{document | "keys" => []}, now + 30_000)
+    assert {:error, :trust_unavailable} = EdgeRecordTrust.snapshot()
+
+    assert :ok = EdgeRecordTrust.install(document, now + 30_000)
+    assert EdgeRecordTrust.available?()
+  end
+
   test "a valid document becomes a snapshot keyed by exact issuer and key id", %{keys: keys} do
     assert {:ok, snapshot} = EdgeRecordTrust.new(EdgeRecordFactory.trust_document(keys.public))
 

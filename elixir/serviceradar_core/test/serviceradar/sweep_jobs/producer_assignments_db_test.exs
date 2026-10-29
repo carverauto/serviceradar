@@ -1,6 +1,8 @@
 defmodule ServiceRadar.SweepJobs.ProducerAssignmentsDbTest do
   use ServiceRadar.DataCase, async: true
 
+  alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.RecordTrust
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -12,6 +14,36 @@ defmodule ServiceRadar.SweepJobs.ProducerAssignmentsDbTest do
     actor = %{id: Ash.UUID.generate(), email: "operator-#{suffix}@example.test", role: :operator}
 
     {:ok, actor: actor, suffix: suffix}
+  end
+
+  test "gateway trust reads the current fence including revocation and the agent scope", ctx do
+    group = create_group!(ctx)
+    scope = Ash.UUID.generate()
+    agent = "agent-trust-#{ctx.suffix}"
+    key = IssuerKey.from_seed(:binary.copy(<<0x41>>, 32))
+    {:ok, assignment} = ProducerAssignments.ensure(group.id, agent, scope)
+    encoded_assignment = assignment.id |> Ecto.UUID.dump!() |> Base.encode64()
+    encoded_scope = scope |> Ecto.UUID.dump!() |> Base.encode64()
+
+    assert {:ok, document} = RecordTrust.snapshot(key)
+    assert [public_key] = document["keys"]
+    assert public_key["public_key"] == Base.encode64(key.public_key)
+
+    assert Enum.find(document["scopes"], &(&1["agent_id"] == agent)) ==
+             %{"agent_id" => agent, "network_scope_ids" => [encoded_scope]}
+
+    fence = Enum.find(document["fences"], &(&1["producer_assignment_id"] == encoded_assignment))
+    assert fence["authority_epoch"] == 1
+    assert fence["network_scope_id"] == encoded_scope
+
+    assert {:ok, 1} = ProducerAssignments.revoke_agents(group.id, [agent])
+    assert {:ok, revoked} = RecordTrust.snapshot(key)
+    fence = Enum.find(revoked["fences"], &(&1["producer_assignment_id"] == encoded_assignment))
+    assert fence["authority_epoch"] == 2
+
+    assert Enum.find(revoked["scopes"], &(&1["agent_id"] == agent))["network_scope_ids"] == [
+             encoded_scope
+           ]
   end
 
   test "ensure creates an active assignment at epoch 1 and returns it unchanged afterwards",
