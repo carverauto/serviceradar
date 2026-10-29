@@ -1,0 +1,153 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Proposed exposure validation receipts",
+    "quality_profile": "showcase",
+    "locale": "en"
+  },
+  "lanes": [
+    {
+      "id": "prepare",
+      "label": "Independent inputs"
+    },
+    {
+      "id": "audit",
+      "label": "Every audit source view"
+    },
+    {
+      "id": "recovery",
+      "label": "Existing recovery",
+      "variant": "exception"
+    }
+  ],
+  "mainPath": [
+    "validate_payload",
+    "bound_receipt",
+    "check_binding",
+    "compare_current",
+    "publish_result"
+  ],
+  "nodes": [
+    {
+      "id": "validate_payload",
+      "lane": "prepare",
+      "col": 0,
+      "type": "backend",
+      "label": "Existing decoder",
+      "sublabel": "Retained payload; 500 rows",
+      "width": 155
+    },
+    {
+      "id": "bound_receipt",
+      "lane": "prepare",
+      "col": 1,
+      "type": "database",
+      "label": "Validation receipt",
+      "sublabel": "Digest, references, version",
+      "width": 165
+    },
+    {
+      "id": "check_binding",
+      "lane": "audit",
+      "col": 1,
+      "type": "security",
+      "label": "Check content binding",
+      "sublabel": "Mismatch cannot pass",
+      "width": 165
+    },
+    {
+      "id": "compare_current",
+      "lane": "audit",
+      "col": 2,
+      "type": "backend",
+      "label": "Hash current values",
+      "sublabel": "Independent source digest",
+      "width": 165
+    },
+    {
+      "id": "publish_result",
+      "lane": "audit",
+      "col": 3,
+      "type": "security",
+      "label": "Compare and publish",
+      "sublabel": "Proofs, fences, readiness",
+      "width": 165
+    },
+    {
+      "id": "actual_warehouse",
+      "lane": "prepare",
+      "col": 3,
+      "type": "database",
+      "label": "Actual warehouse rows",
+      "sublabel": "Fresh v1 digest",
+      "width": 170
+    },
+    {
+      "id": "defer_scope",
+      "lane": "recovery",
+      "col": 1,
+      "type": "database",
+      "label": "Defer affected scope",
+      "sublabel": "Prepare or repair; retry view",
+      "width": 170
+    }
+  ],
+  "edges": [
+    {
+      "from": "validate_payload",
+      "to": "bound_receipt",
+      "label": "conditional write",
+      "role": "main"
+    },
+    {
+      "from": "bound_receipt",
+      "to": "check_binding",
+      "label": "same source view",
+      "role": "main"
+    },
+    {
+      "from": "check_binding",
+      "to": "compare_current",
+      "label": "exact match",
+      "role": "main"
+    },
+    {
+      "from": "compare_current",
+      "to": "publish_result",
+      "label": "replay agrees",
+      "role": "main"
+    },
+    {
+      "from": "actual_warehouse",
+      "to": "publish_result",
+      "label": "compare actual data",
+      "role": "branch"
+    },
+    {
+      "from": "check_binding",
+      "to": "defer_scope",
+      "label": "absent or stale",
+      "role": "error",
+      "variant": "security"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Reuse only source validation",
+      "items": [
+        "Receipt is tied to complete payload content and validator version",
+        "Current facts and warehouse content remain independently checked"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Proposal, not a performance result",
+      "items": [
+        "Preparation, writes, storage and recovery must be measured",
+        "6-second fact screen and 900-second fleet gate remain open"
+      ]
+    }
+  ]
+}
