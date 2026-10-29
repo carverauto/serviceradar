@@ -81,6 +81,12 @@ In the web UI:
 3. Fill in the required fields (gateway, agent ID/label, etc.)
 4. Submit and copy the edgepkg token from the success modal
 
+Under **Advanced options**, set **Partition** and optionally **Host IP**.
+Both values remain in the form during validation and are saved with the package.
+Leading and trailing whitespace is removed on submission. An empty or
+whitespace-only partition uses `default`; an empty or whitespace-only host IP
+leaves address detection to enrollment.
+
 The enroll command looks like:
 
 ```bash
