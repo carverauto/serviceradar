@@ -56,7 +56,8 @@ agent's addresses (primary or confirmed alias), its hostname's first label equal
 agent's, and it shares no eligible MAC with the agent, the pair is recorded as a
 `policy_block` decision with reason
 `agent_corroboration_not_identity`, which opens a de-duplication task. Same-named hosts at
-different sites share no eligible MAC and never fuse, in either arrival order. A later
+different sites never fuse on hostname or address alone, in either arrival order. For
+certificate-based linking of Proxmox hosts, see [Hypervisor nodes](#hypervisor-nodes). A later
 integration record cannot adopt an agent-bound holder by hostname: it records
 `hostname_agreement_not_identity` with refusal `agent_bound_holder`. Source-authoritative
 refusal takes precedence; mapper/MAC holders remain eligible for adoption. An agent enrolled
@@ -116,7 +117,8 @@ in `SourcePolicy.sufficient_to_create?/1`.
 2. Pre-set `sr:` UUID — a hint, re-validated and canonical-followed
 3. Deterministic UID derived from the highest-priority identifiers (a
    locally-administered MAC alone is not one; a MAC-only UID is seeded from
-   the first universal MAC)
+   the first universal MAC). Certificate fingerprints participate in matching,
+   but are deliberately excluded from UID seeds to preserve existing device UIDs.
 4. IP/alias fallback — only for weak updates
 5. Deterministic (IP-seeded) or random UID
 
@@ -353,7 +355,8 @@ one, such as a mapper probe, is ignored. A shared value converges records under 
 like a globally-unique MAC, and two records bound to distinct agents still never merge. A
 renewed certificate registers beside the old value, which ages out with the identifier TTL, so
 the record does not split. The agent and plugin releases that report the value are both needed
-before an existing node and agent pair converges.
+before an existing node and agent pair converges. The gateway and core must also be upgraded
+to forward and consume `host_tls_fingerprints` on both hello transports.
 
 ### IP aliases
 

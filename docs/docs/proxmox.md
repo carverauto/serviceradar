@@ -33,6 +33,10 @@ The general credential model -- credentials, rules, purposes, scopes, priority, 
 
 ### TLS Verification and Node Certificates
 
+For node-to-agent identity linking and how certificate choice affects it, see
+[DIRE hypervisor nodes](./dire-identity-model.md#hypervisor-nodes). The API verification
+requirements below apply independently of the agent's local identity probe.
+
 This is the step that most often blocks a first Proxmox rollout, and the reason is
 narrower than "self-signed certificate". Two constraints combine.
 
@@ -527,6 +531,8 @@ ServiceRadar maps this into canonical devices plus provider-neutral virtualizati
 
 For guest NIC correlation with agent-monitored devices and the required rollout,
 see [Agent host evidence](./dire-identity-model.md#agent-host-evidence).
+For node certificate collection and linking a node without a MAC to its agent,
+see [Hypervisor nodes](./dire-identity-model.md#hypervisor-nodes).
 
 ## Logs
 

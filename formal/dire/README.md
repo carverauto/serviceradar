@@ -294,9 +294,9 @@ Each environment stands for a real situation:
 | `integration_agent_cert` | A Proxmox node with no MAC, known to its integration and running an agent. Both report the node's own certificate (`c1`), and the agent links to the integration record through it (#6146). `resolution_vacuity_agent_links_node_cert` expects `NeverAgentOnIntegrationRecord` to fail. |
 | `integration_clones_cert` | The `integration_clones` world with an agent on each node and a distinct node certificate per node. The certificates link each agent to its own node and never join the two. |
 
-Only a node's own certificate (`pve-ssl.pem`) is identity. Neither producer reports a custom or
-ACME certificate, which can be one wildcard shared by many nodes, so the model assumes no two
-devices report one `CertOf` value unless `shared_certificate_identifies` is enabled.
+The model assumes no two devices report one `CertOf` value unless
+`shared_certificate_identifies` is enabled. The producer admission rules behind this
+assumption are defined in [DIRE hypervisor nodes](../../docs/docs/dire-identity-model.md#hypervisor-nodes).
 
 The `Spare` constant holds record names that no identifier or address names. A re-issued id
 whose own uid already names an old record creates a record under one of them.
