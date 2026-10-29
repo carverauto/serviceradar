@@ -553,6 +553,8 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
           }
         ])
 
+      collect(ctx, 1, [], hours: 0)
+
       {:ok, retire_ctx} =
         SourceRetirement.context(
           %{partition: "default", source: "armis", source_instance: ctx.inst},
