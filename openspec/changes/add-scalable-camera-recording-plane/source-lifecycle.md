@@ -91,11 +91,14 @@ serialize on the same source/profile reservation, across coordinator replicas.
 If source ownership is unresolved, attach waits within a deadline or fails; it
 never opens an alternative source to improve apparent availability.
 
-Detach releases only its named consumer. Last hosted viewer departure from a
-locally recorded source may retire the cloud upload, but leaves local capture
-running. Cloud recording itself retains the shared upload when no viewers
-remain. Recorder stop/overload drains only the recorder branch when independent
-viewers remain. Unrelated sources and viewer queues keep their own budgets.
+Detach releases only its named consumer. After bounded idle handling, the
+runtime retires only the captured cloud uplink and its downstream viewing
+resources when the last hosted viewer has left a locally recorded source and no
+other admitted cloud consumer needs them. Local source capture and recording
+continue under their existing authority. Cloud recording itself retains the
+shared upload when no viewers remain. Recorder stop/overload drains only the
+recorder branch when independent viewers remain. Unrelated sources and viewer
+queues keep their own budgets.
 
 When no consumers remain, reserve idle close under the source lock before
 dispatch. An attach racing before that reservation keeps the source alive; one
