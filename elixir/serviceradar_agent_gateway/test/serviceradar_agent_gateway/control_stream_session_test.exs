@@ -3,7 +3,9 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
   alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.Edge.ProxmoxConsolePubSub
+  alias ServiceRadar.Edge.RemoteAccessFileTransfers
   alias ServiceRadar.Edge.RemoteAccessPubSub
+  alias ServiceRadar.NATS.DurablePublish
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.ControlStreamSession
 
@@ -622,6 +624,115 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
                       partition_id: "partition-a",
                       gateway_node: "gateway-a"
                     }}
+  end
+
+  test "with repo disabled, durable publish returns repo_unavailable without raising" do
+    previous_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled, true)
+    Application.put_env(:serviceradar_core, :repo_enabled, false)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :repo_enabled, previous_repo_enabled)
+    end)
+
+    assert Process.whereis(ServiceRadar.Repo) == nil
+
+    assert {:error, :repo_unavailable} =
+             DurablePublish.publish("logs.internal.audit", "{}",
+               msg_id: "gateway-dbless-#{System.unique_integer([:positive])}"
+             )
+  end
+
+  test "with repo disabled, file-transfer frames route to core over RPC and fail cleanly without raising when core is unavailable" do
+    ensure_pubsub!()
+
+    previous_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled, true)
+    Application.put_env(:serviceradar_core, :repo_enabled, false)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :repo_enabled, previous_repo_enabled)
+    end)
+
+    assert Process.whereis(ServiceRadar.Repo) == nil
+
+    session_id = Ecto.UUID.generate()
+    transfer_id = Ecto.UUID.generate()
+    identity_context = identity_context("agent-owned", "partition-a")
+
+    :ok = RemoteAccessPubSub.subscribe(session_id)
+
+    pid =
+      start_supervised!(
+        {ControlStreamSession, stream: nil},
+        id: :dbless_file_transfer_session,
+        restart: :temporary
+      )
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | agent_id: "agent-owned",
+          partition_id: "partition-a",
+          gateway_node: "gateway-a",
+          registered_identity: identity_context
+      }
+    end)
+
+    frame_data =
+      Jason.encode!(%{
+        transfer_id: transfer_id,
+        status: "completed",
+        bytes_transferred: 512,
+        files_transferred: 1
+      })
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        ControlStreamSession.handle_message(
+          pid,
+          %Monitoring.ControlStreamRequest{
+            payload:
+              {:console_frame,
+               %Monitoring.ConsoleFrame{
+                 session_id: session_id,
+                 frame_type: "file_transfer_outcome",
+                 data: frame_data,
+                 timestamp: 125
+               }}
+          },
+          identity_context
+        )
+
+        _ = :sys.get_state(pid)
+      end)
+
+    assert log =~ "Remote access file transfer failed because core is unavailable"
+    assert_receive {:remote_access_frame, %{session_id: ^session_id, frame_type: "file_transfer_outcome"} = frame_payload}
+    assert {:error, :core_unavailable} = ControlStreamSession.handle_file_transfer_frame(frame_payload)
+    assert {:error, :repo_unavailable} = RemoteAccessFileTransfers.handle_agent_frame(frame_payload)
+
+    core_node = start_file_transfer_core_peer!(session_id, transfer_id)
+
+    ControlStreamSession.handle_message(
+      pid,
+      %Monitoring.ControlStreamRequest{
+        payload:
+          {:console_frame,
+           %Monitoring.ConsoleFrame{
+             session_id: session_id,
+             frame_type: "file_transfer_outcome",
+             data: frame_data,
+             timestamp: 126
+           }}
+      },
+      identity_context
+    )
+
+    assert_receive {:core_transfer_read, ^core_node, ^transfer_id}, 5_000
+    assert_receive {:core_transfer_finish, ^core_node, ^transfer_id, %{byte_count: 512, file_count: 1}}, 5_000
+    assert_receive {:core_published_audit, ^core_node, audit_event}, 5_000
+    assert core_node != node()
+    assert audit_event.unmapped["action"] == "remote_access_file_transfer_completed"
+    assert audit_event.unmapped["resource_id"] == transfer_id
   end
 
   test "unregistered control streams do not broadcast console frames" do
@@ -1356,5 +1467,128 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
       {^pid, metadata} -> metadata
       _entry -> nil
     end)
+  end
+
+  defp start_file_transfer_core_peer!(session_id, transfer_id) do
+    if !Node.alive?() do
+      {_, 0} = System.cmd("epmd", ["-daemon"])
+      {:ok, _} = :net_kernel.start([:gateway_control_stream_test, :shortnames])
+      on_exit(fn -> :net_kernel.stop() end)
+    end
+
+    basename = "control_stream_core_#{System.unique_integer([:positive])}"
+
+    previous_basename =
+      Application.get_env(:serviceradar_agent_gateway, :cluster_core_node_basename)
+
+    Application.put_env(:serviceradar_agent_gateway, :cluster_core_node_basename, basename)
+
+    on_exit(fn ->
+      if previous_basename do
+        Application.put_env(
+          :serviceradar_agent_gateway,
+          :cluster_core_node_basename,
+          previous_basename
+        )
+      else
+        Application.delete_env(:serviceradar_agent_gateway, :cluster_core_node_basename)
+      end
+    end)
+
+    peer =
+      start_supervised!(%{
+        id: :control_stream_core_peer,
+        start:
+          {:peer, :start_link,
+           [
+             %{
+               name: String.to_atom(basename),
+               connection: :standard_io,
+               args: [~c"+S", ~c"2", ~c"-setcookie", Atom.to_charlist(Node.get_cookie())]
+             }
+           ]},
+        restart: :temporary
+      })
+
+    core_node = :peer.call(peer, :erlang, :node, [])
+    :ok = :peer.call(peer, :code, :add_paths, [:code.get_path()])
+    {:ok, _} = :peer.call(peer, Application, :ensure_all_started, [:elixir])
+    :ok = :peer.call(peer, Code, :put_compiler_option, [:ignore_module_conflict, true])
+
+    :ok =
+      :peer.call(peer, :persistent_term, :put, [
+        :control_stream_test_owner,
+        {self(), session_id, transfer_id}
+      ])
+
+    :peer.call(peer, Code, :compile_string, [
+      """
+      if Process.whereis(ServiceRadar.Repo) == nil do
+        {:ok, _} = Agent.start(fn -> :ok end, name: ServiceRadar.Repo)
+      end
+
+      defmodule ServiceRadar.Events.InternalLogPublisher do
+        def publish("audit", event) do
+          {owner, _session_id, _transfer_id} = :persistent_term.get(:control_stream_test_owner)
+          send(owner, {:core_published_audit, node(), event})
+          :ok
+        end
+      end
+
+      defmodule ServiceRadar.Edge.RemoteAccessRecording do
+        def get_by_session(_session_id, _opts), do: {:ok, nil}
+      end
+
+      defmodule ServiceRadar.Edge.RemoteAccessFileTransfer do
+        def utc_now, do: DateTime.utc_now()
+
+        def get_by_id(transfer_id, _opts) do
+          {owner, session_id, expected_transfer_id} = :persistent_term.get(:control_stream_test_owner)
+          send(owner, {:core_transfer_read, node(), transfer_id})
+
+          if transfer_id == expected_transfer_id do
+            {:ok,
+             %{
+               id: transfer_id,
+               session_id: session_id,
+               requested_by: nil,
+               device_uid: "sr:device-1",
+               target_kind: :device,
+               target_host: "192.0.2.10",
+               target_port: 22,
+               agent_id: "agent-owned",
+               gateway_id: "gateway-a",
+               operation: :download,
+               direction: :read,
+               protocol: :sftp,
+               credential_custody_mode: :ssh_certificate,
+               target_path: "/var/log/app.log",
+               redacted_path: "/var/log/app.log",
+               path_hash: String.duplicate("a", 64),
+               byte_count: 0,
+               file_count: 0,
+               policy_decision: %{allowed: true, content_audit_retain: false},
+               quota_snapshot: %{max_bytes: 10_000},
+               approval_id: nil,
+               content_audit_retained: false,
+               content_artifact_ref: %{},
+               status: :in_progress
+             }}
+          else
+            {:error, :not_found}
+          end
+        end
+
+        def finish(transfer, attrs, _opts) do
+          {owner, _session_id, _expected_transfer_id} = :persistent_term.get(:control_stream_test_owner)
+          send(owner, {:core_transfer_finish, node(), transfer.id, Map.take(attrs, [:byte_count, :file_count])})
+          {:ok, Map.merge(transfer, Map.put(attrs, :status, :completed))}
+        end
+      end
+      """
+    ])
+
+    true = Node.connect(core_node)
+    core_node
   end
 end

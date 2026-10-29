@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.DeviceLifecycle do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Repo
 
   @device_uid_keys [
     :device_uid,
@@ -40,13 +41,22 @@ defmodule ServiceRadar.Inventory.DeviceLifecycle do
   def fetch_active?("", _opts), do: {:ok, true}
 
   def fetch_active?(device_uid, opts) when is_binary(device_uid) do
-    actor = Keyword.get(opts, :actor, SystemActor.system(:device_lifecycle))
+    if core_repo_enabled?() do
+      actor = Keyword.get(opts, :actor, SystemActor.system(:device_lifecycle))
 
-    case Device.get_by_uid(device_uid, true, actor: actor) do
-      {:ok, %Device{is_active: false}} -> {:ok, false}
-      {:ok, _device} -> {:ok, true}
-      {:error, reason} -> {:error, reason}
+      case Device.get_by_uid(device_uid, true, actor: actor) do
+        {:ok, %Device{is_active: false}} -> {:ok, false}
+        {:ok, _device} -> {:ok, true}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :repo_unavailable}
     end
+  end
+
+  defp core_repo_enabled? do
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false and
+      is_pid(Process.whereis(Repo))
   end
 
   @spec active?(String.t() | nil, keyword()) :: boolean()

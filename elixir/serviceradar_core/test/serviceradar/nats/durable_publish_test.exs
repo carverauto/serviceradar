@@ -92,4 +92,21 @@ defmodule ServiceRadar.NATS.DurablePublishTest do
     assert_received {:enqueued, %{"msg_id" => "d", "on_published" => "northbound_handlers"}}
     refute_received {:after_publish, _, _}
   end
+
+  test "returns {:error, :repo_unavailable} instead of raising when the repo is disabled" do
+    previous_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled, true)
+    Application.put_env(:serviceradar_core, :repo_enabled, false)
+
+    on_exit(fn ->
+      Application.put_env(:serviceradar_core, :repo_enabled, previous_repo_enabled)
+    end)
+
+    assert {:error, :repo_unavailable} =
+             DurablePublish.publish("logs.internal.audit", "{}",
+               msg_id: "e",
+               publish: fn _subject, _body, _opts ->
+                 flunk("must not publish when repo is unavailable")
+               end
+             )
+  end
 end
