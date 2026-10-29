@@ -30,6 +30,14 @@ independent. This closes duplicate admission within one agent manager; it does
 not implement cross-agent fencing, recorder pools or continuous recording, so
 2.4 and 2.5 remain open.
 
+Open-command identity checkpoint for 2.5: a new relay reservation persists its
+command UUID before dispatch, and the command ledger and control-stream request
+use that UUID. Concurrent opens reuse the reservation; an interrupted opener
+does not erase its command correlation. This does not replay an interrupted
+dispatch, reconcile an agent incarnation, or prove physical retirement. Those
+recovery and handoff tasks remain open, as do durable close-operation identity
+and command-ledger retention beyond its existing cleanup policy.
+
 ## 3. Storage modes and recovery
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.

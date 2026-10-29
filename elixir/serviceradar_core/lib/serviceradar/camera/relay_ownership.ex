@@ -119,6 +119,7 @@ defmodule ServiceRadar.Camera.RelayOwnership do
            RelaySession.mark_opening(
              session,
              %{
+               command_id: Ecto.UUID.generate(),
                lease_token: Base.encode16(:crypto.strong_rand_bytes(16), case: :lower),
                lease_expires_at: lease.lease_expires_at
              },
