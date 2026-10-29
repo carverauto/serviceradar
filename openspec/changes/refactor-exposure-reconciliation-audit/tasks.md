@@ -28,7 +28,7 @@ authorized merely to fill this checkbox.
 
 ## 3. Adoption (separate approval)
 
-- [ ] 3.1 Publish measured results through no-mistakes with current-head hosted checks. Keep parent task 1.6 open unless the actual fleet gate passes.
+- [x] 3.1 Publish measured results through no-mistakes with current-head hosted checks. PR #6171 merged with all 18 hosted checks passing; the publication-only Test exception did not waive capacity. Parent task 1.6 remains open.
 - [ ] 3.2 Review production migration/backfill cost, restore integration and rollback. Adopt only through a separately approved runtime PR and scheduled rollout.
 
 ## 4. Explicitly approved bounded diagnostic follow-up
