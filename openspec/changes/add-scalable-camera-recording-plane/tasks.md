@@ -6,7 +6,7 @@ not a shipped camera-count guarantee.
 ## 1. Contracts and qualification design
 
 - [x] 1.1 Review/approve the three supported modes, independent recorder tier and no-JetStream-media decision.
-- [ ] 1.2 Specify source routing/consumer lifecycle and assignment/handoff transitions, including all crash and partition boundaries.
+- [x] 1.2 Specify source routing/consumer lifecycle and assignment/handoff transitions, including all crash and partition boundaries. [Source lifecycle](source-lifecycle.md) defines the three lifetimes, consumer ordering, transition evidence and failure matrix; implementation and offline-grant qualification remain open.
 - [ ] 1.3 Specify finite offline grants, conservative expiry/reboot behavior and provenance-checked historical reconciliation without weakening stale-owner fences.
 - [ ] 1.4 Define local durable publication/restore/hold guarantees separately from provisional spool and S3 archive proofs.
 - [ ] 1.5 Select measurable per-mode coverage, latency, outage, recovery, retention and cost SLOs; record supported codec/hardware profiles.
