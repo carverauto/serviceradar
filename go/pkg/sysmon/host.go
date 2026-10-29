@@ -61,7 +61,7 @@ func getLocalIP(ctx context.Context) string {
 	return localAddr.IP.String()
 }
 
-// firstUsableIPv4 finds the first non-loopback, non-docker IPv4 address.
+// firstUsableIPv4 selects a host IPv4 using the shared interface classification.
 func firstUsableIPv4() string {
 	return firstUsableIPv4FromInventory(hostinventory.Collect())
 }

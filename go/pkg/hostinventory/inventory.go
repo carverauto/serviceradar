@@ -173,8 +173,7 @@ func IsHostInternalName(name string) bool {
 		return true
 	}
 	// These prefixes name container bridges, CNI overlays, guest
-	// devices, tunnels and other interfaces internal to the host. It mirrors
-	// ServiceRadar.Inventory.Identity.GuestAddress on the core side.
+	// devices, tunnels and other interfaces internal to the host.
 	hostInternalNamePrefixes := []string{
 		"docker",
 		"br-",

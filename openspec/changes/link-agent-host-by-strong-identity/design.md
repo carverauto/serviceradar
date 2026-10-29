@@ -175,13 +175,11 @@ aliases unless another source records them, as before.
 ### D10. One interface classifier
 
 `go/pkg/hostinventory` owns interface classification and the host-internal name prefixes used by
-both the agent and sysmon (`go/pkg/sysmon/network.go` `shouldSkipInterface`, `host.go`
-`firstUsableIPv4`). Moving sysmon onto `(hostinventory.Interface).IsHostInternal()` keeps physical
-and virtual uplinks (including container `eth0` and SR-IOV VFs), bonds, VLANs, and external bridges
-such as `vmbr*` and `br0`, while additionally skipping CNI/overlay prefixes (`cni*`, `flannel*`,
-`cali*`, `vxlan*`, `cilium*`, `kube-*`, `weave*`, `podman*`, `lxcbr*`, `lxdbr*`) and Linux sysfs
-`KindTunnel` devices (`wg*`, `sit*`, `gre*`, `ipip*`, `geneve*`). Identity flows only through the
-hellos, never through sysmon metrics.
+both the agent and sysmon. Sysmon's `filterNetworkCounters` and `firstUsableIPv4FromInventory`
+use `(hostinventory.Interface).IsHostInternal()`; counters missing from the inventory snapshot
+use `hostinventory.ClassifyName` for platform classification. The operator-facing filtering
+contract is documented in [Sysmon Profiles](../../../docs/docs/sysmon-profiles.md#network-interface-filtering).
+Identity flows only through the hellos, never through sysmon metrics.
 
 ### D11. Hypervisor nodes without a MAC
 
