@@ -44,7 +44,10 @@ whole audit was about 34 seconds, compared with about 31 seconds previously.
 Fact and orchestration use different accounting in the two runs, so those
 columns cannot be read as isolated speedups. Fleet selectivity,
 mostly-unique-key evidence, parent task 1.6, and adoption remain open.
-Rounded figures and limits are in [design.md](design.md).
+Rounded figures and limits are in [design.md](design.md). On 2026-10-29 the
+product owner approved publication of this disabled experiment as a negative
+result. That approval is a publication-only exception. It does not accept
+the failed screens.
 
 ## Impact
 

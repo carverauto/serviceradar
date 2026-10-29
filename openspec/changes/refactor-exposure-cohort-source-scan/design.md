@@ -264,17 +264,19 @@ statement read the assessment table once, still scanning about 510,000 rows
 to select about 82,000. The validator result executed once per selected row.
 Rounded inclusive node time for that per-row work is about 2.2 seconds, and
 the complete typed projection took about 3.1 seconds. Those figures are
-inclusive plan timings, not a CPU profile. Typed and compact projection
-widths were about 180 and 60 bytes. Neither shared materialization retained
-raw replay JSON.
+inclusive plan timings, not a CPU profile. EXPLAIN Plan Width values for
+the typed and compact projections were about 180 and 60 bytes. Those values
+are planner estimates, not measured row sizes. Raw replay JSON is not carried
+through the typed and compact shared materializations.
 
 The fused statement took about 5.1 seconds, compared with about 4.6 seconds
-for the preceding separate source and coverage plans combined. Proof
-resolution used about 53,000 key and proof lookups, compared with about
-82,000 before. Device and key memberships still equaled all 163,000 reference
-occurrences in this fixture. Distinct removal dropped no rows, spilled into
-five batches, and was followed by sort and join work. Temporary writes fell
-to about 5,500 blocks from about 8,000 for the old source statement alone.
+for the preceding separate source and coverage plans combined. Global cohort
+key deduplication reduced the cohort to about 53,000 keys. Proof resolution
+used about 53,000 key and proof lookups, compared with about 82,000 before.
+Per-device memberships still equaled all 163,000 reference occurrences, so
+that membership deduplication removed no rows. It spilled into five batches
+and was followed by sort and join work. Temporary writes fell to about
+5,500 blocks from about 8,000 for the old source statement alone.
 Fewer scans and lookups are confirmed. The screen still failed.
 
 | Measurement | This run | Previous corrected run | Gate |
@@ -294,21 +296,24 @@ failure. No rerun, tuning sweep, codec change, higher concurrency, persistent
 validation state, or fleet attempt is authorized. The result is not a
 performance waiver.
 
-Both scratch warehouse schemas had zero rows in all five scratch tables before
-removal. Both schemas and their grants were independently verified absent.
-Hosted database teardown and generation release passed. Separate operator
-checks found zero run-owned databases in both possible execution locations.
-No deployment addresses or raw plans are recorded here.
+Scratch warehouse tables were empty before removal. Schemas, temporary
+grants, and run-owned CNPG fixture databases were removed. Generation release
+passed. No cluster was created or removed. The authorized run used existing
+shared infrastructure. Separate checks found zero run-owned databases in both
+execution locations. No deployment addresses or raw plans are recorded here.
 
 Task 2.2 stays incomplete. This fixture does not supply fleet selectivity or
 a mostly-unique-key case. A small-fixture scan of about 510,000 rows does not
 bound work at 32 of 20,000 devices. Parent task 1.6, the fleet gate, and
-runtime adoption stay open. Publication remains blocked until a later decision
-authorizes disposition of this negative experiment.
+runtime adoption stay open. On 2026-10-29 the product owner approved
+publication of this disabled experiment as a negative result. That approval
+is a publication-only Test exception. It does not accept the failed
+performance screens, change the gates, or authorize another allocation.
 
-Remote checks that do not replace the measurement above: the first full unit
-gate passed 486 tests, failed one unrelated camera storage transport
-assertion, and skipped two Swift tests. That unchanged camera test passed on
+Ordinary unit and assembly checks below are unit validation. They are not
+live-product scenarios and do not replace the hosted measurement above. The
+first full unit gate passed 486 tests, failed one unrelated camera storage
+transport assertion, and skipped two Swift tests. That unchanged camera test passed on
 retry. A pre-rebase retry passed 487 tests with the same two Swift skips and
 does not cover the rebased head. The exact-head remote unit gate passed 487
 tests with two Swift skips. Explicit remote assembly of the manual audit
