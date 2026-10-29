@@ -68,6 +68,7 @@ func fixture() *apiFixture {
 }
 
 func TestCommandChecksAPIResponses(t *testing.T) {
+	const replacementIdentity = "replacement"
 	retiring := meta.Now()
 	block := core.PersistentVolumeBlock
 	owner := []meta.OwnerReference{{APIVersion: "v1", Kind: "Pod", Name: "old-writer", UID: "old-owner"}}
@@ -77,9 +78,9 @@ func TestCommandChecksAPIResponses(t *testing.T) {
 		reason string
 	}{
 		{name: "retained idle association"},
-		{name: "namespace recreated", change: func(f *apiFixture) { f.namespace.UID = "replacement" }, reason: "namespace_mismatch_or_retiring"},
+		{name: "namespace recreated", change: func(f *apiFixture) { f.namespace.UID = replacementIdentity }, reason: "namespace_mismatch_or_retiring"},
 		{name: "namespace retiring", change: func(f *apiFixture) { f.namespace.DeletionTimestamp = &retiring }, reason: "namespace_mismatch_or_retiring"},
-		{name: "same claim name different UID", change: func(f *apiFixture) { f.claim.UID = "replacement" }, reason: "claim_identity_mismatch"},
+		{name: "same claim name different UID", change: func(f *apiFixture) { f.claim.UID = replacementIdentity }, reason: "claim_identity_mismatch"},
 		{name: "claim points elsewhere", change: func(f *apiFixture) { f.claim.Spec.VolumeName = "other-volume" }, reason: "claim_identity_mismatch"},
 		{name: "claim pending", change: func(f *apiFixture) { f.claim.Status.Phase = core.ClaimPending }, reason: "claim_not_bound_or_retiring"},
 		{name: "claim retiring", change: func(f *apiFixture) { f.claim.DeletionTimestamp = &retiring }, reason: "claim_not_bound_or_retiring"},
@@ -87,7 +88,7 @@ func TestCommandChecksAPIResponses(t *testing.T) {
 		{name: "RWO is insufficient", change: func(f *apiFixture) { f.claim.Spec.AccessModes = []core.PersistentVolumeAccessMode{core.ReadWriteOnce} }, reason: "claim_requires_filesystem_rwop"},
 		{name: "raw block claim", change: func(f *apiFixture) { f.claim.Spec.VolumeMode = &block }, reason: "claim_requires_filesystem_rwop"},
 		{name: "claim actual capacity below reserved minimum", change: func(f *apiFixture) { f.claim.Status.Capacity = core.ResourceList{} }, reason: "claim_capacity_insufficient"},
-		{name: "same volume name different UID", change: func(f *apiFixture) { f.volume.UID = "replacement" }, reason: "volume_identity_mismatch"},
+		{name: "same volume name different UID", change: func(f *apiFixture) { f.volume.UID = replacementIdentity }, reason: "volume_identity_mismatch"},
 		{name: "unbound PV", change: func(f *apiFixture) { f.volume.Spec.ClaimRef = nil }, reason: "volume_claim_reference_mismatch"},
 		{name: "PV retains old claim UID", change: func(f *apiFixture) { f.volume.Spec.ClaimRef.UID = "old-claim" }, reason: "volume_claim_reference_mismatch"},
 		{name: "PV targets another namespace", change: func(f *apiFixture) { f.volume.Spec.ClaimRef.Namespace = "other-test" }, reason: "volume_claim_reference_mismatch"},
@@ -99,7 +100,7 @@ func TestCommandChecksAPIResponses(t *testing.T) {
 		{name: "PV undersized", change: func(f *apiFixture) { f.volume.Spec.Capacity = core.ResourceList{} }, reason: "volume_capacity_insufficient"},
 		{name: "storage class changed", change: func(f *apiFixture) { f.volume.Spec.StorageClassName = "other-class" }, reason: "storage_class_mismatch"},
 		{name: "non CSI backing", change: func(f *apiFixture) { f.volume.Spec.CSI = nil }, reason: "csi_identity_or_access_mismatch"},
-		{name: "CSI handle substituted", change: func(f *apiFixture) { f.volume.Spec.CSI.VolumeHandle = "replacement" }, reason: "csi_identity_or_access_mismatch"},
+		{name: "CSI handle substituted", change: func(f *apiFixture) { f.volume.Spec.CSI.VolumeHandle = replacementIdentity }, reason: "csi_identity_or_access_mismatch"},
 		{name: "CSI read only", change: func(f *apiFixture) { f.volume.Spec.CSI.ReadOnly = true }, reason: "csi_identity_or_access_mismatch"},
 		{name: "driver retiring", change: func(f *apiFixture) { f.driver.DeletionTimestamp = &retiring }, reason: "driver_retiring"},
 		{name: "driver absent", change: func(f *apiFixture) {
