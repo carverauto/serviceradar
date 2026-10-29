@@ -105,39 +105,56 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccession do
   # MAC, or the MAC the source reports for an id of the type they hold or held. The token
   # expressions match the MAC indexes: devices and identifiers in migration 20260709210000,
   # Armis observations in migration 20261026070000. The query text must stay identical to them.
+  # Materializing the wanted MAC array in `wanted_macs` keeps the planner on those GIN indexes
+  # when the predecessor MAC list is large, and `matched_observations` scans the Armis
+  # observation index once for both live and archived identifier lookups.
   @mac_reporters_sql """
-  SELECT d.uid FROM platform.ocsf_devices AS d
+  WITH wanted_macs AS MATERIALIZED (
+    SELECT CAST($2 AS text[]) AS macs
+  ),
+  matched_observations AS MATERIALIZED (
+    SELECT o.partition || ':armis:' || o.source_instance AS armis_partition,
+           o.source_object_id
+    FROM wanted_macs AS wm
+    CROSS JOIN platform.device_source_observations AS o
+    WHERE o.source = 'armis' AND o.mac IS NOT NULL
+      AND regexp_split_to_array(upper(translate(o.mac, ':-.', '')), '[,;[:space:]]+')
+          && wm.macs
+  )
+  SELECT d.uid
+  FROM wanted_macs AS wm
+  CROSS JOIN platform.ocsf_devices AS d
   WHERE d.deleted_at IS NULL AND d.mac IS NOT NULL
     AND regexp_split_to_array(upper(translate(d.mac, ':-.', '')), '[,;[:space:]]+')
-        && CAST($2 AS text[])
+        && wm.macs
   UNION
-  SELECT di.device_id FROM platform.device_identifiers AS di
-  JOIN platform.ocsf_devices AS d ON d.uid = di.device_id AND d.deleted_at IS NULL
-  WHERE di.identifier_type = 'mac'
-    AND regexp_split_to_array(upper(translate(di.identifier_value, ':-.', '')), '[,;[:space:]]+')
-        && CAST($2 AS text[])
-  UNION
-  SELECT im.device_id FROM platform.device_interface_macs AS im
-  JOIN platform.ocsf_devices AS d ON d.uid = im.device_id AND d.deleted_at IS NULL
-  WHERE im.mac = ANY (CAST($2 AS text[]))
-  UNION
-  SELECT di.device_id FROM platform.device_source_observations AS o
-  JOIN platform.device_identifiers AS di
-    ON di.identifier_type = $1 AND di.identifier_value = o.source_object_id
-   AND di.partition = o.partition || ':armis:' || o.source_instance
-  JOIN platform.ocsf_devices AS d ON d.uid = di.device_id AND d.deleted_at IS NULL
-  WHERE o.source = 'armis' AND o.mac IS NOT NULL
-    AND regexp_split_to_array(upper(translate(o.mac, ':-.', '')), '[,;[:space:]]+')
-        && CAST($2 AS text[])
-  UNION
-  SELECT a.device_id FROM platform.device_source_observations AS o
-  JOIN platform.device_identifier_archive AS a
-    ON a.identifier_type = $1 AND a.identifier_value = o.source_object_id
-   AND a.partition = o.partition || ':armis:' || o.source_instance
-  JOIN platform.ocsf_devices AS d ON d.uid = a.device_id AND d.deleted_at IS NULL
-  WHERE o.source = 'armis' AND o.mac IS NOT NULL
-    AND regexp_split_to_array(upper(translate(o.mac, ':-.', '')), '[,;[:space:]]+')
-        && CAST($2 AS text[])
+  SELECT d.uid
+  FROM platform.ocsf_devices AS d
+  WHERE d.deleted_at IS NULL
+    AND d.uid = ANY (ARRAY(
+      SELECT di.device_id
+      FROM wanted_macs AS wm
+      CROSS JOIN platform.device_identifiers AS di
+      WHERE di.identifier_type = 'mac'
+        AND regexp_split_to_array(upper(translate(di.identifier_value, ':-.', '')), '[,;[:space:]]+')
+            && wm.macs
+      UNION
+      SELECT im.device_id
+      FROM platform.device_interface_macs AS im
+      WHERE im.mac = ANY (CAST($2 AS text[]))
+      UNION
+      SELECT di.device_id
+      FROM matched_observations AS mo
+      JOIN platform.device_identifiers AS di
+        ON di.identifier_type = $1 AND di.identifier_value = mo.source_object_id
+       AND di.partition = mo.armis_partition
+      UNION
+      SELECT a.device_id
+      FROM matched_observations AS mo
+      JOIN platform.device_identifier_archive AS a
+        ON a.identifier_type = $1 AND a.identifier_value = mo.source_object_id
+       AND a.partition = mo.armis_partition
+    ))
   """
 
   # The live records holding an id of the type the source first saw at one of the times.

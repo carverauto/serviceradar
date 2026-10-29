@@ -372,25 +372,31 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirement do
   # $5 the archive reason, $6 the partition suffix) and left unmarked: design D11's class 5,
   # retired by a release that did not mark. A record revived since its newest such id retired
   # was restored by an operator, and one held for review waits for the review. $7 limits the
-  # records, NULL for all.
+  # records, NULL for all. The review hold is checked last, on the records every other
+  # condition kept: as a filter of the device scan it ran before the anti-joins, once for each
+  # record that still holds an identifier, and each call searches the open de-duplication tasks.
   @unmarked_retired_sql """
-  SELECT d.uid
-  FROM (
-    SELECT a.device_id, max(a.archived_at) AS archived_at
-    FROM platform.device_identifier_archive AS a
-    WHERE a.identifier_type = CAST($4 AS text) AND a.archive_reason = CAST($5 AS text)
-      AND right(a.partition, char_length(CAST($6 AS text))) = CAST($6 AS text)
-      AND (CAST($7 AS text[]) IS NULL OR a.device_id = ANY (CAST($7 AS text[])))
-    GROUP BY a.device_id
-  ) AS r
-  JOIN platform.ocsf_devices AS d ON d.uid = r.device_id
-  WHERE #{@retired_only}
-    AND NOT EXISTS (
-      SELECT 1 FROM platform.device_revival_audit AS v
-      WHERE v.device_uid = d.uid AND v.revived_at >= (r.archived_at AT TIME ZONE 'UTC')
-    )
-    AND NOT platform.device_held_for_review(d.uid)
-  ORDER BY d.uid
+  WITH unmarked AS MATERIALIZED (
+    SELECT d.uid
+    FROM (
+      SELECT a.device_id, max(a.archived_at) AS archived_at
+      FROM platform.device_identifier_archive AS a
+      WHERE a.identifier_type = CAST($4 AS text) AND a.archive_reason = CAST($5 AS text)
+        AND right(a.partition, char_length(CAST($6 AS text))) = CAST($6 AS text)
+        AND (CAST($7 AS text[]) IS NULL OR a.device_id = ANY (CAST($7 AS text[])))
+      GROUP BY a.device_id
+    ) AS r
+    JOIN platform.ocsf_devices AS d ON d.uid = r.device_id
+    WHERE #{@retired_only}
+      AND NOT EXISTS (
+        SELECT 1 FROM platform.device_revival_audit AS v
+        WHERE v.device_uid = d.uid AND v.revived_at >= (r.archived_at AT TIME ZONE 'UTC')
+      )
+  )
+  SELECT u.uid
+  FROM unmarked AS u
+  WHERE NOT platform.device_held_for_review(u.uid)
+  ORDER BY u.uid
   """
 
   # Clears the mark set at $2 on the live record $1, putting back the identity state $3 it

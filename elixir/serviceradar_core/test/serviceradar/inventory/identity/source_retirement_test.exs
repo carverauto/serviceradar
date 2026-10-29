@@ -517,6 +517,57 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       assert %Device{source_retired_at: ^marked_at} = marked = device!(ctx, record)
       assert marked.metadata["identity_state"] == "source_retired"
     end
+
+    test "unmarked_retired filters out records holding live identifiers or held for review",
+         ctx do
+      [orphan, held, active, partner] = Enum.map(1..4, &create_device(ctx, &1))
+
+      for {record, idx} <- [{orphan, 1}, {held, 2}, {active, 3}] do
+        %{num_rows: 1} =
+          Repo.query!(
+            """
+            INSERT INTO platform.device_identifier_archive
+              (id, device_id, identifier_type, identifier_value, partition, confidence, source,
+               first_seen, last_seen, verified, metadata, archived_at, archive_reason)
+            VALUES ($1, $2, 'armis_device_id', $3, $4, 'strong', 'armis',
+                    now(), now(), false, '{}'::jsonb, now(), 'source_absent')
+            """,
+            [
+              System.unique_integer([:positive, :monotonic]) + 1_000_000,
+              record.uid,
+              "#{ctx.n}-archived-#{idx}",
+              ctx.id_partition
+            ]
+          )
+      end
+
+      register_identifier(ctx, active.uid, :armis_device_id, "#{ctx.n}-live-3", ctx.id_partition)
+
+      :ok =
+        Deduplication.open_for_decisions([
+          %{
+            decision_kind: :succession_review,
+            reason: "unmarked_retired_review_hold",
+            device_uids: [held.uid, partner.uid],
+            evidence: %{}
+          }
+        ])
+
+      collect(ctx, 1, [], hours: 0)
+
+      {:ok, retire_ctx} =
+        SourceRetirement.context(
+          %{partition: "default", source: "armis", source_instance: ctx.inst},
+          settings: @unguarded,
+          now: DateTime.shift(ctx.t0, hour: 30),
+          actor: ctx.actor
+        )
+
+      assert SourceRetirement.unmarked_retired(retire_ctx, [orphan.uid, held.uid, active.uid]) ==
+               [
+                 orphan.uid
+               ]
+    end
   end
 
   describe "legacy Proxmox identifiers" do
