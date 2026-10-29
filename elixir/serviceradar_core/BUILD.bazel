@@ -457,77 +457,12 @@ _TEST_RUNTIME_DATA = glob(
 ]
 
 INTEGRATION_RUNTIME_DATA = _TEST_RUNTIME_DATA + glob(
-    [
-        "config/**",
-        "lib/**",
-        "priv/**",
-        "test/**",
-    ],
+    ["config/**"],
     allow_empty = True,
-    exclude = [
-        "test/**/*_test.exs",
-        "test/release_gates/**",
-    ],
 ) + [
-    "@nats_server_linux_amd64//:nats_server",
-    "//elixir/serviceradar_core_elx:runtime_config",
-    # Read at MODULE level (compile time) by
-    # test/serviceradar/plugins/anomaly_addon_profile_seeder_test.exs, via
-    # Path.expand("../../../../../addons/...", __DIR__) -- so no tag can skip it and it
-    # has to be a declared input. ex_unit_test mirrors the workspace layout, which is
-    # what puts it where that relative path resolves.
-    "//addons/anomaly-addon:anomaly_manifest",
-    # Committed DIRE traces: test/serviceradar/inventory/dire_resolution_trace_test.exs
-    # compares each recorded trace with its golden copy (formal/dire/README.md).
     "//formal/dire:traces",
-    # Likewise module level: test/serviceradar/plugins/manifest_test.exs globs
-    # go/cmd/wasm-plugins/**/{config*.schema.json,plugin*.yaml} and raises if the glob
-    # comes back empty, so every first-party Wasm plugin package has to be an input.
-    "//go/cmd/wasm-plugins/alienvault-otx:srcs",
-    "//go/cmd/wasm-plugins/awx:srcs",
-    "//go/cmd/wasm-plugins/axis:srcs",
-    "//go/cmd/wasm-plugins/dusk-checker:srcs",
-    "//go/cmd/wasm-plugins/netbox:srcs",
-    "//go/cmd/wasm-plugins/opentext-nom:srcs",
-    "//go/cmd/wasm-plugins/proxmox:srcs",
-    "//go/cmd/wasm-plugins/sample-northbound:srcs",
-    "//go/cmd/wasm-plugins/starlink:srcs",
-    "//go/cmd/wasm-plugins/unifi-protect:srcs",
-    # Read at RUNTIME by ServiceRadar.Edge.AddonConfigContractFixturesTest through
-    # ServiceRadar.Plugins.AddonConfigContractFixtures.{fixture_dir,schema}/1, which
-    # resolve the repo root from the working directory when the compile-time one is not
-    # present. That makes these runfiles, not compile inputs: the test executes in a
-    # sandbox, so a file staged only into the mix_app build tree is not there at all.
-    # (anomaly-addon's manifest is already listed above.)
-    "//addons/bumblebee-scan:bumblebee_scan_manifest",
-    "//addons/netprobe:netprobe_manifest",
-    "//addons/otel-collector:otel_collector_manifest",
-    "//addons/rdp-adapter:rdp_adapter_manifest",
-    "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_manifest",
-    "//addons/workload-identity:workload_identity_manifest",
-    "//go/pkg/agent:addonconfig_contract_fixtures",
-    # The config loader, referenced from elixir_opts by a relative path, so it has to be
-    # a declared input too. The ex_unit_tests macro adds this automatically; a
-    # hand-written ex_unit_test does not.
     "//build:elixir_test_config_loader.exs",
-    # The per-run database name, as a declared build input. test/db/integration_env.exs
-    # reads it out of runfiles at build/run_id_file.txt -- the same file and the same
-    # relative path //rust/integration-db reads -- so provision, the suite and teardown
-    # cannot disagree about which database they own.
     "//build:run_id_file",
-    # Module level in test/serviceradar/proto/edge_v1_golden_test.exs, which loads the SHARED
-    # cross-language fixtures -- the sweep-join corpus among them -- through
-    # Path.expand("../../../../../proto/edge/v1/testdata", __DIR__). Without this the Bazel lane
-    # runs a test whose fixtures are not staged, so the shared corpus would be proven only under
-    # `mix test`.
-    "//proto/edge/v1:edge_testdata",
-    # Module level in test/serviceradar/edge/sweep_bench_fixture_test.exs. The glob above covers
-    # config/lib/priv/test but NOT bench/, and this one file is read by a test outside bench/ --
-    # the bench_driver target's own `bench/**` glob does not stage it for this tier.
-    "bench/sweep_ingress_fixtures.exs",
-    # Guarded suites resolve their endpoint from the one CI fixture identity, exactly as the Rust
-    # provisioner and template migrator do. Focused workstation Mix tests use a separately created
-    # srql-fixtures scratch database; a guarded Bazel lane cannot select localhost.
     "//config/environments:ci_binpb",
 ]
 

@@ -32,8 +32,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   the last slot pushed, so the newest capability the agent holds covers every slot it was given.
 
   A group that no longer leases to an agent gets a `revoked` push, and its delivery row is
-  removed once the agent's session accepted it. The row has no foreign key, so it remains when
-  the assignment or the group is destroyed; `withdraw_orphans/3` sends that same revocation
+  removed once the agent acknowledges installing its revocation. The row has no foreign key,
+  so it remains when the assignment or the group is destroyed; `withdraw_orphans/3` sends that same revocation
   for a row whose assignment is missing or revoked, or whose group is missing. An
   acknowledgement is stored only when its payload digest is the one last pushed.
 
@@ -109,15 +109,19 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
          {:ok, unrun} <- ExecutionSlots.list_unrun(assignment.id, now),
          {:ok, dropped?} <- dropped_since?(assignment, state, now) do
       case plan(state, lease_id, dropped? or undelivered_behind?(state, unrun), unrun, now) do
-        :up_to_date -> {:ok, :up_to_date}
-        push -> send_push(assignment, lease_id, push, authority, now, sender)
+        :up_to_date ->
+          {:ok, :up_to_date}
+
+        push ->
+          push = Map.put(push, :ack_pending_since, pending_since(state, lease_id, now))
+          send_push(assignment, lease_id, push, authority, now, sender)
       end
     end
   end
 
   @doc """
   Withdraws the group's lease from every agent with a delivery that is not in `keep`. A row is
-  removed once the agent's session accepted the revocation; otherwise the next pass retries.
+  removed once the agent acknowledges installing the revocation; otherwise the next pass retries.
   Returns how many were withdrawn.
   """
   @spec withdraw_except(Ecto.UUID.t(), [String.t()], DateTime.t(), sender()) ::
@@ -136,8 +140,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   @doc """
   Revokes every delivery whose producer assignment no longer exists or is revoked, or whose
-  sweep group no longer exists. A row is removed once the session accepted the revocation;
-  otherwise the next pass retries. Returns how many were withdrawn.
+  sweep group no longer exists. A row is removed once the agent acknowledges installing
+  the revocation; otherwise the next pass retries. Returns how many were withdrawn.
   """
   @spec withdraw_orphans(DateTime.t(), sender()) :: {:ok, non_neg_integer()} | {:error, term()}
   def withdraw_orphans(%DateTime{} = now, sender) do
@@ -258,7 +262,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   defp plan(state, lease_id, replace?, unrun, now) do
     same_lease? = match?(%SweepLeaseDelivery{}, state) and state.lease_id == lease_id
 
-    if same_lease? and not replace? and state.ack_installed == true and
+    if same_lease? and is_nil(state.revoked_at) and not replace? and state.ack_installed == true and
          state.acked_payload_sha256 == state.delivered_payload_sha256 do
       tail(state, unrun)
     else
@@ -344,7 +348,8 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
 
   defp ack_lost?(state, now) do
     state.acked_payload_sha256 != state.delivered_payload_sha256 and
-      DateTime.diff(now, state.delivered_at, :second) > @ack_grace_seconds
+      DateTime.diff(now, state.ack_pending_since || state.delivered_at, :second) >
+        @ack_grace_seconds
   end
 
   # A slot no push has carried, minted behind the cursor: a tail starts at the cursor,
@@ -440,6 +445,17 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     }
   end
 
+  defp pending_since(%SweepLeaseDelivery{} = state, lease_id, now) do
+    if state.lease_id == lease_id and is_nil(state.revoked_at) and
+         state.acked_payload_sha256 != state.delivered_payload_sha256 do
+      state.ack_pending_since || state.delivered_at
+    else
+      now
+    end
+  end
+
+  defp pending_since(nil, _lease_id, now), do: now
+
   defp record_push(assignment, lease_id, push, payload, now) do
     SweepLeaseDelivery
     |> Ash.Changeset.for_create(
@@ -453,7 +469,9 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
         delivered_window_end: push.cursor,
         delivered_high_water: push.high_water,
         delivered_payload_sha256: sha256_hex(payload),
-        delivered_at: now
+        delivered_at: now,
+        ack_pending_since: push.ack_pending_since,
+        revoked_at: nil
       },
       actor: actor()
     )
@@ -471,6 +489,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
     end
   end
 
+  defp apply_ack(%SweepLeaseDelivery{revoked_at: %DateTime{}} = row, %{installed: true}, _now) do
+    row
+    |> Ash.Changeset.for_destroy(:destroy, %{}, actor: actor())
+    |> Ash.Changeset.filter(delivered_payload_sha256: row.delivered_payload_sha256)
+    |> Ash.destroy()
+  end
+
   defp apply_ack(row, ack, now) do
     row
     |> Ash.Changeset.for_update(
@@ -485,6 +510,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
       },
       actor: actor()
     )
+    |> Ash.Changeset.filter(delivered_payload_sha256: row.delivered_payload_sha256)
     |> Ash.update()
     |> case do
       {:ok, _row} -> :ok
@@ -523,18 +549,32 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
   end
 
   defp withdraw(row, now, sender) do
+    revoked_at = row.revoked_at || now
+
     payload =
       SweepLeaseV1.encode(%SweepLeaseV1{
         lease_version: 1,
         sweep_group_id: uuid(row.sweep_group_id),
         lease_id: uuid(row.lease_id),
-        window_start_unix_nano: nanos(now),
-        window_end_unix_nano: nanos(now) + 1,
+        window_start_unix_nano: nanos(revoked_at),
+        window_end_unix_nano: nanos(revoked_at) + 1,
         revoked: true
       })
 
-    with :ok <- sender.(row.agent_id, row.sweep_group_id, payload),
-         :ok <- Ash.destroy(row, actor: actor()) do
+    with {:ok, _pending} <-
+           row
+           |> Ash.Changeset.for_update(
+             :record_revocation,
+             %{
+               revoked_at: revoked_at,
+               delivered_payload_sha256: sha256_hex(payload),
+               delivered_at: now,
+               ack_pending_since: revoked_at
+             },
+             actor: actor()
+           )
+           |> Ash.update(),
+         :ok <- sender.(row.agent_id, row.sweep_group_id, payload) do
       true
     else
       _ -> false

@@ -417,12 +417,9 @@ furthest window end sent for the current lease id, and the agent's ack of that
 push) and the lease pass pushes from that. The table has no foreign keys, so
 the row outlives the assignment and the group. A full window goes out for a
 new lease id, after core dropped a delivered slot that has not started, when a
-slot no push has carried sits behind the cursor, after the agent refused the
-last push, when the last push went unacknowledged for ten minutes, and while a
-push whose window reached past the cursor is still unacknowledged. A tail in
-that gap would leave the agent holding the slots that push was clearing, and
-the tail's ack would satisfy core. Otherwise only the slots minted since the
-cursor. The recorded cursor is always just after the last slot the push
+slot no push has carried sits behind the cursor, or while the last push lacks a
+successful installation acknowledgement. Only an acknowledged window may advance
+by a tail carrying the slots minted since its cursor. The recorded cursor is always just after the last slot the push
 carried, because the pass mints a
 bounded number of slots per run and a later slot must land in a later window.
 Each slot also records when a push last carried it (`delivered_at`): the cursor
@@ -443,7 +440,10 @@ newest capability covers every slot the agent holds. An ack is stored only
 when its payload digest is the one last pushed; an older ack changes nothing.
 A group that stops leasing to an agent, or a delivery whose assignment is gone
 or revoked or whose group is gone, sends that agent a revocation, and core
-forgets the delivery once the agent's session accepted it. The pass still runs
+forgets the delivery only after a matching successful installation acknowledgement.
+Pending revocations retain a stable payload across retries. Outstanding acknowledgement
+age is measured from the first unacknowledged push, separately from the last
+delivery time, so five-minute retries do not hide overdue acknowledgements. The pass still runs
 when the only thing left is such a row. Nothing is pushed until core has both
 an issuer key and an active sweep contract; without them leases are still
 planned.

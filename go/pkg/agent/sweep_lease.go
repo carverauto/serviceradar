@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,6 +33,7 @@ import (
 	"github.com/google/uuid"
 	goproto "google.golang.org/protobuf/proto"
 
+	"github.com/carverauto/serviceradar/go/pkg/durablefs"
 	"github.com/carverauto/serviceradar/proto"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -169,7 +171,7 @@ func defaultSweepLeaseDir() string {
 // window once the agent's report stops covering it); the first such failure
 // is returned alongside the usable store.
 func newSweepLeaseStore(dir string) (*sweepLeaseStore, error) {
-	if err := os.MkdirAll(dir, sweepLeaseDirMode); err != nil {
+	if err := durablefs.MkdirAll(dir, sweepLeaseDirMode); err != nil {
 		return nil, fmt.Errorf("create sweep lease dir: %w", err)
 	}
 
@@ -300,10 +302,9 @@ func (s *sweepLeaseStore) MarkExecuted(groupID string, executionID string, colle
 		return nil
 	}
 
-	executed := s.executed[groupID]
+	executed := maps.Clone(s.executed[groupID])
 	if executed == nil {
 		executed = make(map[string]int64)
-		s.executed[groupID] = executed
 	}
 
 	pruneExecuted(executed, now.UnixNano())
@@ -314,7 +315,11 @@ func (s *sweepLeaseStore) MarkExecuted(groupID string, executionID string, colle
 		return fmt.Errorf("encode sweep lease executions: %w", err)
 	}
 
-	return writeSweepLeaseFile(s.executedPath(groupID), data)
+	if err := durablefs.WriteFile(s.executedPath(groupID), data, sweepLeaseFileMode); err != nil {
+		return err
+	}
+	s.executed[groupID] = executed
+	return nil
 }
 
 func pruneExecuted(executed map[string]int64, nowUnixNano int64) {
@@ -349,11 +354,15 @@ func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (
 			return nil, fmt.Errorf("remove revoked sweep lease: %w", err)
 		}
 
+		if err := durablefs.Sync(s.dir); err != nil {
+			return nil, fmt.Errorf("sync revoked sweep lease: %w", err)
+		}
+
 		if err := os.Remove(s.executedPath(wantGroup)); err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("remove revoked sweep lease executions: %w", err)
 		}
 
-		return nil, nil
+		return nil, durablefs.Sync(s.dir)
 	}
 
 	installed := mergeSweepLease(s.leases[wantGroup], push)
@@ -363,7 +372,7 @@ func (s *sweepLeaseStore) Install(push *edgev1.SweepLeaseV1, wantGroup string) (
 		return nil, fmt.Errorf("encode sweep lease: %w", err)
 	}
 
-	if err := writeSweepLeaseFile(s.path(wantGroup), data); err != nil {
+	if err := durablefs.WriteFile(s.path(wantGroup), data, sweepLeaseFileMode); err != nil {
 		return nil, err
 	}
 
@@ -469,52 +478,6 @@ func mergeSweepLease(installed, push *edgev1.SweepLeaseV1) *edgev1.SweepLeaseV1 
 	}
 
 	return merged
-}
-
-// writeSweepLeaseFile replaces path with data via a synced temp file +
-// rename, so a crash mid-install leaves the previously installed lease.
-func writeSweepLeaseFile(path string, data []byte) error {
-	tmp := path + ".new"
-
-	file, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, sweepLeaseFileMode)
-	if err != nil {
-		return fmt.Errorf("write sweep lease: %w", err)
-	}
-
-	if _, err := file.Write(data); err != nil {
-		_ = file.Close()
-		_ = os.Remove(tmp)
-
-		return fmt.Errorf("write sweep lease: %w", err)
-	}
-
-	if err := file.Sync(); err != nil {
-		_ = file.Close()
-		_ = os.Remove(tmp)
-
-		return fmt.Errorf("sync sweep lease: %w", err)
-	}
-
-	if err := file.Close(); err != nil {
-		_ = os.Remove(tmp)
-
-		return fmt.Errorf("close sweep lease: %w", err)
-	}
-
-	// OpenFile honors umask, so set the mode explicitly.
-	if err := os.Chmod(tmp, sweepLeaseFileMode); err != nil {
-		_ = os.Remove(tmp)
-
-		return fmt.Errorf("chmod sweep lease: %w", err)
-	}
-
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-
-		return fmt.Errorf("publish sweep lease: %w", err)
-	}
-
-	return nil
 }
 
 // sweepLeaseAckInstalled answers a push core can record as installed: how far

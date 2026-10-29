@@ -53,7 +53,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"syscall"
+
+	"github.com/carverauto/serviceradar/go/pkg/durablefs"
 )
 
 const (
@@ -245,7 +246,7 @@ func WithAllocator(a *Allocator) Option {
 // the time to open and the memory held grow with every record the segment has ever
 // held; reclaim and segment rotation (tasks 2.4, 2.24, and 2.28) are what bound them.
 func Open(dir string, opts ...Option) (*Spool, error) {
-	if err := os.MkdirAll(dir, dirPerm); err != nil {
+	if err := durablefs.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir: %w", err)
 	}
 	s := &Spool{dir: dir, copyOrder: [evidenceCopies]int{copyA, copyB}, segBounds: segmentBounds{limits: defaultSegmentLimits()}}
@@ -526,7 +527,7 @@ func (s *Spool) ensureEvidence() error {
 		}
 		path := s.evidencePath(c)
 		if s.evidence[c] == nil {
-			if err := os.MkdirAll(filepath.Dir(path), dirPerm); err != nil {
+			if err := durablefs.MkdirAll(filepath.Dir(path), dirPerm); err != nil {
 				return fmt.Errorf("spool: mkdir evidence copy %c: %w", copyTag(c), err)
 			}
 			f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, filePerm)
@@ -852,20 +853,5 @@ func fsyncFile(path string) error {
 }
 
 func fsyncDir(dir string) error {
-	f, err := os.Open(dir)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = f.Close() }()
-	if err := f.Sync(); err != nil {
-		// Directory fsync is genuinely unsupported on some filesystems, which
-		// report EINVAL/ENOTSUP; those are safe to ignore. Every other failure
-		// (e.g. EIO) means the metadata may not be durable and MUST propagate,
-		// so the watermark rename or new spool directory is not reported durable.
-		if errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) {
-			return nil
-		}
-		return fmt.Errorf("spool: fsync dir %q: %w", dir, err)
-	}
-	return nil
+	return durablefs.Sync(dir)
 }

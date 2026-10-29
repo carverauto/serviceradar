@@ -69,6 +69,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/carverauto/serviceradar/go/pkg/durablefs"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/fairsched"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -281,7 +282,7 @@ func OpenLanes(root string, session Identity, taxonomy *fairsched.LaneTaxonomy) 
 	if taxonomy == nil || taxonomy.Len() == 0 {
 		return nil, fmt.Errorf("%w: taxonomy is required", fairsched.ErrTaxonomyInvalid)
 	}
-	if err := os.MkdirAll(root, dirPerm); err != nil {
+	if err := durablefs.MkdirAll(root, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir lane root: %w", err)
 	}
 	if err := fsyncDir(root); err != nil {
@@ -567,7 +568,7 @@ func (ls *LaneSet) openGeneration(l *lane) error {
 		Identity: ls.session.clone(),
 	}
 
-	if err := os.MkdirAll(l.dir, dirPerm); err != nil {
+	if err := durablefs.MkdirAll(l.dir, dirPerm); err != nil {
 		return fmt.Errorf("spool: mkdir lane: %w", err)
 	}
 	if err := fsyncDir(ls.root); err != nil {
