@@ -146,7 +146,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     component_type = params["component_type"] || "agent"
     cert_validity_days = params["cert_validity_days"] || socket.assigns.cert_validity_days_value
 
-    form = validate_create_form(socket.assigns.create_form, params)
+    form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
     {:noreply,
      socket
@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   def handle_event("create_package", %{"form" => params}, socket) do
     params = ensure_gateway_id(params, socket.assigns.default_gateway_id)
-    form = validate_create_form(socket.assigns.create_form, params)
+    form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
 
     case {form.valid?, requested_cert_validity_days(params)} do
       {true, {:ok, validity_days}} ->
@@ -566,7 +566,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
       <.create_modal
         :if={@show_create_modal}
-        create_form={to_form(@create_form)}
+        form={to_form(@create_form)}
+        create_form={to_form(Map.take(@create_form.raw_params, ["partition", "host_ip"]), as: :form)}
         created_tokens={@created_tokens}
         creating={@creating}
         security_mode={@security_mode}
@@ -636,14 +637,14 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
             </div>
 
             <.form
-              for={@create_form}
+              for={@form}
               id="create_package_form"
               phx-change="validate_create"
               phx-submit="create_package"
               class="space-y-4"
             >
               <.input
-                field={@create_form[:label]}
+                field={@form[:label]}
                 type="text"
                 label="Label"
                 placeholder="e.g., production-gateway-01"
@@ -653,7 +654,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 A descriptive name for this component. Used to generate the component ID.
               </p>
 
-              <.input field={@create_form[:component_type]} type="hidden" value={@selected_component_type} />
+              <.input field={@form[:component_type]} type="hidden" value={@selected_component_type} />
               <div class="text-sm text-sr-muted">
                 <span class="font-medium text-sr-ink">Component Type:</span>
                 <span class="ml-1 text-sr-ink">Agent</span>
@@ -661,7 +662,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
               <%= if @selected_component_type == "agent" do %>
                 <.input
-                  field={@create_form[:gateway_id]}
+                  field={@form[:gateway_id]}
                   type="select"
                   label="Parent Gateway ID"
                   options={@gateway_options}
@@ -725,7 +726,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                   <% end %>
 
                   <.input
-                    field={@create_form[:notes]}
+                    field={@form[:notes]}
                     type="textarea"
                     label="Notes (Optional)"
                     placeholder="Additional notes about this package"
@@ -1310,11 +1311,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       "deleted" -> "ghost"
       _ -> "ghost"
     end
-  end
-
-  defp validate_create_form(form, params) do
-    form = AshPhoenix.Form.validate(form, params)
-    %{form | params: Map.merge(form.params, Map.take(params, ["partition", "host_ip"]))}
   end
 
   # Build AshPhoenix.Form for creating OnboardingPackage

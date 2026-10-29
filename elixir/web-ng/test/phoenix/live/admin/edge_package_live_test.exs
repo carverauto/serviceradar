@@ -306,9 +306,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
         |> Enum.filter(&(&1.label == label))
 
       assert package.site == "edge-site-west"
-      assert package.cert_spiffe_id == "spiffe://serviceradar.local/agent/edge-site-west/agent-#{label}"
+      assert package.downstream_spiffe_id == "spiffe://serviceradar.local/agent/edge-site-west/agent-#{label}"
 
-      assert Jason.decode!(package.metadata_json) == %{
+      assert package.metadata_json == %{
                "partition" => "edge-site-west",
                "host_ip" => "192.0.2.44"
              }
