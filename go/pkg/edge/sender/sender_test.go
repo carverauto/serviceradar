@@ -375,6 +375,139 @@ func TestRunOnceReturnsErrInsufficientCreditsWhenFirstRecordExceedsGrant(t *test
 	}
 }
 
+func TestRunOnceKeepsSentPrefixWhenLaterDeliverySendFails(t *testing.T) {
+	sp := newTestSpool(t)
+	for i := 0; i < 3; i++ {
+		id := mustEventID(t)
+		if _, err := sp.Append(id, id); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	if err := sp.Resolve(1); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	srv := &fakeIngestServer{
+		grantedByteCredits:  1 << 20,
+		grantedFrameCredits: 100,
+		dispositionKind:     edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+	}
+	client := failingStreamClient{
+		inner:        dialFakeIngest(t, srv),
+		failDelivery: 2,
+	}
+	s, err := New(sp, client, testConfig(t))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := s.RunOnce(ctx)
+	if err == nil {
+		t.Fatal("RunOnce err = nil, want delivery send failure")
+	}
+	if want := []uint64{2}; !equalSeqs(result.Sent, want) {
+		t.Fatalf("Sent = %v, want %v", result.Sent, want)
+	}
+	if result.RemoteResolvedThrough != 1 {
+		t.Fatalf("RemoteResolvedThrough = %d, want 1", result.RemoteResolvedThrough)
+	}
+	if got := sp.Resolved(); got != 1 {
+		t.Fatalf("spool.Resolved() = %d, want 1", got)
+	}
+}
+
+func TestRunOnceKeepsSentPrefixWhenCloseSendFails(t *testing.T) {
+	sp := newTestSpool(t)
+	for i := 0; i < 3; i++ {
+		id := mustEventID(t)
+		if _, err := sp.Append(id, id); err != nil {
+			t.Fatalf("append: %v", err)
+		}
+	}
+	if err := sp.Resolve(1); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+
+	srv := &fakeIngestServer{
+		grantedByteCredits:  1 << 20,
+		grantedFrameCredits: 100,
+		dispositionKind:     edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
+	}
+	client := failingStreamClient{
+		inner:         dialFakeIngest(t, srv),
+		failCloseSend: true,
+	}
+	s, err := New(sp, client, testConfig(t))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	result, err := s.RunOnce(ctx)
+	if err == nil {
+		t.Fatal("RunOnce err = nil, want close send failure")
+	}
+	if want := []uint64{2, 3}; !equalSeqs(result.Sent, want) {
+		t.Fatalf("Sent = %v, want %v", result.Sent, want)
+	}
+	if result.RemoteResolvedThrough != 1 {
+		t.Fatalf("RemoteResolvedThrough = %d, want 1", result.RemoteResolvedThrough)
+	}
+	if got := sp.Resolved(); got != 1 {
+		t.Fatalf("spool.Resolved() = %d, want 1", got)
+	}
+}
+
+type failingStreamClient struct {
+	inner         StreamClient
+	failDelivery  int
+	failCloseSend bool
+}
+
+func (c failingStreamClient) Stream(
+	ctx context.Context,
+	opts ...grpc.CallOption,
+) (grpc.BidiStreamingClient[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage], error) {
+	stream, err := c.inner.Stream(ctx, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &failingSendStream{
+		BidiStreamingClient: stream,
+		failDelivery:        c.failDelivery,
+		failCloseSend:       c.failCloseSend,
+	}, nil
+}
+
+type failingSendStream struct {
+	grpc.BidiStreamingClient[edgev1.EdgeRecordClientMessage, edgev1.EdgeRecordServerMessage]
+	failDelivery  int
+	failCloseSend bool
+	deliveries    int
+}
+
+func (s *failingSendStream) Send(msg *edgev1.EdgeRecordClientMessage) error {
+	if msg.GetDeliveryFrame() != nil {
+		s.deliveries++
+		if s.failDelivery > 0 && s.deliveries == s.failDelivery {
+			return status.Error(codes.Unavailable, "injected delivery send failure")
+		}
+	}
+	return s.BidiStreamingClient.Send(msg)
+}
+
+func (s *failingSendStream) CloseSend() error {
+	if s.failCloseSend {
+		return status.Error(codes.Unavailable, "injected close send failure")
+	}
+	return s.BidiStreamingClient.CloseSend()
+}
+
 func TestRunOnceCancelsActiveStreamOnInvalidHandshake(t *testing.T) {
 	sp := newTestSpool(t)
 	for i := 0; i < 2; i++ {

@@ -218,7 +218,7 @@ func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 
 	sent, hadUnresolved, err := s.sendUnresolved(stream, &sess, openAck)
 	if err != nil {
-		return Result{}, err
+		return partialSendResult(sent, sess.ResolvedThrough), err
 	}
 
 	if len(sent) == 0 {
@@ -229,7 +229,7 @@ func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 	}
 
 	if err := stream.CloseSend(); err != nil {
-		return Result{}, fmt.Errorf("sender: close send: %w", err)
+		return partialSendResult(sent, sess.ResolvedThrough), fmt.Errorf("sender: close send: %w", err)
 	}
 
 	dispositions, err := drainAcks(ctx, stream, &sess)
@@ -243,6 +243,10 @@ func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 	}
 
 	return result, nil
+}
+
+func partialSendResult(sent []uint64, remoteResolvedThrough uint64) Result {
+	return Result{Sent: sent, RemoteResolvedThrough: remoteResolvedThrough}
 }
 
 func recvLaneOpenAck(
