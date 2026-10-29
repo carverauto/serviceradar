@@ -268,5 +268,6 @@ burst explicitly rejected twelve flow offers under its existing bounded lane.
 These are synthetic scheduling measurements with controlled leaf ingestors,
 not live ingestion or durable-store measurements. The earlier invocation
 `e3acabbe-71e9-41fa-989f-469a48b0b212` omitted the baseline flow reply-lease
-supervisor and is excluded from the comparison. Fixed-head measurements must
-come from PR BazelCI before the comparison is considered complete.
+supervisor and is excluded from the comparison. For comparison completion and
+remaining evidence work, see the
+[result-ingestion evidence status](../openspec/changes/refactor-concurrent-result-ingestion/tasks.md#evidence-status).
