@@ -70,6 +70,45 @@ tests:
   - failedTemplate:
       errorMessage: edgeRecords.contractRegistry is required when edgeRecords.enabled=true
     template: templates/core.yaml
+- it: connects an edge-only publisher to authenticated NATS
+  set:
+    edgeRecords.enabled: true
+    edgeRecords.contractRegistry:
+      registry_epoch: 1
+    agentGateway.sysmonMetricsEnabled: false
+    agentGateway.snmpMetricsEnabled: false
+    agentGateway.pluginMetricsEnabled: false
+    agentGateway.otlpRelayPublishEnabled: false
+    natsCreds.autoGenerate: true
+  asserts:
+  - contains:
+      path: spec.template.spec.containers[0].env
+      content:
+        name: AGENT_GATEWAY_NATS_URL
+        value: tls://serviceradar-nats:4222
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - contains:
+      path: spec.template.spec.containers[0].env
+      content:
+        name: AGENT_GATEWAY_NATS_CREDS_FILE
+        value: /etc/serviceradar/creds/platform.creds
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - contains:
+      path: spec.template.spec.containers[0].volumeMounts
+      content:
+        name: nats-creds
+        mountPath: /etc/serviceradar/creds
+        readOnly: true
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
 - it: refuses a canary spool on ephemeral storage
   set:
     edgeRecords.enabled: true
