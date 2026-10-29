@@ -2,10 +2,11 @@
 
 Status: the one approved hosted small-profile run completed. Its implemented
 correctness controls passed, but the fact-comparison performance screen failed.
-Performance experimentation stopped; there was no repeat or fleet attempt.
+This change's performance experimentation stopped; there was no repeat or fleet attempt.
 Production adoption and parent task 1.6 remain open. A later explicit approval
 allowed the bounded diagnostic follow-up and post-correction verification below,
-both now completed. All three measurements failed the fact screen.
+both now completed. All three measurements failed the fact screen. The later
+shared-scan result is in [refactor-exposure-cohort-source-scan](../refactor-exposure-cohort-source-scan/design.md).
 
 ## Measured result
 
@@ -368,11 +369,9 @@ The Test phase inspected the supplied execution records and confirmed source/tre
 identity; it did not rerun the forbidden allocation. Correctness and cleanup have
 execution evidence; the performance screen remains FAILED. No thresholds,
 expected failures, runtime code, SQL, codec, workers or cohort size changed in
-this reporting revision. No new experiment is authorized.
+this reporting revision.
 
-Decision for the outer gate: may this disabled research prototype be published
-with the known failed performance screen under an explicit Test exception?
-No exception or performance waiver has been granted or inferred. Ordinary full
-remote repository tests, hosted PR CI and substantive review remain required
-through the outer executor. Cold/repeat/fleet runs, process-death injection,
-production restore integration and adoption remain open, as does parent task 1.6.
+Publication of this prototype is recorded in [tasks.md](tasks.md). PR #6171
+merged under a publication-only Test exception that did not waive capacity.
+The performance screen remains failed. Cold, repeat, fleet, process-death,
+production restore, and adoption work remain open, as does parent task 1.6.

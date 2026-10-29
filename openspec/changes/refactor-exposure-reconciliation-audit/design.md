@@ -10,7 +10,7 @@ preceded narrow evidence-backed query corrections. The corrected run passed
 implemented controls and cleanup but still failed the fact screen; orchestration
 also remains above budget. See the separately attributed
 [corrected result](prototype.md#completed-post-correction-verification).
-No further allocation, fleet run or adoption is authorized.
+This change authorizes no further allocation. The later shared-scan experiment is recorded in [refactor-exposure-cohort-source-scan](../refactor-exposure-cohort-source-scan/design.md). Fleet execution and adoption remain unauthorized.
 
 ## Evidence and objective
 

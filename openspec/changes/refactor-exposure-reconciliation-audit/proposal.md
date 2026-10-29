@@ -1,6 +1,6 @@
 # Proposal: bounded exposure audit with shared dimension evidence
 
-Status: design and disabled prototype approved by the product owner on 2026-10-28. The approved hosted small-profile run passed its implemented correctness controls but failed its performance screen; experimentation stopped. Related epic: [#5745](https://github.com/carverauto/serviceradar/issues/5745).
+Status: design and disabled prototype approved by the product owner on 2026-10-28. The approved hosted small-profile run passed its implemented correctness controls but failed its performance screen; this change's experimentation stopped. Related epic: [#5745](https://github.com/carverauto/serviceradar/issues/5745).
 
 ## Why
 
@@ -52,8 +52,8 @@ has completed and triggered the stop-on-failure rule. A later explicit native
 fix decision authorized a separately identified small-profile diagnostic
 follow-up and post-correction verification, both now completed. The
 [corrected result](prototype.md#completed-post-correction-verification) retains
-the failed performance screen, passed controls and verified cleanup. No repeat, 50-million-row run, production
-adoption or rollout is approved. Task 1.6 remains open.
+the failed performance screen, passed controls and verified cleanup. This change approves no repeat, 50-million-row run, production
+adoption, or rollout. The later shared-scan result is in [refactor-exposure-cohort-source-scan](../refactor-exposure-cohort-source-scan/design.md). Task 1.6 remains open.
 
 See [prototype.md](prototype.md) for measurements, passed controls, cleanup
 evidence, implemented boundaries and checks that remain pending.
