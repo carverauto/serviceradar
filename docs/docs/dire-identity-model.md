@@ -307,6 +307,12 @@ the MACs identify.
 
 ### Hypervisor nodes
 
+For Proxmox hosts, hypervisor enrichment also merges a node record into the live
+device holding its node certificate fingerprint, with reason
+`hypervisor_node_certificate_match`. All MergeEngine guards apply; a refused merge
+leaves the records separate. Agent and plugin release order therefore does not
+decide identity.
+
 Hypervisor enrichment resolves a node, in order, by its integration id, then by
 its own NIC MACs, then, for Proxmox, by the device fingerprinted at its address. The Proxmox
 API reports no node NIC MACs (`GET /nodes/{node}/network` carries no hardware address), so the

@@ -458,6 +458,9 @@ The traces of agent host identity (`link-agent-host-by-strong-identity`):
 
 The traces of the node certificate identifier (#6146):
 
+- `integration_agent_cert_agent_first`: the agent reports the node certificate first;
+  integration sync then registers its id on the agent record through that certificate,
+  without a merge or decisions (#6146).
 - `integration_agent_cert_links`: a hypervisor integration syncs a node with no MAC, reporting
   its integration id and node certificate; the node's agent checks in reporting the same
   certificate. The agent lands on the integration record.
@@ -534,6 +537,11 @@ still describes the code. The switches today's code has are listed once, in `Cur
    `resolution_goal_*` configuration (resolution).
 
 ## What the models do not express
+
+`CertOf` is constant. A node record created before its certificate was reported
+(the split pair healed by `hypervisor_node_certificate_match`) is covered by
+`agent_gateway_sync_test.exs`, not this model. The `integration_agent_cert` goal
+already explores both arrival orders under `EvidenceConverges`.
 
 - Numeric revision values. `identity_revision` is abstracted to "bumped this step" and "stale
   since pin", which is all the properties ask. Revision reuse after a purge and re-insert is

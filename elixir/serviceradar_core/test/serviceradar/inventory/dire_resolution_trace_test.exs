@@ -684,6 +684,36 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.assert_golden!()
   end
 
+  # Agent-first resolution registers the integration id on the certificate holder without a merge.
+  test "integration_agent_cert_agent_first", %{actor: actor} do
+    world = %{
+      phys: ["h1"],
+      ifaces: %{"x1" => %{phys: "h1", mac: nil}},
+      src_of: %{},
+      int_of: %{"h1" => "i1"},
+      int_ids: ["i1"],
+      cert_of: %{"h1" => "c1"},
+      cert_ids: ["c1"],
+      host_of: %{"h1" => "n1"},
+      agent_of: %{"h1" => "g1"},
+      agent_ids: ["g1"],
+      agent_hostname: %{"h1" => "trace-n1.site-a.example.com"},
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: [],
+      laa_ids: [],
+      ips: ["p1", "p2"],
+      observers: ["Integration", "Agent"]
+    }
+
+    "integration_agent_cert_agent_first"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.agent("h1", "x1")
+    |> DireTrace.integration("h1", "x1")
+    |> DireTrace.assert_golden!()
+  end
+
   # #6146: two same-named Proxmox nodes at two sites, neither reporting a MAC, each with its own
   # integration id, node certificate and agent. Steps: node A (`i1`, `c1`) is synced at `p1` and
   # its agent (`g1`, `c1`) checks in; node B (`i2`, `c2`) is synced at `p2` and its agent (`g2`,

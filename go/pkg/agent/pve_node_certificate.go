@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -60,20 +61,26 @@ func (p pveCertificateProbe) fingerprints() []*proto.HostTlsFingerprint {
 		return nil
 	}
 
-	dialer := &net.Dialer{Timeout: p.timeout}
+	ctx, cancel := context.WithTimeout(context.Background(), p.timeout)
+	defer cancel()
 	// Verification is skipped for this handshake only: the node certificate is
 	// signed by the cluster's own CA, which the agent does not trust. Nothing is
 	// sent over the connection; only the presented certificate is read.
-	conn, err := tls.DialWithDialer(dialer, "tcp", p.address, &tls.Config{
-		InsecureSkipVerify: true,
-		MinVersion:         tls.VersionTLS12,
-	})
+	conn, err := (&tls.Dialer{
+		NetDialer: &net.Dialer{Timeout: p.timeout},
+		Config:    &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12},
+	}).DialContext(ctx, "tcp", p.address)
 	if err != nil {
 		return nil
 	}
 	defer func() { _ = conn.Close() }()
 
-	certificates := conn.ConnectionState().PeerCertificates
+	tlsConn, ok := conn.(*tls.Conn)
+	if !ok {
+		return nil
+	}
+
+	certificates := tlsConn.ConnectionState().PeerCertificates
 	if len(certificates) == 0 || !pveNodeCertificate(certificates[0]) {
 		return nil
 	}

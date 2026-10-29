@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -59,7 +60,7 @@ func servePVECertificate(t *testing.T, subject pkix.Name) (string, string) {
 			}
 			go func() {
 				defer func() { _ = conn.Close() }()
-				_ = conn.(*tls.Conn).Handshake()
+				_ = conn.(*tls.Conn).HandshakeContext(context.Background())
 			}()
 		}
 	}()
@@ -102,12 +103,12 @@ func TestPVECertificateProbeReportsNothingOffAProxmoxNode(t *testing.T) {
 	address, _ := servePVECertificate(t, pkix.Name{OrganizationalUnit: []string{"PVE Cluster Node"}})
 
 	probe := probeAt(t, address)
-	probe.configDir = probe.configDir + "/absent"
+	probe.configDir += "/absent"
 	if got := probe.fingerprints(); got != nil {
 		t.Fatalf("fingerprints without /etc/pve = %v, want none", got)
 	}
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}

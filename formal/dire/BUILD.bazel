@@ -1095,6 +1095,18 @@ tlc_test(
 )
 
 tlc_test(
+    name = "trace_integration_agent_cert_agent_first_test",
+    cfg = "traces/Trace_integration_agent_cert_agent_first.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_integration_agent_cert_agent_first.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
     name = "trace_same_name_distinct_certs_test",
     cfg = "traces/Trace_same_name_distinct_certs.cfg",
     expect = "violation:TraceIncomplete",
