@@ -47,8 +47,9 @@ ingestion and several database paths much cheaper.
   a brief host pause cannot throttle it into a cluster-wide stall. Set
   `nats.resources.limits.cpu` to keep a limit (#6122).
 - **Host network metrics.** Container, CNI and overlay interfaces (for
-  example `cali*`, `flannel*`, `cilium*`, `vxlan*`) and tunnel
-  interfaces no longer report network metrics (#6165).
+  example `cali*`, `flannel*`, `cilium*`, `vxlan*`) no longer report
+  network metrics. Routed tunnels such as WireGuard and GRE still report
+  (#6165).
 
 ## Whats New
 
