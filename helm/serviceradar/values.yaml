@@ -1231,6 +1231,12 @@ cnpg:
     max_connections: "500"
     shared_buffers: "1GB"
     work_mem: "16MB"
+    # JIT compilation costs more than it saves for ServiceRadar's CNPG workload:
+    # its statements are short or frequently repeated, so per-call compile time
+    # dominates their execution (analytical queries run in StarRocks). jit is
+    # reloadable, so changing it does not restart Postgres. Set "on" here to
+    # re-enable it for an install that needs it.
+    jit: "off"
     log_min_duration_statement: "500ms"
     # Bind parameters are NOT logged with the slow statement above. Postgres truncates
     # this PER PARAMETER with no per-statement cap, so a positive value does not bound

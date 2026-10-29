@@ -1,0 +1,36 @@
+suite: CNPG disables Postgres JIT by default
+templates:
+  - templates/cnpg-cluster.yaml
+release:
+  namespace: serviceradar-test
+tests:
+  - it: renders jit off by default
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters.jit
+          value: "off"
+
+  - it: keeps jit off with the demo overlay
+    values:
+      - ../values-demo.yaml
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters.jit
+          value: "off"
+
+  - it: lets an install turn jit back on
+    set:
+      cnpg.postgresqlParameters.jit: "on"
+    documentSelector:
+      path: kind
+      value: Cluster
+    asserts:
+      - equal:
+          path: spec.postgresql.parameters.jit
+          value: "on"
