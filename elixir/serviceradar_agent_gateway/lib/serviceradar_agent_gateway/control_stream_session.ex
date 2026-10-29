@@ -13,6 +13,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadarAgentGateway.AgentRegistryProxy
+  alias ServiceRadarAgentGateway.ClusterProcessLocator
   alias ServiceRadarAgentGateway.Config
   alias ServiceRadarAgentGateway.ConfigChunks
   alias ServiceRadarAgentGateway.ConfigSyncForwarder
@@ -841,8 +842,92 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
       ProxmoxConsolePubSub.broadcast_frame(session_id, frame_payload)
       RemoteAccessPubSub.broadcast_frame(session_id, frame_payload)
-      _ = RemoteAccessFileTransfers.handle_agent_frame(frame_payload)
+      _ = handle_file_transfer_frame(frame_payload)
     end
+  end
+
+  @doc false
+  def handle_file_transfer_frame(frame_payload) when is_map(frame_payload) do
+    if RemoteAccessFileTransfers.agent_frame?(frame_payload) do
+      case core_call(RemoteAccessFileTransfers, :handle_agent_frame, [frame_payload]) do
+        {:error, :core_unavailable} = error ->
+          Logger.warning("Remote access file transfer failed because core is unavailable",
+            agent_id: safe_log_identifier(Map.get(frame_payload, :agent_id)),
+            reason: :core_unavailable
+          )
+
+          error
+
+        {:error, reason} = error ->
+          Logger.warning("Remote access file transfer frame handling failed",
+            agent_id: safe_log_identifier(Map.get(frame_payload, :agent_id)),
+            reason: inspect(reason)
+          )
+
+          error
+
+        result ->
+          result
+      end
+    else
+      :ignore
+    end
+  rescue
+    error ->
+      Logger.warning("Remote access file transfer frame raised unexpectedly",
+        agent_id: safe_log_identifier(Map.get(frame_payload, :agent_id)),
+        reason: Exception.message(error)
+      )
+
+      {:error, :file_transfer_failed}
+  end
+
+  defp core_call(mod, fun, args, timeout \\ 5_000) do
+    nodes = core_nodes()
+
+    if nodes == [] do
+      {:error, :core_unavailable}
+    else
+      try_core_nodes(nodes, mod, fun, args, timeout)
+    end
+  end
+
+  defp try_core_nodes([], _mod, _fun, _args, _timeout), do: {:error, :core_unavailable}
+
+  defp try_core_nodes([node | rest], mod, fun, args, timeout) do
+    case :rpc.call(node, mod, fun, args, timeout) do
+      {:badrpc, reason} ->
+        Logger.debug("Core RPC failed on #{node}: #{inspect(reason)}")
+        try_core_nodes(rest, mod, fun, args, timeout)
+
+      result ->
+        result
+    end
+  end
+
+  defp core_nodes do
+    remote_nodes = Node.list()
+    coordinators = ClusterProcessLocator.nodes(ServiceRadar.ClusterHealth)
+    if coordinators == [], do: named_core_nodes(remote_nodes), else: coordinators
+  end
+
+  defp named_core_nodes(nodes) do
+    Enum.filter(nodes, &core_node?/1)
+  end
+
+  defp core_node?(node) when is_atom(node) do
+    String.starts_with?(Atom.to_string(node), "#{core_node_basename()}@")
+  end
+
+  defp core_node?(_node), do: false
+
+  defp core_node_basename do
+    System.get_env("CLUSTER_CORE_NODE_BASENAME") ||
+      Application.get_env(
+        :serviceradar_agent_gateway,
+        :cluster_core_node_basename,
+        "serviceradar_core"
+      )
   end
 
   # Persist the acked version + per-section statuses on core (wedge detection).

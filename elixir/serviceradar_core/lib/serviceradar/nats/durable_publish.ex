@@ -40,6 +40,11 @@ defmodule ServiceRadar.NATS.DurablePublish do
   failed and the durable retry job was stored, or `{:error, reason}` when
   neither the publish nor the retry job could be stored.
 
+  With the default transaction check, a disabled or unstarted `ServiceRadar.Repo`
+  returns `{:error, :repo_unavailable}` before attempting publication. The default
+  retry-job insert also requires an enabled, running repo; if it is unavailable,
+  enqueueing returns `{:error, {:publish_and_enqueue_failed, :repo_unavailable}}`.
+
   Options:
 
     * `:msg_id` (required) - the message's stable identity
@@ -55,10 +60,29 @@ defmodule ServiceRadar.NATS.DurablePublish do
     msg_id = Keyword.fetch!(opts, :msg_id)
     on_published = Keyword.get(opts, :on_published)
 
-    if Keyword.get(opts, :in_transaction?, &Repo.in_transaction?/0).() do
-      enqueue_retry(subject, body, msg_id, on_published, opts)
-    else
-      publish_now(subject, body, msg_id, on_published, opts)
+    case in_transaction(opts) do
+      {:ok, true} ->
+        enqueue_retry(subject, body, msg_id, on_published, opts)
+
+      {:ok, false} ->
+        publish_now(subject, body, msg_id, on_published, opts)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp in_transaction(opts) do
+    case Keyword.fetch(opts, :in_transaction?) do
+      {:ok, fun} when is_function(fun, 0) ->
+        {:ok, fun.()}
+
+      :error ->
+        if core_repo_enabled?() do
+          {:ok, Repo.in_transaction?()}
+        else
+          {:error, :repo_unavailable}
+        end
     end
   end
 
@@ -135,7 +159,7 @@ defmodule ServiceRadar.NATS.DurablePublish do
         "on_published" => on_published && Atom.to_string(on_published)
       })
 
-    case Keyword.get(opts, :enqueue, &ObanSupport.safe_insert/1).(job) do
+    case Keyword.get(opts, :enqueue, &default_enqueue/1).(job) do
       {:ok, _job} ->
         {:ok, :enqueued}
 
@@ -149,5 +173,18 @@ defmodule ServiceRadar.NATS.DurablePublish do
 
         {:error, {:publish_and_enqueue_failed, reason}}
     end
+  end
+
+  defp default_enqueue(job) do
+    if core_repo_enabled?() do
+      ObanSupport.safe_insert(job)
+    else
+      {:error, :repo_unavailable}
+    end
+  end
+
+  defp core_repo_enabled? do
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false and
+      is_pid(Process.whereis(Repo))
   end
 end

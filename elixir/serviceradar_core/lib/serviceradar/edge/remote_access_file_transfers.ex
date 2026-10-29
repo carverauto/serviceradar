@@ -19,6 +19,7 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
   alias ServiceRadar.Edge.RemoteAccessSession
   alias ServiceRadar.Events.AuditWriter
   alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Repo
 
   @active_session_statuses [:attached, :opening, :active]
   @default_protocol :sftp
@@ -61,24 +62,43 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
     end
   end
 
+  @spec agent_frame?(map()) :: boolean()
+  def agent_frame?(frame) when is_map(frame) do
+    string_value(frame, :frame_type) in @agent_frame_types
+  end
+
+  def agent_frame?(_frame), do: false
+
+  @doc """
+  Applies a file-transfer progress, outcome, or error frame to its transfer.
+
+  Unrelated frame types return `:ignore`. With the default transfer resource,
+  recognized frames return `{:error, :repo_unavailable}` before reading transfer
+  state if `ServiceRadar.Repo` is disabled or not running.
+  """
   @spec handle_agent_frame(map(), keyword()) ::
           {:ok, map() | struct()} | :ignore | {:error, term()}
   def handle_agent_frame(frame, opts \\ []) when is_map(frame) do
     frame_type = string_value(frame, :frame_type)
 
-    if frame_type in @agent_frame_types do
-      with {:ok, payload} <- decode_agent_frame_payload(frame),
-           {:ok, transfer_id} <- payload_transfer_id(payload),
-           {:ok, transfer} <-
-             transfer_resource(opts).get_by_id(transfer_id, actor: system_actor(:read)),
-           :ok <- ensure_agent_frame_matches_transfer(frame, transfer) do
-        apply_agent_frame(frame_type, transfer, payload, opts)
-      else
-        {:error, %NotFound{}} -> {:error, :not_found}
-        {:error, reason} -> {:error, reason}
-      end
-    else
-      :ignore
+    cond do
+      frame_type not in @agent_frame_types ->
+        :ignore
+
+      transfer_resource(opts) == RemoteAccessFileTransfer and not core_repo_enabled?() ->
+        {:error, :repo_unavailable}
+
+      true ->
+        with {:ok, payload} <- decode_agent_frame_payload(frame),
+             {:ok, transfer_id} <- payload_transfer_id(payload),
+             {:ok, transfer} <-
+               transfer_resource(opts).get_by_id(transfer_id, actor: system_actor(:read)),
+             :ok <- ensure_agent_frame_matches_transfer(frame, transfer) do
+          apply_agent_frame(frame_type, transfer, payload, opts)
+        else
+          {:error, %NotFound{}} -> {:error, :not_found}
+          {:error, reason} -> {:error, reason}
+        end
     end
   end
 
@@ -859,6 +879,11 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
 
   defp transfer_resource(opts),
     do: Keyword.get(opts, :transfer_resource, RemoteAccessFileTransfer)
+
+  defp core_repo_enabled? do
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false and
+      is_pid(Process.whereis(Repo))
+  end
 
   defp map_struct_value(%struct{} = map, key) when is_atom(key) and struct != Map do
     if Map.has_key?(map, key), do: Map.get(map, key)
