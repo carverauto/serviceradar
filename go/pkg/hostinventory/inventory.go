@@ -121,12 +121,10 @@ func (i Interface) IsHostInternal() bool {
 	if i.Flags&net.FlagLoopback != 0 {
 		return true
 	}
-	switch i.Kind {
-	case KindLoopback, KindTunnel:
+	if i.Kind == KindLoopback || i.Kind == KindTunnel {
 		return true
-	default:
-		return IsHostInternalName(i.Name)
 	}
+	return IsHostInternalName(i.Name)
 }
 
 // IPs returns every address on the interface, IPv4 and IPv6, without its
