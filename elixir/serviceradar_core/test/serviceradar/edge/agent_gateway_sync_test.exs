@@ -1380,6 +1380,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       ip = doc_ip(uniq, 0)
       [mac] = host_macs(uniq, 1)
       agent_id = "agent-first-#{uniq}"
+
       integration_id =
         "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:cluster:node:#{name}"
 
