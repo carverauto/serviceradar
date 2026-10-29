@@ -34,43 +34,12 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+          per_page = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query() |> Map.fetch!("per_page")
+
           {:ok,
            %Req.Response{
              status: 200,
-             body: [
-               %{
-                 "tag_name" => "netprobe-v0.2.9",
-                 "name" => "Native add-on netprobe 0.2.9",
-                 "body" => "Add-on only release",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/netprobe-v0.2.9",
-                 "published_at" => "2026-03-29T20:00:00Z",
-                 "assets" => [
-                   %{"name" => "serviceradar-native-addon-index.json"},
-                   %{"name" => "serviceradar-native-addon-index.sig"}
-                 ]
-               },
-               %{
-                 "tag_name" => "v1.2.4",
-                 "name" => "ServiceRadar 1.2.4",
-                 "body" => "Newest release",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.4",
-                 "published_at" => "2026-03-28T20:00:00Z",
-                 "assets" => [
-                   %{"name" => "serviceradar-agent-release-manifest.json"},
-                   %{"name" => "serviceradar-agent-release-manifest.sig"}
-                 ]
-               },
-               %{
-                 "tag_name" => "v1.2.3",
-                 "name" => "ServiceRadar 1.2.3",
-                 "body" => "Missing manifest asset",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
-                 "published_at" => "2026-03-27T20:00:00Z",
-                 "assets" => [
-                   %{"name" => "serviceradar-agent-release-manifest.sig"}
-                 ]
-               }
-             ]
+             body: Enum.take(releases(), String.to_integer(per_page))
            }}
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
@@ -106,6 +75,51 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}
       end
+    end
+
+    # Newest first, as GitHub lists them. More add-on releases precede the
+    # agent releases than the browser shows, so the agent releases are only
+    # found when the scan reads past the visible limit.
+    defp releases do
+      addon_releases =
+        for patch <- 9..5//-1 do
+          %{
+            "tag_name" => "netprobe-v0.2.#{patch}",
+            "name" => "Native add-on netprobe 0.2.#{patch}",
+            "body" => "Add-on only release",
+            "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/netprobe-v0.2.#{patch}",
+            "published_at" => "2026-03-29T1#{patch}:00:00Z",
+            "assets" => [
+              %{"name" => "serviceradar-native-addon-index.json"},
+              %{"name" => "serviceradar-native-addon-index.sig"}
+            ]
+          }
+        end
+
+      addon_releases ++
+        [
+          %{
+            "tag_name" => "v1.2.4",
+            "name" => "ServiceRadar 1.2.4",
+            "body" => "Newest release",
+            "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.4",
+            "published_at" => "2026-03-28T20:00:00Z",
+            "assets" => [
+              %{"name" => "serviceradar-agent-release-manifest.json"},
+              %{"name" => "serviceradar-agent-release-manifest.sig"}
+            ]
+          },
+          %{
+            "tag_name" => "v1.2.3",
+            "name" => "ServiceRadar 1.2.3",
+            "body" => "Missing manifest asset",
+            "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
+            "published_at" => "2026-03-27T20:00:00Z",
+            "assets" => [
+              %{"name" => "serviceradar-agent-release-manifest.sig"}
+            ]
+          }
+        ]
     end
   end
 
@@ -196,6 +210,6 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
                "repo_url" => "https://github.com/carverauto/serviceradar"
              })
 
-    refute Enum.any?(releases, &(&1.tag == "netprobe-v0.2.9"))
+    refute Enum.any?(releases, &String.starts_with?(&1.tag, "netprobe-"))
   end
 end
