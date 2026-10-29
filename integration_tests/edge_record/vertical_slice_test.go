@@ -1561,6 +1561,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		// the redelivery path would never execute. The SIGKILLed process is
 		// reaped by the Stop cleanup newHarness registered for it.
 		h.waitIngestObservation(t, fx4.EventID, probeBeforeCommit, 1)
+		redeliveryDeadline := time.Now().Add(h.edgeRecordConsumerInfo(t).Config.AckWait + pollTimeout)
 		if h.coreProc == nil || h.coreProc.cmd == nil || h.coreProc.cmd.Process == nil {
 			t.Fatal("core release has no OS process to SIGKILL")
 		}
@@ -1584,9 +1585,8 @@ func (h *harness) testGroupD(t *testing.T) {
 		h.coreProc = restarted
 		h.installIngestProbe(t)
 
-		deadline := time.Now().Add(pollTimeout)
 		var n int
-		for time.Now().Before(deadline) {
+		for time.Now().Before(redeliveryDeadline) {
 			n = h.rpcQueryCount(t, eventLedgerExistsSQL(fx4.NetworkScopeID, fx4.EventID))
 			if n == 1 {
 				break
@@ -1928,6 +1928,11 @@ func (h *harness) pipelineDiagnostics(t *testing.T) string {
 // the stream's one consumer.
 func (h *harness) edgeRecordAckFloor(t *testing.T) uint64 {
 	t.Helper()
+	return h.edgeRecordConsumerInfo(t).AckFloor.Stream
+}
+
+func (h *harness) edgeRecordConsumerInfo(t *testing.T) *jetstream.ConsumerInfo {
+	t.Helper()
 	stream, err := h.edgeRecordStream(t)
 	if err != nil {
 		t.Fatal(err)
@@ -1950,7 +1955,7 @@ func (h *harness) edgeRecordAckFloor(t *testing.T) uint64 {
 		}
 		t.Fatalf("stream %s has consumers %v, want exactly EventWriter's durable", edgeRecordStreamName, names)
 	}
-	return consumers[0].AckFloor.Stream
+	return consumers[0]
 }
 
 // requireJetStream fails t when the broker has JetStream off, which only a
