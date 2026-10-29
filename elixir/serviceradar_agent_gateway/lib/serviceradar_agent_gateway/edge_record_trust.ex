@@ -67,14 +67,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   `"historically_revoked"` (compromise-revoked: the signature still verifies, but trust is
   deliberately withdrawn and the record can only reach security quarantine).
 
-  The snapshot is loaded ONCE, at application boot (`load_configured/0`, from
-  `AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE`), and is never replaced at runtime. Fence entries,
-  verifying keys, key purposes and agent scope bindings added after boot are unknown until the
-  gateway restarts:
-  frames that depend on them are withheld as retryable (no disposition is sent, so the gap caps the
-  lane's watermark, per task 3.3) and are never authorized. A fence advanced after boot is not
-  learned either, so a handed-off producer's previous generation still reads as current and its new
-  one as future. A runtime snapshot refresh is deferred follow-up work.
+  With `AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE=core`, `EdgeRecordTrustRefresh` replaces the
+  snapshot from core every five seconds. Each fetched snapshot expires after thirty seconds,
+  bounding how long an unavailable core can leave old fences in use. The explicit `file` mode
+  loads once at boot for isolated tests. Ingest always reads one coherent local snapshot.
   """
 
   alias ServiceRadar.Edge.PlanValidate
@@ -105,8 +101,16 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   @spec snapshot() :: {:ok, snapshot()} | {:error, :trust_unavailable}
   def snapshot do
     case :persistent_term.get(@pt_key, nil) do
-      nil -> {:error, :trust_unavailable}
-      snapshot -> {:ok, snapshot}
+      {snapshot, :infinity} ->
+        {:ok, snapshot}
+
+      {snapshot, deadline} ->
+        if System.monotonic_time(:millisecond) < deadline,
+          do: {:ok, snapshot},
+          else: {:error, :trust_unavailable}
+
+      nil ->
+        {:error, :trust_unavailable}
     end
   end
 
@@ -118,10 +122,10 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   Validates and installs a snapshot given in the decoded JSON shape (string keys, base64 bytes).
   An invalid document installs nothing and leaves any previous snapshot in place.
   """
-  @spec install(map()) :: :ok | {:error, term()}
-  def install(document) do
+  @spec install(map(), integer() | :infinity) :: :ok | {:error, term()}
+  def install(document, expires_at \\ :infinity) do
     with {:ok, snapshot} <- new(document) do
-      :persistent_term.put(@pt_key, snapshot)
+      :persistent_term.put(@pt_key, {snapshot, expires_at})
       :ok
     end
   end
@@ -145,9 +149,15 @@ defmodule ServiceRadarAgentGateway.EdgeRecordTrust do
   """
   @spec load_configured() :: :ok | {:error, term()}
   def load_configured do
-    case :serviceradar_agent_gateway |> Application.get_env(:edge_record_trust, []) |> Keyword.get(:file) do
-      path when is_binary(path) and path != "" -> load_file(path)
-      _ -> {:error, :not_configured}
+    config = Application.get_env(:serviceradar_agent_gateway, :edge_record_trust, [])
+
+    case {Keyword.get(config, :source, :file), Keyword.get(config, :file)} do
+      {:file, path} when is_binary(path) and path != "" ->
+        load_file(path)
+
+      _ ->
+        clear()
+        {:error, :not_configured}
     end
   end
 

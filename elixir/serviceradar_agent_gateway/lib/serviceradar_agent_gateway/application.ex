@@ -146,12 +146,20 @@ defmodule ServiceRadarAgentGateway.Application do
           # NOTE: Legacy polling modules (AgentClient, TaskExecutor) have been deleted.
           # In the new push-only architecture, agents push status to the gateway.
           # The gateway never initiates connections to agents.
-        ] ++ edge_listener_children(grpc_port) ++ registration_children
+        ] ++ trust_refresh_children() ++ edge_listener_children(grpc_port) ++ registration_children
 
     children = core_children ++ gateway_children
 
     opts = [strategy: :one_for_one, name: ServiceRadarAgentGateway.Supervisor]
     Supervisor.start_link(children, opts)
+  end
+
+  defp trust_refresh_children do
+    config = Application.get_env(:serviceradar_agent_gateway, :edge_record_trust, [])
+
+    if Keyword.get(config, :source, :file) == :core,
+      do: [ServiceRadarAgentGateway.EdgeRecordTrustRefresh],
+      else: []
   end
 
   @doc """
