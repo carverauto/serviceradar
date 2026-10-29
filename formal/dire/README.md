@@ -18,11 +18,13 @@ Run them all with `bazel test --config=remote //formal/dire/...`; `make test` ru
   really see:
   - Armis sync: the Armis device id, plus MACs when Armis reports them.
   - Integration sync: an `IntOf` identifier from `IntIds` and the hostname at
-    the configured address. These IDs model one provider namespace.
+    the configured address. These IDs model one provider namespace. A Proxmox node also
+    reports its node certificate fingerprint (`CertOf`, from `CertIds`).
   - Network discovery: every interface MAC.
   - Agent check-in: its agent id and the eligible MACs of its host's interface inventory
     (`HostInterfaces.eligible_macs/1`). Every modeled interface is a physical NIC, so these are
-    the device's globally-unique MACs; a randomized MAC is never one.
+    the device's globally-unique MACs; a randomized MAC is never one. On a Proxmox node it also
+    reports the node certificate its local pveproxy serves (`CertOf`).
   - ARP-style observation: one MAC and its address. A randomized MAC from this observer is
     not registered, so that sighting is address-only.
   - Sweep: the address only.
@@ -289,6 +291,12 @@ Each environment stands for a real situation:
 | `agent_known_host` | One host with two NICs, known to a hypervisor integration (which reports no MAC), the census and discovery, and running an agent. The agent links to the record its MACs name, whichever NIC it announces. |
 | `agent_same_name` | Two same-named hypervisor nodes at two sites, each with its own integration id, agent and MAC. Disjoint MACs keep them apart whatever their names. |
 | `agent_on_armis` | An Armis device (Armis reports its MAC) that also runs an agent. By the user's decision of 2026-10-28 the agent may share the Armis record. |
+| `integration_agent_cert` | A Proxmox node with no MAC, known to its integration and running an agent. Both report the node's own certificate (`c1`), and the agent links to the integration record through it (#6146). `resolution_vacuity_agent_links_node_cert` expects `NeverAgentOnIntegrationRecord` to fail. |
+| `integration_clones_cert` | The `integration_clones` world with an agent on each node and a distinct node certificate per node. The certificates link each agent to its own node and never join the two. |
+
+The model assumes no two devices report one `CertOf` value unless
+`shared_certificate_identifies` is enabled. The producer admission rules behind this
+assumption are defined in [DIRE hypervisor nodes](../../docs/docs/dire-identity-model.md#hypervisor-nodes).
 
 The `Spare` constant holds record names that no identifier or address names. A re-issued id
 whose own uid already names an old record creates a record under one of them.
@@ -306,6 +314,7 @@ alternative merges two physical devices.
 | `retired_ids_forgotten` | `resolution_unsafe_retired_ids_forgotten` | `armis_reissued_ids` | Retirement without the archive: when Armis re-issues a retired id to another device, nothing remembers the record that held it, and the write lands on that record, which its uid still names. |
 | `overlapping_hostname_corroborates` | `resolution_unsafe_overlapping_hostname_corroborates` | `armis_clones` | A hostname corroborates without D3's time guard: once one of two clones leaves Armis and its id retires, its record merges into the other's, because they share a MAC and a hostname. |
 | `hostname_adopts_across_integration_ids` | `resolution_unsafe_hostname_adopts_across_integration_ids` | `integration_clones` | Hostname-agreement adoption without the `conflicting_integration_identity` refusal (#6042): two same-named nodes in different hypervisor clusters that share an address fuse onto one record owning both integration ids. |
+| `shared_certificate_identifies` | `resolution_unsafe_shared_certificate_identifies` | `integration_clones` with one certificate on both nodes | A certificate several nodes serve (a custom or ACME wildcard) is admitted as identity: the second node's sync lands on the first node's record through it (#6146). |
 
 An alternative is never fixed, so its configuration stays when switches come and go.
 
@@ -447,6 +456,18 @@ The traces of agent host identity (`link-agent-host-by-strong-identity`):
   disjoint strong identity arrives at its address. The records stay separate and hostname
   adoption records a `hostname_agreement_not_identity` policy block.
 
+The traces of the node certificate identifier (#6146):
+
+- `integration_agent_cert_agent_first`: the agent reports the node certificate first;
+  integration sync then registers its id on the agent record through that certificate,
+  without a merge or decisions (#6146).
+- `integration_agent_cert_links`: a hypervisor integration syncs a node with no MAC, reporting
+  its integration id and node certificate; the node's agent checks in reporting the same
+  certificate. The agent lands on the integration record.
+- `same_name_distinct_certs`: two same-named nodes at two sites, neither reporting a MAC, each
+  with its own integration id, node certificate and agent. Each agent lands on its own node's
+  record, and the two sites never join.
+
 Hostname adoption refuses agent-bound records in either arrival order (`AgentHeld(y) = {}`
 is required for `hostAdopt`). Agent-held records use their agent's `HostOf` value for the
 refusal decision; this abstracts hostname spelling. Mapper/MAC holders remain eligible.
@@ -516,6 +537,11 @@ still describes the code. The switches today's code has are listed once, in `Cur
    `resolution_goal_*` configuration (resolution).
 
 ## What the models do not express
+
+`CertOf` is constant. A node record created before its certificate was reported
+(the split pair healed by `hypervisor_node_certificate_match`) is covered by
+`agent_gateway_sync_test.exs`, not this model. The `integration_agent_cert` goal
+already explores both arrival orders under `EvidenceConverges`.
 
 - Numeric revision values. `identity_revision` is abstracted to "bumped this step" and "stale
   since pin", which is all the properties ask. Revision reuse after a purge and re-insert is

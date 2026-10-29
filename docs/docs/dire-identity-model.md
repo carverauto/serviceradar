@@ -15,6 +15,8 @@ translators, never identity engines).
 | `armis_device_id` | strong | External platform id |
 | `integration_id` | strong | Versioned + stable per external object; Proxmox admissibility and bridge formats are defined by [`IntegrationIdentity`](https://github.com/carverauto/serviceradar/blob/staging/elixir/serviceradar_core/lib/serviceradar/inventory/integration_identity.ex) |
 | `netbox_device_id` | strong | External platform id |
+| `hardware_serial` | strong | Vendor-scoped chassis serial; at most one per device |
+| `tls_certificate_fingerprint` | strong | A Proxmox VE node's own certificate (`pve-ssl.pem`), as `pve:sha256:<64 hex>`; claimed only by the Proxmox inventory and the agent on the node; at most four per device. See [Hypervisor nodes](#hypervisor-nodes) |
 | `mac` | strong / medium | Atomic, validated 12-hex values only; locally-administered MACs (IEEE bit) are medium, never merge on their own, and never derive a device uid: an update whose only MACs are locally administered is resolved like a weak update |
 | IP | weak | Never an identifier; resolves a device only when **no** strong identifier is present |
 
@@ -54,7 +56,8 @@ agent's addresses (primary or confirmed alias), its hostname's first label equal
 agent's, and it shares no eligible MAC with the agent, the pair is recorded as a
 `policy_block` decision with reason
 `agent_corroboration_not_identity`, which opens a de-duplication task. Same-named hosts at
-different sites share no eligible MAC and never fuse, in either arrival order. A later
+different sites never fuse on hostname or address alone, in either arrival order. For
+certificate-based linking of Proxmox hosts, see [Hypervisor nodes](#hypervisor-nodes). A later
 integration record cannot adopt an agent-bound holder by hostname: it records
 `hostname_agreement_not_identity` with refusal `agent_bound_holder`. Source-authoritative
 refusal takes precedence; mapper/MAC holders remain eligible for adoption. An agent enrolled
@@ -114,7 +117,8 @@ in `SourcePolicy.sufficient_to_create?/1`.
 2. Pre-set `sr:` UUID — a hint, re-validated and canonical-followed
 3. Deterministic UID derived from the highest-priority identifiers (a
    locally-administered MAC alone is not one; a MAC-only UID is seeded from
-   the first universal MAC)
+   the first universal MAC). Certificate fingerprints participate in matching,
+   but are deliberately excluded from UID seeds to preserve existing device UIDs.
 4. IP/alias fallback — only for weak updates
 5. Deterministic (IP-seeded) or random UID
 
@@ -303,6 +307,12 @@ the MACs identify.
 
 ### Hypervisor nodes
 
+For Proxmox hosts, hypervisor enrichment also merges a node record into the live
+device holding its node certificate fingerprint, with reason
+`hypervisor_node_certificate_match`. All MergeEngine guards apply; a refused merge
+leaves the records separate. Agent and plugin release order therefore does not
+decide identity.
+
 Hypervisor enrichment resolves a node, in order, by its integration id, then by
 its own NIC MACs, then, for Proxmox, by the device fingerprinted at its address. The Proxmox
 API reports no node NIC MACs (`GET /nodes/{node}/network` carries no hardware address), so the
@@ -334,6 +344,25 @@ refused merge leaves the records separate. A successful merge is audited in
 `hypervisor_node_candidate_match`. Such a record is left from before the node's
 address resolved; its address was dropped because a declarative source never
 displaces a live holder. A record holding anything else is left alone.
+
+A Proxmox node and the agent running on it share the node's certificate fingerprint. The
+inventory plugin reads it from `GET /nodes/{node}/certificates/info`; the agent, which cannot
+read `/etc/pve`, opens one TLS handshake to its local pveproxy on port 8006, sends no request,
+and reports the certificate presented. Both keep only the node's own `pve-ssl.pem`, which
+Proxmox generates per node with the node's own key: the plugin reports that file's entry, and
+the agent keeps the presented certificate only when its subject carries the `PVE Cluster Node`
+unit. A custom or ACME `pveproxy-ssl.pem` can be one wildcard shared by many nodes or clusters,
+so neither side reports it and it never identifies a host. An agent served such a certificate
+reports none and links by MAC or goes to review.
+
+`TlsCertificateFingerprint` admits a value only from the Proxmox inventory and the agent hello
+(sources `proxmox`, `hypervisor_enrichment` and `agent_gateway_sync`); an observer that carries
+one, such as a mapper probe, is ignored. A shared value converges records under the merge policy
+like a globally-unique MAC, and two records bound to distinct agents still never merge. A
+renewed certificate registers beside the old value, which ages out with the identifier TTL, so
+the record does not split. The agent and plugin releases that report the value are both needed
+before an existing node and agent pair converges. The gateway and core must also be upgraded
+to forward and consume `host_tls_fingerprints` on both hello transports.
 
 ### IP aliases
 

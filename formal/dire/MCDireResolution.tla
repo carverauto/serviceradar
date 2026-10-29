@@ -29,6 +29,15 @@ ArmisA1     == [h \in {"h1"} |-> "a1"]
 IntOnH1     == [h \in {"h1"} |-> "i1"]
 \* two same-named devices at two sites: each known to its own integration, each running an agent
 BothAgents  == [h \in {"h1", "h2"} |-> IF h = "h1" THEN "g1" ELSE "g2"]
+\* no device reports a node certificate
+NoCerts     == [h \in Phys |-> NoId]
+\* a Proxmox node with no MAC: its integration and its agent both report its certificate c1
+NoMacs1     == [x \in {"x1"} |-> NoId]
+CertOnH1    == [h \in {"h1"} |-> "c1"]
+\* two nodes, each with its own node certificate
+BothCerts   == [h \in {"h1", "h2"} |-> IF h = "h1" THEN "c1" ELSE "c2"]
+\* two nodes serving one shared (wildcard) certificate
+SharedCert  == [h \in {"h1", "h2"} |-> "c1"]
 \* every device reports its own hostname
 OwnHost     == [h \in Phys |-> h]
 \* cloned machines: every device reports the same hostname
@@ -51,6 +60,9 @@ NeverAgentOnDiscoveredRecord == \A r \in Recs : Live(r) => ~(AgentHeld(r) # {} /
 \* vacuity: an agent never shares a record with a source-authoritative id (the user's decision of
 \* 2026-10-28: an agent's eligible MACs link it to an Armis record of the same endpoint)
 NeverAgentOnSourceRecord == \A r \in Recs : Live(r) => ~(AgentHeld(r) # {} /\ SrcHeld(r) # {})
+\* vacuity: an agent never shares a record with an integration id (the goal links an agent to its
+\* Proxmox node's record through the node certificate)
+NeverAgentOnIntegrationRecord == \A r \in Recs : Live(r) => ~(AgentHeld(r) # {} /\ IntHeld(r) # {})
 \* vacuity: nothing is ever merged
 NeverMerged == \A r \in Recs : into[r] = NoRec
 \* vacuity: no identity decision is ever made

@@ -13,6 +13,8 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
   - `integration_id` - Generic integration ID
   - `netbox_device_id` - NetBox device ID
   - `hardware_serial` - Canonical manufacturer-scoped hardware serial
+  - `tls_certificate_fingerprint` - SHA-256 of a host's own TLS certificate, today a
+    Proxmox VE node's `pve-ssl.pem` (`pve:sha256:<hex>`)
   - `mac` - MAC address (normalized uppercase, no separators)
 
   Weak identifier:
@@ -38,6 +40,7 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
     :integration_id,
     :netbox_device_id,
     :hardware_serial,
+    :tls_certificate_fingerprint,
     :mac,
     :ip,
     :passive_fingerprint
@@ -266,8 +269,9 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
                   identifier_type == :integration_id -> 2
                   identifier_type == :netbox_device_id -> 3
                   identifier_type == :hardware_serial -> 4
-                  identifier_type == :mac -> 5
-                  identifier_type == :ip -> 6
+                  identifier_type == :tls_certificate_fingerprint -> 5
+                  identifier_type == :mac -> 6
+                  identifier_type == :ip -> 7
                   true -> 99
                 end
               )

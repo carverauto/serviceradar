@@ -50,6 +50,7 @@ func addNodeDiscoveries(discovery *sdk.DeviceDiscovery, target Target, nodes []p
 			proxmoxNodeLegacyIDs(node.Node, target.Hostname, integrationID),
 			macs,
 		)
+		metadata = withNodeCertificateFingerprint(metadata, node.TLSCertificateFingerprint)
 
 		discovery.AddDevice(sdk.DiscoveredDevice{
 			DeviceID:    deviceID,

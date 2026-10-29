@@ -4,6 +4,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   """
 
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
+  alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
 
@@ -733,6 +734,10 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     |> maybe_put_metadata("runtime_status", map_value(node, "runtime_status"))
     |> maybe_put_metadata("ip", string_value(node, "ip") || string_value(cluster_node, "ip"))
     |> maybe_put_metadata("cluster_node", cluster_node)
+    |> maybe_put_metadata(
+      TlsCertificateFingerprint.metadata_key(),
+      node |> string_value("tls_certificate_fingerprint") |> TlsCertificateFingerprint.normalize()
+    )
     |> sanitize_metadata()
   end
 

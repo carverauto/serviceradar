@@ -1425,8 +1425,20 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       source_ip: device_ip,
       host_macs: request_value(request, :host_macs) || [],
       host_interfaces: host_interfaces_from_request(request),
+      host_tls_fingerprints: host_tls_fingerprints_from_request(request),
       capabilities: capabilities
     }
+  end
+
+  # Certificates the agent's own host services present (today: a Proxmox VE node's
+  # pve-ssl.pem), as plain maps. Core decides whether they identify the host.
+  defp host_tls_fingerprints_from_request(request) do
+    request
+    |> request_value(:host_tls_fingerprints)
+    |> List.wrap()
+    |> Enum.map(fn fingerprint ->
+      %{port: Map.get(fingerprint, :port), sha256: Map.get(fingerprint, :sha256)}
+    end)
   end
 
   # The agent's classified interface inventory, as plain maps: core decides which of these

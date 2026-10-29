@@ -30,7 +30,9 @@ defmodule ServiceRadar.Inventory.Identity.CardinalityCaps do
 
   require Logger
 
-  @default_caps %{mac: 64, hardware_serial: 1, default: 8}
+  # A host carries one node certificate at a time; a few more cover the overlap
+  # while a renewed certificate replaces the old one.
+  @default_caps %{mac: 64, hardware_serial: 1, tls_certificate_fingerprint: 4, default: 8}
 
   @doc "The configured cap for an identifier type."
   @spec cap_for(atom()) :: pos_integer()

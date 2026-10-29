@@ -13,6 +13,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   alias ServiceRadar.Inventory.Identity.HardwareSerial
   alias ServiceRadar.Inventory.Identity.Mac
+  alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IntegrationIdentity
 
   require Logger
@@ -23,6 +24,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     :integration_id,
     :netbox_device_id,
     :hardware_serial,
+    :tls_certificate_fingerprint,
     :mac
   ]
 
@@ -38,6 +40,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
           optional(:integration_id) => String.t() | nil,
           optional(:netbox_id) => String.t() | nil,
           optional(:hardware_serial) => String.t() | nil,
+          optional(:tls_certificate_fingerprint) => String.t() | nil,
           optional(:mac) => String.t() | nil,
           optional(:macs) => [String.t()],
           optional(:legacy_mac) => String.t() | nil,
@@ -80,6 +83,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       integration_id: integration_id,
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
       hardware_serial: hardware_serial,
+      tls_certificate_fingerprint: TlsCertificateFingerprint.from_update(update),
       mac: List.first(macs),
       macs: macs,
       legacy_mac: legacy_mac_blob(raw_mac),
@@ -317,6 +321,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       ids_get(ids, :integration_id) != nil or
       ids_get(ids, :netbox_id) != nil or
       ids_get(ids, :hardware_serial) != nil or
+      ids_get(ids, :tls_certificate_fingerprint) != nil or
       first_universal_mac(ids) != nil
   end
 
@@ -351,6 +356,9 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       ids_get(ids, :hardware_serial) != nil ->
         {:hardware_serial, ids_get(ids, :hardware_serial)}
 
+      ids_get(ids, :tls_certificate_fingerprint) != nil ->
+        {:tls_certificate_fingerprint, ids_get(ids, :tls_certificate_fingerprint)}
+
       ids_get(ids, :mac) != nil ->
         {:mac, ids_get(ids, :mac)}
 
@@ -364,6 +372,10 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
   def get_identifier_value(ids, :integration_id), do: ids_get(ids, :integration_id)
   def get_identifier_value(ids, :netbox_device_id), do: ids_get(ids, :netbox_id)
   def get_identifier_value(ids, :hardware_serial), do: ids_get(ids, :hardware_serial)
+
+  def get_identifier_value(ids, :tls_certificate_fingerprint),
+    do: ids_get(ids, :tls_certificate_fingerprint)
+
   def get_identifier_value(ids, :mac), do: ids_get(ids, :mac)
   def get_identifier_value(_ids, _type), do: nil
 

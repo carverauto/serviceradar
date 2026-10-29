@@ -18,6 +18,7 @@ var proxmoxRuntimeResponses = map[string]string{
 	"/api2/json/nodes/pve-a/storage":                               `{"data":[{"storage":"local-zfs","type":"zfspool","content":"images,rootdir","active":1,"enabled":1,"used":8192,"total":16384}]}`,
 	"/api2/json/nodes/pve-a/network":                               `{"data":[{"iface":"vmbr0","type":"bridge","active":1,"exists":1,"method":"static","families":["inet"],"hwaddr":"02:00:00:00:00:01","address":"192.0.2.11","cidr":"192.0.2.11/24","bridge-ports":"eno1"}]}`,
 	"/api2/json/nodes/pve-a/disks/list":                            `{"data":[{"devpath":"/dev/sda","model":"Example SSD","type":"ssd","size":1024,"health":"PASSED"}]}`,
+	"/api2/json/nodes/pve-a/certificates/info":                     `{"data":[{"filename":"pveproxy-ssl.pem","fingerprint":"11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00:11:22:33:44:55:66:77:88:99:AA:BB:CC:DD:EE:FF:00"},{"filename":"pve-ssl.pem","fingerprint":"AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89:AB:CD:EF:01:23:45:67:89"}]}`,
 	"/api2/json/nodes/pve-a/ceph/status":                           `{"data":{"health":{"status":"HEALTH_OK"},"fsid":"00000000-0000-4000-8000-000000000000"}}`,
 	"/api2/json/nodes/pve-a/qemu":                                  `{"data":[{"node":"pve-a","name":"vm-100","type":"qemu","status":"running","vmid":100,"cpu":0.1,"maxcpu":4,"mem":512,"maxmem":2048,"disk":1024,"maxdisk":4096}]}`,
 	"/api2/json/nodes/pve-a/lxc":                                   `{"data":[{"node":"pve-a","name":"ct-101","type":"lxc","status":"running","vmid":101,"cpu":0.0,"maxcpu":1,"mem":64,"maxmem":512}]}`,
@@ -100,6 +101,43 @@ func TestProxmoxInventoryRunsUnderAgentLifecycle(t *testing.T) {
 	}
 	if !kinds["serviceradar_metrics"] {
 		t.Fatalf("no metric telemetry emitted; payload kinds %v", kinds)
+	}
+}
+
+// The discovered node carries its own pve-ssl.pem fingerprint as host identity,
+// never the custom pveproxy-ssl.pem the same node also reports.
+func TestProxmoxInventoryReportsTheNodeCertificateFingerprint(t *testing.T) {
+	host := &wasmHost{config: []byte(proxmoxRuntimeConfig), http: func(t *testing.T, request wasmHTTPRequest) (int, []byte) {
+		path := strings.TrimPrefix(request.URL, "https://192.0.2.11:8006")
+		body, ok := proxmoxRuntimeResponses[path]
+		if !ok || request.Method != http.MethodGet {
+			t.Fatalf("unexpected HTTP request: %+v", request)
+		}
+		return http.StatusOK, []byte(body)
+	}}
+	host.run(t, loadBuiltWasm(t, "proxmox_inventory.wasm"), "run_check")
+
+	const want = "pve:sha256:abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+	found := false
+	for _, result := range host.results {
+		discoveries, _ := result["device_discovery"].([]any)
+		for _, discovery := range discoveries {
+			devices, _ := discovery.(map[string]any)["devices"].([]any)
+			for _, raw := range devices {
+				device := raw.(map[string]any)
+				if device["ip"] != "192.0.2.11" {
+					continue
+				}
+				metadata, _ := device["metadata"].(map[string]any)
+				if metadata["tls_certificate_fingerprint"] != want {
+					t.Fatalf("node metadata = %v, want tls_certificate_fingerprint %q", metadata, want)
+				}
+				found = true
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("no discovered node device at 192.0.2.11")
 	}
 }
 

@@ -144,6 +144,7 @@ func appendNodeJSON(b *strings.Builder, node proxmoxNode) {
 		appendFieldName(b, &first, "network")
 		appendNetworkJSON(b, node.Network)
 	}
+	appendStringField(b, &first, "tls_certificate_fingerprint", node.TLSCertificateFingerprint)
 	if len(node.Disks) > 0 {
 		appendFieldName(b, &first, "disks")
 		appendDisksJSON(b, node.Disks)

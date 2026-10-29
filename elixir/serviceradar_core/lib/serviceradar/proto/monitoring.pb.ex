@@ -511,6 +511,11 @@ defmodule Monitoring.AgentHelloRequest do
     repeated: true,
     type: Monitoring.HostInterface,
     json_name: "hostInterfaces"
+
+  field :host_tls_fingerprints, 14,
+    repeated: true,
+    type: Monitoring.HostTlsFingerprint,
+    json_name: "hostTlsFingerprints"
 end
 
 defmodule Monitoring.HostInterface do
@@ -529,6 +534,18 @@ defmodule Monitoring.HostInterface do
   field :kind, 6, type: Monitoring.HostInterfaceKind, enum: true
   field :mac_provenance, 7, type: Monitoring.MacProvenance, json_name: "macProvenance", enum: true
   field :master, 8, type: :string
+end
+
+defmodule Monitoring.HostTlsFingerprint do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.HostTlsFingerprint",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :port, 1, type: :uint32
+  field :sha256, 2, type: :string
 end
 
 defmodule Monitoring.AgentHelloResponse do
@@ -725,6 +742,11 @@ defmodule Monitoring.ControlStreamHello do
     repeated: true,
     type: Monitoring.HostInterface,
     json_name: "hostInterfaces"
+
+  field :host_tls_fingerprints, 16,
+    repeated: true,
+    type: Monitoring.HostTlsFingerprint,
+    json_name: "hostTlsFingerprints"
 end
 
 defmodule Monitoring.CommandRequest do

@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.Identity.GuestAddress
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.Identity.SourceRetirement
+  alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.MergeAudit
@@ -1029,7 +1030,8 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   defp ensure_inventory_devices(records, actor) do
     with {:ok, integration_identity} <- integration_identity_by_ref(records),
          {:ok, node_candidates} <- node_candidate_identity_by_host(records),
-         {:ok, hosts} <- converge_node_records(records.hosts, node_candidates, actor),
+         {:ok, hosts} <- converge_node_certificates(records.hosts, integration_identity, actor),
+         {:ok, hosts} <- converge_node_records(hosts, node_candidates, actor),
          records = %{records | hosts: hosts},
          {:ok, guest_resolution} <-
            resolve_guest_network_and_awx_candidates(
@@ -1224,6 +1226,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       "hypervisor_provider" => Map.get(record, :provider),
       "hypervisor_provider_ref" => provider_ref
     }
+    |> maybe_put(TlsCertificateFingerprint.metadata_key(), record_node_certificate(record, role))
     |> maybe_put("hypervisor_guest_type", Map.get(record, :guest_type))
     |> maybe_put("hypervisor_host_provider_ref", Map.get(record, :host_provider_ref))
     |> maybe_put("hypervisor_vmid", Map.get(record, :vmid))
@@ -1232,6 +1235,24 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     |> maybe_put_legacy_integration_ids(legacy_integration_ids)
     |> maybe_put_proxmox_candidate(record, role)
   end
+
+  # A node's own certificate fingerprint, read by the inventory, is the strong
+  # identifier that links the node to the agent running on it.
+  defp record_node_certificate(record, :hypervisor) do
+    record
+    |> Map.get(:metadata)
+    |> case do
+      %{} = metadata ->
+        TlsCertificateFingerprint.normalize(
+          Map.get(metadata, TlsCertificateFingerprint.metadata_key())
+        )
+
+      _ ->
+        nil
+    end
+  end
+
+  defp record_node_certificate(_record, _role), do: nil
 
   defp maybe_put_mac_addresses(metadata, []), do: metadata
 
@@ -1821,6 +1842,90 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
         |> Enum.filter(&present?/1)
         |> MapSet.new()
     }
+  end
+
+  defp converge_node_certificates(hosts, integration_identity, actor) do
+    entries =
+      for host <- hosts,
+          proxmox_record?(host),
+          certificate = record_node_certificate(host, :hypervisor),
+          is_binary(certificate),
+          held_uid = Map.get(integration_identity, Map.get(host, :provider_ref)),
+          is_binary(held_uid),
+          do: {host, held_uid, certificate}
+
+    with {:ok, holders} <- node_certificate_holders(entries) do
+      {:ok,
+       Enum.map(hosts, fn host ->
+         ref = Map.get(host, :provider_ref)
+         held_uid = Map.get(integration_identity, ref)
+         key = {record_node_certificate(host, :hypervisor), metadata_partition(host), held_uid}
+         cert_uid = Map.get(holders, key)
+
+         if proxmox_record?(host) and is_binary(cert_uid) and cert_uid != held_uid and
+              merge_node_certificate(host, held_uid, cert_uid, actor) == :ok do
+           Map.put(host, :device_uid, cert_uid)
+         else
+           host
+         end
+       end)}
+    end
+  end
+
+  defp node_certificate_holders([]), do: {:ok, %{}}
+
+  defp node_certificate_holders(entries) do
+    sql = """
+    WITH wanted(value, partition, held_uid) AS (
+      SELECT * FROM unnest($1::text[], $2::text[], $3::text[])
+    )
+    SELECT w.value, w.partition, w.held_uid, di.device_id
+    FROM wanted w
+    JOIN platform.device_identifiers di
+      ON di.identifier_type = 'tls_certificate_fingerprint'
+     AND di.identifier_value = w.value
+     AND COALESCE(di.partition, 'default') = w.partition
+    JOIN platform.ocsf_devices holder ON holder.uid = di.device_id AND holder.deleted_at IS NULL
+    JOIN platform.ocsf_devices held ON held.uid = w.held_uid AND held.deleted_at IS NULL
+    """
+
+    values = Enum.map(entries, fn {_host, _uid, certificate} -> certificate end)
+    partitions = Enum.map(entries, fn {host, _uid, _certificate} -> metadata_partition(host) end)
+    uids = Enum.map(entries, fn {_host, uid, _certificate} -> uid end)
+
+    case Repo.query(sql, [values, partitions, uids]) do
+      {:ok, %{rows: rows}} ->
+        {:ok,
+         Map.new(rows, fn [value, partition, uid, holder] -> {{value, partition, uid}, holder} end)}
+
+      {:error, reason} ->
+        Logger.warning("Hypervisor enrichment certificate lookup failed: #{inspect(reason)}")
+        {:error, {:identifier_lookup_failed, reason}}
+    end
+  end
+
+  defp merge_node_certificate(host, held_uid, cert_uid, actor) do
+    case IdentityReconciler.merge_devices(held_uid, cert_uid,
+           actor: actor,
+           reason: "hypervisor_node_certificate_match",
+           details: %{
+             "host_provider_ref" => Map.get(host, :provider_ref),
+             "evidence" => "tls_certificate_fingerprint"
+           }
+         ) do
+      :ok ->
+        :ok
+
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.info(
+          "HypervisorEnrichment: skipped node merge #{held_uid} -> #{cert_uid}: #{inspect(reason)}"
+        )
+
+        :skipped
+    end
   end
 
   # The result's earlier records of a node may hold its integration identity on a

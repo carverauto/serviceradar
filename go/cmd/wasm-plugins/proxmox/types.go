@@ -181,6 +181,17 @@ type proxmoxNetworkResponse struct {
 	Data []proxmoxNetworkInterface `json:"data"`
 }
 
+// proxmoxCertificateInfo is one entry of GET /nodes/{node}/certificates/info.
+// Only the file name and the SHA-256 fingerprint are read.
+type proxmoxCertificateInfo struct {
+	Filename    string `json:"filename"`
+	Fingerprint string `json:"fingerprint"`
+}
+
+type proxmoxCertificatesResponse struct {
+	Data []proxmoxCertificateInfo `json:"data"`
+}
+
 type proxmoxDiskResponse struct {
 	Data []proxmoxDisk `json:"data"`
 }
@@ -268,7 +279,10 @@ type proxmoxNode struct {
 	Storage      []proxmoxStorage          `json:"storage,omitempty"`
 	Network      []proxmoxNetworkInterface `json:"network,omitempty"`
 	Disks        []proxmoxDisk             `json:"disks,omitempty"`
-	Ceph         *proxmoxCeph              `json:"ceph,omitempty"`
+	// TLSCertificateFingerprint is the node's own pve-ssl.pem fingerprint, as
+	// "pve:sha256:<hex>"; empty when the API did not report it.
+	TLSCertificateFingerprint string       `json:"tls_certificate_fingerprint,omitempty"`
+	Ceph                      *proxmoxCeph `json:"ceph,omitempty"`
 }
 
 type proxmoxNodeStatus struct {

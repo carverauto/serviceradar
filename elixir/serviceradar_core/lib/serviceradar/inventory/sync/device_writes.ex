@@ -48,6 +48,7 @@ defmodule ServiceRadar.Inventory.Sync.DeviceWrites do
     :integration_id,
     :netbox_device_id,
     :hardware_serial,
+    :tls_certificate_fingerprint,
     :mac
   ]
 
