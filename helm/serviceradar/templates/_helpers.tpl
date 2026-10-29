@@ -280,6 +280,19 @@ The shadow list is included explicitly because it is derived, not set.
 {{- printf "%s|%s" (toJson $sr) (include "serviceradar.starrocksShadowDatasets" .) | sha256sum -}}
 {{- end -}}
 
+{{/*
+Deployment default lifetime for agent mTLS certificates. core-elx, web-ng and
+the agent-gateway all resolve it, so they must see the same value. Unset keeps
+the built-in 90-day default; the releases reject anything outside 7..365 at boot.
+*/}}
+{{- define "serviceradar.agentCertValidityEnv" -}}
+{{- $days := get (default (dict) .Values.certs) "agentValidityDays" -}}
+{{- if and (not (kindIs "invalid" $days)) (ne (toString $days) "") }}
+- name: AGENT_CERT_VALIDITY_DAYS
+  value: {{ $days | toString | quote }}
+{{- end }}
+{{- end -}}
+
 {{- define "serviceradar.starrocksAnalyticsEnv" -}}
 {{- $sr := default (dict) (default (dict) .Values.analytics).starrocks -}}
 {{- if $sr.enabled }}

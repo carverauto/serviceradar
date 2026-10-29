@@ -145,7 +145,7 @@ metadata:
   labels:
     app.kubernetes.io/part-of: serviceradar
 spec:
-  replicas: {{ default 1 $coreVals.replicas }}
+  replicas: {{ if hasKey $coreVals "replicas" }}{{ $coreVals.replicas }}{{ else }}1{{ end }}
   strategy:
     type: RollingUpdate
   selector:
@@ -260,6 +260,7 @@ spec:
         {{- end }}
         {{- end }}
         {{- include "serviceradar.starrocksAnalyticsEnv" . | nindent 8 }}
+        {{- include "serviceradar.agentCertValidityEnv" . | nindent 8 }}
         - name: CLUSTER_ENABLED
           value: "true"
         - name: CLUSTER_STRATEGY

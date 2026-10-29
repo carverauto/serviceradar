@@ -1,0 +1,31 @@
+suite: agent certificate validity default
+templates:
+  - templates/core.yaml
+  - templates/web.yaml
+  - templates/agent-gateway.yaml
+tests:
+  - it: leaves the built-in default to the releases when unset
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content: {name: AGENT_CERT_VALIDITY_DAYS}
+          any: true
+        documentSelector:
+          path: kind
+          value: Deployment
+          matchMany: true
+
+  - it: gives core, web-ng and the agent-gateway the same configured default
+    set:
+      certs.agentValidityDays: 180
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: AGENT_CERT_VALIDITY_DAYS
+            value: "180"
+          count: 1
+        documentSelector:
+          path: kind
+          value: Deployment
+          matchMany: true

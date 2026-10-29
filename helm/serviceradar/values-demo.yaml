@@ -209,10 +209,10 @@ cnpg:
     max_connections: "500"
     shared_buffers: "1GB"
     work_mem: "16MB"
-    # JIT compilation cost more than it saved here: since the last stats reset
-    # it spent ~23 h of CPU compiling, e.g. 52 ms of a 62 ms hypertable-size
-    # monitoring query on every call and 4-5 s of each flow-correlation query.
-    # These are short or repeated statements; JIT rarely pays off for them.
+    # JIT compilation costs more than it saves for this workload: the
+    # statements are short or frequently repeated, so compile time dominates
+    # (analytical queries run in StarRocks, not here). jit is reloadable, so
+    # changing it does not restart Postgres.
     jit: "off"
   pooler:
     enabled: true
