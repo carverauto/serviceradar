@@ -53,6 +53,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/tls"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -350,9 +351,9 @@ func newHarness(t *testing.T) *harness {
 	h.certSet = certSet
 	h.gatewayServerName = certSet.GatewayServerName
 
-	trustFile := filepath.Join(dir, "edge-record-trust.json")
-	if err := WriteGatewayTrustFile(trustFile, certSet.AgentComponentID); err != nil {
-		t.Fatalf("write gateway edge-record trust file: %v", err)
+	issuerFile := filepath.Join(dir, "edge-issuer-seed")
+	if err := os.WriteFile(issuerFile, []byte(base64.StdEncoding.EncodeToString(fixtureIssuerSeed())), 0o600); err != nil {
+		t.Fatalf("write synthetic core issuer seed: %v", err)
 	}
 
 	natsH, err := StartEmbeddedNATS(filepath.Join(dir, "nats-store"), filepath.Join(dir, "nats-creds"))
@@ -387,22 +388,21 @@ func newHarness(t *testing.T) *harness {
 	// the SAME process, so it independently needs DATABASE_URL/CLOAK_KEY too
 	// -- see GatewayEnvConfig's doc comment for exactly why.
 	h.gatewayEnv = GatewayEnvConfig{
-		GRPCPort:            grpcPort,
-		MetricsPort:         gwMetricsPort,
-		CertDir:             certSet.Dir,
-		NATSURL:             gwNATS.URL,
-		NATSCredsFile:       natsH.CredsPath,
-		PartitionID:         certSet.PartitionID,
-		GatewayID:           "vslice-gateway",
-		Domain:              "vslice",
-		CNPGHost:            cnpg.Host,
-		CNPGPort:            cnpg.Port,
-		CNPGDatabase:        cnpg.Database,
-		CNPGUsername:        cnpg.Username,
-		CNPGPassword:        cnpg.Password,
-		CNPGSSLMode:         cnpg.SSLMode,
-		CloakKey:            cloakKey,
-		EdgeRecordTrustFile: trustFile,
+		GRPCPort:      grpcPort,
+		MetricsPort:   gwMetricsPort,
+		CertDir:       certSet.Dir,
+		NATSURL:       gwNATS.URL,
+		NATSCredsFile: natsH.CredsPath,
+		PartitionID:   certSet.PartitionID,
+		GatewayID:     "vslice-gateway",
+		Domain:        "vslice",
+		CNPGHost:      cnpg.Host,
+		CNPGPort:      cnpg.Port,
+		CNPGDatabase:  cnpg.Database,
+		CNPGUsername:  cnpg.Username,
+		CNPGPassword:  cnpg.Password,
+		CNPGSSLMode:   cnpg.SSLMode,
+		CloakKey:      cloakKey,
 	}
 	registryJSON, err := FixtureContractRegistryJSON()
 	if err != nil {
@@ -411,18 +411,20 @@ func newHarness(t *testing.T) *harness {
 	h.gatewayEnv.ContractRegistryJSON = registryJSON
 
 	h.coreEnv = CoreEnvConfig{
-		MetricsPort:       coreMetricsPort,
-		CNPGHost:          cnpg.Host,
-		CNPGPort:          cnpg.Port,
-		CNPGDatabase:      cnpg.Database,
-		CNPGUsername:      cnpg.Username,
-		CNPGPassword:      cnpg.Password,
-		CNPGSSLMode:       cnpg.SSLMode,
-		CNPGCAFile:        cnpgCAFile,
-		CNPGTLSServerName: cnpg.TLSServerName,
-		NATSURL:           natsH.URL,
-		NATSCredsFile:     natsH.CredsPath,
-		CloakKey:          cloakKey,
+		IssuerKeyFile:        issuerFile,
+		ContractRegistryJSON: registryJSON,
+		MetricsPort:          coreMetricsPort,
+		CNPGHost:             cnpg.Host,
+		CNPGPort:             cnpg.Port,
+		CNPGDatabase:         cnpg.Database,
+		CNPGUsername:         cnpg.Username,
+		CNPGPassword:         cnpg.Password,
+		CNPGSSLMode:          cnpg.SSLMode,
+		CNPGCAFile:           cnpgCAFile,
+		CNPGTLSServerName:    cnpg.TLSServerName,
+		NATSURL:              natsH.URL,
+		NATSCredsFile:        natsH.CredsPath,
+		CloakKey:             cloakKey,
 	}
 
 	gatewayTarPath := mustRlocation(t, gatewayReleaseTarRlocation)
@@ -448,6 +450,7 @@ func newHarness(t *testing.T) *harness {
 	}
 	t.Cleanup(coreProc.Stop)
 	h.coreProc = coreProc
+	h.connectTrustCore(t)
 	h.installIngestProbe(t)
 
 	agentProc, err := StartAgent(
@@ -535,6 +538,7 @@ func TestVerticalSlice(t *testing.T) {
 	t.Run("GroupE_RestartOverlap", h.testGroupE)
 	t.Run("GroupF_PostHandoffFencing", h.testGroupF)
 	t.Run("GroupG_RecordIdentityMismatch", h.testGroupG)
+	t.Run("GroupH_LiveAuthorityRevocation", h.testLiveAuthorityRevocation)
 }
 
 // ---------------------------------------------------------------------------
@@ -611,7 +615,7 @@ func deliverySlotSQL(networkScopeID, authenticatedAgentID, spoolID []byte, seque
 //
 // Proves: the positive fixture reaches the production EventWriter through
 // the real mTLS gRPC service, the real gateway publish pipeline, and the
-// real JetStream route; its ledger/slot rows are absent before the send and
+// real JetStream route; its ledger/slot and sweep-domain rows are absent before the send and
 // exactly present (matching independently-computed expected values)
 // afterward; and a client authenticated with the WRONG SPIFFE component
 // type is refused at the mTLS/identity gate before any frame is even sent,
@@ -622,6 +626,7 @@ func (h *harness) testGroupA(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build fixture: %v", err)
 	}
+	h.prepareFixture(t, fx)
 	h.groupAFixture = fx
 
 	// Absent before.
@@ -707,6 +712,7 @@ func (h *harness) assertCommittedFixtureValues(t *testing.T, fx *FixtureRecord, 
 		t.Fatalf("edge_sweep_projected_rows count = %d, want %d", gotCount, fx.ProjectedRowCount)
 	}
 	h.assertProjectedRowKeySet(t, fx)
+	h.assertSweepDomain(t, fx)
 }
 
 // hexInspect renders b the way Elixir's inspect/1 shows a binary column
@@ -935,6 +941,7 @@ func (h *harness) testGroupC(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
+		h.prepareFixture(t, fxC)
 		spoolID, err := edgerecord.NewUUIDv7()
 		if err != nil {
 			t.Fatalf("spool id: %v", err)
@@ -958,7 +965,7 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Fatalf("first delivery ended with %q, want ok:inserted", first.Tag)
 		}
 
-		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fxC.ProjectedRowCount}
+		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fxC.ProjectedRowCount, Executions: 1, Hosts: len(fxC.Batch.Hosts)}
 		firstCommit := h.snapshotFixtureRows(t, fxC, spoolID)
 		if firstCommit != want {
 			t.Fatalf("first-commit snapshot = %+v, want %+v", firstCommit, want)
@@ -986,6 +993,7 @@ func (h *harness) testGroupC(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build conflicting fixture: %v", err)
 		}
+		h.prepareFixture(t, conflictFx)
 
 		agentID := []byte(h.certSet.AgentComponentID)
 		beforeSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, agentID, h.spoolID, h.groupASequence))
@@ -1027,6 +1035,11 @@ func (h *harness) testGroupC(t *testing.T) {
 			t.Errorf("conflicting fixture leaked an edge_sweep_batch_slots row (count=%d)", n)
 		}
 
+		conflictRows := h.snapshotFixtureRows(t, conflictFx, h.spoolID)
+		if conflictRows.Executions != 0 || conflictRows.Hosts != 0 {
+			t.Errorf("conflicting fixture leaked sweep domain state: %+v", conflictRows)
+		}
+
 		afterSlot := h.rpcQueryRow(t, deliverySlotSQL(fx.NetworkScopeID, agentID, h.spoolID, h.groupASequence))
 		if afterSlot != beforeSlot {
 			t.Errorf("edge_delivery_slots binding changed after conflicting frame: before=%s after=%s (first binding must stay immutable)", beforeSlot, afterSlot)
@@ -1034,17 +1047,17 @@ func (h *harness) testGroupC(t *testing.T) {
 	})
 }
 
-// fixtureRowSnapshot counts every committed row one fixture's keys touch.
+// fixtureRowSnapshot counts ledger and sweep rows owned by a fixture's immutable IDs.
 type fixtureRowSnapshot struct {
-	Ledger, Slots, Batch, Rows int
+	Ledger, Slots, Batch, Rows, Executions, Hosts int
 }
 
-// snapshotFixtureRows takes all four counts in one rpc call, so a probe that
+// snapshotFixtureRows takes ledger and domain counts in one rpc call, so a probe that
 // holds a delivery inside its CNPG transaction can snapshot while it holds.
 func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID []byte) fixtureRowSnapshot {
 	t.Helper()
 	expr := fmt.Sprintf(
-		`[%q, %q, %q, %q] |> Enum.map(fn sql -> %%Postgrex.Result{rows: [[n]]} = ServiceRadar.Repo.query!(sql, []); n end) |> Enum.join(",") |> IO.puts()`,
+		`[%q, %q, %q, %q, %q, %q] |> Enum.map(fn sql -> %%Postgrex.Result{rows: [[n]]} = ServiceRadar.Repo.query!(sql, []); n end) |> Enum.join(",") |> IO.puts()`,
 		eventLedgerExistsSQL(fx.NetworkScopeID, fx.EventID),
 		fmt.Sprintf(
 			"SELECT count(*) FROM platform.edge_delivery_slots WHERE network_scope_id = %s AND spool_id = %s",
@@ -1058,6 +1071,8 @@ func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID [
 			"SELECT count(*) FROM platform.edge_sweep_projected_rows WHERE network_scope_id = %s AND event_id = %s",
 			uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.EventID),
 		),
+		fmt.Sprintf("SELECT count(*) FROM platform.sweep_group_executions WHERE id = %s", uuidLiteral(fx.ExecutionID)),
+		fmt.Sprintf("SELECT count(*) FROM platform.sweep_host_results WHERE execution_id = %s", uuidLiteral(fx.ExecutionID)),
 	)
 	out, err := h.coreProc.RPC(expr, rpcTimeout)
 	if err != nil {
@@ -1065,7 +1080,7 @@ func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID [
 	}
 
 	fields := strings.Split(strings.TrimSpace(out), ",")
-	if len(fields) != 4 {
+	if len(fields) != 6 {
 		t.Fatalf("rpc fixture row snapshot: unparsable output %q", out)
 	}
 	counts := make([]int, len(fields))
@@ -1076,7 +1091,7 @@ func (h *harness) snapshotFixtureRows(t *testing.T, fx *FixtureRecord, spoolID [
 		}
 		counts[i] = n
 	}
-	return fixtureRowSnapshot{Ledger: counts[0], Slots: counts[1], Batch: counts[2], Rows: counts[3]}
+	return fixtureRowSnapshot{Ledger: counts[0], Slots: counts[1], Batch: counts[2], Rows: counts[3], Executions: counts[4], Hosts: counts[5]}
 }
 
 // requireAcceptedAck fails t unless msg is an EdgeDeliveryAckV1 resolving
@@ -1438,6 +1453,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
+		h.prepareFixture(t, fx2)
 		seq, err := h.sp.Append(fx2.EventID, fx2.RecordBytes)
 		if err != nil {
 			t.Fatalf("append: %v", err)
@@ -1494,6 +1510,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
+		h.prepareFixture(t, fx3)
 		spoolID, err := edgerecord.NewUUIDv7()
 		if err != nil {
 			t.Fatalf("spool id: %v", err)
@@ -1535,7 +1552,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		if got := h.ingestObservations(t, fx3.EventID); !slices.Equal(got, wantObservations) {
 			t.Fatalf("ingest probe recorded %+v, want %+v: only the first delivery may abort inside its transaction, and the released redelivery must be the one that commits", got, wantObservations)
 		}
-		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fx3.ProjectedRowCount}
+		want := fixtureRowSnapshot{Ledger: 1, Slots: 1, Batch: 1, Rows: fx3.ProjectedRowCount, Executions: 1, Hosts: len(fx3.Batch.Hosts)}
 		if got := h.snapshotFixtureRows(t, fx3, spoolID); got != want {
 			t.Errorf("snapshot after the redelivery committed = %+v, want %+v", got, want)
 		}
@@ -1559,6 +1576,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
+		h.prepareFixture(t, fx4)
 		spoolID, err := edgerecord.NewUUIDv7()
 		if err != nil {
 			t.Fatalf("spool id: %v", err)
@@ -1608,6 +1626,7 @@ func (h *harness) testGroupD(t *testing.T) {
 		// Groups E and F) would then hit a node that no longer exists.
 		h.t.Cleanup(restarted.Stop)
 		h.coreProc = restarted
+		h.connectTrustCore(t)
 		h.installIngestProbe(t)
 
 		var n int
@@ -1619,8 +1638,9 @@ func (h *harness) testGroupD(t *testing.T) {
 			time.Sleep(pollInterval)
 		}
 		if n != 1 {
-			t.Errorf("fixture was not redelivered/processed after core restarted (count=%d)", n)
+			t.Fatalf("fixture was not redelivered/processed after core restarted (count=%d)", n)
 		}
+		h.assertSweepDomain(t, fx4)
 		if seq := h.requireOneStoredMessage(t, fx4.RecordBytes); seq != storedSeq {
 			t.Errorf("fixture is stored at sequence %d after the restart, want the original %d: a replacement publication committed instead of the redelivery", seq, storedSeq)
 		}
@@ -1747,10 +1767,12 @@ func (h *harness) assertCumulativeDeliveryAck(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build fixture 1: %v", err)
 	}
+	h.prepareFixture(t, first)
 	second, err := BuildSweepFixtureInScope(first.NetworkScopeID, []byte(h.certSet.AgentComponentID))
 	if err != nil {
 		t.Fatalf("build fixture 2: %v", err)
 	}
+	h.prepareFixture(t, second)
 	for i, fxN := range []*FixtureRecord{first, second} {
 		seq := uint64(i + 1)
 		frame := &edgev1.EdgeDeliveryFrameV1{
@@ -2297,6 +2319,7 @@ func (h *harness) freshPublication(t *testing.T) (*FixtureRecord, []byte) {
 	if err != nil {
 		t.Fatalf("build fixture: %v", err)
 	}
+	h.prepareFixture(t, fx)
 	spoolID, err := edgerecord.NewUUIDv7()
 	if err != nil {
 		t.Fatalf("spool id: %v", err)
