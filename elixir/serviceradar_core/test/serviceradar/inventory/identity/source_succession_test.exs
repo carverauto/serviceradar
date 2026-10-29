@@ -811,6 +811,224 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
     end
   end
 
+  describe "MAC reporter query arms and edge cases" do
+    test "pins plan/1 across display MACs, MAC identifiers, interface MACs, Armis observations, archived rows and shared MACs",
+         %{actor: actor} do
+      suffix = System.unique_integer([:positive, :monotonic])
+      source_instance = "armis-mac-arms-#{suffix}"
+      partition = "default:armis:#{source_instance}"
+      first_seen_iso = DateTime.to_iso8601(@first_seen)
+      later_iso = DateTime.to_iso8601(@later)
+
+      mac_for = fn idx ->
+        hex =
+          (rem(suffix * 16 + idx, 0xFFFFF) + 1)
+          |> Integer.to_string(16)
+          |> String.pad_leading(6, "0")
+          |> String.upcase()
+
+        "00005E#{hex}"
+      end
+
+      formatted_mac = fn raw ->
+        raw
+        |> String.graphemes()
+        |> Enum.chunk_every(2)
+        |> Enum.map_join(":", &Enum.join/1)
+        |> String.downcase()
+      end
+
+      create_test_device! = fn label, mac, hostname ->
+        Device
+        |> Ash.Changeset.for_create(:create, %{
+          uid: "sr:" <> Ecto.UUID.generate(),
+          hostname: hostname,
+          mac: mac,
+          partition: "default",
+          discovery_sources: ["armis"]
+        })
+        |> Ash.create!(actor: actor)
+        |> tap(fn dev ->
+          Repo.query!(
+            "UPDATE platform.ocsf_devices SET created_time = $2, first_seen_time = $3 WHERE uid = $1",
+            [dev.uid, label, @first_seen]
+          )
+        end)
+      end
+
+      archive_armis_id! = fn device_uid, armis_id, metadata ->
+        Repo.query!(
+          """
+          INSERT INTO platform.device_identifier_archive
+            (id, device_id, identifier_type, identifier_value, partition, confidence, source,
+             first_seen, last_seen, verified, metadata, archived_at, archive_reason)
+          VALUES ($1, $2, 'armis_device_id', $3, $4, 'strong', 'armis',
+                  $5, $6, false, $7::jsonb, $6, 'source_absent')
+          """,
+          [
+            System.unique_integer([:positive, :monotonic]) + 2_000_000,
+            device_uid,
+            armis_id,
+            partition,
+            @first_seen,
+            @later,
+            metadata
+          ]
+        )
+      end
+
+      register_live_armis_id! = fn device_uid, armis_id, first_seen_str ->
+        DeviceIdentifier
+        |> Ash.Changeset.for_create(:register, %{
+          device_id: device_uid,
+          identifier_type: :armis_device_id,
+          identifier_value: armis_id,
+          partition: partition,
+          confidence: :strong,
+          source: "armis",
+          metadata: %{"source_first_seen_time" => first_seen_str}
+        })
+        |> Ash.create!(actor: actor)
+      end
+
+      insert_observation! = fn armis_id, mac_str, hostname, observed_at ->
+        Repo.query!(
+          """
+          INSERT INTO platform.device_source_observations
+            (partition, source, source_instance, source_object_id, collection_id, query_hash,
+             first_observed_at, last_observed_at, current_in_last_collection, hostname, mac,
+             raw_attributes, inserted_at, updated_at)
+          VALUES ('default', 'armis', $1, $2, 'col-1', 'qh-1',
+                  $3, $3, true, $4, $5, '{}'::jsonb, $3, $3)
+          """,
+          [
+            source_instance,
+            armis_id,
+            DateTime.to_naive(observed_at),
+            hostname,
+            mac_str
+          ]
+        )
+      end
+
+      # 1. Matched via ocsf_devices.mac (formatted with colons/lowercase)
+      m1 = mac_for.(1)
+      pred1 = create_test_device!.(@first_seen, formatted_mac.(m1), "arm1-host-#{suffix}")
+      succ1 = create_test_device!.(@later, formatted_mac.(m1), "arm1-host-#{suffix}")
+
+      archive_armis_id!.(pred1.uid, "old-1-#{suffix}", %{
+        "source_first_seen_time" => first_seen_iso
+      })
+
+      register_live_armis_id!.(succ1.uid, "new-1-#{suffix}", first_seen_iso)
+
+      # 2. Matched via device_identifiers (identifier_type = 'mac')
+      m2 = mac_for.(2)
+      pred2 = create_test_device!.(@first_seen, nil, "arm2-host-#{suffix}")
+      succ2 = create_test_device!.(@later, nil, "arm2-host-#{suffix}")
+
+      archive_armis_id!.(pred2.uid, "old-2-#{suffix}", %{
+        "source_first_seen_time" => first_seen_iso
+      })
+
+      register_live_armis_id!.(succ2.uid, "new-2-#{suffix}", first_seen_iso)
+
+      for uid <- [pred2.uid, succ2.uid] do
+        DeviceIdentifier
+        |> Ash.Changeset.for_create(:register, %{
+          device_id: uid,
+          identifier_type: :mac,
+          identifier_value: m2,
+          partition: "default",
+          source: "armis"
+        })
+        |> Ash.create!(actor: actor)
+      end
+
+      # 3. Matched via device_interface_macs
+      m3 = mac_for.(3)
+      pred3 = create_test_device!.(@first_seen, nil, "arm3-host-#{suffix}")
+      succ3 = create_test_device!.(@later, nil, "arm3-host-#{suffix}")
+
+      archive_armis_id!.(pred3.uid, "old-3-#{suffix}", %{
+        "source_first_seen_time" => first_seen_iso
+      })
+
+      register_live_armis_id!.(succ3.uid, "new-3-#{suffix}", first_seen_iso)
+
+      for uid <- [pred3.uid, succ3.uid] do
+        Repo.query!(
+          "INSERT INTO platform.device_interface_macs (device_id, mac, first_seen, last_seen) VALUES ($1, $2, now(), now())",
+          [uid, m3]
+        )
+      end
+
+      # 4. Matched via device_source_observations on live and archived armis_device_id rows,
+      #    plus a soft-deleted device with the same MAC that must be ignored.
+      m4 = mac_for.(4)
+      pred4 = create_test_device!.(@first_seen, nil, "arm4-host-#{suffix}")
+      succ4 = create_test_device!.(@later, nil, "arm4-host-#{suffix}")
+      deleted4 = create_test_device!.(@later, m4, "arm4-deleted-#{suffix}")
+
+      Repo.query!("UPDATE platform.ocsf_devices SET deleted_at = now() WHERE uid = $1", [
+        deleted4.uid
+      ])
+
+      archive_armis_id!.(pred4.uid, "old-4-#{suffix}", %{
+        "source_first_seen_time" => first_seen_iso
+      })
+
+      register_live_armis_id!.(succ4.uid, "new-4-#{suffix}", first_seen_iso)
+
+      insert_observation!.(
+        "old-4-#{suffix}",
+        formatted_mac.(m4),
+        "arm4-host-#{suffix}",
+        @first_seen
+      )
+
+      insert_observation!.("new-4-#{suffix}", formatted_mac.(m4), "arm4-host-#{suffix}", @later)
+
+      # 5. Shared MAC across two current records -> goes to :shared_mac review, not successive merge.
+      m5 = mac_for.(5)
+      pred5 = create_test_device!.(@first_seen, m5, "arm5-host-#{suffix}")
+      succ5a = create_test_device!.(@later, m5, "arm5-host-a-#{suffix}")
+      succ5b = create_test_device!.(@later, m5, "arm5-host-b-#{suffix}")
+
+      archive_armis_id!.(pred5.uid, "old-5-#{suffix}", %{
+        "source_first_seen_time" => first_seen_iso
+      })
+
+      register_live_armis_id!.(succ5a.uid, "new-5a-#{suffix}", first_seen_iso)
+      register_live_armis_id!.(succ5b.uid, "new-5b-#{suffix}", later_iso)
+
+      plan = SourceSuccession.plan(actor: actor)
+
+      our_preds = MapSet.new([pred1.uid, pred2.uid, pred3.uid, pred4.uid, pred5.uid])
+
+      our_pairs =
+        plan.successive
+        |> Enum.filter(&MapSet.member?(our_preds, &1.predecessor))
+        |> MapSet.new(&{&1.predecessor, &1.successor, &1.survivor})
+
+      assert our_pairs ==
+               MapSet.new([
+                 {pred1.uid, succ1.uid, pred1.uid},
+                 {pred2.uid, succ2.uid, pred2.uid},
+                 {pred3.uid, succ3.uid, pred3.uid},
+                 {pred4.uid, succ4.uid, pred4.uid}
+               ])
+
+      our_reviews =
+        Enum.filter(plan.reviews, fn r ->
+          Enum.any?(r.device_uids, &MapSet.member?(our_preds, &1))
+        end)
+
+      assert [%{reason: :shared_mac, device_uids: review_uids}] = our_reviews
+      assert review_uids == Enum.sort([pred5.uid, succ5a.uid, succ5b.uid])
+    end
+  end
+
   # A record whose id retired, named host-a and seen by the source from @first_seen to @last_seen.
   defp retired_record(uid, macs) do
     %{
