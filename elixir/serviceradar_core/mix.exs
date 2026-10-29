@@ -49,6 +49,11 @@ defmodule ServiceRadarCore.MixProject do
         :public_key,
         :swoosh,
         :telemetry,
+        # Start :opentelemetry_exporter (and its :grpcbox / :gproc dependency)
+        # before :opentelemetry so otel_batch_processor's initial
+        # :serviceradar_otel_exporter_traces_otlp.init/1 does not hit :badarg on
+        # a missing gproc ETS table at boot.
+        :opentelemetry_exporter,
         :opentelemetry,
         :opentelemetry_experimental,
         :ash_state_machine
@@ -140,9 +145,9 @@ defmodule ServiceRadarCore.MixProject do
       {:telemetry_metrics, "~> 1.0"},
 
       # OpenTelemetry SDK, API, and OTLP exporter
-      {:opentelemetry, "~> 1.7"},
       {:opentelemetry_api, "~> 1.5"},
       {:opentelemetry_exporter, "~> 1.10"},
+      {:opentelemetry, "~> 1.7"},
 
       # OpenTelemetry auto-instrumentation libraries
       {:opentelemetry_phoenix, "~> 2.0"},

@@ -38,6 +38,7 @@ defmodule ServiceRadarAgentGateway.MixProject do
         :horde,
         :grpc,
         :ranch,
+        :opentelemetry_exporter,
         :opentelemetry,
         :opentelemetry_experimental
       ],
@@ -121,6 +122,8 @@ defmodule ServiceRadarAgentGateway.MixProject do
         include_erts: &shipped_erts/0,
         applications: [
           runtime_tools: :permanent,
+          opentelemetry_exporter: :permanent,
+          opentelemetry: :permanent,
           serviceradar_agent_gateway: :permanent
         ],
         # Bazel OCI builds can bake host compile_env keys (e.g. ash) that differ

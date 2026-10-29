@@ -30,7 +30,15 @@ defmodule ServiceRadarCoreElx.MixProject do
 
   def application do
     [
-      extra_applications: [:logger, :ssl, :crypto, :public_key],
+      extra_applications: [
+        :logger,
+        :ssl,
+        :crypto,
+        :public_key,
+        :opentelemetry_exporter,
+        :opentelemetry,
+        :opentelemetry_experimental
+      ],
       mod: {ServiceRadarCoreElx.Application, []}
     ]
   end
@@ -133,6 +141,8 @@ defmodule ServiceRadarCoreElx.MixProject do
         validate_compile_env: false,
         applications: [
           runtime_tools: :permanent,
+          opentelemetry_exporter: :permanent,
+          opentelemetry: :permanent,
           serviceradar_core: :permanent,
           serviceradar_core_elx: :permanent
         ],

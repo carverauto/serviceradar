@@ -21,4 +21,17 @@ defmodule ServiceRadarAgentGateway.TelemetryTest do
     assert [:serviceradar, :agent_gateway, :control_stream, :closed, :count] in metric_names
     assert [:serviceradar, :agent_gateway, :control_stream, :active, :count] in metric_names
   end
+
+  test "starts :opentelemetry_exporter before :opentelemetry in the compiled application spec" do
+    assert ServiceRadarAgentGateway.Telemetry.prometheus_reporter() ==
+             :serviceradar_agent_gateway_prometheus_metrics
+
+    apps = Application.spec(:serviceradar_agent_gateway, :applications)
+    exporter_idx = Enum.find_index(apps, &(&1 == :opentelemetry_exporter))
+    otel_idx = Enum.find_index(apps, &(&1 == :opentelemetry))
+
+    assert is_integer(exporter_idx)
+    assert is_integer(otel_idx)
+    assert exporter_idx < otel_idx
+  end
 end

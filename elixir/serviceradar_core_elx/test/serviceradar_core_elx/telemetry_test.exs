@@ -108,4 +108,17 @@ defmodule ServiceRadarCoreElx.TelemetryTest do
     # The merged pair is event metadata, not a label.
     refute scrape =~ "telemetry-test-a"
   end
+
+  test "starts :opentelemetry_exporter before :opentelemetry in the compiled application spec" do
+    assert ServiceRadarCoreElx.Telemetry.prometheus_reporter() ==
+             :serviceradar_core_elx_prometheus_metrics
+
+    apps = Application.spec(:serviceradar_core_elx, :applications)
+    exporter_idx = Enum.find_index(apps, &(&1 == :opentelemetry_exporter))
+    otel_idx = Enum.find_index(apps, &(&1 == :opentelemetry))
+
+    assert is_integer(exporter_idx)
+    assert is_integer(otel_idx)
+    assert exporter_idx < otel_idx
+  end
 end

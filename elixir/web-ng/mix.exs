@@ -54,6 +54,14 @@ defmodule ServiceRadarWebNG.MixProject do
         include_executables_for: [:unix],
         include_erts: &shipped_erts/0,
         validate_compile_env: false,
+        # Mix.Release sorts unmentioned applications alphabetically, which starts
+        # :opentelemetry before :opentelemetry_exporter (:grpcbox / :gproc) and
+        # makes otel_batch_processor's first :serviceradar_otel_exporter_traces_otlp
+        # init fail with :error::badarg at boot.
+        applications: [
+          opentelemetry_exporter: :permanent,
+          opentelemetry: :permanent
+        ],
         steps: [:assemble]
       ]
     ]
@@ -85,6 +93,7 @@ defmodule ServiceRadarWebNG.MixProject do
         :runtime_tools,
         :swoosh,
         :telemetry,
+        :opentelemetry_exporter,
         :opentelemetry,
         :opentelemetry_experimental
       ]
