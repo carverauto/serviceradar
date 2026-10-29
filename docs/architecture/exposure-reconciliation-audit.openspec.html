@@ -5,22 +5,23 @@ html[data-theme=dark]{color-scheme:dark;--bg:#10191d;--panel:#17242a;--ink:#ecf7
 </style></head><body><main>
 <div class="top"><span class="eyebrow">ServiceRadar / exposure intelligence</span><button id="theme" type="button" aria-label="Toggle color theme">Dark / light</button></div>
 <header><h1>Faster on the small fixture. Still outside the budget.</h1><p class="lead">The disabled audit prototype completed its corrected run in about 31 seconds versus 153 seconds for the existing reconciler. Its correctness controls passed, but fact comparison and orchestration remain above the approved limits.</p><div class="status"><span class="pill">Performance screen failed</span><span class="pill">Task 1.6 remains open</span><span class="pill">Manual scratch target only</span></div></header>
-<div class="warning"><strong>The approved stop rule applies.</strong><p>Corrected fact comparison took 11.845 seconds against a 6-second limit. Orchestration took 4.377 seconds against 0.9 seconds; its assertion was not reached. The separate diagnostic and correction allocations are complete. No further allocation or fleet run is authorized. Scratch schemas and grants are verified absent. <a href="https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70">Read the corrected hosted execution evidence.</a></p></div>
+<div class="warning"><strong>The approved stop rule applies.</strong><p>Corrected fact comparison took 11.845 seconds against a 6-second limit. Orchestration took 4.377 seconds against 0.9 seconds; its assertion was not reached. The separate diagnostic and correction allocations are complete. This page's allocations are spent. The later shared-scan experiment is recorded in <a href="exposure-source-validation.openspec.html">the exposure source validation report</a>. Fleet execution remains unauthorized. Scratch schemas and grants are verified absent. <a href="https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70">Read the corrected hosted execution evidence.</a></p></div>
 <nav aria-label="Review sections"><a class="jump" href="#approach">Approach</a><a class="jump" href="#budget">Time budget</a><a class="jump" href="#review">Measured result</a><a class="jump" href="#design">Full design</a><a class="jump" href="#workflow">Workflow</a></nav>
 <section id="approach"><h2>Three changes, one unchanged correctness contract</h2><div class="grid"><div class="card"><span class="n">01 / SHARED EVIDENCE</span><h3>Verify each dimension version once.</h3><p>A proof binds the exact source payload, sequence, run and recovery fence. Changed content cannot borrow an older proof.</p></div><div class="card"><span class="n">02 / SOURCE WORK</span><h3>Hash the current fact once.</h3><p>Validate retained replay separately with typed field equality. Read actual warehouse columns for its digest.</p></div><div class="card"><span class="n">03 / ORCHESTRATION</span><h3>Evaluate readiness in batches.</h3><p>Keep every device's blockers and recovery obligations. Share computation, never a cached ready verdict.</p></div></div>
 <svg class="flow" viewBox="0 0 1000 195" role="img" aria-labelledby="flowtitle"><title id="flowtitle">Content proof plus actual fact comparison is required before a fresh readiness evaluation.</title><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" style="fill:var(--brand);stroke:none" /></marker></defs><g id="proof"><title>Proof retains its original check time</title><rect x="10" y="55" width="270" height="98" rx="12" /><text class="label" x="32" y="92">Verified content version</text><text class="sub" x="32" y="123">Keep the original evidence time</text></g><path id="proof-link" d="M285 105 H350" marker-end="url(#arrow)" /><g id="facts"><title>Facts and retained replay checked in a finite source view</title><rect x="362" y="55" width="276" height="98" rx="12" /><text class="label" x="385" y="92">Current facts + replay</text><text class="sub" x="385" y="123">Independent warehouse digest</text></g><path id="result-link" d="M643 105 H707" marker-end="url(#arrow)" /><g id="ready"><title>Fresh recovery checks remain authoritative</title><rect x="720" y="55" width="270" height="98" rx="12" /><text class="label" x="742" y="92">Per-device result</text><text class="sub" x="742" y="123">Recheck current recovery state</text></g></svg></section>
 <section><h2>The tradeoff to review</h2><p>Dimension evidence can be reused across source views within one finite audit run. That is a deliberate change from the prior experiment. A stored source-content identity prevents equal-sequence edits from reusing stale proof; recovery invalidates the run.</p><p><strong>Evidence keeps its age.</strong> A later fact check cannot make an earlier dimension check look fresh. An out-of-band warehouse edit after verification is caught by a later audit, not retroactively by this one.</p></section>
 <section id="budget"><h2>900 seconds total. These are targets.</h2><div class="numbers"><div class="card"><strong>120 s</strong><small>Dimensions and version rechecks</small></div><div class="card"><strong>600 s</strong><small>Source validation and fact summaries</small></div><div class="card"><strong>90 s</strong><small>Orchestration and readiness</small></div><div class="card"><strong>90 s</strong><small>Retries and scheduling reserve</small></div></div><p>Two workers, at most 32 devices per cohort, 30-second statements and 60-second source views. The early linear screens are 6 seconds per 500,000 active facts and 0.9 seconds per 200 devices of orchestration; fixed costs are reported separately.</p><p class="muted">A failed component screen stops the experiment before a fleet run. A passed screen permits a separate fleet-run request. It does not prove the 20,000-host / 50-million-active-fact gate.</p></section>
-<section id="review"><h2>Corrected result. The stopping point still applies.</h2><table><caption>Rounded measurements: 200 synthetic devices, 500,000 active facts</caption><thead><tr><th scope="col">Component</th><th scope="col">Observed</th><th scope="col">Screen</th><th scope="col">Verdict</th></tr></thead><tbody><tr><th scope="row">Dimensions</th><td>14.62 s</td><td>120 s</td><td>Passed</td></tr><tr><th scope="row">Fact comparison</th><td>11.845 s</td><td>6 s</td><td>Failed</td></tr><tr><th scope="row">Orchestration</th><td>4.377 s</td><td>0.9 s</td><td>Above budget; later assertion not reached</td></tr></tbody></table><div class="grid"><div class="card"><span class="n">VERIFIED</span><h3>Implemented controls passed</h3><p>Digest parity, corruption detection, version proofs, readiness, durable resume and recovery fencing passed in the hosted scratch harness.</p></div><div class="card"><span class="n">STOPPED</span><h3>No second repetition</h3><p>The first fact screen failed. The fixture was warmed by setup and the baseline; there is no cold/repeat or fleet capacity result.</p></div><div class="card"><span class="n">CLEANED</span><h3>Scratch resources removed</h3><p>CNPG teardown and generation release succeeded. Warehouse tables were empty; schemas and their grants are verified absent.</p></div></div><p class="muted">Production restore integration, process-death testing and live JetStream/snapshot validation remain open. No-mistakes review/publication is pending. The 20,000-host / 50-million-active-fact / 900-second gate and task 1.6 remain unchanged.</p></section>
-<p>The corrected total was roughly 14 percent lower than the diagnostic run; summed coverage time fell roughly 55 percent. This single warmed shared-lab pair gives no p95 or fleet guarantee, and dimension variation is not attributed to the SQL fix. All three runs remain separately attributed below.</p><p>Test verdict: performance FAILED; implemented correctness controls and cleanup passed. Publication with this known failure requires an explicit outer-gate decision; no Test exception is approved.</p><p><a href="https://agentboard.farm01.carverauto.dev/documents/221">Approved workflow 221</a> remains unchanged. The report retains the existing ServiceRadar typography, colors and light/dark styling.</p><h2>Implementation and validation</h2><details id="prototype" class="source" open><summary>Disabled prototype: evidence and limits</summary><article><h1 id="disabled-prototype-validation-result">Disabled prototype
+<section id="review"><h2>Corrected result. The stopping point still applies.</h2><table><caption>Rounded measurements: 200 synthetic devices, 500,000 active facts</caption><thead><tr><th scope="col">Component</th><th scope="col">Observed</th><th scope="col">Screen</th><th scope="col">Verdict</th></tr></thead><tbody><tr><th scope="row">Dimensions</th><td>14.62 s</td><td>120 s</td><td>Passed</td></tr><tr><th scope="row">Fact comparison</th><td>11.845 s</td><td>6 s</td><td>Failed</td></tr><tr><th scope="row">Orchestration</th><td>4.377 s</td><td>0.9 s</td><td>Above budget; later assertion not reached</td></tr></tbody></table><div class="grid"><div class="card"><span class="n">VERIFIED</span><h3>Implemented controls passed</h3><p>Digest parity, corruption detection, version proofs, readiness, durable resume and recovery fencing passed in the hosted scratch harness.</p></div><div class="card"><span class="n">STOPPED</span><h3>No second repetition</h3><p>The first fact screen failed. The fixture was warmed by setup and the baseline; there is no cold/repeat or fleet capacity result.</p></div><div class="card"><span class="n">CLEANED</span><h3>Scratch resources removed</h3><p>CNPG teardown and generation release succeeded. Warehouse tables were empty; schemas and their grants are verified absent.</p></div></div><p class="muted">Production restore integration, process-death testing and live JetStream/snapshot validation remain open. PR #6171 merged under a publication-only Test exception that did not waive capacity. The 20,000-host / 50-million-active-fact / 900-second gate and task 1.6 remain unchanged.</p></section>
+<p>The corrected total was roughly 14 percent lower than the diagnostic run; summed coverage time fell roughly 55 percent. This single warmed shared-lab pair gives no p95 or fleet guarantee, and dimension variation is not attributed to the SQL fix. All three runs remain separately attributed below.</p><p>Test verdict: performance FAILED; implemented correctness controls and cleanup passed. PR #6171 published this failed screen under a publication-only Test exception that did not waive capacity.</p><p><a href="https://agentboard.farm01.carverauto.dev/documents/221">Approved workflow 221</a> remains unchanged. The report retains the existing ServiceRadar typography, colors and light/dark styling.</p><h2>Implementation and validation</h2><details id="prototype" class="source" open><summary>Disabled prototype: evidence and limits</summary><article><h1 id="disabled-prototype-validation-result">Disabled prototype
 validation result</h1>
 <p>Status: the one approved hosted small-profile run completed. Its
 implemented correctness controls passed, but the fact-comparison
-performance screen failed. Performance experimentation stopped; there
+performance screen failed. This change's performance experimentation stopped; there
 was no repeat or fleet attempt. Production adoption and parent task 1.6
 remain open. A later explicit approval allowed the bounded diagnostic
 follow-up and post-correction verification below, both now completed.
-All three measurements failed the fact screen.</p>
+All three measurements failed the fact screen. The later
+shared-scan result is in <a href="exposure-source-validation.openspec.html">the exposure source validation report</a>.</p>
 <h2 id="measured-result">Measured result</h2>
 <p><a
 href="https://carverauto.buildbuddy.io/invocation/2cf93ca5-a39a-4abf-927a-6eb10a68adfc">Hosted
@@ -569,22 +570,17 @@ grant-absence reads passed; all scratch resources are gone.</p>
 source/tree identity; it did not rerun the forbidden allocation.
 Correctness and cleanup have execution evidence; the performance screen
 remains FAILED. No thresholds, expected failures, runtime code, SQL,
-codec, workers or cohort size changed in this reporting revision. No new
-experiment is authorized.</p>
-<p>Decision for the outer gate: may this disabled research prototype be
-published with the known failed performance screen under an explicit
-Test exception? No exception or performance waiver has been granted or
-inferred. Ordinary full remote repository tests, hosted PR CI and
-substantive review remain required through the outer executor.
-Cold/repeat/fleet runs, process-death injection, production restore
-integration and adoption remain open, as does parent task 1.6.</p>
+codec, workers or cohort size changed in this reporting revision. Publication of this prototype is recorded in the tasks section. PR #6171
+merged under a publication-only Test exception that did not waive capacity.
+The performance screen remains failed. Cold, repeat, fleet, process-death,
+production restore, and adoption work remain open, as does parent task 1.6.</p>
 </article></details><h2>Complete proposal</h2><details id="proposal" class="source"><summary>Proposal</summary><article><h1
 id="proposal-bounded-exposure-audit-with-shared-dimension-evidence">Proposal:
 bounded exposure audit with shared dimension evidence</h1>
 <p>Status: design and disabled prototype approved by the product owner
 on 2026-10-28. The approved hosted small-profile run passed its
 implemented correctness controls but failed its performance screen;
-experimentation stopped. Related epic: <a
+this change's experimentation stopped. Related epic: <a
 href="https://github.com/carverauto/serviceradar/issues/5745">#5745</a>.</p>
 <h2 id="why">Why</h2>
 <p>Exposure reconciliation still misses its fleet capacity gate. The
@@ -642,8 +638,8 @@ separately identified small-profile diagnostic follow-up and
 post-correction verification, both now completed. The <a
 href="#completed-post-correction-verification">corrected
 result</a> retains the failed performance screen, passed controls and
-verified cleanup. No repeat, 50-million-row run, production adoption or
-rollout is approved. Task 1.6 remains open.</p>
+verified cleanup. This change approves no repeat, 50-million-row run, production
+adoption, or rollout. The later shared-scan result is in <a href="exposure-source-validation.openspec.html">the exposure source validation report</a>. Task 1.6 remains open.</p>
 <p>See <a href="#prototype">prototype.md</a> for measurements, passed
 controls, cleanup evidence, implemented boundaries and checks that
 remain pending.</p>
@@ -664,8 +660,7 @@ evidence-backed query corrections. The corrected run passed implemented
 controls and cleanup but still failed the fact screen; orchestration
 also remains above budget. See the separately attributed <a
 href="#completed-post-correction-verification">corrected
-result</a>. No further allocation, fleet run or adoption is
-authorized.</p>
+result</a>. This change authorizes no further allocation. The later shared-scan experiment is recorded in <a href="exposure-source-validation.openspec.html">the exposure source validation report</a>. Fleet execution and adoption remain unauthorized.</p>
 <h2 id="evidence-and-objective">Evidence and objective</h2>
 <p>The existing worker compares each device independently. It reads
 referenced dimensions, decodes current and retained assessment
@@ -1255,11 +1250,11 @@ result</a>.</label></li>
 </ul>
 <p>All approved allocations are spent. The corrected fact screen still
 failed; measured orchestration remains above budget and its assertion
-was not reached. No repetition, new diagnostic or fleet run is
-authorized. Full normal unit and hosted PR CI requirements remain with
-the outer executor. No Test exception or performance waiver is inferred;
-cold/repeat/fleet/process-death/adoption work and parent task 1.6 remain
-open.</p>
+was not reached. This change authorizes no repetition or fleet run. PR #6171 merged
+under the publication-only Test exception in task 3.1; that exception did not
+waive capacity. The later shared-scan diagnostic is recorded in <a href="exposure-source-validation.openspec.html">the exposure source validation report</a>.
+Cold, repeat, fleet, process-death, and adoption work remain open, as does
+parent task 1.6.</p>
 </article></details><details id="workflow" class="source"><summary>Validated workflow diagram</summary><iframe title="Proposed exposure audit workflow" srcdoc="<!DOCTYPE html>
 <html lang=&quot;en&quot; data-theme=&quot;dark&quot; data-preset=&quot;classic&quot;>
 <head>

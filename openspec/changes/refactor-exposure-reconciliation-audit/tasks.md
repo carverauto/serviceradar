@@ -28,7 +28,7 @@ authorized merely to fill this checkbox.
 
 ## 3. Adoption (separate approval)
 
-- [ ] 3.1 Publish measured results through no-mistakes with current-head hosted checks. Keep parent task 1.6 open unless the actual fleet gate passes.
+- [x] 3.1 Publish measured results through no-mistakes with current-head hosted checks. PR #6171 merged with all 18 hosted checks passing; the publication-only Test exception did not waive capacity. Parent task 1.6 remains open.
 - [ ] 3.2 Review production migration/backfill cost, restore integration and rollback. Adopt only through a separately approved runtime PR and scheduled rollout.
 
 ## 4. Explicitly approved bounded diagnostic follow-up
@@ -40,9 +40,11 @@ authorized merely to fill this checkbox.
 - [x] 4.5 Inspect actual diagnostic and corrected plans for physical amplification, intermediate widths/copies/spills and replay cost. Evidence confirmed per-device generation lookup and reduced wide materialization; no further tuning is authorized.
 - [x] 4.6 Record separate measured/control verdicts and verified row/schema/grant/observer/teardown/release cleanup; refresh the portable result with the corrected measurement, preserving both historical failures. See [corrected result](prototype.md#completed-post-correction-verification).
 
-All approved allocations are spent. The corrected fact screen still failed;
-measured orchestration remains above budget and its assertion was not reached.
-No repetition, new diagnostic or fleet run is authorized. Full normal unit and
-hosted PR CI requirements remain with the outer executor. No Test exception or
-performance waiver is inferred; cold/repeat/fleet/process-death/adoption work
-and parent task 1.6 remain open.
+All approved allocations for this change are spent. The corrected fact screen
+still failed; measured orchestration remains above budget and its assertion was
+not reached. This change authorizes no repetition or fleet run. PR #6171 merged
+under the publication-only Test exception in task 3.1; that exception did not
+waive capacity. The later shared-scan diagnostic is recorded in
+[refactor-exposure-cohort-source-scan](../refactor-exposure-cohort-source-scan/tasks.md).
+Cold, repeat, fleet, process-death, and adoption work remain open, as does
+parent task 1.6.
