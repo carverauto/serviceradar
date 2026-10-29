@@ -34,14 +34,20 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     def handle_call({:unsub, _sid, _opts}, _from, streams), do: {:reply, :ok, streams}
 
     defp respond("$JS.API.STREAM.NAMES", body, streams) do
-      %{"subject" => subject} = Jason.decode!(body)
+      {reason, streams} = Map.pop(streams, :names_error)
 
-      names =
-        for {name, %{"subjects" => subjects}} <- streams,
-            Enum.any?(subjects, &Config.nats_filter_covers?(&1, subject)),
-            do: name
+      if reason != nil do
+        {%{"error" => %{"code" => 503, "description" => "stream names unavailable"}}, streams}
+      else
+        %{"subject" => subject} = Jason.decode!(body)
 
-      {%{"streams" => names}, streams}
+        names =
+          for {name, %{"subjects" => subjects}} <- streams,
+              Enum.any?(subjects, &Config.nats_filter_covers?(&1, subject)),
+              do: name
+
+        {%{"streams" => names}, streams}
+      end
     end
 
     defp respond("$JS.API.STREAM.INFO." <> name, _body, streams) do
@@ -383,6 +389,43 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
            ) == {:ok, "flows"}
   end
 
+  test "discovery failure creates the configured stream name without folding its case" do
+    conn = start_supervised!({FakeJetStream, %{names_error: :timeout}})
+
+    assert {:ok, %{stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK"}} =
+             ensure_edge_record_consumer(conn)
+
+    streams = FakeJetStream.streams(conn)
+    assert Map.has_key?(streams, "TELEMETRY_EDGE_RECORD_V1_BULK")
+    refute Map.has_key?(streams, "telemetry_edge_record_v1_bulk")
+  end
+
+  test "an empty discovery result still creates the configured stream name" do
+    conn = start_supervised!({FakeJetStream, %{}})
+
+    assert {:ok, %{stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK"}} =
+             ensure_edge_record_consumer(conn)
+
+    assert Map.has_key?(FakeJetStream.streams(conn), "TELEMETRY_EDGE_RECORD_V1_BULK")
+  end
+
+  test "a discovered case-variant owner is not adopted in place of the configured stream" do
+    conn =
+      start_supervised!(
+        {FakeJetStream,
+         %{
+           "telemetry_edge_record_v1_bulk" =>
+             %{"subjects" => ["telemetry.edge-record.v1.bulk.>"], "messages" => 0}
+         }}
+      )
+
+    assert {:error, %{"err_code" => 10_065}} = ensure_edge_record_consumer(conn)
+
+    streams = FakeJetStream.streams(conn)
+    assert Map.has_key?(streams, "telemetry_edge_record_v1_bulk")
+    refute Map.has_key?(streams, "TELEMETRY_EDGE_RECORD_V1_BULK")
+  end
+
   test "a subject no stream owns is an empty discovery result, not a discovery error" do
     # nats-server encodes "no stream owns this subject" as `"streams": null`.
     assert JetstreamConsumer.stream_names_reply(
@@ -420,6 +463,18 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
 
     assert JetstreamConsumer.overlap_fallback_stream({:error, :timeout}, "analytics_predictions") ==
              :error
+
+    assert JetstreamConsumer.overlap_fallback_stream(
+             {:ok, ["telemetry_edge_record_v1_bulk"]},
+             "TELEMETRY_EDGE_RECORD_V1_BULK"
+           ) == :error
+
+    assert JetstreamConsumer.choose_requested_or_first_stream(
+             "TELEMETRY_EDGE_RECORD_V1_BULK",
+             "telemetry.edge-record.v1.bulk.p00",
+             ["telemetry_edge_record_v1_bulk"],
+             true
+           ) == {:ok, "TELEMETRY_EDGE_RECORD_V1_BULK"}
   end
 
   test "immutable push pull consumer shape errors require durable recreation" do
@@ -659,6 +714,14 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   end
 
   defp stream(subjects, messages), do: %{"subjects" => subjects, "messages" => messages}
+
+  defp ensure_edge_record_consumer(conn) do
+    JetstreamConsumer.ensure_durable(conn,
+      stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK",
+      filter_subject: "telemetry.edge-record.v1.bulk.>",
+      consumer_name: "edge-record-bulk-test"
+    )
+  end
 
   defp ensure_flow_consumer(conn, subject) do
     JetstreamConsumer.ensure_durable(conn,
