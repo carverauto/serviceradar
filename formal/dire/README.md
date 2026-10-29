@@ -554,7 +554,11 @@ still describes the code. The switches today's code has are listed once, in `Cur
   `agent_corroboration_not_identity` decision reason.
 - The agent's interface classification. Every modeled interface is a physical NIC with a
   permanent MAC; which interfaces are physical, and which MACs are permanent, is the agent's and
-  `HostInterfaces`', pinned by `go/pkg/hostinventory` and the core unit tests.
+  `HostInterfaces`', pinned by `go/pkg/hostinventory` and the core tests. The legacy
+  announced-MAC fallback for absent/unclassified inventories and classified inventories with
+  no eligible physical MAC (such as veth-only containers) is also outside the model. Core
+  rejects locally administered, multicast and reserved fallback MACs and never supplements a
+  nonempty eligible physical set; enrollment tests cover these boundaries.
 - Absorbing a provisional address-only record into an identified device. The goal never merges
   on address evidence, so such a record stays separate; whether it should be absorbed, and how
   that would be recorded, is an open question in

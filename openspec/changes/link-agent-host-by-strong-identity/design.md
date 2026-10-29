@@ -57,7 +57,8 @@ the loopback flag and up/down.
 ### D2. Eligibility: permanent, globally administered MACs of physical NICs
 
 `HostInterfaces.eligible_macs/1` keeps the permanent MAC of every interface classified physical
-when it is a valid, globally administered unicast MAC that is not reserved. Consequences:
+when it is a valid, globally administered unicast MAC that is not reserved. When at least one
+such MAC exists, only these inventory MACs count. Consequences:
 
 - A bridge (`vmbr0`) inherits a port's MAC and counts through that port, never on its own, so the
   bridge adds no identity and cannot claim one a port does not have.
@@ -69,6 +70,13 @@ when it is a valid, globally administered unicast MAC that is not reserved. Cons
 
 A physical NIC that is administratively down still counts: its MAC is hardware identity whatever
 its link state.
+
+Decision: when the classified inventory yields no eligible physical/bond-member permanent MAC,
+core falls back to legacy `host_macs`, just as for an absent or unclassified inventory. This
+preserves identity for container and other veth-only agents whose announced interface has a
+software-set, globally administered MAC. Both fallback paths reject locally administered,
+multicast and reserved MACs. The fallback never supplements a nonempty eligible physical set,
+so a hypervisor cannot claim its guests' tap/veth MACs.
 
 ### D3. Wire compatibility
 

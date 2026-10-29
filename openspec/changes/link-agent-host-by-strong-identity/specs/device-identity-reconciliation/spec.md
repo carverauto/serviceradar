@@ -7,9 +7,11 @@ one (a bond member's `perm_hwaddr` included), every IP address, operational stat
 bond, bridge, VLAN, virtual, tunnel) and MAC provenance. Loopback is not reported. A bridge, bond
 or VLAN counts only through the physical ports it inherits a MAC from; a veth, tap, dummy, SR-IOV
 virtual function, randomized, software-assigned, locally administered or reserved MAC is never
-identity. The announced address (`host_ip`) and the announced interface's MAC (`host_macs`) are
+identity from the inventory. The announced address (`host_ip`) and the announced interface's MAC (`host_macs`) are
 still reported for cores that predate the inventory. When no reported interface is classified, or
-no inventory is reported, core uses `host_macs` as before.
+no inventory is reported, or no eligible physical MAC exists, core uses `host_macs` as before,
+excluding locally administered, multicast and reserved MACs. This fallback never supplements
+a nonempty eligible physical set.
 
 #### Scenario: Only the NICs' permanent MACs are identity
 - **GIVEN** an agent whose inventory reports two physical NICs, a bridge inheriting one NIC's MAC, a veth, a tap with a globally administered MAC, and a NIC with a randomized MAC
@@ -17,10 +19,11 @@ no inventory is reported, core uses `host_macs` as before.
 - **THEN** the two NICs' permanent MACs SHALL be the agent's identity MACs
 - **AND** the bridge, the veth, the tap and the randomized MAC SHALL NOT be identity
 
-#### Scenario: Guest and container interfaces alone identify nothing
-- **GIVEN** an agent whose inventory reports only veth and tap interfaces
-- **WHEN** the agent checks in
-- **THEN** no MAC SHALL be registered for the agent's device
+#### Scenario: Container without a physical NIC retains its announced MAC
+- **GIVEN** an agent whose inventory reports only virtual interfaces
+- **WHEN** the agent checks in with a globally administered unicast `host_macs` value
+- **THEN** core SHALL use that announced MAC to resolve and register the agent's device
+- **AND** locally administered, multicast and reserved fallback MACs SHALL NOT be identity
 
 #### Scenario: An unclassified inventory keeps the announced MAC
 - **GIVEN** an agent on a platform that cannot classify its interfaces

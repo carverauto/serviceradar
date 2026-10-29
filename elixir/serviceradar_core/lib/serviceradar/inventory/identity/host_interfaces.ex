@@ -8,7 +8,7 @@ defmodule ServiceRadar.Inventory.Identity.HostInterfaces do
   was assigned, the NIC's permanent MAC when the platform reports one, and its
   addresses. The agent classifies; this module decides identity.
 
-  Only the permanent, globally administered MAC of a physical NIC is strong
+  From the inventory, only the permanent, globally administered MAC of a physical NIC is strong
   identity. A bond member is a physical NIC whose permanent MAC the agent reads from
   `perm_hwaddr`, so it counts the same way. Nothing else does:
 
@@ -25,7 +25,12 @@ defmodule ServiceRadar.Inventory.Identity.HostInterfaces do
   An inventory in which no interface was classified comes from a platform that
   cannot classify (every agent outside Linux reports kinds as unspecified), and
   `eligible_macs/1` answers `:unclassified`: the caller then keeps the announced
-  interface's MAC (`host_macs`), as before the inventory existed.
+  interface's MAC (`host_macs`), as before the inventory existed. The caller also
+  uses that fallback when a classified inventory returns `{:ok, []}`: containers
+  and other guests without an eligible physical NIC retain their announced MAC.
+  Both fallback paths exclude locally administered, multicast and reserved MACs.
+  Whenever any eligible physical MAC exists, only the inventory MACs are used;
+  a hypervisor therefore cannot claim its guests' tap or veth MACs.
   """
 
   alias ServiceRadar.Inventory.Identity.Mac

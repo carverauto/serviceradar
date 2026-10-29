@@ -36,6 +36,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.Identity.Fence
   alias ServiceRadar.Inventory.Identity.HostInterfaces
   alias ServiceRadar.Inventory.Identity.Ids
+  alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.Registrar
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityDrift
@@ -345,15 +346,15 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   identifier, the check-in carries the host's own interface inventory
   (`:host_interfaces`), and `HostInterfaces.eligible_macs/1` decides which of its
   MACs are identity: the permanent, globally administered MACs of physical NICs and
-  bond members, never a bridge's, a guest device's, a container's or a randomized
-  one. Those MACs resolve the agent to the device that already holds one of them,
-  whatever its hostname or address, and register on its device. An inventory no
-  interface of which was classified (agents outside Linux), or none at all (agents
-  that predate it), falls back to the announced interface's MAC (`:host_macs`,
+  bond members. Those MACs resolve the agent to the device that already holds one of them,
+  whatever its hostname or address, and register on its device. An inventory with
+  no eligible physical MAC (including containers), an unclassified inventory, or
+  none at all falls back to the announced interface's MAC (`:host_macs`,
   `:mac_addresses` or `:macs`, top-level or under `:metadata`; list or delimited
   string), as before. Every value is normalized through
   `IdentityReconciler.normalize_mac_list/1`, so malformed entries and multi-MAC
-  blobs never become identifiers.
+  blobs never become identifiers. Fallback MACs also exclude locally administered,
+  multicast and reserved values.
 
   The inventory's addresses and the hostname's first label are corroboration only
   (`AgentCorroboration`): they never link the agent to a device, and agreement
@@ -531,9 +532,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   end
 
   # The MACs that identify the agent's host: the eligible MACs of its classified
-  # inventory, or, when it reports none classified, the announced interface's MAC.
+  # inventory, or, when none is eligible, the announced interface's MAC.
   defp agent_identity_macs(attrs) do
     case attrs |> agent_host_interfaces() |> HostInterfaces.eligible_macs() do
+      {:ok, []} -> agent_host_macs(attrs)
       {:ok, macs} -> macs
       :unclassified -> agent_host_macs(attrs)
     end
@@ -570,6 +572,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     |> Enum.flat_map(fn key ->
       collect_mac_values(Map.get(attrs, key)) ++ collect_mac_values(Map.get(metadata, key))
     end)
+    |> Enum.reject(&(Mac.locally_administered_mac?(&1) or Mac.multicast_mac?(&1)))
     |> Enum.uniq()
   end
 

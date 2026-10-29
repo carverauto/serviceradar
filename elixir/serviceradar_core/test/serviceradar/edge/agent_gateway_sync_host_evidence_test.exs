@@ -58,25 +58,25 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncHostEvidenceTest do
   describe "build_device_update_from_agent/2 — host interface MACs" do
     test "normalizes MACs from a host_macs list and drops invalid entries" do
       update =
-        build(%{host_macs: ["aa:bb:cc:dd:ee:01", "AABB.CCDD.EE02", "not-a-mac", ""]})
+        build(%{host_macs: ["00:1a:2c:00:53:01", "001A.2C00.5302", "not-a-mac", ""]})
 
-      assert update.mac_addresses == ["AABBCCDDEE01", "AABBCCDDEE02"]
+      assert update.mac_addresses == ["001A2C005301", "001A2C005302"]
     end
 
     test "accepts delimited-string fields and dedupes across accepted keys" do
       update =
         build(%{
-          host_macs: "aa:bb:cc:dd:ee:01,AA-BB-CC-DD-EE-02",
-          mac_addresses: ["AABBCCDDEE01"]
+          host_macs: "00:1a:2c:00:53:01,00-1A-2C-00-53-02",
+          mac_addresses: ["001A2C005301"]
         })
 
-      assert update.mac_addresses == ["AABBCCDDEE01", "AABBCCDDEE02"]
+      assert update.mac_addresses == ["001A2C005301", "001A2C005302"]
     end
 
     test "accepts host MACs nested under attrs metadata" do
-      update = build(%{metadata: %{"host_macs" => ["aa:bb:cc:dd:ee:03"]}})
+      update = build(%{metadata: %{"host_macs" => ["00:1a:2c:00:53:03"]}})
 
-      assert update.mac_addresses == ["AABBCCDDEE03"]
+      assert update.mac_addresses == ["001A2C005303"]
     end
 
     test "never emits a comma blob or malformed value" do
@@ -223,7 +223,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncHostEvidenceTest do
       assert update.mac_addresses == ["00005E0053A1", "00005E0053A2"]
     end
 
-    test "an inventory of only guest, container and randomized interfaces identifies nothing" do
+    test "a virtual-only inventory with a locally administered announced MAC identifies nothing" do
       update =
         build(%{
           host_macs: ["02:00:5e:00:53:c1"],

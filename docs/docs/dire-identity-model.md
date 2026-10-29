@@ -35,13 +35,16 @@ Core decides which MACs are identity (`Identity.HostInterfaces`): only the perma
 globally administered MAC of a physical NIC, a bond member's own `perm_hwaddr` included.
 A bridge such as `vmbr0` counts only through the port it takes its MAC from; a veth,
 tap, dummy, SR-IOV virtual function, randomized, software-set, locally administered or
-reserved MAC never counts. Those MACs resolve the agent to the device that already holds
+reserved MAC never counts as inventory identity. Those MACs resolve the agent to the device that already holds
 one of them, whatever either side's hostname or address, and records they name together
 converge under the merge policy below.
 
 The agent still sends `host_ip` and `host_macs`, the MAC of the interface owning its
 announced address, for cores that predate the inventory. When no interface of the
-inventory is classified, or an older agent sends none, core uses `host_macs` as before.
+inventory is classified, an older agent sends none, or no eligible physical MAC exists,
+core uses `host_macs` as before. This preserves container identity without claiming guest
+MACs on a hypervisor with eligible physical NICs. Fallback MACs must be globally administered
+unicast values and not reserved.
 Using the classified inventory requires upgraded agents, agent gateways and core;
 an older gateway does not forward it.
 

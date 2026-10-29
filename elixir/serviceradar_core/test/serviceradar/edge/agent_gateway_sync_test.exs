@@ -1337,6 +1337,72 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       end
     end
 
+    test "a veth-only container links by its globally administered announced MAC", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      [mac] = host_macs(uniq, 1)
+      ip = doc_ip(uniq, 0)
+      known_uid = known_host!("container#{uniq}", ip, [mac], actor)
+      agent_id = "agent-container-#{uniq}"
+
+      assert {:ok, ^known_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "container#{uniq}.example.com",
+                 source_ip: ip,
+                 host_macs: [mac],
+                 host_interfaces: [
+                   %{
+                     name: "eth0",
+                     kind: :HOST_INTERFACE_KIND_VIRTUAL,
+                     mac: mac,
+                     mac_provenance: :MAC_PROVENANCE_ASSIGNED,
+                     ips: [ip]
+                   }
+                 ]
+               })
+
+      assert identifiers(known_uid, actor) ==
+               Enum.sort([{:agent_id, agent_id}, {:mac, mac_value(mac)}])
+    end
+
+    test "physical MACs exclude announced veth and tap MACs", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      [physical_mac, veth_mac, tap_mac] = host_macs(uniq, 3)
+      ip = doc_ip(uniq, 0)
+      known_uid = known_host!("host#{uniq}", ip, [physical_mac], actor)
+      agent_id = "agent-physical-#{uniq}"
+
+      assert {:ok, ^known_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 source_ip: ip,
+                 host_macs: [veth_mac],
+                 host_interfaces: [
+                   host_nic("eno1", physical_mac, [ip]),
+                   %{name: "veth0", kind: :virtual, mac: veth_mac, permanent_mac: veth_mac},
+                   %{name: "tap0", kind: :virtual, mac: tap_mac, permanent_mac: tap_mac}
+                 ]
+               })
+
+      assert identifiers(known_uid, actor) ==
+               Enum.sort([{:agent_id, agent_id}, {:mac, mac_value(physical_mac)}])
+    end
+
+    test "a veth-only agent rejects locally administered, multicast and reserved fallback MACs",
+         %{actor: actor} do
+      for mac <- ["02:1a:2c:00:00:01", "01:1a:2c:00:00:01", "00:00:00:00:00:00"] do
+        uniq = System.unique_integer([:positive, :monotonic])
+        agent_id = "agent-container-no-mac-#{uniq}"
+
+        assert {:ok, uid} =
+                 AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                   source_ip: doc_ip(uniq, 0),
+                   host_macs: [mac],
+                   host_interfaces: [%{name: "eth0", kind: :virtual, mac: mac}]
+                 })
+
+        assert identifiers(uid, actor) == [{:agent_id, agent_id}]
+      end
+    end
+
     test "same-named hosts at two sites with disjoint MACs never fuse, even at one address",
          %{actor: actor} do
       uniq = System.unique_integer([:positive, :monotonic])
