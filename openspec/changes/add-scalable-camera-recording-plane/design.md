@@ -40,6 +40,11 @@ qualification, but it is not required for the local-filesystem mode.
   and bounded analysis taps. Viewer egress may remain in core initially, but it
   subscribes to the assigned ingest rather than opening another RTSP connection.
   Different camera profiles may legitimately have separate source sessions.
+  Membrane fan-out is mandatory, not an optional optimization: within a
+  deployment, the same camera/profile has one active camera source session and
+  one edge-to-cloud live media uplink, independent of viewer count. The latter
+  is needed only when the cloud path has an admitted consumer; archive transfers
+  are a separate workload, not another live viewer uplink.
 - Local media goes to the recorder's retained volume. An S3 policy additionally
   transfers sealed blocks through the qualified storage boundary directly to
   that destination. Do not route archive payloads through core or JetStream.
@@ -52,6 +57,49 @@ that boundary. Elixir RPC/PubSub may serve ephemeral notifications inside a
 trusted local runtime; durable work uses JetStream metadata and idempotent
 consumers. A standalone edge recorder needs a persistent local journal, not a
 local JetStream Object Store or a remote quorum to append media.
+
+### Outbound-only viewing of customer-hosted media
+
+The browser contacts the public deployment runtime, never a customer-private
+recorder address. After authorization, the runtime sends a start/attach request
+over the agent-established bidirectional control connection. The agent attaches
+to the assigned local ingest and initiates a separate authenticated media RPC
+through the gateway. A public Membrane relay fans out the shared upload to each
+authorized browser's own WebRTC transport. The browser-facing protocol does not
+require the agent's uplink to be WebRTC.
+
+The existing monitoring `ControlStream` and camera `UploadMedia` establish this
+outbound transport pattern, but do not implement the proposed remote recorder
+and historical range contracts. Bulk bytes do not travel in control messages
+or JetStream. The default route uses the existing outbound gateway path, with
+independently scalable gateway/media backends and explicit media/control budgets.
+Separate RPCs alone do not prove congestion isolation on a shared connection;
+qualification must prove control responsiveness under saturated media traffic.
+
+Concurrent first viewers, requests arriving at different relay/core replicas,
+and reconnects resolve the same assignment-scoped source and live uplink owner.
+Additional relays subscribe downstream through bounded Membrane fan-out; they
+never open their own source or edge upload. An unresolved owner fails admission
+or waits within a deadline rather than bypassing ownership with a duplicate.
+Slow viewers have bounded queues and can be disconnected without stalling other
+viewers, capture or archival. Closing the last remote viewer releases remote
+viewing resources only; an admitted local recording continues.
+
+Historical reads use typed recording IDs, authorized intervals and bounded byte
+ranges derived by the runtime from trusted metadata, sent over the existing
+outbound control path. The agent reads from the
+authenticated local recorder and pushes responses over a separate media RPC.
+Specify request/session identity, range ordering, byte limits, cancellation,
+deadlines and reconnect behavior before implementation. Do not build an arbitrary
+URL, filesystem or general-purpose network tunnel. Fresh recording-read and
+interval authorization apply to requests and returned bytes.
+
+No inbound ports, VPN, public recorder endpoint or customer cloud-BEAM membership
+is required. On WAN loss, local recording remains governed by its existing
+finite offline authority; hosted remote viewing reports unavailable unless the
+requested footage already has a verified cloud-reachable copy. A private S3
+endpoint unreachable from Cloud uses the outbound read bridge too. Fully
+self-hosted users may view through their local deployment without SaaS.
 
 ## 3. Recording independent of viewers
 
@@ -162,9 +210,9 @@ qualification checks whenever S3 is selected.
 A customer-operated recorder is enrolled into exactly one runtime deployment
 with explicit allowed cameras, storage, capabilities and resource budgets.
 Use deployment-managed mTLS, revocable scoped identity and supported signed
-artifacts. Prefer outbound control/media connections; do not require exposing
-cameras or joining unrelated BEAM clusters. GPU and CPU architectures are
-reported and measured, not inferred from a host label.
+artifacts. Require outbound-only customer-to-hosted control/media connectivity;
+do not require exposing cameras or joining unrelated BEAM clusters. GPU and CPU
+architectures are reported and measured, not inferred from a host label.
 
 A complete on-prem deployment owns its local control plane, database, messaging
 and storage and operates without SaaS. A hosted deployment may manage edge
@@ -216,6 +264,44 @@ permission to expose a filesystem path. S3 playback keeps the verified archive
 reader boundary and never hands out access to unauthorized portions of a packed
 object. Local storage loss reports unavailable coverage; fallback exists only
 when a verified second copy actually exists.
+
+### Object storage playback and bounded buffering
+
+Recorded playback uses an authorized playlist/index and independently playable
+fragments, with required initialization data and explicit keyframe/discontinuity
+boundaries. The recording index maps time to immutable object identity and
+fragment byte ranges. The qualified archive reader fetches only the necessary
+fragments/ranges, and the player buffers a bounded amount ahead of presentation.
+A seek cancels obsolete prefetch and starts at a valid decode boundary; it does
+not require downloading or transcoding the entire recording.
+
+This is an established HTTP playback pattern:
+[Apple HLS](https://developer.apple.com/documentation/http-live-streaming?language=objc)
+describes playlist-driven segment delivery, and
+[AWS documents S3-backed video delivery](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/on-demand-streaming-video.html).
+[S3 GetObject](https://docs.aws.amazon.com/AmazonS3/latest/API/API_GetObject.html)
+supports a byte range per request. These references justify the approach, not
+an AWS dependency or qualification claim for another S3-compatible provider.
+Retain encoded-stream remux where codecs permit; packaging is not a requirement
+to decode/re-encode every recording.
+
+Use explicit per-playback and aggregate byte, concurrency and read-ahead limits.
+An optional shared immutable fragment cache coalesces identical in-flight reads
+within its serving scope and reuses data across authorized viewers. Cache keys
+bind deployment/storage lifetime, immutable object version and range; every hit
+still requires current viewer authorization. Do not hand a browser a packed
+object URL that exposes intervals outside its grant. Disk cache is optional,
+bounded and evictable, with no access to the recorder's reserved spool capacity.
+Independent historical seek positions retain independent playback state; shared
+fragment reads do not force viewers onto one timeline.
+
+Select read-ahead and any cache capacity from measured startup/seek/rebuffer SLOs,
+origin latency, request/egress cost and active playback demand, not total camera
+count or archive retention. Cancel abandoned reads and measure wasted prefetch.
+No read-ahead can sustain playback if long-run available goodput is below the
+selected media bitrate. Report stalls, unavailable media and restore-required
+storage states honestly. A CDN is an optional delivery optimization subject to
+the same private-origin and interval-authorization contract, not a prerequisite.
 
 Camera/device credentials stay in the unified encrypted runtime credential
 inventory and are delivered through existing scoped consumers. Recorder/cloud

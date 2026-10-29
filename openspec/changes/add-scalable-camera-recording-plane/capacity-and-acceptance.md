@@ -58,8 +58,11 @@ Before claiming a level, demonstrate:
   coverage contract. Per-stream timestamps and unknown-clock cases remain honest.
 - Stable bounded memory, mailbox/queue, journal and disk use; measured peak
   network/disk throughput and headroom satisfy admission reservations.
-- One source/profile session across recording and viewers, with explicit
-  transition evidence during handoff and no orphan source after stop.
+- One source/profile session and one edge-to-cloud live upload across viewers,
+  with Membrane fan-out even when concurrent first viewers reach different
+  replicas. Count actual source connections and live uploads, not only catalog
+  rows. Reconnect, slow-viewer isolation and ownership uncertainty must not
+  create duplicates; prove handoff transitions and no orphan source after stop.
 - Core/control and unrelated viewer SLOs hold during recorder saturation, slow
   disk, full media reserve, failed S3 uploads, restart and optional worker failure.
 - Injected crash boundaries preserve sealed blocks, immutable manifests,
@@ -72,6 +75,17 @@ Before claiming a level, demonstrate:
 - Customer-host WAN loss, expiry, reboot and reconciliation preserve grant and
   ownership boundaries without remote per-segment admission. Reachable S3 may
   drain while central indexing is down. Reconnect does not create a second owner.
+- Hosted live and historical playback work while all inbound customer access is
+  denied, using agent-initiated gateway connections. Saturated media and abandoned
+  playback cannot starve control or recording. WAN loss makes remote local-only
+  reads unavailable while authorized local capture continues; verified reachable
+  archive reads work without the edge. Test private, cloud-unreachable S3 too.
+- Archive playback starts/seeks with valid init/keyframe dependencies and bounded
+  range reads rather than downloading an entire recording. Exercise repeated
+  seeks, slow storage and independent viewer timelines; assert per-session and
+  aggregate prefetch/cache limits and cancellation. Identical fragment reads
+  share cache/fetch work within the serving scope while every cache hit enforces
+  current authorization. A packed object never leaks ungranted intervals.
 - Holds, export leases, deletion, credential rotation and cross-mode migration
   retain the existing security/preservation assertions in every supported mode.
 
