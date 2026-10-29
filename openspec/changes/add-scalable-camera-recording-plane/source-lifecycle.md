@@ -159,7 +159,7 @@ evidence; an override cannot silently mark uncertain media or ownership safe.
 | Source opened, recorder attach failed | Account for every partial source/uplink; retain other admitted consumers, retire unused resources with proof |
 | Coordinator crashes while active | Recover demand and observations; do not synthesize a new owner from empty process memory |
 | Agent or recorder reboots | New incarnation cannot inherit old authority from a PID, marker or catalog row; prove retirement/exclusivity and reconcile old media first |
-| WAN/control connection lost | Local recording obeys its finite offline grant; hosted viewing reports loss. Reachable S3 may drain under existing bounded authority |
+| WAN/control connection lost | Local recording obeys its finite offline grant; hosted viewing reports loss. When the finite grant still authorizes the selected S3 operation and S3 is reachable, archival continues within that authority |
 | S3 unreachable, control healthy | Continue only within the declared filesystem outage budget; preserve pending bytes at pressure limits; do not move the source to hide backlog |
 | Stop/drain sent, acknowledgement lost | Keep the captured lifetime unresolved; repeat/reconcile the same operation, never close a later session |
 | Recorder sealed, retirement not committed | Recover and verify sealed inventory; it remains tied to its original storage lifetime and epoch |

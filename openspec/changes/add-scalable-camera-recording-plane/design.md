@@ -82,10 +82,8 @@ Additional relays subscribe downstream through bounded Membrane fan-out; they
 never open their own source or edge upload. An unresolved owner fails admission
 or waits within a deadline rather than bypassing ownership with a duplicate.
 Slow viewers have bounded queues and can be disconnected without stalling other
-viewers, capture or archival. After bounded idle handling, closing the last
-remote viewer retires only the captured cloud uplink and downstream viewing
-resources when no other admitted cloud consumer needs them; local source capture
-and recording continue under their existing authority.
+viewers, capture or archival. Closing the last remote viewer releases remote
+viewing resources only; an admitted local recording continues.
 
 Historical reads use typed recording IDs, authorized intervals and bounded byte
 ranges derived by the runtime from trusted metadata, sent over the existing
@@ -111,10 +109,9 @@ Those contracts are requirements for the new recorder path, not a claim that
 the current core-attached capture API implements continuous recording.
 
 A recording policy admits a persistent consumer for the camera/profile. Closing
-all browser sessions releases those viewer resources. The source remains active
+all browser sessions releases viewer resources only. The source remains active
 while the recording assignment is authorized, including scheduled continuous
-recording with no prior viewer. Captured cloud-uplink retirement follows the
-source-lifecycle ordering. Viewer-only sources keep their existing idle
+recording with no prior viewer. Viewer-only sources keep their existing idle
 teardown behavior. Attach/detach operations are bounded and consumer-specific.
 
 Keep encoded-stream passthrough/remux as the default; compatible recording does
