@@ -155,4 +155,56 @@ defmodule ServiceRadar.Inventory.SourceFactReconcilerTest do
     assert %{source_instance: "nil", present: true} =
              Enum.find(facts(device), &(&1.source == "example-plugin"))
   end
+
+  test "the last update of a source in a batch decides each fact", %{device: device} do
+    reported = plugin_update(@plugin_port)
+    omitted = Map.delete(reported, :facts)
+
+    :ok = Reconciler.ingest_resolved([{reported, device.uid}, {omitted, device.uid}])
+    assert [%{source: "example-plugin", present: false}] = facts(device)
+
+    :ok = Reconciler.ingest_resolved([{omitted, device.uid}, {reported, device.uid}])
+    assert [%{source: "example-plugin", present: true}] = facts(device)
+    assert canonical(device)["port"] == "Gi1/0/9"
+  end
+
+  # A Wi-Fi or Proxmox result sends every device it reports through here. Statements per
+  # device put a large result over the plugin-result lane's execution budget.
+  test "a batch costs the same statements whatever its device count" do
+    small = Enum.map(1..2, fn _ -> device!() end)
+    large = Enum.map(1..12, fn _ -> device!() end)
+
+    assert statement_count(small) == statement_count(large)
+  end
+
+  defp statement_count(devices) do
+    update = %{source: "example-plugin", source_instance: "assignment-1"}
+    handler_id = {__MODULE__, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:service_radar, :repo, :query],
+      fn _event, _measurements, _metadata, _config ->
+        if self() == test_pid, do: send(test_pid, :statement)
+      end,
+      nil
+    )
+
+    try do
+      :ok = Reconciler.ingest_resolved(Enum.map(devices, &{update, &1.uid}))
+    after
+      :telemetry.detach(handler_id)
+    end
+
+    count_statements(0)
+  end
+
+  defp count_statements(count) do
+    receive do
+      :statement -> count_statements(count + 1)
+    after
+      0 -> count
+    end
+  end
 end
