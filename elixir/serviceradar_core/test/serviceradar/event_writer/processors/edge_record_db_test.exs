@@ -190,6 +190,34 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert Repo.get(SweepGroupExecution, Ecto.UUID.cast!(frame.batch.execution_id)) == nil
     end
 
+    test "signed range authority rejects changed targets and checks despite valid envelope hashes" do
+      frame = build_frame(targets: ["192.0.2.0/30"])
+      [host] = frame.batch.hosts
+      [icmp, tcp] = frame.batch.tested_checks
+
+      for {batch, reason} <- [
+            {%{frame.batch | hosts: [%{host | address: <<192, 0, 2, 4>>}]},
+             :sweep_target_outside_range},
+            {%{frame.batch | tested_checks: [icmp, %{tcp | port: 8443}]},
+             :sweep_check_set_mismatch}
+          ] do
+        altered = next_frame(frame, batch)
+        assert altered.record.production_capability == frame.record.production_capability
+        assert altered.record.source_authorization == frame.record.source_authorization
+
+        assert {:error, ^reason} = EdgeRecord.ingest(altered.record_bytes, altered.headers, Repo)
+        assert ledger_count(altered.record) == 0
+        assert delivery_slot_count(altered.record) == 0
+        assert Repo.get(SweepGroupExecution, Ecto.UUID.cast!(batch.execution_id)) == nil
+      end
+
+      # The same persisted authority still admits its actual scheduled work.
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert %{hosts_total: 4, hosts_available: 1} =
+               Repo.get!(SweepGroupExecution, Ecto.UUID.cast!(frame.batch.execution_id))
+    end
+
     test "a conflicting frame that reuses the same delivery slot with different bytes fails distinctly and leaves the first binding immutable" do
       %{record_bytes: record_bytes, headers: headers, record: record, slot: slot} =
         build_frame()
@@ -351,7 +379,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
           interval: "15m",
           agent_ids: [agent_id],
           static_targets: Keyword.get(opts, :targets, ["192.0.2.#{host_octet}"]),
-          sweep_modes: ["icmp", "tcp"],
+          sweep_modes: ["icmp", "tcp_connect"],
           ports: [443]
         },
         actor: actor
