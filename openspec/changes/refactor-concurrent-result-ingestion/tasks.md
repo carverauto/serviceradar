@@ -83,28 +83,38 @@
 
 ## Evidence status
 
-Checked implementation items describe code and authored coverage, not a claim
-that the changed tests have passed. Verification/evidence items remain open
-until their actual RBE or rollout proof exists. The per-key baseline regression
+The 2026-10-28 reconciliation against staging and demo records tasks 5.3 and
+6.1-6.4 as complete, including published synthetic measurements and the
+identical-input comparison, persistence verification, implementation CI, and
+the coordinated rollout. The earlier failures below are historical evidence,
+not pending gates for those completed tasks. Remaining evidence work is task
+4.4 (#6159) and synthetic-fleet load evidence in task 6.7 (#5642 and #6129).
+Tasks 7.3-7.5 (#6160) remain open; this change stays open until the
+"Ingestion lane metrics are visible to operators" requirement lands.
+
+The per-key baseline regression
 failed at the intended scheduling assertion in invocation
 296e5416-07fc-4c3e-95ae-e730be35ccf5; that run also had a wrapper-default mismatch.
-The fixed tree has not been compiled locally. PR BazelCI is the compiled gate.
-The synthetic burst harness prints RESULT_INGESTION_SYNTHETIC_LOAD; measurements
-and the identical-input baseline comparison are still pending.
+At that stage, the fixed tree had not been compiled locally; PR BazelCI was
+the compiled gate. The synthetic burst harness prints
+RESULT_INGESTION_SYNTHETIC_LOAD; its measurements and identical-input baseline
+comparison were pending then and are now covered by completed task 6.2.
 
 The corrected identical-input dispatcher baseline passed in invocation
 95dcebf7-42b3-4f35-b25b-28074e46bea5 on staging 8c9c17fa3d. Its synthetic
 48/192-offer results are recorded in docs/result-ingestion-operations.md.
 The earlier load invocation e3acabbe-71e9-41fa-989f-469a48b0b212 is excluded
 because its harness omitted the old flow reply-lease supervisor. Fixed load,
-durable-store, and live rollout evidence remain pending.
+durable-store, and live rollout evidence were pending at that stage; their
+completion is recorded in tasks 6.2, 5.3, and 6.4 respectively.
 
 The worker-tree downtime regression failed at the intended public reservation
 boundary in RBE invocation afb86701-0c97-4f94-aab5-c16bbbfa4bc6 on published
 head 6c538e085cbc55962257aefd3222aaa1c0767675 with the regression added.
 StatusHandler raised an unknown-registry ArgumentError instead of rejecting
-admission. Fixed-head rejection, dispatcher survival, and recovery proof remain
-pending PR BazelCI.
+admission. Fixed-head rejection, dispatcher survival, and recovery proof were
+pending PR BazelCI at that stage; the implementation CI gate is now recorded
+complete in task 6.3.
 
 The default per-agent byte-credit regressions failed at their intended public
 admission boundaries in RBE invocation
@@ -113,4 +123,5 @@ b90f71c2-2b63-4108-818d-4f8e4a8f794e on published head
 Both remote attempts failed the four sweep, sweep reservation, flow, and
 retained-plugin assertions: the pre-fix defaults accepted excess work from
 one agent instead of returning per_agent_byte_full. Fixed-head fairness and
-remaining durable-store evidence are still pending PR BazelCI.
+remaining durable-store evidence were pending PR BazelCI at that stage;
+tasks 6.3 and 5.3 now record the completed CI and persistence verification.
