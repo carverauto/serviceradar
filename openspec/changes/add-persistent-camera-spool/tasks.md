@@ -3,8 +3,9 @@
 The user approved per-replica persistent storage through an opt-in StatefulSet.
 Runtime member-identity selection and the isolated filesystem initializer are
 implemented. The installation inventory and conversion contracts are specified;
-their enforcement, physical-volume preflight, packaging, qualification and
-deployment acceptance remain open.
+the read-only API association check is implemented. Inventory enforcement,
+physical-volume qualification, exclusive Job packaging and deployment acceptance
+remain open.
 
 ## 1. Confirm design
 
@@ -24,12 +25,13 @@ deployment acceptance remain open.
 - [x] 3.0 Preserve an explicit zero core replica count so an operator-requested drain is not rendered as one replica; this does not prove retirement or authorize conversion.
 - [ ] 3.1 Add the opt-in StatefulSet, per-member retained claims and installed identity document; preserve the default Deployment.
 - [ ] 3.2 Add an explicitly invoked provisioning Job and actual-volume preflight with recording disabled.
+- [x] 3.2a Add the bounded read-only Kubernetes volume-association command; see [preflight](../../../docs/camera-spool-preflight.md). API observation does not establish mount exclusivity, encryption, initialization authority or recording readiness.
 - [ ] 3.3 Implement the independent admission fence and guarded conversion/rollback procedure, including interrupted conversion, stale Helm revisions, scale subresources and refusal of concurrent old/new owners.
 - [ ] 3.4 Validate rendered manifests and synthetic cluster replacement, exclusive mount, scaling and uninstall preservation.
 
 ## 4. Cloud scope
 
-- [ ] 4.1 Extend issues #182/#183 with retained spool inventory, initialization and preservation workflow.
+- [x] 4.1 Extend [Cloud #182](https://github.com/carverauto/serviceradar-control/issues/182#issuecomment-6483971547) and [Cloud #183](https://github.com/carverauto/serviceradar-control/issues/183#issuecomment-6483972071) with retained spool inventory, initialization and preservation workflow; [Cloud #190](https://github.com/carverauto/serviceradar-control/issues/190#issuecomment-6483972642) carries controller-aware restore scope. Implementation remains open.
 - [ ] 4.2 Materialize compatible chart/configuration revisions with per-member observed status and admission budgets.
 - [ ] 4.3 Complete [Cloud #190](https://github.com/carverauto/serviceradar-control/issues/190): update both restore plan and execution for the installed controller kind; test Deployment, StatefulSet and ambiguous/unknown refusal.
 - [ ] 4.4 Verify suspend/resume, scale-down, termination and database restore retain the correct volume lifetimes and unresolved state.

@@ -65,7 +65,7 @@ with the actual volume lifetime, and install the document. Changing a member's
 mapping is not authorization to initialize, replace or adopt a volume.
 
 The [explicit filesystem initializer](../../../docs/camera-spool-initialization.md)
-uses the same identity modes. Actual-volume preflight, StatefulSet/claim
-packaging, controller conversion, Cloud materialization and live
-CSI/replacement/capture acceptance remain open. Existing filesystem and worker
-ownership checks remain mandatory.
+uses the same identity modes. See the [implementation tasks](tasks.md) for the
+status of volume preflight, packaging, conversion, Cloud materialization and
+deployment acceptance. Existing filesystem and worker ownership checks remain
+mandatory.
