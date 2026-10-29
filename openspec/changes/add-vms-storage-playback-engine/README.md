@@ -2,6 +2,13 @@
 
 ## Current pickup
 
+The proposed [scalable recording plane](../add-scalable-camera-recording-plane/proposal.md)
+owns the next architecture decision: independent recorder pools, cloud + S3,
+on-prem + local, and on-prem + S3. It removes JetStream media staging. This is
+planning, not a continuous-recording or capacity claim. Upon approval, production
+scale-out targets recorder pools; the existing bounded core-attached capture and
+optional core-spool work remain valid with their current evidence and gates.
+
 [Archive player #6096](https://github.com/carverauto/serviceradar/pull/6096)
 is merged. The [published-head evidence](validation.md#published-head-archive-player-validation)
 owns the final validation results, executor commits, corrected first-run failure

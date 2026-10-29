@@ -1,26 +1,36 @@
-# Change: Edge recording: bounded JetStream Object Store buffering and continuous S3 archival
-
-Tracking issue: [#4914](https://github.com/carverauto/serviceradar/issues/4914).
+# Change: Edge recording with bounded filesystem storage and optional S3 archival
 
 ## Why
 
-Extend the recording foundation in `add-vms-storage-playback-engine` to survive a configured disconnected interval. JetStream Object Store is a finite local transfer buffer; permanent S3-compatible storage is the archive. This is not part of #4774 acceptance.
+Issue #4914 extends the recording foundation to survive a configured disconnected
+interval. This is not part of #4774 acceptance. The
+[scalable recording proposal](../add-scalable-camera-recording-plane/proposal.md)
+separates customer-operated placement from storage policy: retain locally, or
+use bounded local buffering with S3 as the durable archive.
 
 ## What Changes
 
-- Bind recorder/archiver to a persistent local JetStream domain/account/bucket. Capture cannot require central CNPG or a remote Raft quorum.
-- Provision finite offline policy/credential windows and fenced assignment identity before disconnect. Keep upload state in a long-lived host worker rather than stateless per-check Wasm.
-- Finalize bounded objects and maintain a durable pending-work journal; reconcile a crash between object completion and journaling.
-- Upload each completed segment immediately whenever S3 is reachable, independently of leaf/hub connectivity. Bound concurrency/bandwidth and persist retry/multipart state.
-- Verify media, initialization objects and immutable recovery manifests; persist a receipt before reclaiming local media. Central index delivery retries separately. Manifests must recover the index after edge loss.
-- A NATS leaf reconnect or PubAck is not archival proof, and does not automatically mirror Object Store contents. Any stream sourcing/mirroring is explicitly configured and tested.
-- Require TTL/byte/object limits, replicas/placement, reserved telemetry/control capacity, safe upload deadlines and drain-before-disable behavior.
-
-Related workstreams have separate proposals and acceptance checklists.
+- Bind the host recorder/archiver to a qualified exclusive filesystem lifetime
+  and durable pending-work journal, without central CNPG or remote quorum per segment.
+- Remove the unimplemented JetStream Object Store media-staging option. NATS
+  carries metadata, jobs and telemetry; video bytes stay on the filesystem/S3 path.
+- Provision finite offline policy/credential windows and fenced ownership before
+  disconnect; restart must not renew expired authority.
+- For S3-backed mode, upload sealed segments promptly whenever S3 is reachable,
+  independently of hub connectivity, with bounded persistent retry state.
+- Verify media, initialization dependencies and recovery manifests; persist
+  receipts before reclamation, with central index delivery retried separately.
+- For local-only mode, use durable local publication/retention rather than require
+  an S3 receipt. Size local disks for the actual retention policy.
+- Bound bytes, segment sizes, in-flight work and outage windows; preserve telemetry
+  reservations and expose pressure/gaps instead of silent eviction or growth.
+- A NATS reconnect or PubAck is not archival proof. No media sourcing/mirroring
+  through NATS is required or offered by this proposal.
 
 ## Impact
 
-Edge recorder/archiver, local JetStream Object Store and S3 receipt reconciliation. Depends on add-vms-storage-playback-engine, not on central playback availability. Does not block #4774.
-
-Proposal and tracking only; no deployment, data ingestion or recording is enabled
-by this documentation change.
+Edge recorder/archiver, filesystem journal, offline grants and optional S3 receipt
+reconciliation. Depends on `add-vms-storage-playback-engine` and the placement,
+local-publication and handoff contracts in `add-scalable-camera-recording-plane`.
+Central playback availability is not required to finalize authorized local media.
+No implementation or deployment is enabled by this proposal update.

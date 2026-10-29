@@ -53,7 +53,10 @@ inconsistent placement of that feature in both MVP and Phase 2. No one-to-two-we
 delivery promise is adopted before P0.
 
 `add-edge-recording-archive` / #4914 retains disconnected capture, local
-JetStream Object Store staging, offline credential windows and archive receipts.
+filesystem buffering, offline credential windows and archive receipts.
+`add-scalable-camera-recording-plane` extends this foundation with independent
+recorder pools and cloud + S3, on-prem + local, and on-prem + S3 modes. It removes
+JetStream media staging and makes S3 optional for customer-operated storage.
 It depends on this foundation and is not replaced. Spatial resources/observations
 remain owned by their existing proposals. Neither #4774 nor live-view delivery is
 blocked by VMS. Do not close #4913 or #4915 for merging planning documents.

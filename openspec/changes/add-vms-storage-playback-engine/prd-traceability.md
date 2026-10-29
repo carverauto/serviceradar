@@ -10,7 +10,7 @@ capability with an implementation gate, not an omitted requirement.
 | --- | --- | --- |
 | add-camera-recording-storage / #4913 | One ingest; independent recording leases; fencing; bounded keyframes; clock quality; integrity; manifests; idempotent recovery; credential/store boundaries | This proposal, camera-recording and camera-streaming deltas |
 | add-recording-playback-lifecycle / #4915 | Authorized time-bounded replay/exports; gaps; short-lived handles; hold/delete/export races; verified deletion; dashboard cleanup and spatial links | This proposal, camera-recording delta |
-| add-edge-recording-archive / #4914 | Disconnected admission, local Object Store, archive receipts, catch-up and reclamation without central index availability | Existing separate proposal; dependency reference updated |
+| add-edge-recording-archive / #4914 | Disconnected admission, bounded filesystem storage, optional S3 archive receipts, catch-up and reclamation without central index availability | Existing separate proposal; dependency reference updated |
 | add-shared-spatial-resources and add-spatial-observation-ingestion | Resource identity, placement, observations | Existing owners; no duplicate camera/location registry |
 
 The two consolidated proposals are not archived as implemented. Their original

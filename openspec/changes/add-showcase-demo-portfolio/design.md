@@ -525,7 +525,7 @@ and #4847 stay in this portfolio. Topology location support stays in #4774.
 - `add-spatial-history-projection`: JetStream history, current projection and reads.
 - `add-vms-storage-playback-engine`: shared ingest, packed recording, authorized
   playback, retention, holds, exports and Cloud/GPU contracts (#4913 and #4915).
-- `add-edge-recording-archive`: offline JetStream buffering and continuous S3 drain.
+- [add-edge-recording-archive](../add-edge-recording-archive/proposal.md): disconnected recording and archive reconciliation.
 
 Each has explicit tracking issues, requirements and acceptance. None blocks #4774. SCRITH
 ontology/causal implementation remains excluded.

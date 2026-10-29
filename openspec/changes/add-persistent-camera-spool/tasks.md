@@ -1,5 +1,11 @@
 # Implementation plan
 
+The [scalable recorder proposal](../add-scalable-camera-recording-plane/proposal.md)
+separately plans production recording pools. This core-attached storage track
+remains valid for bounded capture; converting core is not a prerequisite for the
+new tier. Reconcile packaging before a production conversion. Existing approvals,
+checks and unfinished deployment gates remain in force.
+
 The user approved per-replica persistent storage through an opt-in StatefulSet.
 Runtime member-identity selection and the isolated filesystem initializer are
 implemented. The installation inventory and conversion contracts are specified;

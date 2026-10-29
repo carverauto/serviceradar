@@ -76,11 +76,15 @@ response cannot supply that authority.
 
 ## C1. Provisioning and private storage
 
-Before enabling hosted recording, the control plane creates or explicitly adopts
+For S3-backed recording, the control plane creates or explicitly adopts
 purpose-scoped recording, evidence and derivative storage for one environment.
 Keep it separate from CNPG backups and StarRocks storage. Store provider IDs,
 region/endpoint, ownership, purpose, policy revision, lifecycle/lock mode, quota
 and credential references; never raw secrets.
+
+[Recording-plane Cloud scope](../add-scalable-camera-recording-plane/cloud-scope.md)
+owns mode selection and customer-operated pool provisioning. The object-storage
+steps and qualification gates below apply when S3 is selected.
 
 Use persisted idempotent provisioning steps: allocate, persist IDs, configure
 security, create/custody keys, materialize runtime references, probe, mark ready.
@@ -143,7 +147,7 @@ runtime unified credential inventory, not SaaS provisioning records.
 
 ## C2. Versioned runtime configuration and admission
 
-A versioned configuration document contains purpose-specific endpoint/bucket
+A versioned configuration document contains mode-selected purpose-specific endpoint/bucket
 references, secret references and generations, archive format support, retention
 policy, local spool/cache resource profile, enabled media capabilities, GPU
 placement/queue policy, and budgets. The control plane sends desired revision;
