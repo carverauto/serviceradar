@@ -1004,7 +1004,53 @@ defmodule ServiceRadar.Inventory.Identity.SourceSuccessionTest do
       register_live_armis_id!.(archived_holder.uid, "current-archive-#{suffix}", later_iso)
       observe!(source_instance, archived_holder.uid, "archive-only-#{suffix}", m1, @first_seen)
 
-      plan = SourceSuccession.plan(actor: actor)
+      {plan, statements} = capture_statements(fn -> SourceSuccession.plan(actor: actor) end)
+
+      [{lookup, _params}] =
+        Enum.filter(statements, fn {sql, _params} -> sql =~ "o.mac IS NOT NULL" end)
+
+      fixture_uids =
+        MapSet.new([
+          pred1.uid,
+          succ1.uid,
+          pred2.uid,
+          succ2.uid,
+          pred3.uid,
+          succ3.uid,
+          pred4.uid,
+          succ4.uid,
+          deleted4.uid,
+          pred5.uid,
+          succ5a.uid,
+          succ5b.uid,
+          pred6.uid,
+          succ6.uid,
+          archived_holder.uid
+        ])
+
+      for {macs, expected} <- [
+            {[m1, m2, m3, m4, m5, m6],
+             [
+               pred1.uid,
+               succ1.uid,
+               pred2.uid,
+               succ2.uid,
+               pred3.uid,
+               succ3.uid,
+               pred4.uid,
+               succ4.uid,
+               pred5.uid,
+               succ5a.uid,
+               succ5b.uid,
+               pred6.uid,
+               archived_holder.uid
+             ]},
+            {[mac_for.(7)], [pred6.uid, succ6.uid]}
+          ] do
+        %{rows: rows} = Repo.query!(lookup, ["armis_device_id", macs])
+        reporters = rows |> MapSet.new(&hd/1) |> MapSet.intersection(fixture_uids)
+        assert reporters == MapSet.new(expected)
+      end
 
       our_preds = MapSet.new([pred1.uid, pred2.uid, pred3.uid, pred4.uid, pred5.uid, pred6.uid])
 
