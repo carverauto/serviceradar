@@ -209,11 +209,6 @@ cnpg:
     max_connections: "500"
     shared_buffers: "1GB"
     work_mem: "16MB"
-    # JIT compilation costs more than it saves for this workload: the
-    # statements are short or frequently repeated, so compile time dominates
-    # (analytical queries run in StarRocks, not here). jit is reloadable, so
-    # changing it does not restart Postgres.
-    jit: "off"
   pooler:
     enabled: true
     # THE CLUSTER-INTERNAL ENDPOINT THE SERVICES ACTUALLY USE, for every workload routed to the
