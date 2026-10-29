@@ -211,6 +211,6 @@ The corroboration decision is covered by the integration tests.
 
 ## Migration
 
-None. Older agents and cores interoperate (D3). Pairs split before this change converge on the
-agent's next check-in when they share an eligible MAC, and otherwise appear as de-duplication
-tasks.
+No schema migration is required. See the
+[agent host evidence contract](../../../docs/docs/dire-identity-model.md#agent-host-evidence)
+for upgrade requirements and the conditions for linking or opening review tasks.

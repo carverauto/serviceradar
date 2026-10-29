@@ -42,6 +42,8 @@ converge under the merge policy below.
 The agent still sends `host_ip` and `host_macs`, the MAC of the interface owning its
 announced address, for cores that predate the inventory. When no interface of the
 inventory is classified, or an older agent sends none, core uses `host_macs` as before.
+Using the classified inventory requires upgraded agents, agent gateways and core;
+an older gateway does not forward it.
 
 The inventory's addresses and the first label of the agent's hostname are corroboration,
 never identity. When another live device in the agent's partition holds one of the
@@ -301,9 +303,9 @@ the MACs identify.
 Hypervisor enrichment resolves a node, in order, by its integration id, then by
 its own NIC MACs, then, for Proxmox, by the device fingerprinted at its address. The Proxmox
 API reports no node NIC MACs (`GET /nodes/{node}/network` carries no hardware address), so the
-last step is how a Proxmox node finds the record discovery already holds for it. A node record
-holding only its integration id shares no strong identifier with the agent on that node, so the
-two stay separate devices and the agent's check-in opens a de-duplication task for them. That record must meet four conditions:
+last step is how a Proxmox node finds the record discovery already holds for it. For agent
+linking and the conditions that open a de-duplication task, see
+[Agent host evidence](#agent-host-evidence). The fingerprinted record must meet four conditions:
 
 - its primary IP is either the explicit node IP (falling back to the cluster
   node IP) or the selected management NIC IP reported by the authenticated API,
