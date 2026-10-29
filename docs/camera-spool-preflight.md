@@ -72,12 +72,17 @@ encryption, physical exclusivity or the state of a node's mounts.
 
 ## Result and authority boundary
 
-The command emits one JSON object:
+An association check emits one JSON object:
 
 - Exit `0`, `{"status":"association_verified"}`: the API observations matched.
 - Exit `1`, `{"status":"refused","reason":"..."}`: input or observation failed.
   Reasons are bounded categories without resource identities or raw API errors.
   A killed process or unreadable output has no successful result.
+
+`--help` (or `-h`) instead prints plain-text usage and exits `0` without API
+reads. Automation must require both exit `0` and the JSON status
+`association_verified`; a zero exit status alone is not an association result.
+An output write failure exits `1` and may leave incomplete output.
 
 Examples include `claim_identity_mismatch`, `volume_not_retained`,
 `csi_identity_or_access_mismatch`, `claim_referenced_by_pod`,
