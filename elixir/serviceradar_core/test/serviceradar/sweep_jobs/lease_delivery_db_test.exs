@@ -85,6 +85,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert row.delivered_payload_sha256 ==
              Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
 
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: row.delivered_payload_sha256,
+               installed: true
+             })
+
     assert %{pushed: 0} = LeasePass.reconcile_group(group, now, ctx.delivery)
     refute_receive {:pushed, _, _, _, _}, 50
   end
@@ -409,15 +416,46 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert {:ok, :pushed} =
              LeaseDelivery.deliver(assignment, ctx.delivery.authority, now, ctx.delivery.sender)
 
-    assert_receive {:pushed, _, _, lease, _}
+    assert_receive {:pushed, _, _, lease, payload}
     assert lease.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
     assert Ecto.UUID.dump!(interior.id) in Enum.map(lease.slots, & &1.execution_id)
 
     assert %{} = marked = Enum.find(unrun!(assignment, now), &(&1.id == interior.id))
     assert marked.delivered_at
 
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
     assert {:ok, :up_to_date} =
              LeaseDelivery.deliver(assignment, ctx.delivery.authority, now, ctx.delivery.sender)
+  end
+
+  test "an unacknowledged full window is resent before the acknowledgement grace", ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, _}
+
+    later = DateTime.add(now, 300, :second)
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
+    assert_receive {:pushed, _, _, resent, _}
+
+    assert resent.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
+    assert resent.lease_id == first.lease_id
+
+    remaining =
+      first.slots
+      |> Enum.filter(&(&1.slot_start_unix_nano > DateTime.to_unix(later, :nanosecond)))
+      |> MapSet.new(& &1.execution_id)
+
+    assert MapSet.size(remaining) > 0
+    assert MapSet.subset?(remaining, MapSet.new(resent.slots, & &1.execution_id))
   end
 
   test "a later pass pushes only the newly minted tail under the first issuance time", ctx do

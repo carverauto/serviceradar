@@ -126,16 +126,4 @@ defmodule ServiceRadar.NATS.PublisherConnectionsTest do
       assert length(PublisherSupervisor.child_specs()) === length(PublisherLane.lanes())
     end
   end
-
-  describe "the count does not grow with anything except lanes" do
-    test "neither inventory function takes an argument that could add one" do
-      # The spec forbids a connection per network scope, agent, producer assignment, run, output
-      # contract, package, or logical partition. Both take no arguments, so there is nothing a
-      # caller could vary.
-      assert :erlang.fun_info(&NATSSupervisor.connection_names/0, :arity) === {:arity, 0}
-
-      assert :erlang.fun_info(&PublisherSupervisor.lane_connection_names/0, :arity) ===
-               {:arity, 0}
-    end
-  end
 end

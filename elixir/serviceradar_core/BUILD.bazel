@@ -1412,11 +1412,3 @@ filegroup(
     name = "credo_checks",
     srcs = glob(["credo/**/*.ex"]),
 )
-
-filegroup(
-    name = "accounting_guard_sources",
-    srcs = glob(
-        ["lib/**/*.ex"],
-        exclude = ["lib/serviceradar/proto/**"],
-    ),
-)

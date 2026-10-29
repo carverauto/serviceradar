@@ -1587,7 +1587,7 @@ class WorkflowIntegrationLifecycleContractTest(unittest.TestCase):
         matches = [item for item in workflow["actions"] if item["name"] == name]
         self.assertEqual(1, len(matches), name)
         action = matches[0]
-        branches = ["staging", "usp-01-proposal"] if name == "BazelCI" else ["staging"]
+        branches = ["staging", "usp-01-proposal"] if name in ("BazelCI", "BazelCI Core Integration") else ["staging"]
         self.assertEqual({"pull_request": {"branches": branches}}, action["triggers"])
         self.assertIs(True, action["self_hosted"])
         self.assertEqual("workflows-pr", action["pool"])

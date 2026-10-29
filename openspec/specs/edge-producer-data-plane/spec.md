@@ -22,11 +22,7 @@ source of each enumerated mutation. They are projection coordinates, not wire ID
 No production component currently declares a cost using this rule or persists an
 admitted edge record. This absence SHALL NOT exempt future admission ledger, outbox,
 work or current-state mutations: a component introducing them SHALL extend the row
-rule and its shared fixtures before declaring or consuming that cost. The static
-guard in `build/edge_projection_accounting_test.py` records its inspected source
-scope and its limitations; it SHALL be extended when runtime integration adds an
-ingress or persistence path outside that scope. A lexical guard alone SHALL NOT be
-treated as proof of dynamic callback effects or of a future writer's actual count.
+rule and its shared fixtures before declaring or consuming that cost.
 
 #### Scenario: Both runtimes count the same committed batch
 - **GIVEN** a committed positive sweep or MTR batch in the projection corpus

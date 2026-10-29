@@ -45,7 +45,8 @@ type SweepService struct {
 	// of several slots finishes before the push loop reads, and two of those
 	// completions can share a LastSweep unix second.
 	cachedResults      *models.SweepSummary
-	pendingSweeps      []*models.SweepSummary
+	pendingSweeps      []*completedSweep
+	cachedCompletion   *completedSweep
 	lastSweepTimestamp int64
 	currentSequence    uint64
 
@@ -139,6 +140,29 @@ func (s *SweepService) CancelRun() (bool, error) {
 	return canceller.CancelRun(), nil
 }
 
+type completedSweep struct {
+	*models.SweepSummary
+	cancelled    bool
+	scannerStats *models.ScannerStats
+	bannerStats  *models.BannerGrabStats
+}
+
+func (s *SweepService) snapshotCompletedSweep(summary *models.SweepSummary) *completedSweep {
+	cycle := &completedSweep{SweepSummary: cloneSweepSummaryForPublish(summary)}
+	if source, ok := s.sweeper.(interface{ WasCancelledSweep() bool }); ok {
+		cycle.cancelled = source.WasCancelledSweep()
+	}
+	if stats := s.sweeper.GetScannerStats(); stats != nil {
+		copy := *stats
+		cycle.scannerStats = &copy
+	}
+	if stats := s.sweeper.GetBannerGrabStats(); stats != nil {
+		copy := *stats
+		cycle.bannerStats = &copy
+	}
+	return cycle
+}
+
 // RunOnceForExecution runs one sweep as the core-minted executionID (a leased
 // slot). The completed cycle is retained here, hosts included, until
 // GetSweepResults publishes it. The sweeper keeps one summary, so the next
@@ -194,7 +218,7 @@ func (s *SweepService) retainCompletedSweep(ctx context.Context) error {
 		return nil
 	}
 
-	retained := cloneSweepSummaryForPublish(summary)
+	retained := s.snapshotCompletedSweep(summary)
 
 	s.mu.Lock()
 	s.pendingSweeps = append(s.pendingSweeps, retained)
@@ -207,7 +231,7 @@ func (s *SweepService) retainCompletedSweep(ctx context.Context) error {
 // summary when nothing was retained and it is a new completion. The live
 // summary stays in the sweeper, so it is copied. Retained cycles are already
 // copies and are not compared by LastSweep: that unix second can repeat.
-func (s *SweepService) takeCompletedSweepLocked(live *models.SweepSummary) *models.SweepSummary {
+func (s *SweepService) takeCompletedSweepLocked(live *models.SweepSummary) *completedSweep {
 	if len(s.pendingSweeps) > 0 {
 		next := s.pendingSweeps[0]
 		s.pendingSweeps = s.pendingSweeps[1:]
@@ -221,7 +245,7 @@ func (s *SweepService) takeCompletedSweepLocked(live *models.SweepSummary) *mode
 		return nil
 	}
 
-	return cloneSweepSummaryForPublish(live)
+	return s.snapshotCompletedSweep(live)
 }
 
 func samePublishedCycle(cached, live *models.SweepSummary) bool {
@@ -503,7 +527,8 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
 	if s.currentSequence == 0 || (lastSequence != "" && lastSequence == currentSeqStr) {
 		if cycle := s.takeCompletedSweepLocked(summary); cycle != nil {
-			s.cachedResults = cycle
+			s.cachedResults = cycle.SweepSummary
+			s.cachedCompletion = cycle
 			s.lastSweepTimestamp = cycle.LastSweep
 			s.currentSequence++
 			if cycle.ExecutionID != "" {
@@ -576,14 +601,16 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 	// Signal a scan-timeout cancellation so the server can record the correct
 	// execution status (cancelled rather than completed).
-	if wasCancelled, ok := s.sweeper.(interface{ WasCancelledSweep() bool }); ok && wasCancelled.WasCancelledSweep() {
+	if s.cachedCompletion != nil && s.cachedCompletion.cancelled {
 		resultPayload["cancelled"] = true
 	}
 
-	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
+	if s.cachedCompletion != nil && s.cachedCompletion.scannerStats != nil {
+		scannerStats := s.cachedCompletion.scannerStats
 		resultPayload["scanner_stats"] = scannerStats
 	}
-	if bannerStats := s.sweeper.GetBannerGrabStats(); bannerStats != nil {
+	if s.cachedCompletion != nil && s.cachedCompletion.bannerStats != nil {
+		bannerStats := s.cachedCompletion.bannerStats
 		resultPayload["banner_grab"] = bannerStats
 	}
 
@@ -607,11 +634,12 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		SweepGroupId:     sweepGroupID,
 		TotalTargets:     int32(len(s.cachedResults.Hosts)),
 		CompletedTargets: int32(len(s.cachedResults.Hosts)),
-		CompletionTime:   time.Now().Unix(),
+		CompletionTime:   s.cachedResults.LastSweep,
 	}
 
 	// Populate scanner stats if available
-	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
+	if s.cachedCompletion != nil && s.cachedCompletion.scannerStats != nil {
+		scannerStats := s.cachedCompletion.scannerStats
 		sweepCompletion.ScannerStats = &proto.SweepScannerStats{
 			Protocol:             scannerStats.Protocol,
 			AddressFamily:        scannerStats.AddressFamily,
