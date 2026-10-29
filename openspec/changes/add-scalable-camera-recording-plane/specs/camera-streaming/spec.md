@@ -19,7 +19,7 @@ The system SHALL support a WebRTC viewer egress path for camera relay sessions f
 - **AND** SHALL NOT create a second upstream camera ingest for the same camera/profile
 
 ### Requirement: Membrane relay fans out a single upstream session
-The system SHALL use Membrane at the assigned core or recorder ingress to fan out one active upstream camera ingest to multiple authorized viewers of the same camera stream profile.
+The system SHALL use Membrane at the assigned core or recorder ingress to fan out one active upstream camera ingest to multiple authorized viewers of the same camera stream profile. Within a deployment, additional viewers MUST NOT create another camera source session or edge-to-cloud live media uplink for that profile, including across relay replicas. Each browser SHALL retain its own authorized downstream transport; shared upstream media is mandatory.
 
 #### Scenario: Two viewers open the same camera profile
 - **GIVEN** one operator already viewing camera `cam-1` profile `main`
@@ -27,6 +27,20 @@ The system SHALL use Membrane at the assigned core or recorder ingress to fan ou
 - **THEN** the platform SHALL reuse the existing upstream ingest
 - **AND** SHALL attach the second viewer to the relay session
 - **AND** SHALL NOT instruct the agent to open a second source session to the camera
+- **AND** SHALL NOT open an additional edge-to-cloud live media upload for the second viewer
+
+#### Scenario: Concurrent viewers reach different relay replicas
+- **GIVEN** no live viewer yet exists for an admitted camera/profile
+- **WHEN** authorized viewers concurrently request it through different replicas
+- **THEN** admission SHALL resolve one assignment-scoped source and live uplink owner
+- **AND** Membrane SHALL fan out that shared ingest to the viewers
+- **AND** unresolved ownership SHALL wait within a deadline or reject admission rather than create duplicate sources or live uploads
+
+#### Scenario: A slow viewer disconnects and reconnects
+- **GIVEN** multiple authorized viewers share one source and live uplink
+- **WHEN** one viewer exhausts its bounded queue or reconnects
+- **THEN** the platform SHALL isolate or disconnect that viewer without stalling recording or unrelated viewers
+- **AND** reconnection SHALL attach to the existing owner without opening another camera source or live upload
 
 ### Requirement: Gateway/core relay forwarding preserves one internal session target
 For each accepted camera relay session, the authenticated media bridge SHALL bind chunks, heartbeats and close to one assignment-scoped ingress target for that relay lifetime. The default gateway-to-core path SHALL remain supported; an admitted recorder assignment MAY instead target its authenticated recorder service. Customer-operated recorders SHALL not require membership in the cloud ERTS cluster.
@@ -45,7 +59,7 @@ For each accepted camera relay session, the authenticated media bridge SHALL bin
 - **AND** source handoff SHALL require the assignment retirement and fencing contract before another target becomes active
 
 ### Requirement: Edge-routed camera media uplinks
-The system SHALL establish camera ingest through agent-originated media uplinks to the assigned core or recorder relay. The default cloud route SHALL use `serviceradar-agent-gateway`; customer-local recording MAY use an explicitly admitted authenticated local bridge. The system SHALL NOT require direct platform-to-camera reachability for normal operation.
+The system SHALL establish camera ingest through agent-originated media uplinks to the assigned core or recorder relay. The default cloud route SHALL use `serviceradar-agent-gateway`; customer-local recording MAY use an explicitly admitted authenticated local bridge. Hosted viewing of customer-local media SHALL use agent-established outbound control and media paths. The system SHALL NOT require direct platform-to-camera or platform-to-customer-recorder reachability, inbound firewall access, VPN or customer cloud-BEAM membership for normal operation.
 
 #### Scenario: Camera is reachable only from the customer network
 - **GIVEN** a camera that is reachable from an enrolled ServiceRadar agent but not from the platform directly
@@ -59,6 +73,13 @@ The system SHALL establish camera ingest through agent-originated media uplinks 
 - **WHEN** no cloud viewer is connected
 - **THEN** the source SHALL feed the local recorder without a cloud media round-trip
 - **AND** a later authorized viewer SHALL consume the existing ingest rather than open another camera connection for that profile
+
+#### Scenario: Hosted viewers attach behind an inbound-deny firewall
+- **GIVEN** customer ingress is denied and an agent-established gateway control connection is available
+- **WHEN** authorized hosted viewers request a customer-local camera/profile
+- **THEN** the runtime SHALL send an attach command over the existing control path
+- **AND** the agent SHALL initiate one shared bounded live upload from the assigned ingest through the gateway
+- **AND** the public Membrane relay SHALL fan out to the authorized browsers without dialing the customer network
 
 ### Requirement: Viewer sessions are authorized and short-lived
 The system SHALL require an authorized viewer session before exposing live camera media, and SHALL tear down the shared upstream ingest after the configured idle timeout only when no viewer, recorder or authorized analysis lease remains.

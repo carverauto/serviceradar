@@ -15,6 +15,8 @@ must operate without the SaaS service.
 | Cloud #184 | Optional CPU/GPU analysis placement and independent quotas | GPU exhaustion cannot gate compatible recording; report measured capabilities |
 | Cloud #190 | Restore planning and execution for installed controller/storage owners | Restore recorder inventory and pending operations with matching volume identities; no core Deployment assumption for recorder pools |
 | Product and Cloud | Mode changes, offline grants, revocation and drained ownership handoff | Preserve historical placement/receipts and explicit data-movement authorization; no stale-owner takeover |
+| Product and Cloud | Outbound-only remote viewing, shared live uplink ownership and independent gateway/media capacity | No customer ingress/VPN requirement; one source/uplink per camera/profile across viewers; media saturation preserves control |
+| Product and Cloud | Playback admission, cache/read-ahead budgets and archive endpoint reachability | Private origins and interval authorization remain enforced; no full-recording disk restore prerequisite or automatic CDN allocation |
 
 Existing issues:
 [#182](https://github.com/carverauto/serviceradar-control/issues/182),

@@ -120,3 +120,40 @@ The system SHALL qualify supported recorder profiles through synthetic media at 
 - **THEN** that tier SHALL fail qualification and remain unsupported
 - **AND** the report SHALL retain workload, hardware, codec, storage mode and failure evidence
 - **AND** a tier that was not exercised SHALL remain explicitly unqualified
+
+### Requirement: Outbound playback from customer-hosted archives
+Hosted playback of customer-hosted recordings SHALL use agent-established control and media connections when Cloud cannot reach the authorized archive directly. The runtime SHALL derive bounded ranges from trusted recording metadata after fresh recording-read and interval authorization, and SHALL NOT expose arbitrary paths, URLs or client-selected provider ranges through the bridge.
+
+#### Scenario: Authorized playback with customer ingress denied
+- **GIVEN** a verified recording is retained only on a customer recorder and inbound customer access is denied
+- **WHEN** an authorized hosted user requests an interval
+- **THEN** the runtime SHALL send a scoped recording/range request over the agent-established control channel
+- **AND** the agent SHALL push the bounded response over an authenticated media RPC without Cloud dialing the recorder
+- **AND** request identity, deadline, byte limits and cancellation SHALL remain enforced through disconnect and reconnect
+
+#### Scenario: Edge is unavailable during playback
+- **WHEN** an outbound bridge becomes unavailable
+- **THEN** the runtime SHALL report local-only footage unavailable without disrupting otherwise authorized local recording
+- **AND** playback MAY continue from a verified authorized cloud-reachable archive copy
+- **AND** an S3 endpoint unreachable from Cloud SHALL NOT be reported as a working direct fallback
+
+### Requirement: Bounded object archive playback
+The system SHALL serve verified archive playback as authorized playable fragments or bounded ranges with initialization and keyframe dependencies. It SHALL enforce per-playback and aggregate read-ahead, byte and concurrency budgets without requiring a whole-recording local restore. Optional shared caches SHALL preserve fresh authorization and SHALL NOT consume recording spool reserves.
+
+#### Scenario: Seek starts within a packed archive object
+- **WHEN** an authorized viewer seeks to a recorded interval
+- **THEN** the runtime SHALL map time to trusted immutable object identity and a valid decode boundary
+- **AND** SHALL deliver only authorized media and necessary permitted initialization dependencies
+- **AND** SHALL cancel obsolete prefetch without downloading the entire recording or exposing unrelated object intervals
+
+#### Scenario: Viewers request cached fragments at independent positions
+- **GIVEN** a shared fragment cache is enabled
+- **WHEN** authorized viewers request the same immutable fragment
+- **THEN** reads SHALL reuse cached bytes or coalesce identical in-flight fetches within the serving scope
+- **AND** every served request SHALL retain fresh authorization, even on a cache hit
+- **AND** viewers seeking to different intervals SHALL retain independent playback state
+
+#### Scenario: Origin cannot keep up with playback
+- **WHEN** origin latency or available goodput prevents the selected playback rate
+- **THEN** playback SHALL expose buffering or unavailability while retaining its declared resource limits
+- **AND** stalled or abandoned reads SHALL NOT consume unbounded cache or disrupt capture, archival or control

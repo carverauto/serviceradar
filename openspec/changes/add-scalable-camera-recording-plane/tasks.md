@@ -12,13 +12,15 @@ not a shipped camera-count guarantee.
 - [ ] 1.4 Define local durable publication/restore/hold guarantees separately from provisional spool and S3 archive proofs.
 - [ ] 1.5 Select measurable per-mode coverage, latency, outage, recovery, retention and cost SLOs; record supported codec/hardware profiles.
 - [ ] 1.6 Reconcile the core-attached persistence rollout with recorder-pool packaging before a production controller conversion.
+- [ ] 1.7 Specify outbound live attach and historical range/cancel/reconnect protocols over agent-established connectivity, with no inbound customer dependency.
+- [ ] 1.8 Specify playable fragment indexes, bounded read-ahead, authorization-safe shared cache behavior and measurable startup/seek/rebuffer budgets.
 
 ## 2. Recorder and source lifecycle
 
 - [ ] 2.1 Extract/package the existing recording primitives as an independent service with remote Bazel artifacts and resource limits.
 - [ ] 2.2 Add deployment-scoped pools, enrollment/capabilities, capacity reservations and explicit source/profile ownership.
 - [ ] 2.3 Route cloud and customer-local ingest to the assigned recorder; preserve agent ownership and bounded authenticated media transport.
-- [ ] 2.4 Maintain recording without viewers and attach viewer/analysis consumers to the same source; preserve current viewer-only behavior.
+- [ ] 2.4 Maintain recording without viewers and enforce Membrane fan-out from one source and one edge-to-cloud live uplink per camera/profile across concurrent viewers and relay replicas; preserve current viewer-only behavior.
 - [ ] 2.5 Implement drained handoff, fencing, volume preservation, restart recovery and explicit unresolved/gap states.
 
 ## 3. Storage modes and recovery
@@ -29,6 +31,7 @@ not a shipped camera-count guarantee.
 - [ ] 3.4 Complete qualified S3 upload/multipart reconciliation, recoverable manifests and receipt-based reclamation; preserve every existing provider/security check.
 - [ ] 3.5 Enforce outage/catch-up budgets and independent archive/index availability; test `U <= R`, full disk, restart and lost responses.
 - [ ] 3.6 Implement explicit mode/data-residency transitions without retargeting or deleting historical media.
+- [ ] 3.7 Implement authorized outbound playback of customer-local recordings and bounded S3 fragment/range delivery with seek cancellation and isolated cache budgets.
 
 ## 4. Customer hardware, workers and Cloud
 
