@@ -366,6 +366,95 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
     end
   end
 
+  describe "Lookups.lookup_identifiers_strict/1" do
+    test "resolves all identifier types across partitions via a constant-parameter unnest join",
+         %{
+           actor: actor
+         } do
+      suffix = System.unique_integer([:positive, :monotonic])
+
+      specs = [
+        {:agent_id, "agent-lookup-#{suffix}", "default"},
+        {:armis_device_id, "armis-lookup-#{suffix}", "default:armis:src-1"},
+        {:integration_id, "integration-lookup-#{suffix}", "default"},
+        {:netbox_device_id, "netbox-lookup-#{suffix}", "site-west"},
+        {:hardware_serial, "SN-LOOKUP-#{suffix}", "default"},
+        {:mac,
+         "00005E#{suffix |> rem(999_999) |> Integer.to_string() |> String.pad_leading(6, "0")}",
+         "default"},
+        {:ip, "192.0.2.#{rem(suffix, 250) + 1}", "site-west"},
+        {:passive_fingerprint, "fp-lookup-#{suffix}", "default"}
+      ]
+
+      expected =
+        Map.new(specs, fn {type, value, partition} ->
+          {:ok, device} = create_device(actor, "id-holder-#{type}-#{suffix}")
+
+          {:ok, _identifier} =
+            DeviceIdentifier
+            |> Ash.Changeset.for_create(:register, %{
+              device_id: device.uid,
+              identifier_type: type,
+              identifier_value: value,
+              partition: partition,
+              source: "test"
+            })
+            |> Ash.create(actor: actor)
+
+          {{type, value, partition}, device.uid}
+        end)
+
+      wrong_partition_keys =
+        Enum.map(specs, fn {type, value, _partition} -> {type, value, "wrong-partition"} end)
+
+      assert {:ok, mappings} = Lookups.lookup_identifiers_strict(wrong_partition_keys)
+      assert mappings == %{}
+
+      unmatched = [
+        {:mac, "00005EFFFFFF", "default"},
+        {:integration_id, "missing-#{suffix}", "default"}
+      ]
+
+      string_keys =
+        Enum.map(specs, fn {type, value, partition} ->
+          {to_string(type), value, partition}
+        end)
+
+      query_keys = specs ++ unmatched ++ Enum.take(specs, 3) ++ string_keys
+
+      parent = self()
+      handler_id = "lookups-unnest-query-#{suffix}"
+
+      :ok =
+        :telemetry.attach(
+          handler_id,
+          [:service_radar, :repo, :query],
+          fn _event, _measurements, %{query: sql, params: params}, _config ->
+            if self() == parent and String.contains?(sql, "device_identifiers") do
+              send(parent, {:identifier_lookup_query, sql, params})
+            end
+          end,
+          nil
+        )
+
+      try do
+        assert {:ok, ^expected} = Lookups.lookup_identifiers_strict(query_keys)
+      after
+        :telemetry.detach(handler_id)
+      end
+
+      assert_receive {:identifier_lookup_query, sql, [types, values, partitions]}
+      refute_receive {:identifier_lookup_query, _, _}
+      assert sql =~ "unnest"
+      refute sql =~ " OR "
+      assert length(types) == length(specs) + length(unmatched)
+      assert length(values) == length(types)
+      assert length(partitions) == length(types)
+
+      assert ^expected = Lookups.bulk_lookup_identifiers(query_keys)
+    end
+  end
+
   test "mapper source does not merge alias device by mac-only identifier", %{actor: actor} do
     ip = unique_test_ip(2)
     mac = unique_mac(2)

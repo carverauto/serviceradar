@@ -18,8 +18,6 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
 
   require Logger
 
-  @identifier_lookup_chunk_size 5_000
-
   # Extract all identifiers from all updates for bulk lookup
   def extract_all_identifiers(updates) do
     updates
@@ -103,33 +101,32 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
   def lookup_identifiers_strict(identifiers) do
     {:ok,
      identifiers
-     |> Enum.chunk_every(@identifier_lookup_chunk_size)
-     |> Enum.flat_map(&lookup_identifier_chunk/1)
+     |> Enum.uniq_by(fn {type, value, partition} -> {to_string(type), value, partition} end)
+     |> lookup_identifier_chunk()
      |> Enum.reduce(%{}, &identifier_row_to_map/2)}
   rescue
     e -> {:error, e}
   end
 
   defp lookup_identifier_chunk(identifiers) do
-    # Build OR conditions for all identifiers
-    conditions =
-      Enum.map(identifiers, fn {type, value, partition} ->
-        dynamic(
-          [di],
-          di.identifier_type == ^to_string(type) and
-            di.identifier_value == ^value and
-            di.partition == ^partition
-        )
-      end)
-
-    combined_condition =
-      Enum.reduce(conditions, fn cond, acc ->
-        dynamic([di], ^acc or ^cond)
+    {types, values, partitions} =
+      Enum.reduce(identifiers, {[], [], []}, fn {type, value, partition}, {ts, vs, ps} ->
+        {[to_string(type) | ts], [value | vs], [partition | ps]}
       end)
 
     query =
       from(di in DeviceIdentifier,
-        where: ^combined_condition,
+        join:
+          k in fragment(
+            "SELECT * FROM unnest(?::text[], ?::text[], ?::text[]) AS k(identifier_type, identifier_value, partition)",
+            ^types,
+            ^values,
+            ^partitions
+          ),
+        on:
+          di.identifier_type == k.identifier_type and
+            di.identifier_value == k.identifier_value and
+            di.partition == k.partition,
         select: {di.identifier_type, di.identifier_value, di.partition, di.device_id}
       )
 
