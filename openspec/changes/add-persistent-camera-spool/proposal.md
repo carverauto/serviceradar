@@ -1,5 +1,11 @@
 # Change: Install persistent camera spools per core replica
 
+The [scalable recorder proposal](../add-scalable-camera-recording-plane/proposal.md)
+separately plans production recording pools. This core-attached storage track
+remains valid for bounded capture; converting core is not a prerequisite for the
+new tier. Reconcile packaging before a production conversion. Existing approvals,
+checks and unfinished deployment gates remain in force.
+
 ## Why
 
 The merged bounded capture entry point runs on the current relay owner and

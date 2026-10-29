@@ -59,7 +59,7 @@ The system SHALL verify immutable media, initialization dependencies and recover
 - **AND** the edge archive contract SHALL permit safe reclamation with retryable index delivery
 
 ### Requirement: Separate media control and telemetry stores
-The system SHALL store recording/index/hold state in CNPG/Ash, durable media in purpose-scoped object storage, and observation/health telemetry through JetStream/EventWriter into its configured backend.
+The system SHALL store recording/index/hold state in CNPG/Ash, durable media in the selected qualified local archive or purpose-scoped object destination, and observation/health telemetry through JetStream/EventWriter into its configured backend. Recording payloads SHALL NOT use JetStream media staging. Provisional local spool bytes SHALL remain distinct from verified local archive publication.
 
 #### Scenario: Plugin or GPU worker reports media
 - **WHEN** a source descriptor or worker result enters the platform

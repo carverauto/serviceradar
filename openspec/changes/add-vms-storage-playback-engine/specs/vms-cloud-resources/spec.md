@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Isolated hosted media provisioning
-The SaaS control plane SHALL provision or explicitly adopt purpose-scoped private media resources through resumable steps, while each ServiceRadar runtime remains a dedicated deployment.
+The SaaS control plane SHALL provision or explicitly adopt the private media resources selected by the recording/storage mode through resumable steps, while each ServiceRadar runtime remains a dedicated deployment. Local-only mode SHALL not require object-storage allocation; selected S3 resources SHALL remain purpose-scoped.
 
 #### Scenario: Provider success followed by provisioning restart
 - **WHEN** a bucket exists but a subsequent step fails

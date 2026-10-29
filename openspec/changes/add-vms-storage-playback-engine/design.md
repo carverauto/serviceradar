@@ -17,9 +17,12 @@ packed-object layout and product direction. The proposed design combines both.
 
 - CNPG/Ash owns recording policy, source/profile identity, ownership epochs,
   block index, playback authorization, holds, export jobs and current status.
-- Dedicated object storage owns immutable media, initialization data, recovery
-  manifests, thumbnails and derived exports. It is not the backup or warehouse
-  bucket. Application indexes do not move to StarRocks.
+- The selected durable media destination owns immutable media, initialization
+  data, recovery manifests, thumbnails and derived exports: purpose-scoped object
+  storage for S3-backed pools, or qualified local archive storage for local-only
+  pools under the scalable recording proposal. Neither reuses telemetry/backup
+  storage. Application indexes do not move to StarRocks. No recording payloads
+  use JetStream media staging.
 - Recording health and analysis observations traverse JetStream/EventWriter,
   then the configured telemetry backend. GPU workers never write databases
   directly. Media bytes do not enter telemetry messages or tables.
@@ -86,15 +89,22 @@ bounded read workers/ETS snapshots serve media; a packer GenServer serializes
 append state, not every viewer byte. Do not rewrite the full JSONB map for each
 fragment.
 
-State is explicit:
+For the S3-backed path, state is explicit:
 
 `open_local -> sealed -> uploading -> archive_verified -> available`
+
+The proposed local-only path is separately qualified:
+`open_local -> sealed -> local_archive_verified -> available`. Its verified
+manifest/catalog and actual configured disk failure tolerance establish durable
+local publication; an open spool or a cache is not that archive. See
+[the recording-plane design](../add-scalable-camera-recording-plane/design.md).
 
 `open_local` can be played through an authorized local range endpoint but is
 labelled provisional. `archive_verified` means media, init and recoverable
 manifest were verified; `available` additionally means the authorized central
 index is published. Gaps, inaccessible local storage, deletion and failures are
-separate states. Never display local-only bytes as durable archive.
+separate states. Never display provisional spool bytes as a verified archive
+or imply that local publication proves disk-loss protection or S3 durability.
 
 The final block index may use a Timescale hypertable with bounded JSONB maps.
 Choose chunk interval, overlap/time indexes and compression only after query and
@@ -104,7 +114,7 @@ has an Ash resource; schema changes use the repository migration workflow.
 
 ## 4. Publication and recovery
 
-Upload sealed immutable blocks with bounded concurrency and persisted multipart
+For S3-backed pools, upload sealed immutable blocks with bounded concurrency and persisted multipart
 IDs/part receipts. Do not use an S3 multipart ETag as a general content digest.
 Verify final bytes and init dependencies, publish a recovery manifest with the
 fragment map/digest/provenance, then perform an idempotent fenced index transition.
