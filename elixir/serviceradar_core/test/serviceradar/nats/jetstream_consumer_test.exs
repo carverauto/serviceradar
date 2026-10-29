@@ -498,6 +498,18 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
              {:ok, ["analytics_predictions", "events"]},
              "analytics_predictions"
            ) == {:ok, "events"}
+
+    assert JetstreamConsumer.overlap_fallback_stream(
+             {:ok, ["arancini_causal"]},
+             "ARANCINI_CAUSAL"
+           ) == {:ok, "arancini_causal"}
+
+    assert JetstreamConsumer.choose_requested_or_first_stream(
+             "ARANCINI_CAUSAL",
+             "arancini.updates.>",
+             ["arancini_causal"],
+             true
+           ) == {:ok, "arancini_causal"}
   end
 
   test "overlap fallback keeps the original error when discovery finds no other stream" do
@@ -511,18 +523,6 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
 
     assert JetstreamConsumer.overlap_fallback_stream({:error, :timeout}, "analytics_predictions") ==
              :error
-
-    assert JetstreamConsumer.overlap_fallback_stream(
-             {:ok, ["telemetry_edge_record_v1_bulk"]},
-             "TELEMETRY_EDGE_RECORD_V1_BULK"
-           ) == :error
-
-    assert JetstreamConsumer.choose_requested_or_first_stream(
-             "TELEMETRY_EDGE_RECORD_V1_BULK",
-             "telemetry.edge-record.v1.bulk.p00",
-             ["telemetry_edge_record_v1_bulk"],
-             true
-           ) == {:ok, "TELEMETRY_EDGE_RECORD_V1_BULK"}
   end
 
   test "immutable push pull consumer shape errors require durable recreation" do
