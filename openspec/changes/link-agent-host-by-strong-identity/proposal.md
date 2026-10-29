@@ -32,10 +32,8 @@ looser name or address match. It has to be more strong identity.
   virtual, tunnel) and MAC provenance (`addr_assign_type`). The classification lives in one
   shared Go package, `go/pkg/hostinventory`. `host_ip` and `host_macs` keep their meaning, so a
   core that predates the inventory behaves as before.
-- Core decides identity: only the permanent, globally administered MAC of a physical NIC (a
-  bond member's `perm_hwaddr` included) is strong identity. A bridge counts through its port, and
-  a veth, tap, container, randomized or locally administered MAC never counts. An inventory a
-  platform could not classify falls back to `host_macs`.
+- Core decides MAC eligibility and legacy fallback according to the
+  [agent host evidence contract](../../../docs/docs/dire-identity-model.md#agent-host-evidence).
 - A shared eligible MAC links the agent to the device that holds it, whatever its hostname or
   address. Two records the agent's MACs both name converge through the existing conflict merge.
 - The agent's addresses and the first label of its hostname are corroboration only. Agreement

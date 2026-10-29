@@ -4,9 +4,9 @@
 // device such as a veth or tap) and how each interface's MAC was assigned.
 //
 // The package classifies; it never decides identity. The agent reports every
-// interface with its classification, and core decides which MACs are strong
-// identity (only the permanent, globally administered MACs of physical NICs and
-// bond members). Keeping the classification here, and the decision in core,
+// non-loopback interface with its classification, and core decides which MACs
+// are strong identity (see docs/docs/dire-identity-model.md, Agent host evidence).
+// Keeping the classification here, and the decision in core,
 // means a classification fix never needs a matching edit in the identity rules.
 package hostinventory
 
