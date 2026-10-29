@@ -4,8 +4,8 @@ Status: the one approved hosted small-profile run completed. Its implemented
 correctness controls passed, but the fact-comparison performance screen failed.
 Performance experimentation stopped; there was no repeat or fleet attempt.
 Production adoption and parent task 1.6 remain open. A later explicit approval
-allows the bounded diagnostic follow-up below; it does not turn the historical
-failure into a pass.
+allows the bounded diagnostic follow-up below, now completed, and one pending
+post-correction verification; neither turns the historical failure into a pass.
 
 ## Measured result
 
@@ -58,8 +58,9 @@ verified both schema absence and grant absence. Raw operational identifiers and
 credential-bearing runtime records remain outside the repository.
 
 The original experiment stopped at this failure. The separately approved
-follow-up below supersedes the prohibition on one additional small diagnostic
-allocation only. Codec tuning, extra workers, wider cohorts, fleet attempts and
+follow-up below authorized one additional small diagnostic allocation. The latest
+decision also authorizes one verification of its demonstrated query corrections
+after fresh remote quality and compilation. Codec tuning, extra workers, wider cohorts, fleet attempts and
 runtime adoption remain forbidden. Independent no-mistakes review and
 publication remain outstanding.
 
@@ -198,13 +199,15 @@ process-death injection, production restore-hook integration and adopted-runtime
 live validation remain pending. The hosted manual execution above does not
 replace those checks.
 
-## Approved bounded diagnostic follow-up (not yet executed)
+## Completed bounded diagnostic follow-up
 
 The product owner explicitly approved the recommended follow-up on 2026-10-28
 in the native fix decision. The historical source and failed report above remain
 unchanged. This follow-up starts from submitted source
-`e35474ae115fcf81696db22ba63c4e5dd5780cad`; its eventual hosted execution must
-identify its own committed source and exact tree separately.
+`e35474ae115fcf81696db22ba63c4e5dd5780cad`. The
+[diagnostic execution](https://carverauto.buildbuddy.io/invocation/a59ce9aa-0b43-4d08-9c00-4545db910dbf)
+ran commit `10051ce95d8f0b83f5d234fcded7fb026cd0f140`, exact tree
+`7b8b7ee1bd8f71d79e8d7a61966a31bce8f4fa68`.
 
 The disabled harness now batches sorted advisory-lock acquisition into one
 round trip per cohort, retaining the same lock IDs and physical DirectSession
@@ -226,19 +229,66 @@ requests actual `EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)` for source facts and
 coverage on the first 32 synthetic devices using the measured run's proofs.
 The exact same SQL supplies execution and diagnostic plans. Plans belong in
 private execution evidence; only synthetic rounded summaries may be published.
-No lookup hoist, CTE removal, width correction or codec change has been made:
-physical amplification, copies, spills and replay cost remain unmeasured.
 Diagnostic failures and measurement failures are retained while implemented
 correctness controls and owned cleanup still execute. There is no repetition.
 
-Execution remains pending. This native Test fix phase prohibits lint/format and
-static analysis and does not own the prerequisite format/compile/core-quality
-phases. The outer executor must complete those on the committed follow-up before
-the one authorized hosted diagnostic allocation. No before/after runtime pass,
-current-head plan evidence, cleanup evidence or performance improvement is
-claimed by these edits. The supplied historical failure is not a reproduction
-on this source. A separate pre-fix run would exceed the one post-commit
-allocation, so none was attempted.
+The supplied diagnostic evidence reports these rounded measurements:
+
+| Measurement | Observed | Result |
+| --- | --- | --- |
+| Existing production reconciler | 153 seconds | Baseline |
+| Complete audit prototype | 36 seconds | Performance screen failed |
+| Dimensions | 15 seconds | Below 120-second screen |
+| Fact interval union | 13 seconds | Above 6-second screen |
+| Residual orchestration | 8 seconds | Above 0.9-second budget; assertion not reached |
+
+Overlapping worker sums were about 24 seconds source, 0.9 seconds warehouse,
+11 seconds coverage, 0.4 seconds locks, 0.1 seconds result commit and 1.4 seconds
+readiness. These are not additive wall-clock phases. No batching speedup is
+established. ExUnit reported one failure, the fact screen. All implemented
+controls passed, including lock contention, retention, release and caller order.
+Canonical observer, teardown and generation release passed. All five warehouse
+tables counted zero in both eligible contexts; schemas and grants were then
+verified absent. This evidence belongs to the diagnostic source above.
+
+The coverage plan repeated its generation scan/sort/limit about 163,000 times
+for 32 devices without Memoize. Materialized references retained publication
+JSON; the query wrote about 7,700 temporary blocks and externally sorted about
+9 MiB. EXPLAIN took about 1.8 seconds, including 0.5 seconds JIT. The source
+plan took about 3.8 seconds, wrote about 22,000 temporary blocks and retained
+wide replay rows in three materialized stages. Inclusive validated, typed and
+hashes times were about 2.6, 2.8 and 3.5 seconds, with input about 0.5 seconds;
+these times and nested buffer counters must not be summed. Source JIT was about
+0.06 seconds. About 510,000 assessment rows were read for about 82,000 cohort
+rows on this fixture; this does not predict fleet scan strategy. Raw plans and
+runtime records remain private and are not committed.
+
+## Approved query corrections; verification pending
+
+Under design.md's demonstrated-defect stop rule, the latest decision approves
+these narrow corrections and one post-correction verification on the same
+small workload:
+
+- Materialize the latest covering generation once per requested device, before
+  joining expanded reference keys. Preserve descending ID selection, global or
+  device scope, and left-join null behavior.
+- Materialize only ordinal, CVE ordinal and package-version ordinal in coverage
+  references. Preserve assessment/watermark `UNION ALL`, terminal counts,
+  invalid-reference rejection, exact proof sequence/hash and oldest proof age.
+- Remove forced materialization of source input and typed rows, retaining
+  materialized publication validation and hashes. CASE-guarded casts, independent
+  current/replay comparison, all typed fields and the v1 codec are unchanged.
+
+The existing decoder parity, drift, terminal-reference, covering-generation,
+proof-age and lock controls remain unchanged. No new tests or source-string
+checks were added. Inspection is not execution evidence: neither reproduction
+nor post-correction verification ran in this fix phase, as explicitly directed.
+The outer executor must first complete fresh remote quality and compilation on
+the committed corrections, then consume the one authorized verification. The
+prior diagnostic-source quality/core compilation
+[passed](https://carverauto.buildbuddy.io/invocation/199f7d41-6683-447c-800e-becd1ba218e9)
+but does not validate these edits. No performance pass, new cleanup result,
+parameter sweep, JIT tuning, codec change or fleet attempt is claimed or approved.
 
 Remaining execution: use the existing credential-bound adapter, a fresh unique
 prefix/schema, ready generation and canonical serial_2 clone; prove the exact
@@ -249,4 +299,5 @@ runtime/evidence paths must stay within the workspace or the explicitly allowed
 private evidence directory, without modifying the checkpoint adapter in place.
 Normal unit gate, hosted PR CI and substantive review remain outer-pipeline
 requirements. Parent task 1.6 and the fleet gate remain open. The portable
-historical report is unchanged because no new measurements exist.
+historical report remains unchanged; refresh its portable version after the final
+measured correction result, preserving both historical experiments.

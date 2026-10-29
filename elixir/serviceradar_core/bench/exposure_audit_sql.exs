@@ -39,7 +39,7 @@ defmodule ServiceRadar.ExposureAudit.SQL do
       Enum.map_join(@columns, " AND ", &"current_#{&1} IS NOT DISTINCT FROM #{replay_field(&1)}")
 
     """
-    WITH input AS MATERIALIZED (
+    WITH input AS NOT MATERIALIZED (
       SELECT o.ordinal, a.last_exposure_publication AS replay,
         o.ordinal AS current_device_ord,
         a.last_transition_seq AS current_transition_seq, o.lifecycle_seq AS current_device_lifecycle_seq,
@@ -58,7 +58,7 @@ defmodule ServiceRadar.ExposureAudit.SQL do
       WHERE o.ordinal=ANY($1) AND NOT o.tombstoned
     ), validated AS MATERIALIZED (
       SELECT *, COALESCE(#{valid_publication("replay")},false) AS valid_replay FROM input
-    ), typed AS MATERIALIZED (
+    ), typed AS NOT MATERIALIZED (
       SELECT *, CASE WHEN valid_replay THEN (replay->>'cve_ord')::bigint END AS current_cve_ord,
         CASE WHEN valid_replay THEN (replay->>'pkg_ord')::bigint END AS current_pkg_ord,
         COALESCE(valid_replay AND current_transition_seq > current_device_lifecycle_seq

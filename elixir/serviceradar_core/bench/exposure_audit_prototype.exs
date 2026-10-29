@@ -326,21 +326,27 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
 
   defp coverage_sql do
     """
-    WITH refs AS MATERIALIZED (
-      SELECT o.ordinal,a.last_exposure_publication payload FROM platform.device_fleet_ordinals o
+    WITH covering AS MATERIALIZED (
+      SELECT o.ordinal,g.updated_at FROM platform.device_fleet_ordinals o
+      LEFT JOIN LATERAL (SELECT updated_at FROM platform.exposure_snapshot_generations
+        WHERE status='complete' AND (control->>'scope' IS NULL OR (control->>'scope')::bigint=o.ordinal)
+        ORDER BY id DESC LIMIT 1) g ON true
+      WHERE o.ordinal=ANY($2)
+    ), refs AS MATERIALIZED (
+      SELECT o.ordinal,(a.last_exposure_publication->>'cve_ord')::bigint AS cve_ord,
+        (a.last_exposure_publication->>'pkgver_ord')::bigint AS pkgver_ord FROM platform.device_fleet_ordinals o
       JOIN platform.endpoint_vulnerability_assessments a ON a.device_uid=o.uid WHERE o.ordinal=ANY($2)
       UNION ALL
-      SELECT o.ordinal,w.payload FROM platform.device_fleet_ordinals o
+      SELECT o.ordinal,(w.payload->>'cve_ord')::bigint,(w.payload->>'pkgver_ord')::bigint
+      FROM platform.device_fleet_ordinals o
       JOIN platform.exposure_fact_watermarks w ON w.device_uid=o.uid WHERE o.ordinal=ANY($2)
     ), keys AS (SELECT r.ordinal device_ord,k.kind,k.key FROM refs r CROSS JOIN LATERAL
-      (VALUES ('cve',(payload->>'cve_ord')::bigint),('package',(payload->>'pkgver_ord')::bigint)) k(kind,key))
+      (VALUES ('cve',r.cve_ord),('package',r.pkgver_ord)) k(kind,key))
     SELECT k.device_ord,count(*) FILTER(WHERE d.ordinal IS NULL OR p.run_id IS NULL OR p.checked_at<g.updated_at),min(p.checked_at)
     FROM keys k LEFT JOIN platform.exposure_dimension_state d ON d.kind=k.kind AND d.ordinal=k.key
     LEFT JOIN platform.exposure_audit_proofs p ON p.run_id=$1::text::uuid AND p.kind=d.kind
       AND p.ordinal=d.ordinal AND p.source_seq=d.transition_seq AND p.source_hash=d.audit_content_hash
-    LEFT JOIN LATERAL (SELECT updated_at FROM platform.exposure_snapshot_generations
-      WHERE status='complete' AND (control->>'scope' IS NULL OR (control->>'scope')::bigint=k.device_ord)
-      ORDER BY id DESC LIMIT 1) g ON true
+    LEFT JOIN covering g ON g.ordinal=k.device_ord
     GROUP BY k.device_ord
     """
   end
