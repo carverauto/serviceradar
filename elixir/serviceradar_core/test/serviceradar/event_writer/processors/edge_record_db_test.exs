@@ -391,7 +391,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     now = DateTime.from_unix!(event_ms, :millisecond)
 
     {:ok, execution_slot} =
-      ExecutionSlots.schedule(assignment, now, DateTime.add(now, 900),
+      ExecutionSlots.schedule(assignment, now, DateTime.shift(now, minute: 15),
         targets: group.static_targets,
         check_set_sha256: HashGrammar.check_set_digest([{1, 1, 0}, {3, 2, 443}]),
         lease_id: Ash.UUID.generate()
