@@ -42,8 +42,10 @@ defmodule ServiceRadar.ExposureAudit.Controls do
     end
 
     fact_controls!(run)
+    shared_source_controls!(run)
+    watermark_reference!(run)
     readiness_controls!()
-    covering_snapshot!(run, first)
+    covering_snapshot!(run, first, second)
     terminal_proof!(run)
     dimension_failure!(run)
     busy_device!(run)
@@ -181,7 +183,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
              )
 
     IO.puts(
-      "EXPOSURE_AUDIT_CONTROLS generated_binding replay_drift late_proof evidence_age restore_fence timeout expiry cleanup durable_admission same_count missing_fact terminal_reference new_generation grouped_readiness per_device_failure busy_device concurrent_after_images empty_device warehouse_only"
+      "EXPOSURE_AUDIT_CONTROLS generated_binding replay_drift late_proof evidence_age restore_fence timeout expiry cleanup durable_admission same_count missing_fact terminal_reference new_generation grouped_readiness per_device_failure busy_device concurrent_after_images empty_device warehouse_only duplicate_source malformed_source watermark_reference"
     )
   end
 
@@ -228,6 +230,107 @@ defmodule ServiceRadar.ExposureAudit.Controls do
     end
 
     batch
+  end
+
+  defp shared_source_controls!(run) do
+    [[first_publication], [second_publication]] =
+      State.query!("""
+      SELECT last_exposure_publication FROM platform.endpoint_vulnerability_assessments
+      WHERE device_uid='sr:capacity-1' ORDER BY id LIMIT 2
+      """)
+
+    second_id = "00000000-0000-0000-0000-000000000002"
+
+    # Two distinct source records can corruptly point at the same warehouse
+    # fact. Reference deduplication must not discard either fact contribution.
+    source_change!(
+      second_id,
+      "package_identity_key=$2,last_transition_seq=$3,last_exposure_publication=$4",
+      [
+        first_publication["package_identity_key"],
+        first_publication["transition_seq"],
+        first_publication
+      ]
+    )
+
+    try do
+      [first, second] = Prototype.compare!(run, [1, 2])
+      assert first.source["count"] == 2500
+      refute first.source == first.warehouse
+      refute first.matches
+      assert second.matches
+      assert first.source_work.reference_occurrences > first.source_work.reference_memberships
+      assert first.source_work.reference_memberships > first.source_work.dimension_keys
+    after
+      source_change!(
+        second_id,
+        "package_identity_key=$2,last_transition_seq=$3,last_exposure_publication=$4",
+        [
+          second_publication["package_identity_key"],
+          second_publication["transition_seq"],
+          second_publication
+        ]
+      )
+    end
+
+    source_change!(second_id, "last_exposure_publication=$2", [
+      Map.put(second_publication, "cve_ord", "invalid")
+    ])
+
+    try do
+      [first, second] = Prototype.compare!(run, [1, 2])
+      assert first.replay_drift == 1
+      assert first.missing_proofs > 0
+      refute first.matches
+      assert second.matches
+    after
+      source_change!(second_id, "last_exposure_publication=$2", [second_publication])
+    end
+  end
+
+  defp watermark_reference!(run) do
+    # This CVE is absent from these devices' assessments. Only the terminal
+    # marker requires its proof, so an active-only coverage query cannot pass.
+    State.query!("""
+    INSERT INTO platform.exposure_fact_watermarks
+      (device_uid,package_identity_key,cve_id,state,transition_seq,transition_xid,payload)
+    SELECT 'sr:capacity-1','capacity-package-1','CVE-2026-50000','resolved',900000,'11'::xid8,
+      last_exposure_publication || jsonb_build_object('cve_id','CVE-2026-50000',
+        'cve_ord',20260050000,'state','resolved','transition_seq',900000,
+        'resolved_at','2000-01-02T00:00:00')
+    FROM platform.endpoint_vulnerability_assessments
+    WHERE id='00000000-0000-0000-0000-000000000001'
+    """)
+
+    try do
+      State.query!(
+        "DELETE FROM platform.exposure_audit_proofs WHERE run_id=$1::text::uuid AND kind='cve' AND ordinal=20260050000",
+        [run.id]
+      )
+
+      [first, second] = Prototype.compare!(run, [1, 2])
+      assert first.source == first.warehouse
+      refute first.matches
+      assert first.missing_proofs == 1
+      assert second.matches
+      assert 1 == Prototype.dimensions!(run)
+      assert [%{matches: true}] = Prototype.compare!(run, [1])
+
+      State.query!("""
+      UPDATE platform.exposure_fact_watermarks SET payload=jsonb_set(payload,'{cve_ord}','"invalid"')
+      WHERE device_uid='sr:capacity-1' AND package_identity_key='capacity-package-1' AND cve_id='CVE-2026-50000'
+      """)
+
+      [first, second] = Prototype.compare!(run, [1, 2])
+      refute first.matches
+      assert first.missing_proofs == 1
+      assert second.matches
+    after
+      State.query!("""
+      DELETE FROM platform.exposure_fact_watermarks
+      WHERE device_uid='sr:capacity-1' AND package_identity_key='capacity-package-1' AND cve_id='CVE-2026-50000'
+      """)
+    end
   end
 
   defp readiness_controls! do
@@ -293,7 +396,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
     end
   end
 
-  defp covering_snapshot!(run, result) do
+  defp covering_snapshot!(run, result, previous_second) do
     [[generation]] =
       State.query!("""
       INSERT INTO platform.exposure_snapshot_generations(status,control,inserted_at,updated_at)
@@ -306,6 +409,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
       refute first.matches
       assert first.missing_proofs > 0
       assert second.matches
+      assert second.evidence_at == previous_second.evidence_at
       assert :comparison_pending in readiness_parity!()[1].reasons
     after
       State.query!("DELETE FROM platform.exposure_snapshot_generations WHERE id=$1", [generation])

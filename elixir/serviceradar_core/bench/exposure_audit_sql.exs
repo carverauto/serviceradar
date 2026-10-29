@@ -11,72 +11,169 @@ defmodule ServiceRadar.ExposureAudit.SQL do
   @flags ~w(kev exploit_available fix_available)
   @modulus Integer.pow(2, 256)
 
-  def source!(reader, ordinals) do
-    rows = Postgrex.query!(reader, source_sql(), [ordinals], timeout: 30_000).rows
+  def source!(reader, run, ordinals) do
+    rows = Postgrex.query!(reader, source_sql(), [run.id, ordinals], timeout: 30_000).rows
 
-    Map.new(rows, fn [ordinal | values] ->
-      {digest, [drift]} = Enum.split(values, 9)
-      {ordinal, {summary(digest), drift}}
-    end)
+    counters = %{
+      assessment_rows: 0,
+      reference_occurrences: 0,
+      reference_memberships: 0,
+      dimension_keys: 0
+    }
+
+    {summaries, work} =
+      Enum.map_reduce(rows, counters, fn [ordinal | values], totals ->
+        {digest, [drift, missing, checked_at, assessments, refs, memberships, keys]} =
+          Enum.split(values, 9)
+
+        totals = %{
+          assessment_rows: totals.assessment_rows + assessments,
+          reference_occurrences: totals.reference_occurrences + refs,
+          reference_memberships: totals.reference_memberships + memberships,
+          dimension_keys: keys
+        }
+
+        {{ordinal, {summary(digest), drift, missing, checked_at}}, totals}
+      end)
+
+    {Map.new(summaries), work}
   end
 
-  def explain_source!(reader, ordinals) do
+  def explain_source!(reader, run, ordinals) do
     [[plan]] =
       Postgrex.query!(
         reader,
-        "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " <> source_sql(),
-        [ordinals],
+        "EXPLAIN (ANALYZE, BUFFERS, VERBOSE, FORMAT JSON) " <> source_sql(),
+        [run.id, ordinals],
         timeout: 30_000
       ).rows
 
-    IO.puts("EXPOSURE_AUDIT_PLAN " <> Jason.encode!(%{query: "source_fact", plan: plan}))
+    IO.puts("EXPOSURE_AUDIT_PLAN " <> Jason.encode!(%{query: "source_and_coverage", plan: plan}))
   end
 
   defp source_sql do
-    fields = Map.new(@columns, &{&1, "current_#{&1}"})
-
-    equality =
-      Enum.map_join(@columns, " AND ", &"current_#{&1} IS NOT DISTINCT FROM #{replay_field(&1)}")
+    sums = Enum.map_join(0..7, ",", &"COALESCE(f.s#{&1},0)")
+    names = Enum.map_join(0..7, ",", &"s#{&1}")
 
     """
-    WITH input AS NOT MATERIALIZED (
-      SELECT o.ordinal, a.last_exposure_publication AS replay,
+    WITH cohort AS MATERIALIZED (
+      SELECT ordinal,uid,lifecycle_seq,tombstoned FROM platform.device_fleet_ordinals
+      WHERE ordinal=ANY($2)
+    ), #{source_projection_sql()},
+    fact_totals(ordinal,n,#{names},drift,assessment_rows) AS (
+      SELECT ordinal,count(h),#{limbs(:pg)},count(*) FILTER (WHERE drift),count(*)
+      FROM compact GROUP BY ordinal
+    ), #{source_coverage_sql()}
+    SELECT requested.ordinal,COALESCE(f.n,0),#{sums},COALESCE(f.drift,0),
+      COALESCE(c.missing,0),c.checked_at,COALESCE(f.assessment_rows,0),
+      COALESCE(r.n,0),COALESCE(c.memberships,0),(SELECT count(*) FROM dimension_keys)
+    FROM unnest($2::bigint[]) AS requested(ordinal)
+    LEFT JOIN fact_totals f USING(ordinal)
+    LEFT JOIN coverage c USING(ordinal)
+    LEFT JOIN reference_counts r USING(ordinal)
+    """
+  end
+
+  defp source_projection_sql do
+    fields = Map.new(@columns, &{&1, "current_#{&1}"})
+    current_columns = Enum.map_join(@columns -- ~w(cve_ord pkg_ord), ",", &"current_#{&1}")
+
+    replay_columns =
+      Enum.map_join(@columns, ",", fn column ->
+        "CASE WHEN valid_replay THEN #{replay_field(column)} END AS replay_#{column}"
+      end)
+
+    equality =
+      Enum.map_join(@columns, " AND ", &"current_#{&1} IS NOT DISTINCT FROM replay_#{&1}")
+
+    # The lateral evaluation fence emits one validity scalar per input, not a
+    # materialized JSON payload. Both consumers read the compact relation below.
+    """
+    input AS NOT MATERIALIZED (
+      SELECT o.ordinal,NOT o.tombstoned AS fact_scope,a.last_exposure_publication AS replay,
         o.ordinal AS current_device_ord,
-        a.last_transition_seq AS current_transition_seq, o.lifecycle_seq AS current_device_lifecycle_seq,
+        a.last_transition_seq AS current_transition_seq,o.lifecycle_seq AS current_device_lifecycle_seq,
         v.ordinal AS current_pkgver_ord,
         CASE WHEN platform.exposure_assessment_actionable(a.status,a.assessment,a.disposition)
           THEN 1 ELSE 0 END AS current_state,
         #{severity("a.severity")} AS current_severity_rank,
         a.cvss_score::double precision AS current_cvss_score,
-        a.kev AS current_kev, a.exploit_available AS current_exploit_available,
+        a.kev AS current_kev,a.exploit_available AS current_exploit_available,
         COALESCE(btrim(a.fixed_version),'') <> '' AS current_fix_available,
         a.source_scope AS current_source_scope
-      FROM platform.device_fleet_ordinals o
+      FROM cohort o
       JOIN platform.endpoint_vulnerability_assessments a ON a.device_uid=o.uid
       LEFT JOIN platform.exposure_package_version_ordinals v
         ON v.package_identity_key=a.package_identity_key AND v.installed_version=COALESCE(a.installed_version,'')
-      WHERE o.ordinal=ANY($1) AND NOT o.tombstoned
-    ), validated AS MATERIALIZED (
-      SELECT *, COALESCE(#{valid_publication("replay")},false) AS valid_replay FROM input
+    ), projected AS MATERIALIZED (
+      SELECT ordinal,fact_scope,#{current_columns},valid_replay,#{replay_columns},
+        #{reference_ordinal("replay", "cve_ord")} AS ref_cve,
+        #{reference_ordinal("replay", "pkgver_ord")} AS ref_package
+      FROM input CROSS JOIN LATERAL (
+        SELECT COALESCE(#{valid_publication("replay")},false) AS valid_replay OFFSET 0
+      ) validated
     ), typed AS NOT MATERIALIZED (
-      SELECT *, CASE WHEN valid_replay THEN (replay->>'cve_ord')::bigint END AS current_cve_ord,
-        CASE WHEN valid_replay THEN (replay->>'pkg_ord')::bigint END AS current_pkg_ord,
+      SELECT *,replay_cve_ord AS current_cve_ord,replay_pkg_ord AS current_pkg_ord,
         COALESCE(valid_replay AND current_transition_seq > current_device_lifecycle_seq
           AND current_device_lifecycle_seq >= 0 AND current_pkgver_ord > 0
           AND (current_cvss_score IS NULL OR current_cvss_score BETWEEN 0 AND 10)
           AND (current_source_scope IS NULL OR octet_length(current_source_scope)<=32),false) AS valid
-      FROM validated
-    ), hashes AS MATERIALIZED (
-      SELECT ordinal,
-        CASE WHEN valid AND current_state=1 THEN #{hash(:pg, fields)} END AS h,
-        CASE WHEN NOT valid THEN true
-          WHEN current_state=0 AND replay->>'state'='resolved' THEN false
+      FROM projected
+    ), compact AS MATERIALIZED (
+      SELECT ordinal,ref_cve,ref_package,
+        CASE WHEN fact_scope AND valid AND current_state=1 THEN #{hash(:pg, fields)} END AS h,
+        CASE WHEN NOT fact_scope THEN false
+          WHEN NOT valid THEN true
+          WHEN current_state=0 AND replay_state=0 THEN false
           ELSE NOT (#{equality}) END AS drift
       FROM typed
     )
-    SELECT ordinal,count(h),#{limbs(:pg)},count(*) FILTER (WHERE drift)
-    FROM hashes GROUP BY ordinal
     """
+  end
+
+  defp source_coverage_sql do
+    """
+    covering AS MATERIALIZED (
+      SELECT o.ordinal,g.updated_at FROM cohort o
+      LEFT JOIN LATERAL (SELECT updated_at FROM platform.exposure_snapshot_generations
+        WHERE status='complete' AND (control->>'scope' IS NULL OR (control->>'scope')::bigint=o.ordinal)
+        ORDER BY id DESC LIMIT 1) g ON true
+    ), reference_rows AS MATERIALIZED (
+      SELECT ordinal,k.kind,k.key FROM compact CROSS JOIN LATERAL
+        (VALUES ('cve',ref_cve),('package',ref_package)) k(kind,key)
+      UNION ALL
+      SELECT o.ordinal,k.kind,k.key FROM cohort o
+      JOIN platform.exposure_fact_watermarks w ON w.device_uid=o.uid
+      CROSS JOIN LATERAL (VALUES
+        ('cve',#{reference_ordinal("w.payload", "cve_ord")}),
+        ('package',#{reference_ordinal("w.payload", "pkgver_ord")})) k(kind,key)
+    ), reference_counts AS (
+      SELECT ordinal,count(*) AS n FROM reference_rows GROUP BY ordinal
+    ), memberships AS MATERIALIZED (
+      SELECT DISTINCT ordinal,kind,key FROM reference_rows
+    ), dimension_keys AS MATERIALIZED (
+      SELECT DISTINCT kind,key FROM memberships
+    ), verified_keys AS MATERIALIZED (
+      SELECT k.kind,k.key,d.ordinal AS source_key,p.checked_at
+      FROM dimension_keys k
+      LEFT JOIN platform.exposure_dimension_state d ON d.kind=k.kind AND d.ordinal=k.key
+      LEFT JOIN platform.exposure_audit_proofs p ON p.run_id=$1::text::uuid AND p.kind=d.kind
+        AND p.ordinal=d.ordinal AND p.source_seq=d.transition_seq AND p.source_hash=d.audit_content_hash
+    ), coverage AS (
+      SELECT m.ordinal,count(*) AS memberships,
+        count(*) FILTER(WHERE v.source_key IS NULL OR v.checked_at IS NULL OR v.checked_at<g.updated_at) AS missing,
+        min(v.checked_at) AS checked_at
+      FROM memberships m LEFT JOIN verified_keys v ON v.kind=m.kind AND v.key=m.key
+      LEFT JOIN covering g ON g.ordinal=m.ordinal GROUP BY m.ordinal
+    )
+    """
+  end
+
+  # A malformed reference remains a NULL membership and therefore a coverage
+  # failure. It must neither raise an unsafe cast nor vanish behind a filter.
+  defp reference_ordinal(payload, key) do
+    "CASE WHEN #{integer_json(payload, key, 1, 9_223_372_036_854_775_807)} " <>
+      "THEN (#{payload}->>'#{key}')::bigint END"
   end
 
   # This validator is independently compared to ExposureTransitions.decode/1.

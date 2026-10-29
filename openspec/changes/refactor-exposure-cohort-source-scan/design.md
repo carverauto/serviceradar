@@ -1,6 +1,7 @@
 # One source scan with compact, shared cohort evidence
 
-Status: proposed. This document changes no runtime behavior.
+Status: disabled implementation approved by the product owner on 2026-10-29.
+The implementation is prepared for review and changes no production runtime behavior.
 
 ## Evidence and limits
 
@@ -219,7 +220,32 @@ There is no production migration or data rewrite. The disabled harness continues
 to own scratch metadata and cleanup. Rollback selects the preceding manual
 implementation; no persistent source state needs reconciliation.
 
-Approval requested: implement this shared, compact source pipeline only in the
-disabled harness, preserve every listed contract, and prepare it for remote
-validation through no-mistakes. Hosted allocations, production integration,
+Approval recorded: the product owner answered "approved continue" on
+2026-10-29, authorizing this shared, compact source pipeline only in the
+disabled harness and its normal remote validation through no-mistakes.
+Hosted allocations, production integration,
 new persistent validation data and rollout require separate decisions.
+
+## Implementation checkpoint
+
+The manual harness now uses one statement for fact summaries and dimension
+coverage. A guarded lateral projection computes publication validity before
+materializing typed values; a second compact relation carries fact hashes,
+drift flags and reference ordinals. No raw replay JSON is retained in either
+shared materialization. Per-device fact aggregation preserves every row.
+Distinct reference memberships resolve cohort dimension keys before applying
+each device's covering-generation floor and evidence time.
+
+Malformed reference ordinals become missing coverage rather than unsafe casts
+or omitted dependencies. The existing audit controls now exercise duplicate
+source contributions, malformed assessment and terminal references, a
+terminal-only dependency, and distinct device generation/evidence ages.
+These controls are authored but have not run against the new query yet.
+
+The full fused statement is charged to the fact interval. Output separates
+assessment rows, reference occurrences, device/key memberships and cohort
+dimension keys; the diagnostic plan includes actual buffers and verbose
+intermediate outputs. These counters describe logical work. Actual plan
+execution must establish physical sharing and selectivity before any
+performance claim. Existing thresholds, publication and readiness fences,
+decoder/normalization functions and v1 digest encoding are unchanged.

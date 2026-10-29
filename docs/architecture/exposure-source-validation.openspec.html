@@ -1,23 +1,24 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exposure source scan: proposed next step</title><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exposure source scan: approved implementation</title><style>
 :root{color-scheme:light;--bg:#fcfdfd;--panel:#f1f5f3;--ink:#152620;--muted:#50665c;--brand:#0b824d;--line:#d5e1db;--warn:#905a13;--warn-bg:#fff5e4}
 html[data-theme=dark]{color-scheme:dark;--bg:#10191d;--panel:#17242a;--ink:#ecf7f1;--muted:#b3c7bc;--brand:#3ecf87;--line:#31483e;--warn:#f2c173;--warn-bg:#30271c}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 "Avenir Next",Avenir,"Segoe UI",sans-serif}main{max-width:1160px;margin:auto;padding:35px 28px 72px}a{color:var(--brand);overflow-wrap:anywhere}h1{font-size:clamp(32px,4.2vw,53px);line-height:1.12;letter-spacing:-1.8px;max-width:850px;margin:20px 0}h2{font-size:27px;line-height:1.3;margin:34px 0 15px}h3{font-size:21px}p{max-width:85ch}.eyebrow{font-size:12px;letter-spacing:1.8px;font-weight:750;text-transform:uppercase;color:var(--brand)}.top{display:flex;justify-content:space-between;gap:16px;align-items:center}.top>*{min-width:0}button,.jump{font:inherit;border:1px solid var(--line);padding:8px 14px;border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}.lead{font-size:21px;color:var(--muted);max-width:870px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.grid>*{min-width:0}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.card h3{margin:8px 0}.n{color:var(--brand);font-size:14px;font-weight:700}.card p{font-size:16px;color:var(--muted);margin-bottom:0}.status{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}.pill{border:1px solid var(--line);border-radius:100px;padding:5px 12px;font-size:13px;font-weight:700}.warning{border-left:4px solid var(--warn);padding:15px 22px;background:var(--warn-bg);border-radius:0 10px 10px 0;margin:26px 0}.warning p{margin:4px 0}.numbers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.numbers>*{min-width:0}.numbers strong{display:block;font-size:32px;color:var(--brand);line-height:1.2}.numbers small{color:var(--muted)}table{width:100%;border-collapse:collapse;table-layout:fixed;margin:18px 0;font-size:15px}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}th{background:var(--panel)}.source{border:1px solid var(--line);border-radius:12px;margin:15px 0;background:var(--bg)}summary{cursor:pointer;padding:18px 22px;font-weight:700;color:var(--brand)}article{padding:0 24px 24px;min-width:0}article h1{font-size:30px;letter-spacing:-.5px}article h2{font-size:25px}article h3{font-size:20px}code{font-size:.85em;overflow-wrap:anywhere}iframe{display:block;width:100%;height:900px;border:0;background:var(--panel)}nav{display:flex;gap:9px;flex-wrap:wrap;margin:25px 0}nav a{text-decoration:none}.muted,footer{color:var(--muted);font-size:14px}.options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.options>*{min-width:0}.recommend{border:2px solid var(--brand)}.flow{width:100%;height:auto;display:block}.flow text{fill:var(--ink);font-family:"Avenir Next",sans-serif}.flow .label{font-size:20px;font-weight:700}.flow .sub{font-size:15px;fill:var(--muted)}.flow rect{fill:var(--panel);stroke:var(--line);stroke-width:2}.flow path{fill:none;stroke:var(--brand);stroke-width:3}footer{margin-top:36px;border-top:1px solid var(--line);padding-top:20px}@media(max-width:700px){main{padding:22px 16px 48px}.grid,.options{grid-template-columns:minmax(0,1fr)}.numbers{grid-template-columns:repeat(2,minmax(0,1fr))}article{padding:0 14px 20px}table{font-size:13px}th,td{padding:8px 5px}.lead{font-size:18px}iframe{height:760px}}
 
 figure{margin:24px 0}figcaption{color:var(--muted);font-size:14px}.flow .label{font-size:22px}.metric{font-size:32px;font-weight:750;color:var(--brand)}@media(max-width:700px){.flow .label{font-size:25px}.flow .sub{font-size:20px}}</style></head><body><main>
 <div class="top"><span class="eyebrow">ServiceRadar / exposure intelligence</span><button id="theme" type="button" aria-label="Toggle color theme">Dark / light</button></div>
-<header><h1>Read each cohort once.<br>Share the work, keep the checks.</h1><p class="lead">Proposed next step after PR #6171: combine source fact computation and dimension coverage, carry compact typed values, and resolve shared dimension keys once. No new stored validation cache.</p><div class="status"><span class="pill">Design awaiting approval</span><span class="pill">Disabled harness only</span><span class="pill">Fleet gate stays open</span></div></header>
-<nav aria-label="Review sections"><a class="jump" href="#evidence">Evidence</a><a class="jump" href="#approach">Proposed change</a><a class="jump" href="#choice">Decision</a><a class="jump" href="#source">Complete specification</a><a class="jump" href="#workflow">Workflow</a></nav>
+<header><h1>Read each cohort once.<br>Share the work, keep the checks.</h1><p class="lead">Approved disabled implementation after PR #6171: combine source fact computation and dimension coverage, carry compact typed values, and resolve shared dimension keys once. No new stored validation cache.</p><div class="status"><span class="pill">Implementation approved</span><span class="pill">Disabled harness only</span><span class="pill">Fleet gate stays open</span></div></header>
+<nav aria-label="Review sections"><a class="jump" href="#evidence">Evidence</a><a class="jump" href="#approach">Approved change</a><a class="jump" href="#choice">Decision</a><a class="jump" href="#source">Complete specification</a><a class="jump" href="#workflow">Workflow</a></nav>
 <section id="evidence"><h2>What the last run actually showed</h2><div class="numbers"><div class="card"><strong>~12 s</strong><small>Fact comparison<br>6-second screen</small></div><div class="card"><strong>~4.4 s</strong><small>Orchestration<br>0.9-second screen</small></div><div class="card"><strong>2 scans</strong><small>Assessment population<br>Source plus coverage</small></div><div class="card"><strong>~8k</strong><small>Temporary blocks written<br>One source cohort plan</small></div></div><p>Both source and coverage scanned 510,200 synthetic assessments to select 81,632 rows for 32 devices. The device-leading index already exists. Coverage performed about 82,000 dimension index executions for about 163,000 reference occurrences. These counts describe the measured synthetic fixture, not a live fleet.</p><p class="muted">The joined projection includes validation, extraction and other work; the plan does not isolate validator CPU. A warm small fixture cannot predict the fleet plan or p95. <a href="https://agentboard.farm01.carverauto.dev/documents/226">Completed measurement report</a> &middot; <a href="https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70">Hosted evidence</a></p></section>
 <section id="approach"><h2>One source view, two consumers</h2>
-<figure><svg class="flow" viewBox="0 0 1000 420" role="img" aria-labelledby="flow-title flow-desc"><title id="flow-title">The proposed shared source computation</title><desc id="flow-desc">Read the locked cohort once, validate and project compact values, then use them for both fact summaries and dimension references. Warehouse comparison remains independent.</desc><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" style="fill:var(--brand);stroke:none" /></marker></defs>
+<figure><svg class="flow" viewBox="0 0 1000 420" role="img" aria-labelledby="flow-title flow-desc"><title id="flow-title">The approved shared source computation</title><desc id="flow-desc">Read the locked cohort once, validate and project compact values, then use them for both fact summaries and dimension references. Warehouse comparison remains independent.</desc><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" style="fill:var(--brand);stroke:none" /></marker></defs>
 <g id="scope"><title>Locked cohort</title><rect x="20" y="130" width="245" height="130" rx="12" /><text x="42" y="174" class="label">Read cohort once</text><text x="42" y="207" class="sub">Current + retained state</text><text x="42" y="234" class="sub">Same finite source view</text></g>
 <path id="to-typed" d="M265 195 H338" marker-end="url(#arrow)" /><g id="typed"><title>Compact typed projection</title><rect x="350" y="130" width="280" height="130" rx="12" /><text x="373" y="174" class="label">Validate and project</text><text x="373" y="207" class="sub">Keep typed values + validity</text><text x="373" y="234" class="sub">Discard wide JSON copies</text></g>
 <path id="to-facts" d="M630 170 H670 V75 H718" marker-end="url(#arrow)" /><path id="to-refs" d="M630 220 H670 V315 H718" marker-end="url(#arrow)" />
 <g id="facts"><title>Fact summaries retain multiplicity</title><rect x="730" y="20" width="250" height="110" rx="12" /><text x="750" y="61" class="label">Fact summaries</text><text x="750" y="94" class="sub">Every fact still counts</text></g><g id="refs"><title>Distinct reference lookups</title><rect x="730" y="260" width="250" height="110" rx="12" /><text x="750" y="301" class="label">Dimension proofs</text><text x="750" y="334" class="sub">One lookup per shared key</text></g></svg><figcaption>Fact count and digest sums remain per device. Proof eligibility and evidence age also remain per device, even when lookup work is shared.</figcaption></figure>
 <div class="grid"><div class="card"><span class="n">01 / SOURCE</span><h3>Compact intermediates</h3><p>One validation per eligible row. Raw replay JSON stays out of materialized shared state. Invalid rows remain explicit failures.</p></div><div class="card"><span class="n">02 / COVERAGE</span><h3>Distinct keys</h3><p>Read each dimension version and proof once in the cohort. Preserve terminal references and each device's covering generation.</p></div><div class="card"><span class="n">03 / AUTHORITY</span><h3>Independent results</h3><p>Current state still compares with retained replay. StarRocks still reads actual stored columns. Locks, fences and fresh readiness remain required.</p></div></div></section>
-<section id="choice"><h2>Recommended approval</h2><div class="options"><div class="card recommend"><span class="n">RECOMMENDED</span><h3>Implement the shared source pipeline</h3><p>Change only the disabled harness, preserve validation and digest semantics, and prepare remote validation through no-mistakes. No migration, writer changes or persistent cache.</p></div><div class="card"><span class="n">DEFERRED ALTERNATIVE</span><h3>Store prevalidated replay</h3><p>Could amortize validation, but adds write cost, format/backfill work, restore handling and a new trust boundary. The current evidence does not justify that complexity yet.</p></div></div><div class="warning"><strong>Approval would not allocate another run.</strong><p>Hosted capacity needs a separate request with exact commit, profile and run count. No fleet execution or production rollout is included.</p></div><h3>What must be demonstrated next</h3><table><thead><tr><th>Claim</th><th>Required evidence</th></tr></thead><tbody><tr><td>One shared source read</td><td>Actual plan and fixed-cohort selectivity case; no repeated full-fleet scan hidden behind a WHERE clause.</td></tr><tr><td>Less copied data and repeated lookup work</td><td>Intermediate widths, temporary writes, reference occurrences and actual dimension lookup executions.</td></tr><tr><td>Correctness is preserved</td><td>Decoder/digest parity; distinct device generation floors; duplicate facts; malformed and terminal references; drift and recovery controls.</td></tr><tr><td>Timing meets the existing screens</td><td>Charge the entire fused query to the 6-second fact screen. Remaining orchestration must still meet 0.9 seconds.</td></tr></tbody></table><p>This is a testable reduction in repeated work, not a promised speedup. Validation may remain dominant. A failed screen stops the experiment; parent task 1.6 remains open.</p></section>
+<section id="choice"><h2>Approved scope</h2><div class="options"><div class="card recommend"><span class="n">APPROVED 2026-10-29</span><h3>Implement the shared source pipeline</h3><p>Change only the disabled harness, preserve validation and digest semantics, and prepare remote validation through no-mistakes. No migration, writer changes or persistent cache.</p></div><div class="card"><span class="n">DEFERRED ALTERNATIVE</span><h3>Store prevalidated replay</h3><p>Could amortize validation, but adds write cost, format/backfill work, restore handling and a new trust boundary. The current evidence does not justify that complexity yet.</p></div></div><div class="warning"><strong>Implementation approval does not allocate another run.</strong><p>Hosted capacity needs a separate request with exact commit, profile and run count. No fleet execution or production rollout is included.</p></div><h3>What must be demonstrated next</h3><table><thead><tr><th>Claim</th><th>Required evidence</th></tr></thead><tbody><tr><td>One shared source read</td><td>Actual plan and fixed-cohort selectivity case; no repeated full-fleet scan hidden behind a WHERE clause.</td></tr><tr><td>Less copied data and repeated lookup work</td><td>Intermediate widths, temporary writes, reference occurrences and actual dimension lookup executions.</td></tr><tr><td>Correctness is preserved</td><td>Decoder/digest parity; distinct device generation floors; duplicate facts; malformed and terminal references; drift and recovery controls.</td></tr><tr><td>Timing meets the existing screens</td><td>Charge the entire fused query to the 6-second fact screen. Remaining orchestration must still meet 0.9 seconds.</td></tr></tbody></table><p>This is a testable reduction in repeated work, not a promised speedup. Validation may remain dominant. A failed screen stops the experiment; parent task 1.6 remains open.</p></section>
 <section id="source"><h2>Complete review material</h2><details class="source"><summary>Proposal</summary><article><h1>Proposal: one bounded source scan per exposure cohort</h1>
-<p>Status: proposed; implementation and new measurements are not approved.
+<p>Status: disabled implementation approved by the product owner on 2026-10-29.
+Implementation is prepared for review; executable measurements need a separate allocation.
 Related epic: <a href="https://github.com/carverauto/serviceradar/issues/5745">#5745</a>.</p>
 <h2>Why</h2>
 <p>The corrected audit prototype in <a href="https://github.com/carverauto/serviceradar/pull/6171">PR #6171</a>
@@ -38,28 +39,29 @@ and evidence age to each dependent device.</li>
 <li>Require physical-work evidence and unchanged correctness controls before
 interpreting a timing improvement.</li>
 </ul>
-<p>This proposes a disabled manual-harness implementation only. Another hosted
+<p>This approval covers a disabled manual-harness implementation only. Another hosted
 allocation needs separate authorization with a concrete run count and profile.
 It does not authorize a fleet run, runtime adoption, schema changes or rollout.</p>
 <h2>Impact</h2>
 <p>This change supplements
-<a href="../refactor-exposure-reconciliation-audit/design.md">refactor-exposure-reconciliation-audit</a>
+<a href="https://github.com/carverauto/serviceradar/blob/docs/exposure-source-validation/openspec/changes/refactor-exposure-reconciliation-audit/design.md">refactor-exposure-reconciliation-audit</a>
 and its <code>exposure-intelligence</code> requirements. Parent exposure task 1.6 and all
 capacity gates remain open.</p>
-<p>Implementation would touch the manual <code>exposure_audit_sql.exs</code>,
-<code>exposure_audit_prototype.exs</code>, their owning controls and capacity harness.
+<p>Implementation touches the manual <code>exposure_audit_sql.exs</code>,
+<code>exposure_audit_prototype.exs</code> and their owning controls.
 Production writers, retained JSON publications, repair sequences, snapshot
 markers, readiness predicates and warehouse schemas remain as specified.</p>
-<p>See <a href="design.md">design.md</a>, <a href="tasks.md">tasks.md</a>, and the
-<a href="../../../docs/architecture/exposure-source-validation.html">workflow</a>.</p>
+<p>See <a href="https://github.com/carverauto/serviceradar/blob/docs/exposure-source-validation/openspec/changes/refactor-exposure-cohort-source-scan/design.md">design.md</a>, <a href="https://github.com/carverauto/serviceradar/blob/docs/exposure-source-validation/openspec/changes/refactor-exposure-cohort-source-scan/tasks.md">tasks.md</a>, and the
+<a href="https://github.com/carverauto/serviceradar/blob/docs/exposure-source-validation/docs/architecture/exposure-source-validation.html">workflow</a>.</p>
 </article></details><details class="source"><summary>Full design and evidence</summary><article><h1>One source scan with compact, shared cohort evidence</h1>
-<p>Status: proposed. This document changes no runtime behavior.</p>
+<p>Status: disabled implementation approved by the product owner on 2026-10-29.
+The implementation is prepared for review and changes no production runtime behavior.</p>
 <h2>Evidence and limits</h2>
 <p>The corrected run used synthetic data: 200 devices, 500,000 active facts,
 10,200 resolved assessments and about 53,000 dimension proofs. Source
 <code>59385424a42dfde36bbf309d7bc7e982a8bd494d</code> passed its implemented controls
 and cleanup but failed the fact screen. The full measured report remains in
-<a href="../refactor-exposure-reconciliation-audit/prototype.md#completed-post-correction-verification">the preceding proposal</a>
+<a href="https://github.com/carverauto/serviceradar/blob/docs/exposure-source-validation/openspec/changes/refactor-exposure-reconciliation-audit/prototype.md#completed-post-correction-verification">the preceding proposal</a>
 and <a href="https://agentboard.farm01.carverauto.dev/documents/226">portable report</a>.
 The <a href="https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70">hosted invocation</a>
 is the measurement provenance. These are rounded synthetic measurements, not
@@ -301,11 +303,32 @@ a query refactor cannot close them by inheriting a green unit result.</p>
 <p>There is no production migration or data rewrite. The disabled harness continues
 to own scratch metadata and cleanup. Rollback selects the preceding manual
 implementation; no persistent source state needs reconciliation.</p>
-<p>Approval requested: implement this shared, compact source pipeline only in the
-disabled harness, preserve every listed contract, and prepare it for remote
-validation through no-mistakes. Hosted allocations, production integration,
+<p>Approval recorded: the product owner answered &quot;approved continue&quot; on
+2026-10-29, authorizing this shared, compact source pipeline only in the
+disabled harness and its normal remote validation through no-mistakes.
+Hosted allocations, production integration,
 new persistent validation data and rollout require separate decisions.</p>
-</article></details><details class="source"><summary>Requirements and scenarios</summary><article><h2>ADDED Requirements</h2>
+<h2>Implementation checkpoint</h2>
+<p>The manual harness now uses one statement for fact summaries and dimension
+coverage. A guarded lateral projection computes publication validity before
+materializing typed values; a second compact relation carries fact hashes,
+drift flags and reference ordinals. No raw replay JSON is retained in either
+shared materialization. Per-device fact aggregation preserves every row.
+Distinct reference memberships resolve cohort dimension keys before applying
+each device's covering-generation floor and evidence time.</p>
+<p>Malformed reference ordinals become missing coverage rather than unsafe casts
+or omitted dependencies. The existing audit controls now exercise duplicate
+source contributions, malformed assessment and terminal references, a
+terminal-only dependency, and distinct device generation/evidence ages.
+These controls are authored but have not run against the new query yet.</p>
+<p>The full fused statement is charged to the fact interval. Output separates
+assessment rows, reference occurrences, device/key memberships and cohort
+dimension keys; the diagnostic plan includes actual buffers and verbose
+intermediate outputs. These counters describe logical work. Actual plan
+execution must establish physical sharing and selectivity before any
+performance claim. Existing thresholds, publication and readiness fences,
+decoder/normalization functions and v1 digest encoding are unchanged.</p>
+</article></details><details class="source"><summary>Requirements</summary><article><h2>ADDED Requirements</h2>
 <h3>Requirement: Shared bounded cohort source computation</h3>
 <p>The exposure audit SHALL derive fact summaries and assessment dimension
 references from one shared cohort assessment read within the same finite source
@@ -372,18 +395,18 @@ a hosted allocation, fleet capacity, runtime adoption or rollout.</p>
 <li><strong>THEN</strong> the result remains a capacity miss and execution stops</li>
 <li><strong>AND</strong> parent task 1.6 remains open with no automatic repeat or fleet run</li>
 </ul>
-</article></details><details class="source"><summary>Tasks and approval boundaries</summary><article><h2>0. Proposal</h2>
+</article></details><details class="source"><summary>Tasks</summary><article><h2>0. Proposal</h2>
 <ul>
 <li>[x] 0.1 Reconcile merged PR #6171 and record measured source/coverage amplification, existing indexes and writer contracts.</li>
 <li>[x] 0.2 Prepare the bounded source-scan design, alternatives and explicit approval boundary.</li>
-<li>[ ] 0.3 Review and approve the disabled implementation. No approval inferred from earlier experiments.</li>
+<li>[x] 0.3 Review and approve the disabled implementation. Direct product-owner approval on 2026-10-29; no measurement allocation included.</li>
 </ul>
 <h2>1. Disabled implementation (requires 0.3)</h2>
 <ul>
-<li>[ ] 1.1 Share cohort selection, validation and compact typed projection between fact and reference consumers in the same finite view.</li>
-<li>[ ] 1.2 Resolve each distinct cohort dimension key once; preserve per-device generation and age checks, terminal references and fact multiplicity.</li>
-<li>[ ] 1.3 Apply test-audit to missing controls in the owning suites; retain the existing decoder/digest oracle and failure semantics.</li>
-<li>[ ] 1.4 Attribute fused statement cost conservatively to the fact screen; retain complete orchestration timing and physical-work counters.</li>
+<li>[x] 1.1 Share cohort selection, validation and compact typed projection between fact and reference consumers in the same finite view.</li>
+<li>[x] 1.2 Resolve each distinct cohort dimension key once; preserve per-device generation and age checks, terminal references and fact multiplicity.</li>
+<li>[x] 1.3 Apply test-audit and author missing controls in the owning harness; retain the existing decoder/digest oracle and failure semantics. Execution remains in 2.2.</li>
+<li>[x] 1.4 Attribute fused statement cost conservatively to the fact screen; retain complete orchestration timing, logical-work counters and physical-plan diagnostics.</li>
 <li>[ ] 1.5 Complete remote review, required normal unit/quality checks and publication through no-mistakes. Copy protected physical Bazel rc files into every worktree.</li>
 </ul>
 <h2>2. Measurement (separate allocation)</h2>
@@ -15189,4 +15212,4 @@ a hosted allocation, fleet capacity, runtime adoption or rollout.</p>
   </script>
 </body>
 </html>
-"></iframe></section><footer>Design source: ServiceRadar's existing exposure review pages, matching their typography, green accent and light/dark palette. Proposal only; no runtime change or new measurement performed. Source inspection base: 01fad0b753e5904ca5dcfca66add34e3e0899434.</footer></main><script>document.getElementById('theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';};</script></body></html>
+"></iframe></section><footer>Design source: ServiceRadar's existing exposure review pages, matching their typography, green accent and light/dark palette. Disabled harness implementation prepared; executable SQL and capacity evidence pending. No production runtime change. Source inspection base: 01fad0b753e5904ca5dcfca66add34e3e0899434.</footer></main><script>document.getElementById('theme').onclick=()=>{document.documentElement.dataset.theme=document.documentElement.dataset.theme==='dark'?'light':'dark';};</script></body></html>

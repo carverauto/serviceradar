@@ -2,14 +2,14 @@
 
 - [x] 0.1 Reconcile merged PR #6171 and record measured source/coverage amplification, existing indexes and writer contracts.
 - [x] 0.2 Prepare the bounded source-scan design, alternatives and explicit approval boundary.
-- [ ] 0.3 Review and approve the disabled implementation. No approval inferred from earlier experiments.
+- [x] 0.3 Review and approve the disabled implementation. Direct product-owner approval on 2026-10-29; no measurement allocation included.
 
 ## 1. Disabled implementation (requires 0.3)
 
-- [ ] 1.1 Share cohort selection, validation and compact typed projection between fact and reference consumers in the same finite view.
-- [ ] 1.2 Resolve each distinct cohort dimension key once; preserve per-device generation and age checks, terminal references and fact multiplicity.
-- [ ] 1.3 Apply test-audit to missing controls in the owning suites; retain the existing decoder/digest oracle and failure semantics.
-- [ ] 1.4 Attribute fused statement cost conservatively to the fact screen; retain complete orchestration timing and physical-work counters.
+- [x] 1.1 Share cohort selection, validation and compact typed projection between fact and reference consumers in the same finite view.
+- [x] 1.2 Resolve each distinct cohort dimension key once; preserve per-device generation and age checks, terminal references and fact multiplicity.
+- [x] 1.3 Apply test-audit and author missing controls in the owning harness; retain the existing decoder/digest oracle and failure semantics. Execution remains in 2.2.
+- [x] 1.4 Attribute fused statement cost conservatively to the fact screen; retain complete orchestration timing, logical-work counters and physical-plan diagnostics.
 - [ ] 1.5 Complete remote review, required normal unit/quality checks and publication through no-mistakes. Copy protected physical Bazel rc files into every worktree.
 
 ## 2. Measurement (separate allocation)
