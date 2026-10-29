@@ -37,3 +37,14 @@ request for a running farm01 end-to-end sweep within 24 hours.
   different bytes at the same execution coordinates. A first-append capacity
   or I/O failure can therefore leave a consumed slot with zero rows. The run
   remains incomplete; resumable partial executions are outside this pass.
+
+## Corrected during integration review
+
+- **Lease storage follows the existing runtime root (high confidence).** The
+  original integration left lease files outside the chart's persistent mount.
+  The default resolver now honors the runtime root, and an install/reopen
+  regression covers both the lease and its executed-slot marker.
+- **Admission validates observations, not only claimed digests (high confidence).**
+  Producer checks alone were insufficient. Projection now validates persisted
+  plan pages, actual host membership and the actual check dictionary before
+  writing domain state, using the existing plan/hash/CIDR implementations.

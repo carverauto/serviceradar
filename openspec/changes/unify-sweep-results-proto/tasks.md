@@ -24,6 +24,16 @@
 
 ## Active: end-to-end milestones
 
+**Current pickup:** the first-canary implementation connects live core trust,
+the leased agent producer, bounded spool, ordinary sweep projection and Helm.
+Continue by preserving the review proxy's proposal-base fixes, then run
+`make test` and the guarded `//integration_tests/edge_record:vertical_slice_test`
+(A-H) plus `//elixir/serviceradar_core:integration_tests_async`. Offline harness
+selfchecks and release builds do not close that gate. Deploy the reviewed head
+and collect the fresh execution/ledger/domain evidence required above before
+marking the corresponding milestones complete. Operating limits are recorded
+in `choices.md` and the chart README.
+
 ### M1. Vertical slice green on `usp-01-proposal`
 
 - [x] M1.1 Fix the EventWriter shared-producer pull-budget starvation on
@@ -309,6 +319,8 @@
   It binds the current persisted assignment and scheduled execution, applies
   domain writes only for a new primary event, derives execution progress from
   distinct host rows, and completes only at the scheduled plan's target count.
+  Actual hosts and attempted checks must match the persisted signed plan;
+  matching caller-supplied plan/range digests alone does not authorize them.
   The canary uses disjoint static targets so that this count matches distinct IPs.
   The database regression covers domain projection, microbatch completion,
   replay, source/fence rejection and transaction rollback. This item stays
@@ -320,9 +332,11 @@
   of 3.2 and 3.8), and the agent spool directory and size bound.
 - [ ] M2.5 Bounded spool. The agent reclaims a spool record only after its
   terminal disposition is durable at the gateway, so a long-running agent's
-  spool stays within its configured bound. Today the sender never resolves a
-  record, so the spool only grows (the minimum of 3.10; the coverage proof and
-  rollover coordinator of 2.27-2.28 stay in the backlog).
+  spool stays within its configured bound. The canary sender now persists
+  validated terminal acknowledgements and advances its local resolved prefix,
+  but physical segment reclamation remains unimplemented. Capacity exhaustion
+  refuses further appends; this item stays unchecked (the minimum of 3.10;
+  coverage proof and rollover coordination of 2.27-2.28 stay in the backlog).
 - [ ] M2.6 Parallel run on farm01. One canary agent on the edge path and one
   control agent on the legacy path sweep the same target set for at least 24
   hours. Per execution, host count, availability and open ports match between
