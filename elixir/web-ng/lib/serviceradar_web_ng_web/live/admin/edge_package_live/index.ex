@@ -146,7 +146,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     component_type = params["component_type"] || "agent"
     cert_validity_days = params["cert_validity_days"] || socket.assigns.cert_validity_days_value
 
-    form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
+    form = validate_create_form(socket.assigns.create_form, params)
 
     {:noreply,
      socket
@@ -157,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
 
   def handle_event("create_package", %{"form" => params}, socket) do
     params = ensure_gateway_id(params, socket.assigns.default_gateway_id)
-    form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
+    form = validate_create_form(socket.assigns.create_form, params)
 
     case {form.valid?, requested_cert_validity_days(params)} do
       {true, {:ok, validity_days}} ->
@@ -1310,6 +1310,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       "deleted" -> "ghost"
       _ -> "ghost"
     end
+  end
+
+  defp validate_create_form(form, params) do
+    form = AshPhoenix.Form.validate(form, params)
+    %{form | params: Map.merge(form.params, Map.take(params, ["partition", "host_ip"]))}
   end
 
   # Build AshPhoenix.Form for creating OnboardingPackage
