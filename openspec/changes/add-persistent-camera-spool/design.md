@@ -95,9 +95,16 @@ existing core runtime UID/GID without recursive chmod/chown over retained bytes.
 The [filesystem entry point](../../../docs/camera-spool-initialization.md) is
 packaged in the core release with an isolated configuration. It creates only
 the `recordings` child of the supplied volume root and uses the existing
-identity resolver and marker initializer. Physical-volume checks and the
-exclusive Kubernetes Job remain infrastructure work; its success reports only
-local filesystem initialization.
+identity resolver and marker initializer. Its success reports only local filesystem initialization.
+
+The [read-only association preflight](../../../docs/camera-spool-preflight.md)
+compares retained namespace/PVC/PV UIDs and CSI identity with actual API objects,
+checks bound filesystem/RWOP capacity and Retain policy, and refuses known pod or
+attachment references. Missing reads and incomplete bounded scans refuse. Its
+success is a sequential API snapshot, not a lock, physical-volume attestation,
+RWOP/encryption qualification or initialization permission. Inventory uniqueness,
+independent fencing, observed unmount and the exclusive Job remain infrastructure
+work. Keep those authorities separate from this operator diagnostic.
 
 Verify the marker and recorded volume association, observe the Job exit and
 unmount, then start the matching StatefulSet member with recording disabled.

@@ -31,6 +31,12 @@ The system SHALL select each member's expected storage UUID from explicit versio
 - **THEN** infrastructure SHALL refuse new initialization and member admission until explicit reconciliation
 - **AND** SHALL preserve the prior storage-lifetime record instead of overwriting its association
 
+#### Scenario: Read-only API association observation
+- **WHEN** an operator checks an expected retained volume association
+- **THEN** the command SHALL compare retained namespace, claim and volume UIDs and CSI driver/handle with bound filesystem/RWOP objects, sufficient capacity and actual PV Retain policy
+- **AND** it SHALL refuse pod or attachment references, denied reads and incomplete scans without mutating resources or adopting observed replacements
+- **AND** successful observation SHALL NOT grant initialization authority, attest physical exclusivity or satisfy encryption/driver qualification
+
 ### Requirement: Preservation across controller and lifecycle changes
 The system SHALL preserve recording claims and their storage-lifetime inventory across scale-down, rollback and workload removal, and require observed old-owner retirement before controller conversion or replacement writers.
 

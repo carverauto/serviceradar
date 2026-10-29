@@ -10,8 +10,11 @@ This command is the filesystem part of provisioning. Before invocation,
 infrastructure must verify the UUID's association with the intended PVC UID,
 PV UID and CSI volume handle, exclusive access, retention and encryption. The
 command cannot prove physical-volume identity or exclusive mounting. A matching
-marker is not that proof. The Kubernetes Job, volume preflight, StatefulSet
-packaging and Cloud preservation workflow remain separate implementation work.
+marker is not that proof. The [read-only volume-association preflight](camera-spool-preflight.md)
+checks retained identities and known consumers through the Kubernetes API; its
+snapshot is not initialization authority or physical-volume qualification. The
+exclusive Kubernetes Job, StatefulSet packaging and Cloud preservation workflow
+remain separate implementation work.
 
 ## Inputs and invocation
 

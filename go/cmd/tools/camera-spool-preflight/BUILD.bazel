@@ -1,0 +1,39 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library", "go_test")
+
+go_library(
+    name = "camera-spool-preflight_lib",
+    srcs = [
+        "inspect.go",
+        "main.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/camera-spool-preflight",
+    visibility = ["//visibility:private"],
+    deps = [
+        "@io_k8s_api//core/v1:core",
+        "@io_k8s_apimachinery//pkg/api/errors",
+        "@io_k8s_apimachinery//pkg/api/resource",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
+        "@io_k8s_apimachinery//pkg/util/validation",
+        "@io_k8s_client_go//kubernetes",
+        "@io_k8s_client_go//tools/clientcmd",
+    ],
+)
+
+go_binary(
+    name = "camera-spool-preflight",
+    embed = [":camera-spool-preflight_lib"],
+    pure = "on",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "camera-spool-preflight_test",
+    srcs = ["main_test.go"],
+    embed = [":camera-spool-preflight_lib"],
+    deps = [
+        "@io_k8s_api//core/v1:core",
+        "@io_k8s_api//storage/v1:storage",
+        "@io_k8s_apimachinery//pkg/api/resource",
+        "@io_k8s_apimachinery//pkg/apis/meta/v1:meta",
+    ],
+)
