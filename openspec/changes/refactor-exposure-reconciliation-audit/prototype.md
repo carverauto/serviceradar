@@ -4,8 +4,8 @@ Status: the one approved hosted small-profile run completed. Its implemented
 correctness controls passed, but the fact-comparison performance screen failed.
 Performance experimentation stopped; there was no repeat or fleet attempt.
 Production adoption and parent task 1.6 remain open. A later explicit approval
-allows the bounded diagnostic follow-up below, now completed, and one pending
-post-correction verification; neither turns the historical failure into a pass.
+allowed the bounded diagnostic follow-up and post-correction verification below,
+both now completed. All three measurements failed the fact screen.
 
 ## Measured result
 
@@ -59,8 +59,8 @@ credential-bearing runtime records remain outside the repository.
 
 The original experiment stopped at this failure. The separately approved
 follow-up below authorized one additional small diagnostic allocation. The latest
-decision also authorizes one verification of its demonstrated query corrections
-after fresh remote quality and compilation. Codec tuning, extra workers, wider cohorts, fleet attempts and
+decision also authorized one verification of its demonstrated query corrections
+after fresh remote quality and compilation; that verification is now complete. Codec tuning, extra workers, wider cohorts, fleet attempts and
 runtime adoption remain forbidden. Independent no-mistakes review and
 publication remain outstanding.
 
@@ -263,7 +263,7 @@ these times and nested buffer counters must not be summed. Source JIT was about
 rows on this fixture; this does not predict fleet scan strategy. Raw plans and
 runtime records remain private and are not committed.
 
-## Approved query corrections; verification pending
+## Completed post-correction verification
 
 Under design.md's demonstrated-defect stop rule, the latest decision approves
 these narrow corrections and one post-correction verification on the same
@@ -280,24 +280,99 @@ small workload:
   current/replay comparison, all typed fields and the v1 codec are unchanged.
 
 The existing decoder parity, drift, terminal-reference, covering-generation,
-proof-age and lock controls remain unchanged. No new tests or source-string
-checks were added. Inspection is not execution evidence: neither reproduction
-nor post-correction verification ran in this fix phase, as explicitly directed.
-The outer executor must first complete fresh remote quality and compilation on
-the committed corrections, then consume the one authorized verification. The
-prior diagnostic-source quality/core compilation
-[passed](https://carverauto.buildbuddy.io/invocation/199f7d41-6683-447c-800e-becd1ba218e9)
-but does not validate these edits. No performance pass, new cleanup result,
-parameter sweep, JIT tuning, codec change or fleet attempt is claimed or approved.
+proof-age and lock controls remained unchanged. No new tests or source-string
+checks were added. The earlier diagnostic-source quality/core compilation
+[passed](https://carverauto.buildbuddy.io/invocation/199f7d41-6683-447c-800e-becd1ba218e9);
+it is historical evidence, not validation of the corrections.
 
-Remaining execution: use the existing credential-bound adapter, a fresh unique
-prefix/schema, ready generation and canonical serial_2 clone; prove the exact
-source/tree; run only this manual target once; inspect both plans; retain every
-failed screen and control result; count owned runtime rows empty; verify removal
-of warehouse schemas/grants; finish canonical observer/teardown/release. Adapter
-runtime/evidence paths must stay within the workspace or the explicitly allowed
-private evidence directory, without modifying the checkpoint adapter in place.
-Normal unit gate, hosted PR CI and substantive review remain outer-pipeline
-requirements. Parent task 1.6 and the fleet gate remain open. The portable
-historical report remains unchanged; refresh its portable version after the final
-measured correction result, preserving both historical experiments.
+### Execution and report provenance
+
+The [corrected hosted execution](https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70)
+validated execution source `59385424a42dfde36bbf309d7bc7e982a8bd494d`, exact tree
+`d285ea04053576e13cf028e7ecb58358a578350f`, verified by hosted preflight.
+Fresh remote compilation, formatting and Credo
+[passed first](https://carverauto.buildbuddy.io/invocation/6bfc7317-c6a9-49f2-ad3d-af01240f0e69).
+Strict OpenSpec and diff checks were also reported passed by the executor.
+
+Report source: this documentation-only revision based on execution source
+`59385424a42dfde36bbf309d7bc7e982a8bd494d`. Runtime, test, build and configuration
+inputs are unchanged from that execution. The updated report is not an execution
+at a subsequent documentation commit. The original and diagnostic executions
+above keep their own source IDs and failures.
+
+### Corrected measurement and plans
+
+The same synthetic workload used 200 devices, 500,000 active facts, 10,200
+resolved facts and 52,551 dimension proofs, with two workers and cohorts of at
+most 32. Only one measurement ran with unchanged controls. The two follow-up
+baseline observations both round to 153 seconds. Durations below are rounded;
+worker sums overlap and must not be added as critical-path phases.
+
+| Measurement | Diagnostic | Corrected | Verdict |
+| --- | --- | --- | --- |
+| Complete audit | 35.95 s | 30.85 s | Performance failed |
+| Dimensions | 15.38 s | 14.62 s | Below 120 s |
+| Cohort interval | 19.70 s | 15.42 s | Inclusive interval |
+| Fact interval union | 12.71 s | 11.845 s | Failed 6 s screen |
+| Residual orchestration | 7.86 s | 4.377 s | Above 0.9 s; assertion not reached |
+| Summed worker coverage | 10.67 s | 4.77 s | Overlapping worker time |
+| Summed worker source facts | 23.53 s | 21.91 s | Dominant worker cost |
+| Summed worker warehouse facts | 0.85 s | 0.79 s | Overlapping worker time |
+| Summed worker locks | 0.42 s | 0.40 s | Includes first checkout |
+| Summed worker result commit | 0.11 s | 0.10 s | Overlapping worker time |
+| Summed worker readiness | 1.41 s | 1.36 s | Overlapping worker time |
+
+Corrected admission was about 75 ms, finish 8 ms, global readiness 706 ms and
+cleanup 5 ms. Summed worker lifecycle was about 42 ms and source-view setup
+19 ms. Proof storage was about 53,000 rows / 9.8 MiB; VM memory at completion
+was about 168 MiB, not peak memory.
+
+The observed total was roughly 14 percent lower and summed coverage roughly
+55 percent lower. One warmed shared-lab pair establishes no p95 or fleet
+guarantee. Dimension variation must not be attributed to the SQL correction.
+CNPG source work remains dominant.
+
+The corrected 32-device source-fact plan took about 3.69 s, with about 8,000
+temporary blocks versus 22,000 before and about 52 ms JIT. Only the validated
+and hashes CTEs remain materialized, preserving evaluate-once semantics.
+The corrected coverage plan took about 0.86 s versus 1.78 s, with about 340
+temporary blocks versus 7,700. The snapshot generation scan ran 32 times versus
+about 163,000: per-device lookup and removal of redundant wide copies are now
+observed, not hypotheses. The corrected coverage plan has no JIT section; no
+JIT configuration changed. EXPLAIN time is separate from measured audit time;
+nested timing and buffer counters must not be summed. Raw plans remain private.
+
+### Correctness, cleanup and Test verdict
+
+`EXPOSURE_AUDIT_PARITY` passed 11 cases, two aggregates and two engines.
+The complete `EXPOSURE_AUDIT_CONTROLS` marker passed: generated_binding,
+replay_drift, late_proof, evidence_age, restore_fence, timeout, expiry, cleanup,
+durable_admission, same_count, missing_fact, terminal_reference, new_generation,
+grouped_readiness, per_device_failure, busy_device, concurrent_after_images,
+empty_device and warehouse_only. Lock controls cover unordered caller outcomes,
+busy peer separation, retention during the result callback and availability
+after session exit. These are synthetic harness controls, not adopted-runtime
+JetStream or snapshot-finalization validation.
+
+ExUnit reported one test and one failure solely: `fact component screen failed;
+no fleet attempt`. There was no other error in MultiError. The orchestration
+assertion was not reached, although its measured value exceeds the budget.
+This is a real performance failure, not a setup failure or a passing Test result.
+
+Canonical observer, teardown and release children succeeded. Every owned
+warehouse table counted zero in both eligible contexts before grants were
+revoked and schemas dropped. Independent schema-absence and grant-absence reads
+passed; all scratch resources are gone.
+
+The Test phase inspected the supplied execution records and confirmed source/tree
+identity; it did not rerun the forbidden allocation. Correctness and cleanup have
+execution evidence; the performance screen remains FAILED. No thresholds,
+expected failures, runtime code, SQL, codec, workers or cohort size changed in
+this reporting revision. No new experiment is authorized.
+
+Decision for the outer gate: may this disabled research prototype be published
+with the known failed performance screen under an explicit Test exception?
+No exception or performance waiver has been granted or inferred. Ordinary full
+remote repository tests, hosted PR CI and substantive review remain required
+through the outer executor. Cold/repeat/fleet runs, process-death injection,
+production restore integration and adoption remain open, as does parent task 1.6.

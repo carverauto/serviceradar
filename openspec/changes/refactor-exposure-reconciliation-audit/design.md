@@ -4,12 +4,13 @@ Status: approved for a disabled prototype on 2026-10-28. Prototype source is
 implemented in the manual harness. The approved small-profile run passed its
 implemented controls but failed the fact-comparison screen; the measured
 orchestration time also exceeded its budget. See [prototype.md](prototype.md).
-A later explicit approval permits one bounded small-profile diagnostic follow-up;
-the fleet gate remains open. The follow-up batches sorted session-lock calls,
-separates phase timings and captures source/coverage plans after measurement.
-It removes repeat execution, preserves every budget and codec, and makes no
-plan-dependent SQL optimization before actual evidence. See the pending
-execution status in [prototype.md](prototype.md#approved-bounded-diagnostic-follow-up-not-yet-executed).
+The separately approved diagnostic follow-up and post-correction verification
+are complete. Sorted session-lock calls, separate timings and actual plans
+preceded narrow evidence-backed query corrections. The corrected run passed
+implemented controls and cleanup but still failed the fact screen; orchestration
+also remains above budget. See the separately attributed
+[corrected result](prototype.md#completed-post-correction-verification).
+No further allocation, fleet run or adoption is authorized.
 
 ## Evidence and objective
 

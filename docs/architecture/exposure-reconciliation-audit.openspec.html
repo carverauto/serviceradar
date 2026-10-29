@@ -4,21 +4,23 @@ html[data-theme=dark]{color-scheme:dark;--bg:#10191d;--panel:#17242a;--ink:#ecf7
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 "Avenir Next",Avenir,"Segoe UI",sans-serif}main{max-width:1160px;margin:auto;padding:35px 28px 72px}a{color:var(--brand);overflow-wrap:anywhere}h1{font-size:clamp(32px,4.2vw,53px);line-height:1.12;letter-spacing:-1.8px;max-width:850px;margin:20px 0}h2{font-size:27px;line-height:1.3;margin:34px 0 15px}h3{font-size:21px}p{max-width:85ch}.eyebrow{font-size:12px;letter-spacing:1.8px;font-weight:750;text-transform:uppercase;color:var(--brand)}.top{display:flex;justify-content:space-between;gap:16px;align-items:center}.top>*{min-width:0}button,.jump{font:inherit;border:1px solid var(--line);padding:8px 14px;border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}.lead{font-size:21px;color:var(--muted);max-width:870px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.grid>*{min-width:0}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.card h3{margin:8px 0}.n{color:var(--brand);font-size:14px;font-weight:700}.card p{font-size:16px;color:var(--muted);margin-bottom:0}.status{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}.pill{border:1px solid var(--line);border-radius:100px;padding:5px 12px;font-size:13px;font-weight:700}.warning{border-left:4px solid var(--warn);padding:15px 22px;background:var(--warn-bg);border-radius:0 10px 10px 0;margin:26px 0}.warning p{margin:4px 0}.numbers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.numbers>*{min-width:0}.numbers strong{display:block;font-size:32px;color:var(--brand);line-height:1.2}.numbers small{color:var(--muted)}table{width:100%;border-collapse:collapse;table-layout:fixed;margin:18px 0;font-size:15px}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}th{background:var(--panel)}.source{border:1px solid var(--line);border-radius:12px;margin:15px 0;background:var(--bg)}summary{cursor:pointer;padding:18px 22px;font-weight:700;color:var(--brand)}article{padding:0 24px 24px;min-width:0}article h1{font-size:30px;letter-spacing:-.5px}article h2{font-size:25px}article h3{font-size:20px}code{font-size:.85em;overflow-wrap:anywhere}iframe{display:block;width:100%;height:900px;border:0;background:var(--panel)}nav{display:flex;gap:9px;flex-wrap:wrap;margin:25px 0}nav a{text-decoration:none}.muted,footer{color:var(--muted);font-size:14px}.options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.options>*{min-width:0}.recommend{border:2px solid var(--brand)}.flow{width:100%;height:auto;display:block}.flow text{fill:var(--ink);font-family:"Avenir Next",sans-serif}.flow .label{font-size:20px;font-weight:700}.flow .sub{font-size:15px;fill:var(--muted)}.flow rect{fill:var(--panel);stroke:var(--line);stroke-width:2}.flow path{fill:none;stroke:var(--brand);stroke-width:3}footer{margin-top:36px;border-top:1px solid var(--line);padding-top:20px}@media(max-width:700px){main{padding:22px 16px 48px}.grid,.options{grid-template-columns:minmax(0,1fr)}.numbers{grid-template-columns:repeat(2,minmax(0,1fr))}article{padding:0 14px 20px}table{font-size:13px}th,td{padding:8px 5px}.lead{font-size:18px}iframe{height:760px}}
 </style></head><body><main>
 <div class="top"><span class="eyebrow">ServiceRadar / exposure intelligence</span><button id="theme" type="button" aria-label="Toggle color theme">Dark / light</button></div>
-<header><h1>Faster on the small fixture. Still outside the budget.</h1><p class="lead">The disabled audit prototype completed in about 34 seconds versus 143 seconds for the existing reconciler. Its correctness controls passed, but fact comparison and orchestration remain above the approved limits.</p><div class="status"><span class="pill">Performance screen failed</span><span class="pill">Task 1.6 remains open</span><span class="pill">Manual scratch target only</span></div></header>
-<div class="warning"><strong>The approved stop rule applies.</strong><p>Fact comparison took about 13 seconds against a 6-second limit. Orchestration took about 8 seconds against 0.9 seconds. No repeat or fleet run followed. Scratch schemas and grants are verified absent. <a href="https://carverauto.buildbuddy.io/invocation/2cf93ca5-a39a-4abf-927a-6eb10a68adfc">Read the hosted execution evidence.</a></p></div>
+<header><h1>Faster on the small fixture. Still outside the budget.</h1><p class="lead">The disabled audit prototype completed its corrected run in about 31 seconds versus 153 seconds for the existing reconciler. Its correctness controls passed, but fact comparison and orchestration remain above the approved limits.</p><div class="status"><span class="pill">Performance screen failed</span><span class="pill">Task 1.6 remains open</span><span class="pill">Manual scratch target only</span></div></header>
+<div class="warning"><strong>The approved stop rule applies.</strong><p>Corrected fact comparison took 11.845 seconds against a 6-second limit. Orchestration took 4.377 seconds against 0.9 seconds; its assertion was not reached. The separate diagnostic and correction allocations are complete. No further allocation or fleet run is authorized. Scratch schemas and grants are verified absent. <a href="https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70">Read the corrected hosted execution evidence.</a></p></div>
 <nav aria-label="Review sections"><a class="jump" href="#approach">Approach</a><a class="jump" href="#budget">Time budget</a><a class="jump" href="#review">Measured result</a><a class="jump" href="#design">Full design</a><a class="jump" href="#workflow">Workflow</a></nav>
 <section id="approach"><h2>Three changes, one unchanged correctness contract</h2><div class="grid"><div class="card"><span class="n">01 / SHARED EVIDENCE</span><h3>Verify each dimension version once.</h3><p>A proof binds the exact source payload, sequence, run and recovery fence. Changed content cannot borrow an older proof.</p></div><div class="card"><span class="n">02 / SOURCE WORK</span><h3>Hash the current fact once.</h3><p>Validate retained replay separately with typed field equality. Read actual warehouse columns for its digest.</p></div><div class="card"><span class="n">03 / ORCHESTRATION</span><h3>Evaluate readiness in batches.</h3><p>Keep every device's blockers and recovery obligations. Share computation, never a cached ready verdict.</p></div></div>
 <svg class="flow" viewBox="0 0 1000 195" role="img" aria-labelledby="flowtitle"><title id="flowtitle">Content proof plus actual fact comparison is required before a fresh readiness evaluation.</title><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" style="fill:var(--brand);stroke:none" /></marker></defs><g id="proof"><title>Proof retains its original check time</title><rect x="10" y="55" width="270" height="98" rx="12" /><text class="label" x="32" y="92">Verified content version</text><text class="sub" x="32" y="123">Keep the original evidence time</text></g><path id="proof-link" d="M285 105 H350" marker-end="url(#arrow)" /><g id="facts"><title>Facts and retained replay checked in a finite source view</title><rect x="362" y="55" width="276" height="98" rx="12" /><text class="label" x="385" y="92">Current facts + replay</text><text class="sub" x="385" y="123">Independent warehouse digest</text></g><path id="result-link" d="M643 105 H707" marker-end="url(#arrow)" /><g id="ready"><title>Fresh recovery checks remain authoritative</title><rect x="720" y="55" width="270" height="98" rx="12" /><text class="label" x="742" y="92">Per-device result</text><text class="sub" x="742" y="123">Recheck current recovery state</text></g></svg></section>
 <section><h2>The tradeoff to review</h2><p>Dimension evidence can be reused across source views within one finite audit run. That is a deliberate change from the prior experiment. A stored source-content identity prevents equal-sequence edits from reusing stale proof; recovery invalidates the run.</p><p><strong>Evidence keeps its age.</strong> A later fact check cannot make an earlier dimension check look fresh. An out-of-band warehouse edit after verification is caught by a later audit, not retroactively by this one.</p></section>
 <section id="budget"><h2>900 seconds total. These are targets.</h2><div class="numbers"><div class="card"><strong>120 s</strong><small>Dimensions and version rechecks</small></div><div class="card"><strong>600 s</strong><small>Source validation and fact summaries</small></div><div class="card"><strong>90 s</strong><small>Orchestration and readiness</small></div><div class="card"><strong>90 s</strong><small>Retries and scheduling reserve</small></div></div><p>Two workers, at most 32 devices per cohort, 30-second statements and 60-second source views. The early linear screens are 6 seconds per 500,000 active facts and 0.9 seconds per 200 devices of orchestration; fixed costs are reported separately.</p><p class="muted">A failed component screen stops the experiment before a fleet run. A passed screen permits a separate fleet-run request. It does not prove the 20,000-host / 50-million-active-fact gate.</p></section>
-<section id="review"><h2>One approved run. A clear stopping point.</h2><table><caption>Rounded measurements: 200 synthetic devices, 500,000 active facts</caption><thead><tr><th scope="col">Component</th><th scope="col">Observed</th><th scope="col">Screen</th><th scope="col">Verdict</th></tr></thead><tbody><tr><th scope="row">Dimensions</th><td>13 s</td><td>120 s</td><td>Passed</td></tr><tr><th scope="row">Fact comparison</th><td>13 s</td><td>6 s</td><td>Failed</td></tr><tr><th scope="row">Orchestration</th><td>8 s</td><td>0.9 s</td><td>Above budget; later assertion not reached</td></tr></tbody></table><div class="grid"><div class="card"><span class="n">VERIFIED</span><h3>Implemented controls passed</h3><p>Digest parity, corruption detection, version proofs, readiness, durable resume and recovery fencing passed in the hosted scratch harness.</p></div><div class="card"><span class="n">STOPPED</span><h3>No second repetition</h3><p>The first fact screen failed. The fixture was warmed by setup and the baseline; there is no cold/repeat or fleet capacity result.</p></div><div class="card"><span class="n">CLEANED</span><h3>Scratch resources removed</h3><p>CNPG teardown and generation release succeeded. Warehouse tables were empty; schemas and their grants are verified absent.</p></div></div><p class="muted">Production restore integration, process-death testing and live JetStream/snapshot validation remain open. No-mistakes review/publication is pending. The 20,000-host / 50-million-active-fact / 900-second gate and task 1.6 remain unchanged.</p></section>
-<h2>Implementation and validation</h2><details id="prototype" class="source" open><summary>Disabled prototype: evidence and limits</summary><article><h1 id="disabled-prototype-validation-result">Disabled prototype
+<section id="review"><h2>Corrected result. The stopping point still applies.</h2><table><caption>Rounded measurements: 200 synthetic devices, 500,000 active facts</caption><thead><tr><th scope="col">Component</th><th scope="col">Observed</th><th scope="col">Screen</th><th scope="col">Verdict</th></tr></thead><tbody><tr><th scope="row">Dimensions</th><td>14.62 s</td><td>120 s</td><td>Passed</td></tr><tr><th scope="row">Fact comparison</th><td>11.845 s</td><td>6 s</td><td>Failed</td></tr><tr><th scope="row">Orchestration</th><td>4.377 s</td><td>0.9 s</td><td>Above budget; later assertion not reached</td></tr></tbody></table><div class="grid"><div class="card"><span class="n">VERIFIED</span><h3>Implemented controls passed</h3><p>Digest parity, corruption detection, version proofs, readiness, durable resume and recovery fencing passed in the hosted scratch harness.</p></div><div class="card"><span class="n">STOPPED</span><h3>No second repetition</h3><p>The first fact screen failed. The fixture was warmed by setup and the baseline; there is no cold/repeat or fleet capacity result.</p></div><div class="card"><span class="n">CLEANED</span><h3>Scratch resources removed</h3><p>CNPG teardown and generation release succeeded. Warehouse tables were empty; schemas and their grants are verified absent.</p></div></div><p class="muted">Production restore integration, process-death testing and live JetStream/snapshot validation remain open. No-mistakes review/publication is pending. The 20,000-host / 50-million-active-fact / 900-second gate and task 1.6 remain unchanged.</p></section>
+<p>The corrected total was roughly 14 percent lower than the diagnostic run; summed coverage time fell roughly 55 percent. This single warmed shared-lab pair gives no p95 or fleet guarantee, and dimension variation is not attributed to the SQL fix. All three runs remain separately attributed below.</p><p>Test verdict: performance FAILED; implemented correctness controls and cleanup passed. Publication with this known failure requires an explicit outer-gate decision; no Test exception is approved.</p><p><a href="https://agentboard.farm01.carverauto.dev/documents/221">Approved workflow 221</a> remains unchanged. The report retains the existing ServiceRadar typography, colors and light/dark styling.</p><h2>Implementation and validation</h2><details id="prototype" class="source" open><summary>Disabled prototype: evidence and limits</summary><article><h1 id="disabled-prototype-validation-result">Disabled prototype
 validation result</h1>
 <p>Status: the one approved hosted small-profile run completed. Its
 implemented correctness controls passed, but the fact-comparison
 performance screen failed. Performance experimentation stopped; there
 was no repeat or fleet attempt. Production adoption and parent task 1.6
-remain open.</p>
+remain open. A later explicit approval allowed the bounded diagnostic
+follow-up and post-correction verification below, both now completed.
+All three measurements failed the fact screen.</p>
 <h2 id="measured-result">Measured result</h2>
 <p><a
 href="https://carverauto.buildbuddy.io/invocation/2cf93ca5-a39a-4abf-927a-6eb10a68adfc">Hosted
@@ -104,10 +106,14 @@ counted empty before their schema grants were revoked and schemas
 dropped. Follow-up reads verified both schema absence and grant absence.
 Raw operational identifiers and credential-bearing runtime records
 remain outside the repository.</p>
-<p>The approved stop rule now applies. No further benchmark, codec
-tuning, extra workers, wider cohorts, fleet attempt or runtime adoption
-follows from this result. Independent no-mistakes review and publication
-remain outstanding.</p>
+<p>The original experiment stopped at this failure. The separately
+approved follow-up below authorized one additional small diagnostic
+allocation. The latest decision also authorized one verification of its
+demonstrated query corrections after fresh remote quality and
+compilation; that verification is now complete. Codec tuning, extra
+workers, wider cohorts, fleet attempts and runtime adoption remain
+forbidden. Independent no-mistakes review and publication remain
+outstanding.</p>
 <h2 id="executable-boundary">Executable boundary</h2>
 <p>The only entry point is the manual Bazel target
 <code>//elixir/serviceradar_core:exposure_reconciliation_audit</code>.
@@ -244,16 +250,17 @@ reported as passed merely because it is present.</p>
 fixture clone and never-used exposure warehouse schema on the
 already-authorized lab warehouse. Use the existing fixture
 observer/teardown/release workflow described in <a
-href="https://github.com/carverauto/serviceradar/blob/staging/docs/exposure-reconciliation-live-harness.md">the live
+href="https://github.com/carverauto/serviceradar/blob/docs/exposure-reconciliation-design/docs/exposure-reconciliation-live-harness.md">the live
 harness runbook</a>. Run the manual audit target explicitly; never
 enable it for ordinary CI discovery.</p>
 <p>The run first verifies the existing production baseline on the
-synthetic fixture, then attempts two independent audit runs. The second
-runs only if the first passes every component screen. Correctness
-controls still run after a failed screen so a performance failure cannot
-hide their verdict. Do not call either run a cold-database measurement:
-the fixture and production baseline warm the storage engines. Report
-first/repeat evidence and this limitation explicitly.</p>
+synthetic fixture, then attempts one audit measurement. The follow-up
+removes the repeat path, even if all screens pass. Query-plan
+diagnostics and correctness controls still run after a failed screen so
+a performance failure cannot hide their verdict. Do not call either run
+a cold-database measurement: the fixture and production baseline warm
+the storage engines. Report the first measurement and this limitation
+explicitly.</p>
 <p>Required reports: original fixture/baseline markers,
 <code>EXPOSURE_AUDIT_PARITY</code>,
 <code>EXPOSURE_AUDIT_CAPACITY</code>,
@@ -294,6 +301,283 @@ migration callbacks. Independent no-mistakes review, full repository
 checks, actual process-death injection, production restore-hook
 integration and adopted-runtime live validation remain pending. The
 hosted manual execution above does not replace those checks.</p>
+<h2 id="completed-bounded-diagnostic-follow-up">Completed bounded
+diagnostic follow-up</h2>
+<p>The product owner explicitly approved the recommended follow-up on
+2026-10-28 in the native fix decision. The historical source and failed
+report above remain unchanged. This follow-up starts from submitted
+source <code>e35474ae115fcf81696db22ba63c4e5dd5780cad</code>. The <a
+href="https://carverauto.buildbuddy.io/invocation/a59ce9aa-0b43-4d08-9c00-4545db910dbf">diagnostic
+execution</a> ran commit
+<code>10051ce95d8f0b83f5d234fcded7fb026cd0f140</code>, exact tree
+<code>7b8b7ee1bd8f71d79e8d7a61966a31bce8f4fa68</code>.</p>
+<p>The disabled harness now batches sorted advisory-lock acquisition
+into one round trip per cohort, retaining the same lock IDs and physical
+DirectSession through result publication/readiness. The existing
+busy-device control also checks caller-order outcomes and lock
+retention/release from another backend. No pooled sessions or
+transaction locks replace the prototype's session locks.</p>
+<p>Capacity output adds <code>summed_worker_ms</code>: source-fact
+execution, warehouse-fact execution, coverage, lifecycle, session start,
+lock calls including first checkout, source-view setup, result commit,
+readiness and deferral commits. Each cohort attempt is counted once,
+including proof retries. These inclusive worker sums overlap and are not
+wall-clock critical-path durations or CPU time. The existing elapsed,
+fact-interval-union, dimension and residual orchestration counters and
+every performance assertion remain unchanged. Lazy connection
+setup/checkout cannot be isolated from the first lock call at this
+boundary.</p>
+<p>After that single measurement, outside every measured interval, the
+harness requests actual
+<code>EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON)</code> for source facts
+and coverage on the first 32 synthetic devices using the measured run's
+proofs. The exact same SQL supplies execution and diagnostic plans.
+Plans belong in private execution evidence; only synthetic rounded
+summaries may be published. Diagnostic failures and measurement failures
+are retained while implemented correctness controls and owned cleanup
+still execute. There is no repetition.</p>
+<p>The supplied diagnostic evidence reports these rounded
+measurements:</p>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>Observed</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Existing production reconciler</td>
+<td>153 seconds</td>
+<td>Baseline</td>
+</tr>
+<tr>
+<td>Complete audit prototype</td>
+<td>36 seconds</td>
+<td>Performance screen failed</td>
+</tr>
+<tr>
+<td>Dimensions</td>
+<td>15 seconds</td>
+<td>Below 120-second screen</td>
+</tr>
+<tr>
+<td>Fact interval union</td>
+<td>13 seconds</td>
+<td>Above 6-second screen</td>
+</tr>
+<tr>
+<td>Residual orchestration</td>
+<td>8 seconds</td>
+<td>Above 0.9-second budget; assertion not reached</td>
+</tr>
+</tbody>
+</table>
+<p>Overlapping worker sums were about 24 seconds source, 0.9 seconds
+warehouse, 11 seconds coverage, 0.4 seconds locks, 0.1 seconds result
+commit and 1.4 seconds readiness. These are not additive wall-clock
+phases. No batching speedup is established. ExUnit reported one failure,
+the fact screen. All implemented controls passed, including lock
+contention, retention, release and caller order. Canonical observer,
+teardown and generation release passed. All five warehouse tables
+counted zero in both eligible contexts; schemas and grants were then
+verified absent. This evidence belongs to the diagnostic source
+above.</p>
+<p>The coverage plan repeated its generation scan/sort/limit about
+163,000 times for 32 devices without Memoize. Materialized references
+retained publication JSON; the query wrote about 7,700 temporary blocks
+and externally sorted about 9 MiB. EXPLAIN took about 1.8 seconds,
+including 0.5 seconds JIT. The source plan took about 3.8 seconds, wrote
+about 22,000 temporary blocks and retained wide replay rows in three
+materialized stages. Inclusive validated, typed and hashes times were
+about 2.6, 2.8 and 3.5 seconds, with input about 0.5 seconds; these
+times and nested buffer counters must not be summed. Source JIT was
+about 0.06 seconds. About 510,000 assessment rows were read for about
+82,000 cohort rows on this fixture; this does not predict fleet scan
+strategy. Raw plans and runtime records remain private and are not
+committed.</p>
+<h2 id="completed-post-correction-verification">Completed
+post-correction verification</h2>
+<p>Under design.md's demonstrated-defect stop rule, the latest decision
+approves these narrow corrections and one post-correction verification
+on the same small workload:</p>
+<ul>
+<li>Materialize the latest covering generation once per requested
+device, before joining expanded reference keys. Preserve descending ID
+selection, global or device scope, and left-join null behavior.</li>
+<li>Materialize only ordinal, CVE ordinal and package-version ordinal in
+coverage references. Preserve assessment/watermark
+<code>UNION ALL</code>, terminal counts, invalid-reference rejection,
+exact proof sequence/hash and oldest proof age.</li>
+<li>Remove forced materialization of source input and typed rows,
+retaining materialized publication validation and hashes. CASE-guarded
+casts, independent current/replay comparison, all typed fields and the
+v1 codec are unchanged.</li>
+</ul>
+<p>The existing decoder parity, drift, terminal-reference,
+covering-generation, proof-age and lock controls remained unchanged. No
+new tests or source-string checks were added. The earlier
+diagnostic-source quality/core compilation <a
+href="https://carverauto.buildbuddy.io/invocation/199f7d41-6683-447c-800e-becd1ba218e9">passed</a>;
+it is historical evidence, not validation of the corrections.</p>
+<h3 id="execution-and-report-provenance">Execution and report
+provenance</h3>
+<p>The <a
+href="https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70">corrected
+hosted execution</a> validated execution source
+<code>59385424a42dfde36bbf309d7bc7e982a8bd494d</code>, exact tree
+<code>d285ea04053576e13cf028e7ecb58358a578350f</code>, verified by
+hosted preflight. Fresh remote compilation, formatting and Credo <a
+href="https://carverauto.buildbuddy.io/invocation/6bfc7317-c6a9-49f2-ad3d-af01240f0e69">passed
+first</a>. Strict OpenSpec and diff checks were also reported passed by
+the executor.</p>
+<p>Report source: this documentation-only revision based on execution
+source <code>59385424a42dfde36bbf309d7bc7e982a8bd494d</code>. Runtime,
+test, build and configuration inputs are unchanged from that execution.
+The updated report is not an execution at a subsequent documentation
+commit. The original and diagnostic executions above keep their own
+source IDs and failures.</p>
+<h3 id="corrected-measurement-and-plans">Corrected measurement and
+plans</h3>
+<p>The same synthetic workload used 200 devices, 500,000 active facts,
+10,200 resolved facts and 52,551 dimension proofs, with two workers and
+cohorts of at most 32. Only one measurement ran with unchanged controls.
+The two follow-up baseline observations both round to 153 seconds.
+Durations below are rounded; worker sums overlap and must not be added
+as critical-path phases.</p>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>Diagnostic</th>
+<th>Corrected</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Complete audit</td>
+<td>35.95 s</td>
+<td>30.85 s</td>
+<td>Performance failed</td>
+</tr>
+<tr>
+<td>Dimensions</td>
+<td>15.38 s</td>
+<td>14.62 s</td>
+<td>Below 120 s</td>
+</tr>
+<tr>
+<td>Cohort interval</td>
+<td>19.70 s</td>
+<td>15.42 s</td>
+<td>Inclusive interval</td>
+</tr>
+<tr>
+<td>Fact interval union</td>
+<td>12.71 s</td>
+<td>11.845 s</td>
+<td>Failed 6 s screen</td>
+</tr>
+<tr>
+<td>Residual orchestration</td>
+<td>7.86 s</td>
+<td>4.377 s</td>
+<td>Above 0.9 s; assertion not reached</td>
+</tr>
+<tr>
+<td>Summed worker coverage</td>
+<td>10.67 s</td>
+<td>4.77 s</td>
+<td>Overlapping worker time</td>
+</tr>
+<tr>
+<td>Summed worker source facts</td>
+<td>23.53 s</td>
+<td>21.91 s</td>
+<td>Dominant worker cost</td>
+</tr>
+<tr>
+<td>Summed worker warehouse facts</td>
+<td>0.85 s</td>
+<td>0.79 s</td>
+<td>Overlapping worker time</td>
+</tr>
+<tr>
+<td>Summed worker locks</td>
+<td>0.42 s</td>
+<td>0.40 s</td>
+<td>Includes first checkout</td>
+</tr>
+<tr>
+<td>Summed worker result commit</td>
+<td>0.11 s</td>
+<td>0.10 s</td>
+<td>Overlapping worker time</td>
+</tr>
+<tr>
+<td>Summed worker readiness</td>
+<td>1.41 s</td>
+<td>1.36 s</td>
+<td>Overlapping worker time</td>
+</tr>
+</tbody>
+</table>
+<p>Corrected admission was about 75 ms, finish 8 ms, global readiness
+706 ms and cleanup 5 ms. Summed worker lifecycle was about 42 ms and
+source-view setup 19 ms. Proof storage was about 53,000 rows / 9.8 MiB;
+VM memory at completion was about 168 MiB, not peak memory.</p>
+<p>The observed total was roughly 14 percent lower and summed coverage
+roughly 55 percent lower. One warmed shared-lab pair establishes no p95
+or fleet guarantee. Dimension variation must not be attributed to the
+SQL correction. CNPG source work remains dominant.</p>
+<p>The corrected 32-device source-fact plan took about 3.69 s, with
+about 8,000 temporary blocks versus 22,000 before and about 52 ms JIT.
+Only the validated and hashes CTEs remain materialized, preserving
+evaluate-once semantics. The corrected coverage plan took about 0.86 s
+versus 1.78 s, with about 340 temporary blocks versus 7,700. The
+snapshot generation scan ran 32 times versus about 163,000: per-device
+lookup and removal of redundant wide copies are now observed, not
+hypotheses. The corrected coverage plan has no JIT section; no JIT
+configuration changed. EXPLAIN time is separate from measured audit
+time; nested timing and buffer counters must not be summed. Raw plans
+remain private.</p>
+<h3 id="correctness-cleanup-and-test-verdict">Correctness, cleanup and
+Test verdict</h3>
+<p><code>EXPOSURE_AUDIT_PARITY</code> passed 11 cases, two aggregates
+and two engines. The complete <code>EXPOSURE_AUDIT_CONTROLS</code>
+marker passed: generated_binding, replay_drift, late_proof,
+evidence_age, restore_fence, timeout, expiry, cleanup,
+durable_admission, same_count, missing_fact, terminal_reference,
+new_generation, grouped_readiness, per_device_failure, busy_device,
+concurrent_after_images, empty_device and warehouse_only. Lock controls
+cover unordered caller outcomes, busy peer separation, retention during
+the result callback and availability after session exit. These are
+synthetic harness controls, not adopted-runtime JetStream or
+snapshot-finalization validation.</p>
+<p>ExUnit reported one test and one failure solely:
+<code>fact component screen failed; no fleet attempt</code>. There was
+no other error in MultiError. The orchestration assertion was not
+reached, although its measured value exceeds the budget. This is a real
+performance failure, not a setup failure or a passing Test result.</p>
+<p>Canonical observer, teardown and release children succeeded. Every
+owned warehouse table counted zero in both eligible contexts before
+grants were revoked and schemas dropped. Independent schema-absence and
+grant-absence reads passed; all scratch resources are gone.</p>
+<p>The Test phase inspected the supplied execution records and confirmed
+source/tree identity; it did not rerun the forbidden allocation.
+Correctness and cleanup have execution evidence; the performance screen
+remains FAILED. No thresholds, expected failures, runtime code, SQL,
+codec, workers or cohort size changed in this reporting revision. No new
+experiment is authorized.</p>
+<p>Decision for the outer gate: may this disabled research prototype be
+published with the known failed performance screen under an explicit
+Test exception? No exception or performance waiver has been granted or
+inferred. Ordinary full remote repository tests, hosted PR CI and
+substantive review remain required through the outer executor.
+Cold/repeat/fleet runs, process-death injection, production restore
+integration and adoption remain open, as does parent task 1.6.</p>
 </article></details><h2>Complete proposal</h2><details id="proposal" class="source"><summary>Proposal</summary><article><h1
 id="proposal-bounded-exposure-audit-with-shared-dimension-evidence">Proposal:
 bounded exposure audit with shared dimension evidence</h1>
@@ -312,9 +596,10 @@ cohort alone did not solve either cost.</p>
 <p>The <a
 href="https://agentboard.farm01.carverauto.dev/documents/220">measured
 report</a> records the prior experiment and its limits. This prototype's
-separate <a href="#measured-result">measured result</a>
-improves the small-fixture time but still misses the approved component
-screens; fleet capacity remains unproven.</p>
+separate <a
+href="#completed-post-correction-verification">corrected
+measured result</a> improves the small-fixture time but still misses the
+approved component screens; fleet capacity remains unproven.</p>
 <h2 id="what-changes">What Changes</h2>
 <ul>
 <li>Verify each published dimension content version once per bounded
@@ -352,8 +637,13 @@ in the conversation on 2026-10-28. The approval includes cross-view
 reuse of content-bound dimension evidence and the component budgets. The
 implementation is confined to a manual scratch target. The separately
 approved hosted allocation has completed and triggered the
-stop-on-failure rule. No further performance run, a 50-million-row run,
-production adoption or rollout is approved. Task 1.6 remains open.</p>
+stop-on-failure rule. A later explicit native fix decision authorized a
+separately identified small-profile diagnostic follow-up and
+post-correction verification, both now completed. The <a
+href="#completed-post-correction-verification">corrected
+result</a> retains the failed performance screen, passed controls and
+verified cleanup. No repeat, 50-million-row run, production adoption or
+rollout is approved. Task 1.6 remains open.</p>
 <p>See <a href="#prototype">prototype.md</a> for measurements, passed
 controls, cleanup evidence, implemented boundaries and checks that
 remain pending.</p>
@@ -367,8 +657,15 @@ reconciliation audit</h1>
 source is implemented in the manual harness. The approved small-profile
 run passed its implemented controls but failed the fact-comparison
 screen; the measured orchestration time also exceeded its budget. See <a
-href="#prototype">prototype.md</a>. The stop rule applies and the
-fleet gate remains open.</p>
+href="#prototype">prototype.md</a>. The separately approved diagnostic
+follow-up and post-correction verification are complete. Sorted
+session-lock calls, separate timings and actual plans preceded narrow
+evidence-backed query corrections. The corrected run passed implemented
+controls and cleanup but still failed the fact screen; orchestration
+also remains above budget. See the separately attributed <a
+href="#completed-post-correction-verification">corrected
+result</a>. No further allocation, fleet run or adoption is
+authorized.</p>
 <h2 id="evidence-and-objective">Evidence and objective</h2>
 <p>The existing worker compares each device independently. It reads
 referenced dimensions, decodes current and retained assessment
@@ -922,6 +1219,47 @@ migration/backfill cost, restore integration and rollback. Adopt only
 through a separately approved runtime PR and scheduled
 rollout.</label></li>
 </ul>
+<h2 id="4-explicitly-approved-bounded-diagnostic-follow-up">4.
+Explicitly approved bounded diagnostic follow-up</h2>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />4.1 Record the later
+native fix approval for one separate small-profile hosted diagnostic
+allocation. Preserve the original failed report and source
+attribution.</label></li>
+<li><label><input type="checkbox" checked="" />4.2 Add separate
+inclusive phase timings, batch sorted per-device session-lock calls, and
+remove the second measurement. Preserve two workers, 32-device cohorts,
+codec, snapshots, deadlines and all performance assertions.</label></li>
+<li><label><input type="checkbox" checked="" />4.3 Add actual
+source/coverage plan capture outside measured intervals and extend the
+existing contention control for lock retention/release and caller-order
+outcomes.</label></li>
+<li><label><input type="checkbox" checked="" />4.4 Complete prerequisite
+remote format/compile/core-quality through the outer executor, then
+execute the committed exact-tree hosted small-profile verification using
+the canonical lifecycle and fresh scratch schema. Correction execution
+source:
+<code>59385424a42dfde36bbf309d7bc7e982a8bd494d</code>.</label></li>
+<li><label><input type="checkbox" checked="" />4.5 Inspect actual
+diagnostic and corrected plans for physical amplification, intermediate
+widths/copies/spills and replay cost. Evidence confirmed per-device
+generation lookup and reduced wide materialization; no further tuning is
+authorized.</label></li>
+<li><label><input type="checkbox" checked="" />4.6 Record separate
+measured/control verdicts and verified
+row/schema/grant/observer/teardown/release cleanup; refresh the portable
+result with the corrected measurement, preserving both historical
+failures. See <a
+href="#completed-post-correction-verification">corrected
+result</a>.</label></li>
+</ul>
+<p>All approved allocations are spent. The corrected fact screen still
+failed; measured orchestration remains above budget and its assertion
+was not reached. No repetition, new diagnostic or fleet run is
+authorized. Full normal unit and hosted PR CI requirements remain with
+the outer executor. No Test exception or performance waiver is inferred;
+cold/repeat/fleet/process-death/adoption work and parent task 1.6 remain
+open.</p>
 </article></details><details id="workflow" class="source"><summary>Validated workflow diagram</summary><iframe title="Proposed exposure audit workflow" srcdoc="<!DOCTYPE html>
 <html lang=&quot;en&quot; data-theme=&quot;dark&quot; data-preset=&quot;classic&quot;>
 <head>

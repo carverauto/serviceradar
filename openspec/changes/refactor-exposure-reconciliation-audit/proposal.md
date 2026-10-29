@@ -12,7 +12,7 @@ remain material. Increasing the cohort alone did not solve either cost.
 
 The [measured report](https://agentboard.farm01.carverauto.dev/documents/220)
 records the prior experiment and its limits. This prototype's separate
-[measured result](prototype.md#measured-result) improves the small-fixture time
+[corrected measured result](prototype.md#completed-post-correction-verification) improves the small-fixture time
 but still misses the approved component screens; fleet capacity remains unproven.
 
 ## What Changes
@@ -49,8 +49,10 @@ conversation on 2026-10-28. The approval includes cross-view reuse of
 content-bound dimension evidence and the component budgets. The implementation
 is confined to a manual scratch target. The separately approved hosted allocation
 has completed and triggered the stop-on-failure rule. A later explicit native
-fix decision approves one separately identified small-profile diagnostic
-follow-up, documented in prototype.md. No repeat, 50-million-row run, production
+fix decision authorized a separately identified small-profile diagnostic
+follow-up and post-correction verification, both now completed. The
+[corrected result](prototype.md#completed-post-correction-verification) retains
+the failed performance screen, passed controls and verified cleanup. No repeat, 50-million-row run, production
 adoption or rollout is approved. Task 1.6 remains open.
 
 See [prototype.md](prototype.md) for measurements, passed controls, cleanup
