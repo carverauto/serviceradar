@@ -683,14 +683,14 @@ func (h *harness) assertCommittedFixtureValues(t *testing.T, fx *FixtureRecord, 
 	}
 
 	batchRow := h.rpcQueryRow(t, fmt.Sprintf(
-		"SELECT event_id, semantic_envelope_sha256, projected_row_count, committed_row_count FROM platform.edge_sweep_batch_slots WHERE network_scope_id = %s AND execution_id = %s AND execution_shard = %d AND assignment_epoch = %d AND batch_sequence = %d",
+		"SELECT format('%%s/%%s', projected_row_count, committed_row_count) FROM platform.edge_sweep_batch_slots WHERE network_scope_id = %s AND execution_id = %s AND execution_shard = %d AND assignment_epoch = %d AND batch_sequence = %d",
 		uuidLiteral(fx.NetworkScopeID), uuidLiteral(fx.ExecutionID), fx.ExecutionShard, fx.AssignmentEpoch, fx.BatchSequence,
 	))
 	if batchRow == "NONE" {
 		t.Fatalf("edge_sweep_batch_slots row missing for fixture's batch coordinate")
 	}
-	wantCounts := fmt.Sprintf("%d, %d", fx.ProjectedRowCount, fx.ProjectedRowCount)
-	if !strings.Contains(batchRow, wantCounts) {
+	wantCounts := fmt.Sprintf("[\"%d/%d\"]", fx.ProjectedRowCount, fx.ProjectedRowCount)
+	if batchRow != wantCounts {
 		t.Errorf("edge_sweep_batch_slots projected/committed row count mismatch: row=%s want both=%d", batchRow, fx.ProjectedRowCount)
 	}
 
@@ -1393,12 +1393,14 @@ func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point stri
 //     the released delivery is the one that committed. The ack floor then
 //     passes the message.
 //  3. RedeliveryAfterCoreKill appends a fresh entry to the agent's spool, lets
-//     the agent publish it, SIGKILLs the core release before it can ack the
-//     message, restarts core, and waits for the fixture to land. It is the
+//     the agent publish it, holds its first delivery inside its CNPG
+//     transaction with the ingest probe, SIGKILLs the core release while it is
+//     held, restarts core, and waits for the fixture to land. The hold means
+//     the killed delivery cannot have committed or been acknowledged, so the
+//     landing can only come from a redelivery to the restarted core. It is the
 //     only coverage here of core crashing before it acknowledges and then
-//     consuming again after a restart. The kill races EventWriter, so it does
-//     not prove the message was still unacknowledged when core died. The
-//     replacement core gets the ingest probe reinstalled.
+//     consuming again after a restart. The replacement core gets the ingest
+//     probe reinstalled.
 //  4. PositiveAckDoesNotReclaimSpool reads the gateway's EdgeDeliveryAckV1s on
 //     a real session and checks their spool-ID/session-nonce binding and
 //     cumulative resolved_through_sequence with the agent's own
@@ -1547,18 +1549,18 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
+		h.armIngestProbe(t, fx4.EventID, probeBeforeCommit, 1, probeHold)
 		if _, err := h.sp.Append(fx4.EventID, fx4.RecordBytes); err != nil {
 			t.Fatalf("append: %v", err)
 		}
 
-		// Let the agent get it published to NATS (gateway ack does not
-		// depend on core being alive), then SIGKILL core before it can
-		// process/ack it. This is deliberately NOT ReleaseProcess.Stop:
-		// Stop runs the release's graceful `stop` first, which drains the
-		// EventWriter and commits fx4 before exit, so the redelivery path
-		// would never execute. The SIGKILLed process is reaped by the
-		// Stop cleanup newHarness registered for it.
-		time.Sleep(3 * agentPollInterval)
+		// Wait until the agent's publish reaches EventWriter and the probe
+		// holds that first delivery before its commit, then SIGKILL core.
+		// This is deliberately NOT ReleaseProcess.Stop: Stop runs the
+		// release's graceful `stop` first, which drains the EventWriter, so
+		// the redelivery path would never execute. The SIGKILLed process is
+		// reaped by the Stop cleanup newHarness registered for it.
+		h.waitIngestObservation(t, fx4.EventID, probeBeforeCommit, 1)
 		if h.coreProc == nil || h.coreProc.cmd == nil || h.coreProc.cmd.Process == nil {
 			t.Fatal("core release has no OS process to SIGKILL")
 		}

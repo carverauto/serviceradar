@@ -1,8 +1,6 @@
 defmodule ServiceRadarAgentGateway.ApplicationTest do
   use ExUnit.Case, async: false
 
-  alias ServiceRadar.Edge.PublisherLane
-  alias ServiceRadar.Edge.PublisherPool
   alias ServiceRadar.Edge.PublisherSupervisor
 
   test "fails closed when edge listener certs are missing" do
@@ -44,19 +42,8 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
     end
 
     test "ensures the edge publisher lanes are supervised when publishing is enabled" do
-      # "in the child list OR already running" is the real invariant, and it is what makes this
-      # work in both environments. Every core child carries an "already started" guard so core and
-      # the gateway can share a VM, which means PRESENCE alone is environment-dependent: locally
-      # the application is running and the entry is correctly skipped; under Bazel it is not
-      # running and the entry must be present.
-      #
-      # Deleting the entry fails BOTH ways -- nothing composes it and nothing started it -- which
-      # is the mutation this exists to catch.
-      composed? = edge_publisher_lanes_composed?()
-      running? = is_pid(Process.whereis(PublisherSupervisor))
-
-      assert composed? or running?,
-             "the gateway neither composes nor runs the edge publisher lanes; publishes fail closed"
+      assert edge_publisher_lanes_composed?(),
+             "the gateway does not compose the edge publisher lanes; publishes fail closed"
     end
 
     test "omits them entirely when no publisher is enabled" do
@@ -102,10 +89,7 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
         Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: false)
       end)
 
-      composed? = edge_publisher_lanes_composed?()
-      running? = is_pid(Process.whereis(PublisherSupervisor))
-
-      assert composed? or running?,
+      assert edge_publisher_lanes_composed?(),
              "edge_records_publisher alone must be sufficient to start the edge publisher lanes"
     end
   end
