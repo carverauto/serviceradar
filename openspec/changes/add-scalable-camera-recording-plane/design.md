@@ -103,6 +103,11 @@ self-hosted users may view through their local deployment without SaaS.
 
 ## 3. Recording independent of viewers
 
+[Source lifecycle](source-lifecycle.md) specifies the source, recording-assignment
+and cloud-uplink lifetimes, consumer ordering and handoff/reconciliation matrix.
+Those contracts are requirements for the new recorder path, not a claim that
+the current core-attached capture API implements continuous recording.
+
 A recording policy admits a persistent consumer for the camera/profile. Closing
 all browser sessions releases viewer resources only. The source remains active
 while the recording assignment is authorized, including scheduled continuous
@@ -139,6 +144,11 @@ A missed heartbeat or elapsed coordinator lease alone is not proof of physical
 retirement. If the previous owner or volume is unresolved, preserve it and do
 not automatically start a conflicting source/writer. A safe source-side fence
 or an independently proven retirement contract is required for takeover.
+The current `IngestOwnership` expiry and closing-grace behavior fences database
+state only. The new pool path must enforce the retirement evidence in
+[source lifecycle](source-lifecycle.md#assignment-transitions-and-required-evidence)
+before physical takeover; copying that expiry behavior into a remote recorder
+would not satisfy this contract.
 Publication rejects stale current-owner mutations; recovery of legitimately
 sealed historical blocks must use an explicit provenance-checked reconciliation
 path, not bypass that fence. Do not claim zero-gap or exactly-once capture during
