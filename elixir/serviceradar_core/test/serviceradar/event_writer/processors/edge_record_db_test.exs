@@ -6,27 +6,44 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   delivery slot with different bytes must fail with a distinct outcome while
   leaving the first binding immutable.
 
-  Every fixture here is synthetic/invented (random UUIDs, `192.0.2.0/24`
-  TEST-NET-1 addresses, made-up ASCII identifiers) -- there is no live
-  gRPC/JetStream path yet (separate, parallel tasks), so this drives
-  `EdgeRecord.ingest/3` directly with a real wire-encoded `EdgeRecordV1`
-  frame and real transport-provenance headers, the same way every other
-  EventWriter processor is unit-tested directly against `parse_message/1`.
+  Synthetic scheduled leases and wire-encoded records drive the EventWriter
+  ingestion boundary against a real database, including sweep history,
+  execution progress, discovery and availability. The composed transport path
+  is owned by integration_tests/edge_record.
   """
 
   use ServiceRadar.DataCase, async: true
 
+  alias ServiceRadar.Edge.HashGrammar
+  alias ServiceRadar.Edge.IssuerKey
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadar.Edge.RecordValidate
+  alias ServiceRadar.Edge.SemanticDigest
+  alias Serviceradar.Edge.V1.EdgeOutputContractRef
   alias Serviceradar.Edge.V1.EdgeProducerContext
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.SweepHostObservationV1
   alias Serviceradar.Edge.V1.SweepIcmpSummaryV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
   alias Serviceradar.Edge.V1.SweepOpenPortV1
+  alias Serviceradar.Edge.V1.SweepTcpSummaryV1
   alias Serviceradar.Edge.V1.SweepTestV1
   alias ServiceRadar.EventWriter.Processors.EdgeRecord
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Infrastructure.Partition
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Repo
+  alias ServiceRadar.SweepJobs.ExecutionSlots
+  alias ServiceRadar.SweepJobs.LeaseCapabilities
+  alias ServiceRadar.SweepJobs.ProducerAssignments
+  alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.SweepJobs.SweepGroupExecution
+  alias ServiceRadar.SweepJobs.SweepHostResult
+  alias ServiceRadar.SweepJobs.SweepProducerAssignment
+
+  require Ecto.Query
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -52,6 +69,31 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       expected_rows = ProjectionRows.sweep(batch)
       assert length(rows) == length(expected_rows)
       assert length(Enum.uniq(rows)) == length(rows)
+
+      execution_id = Ecto.UUID.cast!(batch.execution_id)
+
+      assert [%{ip: "192.0.2.1", status: :available, open_ports: [443], scanned_ports: [443]}] =
+               Repo.all(
+                 Ecto.Query.from(h in SweepHostResult, where: h.execution_id == ^execution_id)
+               )
+
+      assert %{status: :completed, hosts_total: 1, hosts_available: 1, hosts_failed: 0} =
+               Repo.get!(SweepGroupExecution, execution_id)
+
+      partition = Repo.get!(Partition, Ecto.UUID.cast!(record.network_scope_id)).slug
+
+      device =
+        Repo.one!(
+          Ecto.Query.from(d in Device, where: d.partition == ^partition and d.ip == "192.0.2.1")
+        )
+
+      assert device.is_available
+      assert "sweep" in device.discovery_sources
+
+      assert %{is_available: true, open_ports: [443], execution_id: ^execution_id} =
+               Repo.one!(
+                 Ecto.Query.from(a in DeviceAgentAvailability, where: a.device_uid == ^device.uid)
+               )
     end
 
     test "forced redelivery of the exact same stored frame is an idempotent replay: no duplicate rows" do
@@ -69,6 +111,83 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert ledger_count(record) == 1
       assert sweep_batch_slot_count(record, batch) == 1
       assert projected_row_keys(record) == before_rows
+
+      assert %{hosts_total: 1, hosts_available: 1, hosts_failed: 0} =
+               Repo.get!(SweepGroupExecution, Ecto.UUID.cast!(batch.execution_id))
+    end
+
+    test "microbatches finish only after all distinct planned hosts have results" do
+      frame = build_frame(targets: ["192.0.2.0/30"])
+      execution_id = Ecto.UUID.cast!(frame.batch.execution_id)
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert %{status: :running, hosts_total: 4, hosts_available: 1} =
+               Repo.get!(SweepGroupExecution, execution_id)
+
+      repeated = next_frame(frame, %{frame.batch | batch_sequence: 2})
+      assert {:ok, :inserted} = EdgeRecord.ingest(repeated.record_bytes, repeated.headers, Repo)
+
+      assert %{status: :running, hosts_available: 1, hosts_failed: 0} =
+               Repo.get!(SweepGroupExecution, execution_id)
+
+      [host] = frame.batch.hosts
+
+      unavailable = %{
+        host
+        | address: <<192, 0, 2, 2>>,
+          icmp: %{
+            host.icmp
+            | outcome: :SWEEP_MODE_OUTCOME_TIMED_OUT,
+              target_reached: false,
+              received: 0
+          },
+          tcp: %{host.tcp | outcome: :SWEEP_MODE_OUTCOME_FAILURE, open_count: 0},
+          open_ports: []
+      }
+
+      hosts = [
+        %{host | address: <<192, 0, 2, 0>>},
+        unavailable,
+        %{host | address: <<192, 0, 2, 3>>}
+      ]
+
+      finished = next_frame(repeated, %{frame.batch | batch_sequence: 3, hosts: hosts})
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(finished.record_bytes, finished.headers, Repo)
+
+      assert %{status: :completed, hosts_total: 4, hosts_available: 3, hosts_failed: 1} =
+               Repo.get!(SweepGroupExecution, execution_id)
+
+      assert %{status: :unavailable, open_ports: [], scanned_ports: [443]} =
+               Repo.one!(
+                 Ecto.Query.from(h in SweepHostResult,
+                   where: h.execution_id == ^execution_id and h.ip == "192.0.2.2"
+                 )
+               )
+    end
+
+    test "source correlation and a changed assignment fence reject before domain writes" do
+      frame = build_frame()
+      mismatched = next_frame(frame, %{frame.batch | execution_id: random_uuid(7)})
+
+      assert {:error, {:correlation, :context_id}} =
+               EdgeRecord.ingest(mismatched.record_bytes, mismatched.headers, Repo)
+
+      assert ledger_count(mismatched.record) == 0
+
+      assignment_id = Ecto.UUID.cast!(frame.record.producer_context.producer_assignment_id)
+
+      Repo.update_all(
+        Ecto.Query.from(a in SweepProducerAssignment, where: a.id == ^assignment_id),
+        inc: [authority_epoch: 1]
+      )
+
+      assert {:error, :sweep_assignment_fenced} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert ledger_count(frame.record) == 0
+      assert Repo.get(SweepGroupExecution, Ecto.UUID.cast!(frame.batch.execution_id)) == nil
     end
 
     test "a conflicting frame that reuses the same delivery slot with different bytes fails distinctly and leaves the first binding immutable" do
@@ -138,6 +257,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert delivery_slot_count(record) == 0
       assert sweep_batch_slot_count(record, batch) == 0
       assert projected_row_keys(record) == []
+      assert Repo.get(SweepGroupExecution, Ecto.UUID.cast!(batch.execution_id)) == nil
 
       # Nothing of the rolled-back attempt survives, so a redelivery commits.
       assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
@@ -186,8 +306,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
         nil ->
           {Keyword.get_lazy(opts, :network_scope_id, fn -> random_uuid(4) end),
-           Keyword.get(opts, :agent_id, "agent-01")}
+           Keyword.get(opts, :agent_id, "agent-#{System.unique_integer([:positive])}")}
       end
+
+    actor = ServiceRadar.Actors.SystemActor.system(:edge_record_test)
+    partition = partition!(network_scope_id, actor)
+    network_scope_id = Ecto.UUID.dump!(partition.id)
+    ensure_agent!(agent_id, partition, actor)
 
     spool_id =
       case slot_override do
@@ -208,27 +333,85 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       sequence: sequence
     }
 
-    event_id = Keyword.get_lazy(opts, :event_id, fn -> random_uuid(7) end)
-    execution_id = Keyword.get_lazy(opts, :execution_id, fn -> random_uuid(7) end)
+    event_id =
+      Keyword.get_lazy(opts, :event_id, fn ->
+        Ecto.UUID.dump!(ExecutionSlots.mint_id(DateTime.utc_now()))
+      end)
+
     host_octet = Keyword.get(opts, :host_octet, 1)
+
+    group =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "edge-#{System.unique_integer([:positive])}",
+          partition: partition.slug,
+          enabled: false,
+          interval: "15m",
+          agent_ids: [agent_id],
+          static_targets: Keyword.get(opts, :targets, ["192.0.2.#{host_octet}"]),
+          sweep_modes: ["icmp", "tcp"],
+          ports: [443]
+        },
+        actor: actor
+      )
+      |> Ash.create!()
+
+    {:ok, assignment} = ProducerAssignments.ensure(group.id, agent_id, partition.id)
+    <<event_ms::48, _::80>> = event_id
+    now = DateTime.from_unix!(event_ms, :millisecond)
+
+    {:ok, execution_slot} =
+      ExecutionSlots.schedule(assignment, now, DateTime.add(now, 900),
+        targets: group.static_targets,
+        check_set_sha256: HashGrammar.check_set_digest([{1, 1, 0}, {3, 2, 443}]),
+        lease_id: Ash.UUID.generate()
+      )
+
+    execution_id = Ecto.UUID.dump!(execution_slot.id)
+    key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
+    {:ok, [source]} = LeaseCapabilities.source_authorizations(assignment, execution_slot, key)
+
+    contract = %{
+      contract_id: "serviceradar.sweep.observation",
+      contract_version: 1,
+      contract_bundle_sha256: :crypto.hash(:sha256, "bundle"),
+      registry_epoch: 1,
+      registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+      cost_model_version: 1,
+      max_projected_row_count: 10_000,
+      max_projected_write_bytes: 20_480_000
+    }
+
+    {:ok, production} =
+      LeaseCapabilities.production_capability(assignment, [execution_slot], contract, key, now)
+
+    {:production, claims} = production.claims
 
     batch = %SweepObservationBatchV1{
       execution_id: execution_id,
-      sweep_group_id: random_uuid(7),
+      sweep_group_id: Ecto.UUID.dump!(group.id),
       execution_shard: 0,
       assignment_epoch: 1,
       batch_sequence: 1,
-      observed_at_unix_nano: 1_757_000_000_000_000_000,
+      observed_at_unix_nano: DateTime.to_unix(now, :nanosecond),
+      execution_plan_id: Ecto.UUID.dump!(execution_slot.plan_id),
+      execution_plan_sha256: execution_slot.plan_sha256,
+      target_range_id: source.scope_id,
+      target_range_sha256: source.scope_sha256,
+      availability_policy_id: "any-success-v1",
       tested_checks: [
-        %SweepTestV1{mode: :SWEEP_MODE_ICMP, protocol: :TRANSPORT_PROTOCOL_ICMP, port: 0}
+        %SweepTestV1{mode: :SWEEP_MODE_ICMP, protocol: :TRANSPORT_PROTOCOL_ICMP, port: 0},
+        %SweepTestV1{mode: :SWEEP_MODE_TCP_CONNECT, protocol: :TRANSPORT_PROTOCOL_TCP, port: 443}
       ],
-      configured_mode_bits: 1,
+      configured_mode_bits: 5,
       source: :SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP,
       hosts: [
         %SweepHostObservationV1{
           address: <<192, 0, 2, host_octet>>,
           hostname: "host#{host_octet}.example.com",
-          result_mode_bits: 1,
+          result_mode_bits: 5,
           mode_revision: 1,
           icmp: %SweepIcmpSummaryV1{
             outcome: :SWEEP_MODE_OUTCOME_SUCCESS,
@@ -236,8 +419,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
             sent: 1,
             received: 1
           },
+          tcp: %SweepTcpSummaryV1{
+            outcome: :SWEEP_MODE_OUTCOME_SUCCESS,
+            tested_count: 1,
+            open_count: 1
+          },
           open_ports: [
-            %SweepOpenPortV1{tested_check_index: 0, service: "test"}
+            %SweepOpenPortV1{tested_check_index: 1, service: "https"}
           ]
         }
       ]
@@ -245,20 +433,37 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     payload = SweepObservationBatchV1.encode(batch)
     payload_sha256 = :crypto.hash(:sha256, payload)
-    semantic_envelope_sha256 = :crypto.hash(:sha256, [payload, event_id])
 
     producer_context = %EdgeProducerContext{
       origin_kind: :EDGE_ORIGIN_KIND_AGENT,
       origin_principal_id: agent_id,
-      producer_instance_id: random_uuid(7),
-      run_id: random_uuid(7),
+      producer_instance_id: agent_id,
+      producer_assignment_id: Ecto.UUID.dump!(assignment.id),
+      authority_epoch: assignment.authority_epoch,
+      run_id: Ecto.UUID.dump!(execution_slot.lease_id),
       run_shard: 0,
-      scope_id: network_scope_id,
-      package_id: "edge-record-db-test"
+      scope_id: claims.scope_id,
+      scope_sha256: claims.scope_sha256,
+      package_id: claims.package_id,
+      package_sha256: claims.package_sha256
     }
 
     record = %EdgeRecordV1{
       event_id: event_id,
+      output_contract:
+        struct(
+          EdgeOutputContractRef,
+          Map.take(claims, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      source_authorization: source,
+      production_capability: production,
       payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
       compression: :EDGE_RECORD_COMPRESSION_NONE,
       encoded_size: byte_size(payload),
@@ -271,15 +476,42 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       projected_row_count: length(ProjectionRows.sweep(batch)),
       projected_write_bytes: 0,
       cost_model_version: 1,
-      semantic_envelope_sha256: semantic_envelope_sha256,
       payload: payload
     }
 
+    encode_frame(record, batch, slot)
+  end
+
+  defp next_frame(frame, batch) do
+    payload = SweepObservationBatchV1.encode(batch)
+
+    event_id =
+      Ecto.UUID.dump!(
+        ExecutionSlots.mint_id(DateTime.from_unix!(batch.observed_at_unix_nano, :nanosecond))
+      )
+
+    record = %{
+      frame.record
+      | event_id: event_id,
+        payload: payload,
+        encoded_size: byte_size(payload),
+        uncompressed_size: byte_size(payload),
+        payload_sha256: :crypto.hash(:sha256, payload),
+        projected_row_count: length(ProjectionRows.sweep(batch))
+    }
+
+    encode_frame(record, batch, %{frame.slot | sequence: frame.slot.sequence + 1})
+  end
+
+  defp encode_frame(record, batch, slot) do
+    record = %{record | projected_write_bytes: record.projected_row_count * 2_048}
+    record = %{record | semantic_envelope_sha256: SemanticDigest.compute(record)}
     record_bytes = EdgeRecordV1.encode(record)
+    assert {:ok, _} = RecordValidate.validate_bytes(record_bytes)
     record_sha256 = :crypto.hash(:sha256, record_bytes)
 
     {:ok, nats_msg_id} =
-      PublicationIdentity.nats_msg_id(slot, semantic_envelope_sha256, record_sha256)
+      PublicationIdentity.nats_msg_id(slot, record.semantic_envelope_sha256, record_sha256)
 
     {:ok, delivery_id} = PublicationIdentity.delivery_id(slot)
 
@@ -299,6 +531,44 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     }
 
     %{record_bytes: record_bytes, headers: headers, record: record, batch: batch, slot: slot}
+  end
+
+  defp partition!(bytes, actor) do
+    case Repo.get(Partition, Ecto.UUID.cast!(bytes)) do
+      nil ->
+        slug = "edge-#{System.unique_integer([:positive])}"
+
+        Partition
+        |> Ash.Changeset.for_create(:create, %{name: slug, slug: slug}, actor: actor)
+        |> Ash.create!()
+
+      partition ->
+        partition
+    end
+  end
+
+  defp ensure_agent!(agent_id, partition, actor) do
+    if !Repo.get(Agent, agent_id) do
+      device =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "device-#{agent_id}",
+            ip: "198.51.100.254",
+            partition: partition.slug,
+            hostname: agent_id
+          },
+          actor: actor
+        )
+        |> Ash.create!()
+
+      Agent
+      |> Ash.Changeset.for_create(:register, %{uid: agent_id, device_uid: device.uid},
+        actor: actor
+      )
+      |> Ash.create!()
+    end
   end
 
   # UUID with a canonical version nibble (byte 6) and RFC-variant bits (byte

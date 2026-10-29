@@ -304,6 +304,16 @@
   availability and discovery sources) by reusing
   `ServiceRadar.SweepJobs.SweepResultsIngestor`'s domain logic inside the ledger
   transaction, so a redelivered record changes nothing (narrows 5.3).
+  The initial canary implementation accepts complete ICMP/TCP host windows
+  with `any-success-v1` availability; partial-mode and MTR windows are refused.
+  It binds the current persisted assignment and scheduled execution, applies
+  domain writes only for a new primary event, derives execution progress from
+  distinct host rows, and completes only at the scheduled plan's target count.
+  The canary uses disjoint static targets so that this count matches distinct IPs.
+  The database regression covers domain projection, microbatch completion,
+  replay, source/fence rejection and transaction rollback. This item stays
+  unchecked until the guarded composed E2E proves these writes; audit routing,
+  partial-mode merging and MTR projection remain outside this canary slice.
 - [ ] M2.4 Deployment wiring. Helm values, off by default, enable the gateway
   edge-record publisher, EventWriter's EDGE_RECORD stream and durable, the
   gateway trust snapshot and static contract registry (the landed narrow slices
