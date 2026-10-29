@@ -112,19 +112,17 @@ func ClassifyName(name string) Interface {
 }
 
 // IsHostInternal reports whether the classified interface is loopback, a
-// tunnel, a virtual/container/guest device, or a host-internal bridge/overlay
+// tunnel, or has a host-internal container/guest/bridge/overlay
 // name. Host IP selection and sysmon network metrics use it to skip internal
-// interfaces while keeping physical NICs, bonds, VLANs, and external bridges
+// interfaces while keeping physical and virtual uplinks, bonds, VLANs, and external bridges
 // such as vmbr* and br0.
 func (i Interface) IsHostInternal() bool {
 	if i.Flags&net.FlagLoopback != 0 {
 		return true
 	}
 	switch i.Kind {
-	case KindLoopback, KindVirtual, KindTunnel:
+	case KindLoopback, KindTunnel:
 		return true
-	case KindPhysical, KindBond, KindBridge, KindVLAN, KindUnspecified:
-		return IsHostInternalName(i.Name)
 	default:
 		return IsHostInternalName(i.Name)
 	}

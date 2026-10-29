@@ -47,10 +47,8 @@ func filterNetworkCounters(
 
 	for _, counter := range counters {
 		iface, ok := byName[counter.Name]
-		if !ok && classifyByName != nil {
+		if !ok {
 			iface = classifyByName(counter.Name)
-		} else if !ok {
-			iface.Name = counter.Name
 		}
 		if iface.IsHostInternal() {
 			continue
