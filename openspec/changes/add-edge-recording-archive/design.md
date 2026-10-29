@@ -96,16 +96,8 @@ stay in the unified credential inventory, never a plugin-local secret store.
 ### Capacity and catch-up
 
 [Capacity and acceptance](../add-scalable-camera-recording-plane/capacity-and-acceptance.md)
-is the shared sizing contract. S3 buffer sizing uses admitted peak bitrate times
-outage duration plus measured overhead, in-flight work, cache and journal reserves.
-Local-only retention sizing covers the retained history, holds and failure reserves.
-Physical replication, if selected, increases physical reservation; per-node
-placement, disk throughput and failure/rebuild headroom must also qualify.
-
-For ongoing capture rate `R`, backlog `B` and effective upload rate `U`, backlog
-drains only when `U > R`. Recovery in time `T` requires `U >= R + B/T`. Archive
-retention is a separate duration/budget; do not assume additional compression
-savings for already encoded media. Variable bitrates, object request rate,
+owns the shared sizing formulas, per-mode reservations and recovery qualification.
+Do not assume additional compression savings for already encoded media;
 concurrent reads and metadata overhead belong in measured admission sizing.
 
 ## Rollout
