@@ -1173,6 +1173,42 @@ ex_unit_test(
     deps = INTEGRATION_TEST_DEPS,
 )
 
+# Disabled prototype. Explicit manual target only; never part of ordinary CI or a release.
+ex_unit_test(
+    name = "exposure_reconciliation_audit",
+    size = "enormous",
+    srcs = [
+        "bench/exposure_reconciliation_capacity_test.exs",
+        "bench/exposure_audit_sql.exs",
+        "bench/exposure_audit_state.exs",
+        "bench/exposure_audit_resources.exs",
+        "bench/exposure_audit_readiness.exs",
+        "bench/exposure_audit_prototype.exs",
+        "bench/exposure_audit_controls.exs",
+    ],
+    data = INTEGRATION_RUNTIME_DATA,
+    elixir_opts = [
+        "-r",
+        "test/db/integration_env.exs",
+        "-r",
+        "../../build/elixir_test_config_loader.exs",
+        "-r",
+        "test/test_helper.exs",
+    ],
+    env = dict(
+        integration_test_env("serial_2"),
+        SERVICERADAR_TEST_DATABASE_OWNERSHIP_TIMEOUT_MS = "3600000",
+        EXPOSURE_AUDIT_PROTOTYPE = "1",
+    ),
+    tags = [
+        "external",
+        "integration_test",
+        "manual",
+    ],
+    target_compatible_with = requires_shared_fixture(),
+    deps = INTEGRATION_TEST_DEPS,
+)
+
 # Launched only by the Rust owner that allocates and cleans an isolated Dgraph
 # namespace. Its Repo uses the already migrated, now-quiescent serial_0 clone.
 ex_unit_test(
@@ -1316,6 +1352,7 @@ elixir_quality(
     extra_inputs = [
         "bench/exposure_compaction_capacity_test.exs",
         "bench/exposure_reconciliation_capacity_test.exs",
+        "bench/exposure_audit_*.exs",
         "bench/ownership_replay_spike_test.exs",
         "credo/**/*.ex",
     ],

@@ -1,0 +1,144 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Proposed exposure audit",
+    "quality_profile": "showcase",
+    "locale": "en"
+  },
+  "lanes": [
+    {
+      "id": "audit",
+      "label": "Run evidence"
+    },
+    {
+      "id": "cohort",
+      "label": "Bounded cohort"
+    },
+    {
+      "id": "recovery",
+      "label": "Existing recovery",
+      "variant": "exception"
+    }
+  ],
+  "mainPath": [
+    "open_run",
+    "check_versions",
+    "compare_facts",
+    "publish_checks"
+  ],
+  "nodes": [
+    {
+      "id": "open_run",
+      "lane": "audit",
+      "col": 0,
+      "type": "backend",
+      "label": "Open audit run",
+      "sublabel": "Recovery fence"
+    },
+    {
+      "id": "check_versions",
+      "lane": "audit",
+      "col": 1,
+      "type": "database",
+      "label": "Verify dimensions",
+      "sublabel": "Once per content version",
+      "width": 145
+    },
+    {
+      "id": "compare_facts",
+      "lane": "cohort",
+      "col": 2,
+      "type": "backend",
+      "label": "Compare facts",
+      "sublabel": "Hash current once"
+    },
+    {
+      "id": "publish_checks",
+      "lane": "cohort",
+      "col": 3,
+      "type": "security",
+      "label": "Commit checks",
+      "sublabel": "Recheck readiness"
+    },
+    {
+      "id": "retain_failure",
+      "lane": "recovery",
+      "col": 2,
+      "type": "database",
+      "label": "Retain mismatch",
+      "sublabel": "Bounded repair evidence",
+      "width": 145
+    },
+    {
+      "id": "repair_verify",
+      "lane": "recovery",
+      "col": 3,
+      "type": "messagebus",
+      "label": "Repair and verify",
+      "sublabel": "New sequence via JetStream",
+      "width": 145
+    }
+  ],
+  "edges": [
+    {
+      "from": "open_run",
+      "to": "check_versions",
+      "label": "fenced epoch",
+      "role": "main"
+    },
+    {
+      "from": "check_versions",
+      "to": "compare_facts",
+      "label": "version proof",
+      "role": "main"
+    },
+    {
+      "from": "compare_facts",
+      "to": "publish_checks",
+      "label": "match",
+      "role": "main"
+    },
+    {
+      "from": "compare_facts",
+      "to": "retain_failure",
+      "label": "mismatch",
+      "role": "error"
+    },
+    {
+      "from": "retain_failure",
+      "to": "repair_verify",
+      "label": "source lock",
+      "role": "branch"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "Keep the evidence honest",
+      "items": [
+        "Proofs bind actual dimension content",
+        "Fact hashes read actual stored values",
+        "Old evidence keeps its original age"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Bound the work",
+      "items": [
+        "Two workers; at most 32 devices per cohort",
+        "30-second statements; 60-second source views",
+        "Failures defer affected scopes"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "Approve an experiment first",
+      "items": [
+        "15-minute fleet gate stays unchanged",
+        "Include enumeration and readiness costs",
+        "No rollout or capacity claim yet"
+      ]
+    }
+  ]
+}
