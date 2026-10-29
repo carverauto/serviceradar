@@ -544,7 +544,7 @@ defmodule ServiceRadar.Inventory.Identity.SourceRetirementTest do
       register_identifier(ctx, active.uid, :armis_device_id, "#{ctx.n}-live-3", ctx.id_partition)
 
       :ok =
-        ServiceRadar.Inventory.Identity.Deduplication.open_for_decisions([
+        Deduplication.open_for_decisions([
           %{
             decision_kind: :succession_review,
             reason: "unmarked_retired_review_hold",
