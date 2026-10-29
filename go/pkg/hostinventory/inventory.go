@@ -135,27 +135,6 @@ func (i Interface) IPs() []string {
 	return out
 }
 
-// hostInternalNamePrefixes name container bridges, CNI overlays, guest
-// devices and other interfaces internal to the host. It mirrors
-// ServiceRadar.Inventory.Identity.GuestAddress on the core side.
-var hostInternalNamePrefixes = []string{
-	"docker",
-	"br-",
-	"cni",
-	"flannel",
-	"veth",
-	"virbr",
-	"cali",
-	"vxlan",
-	"tunl",
-	"cilium",
-	"kube-",
-	"weave",
-	"podman",
-	"lxcbr",
-	"lxdbr",
-}
-
 // IsHostInternalName reports whether an interface name is one of the host's
 // internal container, overlay or guest interfaces. It works on every platform,
 // so it is how host IP selection skips them where sysfs is not available.
@@ -164,6 +143,27 @@ func IsHostInternalName(name string) bool {
 	if normalized == "" {
 		return false
 	}
+	// These prefixes name container bridges, CNI overlays, guest
+	// devices and other interfaces internal to the host. It mirrors
+	// ServiceRadar.Inventory.Identity.GuestAddress on the core side.
+	hostInternalNamePrefixes := []string{
+		"docker",
+		"br-",
+		"cni",
+		"flannel",
+		"veth",
+		"virbr",
+		"cali",
+		"vxlan",
+		"tunl",
+		"cilium",
+		"kube-",
+		"weave",
+		"podman",
+		"lxcbr",
+		"lxdbr",
+	}
+
 	for _, prefix := range hostInternalNamePrefixes {
 		if strings.HasPrefix(normalized, prefix) {
 			return true

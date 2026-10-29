@@ -12,22 +12,22 @@ import (
 // ARPHRD types (include/uapi/linux/if_arp.h) of interfaces that carry no
 // Ethernet link of their own: IP-in-IP, IPv6 tunnels, SIT, GRE, IPv6 GRE, and
 // ARPHRD_NONE (tun, WireGuard).
-var tunnelLinkTypes = map[string]bool{
-	"768":   true,
-	"769":   true,
-	"776":   true,
-	"778":   true,
-	"823":   true,
-	"65534": true,
+func isTunnelLinkType(linkType string) bool {
+	switch linkType {
+	case "768", "769", "776", "778", "823", "65534":
+		return true
+	default:
+		return false
+	}
 }
 
-var tunnelDevTypes = map[string]bool{
-	"wireguard": true,
-	"ipip":      true,
-	"gre":       true,
-	"sit":       true,
-	"ip6tnl":    true,
-	"geneve":    true,
+func isTunnelDevType(devType string) bool {
+	switch devType {
+	case "wireguard", "ipip", "gre", "sit", "ip6tnl", "geneve":
+		return true
+	default:
+		return false
+	}
 }
 
 // ClassifySysfs classifies one interface from a Linux sysfs net tree rooted at
@@ -83,7 +83,7 @@ func sysfsKind(dir string, iface net.Interface) Kind {
 			return KindVirtual
 		}
 		return KindTunnel
-	case tunnelDevTypes[devType] || tunnelLinkTypes[readTrimmed(filepath.Join(dir, "type"))]:
+	case isTunnelDevType(devType) || isTunnelLinkType(readTrimmed(filepath.Join(dir, "type"))):
 		return KindTunnel
 	// A physical NIC has a bus device behind it. An SR-IOV virtual function
 	// does too, but its physfn link names the NIC it belongs to.

@@ -46,6 +46,23 @@ func hostIdentity(configured string, inventory func() []hostInterface) hostIdent
 // identify the host, so nothing is left out for being a bridge, a guest
 // device or a container interface: it is reported as one.
 func hostInterfacesProto(interfaces []hostInterface) []*proto.HostInterface {
+	hostInterfaceKinds := map[hostinventory.Kind]proto.HostInterfaceKind{
+		hostinventory.KindPhysical: proto.HostInterfaceKind_HOST_INTERFACE_KIND_PHYSICAL,
+		hostinventory.KindBond:     proto.HostInterfaceKind_HOST_INTERFACE_KIND_BOND,
+		hostinventory.KindBridge:   proto.HostInterfaceKind_HOST_INTERFACE_KIND_BRIDGE,
+		hostinventory.KindVLAN:     proto.HostInterfaceKind_HOST_INTERFACE_KIND_VLAN,
+		hostinventory.KindVirtual:  proto.HostInterfaceKind_HOST_INTERFACE_KIND_VIRTUAL,
+		hostinventory.KindTunnel:   proto.HostInterfaceKind_HOST_INTERFACE_KIND_TUNNEL,
+		hostinventory.KindLoopback: proto.HostInterfaceKind_HOST_INTERFACE_KIND_LOOPBACK,
+	}
+
+	macProvenances := map[hostinventory.MACProvenance]proto.MacProvenance{
+		hostinventory.ProvenancePermanent: proto.MacProvenance_MAC_PROVENANCE_PERMANENT,
+		hostinventory.ProvenanceRandom:    proto.MacProvenance_MAC_PROVENANCE_RANDOM,
+		hostinventory.ProvenanceInherited: proto.MacProvenance_MAC_PROVENANCE_INHERITED,
+		hostinventory.ProvenanceAssigned:  proto.MacProvenance_MAC_PROVENANCE_ASSIGNED,
+	}
+
 	out := make([]*proto.HostInterface, 0, len(interfaces))
 	for _, iface := range interfaces {
 		if iface.Kind == hostinventory.KindLoopback || iface.Flags&net.FlagLoopback != 0 {
@@ -69,23 +86,6 @@ func hostInterfacesProto(interfaces []hostInterface) []*proto.HostInterface {
 	}
 
 	return out
-}
-
-var hostInterfaceKinds = map[hostinventory.Kind]proto.HostInterfaceKind{
-	hostinventory.KindPhysical: proto.HostInterfaceKind_HOST_INTERFACE_KIND_PHYSICAL,
-	hostinventory.KindBond:     proto.HostInterfaceKind_HOST_INTERFACE_KIND_BOND,
-	hostinventory.KindBridge:   proto.HostInterfaceKind_HOST_INTERFACE_KIND_BRIDGE,
-	hostinventory.KindVLAN:     proto.HostInterfaceKind_HOST_INTERFACE_KIND_VLAN,
-	hostinventory.KindVirtual:  proto.HostInterfaceKind_HOST_INTERFACE_KIND_VIRTUAL,
-	hostinventory.KindTunnel:   proto.HostInterfaceKind_HOST_INTERFACE_KIND_TUNNEL,
-	hostinventory.KindLoopback: proto.HostInterfaceKind_HOST_INTERFACE_KIND_LOOPBACK,
-}
-
-var macProvenances = map[hostinventory.MACProvenance]proto.MacProvenance{
-	hostinventory.ProvenancePermanent: proto.MacProvenance_MAC_PROVENANCE_PERMANENT,
-	hostinventory.ProvenanceRandom:    proto.MacProvenance_MAC_PROVENANCE_RANDOM,
-	hostinventory.ProvenanceInherited: proto.MacProvenance_MAC_PROVENANCE_INHERITED,
-	hostinventory.ProvenanceAssigned:  proto.MacProvenance_MAC_PROVENANCE_ASSIGNED,
 }
 
 func selectHostIdentity(configured string, interfaces []hostInterface) (string, []string) {
