@@ -41,7 +41,7 @@ defmodule ServiceRadar.SweepJobs.LeaseCapabilitiesTest do
 
     slots =
       for start <- [~U[2026-10-01 12:00:00Z], ~U[2026-10-01 12:15:00Z]] do
-        slot(assignment, lease_id, start, DateTime.add(start, 900, :second))
+        slot(assignment, lease_id, start, DateTime.shift(start, minute: 15))
       end
 
     {:ok, assignment: assignment, slots: slots, lease_id: lease_id}

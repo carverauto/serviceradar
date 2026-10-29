@@ -186,6 +186,9 @@ func (s *SweepService) RunOnceForExecution(ctx context.Context, executionID stri
 func (s *SweepService) runAndRetain(ctx context.Context, run func(context.Context) error) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
+	if err := sweeper.CheckExecution(ctx); err != nil {
+		return err
+	}
 	s.mu.Lock()
 	s.sweepRunInProgress = true
 	s.mu.Unlock()

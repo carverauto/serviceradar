@@ -20,7 +20,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
        ctx do
     group = create_group!(ctx)
     assignment = assign!(group, "agent-a")
-    slot_start = DateTime.add(DateTime.utc_now(), 3600, :second)
+    slot_start = DateTime.shift(DateTime.utc_now(), hour: 1)
 
     slot = schedule!(assignment, slot_start)
 
@@ -44,7 +44,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
   test "an assignment has one scheduled slot per start time", ctx do
     group = create_group!(ctx)
     assignment = assign!(group, "agent-a")
-    slot_start = DateTime.add(DateTime.utc_now(), 3600, :second)
+    slot_start = DateTime.shift(DateTime.utc_now(), hour: 1)
 
     schedule!(assignment, slot_start)
 
@@ -59,8 +59,8 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     assert {:error, {:target_too_wide, _}} =
              ExecutionSlots.schedule(
                assignment,
-               DateTime.add(DateTime.utc_now(), 60, :second),
-               DateTime.add(DateTime.utc_now(), 360, :second),
+               DateTime.shift(DateTime.utc_now(), minute: 1),
+               DateTime.shift(DateTime.utc_now(), minute: 6),
                targets: ["2001:db8::/48"],
                check_set_sha256: :crypto.hash(:sha256, "checks"),
                lease_id: Ash.UUID.generate()
@@ -75,9 +75,9 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     b = assign!(group, "agent-b")
     now = DateTime.utc_now()
 
-    past = schedule!(a, DateTime.add(now, -3600, :second))
-    future_a = schedule!(a, DateTime.add(now, 3600, :second))
-    future_b = schedule!(b, DateTime.add(now, 3600, :second))
+    past = schedule!(a, DateTime.shift(now, hour: -1))
+    future_a = schedule!(a, DateTime.shift(now, hour: 1))
+    future_b = schedule!(b, DateTime.shift(now, hour: 1))
 
     assert {:ok, 1} = ProducerAssignments.revoke_agents(group.id, ["agent-a"])
 
@@ -90,7 +90,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     group = create_group!(ctx)
     keep = assign!(group, "agent-keep")
     drop = assign!(group, "agent-drop")
-    at = DateTime.add(DateTime.utc_now(), 3600, :second)
+    at = DateTime.shift(DateTime.utc_now(), hour: 1)
 
     kept = schedule!(keep, at)
     dropped = schedule!(drop, at)
@@ -104,7 +104,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
   test "a reissued assignment schedules the same start after its slot was dropped", ctx do
     group = create_group!(ctx)
     assignment = assign!(group, "agent-a")
-    slot_start = DateTime.add(DateTime.utc_now(), 3600, :second)
+    slot_start = DateTime.shift(DateTime.utc_now(), hour: 1)
     dropped = schedule!(assignment, slot_start)
 
     assert {:ok, 1} = ProducerAssignments.revoke_agents(group.id, ["agent-a"])
@@ -154,7 +154,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
   end
 
   defp do_schedule(assignment, slot_start) do
-    ExecutionSlots.schedule(assignment, slot_start, DateTime.add(slot_start, 300, :second),
+    ExecutionSlots.schedule(assignment, slot_start, DateTime.shift(slot_start, minute: 5),
       targets: ["198.51.100.5", "192.0.2.9/24"],
       check_set_sha256: :crypto.hash(:sha256, "checks"),
       lease_id: Ash.UUID.generate()

@@ -26,8 +26,8 @@ import (
 //
 // Recording one verdict per vector would hide the thing most worth knowing. For an
 // out-of-range field number or a 10-byte overflow varint Go's WIRE PARSER refuses the bytes
-// (ErrRecordDecode), while protobuf-elixir accepts them and it is the project-owned
-// `WireValidate` preflight that refuses (`:poison`). For an unknown field or a group it is
+// (ErrRecordDecode). Elixir preflight refuses both; its parser also refuses the
+// out-of-range tag, while scalar overflow still requires preflight. For an unknown field or a group it is
 // the reverse shape: Go PARSES and RETAINS, then ServiceRadar's own `hasUnknownFields` walk
 // rejects. Same accept/reject verdict, different mechanism -- so the manifest carries a
 // column per runtime and the claim being frozen is the VERDICT, not the layer.

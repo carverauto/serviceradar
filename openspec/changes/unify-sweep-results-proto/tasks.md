@@ -112,7 +112,7 @@
       `design.md`.
     - [x] M2.0b2 Scheduled executions. Pre-minted executions are
       `sweep_execution_slots` rows, separate from `sweep_group_executions`
-      (migration `20260929090000`). The row, why it is not a
+      (migration `20260929095000`). The row, why it is not a
       `sweep_group_executions` row, the drop-not-delete rule, and the
       scheduled-only uniqueness of
       `(producer_assignment_id, slot_start)` are Schedule lease in `design.md`.

@@ -28,7 +28,9 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 // Sweep lease execution (openspec/changes/unify-sweep-results-proto, M2.0e):
@@ -201,7 +203,7 @@ func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunn
 			continue
 		}
 
-		e.runSlot(ctx, runner, groupID, current, slot, executionID.String(), now)
+		e.runSlot(ctx, runner, groupID, current, slot, executionID.String(), clock)
 	}
 }
 
@@ -268,7 +270,8 @@ func sweepLeaseSlot(lease *edgev1.SweepLeaseV1, executionID string) *edgev1.Swee
 	return nil
 }
 
-func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunner, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, executionID string, now time.Time) {
+func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunner, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, executionID string, clock func() time.Time) {
+	now := clock()
 	nowNano := now.UnixNano()
 
 	if err := validateSweepLeaseSlot(lease, slot, nowNano); err != nil {
@@ -294,7 +297,18 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 		return
 	}
 
-	err := runner.RunSweepGroupExecution(ctx, groupID, executionID)
+	runCtx, cancel := context.WithTimeout(ctx, time.Duration(slot.GetCollectionExpiresUnixNano()-clock().UnixNano()))
+	defer cancel()
+	runCtx = sweeper.WithExecutionCheck(runCtx, func() error {
+		current := e.store.Get(groupID)
+		installed := sweepLeaseSlot(current, executionID)
+		now := clock().UnixNano()
+		if current == nil || !proto.Equal(installed, slot) || e.store.Executed(groupID, executionID) || now < slot.GetSlotStartUnixNano() || now >= slot.GetCollectionExpiresUnixNano() {
+			return errors.New("leased sweep slot is no longer executable")
+		}
+		return validateSweepLeaseSlot(current, installed, now)
+	})
+	err := runner.RunSweepGroupExecution(runCtx, groupID, executionID)
 	if err != nil && (errors.Is(err, errSweepGroupNotFound) || errors.Is(err, errSweepRunnerUnavailable)) {
 		// The group's service is not running yet (its config push may lag
 		// the lease push); retry until the collection window closes.

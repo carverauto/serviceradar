@@ -35,11 +35,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.LeaseHorizonsTest do
 
   test "a horizon 48 hours and 30 minutes out stays labeled 2d left" do
     now = ~U[2026-10-12 12:00:00Z]
-    through = DateTime.add(now, 48 * 3600 + 30 * 60, :second)
+    through = DateTime.shift(now, second: 48 * 3600 + 30 * 60)
 
     assert LeaseHorizons.format_remaining(through, now) == "2d left"
 
-    assert LeaseHorizons.format_remaining(through, DateTime.add(now, 29 * 60, :second)) ==
+    assert LeaseHorizons.format_remaining(through, DateTime.shift(now, minute: 29)) ==
              "2d left"
   end
 

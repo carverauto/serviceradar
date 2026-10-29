@@ -1324,11 +1324,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
   defp insert_lease_delivery!(group_id, agent_id) do
     now = DateTime.truncate(DateTime.utc_now(), :second)
-    acknowledged_through = DateTime.add(now, 48 * 3600 + 30 * 60, :second)
+    acknowledged_through = DateTime.shift(now, second: 48 * 3600 + 30 * 60)
     digest = String.duplicate("a", 64)
 
     SQL.query!(
-      ServiceRadar.Repo,
+      Repo,
       """
       INSERT INTO platform.sweep_lease_deliveries (
         producer_assignment_id,

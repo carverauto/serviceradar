@@ -34,6 +34,6 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsTest do
     assert {:error, :invalid_window} = ExecutionSlots.schedule(assignment, at, at, [])
 
     assert {:error, :invalid_window} =
-             ExecutionSlots.schedule(assignment, at, DateTime.add(at, -1), [])
+             ExecutionSlots.schedule(assignment, at, DateTime.shift(at, second: -1), [])
   end
 end

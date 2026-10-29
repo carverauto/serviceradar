@@ -62,3 +62,17 @@ func TestSweepResultsStreamTimeoutScalesWithChunkCount(t *testing.T) {
 	require.Equal(t, 40*time.Second, sweepResultsStreamTimeout(10))
 	require.Equal(t, maxSweepResultsStreamTimeout, sweepResultsStreamTimeout(10_000))
 }
+
+func TestCronGroupRemainsManualAcrossLeaseAndConfigChanges(t *testing.T) {
+	group := SweepGroupConfig{SweepGroupID: "cron-group", ScheduleType: "cron", Networks: []string{"192.0.2.0/30"}}
+	service, err := NewMultiSweepService(&ServerConfig{AgentID: "synthetic-agent"}, []SweepGroupConfig{group}, createTestLogger())
+	require.NoError(t, err)
+	require.Contains(t, service.groups, group.SweepGroupID)
+	manual := service.groups[group.SweepGroupID].sweeper.(interface{ ManualSchedule() bool })
+	require.True(t, manual.ManualSchedule())
+	service.SetGroupLeaseDriven(group.SweepGroupID, true)
+	service.SetGroupLeaseDriven(group.SweepGroupID, false)
+	require.True(t, manual.ManualSchedule())
+	require.NoError(t, service.UpdateSweepGroups(&SweepGroupsConfig{Groups: []SweepGroupConfig{group}}))
+	require.True(t, manual.ManualSchedule())
+}

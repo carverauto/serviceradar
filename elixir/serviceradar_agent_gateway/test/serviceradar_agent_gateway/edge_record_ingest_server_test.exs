@@ -106,6 +106,13 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
     assert publication.semantic_envelope_sha256 == record.semantic_envelope_sha256
     refute Map.has_key?(publication, :delivery_mode)
 
+    expected_disposition = %EdgeRecordDisposition{
+      sequence: 1,
+      event_id: event_id,
+      kind: @accepted,
+      rejection_code: ""
+    }
+
     assert_receive {:edge_record_stream_reply,
                     %EdgeRecordServerMessage{
                       payload:
@@ -114,9 +121,7 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                            spool_id: @spool_id,
                            resolved_through_sequence: 1,
                            session_nonce: @session_nonce,
-                           dispositions: [
-                             %EdgeRecordDisposition{sequence: 1, event_id: ^event_id, kind: @accepted, rejection_code: ""}
-                           ]
+                           dispositions: [^expected_disposition]
                          }}
                     }}
 
@@ -248,7 +253,14 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServerTest do
                         {:ack,
                          %EdgeDeliveryAckV1{
                            resolved_through_sequence: 1,
-                           dispositions: [%EdgeRecordDisposition{sequence: 1, event_id: "", kind: @permanent, rejection_code: "REJECTED_PERMANENT"}]
+                           dispositions: [
+                             %EdgeRecordDisposition{
+                               sequence: 1,
+                               event_id: "",
+                               kind: @permanent,
+                               rejection_code: "REJECTED_PERMANENT"
+                             }
+                           ]
                          }}
                     }}
 
