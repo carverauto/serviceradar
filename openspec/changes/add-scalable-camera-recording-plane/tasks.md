@@ -1,12 +1,11 @@
 # Implementation plan
 
-This is a planning checkpoint. Every implementation and deployment task remains
-open until its own evidence exists. The synthetic capacity ladder is a target,
+Implementation and deployment tasks remain open until their own evidence exists. The synthetic capacity ladder is a target,
 not a shipped camera-count guarantee.
 
 ## 1. Contracts and qualification design
 
-- [ ] 1.1 Review/approve the three supported modes, independent recorder tier and no-JetStream-media decision.
+- [x] 1.1 Review/approve the three supported modes, independent recorder tier and no-JetStream-media decision.
 - [ ] 1.2 Specify source routing/consumer lifecycle and assignment/handoff transitions, including all crash and partition boundaries.
 - [ ] 1.3 Specify finite offline grants, conservative expiry/reboot behavior and provenance-checked historical reconciliation without weakening stale-owner fences.
 - [ ] 1.4 Define local durable publication/restore/hold guarantees separately from provisional spool and S3 archive proofs.
@@ -22,6 +21,14 @@ not a shipped camera-count guarantee.
 - [ ] 2.3 Route cloud and customer-local ingest to the assigned recorder; preserve agent ownership and bounded authenticated media transport.
 - [ ] 2.4 Maintain recording without viewers and enforce Membrane fan-out from one source and one edge-to-cloud live uplink per camera/profile across concurrent viewers and relay replicas; preserve current viewer-only behavior.
 - [ ] 2.5 Implement drained handoff, fencing, volume preservation, restart recovery and explicit unresolved/gap states.
+
+Agent-local shared-ingest checkpoint for 2.4/2.5: relay admission reserves the
+normalized source/profile before opening upstream, and holds that reservation
+through source teardown even when a Stop caller times out. Plugin Close waits
+for executor cleanup and slot release. Distinct cameras/profiles remain
+independent. This closes duplicate admission within one agent manager; it does
+not implement cross-agent fencing, recorder pools or continuous recording, so
+2.4 and 2.5 remain open.
 
 ## 3. Storage modes and recovery
 

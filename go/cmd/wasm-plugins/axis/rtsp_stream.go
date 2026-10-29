@@ -23,16 +23,19 @@ func streamAxisRTSP(cfg StreamConfig, timeout time.Duration) error {
 	defer func() { _ = conn.Close() }()
 
 	client := sdk.NewRTSPClient(conn, timeout, endpoint)
+	// Keep the path-only endpoint for SDP control resolution, but use absolute
+	// RTSP request targets on the wire, including the client's deferred teardown.
+	client.Endpoint.RequestURI = endpoint.BaseURL + endpoint.RequestURI
 	closeReason := "rtsp stream closed"
 	defer func() {
 		_ = client.Teardown()
 	}()
 
-	if _, err := client.DoRequest("OPTIONS", endpoint.RequestURI, nil); err != nil {
+	if _, err := client.DoRequest("OPTIONS", client.Endpoint.RequestURI, nil); err != nil {
 		return err
 	}
 
-	describe, err := client.DoRequest("DESCRIBE", endpoint.RequestURI, map[string]string{
+	describe, err := client.DoRequest("DESCRIBE", client.Endpoint.RequestURI, map[string]string{
 		"Accept": "application/sdp",
 	})
 	if err != nil {
@@ -57,7 +60,7 @@ func streamAxisRTSP(cfg StreamConfig, timeout time.Duration) error {
 	}
 	client.Session = session
 
-	if _, err := client.DoRequest("PLAY", endpoint.RequestURI, nil); err != nil {
+	if _, err := client.DoRequest("PLAY", client.Endpoint.RequestURI, nil); err != nil {
 		return err
 	}
 

@@ -18,6 +18,36 @@ CAMERA_RTSP_FIXTURE_DEPS = [
     "@com_github_pion_rtp//:rtp",
 ]
 
+# Isolated production source/executor lifecycle, with disposable protocol peers.
+go_test(
+    name = "camera_shared_runtime_test",
+    size = "medium",
+    srcs = [
+        "camera_rtsp_recording_fixture_test.go",
+        "camera_shared_runtime_test.go",
+    ],
+    args = [
+        "-test.run=^TestCameraSharedRuntime",
+        "-test.timeout=120s",
+        "-test.v",
+    ],
+    data = [
+        "//build/wasm_plugins:axis_camera_wasm",
+        "//third_party/membrane:media_test_tools",
+    ],
+    embed = [":agent"],
+    exec_properties = {"test.network": "off"},
+    gotags = ["camera_recording_fixture"],
+    deps = CAMERA_RTSP_FIXTURE_DEPS + [
+        "//go/pkg/agentgateway",
+        "//go/pkg/logger",
+        "//proto",
+        "@com_github_rs_zerolog//:zerolog",
+        "@io_bazel_rules_go//go/runfiles",
+        "@org_golang_google_grpc//:grpc",
+    ],
+)
+
 # Only the owning recording_rtsp_tests target invokes this package test binary,
 # supplying newly generated H264. Embedding the real library reaches its private
 # RTSP receiver without adding a production API solely for fixture capture.

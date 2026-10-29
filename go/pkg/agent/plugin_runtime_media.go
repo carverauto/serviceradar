@@ -52,6 +52,7 @@ type pluginCameraMediaHeartbeat struct {
 type pluginCameraRelayStream struct {
 	cancel context.CancelFunc
 	chunks chan *cameraRelayChunk
+	done   chan struct{}
 
 	closeOnce sync.Once
 	mu        sync.Mutex
@@ -72,6 +73,7 @@ func newPluginCameraRelayStream(cancel context.CancelFunc) *pluginCameraRelayStr
 	return &pluginCameraRelayStream{
 		cancel: cancel,
 		chunks: make(chan *cameraRelayChunk, defaultCameraRelayUploadBatch*2),
+		done:   make(chan struct{}),
 	}
 }
 
@@ -91,7 +93,9 @@ func (s *pluginCameraRelayStream) Close() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	s.finish(io.EOF)
+	// Cancellation requests shutdown; only the executor returning proves that
+	// its camera sockets and admission slot have been released.
+	<-s.done
 	return nil
 }
 
