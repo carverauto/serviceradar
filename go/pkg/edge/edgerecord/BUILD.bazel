@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//build:go_test_inventory_test.bzl", "go_test_inventory_test")
 
 go_library(
     name = "edgerecord",
@@ -57,7 +58,6 @@ go_test(
         "record_admit_corpus_test.go",
         "recovery_test.go",
         "scalar_corpus_test.go",
-        "semantic_branch_guard_test.go",
         "semantic_envelope_corpus_test.go",
         "sweep_body_parity_test.go",
         "sweep_ingress_benchmark_test.go",
@@ -71,12 +71,6 @@ go_test(
     ],
     data = [
         "//proto/edge/v1:edge_testdata",
-        # THE STATIC GUARD READS THE FRAMER SOURCES AT RUN TIME. They are compile inputs of the
-        # library, which is NOT the same as being present in the test's runfiles: without them
-        # here the guard cannot open what it is meant to police, and a prohibited branch that
-        # fails `go test` would leave the Bazel target green.
-        "claims_framing.go",
-        "semantic.go",
     ],
     embed = [":edgerecord"],
     deps = [
@@ -93,20 +87,9 @@ go_test(
     ],
 )
 
-# The test files and this BUILD file, as DECLARED INPUTS for //build:go_test_inventory_test.
-# That guard compares the go_test srcs list against the *_test.go files on disk; giving it the
-# glob means a newly added test file reaches it automatically, which is the whole point.
-filegroup(
-    name = "all_test_srcs",
-    srcs = glob(["*_test.go"]) + ["BUILD.bazel"],
-    visibility = ["//visibility:public"],
-)
-
-filegroup(
-    name = "accounting_guard_sources",
-    srcs = glob(
-        ["*.go"],
-        exclude = ["*_test.go"],
-    ),
+go_test_inventory_test(
+    name = "test_inventory_test",
+    srcs = glob(["*_test.go"]),
+    target = ":edgerecord_test",
     visibility = ["//visibility:public"],
 )

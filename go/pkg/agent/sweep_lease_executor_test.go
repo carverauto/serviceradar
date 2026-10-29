@@ -21,6 +21,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -265,7 +266,7 @@ func TestSweepLeaseExecutorRunsDueSlotOnceAcrossRestart(t *testing.T) {
 	fixture.install(t, built.lease)
 
 	now := testSlotStart.Add(time.Minute)
-	fixture.executor.step(context.Background(), now)
+	fixture.executor.step(context.Background(), func() time.Time { return now })
 
 	require.True(t, fixture.sweeper.manualSchedule, "leased group must come off its local ticker")
 	require.Equal(t, 1, fixture.sweeper.runCount)
@@ -288,7 +289,7 @@ func TestSweepLeaseExecutorRunsDueSlotOnceAcrossRestart(t *testing.T) {
 	require.True(t, reopened.Executed(fixture.group, built.executionID))
 
 	restarted := newSweepLeaseExecutor(reopened, func() sweepLeaseRunner { return fixture.multi }, nil, logger.NewTestLogger())
-	restarted.step(context.Background(), now)
+	restarted.step(context.Background(), func() time.Time { return now })
 	require.Equal(t, 1, fixture.sweeper.runCount, "executed slot must not re-run after restart")
 }
 
@@ -302,11 +303,11 @@ func TestSweepLeaseExecutorClockFloorBlocksDueSlot(t *testing.T) {
 	built := buildExecutableLease(t, testSlotStart.Add(10*time.Minute), testSlotStart, nil)
 	fixture.install(t, built.lease)
 
-	fixture.executor.step(context.Background(), testSlotStart.Add(time.Minute))
+	fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(time.Minute) })
 	require.Equal(t, 0, fixture.sweeper.runCount, "due slot must be refused while the clock is behind the issuance floor")
 	require.False(t, fixture.store.Executed(fixture.group, built.executionID), "clock refusal must not settle the slot")
 
-	fixture.executor.step(context.Background(), testSlotStart.Add(6*time.Minute))
+	fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(6 * time.Minute) })
 	require.Equal(t, 1, fixture.sweeper.runCount)
 	require.True(t, fixture.store.Executed(fixture.group, built.executionID))
 }
@@ -321,7 +322,7 @@ func TestSweepLeaseExecutorRefusesSlotWithBrokenRangeBinding(t *testing.T) {
 	})
 	fixture.install(t, built.lease)
 
-	fixture.executor.step(context.Background(), testSlotStart.Add(time.Minute))
+	fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(time.Minute) })
 
 	require.Equal(t, 0, fixture.sweeper.runCount, "a slot with a broken range binding must never run")
 	require.True(t, fixture.store.Executed(fixture.group, built.executionID), "terminal refusal must settle the slot")
@@ -339,7 +340,7 @@ func TestSweepLeaseExecutorRevocationRestoresLocalTicker(t *testing.T) {
 	built := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
 	fixture.install(t, built.lease)
 
-	fixture.executor.step(context.Background(), testLeaseIssuedAt.Add(time.Minute))
+	fixture.executor.step(context.Background(), func() time.Time { return testLeaseIssuedAt.Add(time.Minute) })
 	require.True(t, fixture.sweeper.manualSchedule)
 
 	revoked := testLeasePush(100, 101)
@@ -347,7 +348,7 @@ func TestSweepLeaseExecutorRevocationRestoresLocalTicker(t *testing.T) {
 	_, err := fixture.store.Install(revoked, fixture.group)
 	require.NoError(t, err)
 
-	fixture.executor.step(context.Background(), testLeaseIssuedAt.Add(2*time.Minute))
+	fixture.executor.step(context.Background(), func() time.Time { return testLeaseIssuedAt.Add(2 * time.Minute) })
 	require.False(t, fixture.sweeper.manualSchedule, "revoked group must return to its local ticker")
 	require.Equal(t, 0, fixture.sweeper.runCount)
 }
@@ -368,7 +369,7 @@ func TestSweepLeaseExecutorBindsExecutionIDToTheSweepThatFinished(t *testing.T) 
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		fixture.executor.step(context.Background(), testSlotStart.Add(90*time.Second))
+		fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(90 * time.Second) })
 	}()
 
 	select {
@@ -408,7 +409,7 @@ func TestSweepLeaseExecutorPublishesEveryCatchUpSlot(t *testing.T) {
 	fixture.install(t, lease)
 	fixture.service.sweeper = newSameSecondSweeper()
 
-	fixture.executor.step(context.Background(), testSlotStart.Add(90*time.Second))
+	fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(90 * time.Second) })
 
 	first, err := fixture.multi.GetSweepResults(context.Background(), "")
 	require.NoError(t, err)
@@ -475,7 +476,7 @@ func TestSweepLeaseExecutorRetriesFailedSlot(t *testing.T) {
 	fixture.sweeper.runErr = errors.New("scanner failed")
 
 	now := testSlotStart.Add(time.Minute)
-	fixture.executor.step(context.Background(), now)
+	fixture.executor.step(context.Background(), func() time.Time { return now })
 
 	require.Equal(t, 1, fixture.sweeper.runCount)
 	require.False(t, fixture.store.Executed(fixture.group, built.executionID))
@@ -487,7 +488,7 @@ func TestSweepLeaseExecutorRetriesFailedSlot(t *testing.T) {
 	require.Equal(t, sweepLeaseStateActive, leaseStatus["state"])
 
 	fixture.sweeper.runErr = nil
-	fixture.executor.step(context.Background(), now)
+	fixture.executor.step(context.Background(), func() time.Time { return now })
 	require.Equal(t, 2, fixture.sweeper.runCount)
 	require.True(t, fixture.store.Executed(fixture.group, built.executionID))
 }
@@ -506,7 +507,7 @@ func TestSweepLeaseExecutorRevokeDuringPassSkipsRemainingSlots(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	fixture.executor.step(context.Background(), testSlotStart.Add(90*time.Second))
+	fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(90 * time.Second) })
 
 	require.Equal(t, 1, fixture.sweeper.runCount)
 	require.False(t, fixture.store.Executed(fixture.group, firstID))
@@ -537,7 +538,7 @@ func TestSweepLeaseExecutorSkipsSlotRemovedDuringPass(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	fixture.executor.step(context.Background(), testSlotStart.Add(90*time.Second))
+	fixture.executor.step(context.Background(), func() time.Time { return testSlotStart.Add(90 * time.Second) })
 
 	require.Equal(t, 1, fixture.sweeper.runCount)
 	require.True(t, fixture.store.Executed(fixture.group, firstID))
@@ -761,3 +762,99 @@ func (*sameSecondSweeper) GetBannerGrabStats() *models.BannerGrabStats {
 	return nil
 }
 func (*sameSecondSweeper) SetManualSchedule(bool) {}
+
+func TestSweepLeaseExecutorDoesNotDispatchSlotsExpiredDuringScan(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	lease, firstID, secondID := twoDueLeaseSlots(t)
+	fixture.install(t, lease)
+	now := testSlotStart.Add(90 * time.Second)
+	fixture.sweeper.onRun = func() { now = testSlotStart.Add(20 * time.Minute) }
+
+	wait := fixture.executor.step(context.Background(), func() time.Time { return now })
+
+	require.Equal(t, 1, fixture.sweeper.runCount)
+	require.True(t, fixture.store.Executed(fixture.group, firstID))
+	require.False(t, fixture.store.Executed(fixture.group, secondID))
+	require.Equal(t, sweepLeaseExecutorMaxWait, wait)
+	status, err := fixture.multi.GetStatus(context.Background())
+	require.NoError(t, err)
+	state := sweepLeaseStates(t, status.Message)[fixture.group]
+	require.Equal(t, sweepLeaseStateExhausted, state["state"])
+	require.Equal(t, float64(0), state["slots_remaining"])
+}
+
+func TestSweepLeaseExecutorRefreshesClockBetweenGroups(t *testing.T) {
+	fixture := newLeaseExecutorFixture(t)
+	first := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
+	fixture.install(t, first.lease)
+	otherGroup := uuid.MustParse("eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee")
+	second := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, func(lease *edgev1.SweepLeaseV1) {
+		lease.SweepGroupId = otherGroup[:]
+		lease.ProductionCapability.GetProduction().ScopeId = otherGroup[:]
+	})
+	_, err := fixture.store.Install(second.lease, otherGroup.String())
+	require.NoError(t, err)
+	fixture.multi.groups[otherGroup.String()] = fixture.service
+	fixture.multi.groupOrder = append(fixture.multi.groupOrder, otherGroup.String())
+	now := testSlotStart.Add(time.Minute)
+	fixture.sweeper.onRun = func() { now = testSlotStart.Add(20 * time.Minute) }
+	fixture.executor.step(context.Background(), func() time.Time { return now })
+	require.Equal(t, 1, fixture.sweeper.runCount)
+}
+
+type metadataSweeper struct {
+	*sameSecondSweeper
+	cancelled bool
+	scanner   models.ScannerStats
+	banner    models.BannerGrabStats
+}
+
+func (s *metadataSweeper) WasCancelledSweep() bool                     { return s.cancelled }
+func (s *metadataSweeper) GetScannerStats() *models.ScannerStats       { return &s.scanner }
+func (s *metadataSweeper) GetBannerGrabStats() *models.BannerGrabStats { return &s.banner }
+
+func TestRetainedSweepCompletionMetadata(t *testing.T) {
+	for _, cancelled := range []bool{false, true} {
+		t.Run(fmt.Sprint(cancelled), func(t *testing.T) {
+			sweeper := &metadataSweeper{sameSecondSweeper: newSameSecondSweeper(), cancelled: cancelled}
+			sweeper.scanner.PacketsSent = 11
+			sweeper.banner.ProbesTotal = 7
+			service := &SweepService{sweeper: sweeper, config: &models.Config{}, logger: logger.NewTestLogger()}
+			require.NoError(t, service.RunOnceForExecution(context.Background(), "first"))
+			sweeper.cancelled = !cancelled
+			sweeper.scanner.PacketsSent = 23
+			sweeper.banner.ProbesTotal = 17
+			require.NoError(t, service.RunOnceForExecution(context.Background(), "second"))
+
+			sequence := ""
+			for i, expected := range []struct {
+				id              string
+				cancelled       bool
+				packets, probes uint64
+			}{
+				{"first", cancelled, 11, 7}, {"second", !cancelled, 23, 17},
+			} {
+				response, err := service.GetSweepResults(context.Background(), sequence)
+				require.NoError(t, err)
+				require.Equal(t, expected.id, response.ExecutionId)
+				var data struct {
+					Cancelled bool                   `json:"cancelled"`
+					Scanner   models.ScannerStats    `json:"scanner_stats"`
+					Banner    models.BannerGrabStats `json:"banner_grab"`
+				}
+				require.NoError(t, json.Unmarshal(response.Data, &data))
+				require.Equal(t, expected.cancelled, data.Cancelled)
+				require.Equal(t, expected.packets, data.Scanner.PacketsSent)
+				require.Equal(t, expected.probes, data.Banner.ProbesTotal)
+				require.Equal(t, expected.packets, response.SweepCompletion.ScannerStats.PacketsSent)
+				require.Equal(t, int64(1_700_000_000), response.SweepCompletion.CompletionTime)
+				if i == 0 {
+					retry, err := service.GetSweepResults(context.Background(), "")
+					require.NoError(t, err)
+					require.Equal(t, response.Data, retry.Data)
+				}
+				sequence = response.CurrentSequence
+			}
+		})
+	}
+}

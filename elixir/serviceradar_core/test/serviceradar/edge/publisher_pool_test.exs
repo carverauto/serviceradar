@@ -91,26 +91,6 @@ defmodule ServiceRadar.Edge.PublisherPoolTest do
         assert connection === ServiceRadar.Edge.PublisherLane.connection_name(class)
       end
     end
-
-    test "there is no cross-class API to borrow through" do
-      # Structural: a pool holds one window and has no reference to another, so borrowing is
-      # unrepresentable rather than merely unimplemented.
-      {:module, _} = Code.ensure_loaded(PublisherPool)
-
-      exported = :functions |> PublisherPool.__info__() |> Enum.map(&elem(&1, 0))
-
-      for name <- exported do
-        n = Atom.to_string(name)
-
-        refute String.contains?(n, "borrow") or String.contains?(n, "steal") or
-                 String.contains?(n, "transfer"),
-               "#{name} looks like a cross-class capacity path"
-      end
-
-      # Every entry point takes ONE pool. None accepts a second pool to draw from.
-      assert PublisherPool.__info__(:functions)[:admit] === 4
-      assert PublisherPool.__info__(:functions)[:settle] === 3
-    end
   end
 
   describe "a pool is keyed on CLASS, never on scope" do

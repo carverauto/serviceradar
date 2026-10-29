@@ -107,7 +107,7 @@ func newSweepLeaseExecutor(store *sweepLeaseStore, runnerFor func() sweepLeaseRu
 // the push loop; gateway connection state plays no part in it.
 func (e *sweepLeaseExecutor) run(ctx context.Context) {
 	for {
-		wait := e.step(ctx, time.Now())
+		wait := e.step(ctx, time.Now)
 
 		timer := time.NewTimer(wait)
 		select {
@@ -124,7 +124,7 @@ func (e *sweepLeaseExecutor) run(ctx context.Context) {
 // step makes one pass at now: it syncs which groups are lease-driven, runs
 // every due slot, refreshes each leased group's reported state, and returns
 // how long to sleep before the next pass.
-func (e *sweepLeaseExecutor) step(ctx context.Context, now time.Time) time.Duration {
+func (e *sweepLeaseExecutor) step(ctx context.Context, clock func() time.Time) time.Duration {
 	wait := sweepLeaseExecutorMaxWait
 	runner := e.runnerFor()
 	groups := e.store.Groups()
@@ -142,9 +142,7 @@ func (e *sweepLeaseExecutor) step(ctx context.Context, now time.Time) time.Durat
 			e.driven[groupID] = true
 		}
 
-		if groupWait := e.runGroup(ctx, runner, groupID, now); groupWait < wait {
-			wait = groupWait
-		}
+		e.runGroup(ctx, runner, groupID, clock)
 
 		// A revocation during the pass must hand the group back in this pass.
 		if e.store.Get(groupID) == nil {
@@ -163,6 +161,12 @@ func (e *sweepLeaseExecutor) step(ctx context.Context, now time.Time) time.Durat
 		delete(e.driven, groupID)
 	}
 
+	for groupID := range installed {
+		if groupWait := e.reportGroup(runner, groupID, clock()); groupWait < wait {
+			wait = groupWait
+		}
+	}
+
 	if wait < sweepLeaseExecutorMinWait {
 		wait = sweepLeaseExecutorMinWait
 	}
@@ -170,17 +174,10 @@ func (e *sweepLeaseExecutor) step(ctx context.Context, now time.Time) time.Durat
 	return wait
 }
 
-// runGroup runs one group's due slots and reports its lease state. The
-// returned wait is when this group next needs attention. Each slot is read
-// from the store again so a revocation or replacement during this pass is
-// not executed from the snapshot step started with.
-func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunner, groupID string, now time.Time) time.Duration {
-	nowNano := now.UnixNano()
-	wait := sweepLeaseExecutorMaxWait
-
+func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunner, groupID string, clock func() time.Time) {
 	initial := e.store.Get(groupID)
 	if initial == nil {
-		return wait
+		return
 	}
 
 	for _, listed := range initial.GetSlots() {
@@ -191,9 +188,11 @@ func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunn
 
 		current := e.store.Get(groupID)
 		if current == nil {
-			return wait
+			return
 		}
 
+		now := clock()
+		nowNano := now.UnixNano()
 		slot := sweepLeaseSlot(current, executionID.String())
 		if slot == nil || slot.GetCollectionExpiresUnixNano() <= nowNano || slot.GetSlotStartUnixNano() > nowNano {
 			continue
@@ -202,11 +201,13 @@ func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunn
 			continue
 		}
 
-		if retryIn := e.runSlot(ctx, runner, groupID, current, slot, executionID.String(), now); retryIn > 0 && retryIn < wait {
-			wait = retryIn
-		}
+		e.runSlot(ctx, runner, groupID, current, slot, executionID.String(), now)
 	}
+}
 
+func (e *sweepLeaseExecutor) reportGroup(runner sweepLeaseRunner, groupID string, now time.Time) time.Duration {
+	nowNano := now.UnixNano()
+	wait := sweepLeaseExecutorMaxWait
 	current := e.store.Get(groupID)
 	if current == nil {
 		return wait
@@ -232,10 +233,9 @@ func (e *sweepLeaseExecutor) runGroup(ctx context.Context, runner sweepLeaseRunn
 			nextStart = slot.GetSlotStartUnixNano()
 		}
 
-		if slot.GetSlotStartUnixNano() > nowNano {
-			if until := time.Duration(slot.GetSlotStartUnixNano() - nowNano); until < wait {
-				wait = until
-			}
+		nextEligible := max(slot.GetSlotStartUnixNano(), current.GetProductionCapability().GetNotBeforeUnixNano()-edgerecord.MaxClockToleranceNano)
+		if until := max(time.Duration(nextEligible-nowNano), sweepLeaseExecutorMinWait); until < wait {
+			wait = until
 		}
 	}
 
@@ -268,12 +268,7 @@ func sweepLeaseSlot(lease *edgev1.SweepLeaseV1, executionID string) *edgev1.Swee
 	return nil
 }
 
-// runSlot executes one due slot. A positive return asks for a retry after
-// that long (clock floor, no group service yet, or a sweep that did not
-// finish). Zero means the slot is settled: it ran, or it was terminally
-// refused. A failed or skipped run stays due until its collection window
-// closes.
-func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunner, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, executionID string, now time.Time) time.Duration {
+func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunner, groupID string, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, executionID string, now time.Time) {
 	nowNano := now.UnixNano()
 
 	if err := validateSweepLeaseSlot(lease, slot, nowNano); err != nil {
@@ -283,12 +278,7 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 				Str("execution_id", executionID).
 				Msg("Refusing leased sweep slot until the wall clock reaches the lease issuance floor")
 
-			floor := lease.GetProductionCapability().GetNotBeforeUnixNano() - edgerecord.MaxClockToleranceNano
-			if until := time.Duration(floor - nowNano); until > 0 {
-				return until
-			}
-
-			return sweepLeaseExecutorMinWait
+			return
 		}
 
 		e.logger.Error().Err(err).
@@ -297,11 +287,11 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 			Msg("Refusing invalid leased sweep slot")
 		e.markExecuted(groupID, executionID, slot, now)
 
-		return 0
+		return
 	}
 
 	if runner == nil {
-		return sweepLeaseExecutorMinWait
+		return
 	}
 
 	err := runner.RunSweepGroupExecution(ctx, groupID, executionID)
@@ -313,7 +303,7 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 			Str("execution_id", executionID).
 			Msg("Leased sweep slot waiting for its group service")
 
-		return sweepLeaseExecutorMinWait
+		return
 	}
 
 	if err != nil {
@@ -322,7 +312,7 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 			Str("execution_id", executionID).
 			Msg("Leased sweep slot run failed; it stays due until the collection window closes")
 
-		return sweepLeaseExecutorMinWait
+		return
 	}
 
 	e.logger.Info().
@@ -332,8 +322,6 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 		Msg("Ran leased sweep slot")
 
 	e.markExecuted(groupID, executionID, slot, now)
-
-	return 0
 }
 
 func (e *sweepLeaseExecutor) markExecuted(groupID string, executionID string, slot *edgev1.SweepLeaseSlotV1, now time.Time) {
