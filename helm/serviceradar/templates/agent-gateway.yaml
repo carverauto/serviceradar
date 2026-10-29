@@ -40,7 +40,7 @@
 {{- if hasKey $gateway "otlpRelayPublishEnabled" -}}
 {{- $otlpRelayPublishEnabled = $gateway.otlpRelayPublishEnabled -}}
 {{- end -}}
-{{- $natsPublishingEnabled := or $sysmonMetricsEnabled $snmpMetricsEnabled $pluginMetricsEnabled $otlpRelayPublishEnabled -}}
+{{- $natsPublishingEnabled := or $sysmonMetricsEnabled $snmpMetricsEnabled $pluginMetricsEnabled $otlpRelayPublishEnabled (default dict .Values.edgeRecords).enabled -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
