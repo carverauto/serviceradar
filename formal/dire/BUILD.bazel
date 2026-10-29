@@ -339,6 +339,27 @@ tlc_test(
     deps = ["DireResolution.tla"],
 )
 
+# A Proxmox node with no MAC, known to an integration and running an agent, links to the agent
+# through its node certificate (#6146).
+tlc_test(
+    name = "resolution_goal_integration_agent_cert_test",
+    size = "medium",
+    cfg = "resolution_goal_integration_agent_cert.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+# Same-named nodes, each with its own node certificate and agent, never fuse (#6146).
+tlc_test(
+    name = "resolution_goal_integration_clones_cert_test",
+    size = "medium",
+    cfg = "resolution_goal_integration_clones_cert.cfg",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
 tlc_test(
     name = "resolution_goal_armis_reissued_ids_test",
     size = "medium",
@@ -370,6 +391,15 @@ tlc_test(
     name = "resolution_vacuity_agent_links_known_host_test",
     cfg = "resolution_vacuity_agent_links_known_host.cfg",
     expect = "violation:NeverAgentOnDiscoveredRecord",
+    spec = "MCDireResolution.tla",
+    deps = ["DireResolution.tla"],
+)
+
+# The goal links an agent to its Proxmox node's integration record through the node certificate.
+tlc_test(
+    name = "resolution_vacuity_agent_links_node_cert_test",
+    cfg = "resolution_vacuity_agent_links_node_cert.cfg",
+    expect = "violation:NeverAgentOnIntegrationRecord",
     spec = "MCDireResolution.tla",
     deps = ["DireResolution.tla"],
 )
@@ -459,6 +489,16 @@ tlc_test(
     name = "resolution_unsafe_hostname_adopts_across_integration_ids_test",
     size = "medium",
     cfg = "resolution_unsafe_hostname_adopts_across_integration_ids.cfg",
+    expect = "violation:NoFalseMerge",
+    spec = "MCDireResolution.tla",
+    workers = 8,
+    deps = ["DireResolution.tla"],
+)
+
+tlc_test(
+    name = "resolution_unsafe_shared_certificate_identifies_test",
+    size = "medium",
+    cfg = "resolution_unsafe_shared_certificate_identifies.cfg",
     expect = "violation:NoFalseMerge",
     spec = "MCDireResolution.tla",
     workers = 8,
@@ -1035,6 +1075,30 @@ tlc_test(
     cfg = "traces/Trace_integration_hostname_conflict.cfg",
     expect = "violation:TraceIncomplete",
     spec = "traces/Trace_integration_hostname_conflict.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_integration_agent_cert_links_test",
+    cfg = "traces/Trace_integration_agent_cert_links.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_integration_agent_cert_links.tla",
+    deps = [
+        "CurrentBugs.tla",
+        "DireResolution.tla",
+        "DireResolutionTrace.tla",
+    ],
+)
+
+tlc_test(
+    name = "trace_same_name_distinct_certs_test",
+    cfg = "traces/Trace_same_name_distinct_certs.cfg",
+    expect = "violation:TraceIncomplete",
+    spec = "traces/Trace_same_name_distinct_certs.tla",
     deps = [
         "CurrentBugs.tla",
         "DireResolution.tla",

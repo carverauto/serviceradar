@@ -23,7 +23,8 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
     :armis_device_id,
     :integration_id,
     :netbox_device_id,
-    :hardware_serial
+    :hardware_serial,
+    :tls_certificate_fingerprint
   ]
   @provisional_promotion_required_repeat_count 2
 
@@ -118,6 +119,12 @@ defmodule ServiceRadar.Inventory.Identity.Registrar do
         canonical_id,
         :hardware_serial,
         Ids.ids_get(ids, :hardware_serial),
+        partition
+      )
+      |> maybe_add_identifier(
+        canonical_id,
+        :tls_certificate_fingerprint,
+        Ids.ids_get(ids, :tls_certificate_fingerprint),
         partition
       )
       |> add_mac_identifiers(canonical_id, ids, partition)

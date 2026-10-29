@@ -18,6 +18,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
   alias ServiceRadar.Inventory.Identity.GuestAddress
   alias ServiceRadar.Inventory.Identity.SourceAuthorityGuard
   alias ServiceRadar.Inventory.Identity.SourceRetirement
+  alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.IntegrationIdentity
   alias ServiceRadar.Inventory.MergeAudit
@@ -1224,6 +1225,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       "hypervisor_provider" => Map.get(record, :provider),
       "hypervisor_provider_ref" => provider_ref
     }
+    |> maybe_put(TlsCertificateFingerprint.metadata_key(), record_node_certificate(record, role))
     |> maybe_put("hypervisor_guest_type", Map.get(record, :guest_type))
     |> maybe_put("hypervisor_host_provider_ref", Map.get(record, :host_provider_ref))
     |> maybe_put("hypervisor_vmid", Map.get(record, :vmid))
@@ -1232,6 +1234,24 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
     |> maybe_put_legacy_integration_ids(legacy_integration_ids)
     |> maybe_put_proxmox_candidate(record, role)
   end
+
+  # A node's own certificate fingerprint, read by the inventory, is the strong
+  # identifier that links the node to the agent running on it.
+  defp record_node_certificate(record, :hypervisor) do
+    record
+    |> Map.get(:metadata)
+    |> case do
+      %{} = metadata ->
+        TlsCertificateFingerprint.normalize(
+          Map.get(metadata, TlsCertificateFingerprint.metadata_key())
+        )
+
+      _ ->
+        nil
+    end
+  end
+
+  defp record_node_certificate(_record, _role), do: nil
 
   defp maybe_put_mac_addresses(metadata, []), do: metadata
 

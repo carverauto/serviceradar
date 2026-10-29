@@ -320,6 +320,7 @@ message AgentHelloRequest {
   // that predate host_interfaces; a core that reads host_interfaces decides identity from them.
   repeated string host_macs = 12;
   repeated HostInterface host_interfaces = 13; // The host's own interface inventory, classified
+  repeated HostTlsFingerprint host_tls_fingerprints = 14; // Certificates the host's own services present
 }
 
 // The kind of a local interface, as the agent's operating system describes it.
@@ -355,6 +356,15 @@ message HostInterface {
   HostInterfaceKind kind = 6;
   MacProvenance mac_provenance = 7; // How the current MAC was assigned
   string master = 8;                // The bridge or bond this interface is enslaved to, if any
+}
+
+// A TLS certificate a service on the agent's own host presents, by the SHA-256 of the leaf
+// certificate's DER encoding. The agent reports only the Proxmox VE node certificate
+// (pve-ssl.pem, OU "PVE Cluster Node") that pveproxy serves on port 8006: it is generated per
+// node, so it identifies the node. A custom or ACME certificate is never reported.
+message HostTlsFingerprint {
+  uint32 port = 1;   // Local port the certificate was presented on
+  string sha256 = 2; // Lowercase hex SHA-256 of the leaf certificate DER
 }
 
 // AgentHelloResponse is returned by the gateway after validating the agent.
@@ -528,6 +538,7 @@ message ControlStreamHello {
   // leaves the stored section statuses unchanged.
   repeated ConfigSectionStatus config_section_statuses = 14;
   repeated HostInterface host_interfaces = 15; // The host's own interface inventory, classified
+  repeated HostTlsFingerprint host_tls_fingerprints = 16; // Certificates the host's own services present
 }
 
 // CommandRequest represents a command sent to the agent.

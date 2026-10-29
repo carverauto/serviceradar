@@ -58,6 +58,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       master: ""
     }
 
+    @pve_node_certificate %Monitoring.HostTlsFingerprint{
+      port: 8006,
+      sha256: String.duplicate("0f", 32)
+    }
+
+    @pve_node_certificate_attrs %{port: 8006, sha256: String.duplicate("0f", 32)}
+
     @physical_nic_attrs %{
       name: "eno1",
       mac: "00:00:5e:00:53:01",
@@ -77,13 +84,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         arch: "amd64",
         host_ip: "192.0.2.10",
         host_macs: ["00:00:5e:00:53:01"],
-        host_interfaces: [@physical_nic]
+        host_interfaces: [@physical_nic],
+        host_tls_fingerprints: [@pve_node_certificate]
       }
 
       attrs = AgentGatewayServer.device_attrs_from_request("partition-1", request, "192.0.2.10")
 
       assert attrs.host_macs == ["00:00:5e:00:53:01"]
       assert attrs.host_interfaces == [@physical_nic_attrs]
+      assert attrs.host_tls_fingerprints == [@pve_node_certificate_attrs]
       assert attrs.source_ip == "192.0.2.10"
       assert attrs.partition == "partition-1"
     end
@@ -96,13 +105,15 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         arch: "amd64",
         host_ip: "192.0.2.11",
         host_macs: ["00:00:5e:00:53:02", "00:00:5e:00:53:03"],
-        host_interfaces: [@physical_nic]
+        host_interfaces: [@physical_nic],
+        host_tls_fingerprints: [@pve_node_certificate]
       }
 
       attrs = AgentGatewayServer.device_attrs_from_request("partition-2", hello, "192.0.2.11")
 
       assert attrs.host_macs == ["00:00:5e:00:53:02", "00:00:5e:00:53:03"]
       assert attrs.host_interfaces == [@physical_nic_attrs]
+      assert attrs.host_tls_fingerprints == [@pve_node_certificate_attrs]
       assert attrs.source_ip == "192.0.2.11"
       assert attrs.partition == "partition-2"
     end
@@ -118,6 +129,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
       assert attrs.host_macs == []
       assert attrs.host_interfaces == []
+      assert attrs.host_tls_fingerprints == []
     end
 
     test "control-stream hello without host_macs is backward compatible" do
@@ -131,6 +143,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
 
       assert attrs.host_macs == []
       assert attrs.host_interfaces == []
+      assert attrs.host_tls_fingerprints == []
     end
 
     # A gateway or core built before host_interfaces decodes a hello with the schema it was built

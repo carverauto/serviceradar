@@ -351,6 +351,60 @@ func nodeManagementMACs(node proxmoxNode) []string {
 	return out
 }
 
+// pveNodeCertificateFile is the certificate Proxmox VE generates for each node,
+// with its own key, signed by the cluster CA. It is the only certificate used as
+// node identity: a custom or ACME pveproxy-ssl.pem can be one wildcard
+// certificate shared by many nodes or clusters, so it never identifies a node.
+const pveNodeCertificateFile = "pve-ssl.pem"
+
+// nodeCertificateFingerprint returns the node's pve-ssl.pem SHA-256 fingerprint
+// as "pve:sha256:<64 lowercase hex>", or "" when the node did not report one.
+func nodeCertificateFingerprint(certificates []proxmoxCertificateInfo) string {
+	for _, certificate := range certificates {
+		if strings.TrimSpace(certificate.Filename) != pveNodeCertificateFile {
+			continue
+		}
+
+		if hex := normalizeSHA256Fingerprint(certificate.Fingerprint); hex != "" {
+			return "pve:sha256:" + hex
+		}
+	}
+
+	return ""
+}
+
+// normalizeSHA256Fingerprint accepts the API's "AB:CD:..." form (or bare hex)
+// and returns 64 lowercase hex characters, or "" when it is not a SHA-256.
+func normalizeSHA256Fingerprint(value string) string {
+	hex := strings.ToLower(strings.ReplaceAll(strings.TrimSpace(value), ":", ""))
+	if len(hex) != 64 {
+		return ""
+	}
+
+	for _, r := range hex {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return ""
+		}
+	}
+
+	return hex
+}
+
+// withNodeCertificateFingerprint adds the node certificate fingerprint to a
+// discovered node's metadata, the same value the enrichment path carries.
+func withNodeCertificateFingerprint(metadata map[string]any, fingerprint string) map[string]any {
+	if fingerprint == "" {
+		return metadata
+	}
+
+	if metadata == nil {
+		metadata = make(map[string]any)
+	}
+	metadata["tls_certificate_fingerprint"] = fingerprint
+
+	return metadata
+}
+
 // proxmoxDeviceMetadata assembles the identity metadata a discovered device
 // carries: the canonical integration_id, lookup-only legacy bridges, and the
 // full MAC set. Returns nil when there is nothing to emit so the device omits

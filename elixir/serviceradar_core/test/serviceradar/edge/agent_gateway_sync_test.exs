@@ -21,6 +21,8 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.DistinctDeviceAssertion
   alias ServiceRadar.Inventory.IdentityDecision
+  alias ServiceRadar.Inventory.IntegrationIdentity
+  alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
@@ -1603,6 +1605,170 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     end
   end
 
+  # A Proxmox VE node's own certificate (pve-ssl.pem) is unique to the node: the inventory reads
+  # its fingerprint from the PVE API and the agent on the node from the certificate its local
+  # pveproxy serves. The shared value links a node the API reports with no MAC to its agent.
+  describe "agent host identity by Proxmox node certificate" do
+    test "an agent with no MAC links to its node's record by the node certificate", %{
+      actor: actor
+    } do
+      uniq = System.unique_integer([:positive, :monotonic])
+      certificate = node_certificate()
+      scope = proxmox_scope()
+      host_ref = ingest_proxmox_node!(actor, scope, uniq, "node#{uniq}", certificate)
+      [node_uid] = live_holders(:integration_id, host_ref)
+      agent_id = "agent-pve-#{uniq}"
+
+      assert {:ok, ^node_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "node#{uniq}.example.com",
+                 source_ip: doc_ip(uniq, 1),
+                 partition: "default",
+                 capabilities: ["sysmon"],
+                 host_tls_fingerprints: [%{port: 8006, sha256: certificate}]
+               })
+
+      assert identifiers(node_uid, actor) ==
+               Enum.sort([
+                 {:agent_id, agent_id},
+                 {:integration_id, host_ref},
+                 {:tls_certificate_fingerprint, "pve:sha256:" <> certificate}
+               ])
+    end
+
+    # Records split before the plugin and agent releases that report the certificate converge on
+    # one device once both have reported it, whichever release lands first.
+    test "a node and its agent split before the certificate was reported converge on one record",
+         %{actor: actor} do
+      for agent_first? <- [true, false] do
+        uniq = System.unique_integer([:positive, :monotonic])
+        certificate = node_certificate()
+        scope = proxmox_scope()
+        host_ref = ingest_proxmox_node!(actor, scope, uniq, "node#{uniq}", nil)
+        agent_id = "agent-pve-split-#{uniq}"
+        attrs = %{hostname: "node#{uniq}", source_ip: doc_ip(uniq, 1), partition: "default"}
+
+        assert {:ok, agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+        assert [node_uid] = live_holders(:integration_id, host_ref)
+        refute agent_uid == node_uid
+
+        report_node = fn ->
+          ^host_ref = ingest_proxmox_node!(actor, scope, uniq, "node#{uniq}", certificate)
+        end
+
+        report_agent = fn ->
+          {:ok, _uid} =
+            AgentGatewaySync.ensure_device_for_agent(
+              agent_id,
+              Map.put(attrs, :host_tls_fingerprints, [%{port: 8006, sha256: certificate}])
+            )
+        end
+
+        steps =
+          if agent_first?, do: [report_agent, report_node], else: [report_node, report_agent]
+
+        Enum.each(steps, & &1.())
+
+        assert [uid] = live_holders(:agent_id, agent_id)
+        assert live_holders(:integration_id, host_ref) == [uid]
+      end
+    end
+
+    test "same-named nodes with distinct certificates never fuse", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      [site_a_certificate, site_b_certificate] = [node_certificate(), node_certificate()]
+
+      site_a_ref =
+        ingest_proxmox_node!(actor, proxmox_scope(), uniq, "node#{uniq}", site_a_certificate)
+
+      site_b_ref =
+        ingest_proxmox_node!(actor, proxmox_scope(), uniq, "node#{uniq}", site_b_certificate)
+
+      [site_a_uid] = live_holders(:integration_id, site_a_ref)
+      [site_b_uid] = live_holders(:integration_id, site_b_ref)
+      refute site_a_uid == site_b_uid
+      agent_id = "agent-pve-site-b-#{uniq}"
+
+      assert {:ok, ^site_b_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "node#{uniq}",
+                 source_ip: doc_ip(uniq, 1),
+                 partition: "default",
+                 host_tls_fingerprints: [%{port: 8006, sha256: site_b_certificate}]
+               })
+
+      assert identifiers(site_a_uid, actor) ==
+               Enum.sort([
+                 {:integration_id, site_a_ref},
+                 {:tls_certificate_fingerprint, "pve:sha256:" <> site_a_certificate}
+               ])
+    end
+
+    # A node certificate copied with a cloned node's configuration is one value on two hosts.
+    # Once both agents hold their own devices, the shared value never merges them.
+    test "two agents reporting one certificate keep their own devices", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      certificate = node_certificate()
+
+      enroll = fn n, fingerprints ->
+        assert {:ok, uid} =
+                 AgentGatewaySync.ensure_device_for_agent("agent-pve-clone-#{n}-#{uniq}", %{
+                   hostname: "node#{uniq}",
+                   source_ip: doc_ip(uniq, n),
+                   partition: "default",
+                   host_tls_fingerprints: fingerprints
+                 })
+
+        uid
+      end
+
+      [first_uid, second_uid] = for n <- 1..2, do: enroll.(n, [])
+      shared = [%{port: 8006, sha256: certificate}]
+
+      assert [^first_uid, ^second_uid] = for(n <- 1..2, do: enroll.(n, shared))
+      refute first_uid == second_uid
+      assert {:agent_id, "agent-pve-clone-1-#{uniq}"} in identifiers(first_uid, actor)
+      assert {:agent_id, "agent-pve-clone-2-#{uniq}"} in identifiers(second_uid, actor)
+
+      assert decision(:guard_block, [first_uid, second_uid], actor).reason ==
+               "distinct_agent_identity"
+    end
+
+    # A renewed node certificate registers beside the old one, which ages out with its identifier.
+    test "a renewed node certificate keeps the node's record", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      [certificate, renewed] = [node_certificate(), node_certificate()]
+      scope = proxmox_scope()
+      host_ref = ingest_proxmox_node!(actor, scope, uniq, "node#{uniq}", certificate)
+      [node_uid] = live_holders(:integration_id, host_ref)
+      agent_id = "agent-pve-renewal-#{uniq}"
+
+      attrs = fn fingerprint ->
+        %{
+          hostname: "node#{uniq}",
+          source_ip: doc_ip(uniq, 1),
+          partition: "default",
+          host_tls_fingerprints: [%{port: 8006, sha256: fingerprint}]
+        }
+      end
+
+      assert {:ok, ^node_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, attrs.(certificate))
+
+      ^host_ref = ingest_proxmox_node!(actor, scope, uniq, "node#{uniq}", renewed)
+
+      assert {:ok, ^node_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, attrs.(renewed))
+
+      assert {:tls_certificate_fingerprint, "pve:sha256:" <> renewed} in identifiers(
+               node_uid,
+               actor
+             )
+
+      assert live_holders(:tls_certificate_fingerprint, "pve:sha256:" <> renewed) == [node_uid]
+    end
+  end
+
   # The user's decision of 2026-10-28: "armis records and stuff learned about an endpoint
   # through an agent should be fine to merge together". An agent's eligible MAC links it to, and
   # merges it with, an Armis-held record of the same endpoint, and the value pushed northbound
@@ -2169,6 +2335,72 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
 
     identifier!(uid, :integration_id, integration_id, "sync_ingestor", actor)
     uid
+  end
+
+  # An invented node certificate fingerprint: a bare SHA-256 hex digest, as the agent reports it.
+  defp node_certificate, do: 32 |> :crypto.strong_rand_bytes() |> Base.encode16(case: :lower)
+
+  defp proxmox_scope do
+    %{
+      integration_id: Ecto.UUID.generate(),
+      controller_id: Ecto.UUID.generate(),
+      partition_id: "default"
+    }
+  end
+
+  # A Proxmox node as the plugin reports it, with its node certificate when one is given. Returns
+  # the node's integration id.
+  defp ingest_proxmox_node!(actor, scope, uniq, node, certificate) do
+    cluster = "cluster-#{uniq}"
+
+    node_entry =
+      then(%{"node" => node, "status" => "online", "ip" => doc_ip(uniq, 0)}, fn entry ->
+        if certificate,
+          do: Map.put(entry, "tls_certificate_fingerprint", "pve:sha256:" <> certificate),
+          else: entry
+      end)
+
+    payload = %{
+      "observed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+      "details" => %{
+        "schema" => "serviceradar.proxmox_enrichment.v1",
+        "targets" => [
+          %{
+            "cluster" => [%{"type" => "cluster", "name" => cluster}],
+            "nodes" => [node_entry],
+            "guests" => []
+          }
+        ]
+      }
+    }
+
+    assert :ok = ProxmoxEnrichmentIngestor.ingest(payload, %{}, actor: actor, source_scope: scope)
+
+    {:ok, identity} =
+      IntegrationIdentity.proxmox_v3_fields(
+        scope.integration_id,
+        scope.controller_id,
+        cluster,
+        "node",
+        node
+      )
+
+    identity.provider_ref
+  end
+
+  # The live devices holding an identifier.
+  defp live_holders(type, value) do
+    List.flatten(
+      Repo.query!(
+        """
+        SELECT DISTINCT d.uid
+        FROM platform.device_identifiers di
+        JOIN platform.ocsf_devices d ON d.uid = di.device_id AND d.deleted_at IS NULL
+        WHERE di.identifier_type = $1 AND di.identifier_value = $2
+        """,
+        [Atom.to_string(type), value]
+      ).rows
+    )
   end
 
   defp identifier!(uid, type, value, source, actor) do

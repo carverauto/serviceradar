@@ -93,7 +93,8 @@ defmodule ServiceRadar.DireTrace do
   the device's own name; cloned machines share one), `new_first_seen_ids`, the ids Armis reports
   with a first-seen time of their own, later than any sync of the trace (by default a re-keyed
   device keeps its first-seen time), and the model's `rekeys`, `fresh_ids`, `spare`,
-  `agent_ids` and `agent_of`.
+  `agent_ids`, `agent_of`, `cert_ids` and `cert_of` (the node certificate a device's
+  integration and agent report).
 
   The defect switches the trace is checked with are not part of the world: every trace reads
   `ResolutionBugs` from `formal/dire/CurrentBugs.tla`.
@@ -121,6 +122,10 @@ defmodule ServiceRadar.DireTrace do
            "proxmox:v3:#{Ash.UUID.generate()}:#{Ash.UUID.generate()}:cluster-#{seed}-#{i}:node:#{id}"}
         end),
       agent: Map.new(Map.get(world, :agent_ids, []), fn g -> {g, "trace-agent-#{seed}-#{g}"} end),
+      cert:
+        Map.new(Map.get(world, :cert_ids, []), fn c ->
+          {c, :sha256 |> :crypto.hash("dire-trace-#{seed}-#{c}") |> Base.encode16(case: :lower)}
+        end),
       first_seen: first_seen_times(world)
     }
 
@@ -367,10 +372,12 @@ defmodule ServiceRadar.DireTrace do
       # What a current agent sends: the announced interface's MAC for older cores, and the
       # classified inventory core decides identity from.
       host_macs: if(owner_mac, do: [trace.real.mac[owner_mac]], else: []),
-      host_interfaces: host_interfaces(trace, h)
+      host_interfaces: host_interfaces(trace, h),
+      host_tls_fingerprints:
+        for(c <- certs_of(trace, h), do: %{port: 8006, sha256: trace.real.cert[c]})
     }
 
-    step(trace, "Agent", h, x, [g | identity_macs], fn ->
+    step(trace, "Agent", h, x, [g | identity_macs] ++ certs_of(trace, h), fn ->
       assert {:ok, _uid} = AgentGatewaySync.ensure_device_for_agent(trace.real.agent[g], attrs)
     end)
   end
@@ -415,15 +422,24 @@ defmodule ServiceRadar.DireTrace do
       "ip" => ip,
       "hostname" => "trace-#{host_of(trace.world, h)}",
       "source" => "proxmox",
-      "metadata" => %{
-        "integration_type" => "proxmox",
-        "integration_id" => trace.real.int[int_id]
-      }
+      "metadata" =>
+        Map.merge(
+          %{"integration_type" => "proxmox", "integration_id" => trace.real.int[int_id]},
+          Map.new(certs_of(trace, h), &{"tls_certificate_fingerprint", "pve:sha256:" <> trace.real.cert[&1]})
+        )
     }
 
-    step(trace, "Integration", h, x, [int_id], fn ->
+    step(trace, "Integration", h, x, [int_id | certs_of(trace, h)], fn ->
       assert :ok = SyncIngestor.ingest_updates([update], actor: trace.actor)
     end)
+  end
+
+  # The node certificate device h's integration and agent report, if any.
+  defp certs_of(trace, h) do
+    case Map.get(Map.get(trace.world, :cert_of, %{}), h) do
+      nil -> []
+      c -> [c]
+    end
   end
 
   @doc """
@@ -801,7 +817,8 @@ defmodule ServiceRadar.DireTrace do
     do:
       Map.get(world, :agent_ids, []) ++
         world.src_ids ++
-        Map.get(world, :int_ids, []) ++ world.hw_ids ++ world.laa_ids ++ world.ips
+        Map.get(world, :int_ids, []) ++
+        Map.get(world, :cert_ids, []) ++ world.hw_ids ++ world.laa_ids ++ world.ips
 
   # A named record exists. A seed soft-deleted as `seed_released` (D8) is written as a record
   # that no longer exists, as the model writes it.
@@ -890,7 +907,15 @@ defmodule ServiceRadar.DireTrace do
         end
       end)
 
-    srcs |> Map.merge(ints) |> Map.merge(macs) |> Map.merge(agents)
+    certs =
+      Map.new(Map.get(world, :cert_ids, []), fn c ->
+        case owner_uid(trace, :tls_certificate_fingerprint, "pve:sha256:" <> trace.real.cert[c]) do
+          nil -> {c, "NoRec"}
+          uid -> {c, name_of!(trace, uid)}
+        end
+      end)
+
+    srcs |> Map.merge(ints) |> Map.merge(certs) |> Map.merge(macs) |> Map.merge(agents)
   end
 
   defp owner_uid(trace, type, value) do
@@ -1103,6 +1128,7 @@ defmodule ServiceRadar.DireTrace do
       seed = Enum.find(Map.get(w, :agent_ids, []), &(&1 in ids)) -> seed
       seed = Enum.find(w.src_ids, &(&1 in ids)) -> seed
       seed = Enum.find(Map.get(w, :int_ids, []), &(&1 in ids)) -> seed
+      seed = Enum.find(Map.get(w, :cert_ids, []), &(&1 in ids)) -> seed
       seed = Enum.find(w.hw_ids, &(&1 in ids)) -> seed
       seed = Enum.find(w.laa_ids, &(&1 in ids)) -> seed
       is_binary(device.ip) -> model_ip!(trace, device.ip)
@@ -1212,6 +1238,7 @@ defmodule ServiceRadar.DireTrace do
     |> Enum.concat(Map.values(Map.get(trace.real, :int, %{})))
     |> Enum.concat(macs)
     |> Enum.concat(Map.values(trace.real.agent))
+    |> Enum.concat(for {_c, hex} <- trace.real.cert, do: "pve:sha256:" <> hex)
   end
 
   defp trace_devices(trace) do
@@ -1373,6 +1400,8 @@ defmodule ServiceRadar.DireTrace do
       AgentOf <- TraceAgentOf
       IntIds = #{set(Map.get(w, :int_ids, []))}
       IntOf <- TraceIntOf
+      CertIds = #{set(Map.get(w, :cert_ids, []))}
+      CertOf <- TraceCertOf
       SrcIds = #{set(w.src_ids)}
       HwIds = #{set(w.hw_ids)}
       LaaIds = #{set(w.laa_ids)}
@@ -1399,7 +1428,8 @@ defmodule ServiceRadar.DireTrace do
     TraceSrcOf == #{fun(w.phys, fn h -> if(a = w.src_of[h], do: str(a), else: "NoId") end)}
     TraceHostOf == #{fun(w.phys, &str(host_of(w, &1)))}
     TraceAgentOf == #{fun(w.phys, fn h -> if(g = Map.get(w, :agent_of, %{})[h], do: str(g), else: "NoId") end)}
-    TraceIntOf == #{fun(w.phys, fn h -> if(i = Map.get(w, :int_of, %{})[h], do: str(i), else: "NoId") end)}\
+    TraceIntOf == #{fun(w.phys, fn h -> if(i = Map.get(w, :int_of, %{})[h], do: str(i), else: "NoId") end)}
+    TraceCertOf == #{fun(w.phys, fn h -> if(c = Map.get(w, :cert_of, %{})[h], do: str(c), else: "NoId") end)}\
     """
   end
 

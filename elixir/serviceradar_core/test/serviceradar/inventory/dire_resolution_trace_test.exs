@@ -650,4 +650,77 @@ defmodule ServiceRadar.Inventory.DireResolutionTraceTest do
     |> DireTrace.integration("h2", "x2")
     |> DireTrace.assert_golden!()
   end
+
+  # #6146: a Proxmox node whose API reports no MAC, known to its integration only by its
+  # integration id, runs an agent. Both report the node's own certificate (`c1`). Steps: node A
+  # (`i1`, `c1`) is synced at `p1`; its agent (`g1`, `c1`) checks in there. Expected: the agent
+  # lands on the integration record through the certificate, with no hostname or address evidence.
+  test "integration_agent_cert_links", %{actor: actor} do
+    world = %{
+      phys: ["h1"],
+      ifaces: %{"x1" => %{phys: "h1", mac: nil}},
+      src_of: %{},
+      int_of: %{"h1" => "i1"},
+      int_ids: ["i1"],
+      cert_of: %{"h1" => "c1"},
+      cert_ids: ["c1"],
+      host_of: %{"h1" => "n1"},
+      agent_of: %{"h1" => "g1"},
+      agent_ids: ["g1"],
+      agent_hostname: %{"h1" => "trace-n1.site-a.example.com"},
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: [],
+      laa_ids: [],
+      ips: ["p1", "p2"],
+      observers: ["Integration", "Agent"]
+    }
+
+    "integration_agent_cert_links"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.integration("h1", "x1")
+    |> DireTrace.agent("h1", "x1")
+    |> DireTrace.assert_golden!()
+  end
+
+  # #6146: two same-named Proxmox nodes at two sites, neither reporting a MAC, each with its own
+  # integration id, node certificate and agent. Steps: node A (`i1`, `c1`) is synced at `p1` and
+  # its agent (`g1`, `c1`) checks in; node B (`i2`, `c2`) is synced at `p2` and its agent (`g2`,
+  # `c2`) checks in. Expected: each agent lands on its own node's record, and the two sites'
+  # records never fuse.
+  test "same_name_distinct_certs", %{actor: actor} do
+    world = %{
+      phys: ["h1", "h2"],
+      ifaces: %{"x1" => %{phys: "h1", mac: nil}, "x2" => %{phys: "h2", mac: nil}},
+      src_of: %{},
+      int_of: %{"h1" => "i1", "h2" => "i2"},
+      int_ids: ["i1", "i2"],
+      cert_of: %{"h1" => "c1", "h2" => "c2"},
+      cert_ids: ["c1", "c2"],
+      host_of: %{"h1" => "n1", "h2" => "n1"},
+      agent_of: %{"h1" => "g1", "h2" => "g2"},
+      agent_ids: ["g1", "g2"],
+      agent_hostname: %{
+        "h1" => "trace-n1.site-a.example.com",
+        "h2" => "trace-n1.site-b.example.com"
+      },
+      armis_macs: false,
+      src_ids: [],
+      hw_ids: [],
+      laa_ids: [],
+      ips: ["p1", "p2"],
+      observers: ["Integration", "Agent"]
+    }
+
+    "same_name_distinct_certs"
+    |> DireTrace.start(world, actor)
+    |> DireTrace.lease("x1", "p1")
+    |> DireTrace.integration("h1", "x1")
+    |> DireTrace.agent("h1", "x1")
+    |> DireTrace.lease("x2", "p2")
+    |> DireTrace.integration("h2", "x2")
+    |> DireTrace.agent("h2", "x2")
+    |> DireTrace.assert_golden!()
+  end
 end

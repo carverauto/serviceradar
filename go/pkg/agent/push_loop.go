@@ -145,6 +145,7 @@ type PushLoop struct {
 	hostNetworkVisibilitySupported func() bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error
 	hostInventory                  func() []hostInterface
+	hostTLSFingerprints            func() []*proto.HostTlsFingerprint
 
 	// configApplyMu serializes complete config-response transactions across the independent
 	// poll/control-stream/enroll goroutines. The lock order is configApplyMu then
@@ -270,6 +271,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		hostNetworkVisibilitySupported: runtimeSupportsHostNetworkVisibility,
 		uninstallSystemdAddonUnits:     uninstallAddonSystemdUnitsViaUpdater,
 		hostInventory:                  defaultHostInventory,
+		hostTLSFingerprints:            defaultHostTLSFingerprints,
 	}
 	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPathResolver: pushLoop.remoteAccessRDPAdapterPath}
 

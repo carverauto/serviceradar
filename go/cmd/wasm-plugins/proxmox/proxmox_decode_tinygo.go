@@ -55,6 +55,8 @@ func decodeProxmoxJSON[T any](body []byte, out *T) error {
 		typed.Data = parseProxmoxStorage(data)
 	case *proxmoxNetworkResponse:
 		typed.Data = parseProxmoxNetwork(data)
+	case *proxmoxCertificatesResponse:
+		typed.Data = parseProxmoxCertificates(data)
 	case *proxmoxDiskResponse:
 		typed.Data = parseProxmoxDisks(data)
 	case *proxmoxCephStatusResponse:
@@ -80,6 +82,19 @@ func decodeProxmoxJSON[T any](body []byte, out *T) error {
 	}
 
 	return nil
+}
+
+func parseProxmoxCertificates(array gjson.Result) []proxmoxCertificateInfo {
+	items := array.Array()
+	out := make([]proxmoxCertificateInfo, 0, len(items))
+	for _, item := range items {
+		out = append(out, proxmoxCertificateInfo{
+			Filename:    item.Get("filename").String(),
+			Fingerprint: item.Get("fingerprint").String(),
+		})
+	}
+
+	return out
 }
 
 func parseProxmoxNodes(array gjson.Result) []proxmoxNode {

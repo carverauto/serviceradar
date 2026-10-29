@@ -58,7 +58,8 @@ defmodule ServiceRadar.Inventory.Identity.BatchResolver do
     :armis_device_id,
     :integration_id,
     :netbox_device_id,
-    :hardware_serial
+    :hardware_serial,
+    :tls_certificate_fingerprint
   ]
 
   @type lookup_key :: {atom(), String.t(), String.t()}

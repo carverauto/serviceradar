@@ -9,6 +9,7 @@ TraceSrcOf == ("h1" :> NoId @@ "h2" :> NoId)
 TraceHostOf == ("h1" :> "h1" @@ "h2" :> "h2")
 TraceAgentOf == ("h1" :> NoId @@ "h2" :> NoId)
 TraceIntOf == ("h1" :> NoId @@ "h2" :> NoId)
+TraceCertOf == ("h1" :> NoId @@ "h2" :> NoId)
 
 TheLog == <<
   [ipAt |-> ("x1" :> NoIp @@ "x2" :> NoIp), created |-> ("m1" :> FALSE @@ "m2" :> FALSE @@ "p1" :> FALSE), into |-> ("m1" :> NoRec @@ "m2" :> NoRec @@ "p1" :> NoRec), owner |-> ("m1" :> NoRec @@ "m2" :> NoRec), recIp |-> ("m1" :> NoIp @@ "m2" :> NoIp @@ "p1" :> NoIp), alias |-> ("p1" :> {}), phys |-> ("m1" :> {} @@ "m2" :> {} @@ "p1" :> {}), ifClaims |-> ("m1" :> {} @@ "m2" :> {} @@ "p1" :> {}), act |-> [name |-> "Init", ids |-> {}, ip |-> NoIp, decisions |-> {}, recorded |-> {}, addressMerged |-> {}]],

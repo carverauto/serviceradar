@@ -374,6 +374,7 @@ func (p *PushLoop) buildControlHelloRequest() *proto.ControlStreamRequest {
 				HostIp:                host.ip,
 				HostMacs:              host.macs,
 				HostInterfaces:        host.interfaces,
+				HostTlsFingerprints:   p.helloHostTLSFingerprints(),
 				ConfigSectionStatuses: p.helloConfigSectionStatuses(),
 			},
 		},

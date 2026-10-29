@@ -38,6 +38,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.Identity.Mac
   alias ServiceRadar.Inventory.Identity.Registrar
+  alias ServiceRadar.Inventory.Identity.TlsCertificateFingerprint
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SourceIdentityDrift
   alias ServiceRadar.Inventory.Sync.DeviceWrites
@@ -520,15 +521,33 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       }
       |> maybe_put("hostname_normalized", normalize_hostname(hostname))
       |> maybe_put("machine_id", agent_machine_id(attrs))
+      |> maybe_put(TlsCertificateFingerprint.metadata_key(), agent_node_certificate(attrs))
 
+    # The source marks the agent describing its own host, the only agent update
+    # that may claim a host certificate fingerprint.
     %{
       device_id: nil,
       ip: agent_source_ip(attrs),
       mac: nil,
       mac_addresses: agent_identity_macs(attrs),
       partition: Map.get(attrs, :partition, "default"),
+      source: "agent_gateway_sync",
       metadata: metadata
     }
+  end
+
+  # The Proxmox VE node certificate the agent read from its local pveproxy (port
+  # 8006), scoped as `pve:sha256:<hex>`. Agents that predate it report none.
+  defp agent_node_certificate(attrs) do
+    attrs
+    |> Map.get(:host_tls_fingerprints, Map.get(attrs, "host_tls_fingerprints"))
+    |> List.wrap()
+    |> Enum.find_value(fn fingerprint ->
+      port = Map.get(fingerprint, :port) || Map.get(fingerprint, "port")
+      sha256 = Map.get(fingerprint, :sha256) || Map.get(fingerprint, "sha256")
+
+      if port == 8006, do: TlsCertificateFingerprint.from_sha256(sha256)
+    end)
   end
 
   # The MACs that identify the agent's host: the eligible MACs of its classified

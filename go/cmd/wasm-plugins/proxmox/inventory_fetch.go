@@ -140,6 +140,13 @@ func enrichNodes(cfg Config, target Target, token string, nodes []proxmoxNode, w
 			node.Network = network
 		}
 
+		certificates, err := fetchNodeCertificates(cfg, target, token, node.Node)
+		if err != nil {
+			warnings["node:"+node.Node+":certificates"] = sanitizeError(err)
+		} else {
+			node.TLSCertificateFingerprint = nodeCertificateFingerprint(certificates)
+		}
+
 		disks, err := fetchNodeDisks(cfg, target, token, node.Node)
 		if err != nil {
 			warnings["node:"+node.Node+":disks"] = sanitizeError(err)
@@ -244,6 +251,16 @@ func fetchNodeNetwork(cfg Config, target Target, token, node string) ([]proxmoxN
 	path := "/api2/json/nodes/" + url.PathEscape(node) + "/network"
 	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
 		return nil, fmt.Errorf("fetch node network: %w", err)
+	}
+
+	return envelope.Data, nil
+}
+
+func fetchNodeCertificates(cfg Config, target Target, token, node string) ([]proxmoxCertificateInfo, error) {
+	var envelope proxmoxCertificatesResponse
+	path := "/api2/json/nodes/" + url.PathEscape(node) + "/certificates/info"
+	if err := getJSON(cfg, target, token, path, &envelope); err != nil {
+		return nil, fmt.Errorf("fetch node certificates: %w", err)
 	}
 
 	return envelope.Data, nil

@@ -41,6 +41,8 @@ CONSTANTS
     AgentOf,       \* [Phys -> AgentIds \cup {NoId}]: the agent running on the device, if any
     IntOf,         \* [Phys -> IntIds \cup {NoId}]: the integration id an integration sync reports
                    \* for the device, if any (one provider prefix, e.g. proxmox:v3:...)
+    CertOf,        \* [Phys -> CertIds \cup {NoId}]: the node certificate fingerprint the
+                   \* integration sync and the device's agent both report, if any
     ArmisMacs,     \* whether Armis reports the device's MACs with its id
     HostOf,        \* [Phys -> hostnames]: the hostname Armis reports for the device; cloned
                    \* machines share one
@@ -49,6 +51,7 @@ CONSTANTS
     AgentIds,      \* agent ids (agent_id identifiers)
     SrcIds,        \* source-authoritative identifiers (one source)
     IntIds,        \* integration ids (integration_id identifiers under one provider prefix)
+    CertIds,       \* node certificate fingerprints (tls_certificate_fingerprint identifiers)
     HwIds,         \* globally-unique MACs
     LaaIds,        \* locally-administered (randomized) MACs
     Ips,
@@ -65,21 +68,30 @@ Bug(b) == b \in Bugs
 
 UnsafeAlternatives == {"mac_only_succession", "retired_ids_forgotten",
                        "overlapping_hostname_corroborates",
-                       "hostname_adopts_across_integration_ids"}
+                       "hostname_adopts_across_integration_ids",
+                       "shared_certificate_identifies"}
 ASSUME Unsafe \subseteq UnsafeAlternatives
+\* Only a node's own certificate (pve-ssl.pem) is identity: neither producer reports a custom or
+\* wildcard certificate (TlsCertificateFingerprint), so no two devices report one value.
+\*   Unsafe shared_certificate_identifies: a certificate several devices serve is identity.
+ASSUME "shared_certificate_identifies" \notin Unsafe =>
+           \A k1, k2 \in Phys : k1 # k2 /\ CertOf[k1] # NoId => CertOf[k1] # CertOf[k2]
 ASSUME NewFirstSeenIds \subseteq SrcIds
 
 MacIds == HwIds \cup LaaIds
-Ids    == AgentIds \cup SrcIds \cup IntIds \cup MacIds
+Ids    == AgentIds \cup SrcIds \cup IntIds \cup CertIds \cup MacIds
 \* A record is named by the seed its uid was derived from: the highest-priority identifier
 \* (Ids.generate_deterministic_device_id/1) or, for an identifier-less update, the address.
 Recs   == Ids \cup Ips \cup Spare
 
-\* Ids @identifier_priority: agent_id, armis_device_id / integration_id, ..., mac.
-Prio(i) == IF i \in AgentIds THEN 0 ELSE IF i \in (SrcIds \cup IntIds) THEN 1 ELSE IF i \in HwIds THEN 2 ELSE 3
+\* Ids @identifier_priority: agent_id, armis_device_id / integration_id, ...,
+\* tls_certificate_fingerprint, mac.
+Prio(i) == IF i \in AgentIds THEN 0 ELSE IF i \in (SrcIds \cup IntIds) THEN 1
+           ELSE IF i \in CertIds THEN 2 ELSE IF i \in HwIds THEN 3 ELSE 4
 Seed(S) == CHOOSE i \in S : \A j \in S : Prio(i) <= Prio(j)
 
 MacsOf(h) == {IfMac[x] : x \in {y \in Ifaces : IfPhys[y] = h}} \ {NoId}
+CertsOf(h) == {CertOf[h]} \ {NoId}
 
 VARIABLES
     ipAt,     \* ground truth: the address each interface currently leases
@@ -187,9 +199,9 @@ SameChassis(a, b) == ifClaims[a] \cap MacsHeld(b) # {} /\ ifClaims[b] \cap MacsH
 DistinctIdentifiedIn(o, a, b) == IdsHeldIn(o, a) # {} /\ IdsHeldIn(o, b) # {} /\ ~SameChassis(a, b)
 
 \* MergePolicy.merge_allowed_for_matches?/1 over the identifiers that matched: any set containing
-\* an agent, source-authoritative, integration or globally-unique identifier (#4612); never an
-\* all-randomized set.
-PolicyAllows(matched) == matched \cap (AgentIds \cup SrcIds \cup IntIds \cup HwIds) # {}
+\* an agent, source-authoritative, integration, certificate or globally-unique identifier (#4612);
+\* never an all-randomized set.
+PolicyAllows(matched) == matched \cap (AgentIds \cup SrcIds \cup IntIds \cup CertIds \cup HwIds) # {}
 
 \* The globally-unique MACs a record reports (D3): its identifier rows, its own interface table,
 \* and the source's observations of the devices it describes, which carry their MACs when the
@@ -493,11 +505,11 @@ ArmisObserve(h, x) ==
          Resolve(h, x, {srcOf[h]} \cup (IF ArmisMacs THEN MacsOf(h) ELSE {}), ra,
                  "sync", "Armis", {}, {})
 
-\* Non-source-authoritative integration sync (e.g. Proxmox): the device's integration_id and
-\* hostname at its configured address, through SyncIngestor.
+\* Non-source-authoritative integration sync (e.g. Proxmox): the device's integration_id, its
+\* node certificate fingerprint and hostname at its configured address, through SyncIngestor.
 IntObserve(h, x) ==
     /\ IntOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ Resolve(h, x, {IntOf[h]}, FALSE, "sync", "Integration", {}, {})
+    /\ Resolve(h, x, {IntOf[h]} \cup CertsOf(h), FALSE, "sync", "Integration", {}, {})
 
 \* netprobe census: one interface's MAC and address, through SyncIngestor. A census update is an
 \* observer source with no non-MAC identifier, so Sync.Aliases never merges on it. A randomized
@@ -516,11 +528,13 @@ ArpObserve(h, x) ==
 \* nothing (AgentCorroboration). An agent update carries no source-authoritative identifier, so
 \* srcMismatch never refuses a match: by the user's decision of 2026-10-28 an agent's eligible
 \* MACs link it to, and merge it with, a record holding or having held a source id. Step 1's
-\* SrcConflict and DistinctAgents guards still keep two source ids, or two agents, apart.
+\* SrcConflict and DistinctAgents guards still keep two source ids, or two agents, apart. On a
+\* Proxmox node the agent also reports the node certificate its local pveproxy serves.
 AgentObserve(h, x) ==
     /\ AgentOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
     /\ \E ra \in BOOLEAN :
-         Resolve(h, x, {AgentOf[h]} \cup (MacsOf(h) \cap HwIds), ra, "guard", "Agent", {}, {})
+         Resolve(h, x, {AgentOf[h]} \cup (MacsOf(h) \cap HwIds) \cup CertsOf(h), ra, "guard",
+                 "Agent", {}, {})
 
 \* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
 \* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs
