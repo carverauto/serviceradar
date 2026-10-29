@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/google/uuid"
 	goproto "google.golang.org/protobuf/proto"
@@ -362,12 +363,20 @@ func sweepLeaseAcks(stream *fakeControlStreamClient) []*proto.SweepLeaseAck {
 // agent's control-stream handler: the install ack is what core records, and a
 // new push loop on the same state dir is the agent after a restart.
 func TestSweepLeaseAgentInstallPersistsAndAcks(t *testing.T) {
-	dir := t.TempDir()
+	runtimeRoot := t.TempDir()
+	t.Setenv("SERVICERADAR_AGENT_RUNTIME_ROOT", runtimeRoot)
+	dir := filepath.Join(runtimeRoot, "sweep-leases")
+	// Check before opening the store so a broken resolver never writes outside
+	// this test's runtime volume. The assertions below exercise both durable files.
+	if got := defaultSweepLeaseDir(); got != dir {
+		t.Fatalf("lease directory = %q, want runtime-volume path %q", got, dir)
+	}
+	start := time.Now().Unix()
 	group := testLeaseGroup.String()
-	push := testLeasePush(100, 400, testLeaseSlot(100), testLeaseSlot(200), testLeaseSlot(300))
+	push := testLeasePush(start, start+300, testLeaseSlot(start), testLeaseSlot(start+100), testLeaseSlot(start+200))
 	chunks := leaseChunks(t, push, 32)
 
-	loop := &PushLoop{logger: logger.NewTestLogger(), sweepLeaseDir: dir}
+	loop := &PushLoop{logger: logger.NewTestLogger()}
 	stream := &fakeControlStreamClient{}
 	sender := newControlStreamSender(stream)
 
@@ -394,20 +403,39 @@ func TestSweepLeaseAgentInstallPersistsAndAcks(t *testing.T) {
 		t.Fatalf("installed slot count = %d, want 3", ack.GetInstalledSlotCount())
 	}
 
-	if want := int64(1200) * 1_000_000_000; ack.GetInstalledThroughUnixNano() != want {
+	if want := (start + 1100) * 1_000_000_000; ack.GetInstalledThroughUnixNano() != want {
 		t.Fatalf("installed_through = %d, want %d", ack.GetInstalledThroughUnixNano(), want)
 	}
 
-	restarted := &PushLoop{logger: logger.NewTestLogger(), sweepLeaseDir: dir}
+	store, err := loop.sweepLeaseStore()
+	if err != nil {
+		t.Fatalf("open installed lease store: %v", err)
+	}
+	executionID, err := uuid.FromBytes(push.Slots[0].ExecutionId)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkExecuted(group, executionID.String(), push.Slots[0].CollectionExpiresUnixNano, time.Now()); err != nil {
+		t.Fatalf("persist executed slot: %v", err)
+	}
+	for _, name := range []string{group + ".pb", group + ".executed.json"} {
+		if info, err := os.Stat(filepath.Join(dir, name)); err != nil || info.Size() == 0 {
+			t.Fatalf("missing durable runtime file %s: %v", name, err)
+		}
+	}
+	restarted := &PushLoop{logger: logger.NewTestLogger()}
 
-	store, err := restarted.sweepLeaseStore()
+	store, err = restarted.sweepLeaseStore()
 	if err != nil {
 		t.Fatalf("reopen lease store: %v", err)
 	}
 
 	held := store.Get(group)
-	if held == nil || !equalStarts(heldStarts(held), 100, 200, 300) {
-		t.Fatalf("lease after restart = %v, want [100 200 300]", held)
+	if held == nil || !equalStarts(heldStarts(held), start, start+100, start+200) {
+		t.Fatalf("lease after restart = %v, want installed three-slot window", held)
+	}
+	if !store.Executed(group, executionID.String()) {
+		t.Fatal("executed slot marker lost after runtime-volume reopen")
 	}
 }
 
