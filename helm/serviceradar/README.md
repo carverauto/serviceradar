@@ -260,6 +260,13 @@ demo-specific external ingest settings. Its effective replica layout is:
 - `flowCollector.replicaCount=1` (single pod + Recreate + RWO marker PVC; JetStream HA is `config.stream_replicas=3`)
 - `bmpCollector.replicaCount=3` (demo only; `values-ha.yaml` does not enable or scale BMP)
 
+Setting `core.replicas=0` renders zero replicas for an operator-requested drain.
+If the key is absent from the merged values, the template falls back to one;
+omitting an override still uses the chart default shown above. Desired zero does
+not prove that running owners have retired. Persistent-spool controller conversion
+remains unimplemented; its required guard and retirement checks are specified in
+the [conversion protocol](../../openspec/changes/add-persistent-camera-spool/conversion-protocol.md).
+
 The control-plane and ingest workers above rely on shared JetStream durable consumers or shared streams. The important knobs are:
 
 | Parameter | Purpose | Default |
