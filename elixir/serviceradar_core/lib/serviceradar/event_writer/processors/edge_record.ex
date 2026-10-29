@@ -1,56 +1,15 @@
 defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   @moduledoc """
-  EventWriter processor for the durable edge-record wire format (task 0.12 /
-  5.2, minimum slice only).
+  Projects scheduled sweep records delivered through the gateway and JetStream.
 
-  This is the CNPG side of the idempotent-transaction acceptance group: given
-  an already wire-decoded `EdgeRecordV1` frame (received via
-  `EdgeRecordIngestService.Stream` -> gateway -> JetStream, none of which
-  exist yet in this repository -- that gRPC server and Go sender are separate,
-  parallel tasks), it runs ONE database transaction that:
-
-    1. binds the frozen `edge_slot` coordinate immutably to `record_sha256`
-       (`ServiceRadar.Edge.PublicationIdentity`'s already-tested slot/header
-       codec) -- a TRANSPORT-integrity check, first, per
-       design.md's ordered EventWriter pipeline (slot binding precedes every
-       terminal decision);
-    2. looks up the `event_ledger` row for `(network_scope_id, event_id)` and
-       classifies the delivery as a fresh insert, a replay (same
-       `semantic_envelope_sha256`), or `EVENT_ID_CONFLICT` (different digest);
-    3. does the same replay/conflict classification for the
-       `SweepObservationBatchV1` batch coordinate already carried on the wire
-       (`execution_id`, `execution_shard`, `assignment_epoch`,
-       `batch_sequence`) against `edge_sweep_batch_slots`;
-    4. projects the minimal atomic domain-row artifact by calling the two
-       already-existing pure functions -- `ServiceRadar.Edge.ProjectionRows.sweep/1`
-       (row-coordinate enumeration) and `.row_key/2` (the Elixir twin of
-       `go/pkg/edge/projection/projection.go`'s `RowKey/2`) -- and upserting
-       one row per coordinate keyed on the derived idempotency key, so a
-       redelivered frame never duplicates a domain row.
-
-  A genuine conflict at either the delivery-slot or ledger layer rolls back
-  the WHOLE transaction: no ledger row, no batch-slot row, no domain rows for
-  a rejected frame. The first-accepted binding is therefore left immutable by
-  construction (nothing in this module ever `UPDATE`s a mismatched digest).
-
-  ## Deliberately out of scope here (see `openspec/changes/unify-sweep-results-proto/`)
-
-  This module does NOT implement: hash-subshard/time-bucket partitioning
-  (task 5.2's full design), the `EdgeRecordIngestService` gRPC server or Go
-  sender (separate tasks), full trust/authorization evaluation (steps 3/4/6/7
-  of design.md's ordered EventWriter pipeline -- historical collection proof,
-  readiness, body-to-claim, transactional fence against a live consumer
-  registry), MTR payloads, or the full OCSF sweep domain schema (task 5.1's
-  decoder owns turning a row coordinate into a queryable
-  reachability/open-port/port-error/mtr-summary fact; this module only proves
-  the coordinate was durably and idempotently claimed).
-
-  Payload-family dispatch is deliberately coarse: any
-  `EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1` payload is attempted as a
-  `SweepObservationBatchV1` (the one payload type this epic has projection
-  logic for today; MTR decode intentionally is not wired here, per 0.12's own
-  scope freeze). A real per-`output_contract.contract_id` registry does not
-  exist yet in this repository, so this is not a shortcut around one.
+  The processor validates the sweep contract and body/source correlation, then
+  claims the delivery slot, event ledger and batch coordinate in one transaction.
+  A fresh primary event projects into the ordinary sweep and inventory tables
+  through `ServiceRadar.Edge.SweepProjection`. A replay makes no domain changes;
+  late-fenced deliveries remain ledger-only. Conflicting coordinates roll back
+  the whole transaction. The gateway owns signature verification; this consumer
+  checks the persisted schedule slot and current assignment again before writing
+  authoritative domain state.
 
   ## Test-only ingest hook
 
@@ -79,6 +38,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.PublicationIdentity
+  alias ServiceRadar.Edge.SweepCorrelate
+  alias ServiceRadar.Edge.SweepProjection
   alias Serviceradar.Edge.V1.EdgeRecordV1
   alias Serviceradar.Edge.V1.SweepObservationBatchV1
   alias ServiceRadar.Edge.WireDecode
@@ -137,11 +98,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   the idempotent ledger/delivery-slot/sweep-batch-slot/domain-projection
   transaction described in the moduledoc.
 
-  Public -- and taking a plain repo argument -- so tests can drive it
-  directly with a real wire-decoded frame and force redelivery/conflict
-  scenarios against a real database, the same way every other EventWriter
-  processor's `parse_message/1` is unit-tested directly, without depending on
-  a live gRPC/JetStream path (out of scope for this task).
+  The gateway has already authenticated the enclosing capabilities. This
+  boundary independently validates the sweep body and its source correlation,
+  then binds domain writes to the persisted assignment and scheduled slot.
 
   Returns `{:ok, :inserted | :replay}` or `{:error, reason}`, where `reason`
   is `{:delivery_slot_conflict, existing}`, `{:event_id_conflict, existing}`,
@@ -160,9 +119,18 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          {:edge, slot} <- {provenance.kind, provenance.slot},
          {:ok, %EdgeRecordV1{} = record} <- WireDecode.decode_record(record_bytes),
          :ok <- check_slot_matches_record(slot, record),
-         {:ok, %SweepObservationBatchV1{} = batch} <- decode_payload(record) do
+         {:ok, %SweepObservationBatchV1{} = batch} <- decode_payload(record),
+         :ok <- SweepCorrelate.ingest_own_payload(record) do
       record_sha256 = :crypto.hash(:sha256, record_bytes)
-      run_transaction(repo, slot, record, batch, record_sha256, Keyword.get(opts, :test_hook))
+
+      run_transaction(
+        repo,
+        provenance,
+        record,
+        batch,
+        record_sha256,
+        Keyword.get(opts, :test_hook)
+      )
     else
       {:service, _slot} -> {:error, :unsupported_slot_kind}
       {:error, _reason} = err -> err
@@ -184,6 +152,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   end
 
   defp decode_payload(%EdgeRecordV1{
+         output_contract: %{contract_id: "serviceradar.sweep.observation", contract_version: 1},
          payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
          payload: payload
        }) do
@@ -192,7 +161,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   defp decode_payload(_record), do: {:error, :unsupported_payload_family}
 
-  defp run_transaction(repo, slot, record, batch, record_sha256, test_hook) do
+  defp run_transaction(repo, provenance, record, batch, record_sha256, test_hook) do
     network_scope_id = record.network_scope_id
     event_id = record.event_id
     semantic_digest = record.semantic_envelope_sha256
@@ -200,7 +169,13 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     result =
       repo.transaction(fn ->
         with {:ok, _slot_outcome} <-
-               upsert_delivery_slot(repo, slot, record_sha256, event_id, semantic_digest),
+               upsert_delivery_slot(
+                 repo,
+                 provenance.slot,
+                 record_sha256,
+                 event_id,
+                 semantic_digest
+               ),
              {:ok, ledger_outcome} <-
                upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
              {:ok, _batch_outcome} <-
@@ -212,7 +187,14 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
                  semantic_digest,
                  record.projected_row_count
                ) do
-          project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
+          if ledger_outcome == :inserted and
+               provenance.delivery_mode != PublicationIdentity.mode_late_fenced() do
+            case SweepProjection.project(repo, record, batch) do
+              :ok -> project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
+              {:error, reason} -> repo.rollback(reason)
+            end
+          end
+
           run_test_hook(test_hook, :before_commit, event_id, {:ok, ledger_outcome})
           ledger_outcome
         else
