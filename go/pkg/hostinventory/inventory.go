@@ -104,8 +104,9 @@ func Classify(iface net.Interface, addresses []net.Addr, class Classification) I
 	}
 }
 
-// ClassifyName classifies an interface by name alone when the caller has a
-// kernel counter name without a net.Interface snapshot entry.
+// ClassifyName classifies an interface when the caller has a kernel counter
+// name without a net.Interface snapshot entry, using platform classification
+// (sysfs on Linux) when available.
 func ClassifyName(name string) Interface {
 	iface := net.Interface{Name: name}
 	return Classify(iface, nil, platformClassify(iface))

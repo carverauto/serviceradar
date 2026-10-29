@@ -22,8 +22,7 @@ was split.
   same-named hosts that share no strong identifier; keep older cores and agents working; keep the
   formal model describing the code.
 - Non-goals: a strong identifier for a hypervisor node that its API reports without a MAC (a
-  follow-up, D11); changing the sweep's alias handling (#6107, D9); moving sysmon onto the shared
-  inventory (D10).
+  follow-up, D11); changing the sweep's alias handling (#6107, D9).
 
 ## Decisions
 
@@ -175,11 +174,14 @@ aliases unless another source records them, as before.
 
 ### D10. One interface classifier
 
-`go/pkg/hostinventory` owns interface classification and the host-internal name prefixes the agent
-used for host IP selection. sysmon still has its own walkers (`go/pkg/sysmon/network.go`
-`shouldSkipInterface`, `host.go` `firstUsableIPv4`); moving them onto the shared package changes
-which interfaces report metrics, so it is a follow-up rather than part of this change. Identity
-flows only through the hellos, never through sysmon metrics.
+`go/pkg/hostinventory` owns interface classification and the host-internal name prefixes used by
+both the agent and sysmon (`go/pkg/sysmon/network.go` `shouldSkipInterface`, `host.go`
+`firstUsableIPv4`). Moving sysmon onto `(hostinventory.Interface).IsHostInternal()` keeps physical
+and virtual uplinks (including container `eth0` and SR-IOV VFs), bonds, VLANs, and external bridges
+such as `vmbr*` and `br0`, while additionally skipping CNI/overlay prefixes (`cni*`, `flannel*`,
+`cali*`, `vxlan*`, `cilium*`, `kube-*`, `weave*`, `podman*`, `lxcbr*`, `lxdbr*`) and Linux sysfs
+`KindTunnel` devices (`wg*`, `sit*`, `gre*`, `ipip*`, `geneve*`). Identity flows only through the
+hellos, never through sysmon metrics.
 
 ### D11. Hypervisor nodes without a MAC
 
