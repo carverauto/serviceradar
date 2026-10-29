@@ -465,6 +465,8 @@ key/scope trust and audit publication are later milestones. The sender persists
 terminal resolutions, but physical spool reclamation remains pending. Reaching
 the configured byte bound stops further appends; it does not permit growth past
 the bound. Monitor the spool and stop the canary before it fills.
+An interrupted run remains incomplete and is not rescanned once the agent has
+durably claimed its first append attempt, even if that first append fails.
 
 This wiring prepares the current-epoch sweep path. A successful deployment is
 proved by fresh scheduled executions, committed edge-record ledger entries and
