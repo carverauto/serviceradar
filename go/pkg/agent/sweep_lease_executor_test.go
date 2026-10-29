@@ -866,17 +866,22 @@ func TestRetainedSweepCompletionMetadata(t *testing.T) {
 
 type snapshotBlockingSweeper struct {
 	*sameSecondSweeper
-	snapshotStarted chan struct{}
-	releaseSnapshot chan struct{}
-	runStarted      chan string
-	once            sync.Once
+	snapshotStarted  chan struct{}
+	releaseSnapshot  chan struct{}
+	observerFinished chan struct{}
+	runStarted       chan string
+	once             sync.Once
 }
 
-func (s *snapshotBlockingSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
+func (s *snapshotBlockingSweeper) pausePublication() {
 	s.once.Do(func() {
 		close(s.snapshotStarted)
 		<-s.releaseSnapshot
 	})
+}
+
+func (s *snapshotBlockingSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
+	s.pausePublication()
 	return s.sameSecondSweeper.GetStatus(ctx)
 }
 
@@ -889,33 +894,106 @@ func (s *snapshotBlockingSweeper) RunOnceWithExecution(ctx context.Context, id s
 	return s.sameSecondSweeper.RunOnceWithExecution(ctx, id)
 }
 
+func (s *snapshotBlockingSweeper) RunOnceWithObserver(ctx context.Context, id string, observe func(*models.Result) error) error {
+	if err := s.RunOnceWithExecution(ctx, id); err != nil {
+		return err
+	}
+	results := edgeSweepResults()
+	for i := range results {
+		if err := observe(&results[i]); err != nil {
+			return err
+		}
+	}
+	close(s.observerFinished)
+	return nil
+}
+
 func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
-	sw := &snapshotBlockingSweeper{
-		sameSecondSweeper: newSameSecondSweeper(),
-		snapshotStarted:   make(chan struct{}), releaseSnapshot: make(chan struct{}),
-		runStarted: make(chan string, 2),
-	}
-	service := &SweepService{sweeper: sw, config: &models.Config{}, logger: logger.NewTestLogger()}
-	first := make(chan error, 1)
-	second := make(chan error, 1)
-	go func() { first <- service.RunOnceForExecution(context.Background(), "leased") }()
-	<-sw.snapshotStarted
-	require.Equal(t, "leased", <-sw.runStarted)
-	go func() { second <- service.RunOnce(context.Background()) }()
-	select {
-	case id := <-sw.runStarted:
-		t.Errorf("%s started before prior snapshot retained", id)
-	case <-time.After(50 * time.Millisecond):
-	}
-	close(sw.releaseSnapshot)
-	require.NoError(t, <-first)
-	require.NoError(t, <-second)
-	sequence := ""
-	for _, id := range []string{"leased", "on-demand"} {
-		result, err := service.GetSweepResults(context.Background(), sequence)
-		require.NoError(t, err)
-		require.Equal(t, id, result.ExecutionId)
-		sequence = result.CurrentSequence
+	for _, edge := range []bool{false, true} {
+		t.Run(fmt.Sprintf("edge=%t", edge), func(t *testing.T) {
+			cfg, lease, slot, sp := edgeSweepFixture(t)
+			group := uuid.UUID(lease.SweepGroupId).String()
+			cfg.SweepGroupID = group
+			// Buffer every host until finish, so the claim pauses publication after
+			// the scanner has returned and released its own run lock.
+			lease.ProductionCapability.GetProduction().MaxProjectedRowCount = 16
+			lease.ProductionCapability.GetProduction().MaxProjectedWriteBytes = 16 * sweepProjectedRowBytes
+			sw := &snapshotBlockingSweeper{
+				sameSecondSweeper: newSameSecondSweeper(),
+				snapshotStarted:   make(chan struct{}), releaseSnapshot: make(chan struct{}),
+				observerFinished: make(chan struct{}), runStarted: make(chan string, 2),
+			}
+			release := sync.OnceFunc(func() { close(sw.releaseSnapshot) })
+			defer release()
+			service := &SweepService{sweeper: sw, config: cfg, logger: logger.NewTestLogger()}
+			multi := &MultiSweepService{groups: map[string]*SweepService{group: service}}
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			firstID := uuid.UUID(slot.ExecutionId).String()
+			first := make(chan error, 1)
+			second := make(chan error, 1)
+			go func() {
+				if !edge {
+					first <- multi.RunSweepGroupExecution(ctx, group, firstID)
+					return
+				}
+				first <- multi.RunSweepGroupLease(ctx, group, lease, slot, sp, func() error {
+					select {
+					case <-sw.observerFinished:
+					default:
+						return errors.New("publication started before the observer returned")
+					}
+					sw.pausePublication()
+					return nil
+				})
+			}()
+			select {
+			case <-sw.snapshotStarted:
+			case err := <-first:
+				t.Fatalf("first sweep ended before publication barrier: %v", err)
+			case <-ctx.Done():
+				t.Fatal("first sweep never reached publication barrier")
+			}
+			require.Equal(t, firstID, <-sw.runStarted)
+			secondCalling := make(chan struct{})
+			go func() {
+				close(secondCalling)
+				second <- multi.RunSweepGroup(ctx, group)
+			}()
+			<-secondCalling
+			var secondID string
+			select {
+			case secondID = <-sw.runStarted:
+				t.Errorf("%s started before prior publication completed", secondID)
+			case <-time.After(50 * time.Millisecond):
+			}
+			release()
+			require.NoError(t, <-first)
+			require.NoError(t, <-second)
+			if secondID == "" {
+				secondID = <-sw.runStarted
+			}
+			require.Equal(t, "on-demand", secondID)
+			if edge {
+				records, err := sp.Unresolved()
+				require.NoError(t, err)
+				require.Len(t, records, 1)
+				record := &edgev1.EdgeRecordV1{}
+				require.NoError(t, goproto.Unmarshal(records[0].Body, record))
+				batch := &edgev1.SweepObservationBatchV1{}
+				require.NoError(t, goproto.Unmarshal(record.Payload, batch))
+				require.Equal(t, slot.ExecutionId, batch.ExecutionId)
+				require.Len(t, batch.Hosts, 4)
+				return
+			}
+			sequence := ""
+			for _, id := range []string{firstID, "on-demand"} {
+				result, err := service.GetSweepResults(ctx, sequence)
+				require.NoError(t, err)
+				require.Equal(t, id, result.ExecutionId)
+				sequence = result.CurrentSequence
+			}
+		})
 	}
 }
 
