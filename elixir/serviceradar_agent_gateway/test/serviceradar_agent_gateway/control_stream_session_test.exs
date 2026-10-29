@@ -627,11 +627,14 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
   end
 
   test "with repo disabled, durable publish returns repo_unavailable without raising" do
-    previous_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled, true)
+    previous_repo_enabled = Application.fetch_env(:serviceradar_core, :repo_enabled)
     Application.put_env(:serviceradar_core, :repo_enabled, false)
 
     on_exit(fn ->
-      Application.put_env(:serviceradar_core, :repo_enabled, previous_repo_enabled)
+      case previous_repo_enabled do
+        {:ok, value} -> Application.put_env(:serviceradar_core, :repo_enabled, value)
+        :error -> Application.delete_env(:serviceradar_core, :repo_enabled)
+      end
     end)
 
     assert Process.whereis(ServiceRadar.Repo) == nil
@@ -645,11 +648,14 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
   test "with repo disabled, file-transfer frames route to core over RPC and fail cleanly without raising when core is unavailable" do
     ensure_pubsub!()
 
-    previous_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled, true)
+    previous_repo_enabled = Application.fetch_env(:serviceradar_core, :repo_enabled)
     Application.put_env(:serviceradar_core, :repo_enabled, false)
 
     on_exit(fn ->
-      Application.put_env(:serviceradar_core, :repo_enabled, previous_repo_enabled)
+      case previous_repo_enabled do
+        {:ok, value} -> Application.put_env(:serviceradar_core, :repo_enabled, value)
+        :error -> Application.delete_env(:serviceradar_core, :repo_enabled)
+      end
     end)
 
     assert Process.whereis(ServiceRadar.Repo) == nil

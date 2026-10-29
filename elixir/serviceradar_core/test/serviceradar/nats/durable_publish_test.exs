@@ -1,5 +1,5 @@
 defmodule ServiceRadar.NATS.DurablePublishTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.NATS.DurablePublish
 
@@ -94,11 +94,14 @@ defmodule ServiceRadar.NATS.DurablePublishTest do
   end
 
   test "returns {:error, :repo_unavailable} instead of raising when the repo is disabled" do
-    previous_repo_enabled = Application.get_env(:serviceradar_core, :repo_enabled, true)
+    previous_repo_enabled = Application.fetch_env(:serviceradar_core, :repo_enabled)
     Application.put_env(:serviceradar_core, :repo_enabled, false)
 
     on_exit(fn ->
-      Application.put_env(:serviceradar_core, :repo_enabled, previous_repo_enabled)
+      case previous_repo_enabled do
+        {:ok, value} -> Application.put_env(:serviceradar_core, :repo_enabled, value)
+        :error -> Application.delete_env(:serviceradar_core, :repo_enabled)
+      end
     end)
 
     assert {:error, :repo_unavailable} =
