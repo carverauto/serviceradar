@@ -122,6 +122,22 @@ type sweepRun struct {
 	cancelled bool
 }
 
+type executionCheckKey struct{}
+
+func WithExecutionCheck(ctx context.Context, check func() error) context.Context {
+	return context.WithValue(ctx, executionCheckKey{}, check)
+}
+
+func CheckExecution(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if check, ok := ctx.Value(executionCheckKey{}).(func() error); ok {
+		return check()
+	}
+	return nil
+}
+
 func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 	return s.runSweepWithExecution(ctx, "")
 }
@@ -132,6 +148,9 @@ func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID string) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
+	if err := CheckExecution(ctx); err != nil {
+		return err
+	}
 
 	runCtx, cancel := context.WithCancel(ctx)
 	defer cancel()

@@ -62,7 +62,7 @@ func TestSweepExecutionIDBoundToCompletedSweep(t *testing.T) {
 	}
 
 	sweeper.runExecutionID = "exec-a"
-	require.NoError(t, sweeper.completeSuccessfulSweep(context.Background(), time.Now().Add(-time.Second)))
+	require.NoError(t, sweeper.completeSuccessfulSweep(context.Background(), time.Now().Add(-time.Second), false))
 
 	sweeper.sweepInProgress = true
 	sweeper.runExecutionID = "exec-b"
@@ -72,13 +72,13 @@ func TestSweepExecutionIDBoundToCompletedSweep(t *testing.T) {
 	require.Equal(t, "192.0.2.10", inProgress.Hosts[0].Host)
 
 	sweeper.sweepInProgress = false
-	require.NoError(t, sweeper.completeSuccessfulSweep(context.Background(), time.Now().Add(-time.Second)))
+	require.NoError(t, sweeper.completeSuccessfulSweep(context.Background(), time.Now().Add(-time.Second), false))
 	completed, err := sweeper.GetStatus(context.Background())
 	require.NoError(t, err)
 	require.Equal(t, "exec-b", completed.ExecutionID)
 
 	sweeper.runExecutionID = ""
-	require.NoError(t, sweeper.completeSuccessfulSweep(context.Background(), time.Now().Add(-time.Second)))
+	require.NoError(t, sweeper.completeSuccessfulSweep(context.Background(), time.Now().Add(-time.Second), false))
 	local, err := sweeper.GetStatus(context.Background())
 	require.NoError(t, err)
 	require.Empty(t, local.ExecutionID)
@@ -95,4 +95,24 @@ func TestRunOnceStoppedDoesNotSucceed(t *testing.T) {
 	err := sweeper.RunOnceWithExecution(context.Background(), "exec-new")
 	require.ErrorIs(t, err, errSweeperStopped)
 	require.Equal(t, "previous", sweeper.lastExecutionID)
+}
+
+func TestExecutionCheckRunsAfterSweeperLock(t *testing.T) {
+	sweeper := &NetworkSweeper{}
+	sweeper.runMu.Lock()
+	checked := make(chan struct{})
+	ctx := WithExecutionCheck(context.Background(), func() error {
+		close(checked)
+		return context.Canceled
+	})
+	done := make(chan error, 1)
+	go func() { done <- sweeper.runSweepWithExecution(ctx, "queued") }()
+	select {
+	case <-checked:
+		t.Error("execution check ran before owning sweep lock")
+	case <-time.After(20 * time.Millisecond):
+	}
+	sweeper.runMu.Unlock()
+	require.ErrorIs(t, <-done, context.Canceled)
+	<-checked
 }

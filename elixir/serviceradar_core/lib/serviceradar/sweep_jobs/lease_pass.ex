@@ -427,7 +427,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   # The slots that start after `now` and before the end of the horizon.
   defp desired_slots(schedule, now, horizon) do
     schedule
-    |> LeaseSchedule.slots(now, DateTime.add(now, horizon, :second))
+    |> LeaseSchedule.slots(now, DateTime.shift(now, second: horizon))
     |> Enum.filter(&DateTime.after?(&1.start, now))
   end
 

@@ -114,7 +114,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     # Ahead of the drop's wall clock, so the shrink is the delivery those drops are
     # since, and growing the horizon back is a tail from the short cursor.
-    later = DateTime.add(now, 120, :second)
+    later = DateTime.shift(now, minute: 2)
 
     setting!(ctx.admin, :partition, ctx.partition.id,
       leasing_enabled: true,
@@ -231,7 +231,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                installed: true
              })
 
-    later = DateTime.add(now, 120, :second)
+    later = DateTime.shift(now, minute: 2)
 
     setting!(ctx.admin, :partition, ctx.partition.id,
       leasing_enabled: true,
@@ -250,13 +250,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assignment = assignment!(group, ctx.agent)
     [carried | _] = unrun!(assignment, later)
-    minted_start = DateTime.add(cursor, 60, :second)
+    minted_start = DateTime.shift(cursor, minute: 1)
 
     assert {:ok, minted} =
              ExecutionSlots.schedule(
                assignment,
                minted_start,
-               DateTime.add(minted_start, 900, :second),
+               DateTime.shift(minted_start, minute: 15),
                targets: group.static_targets,
                check_set_sha256: carried.check_set_sha256,
                lease_id: LeasePass.lease_id(assignment)
@@ -344,7 +344,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     # Ahead of the drops' wall clock, so the clear is the delivery those drops
     # are since and the restore is judged on the cursor alone.
-    later = clear_at(DateTime.add(now, 120, :second))
+    later = clear_at(DateTime.shift(now, minute: 2))
 
     setting!(ctx.admin, :partition, ctx.partition.id,
       leasing_enabled: true,
@@ -401,13 +401,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assignment = assignment!(group, ctx.agent)
     [first_slot | _] = unrun!(assignment, now)
-    interior_start = DateTime.add(first_slot.slot_start, 60, :second)
+    interior_start = DateTime.shift(first_slot.slot_start, minute: 1)
 
     assert {:ok, interior} =
              ExecutionSlots.schedule(
                assignment,
                interior_start,
-               DateTime.add(interior_start, 900, :second),
+               DateTime.shift(interior_start, minute: 15),
                targets: group.static_targets,
                check_set_sha256: first_slot.check_set_sha256,
                lease_id: LeasePass.lease_id(assignment)
@@ -442,7 +442,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
     assert_receive {:pushed, _, _, first, _}
 
-    later = DateTime.add(now, 300, :second)
+    later = DateTime.shift(now, minute: 5)
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, resent, _}
 
@@ -474,7 +474,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                installed: true
              })
 
-    later = DateTime.add(now, 1_800, :second)
+    later = DateTime.shift(now, minute: 30)
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, tail, _}
 
@@ -514,7 +514,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
                error: "plan rejected"
              })
 
-    retry = DateTime.add(now, 60, :second)
+    retry = DateTime.shift(now, minute: 1)
     LeasePass.reconcile_group(group, retry, ctx.delivery)
     assert_receive {:pushed, _, _, resent, _}
     assert resent.lease_id == first.lease_id
@@ -528,7 +528,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert bumped.authority_epoch == first.authority_epoch + 1
 
     # No ack within the grace period: the window goes out again.
-    late = DateTime.add(retry, LeaseDelivery.ack_grace_seconds() + 60, :second)
+    late = DateTime.shift(retry, second: LeaseDelivery.ack_grace_seconds() + 60)
     LeasePass.reconcile_group(group, late, ctx.delivery)
     assert_receive {:pushed, _, _, again, _}
     assert again.lease_id == bumped.lease_id
@@ -540,7 +540,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     group = leased_group!(ctx)
     LeasePass.reconcile_group(group, DateTime.utc_now(), ctx.delivery)
     assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
-    through = DateTime.add(DateTime.utc_now(), 3_600, :second)
+    through = DateTime.shift(DateTime.utc_now(), hour: 1)
 
     assert :ok =
              LeaseDelivery.record_ack(ctx.agent, %{
@@ -570,7 +570,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     LeasePass.reconcile_group(group, now, ctx.delivery)
     assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
-    through = DateTime.add(now, 3_600, :second)
+    through = DateTime.shift(now, hour: 1)
 
     assert :ok =
              LeaseDelivery.record_ack(ctx.agent, %{
@@ -595,7 +595,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
              DateTime.to_unix(through, :microsecond)
 
     # A newer push keeps the installed horizon visible while the latest push is unacked.
-    later = DateTime.add(now, 1_800, :second)
+    later = DateTime.shift(now, minute: 30)
     LeasePass.reconcile_group(group, later, ctx.delivery)
     group_id = group.id
 
@@ -610,14 +610,14 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
       assert %{pushed: 1} =
                LeasePass.reconcile_group(
                  group,
-                 DateTime.add(later, offset, :second),
+                 DateTime.shift(later, second: offset),
                  ctx.delivery
                )
 
       assert_receive {:pushed, _, _, _, _}
     end
 
-    overdue_at = DateTime.add(later, LeaseDelivery.ack_grace_seconds() + 1, :second)
+    overdue_at = DateTime.shift(later, second: LeaseDelivery.ack_grace_seconds() + 1)
 
     assert {:ok, %{^group_id => [overdue]}} =
              LeaseDelivery.horizons_for_groups([group.id], overdue_at)
@@ -635,13 +635,13 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert_receive {:pushed, _, _, _, first_payload}
     first_digest = digest(first_payload)
 
-    later = DateTime.add(now, 1_800, :second)
+    later = DateTime.shift(now, minute: 30)
     LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, _, second_payload}
     second_digest = digest(second_payload)
     refute second_digest == first_digest
 
-    through = DateTime.add(later, 3_600, :second)
+    through = DateTime.shift(later, hour: 1)
 
     assert :ok =
              LeaseDelivery.record_ack(ctx.agent, %{
@@ -727,7 +727,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert revocation.production_capability == nil
     assert {:ok, [pending]} = LeaseDelivery.list_for_group(group.id)
     assert pending.revoked_at
-    retry = DateTime.add(now, 300, :second)
+    retry = DateTime.shift(now, minute: 5)
     assert %{withdrawn: 1} = LeasePass.reconcile_group(group, retry, ctx.delivery)
     assert_receive {:pushed, _, _, _, unacknowledged_payload}
     assert unacknowledged_payload == payload
@@ -751,7 +751,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     assert {:ok, [_]} = LeaseDelivery.list_for_group(group.id)
 
-    retry = DateTime.add(now, 600, :second)
+    retry = DateTime.shift(now, minute: 10)
     assert %{withdrawn: 1} = LeasePass.reconcile_group(group, retry, ctx.delivery)
     assert_receive {:pushed, _, _, repeated, repeated_payload}
     assert repeated.revoked
@@ -779,7 +779,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert_receive {:pushed, _, _, revocation, payload}
     assert revocation.revoked
 
-    later = DateTime.add(now, 60, :second)
+    later = DateTime.shift(now, minute: 1)
     assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
     assert_receive {:pushed, _, _, resumed, _}
     refute resumed.revoked
@@ -904,7 +904,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   defp clear_at(%DateTime{} = time) do
     if rem(DateTime.to_unix(time), 900) >= 899 do
-      DateTime.add(time, -2, :second)
+      DateTime.shift(time, second: -2)
     else
       time
     end

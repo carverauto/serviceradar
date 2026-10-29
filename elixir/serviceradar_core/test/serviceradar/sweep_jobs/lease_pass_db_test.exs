@@ -319,7 +319,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
   defp expected_starts(spec, now, horizon) do
     spec
-    |> LeaseSchedule.slots(now, DateTime.add(now, horizon, :second))
+    |> LeaseSchedule.slots(now, DateTime.shift(now, second: horizon))
     |> Enum.filter(&DateTime.after?(&1.start, now))
     |> Enum.map(&DateTime.to_unix(&1.start))
   end

@@ -222,17 +222,14 @@ defmodule ServiceRadar.Edge.WireCompatCorpusTest do
       end
     end
 
-    test "the parser-level vectors are refused by the PREFLIGHT here, and by Go's parser there" do
-      # Go refuses these before any application code runs (`decode` in the manifest). Elixir's
-      # generated decoder ACCEPTS both, so without the preflight they would be admitted here and
-      # refused there -- the divergence the preflight exists to close.
+    test "out-of-range tags fail decoding and scalar overflow still requires preflight" do
       over = load("wire_compat_field_number_over.bin")
       overflow = load("wire_compat_varint_overflow.bin")
 
       assert {:error, :poison} = WireValidate.validate(over, EdgeRecordV1)
       assert {:error, :poison} = WireValidate.validate(overflow, EdgeRecordV1)
 
-      assert %EdgeRecordV1{} = EdgeRecordV1.decode(over)
+      assert_raise Protobuf.DecodeError, fn -> EdgeRecordV1.decode(over) end
 
       # The MASKING is the point, so assert the masked NUMBER rather than merely that a struct
       # came back: 2^64+1 is written as a 10-byte varint into not_before_unix_nano, and the pinned

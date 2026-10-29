@@ -25,6 +25,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -863,8 +864,8 @@ type snapshotBlockingSweeper struct {
 	*sameSecondSweeper
 	snapshotStarted chan struct{}
 	releaseSnapshot chan struct{}
-	runStarted chan string
-	once sync.Once
+	runStarted      chan string
+	once            sync.Once
 }
 
 func (s *snapshotBlockingSweeper) GetStatus(ctx context.Context) (*models.SweepSummary, error) {
@@ -887,7 +888,7 @@ func (s *snapshotBlockingSweeper) RunOnceWithExecution(ctx context.Context, id s
 func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 	sw := &snapshotBlockingSweeper{
 		sameSecondSweeper: newSameSecondSweeper(),
-		snapshotStarted: make(chan struct{}), releaseSnapshot: make(chan struct{}),
+		snapshotStarted:   make(chan struct{}), releaseSnapshot: make(chan struct{}),
 		runStarted: make(chan string, 2),
 	}
 	service := &SweepService{sweeper: sw, config: &models.Config{}, logger: logger.NewTestLogger()}
@@ -911,5 +912,46 @@ func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, id, result.ExecutionId)
 		sequence = result.CurrentSequence
+	}
+}
+
+type queuedLeaseRunner struct {
+	sweepLeaseRunner
+	entered chan struct{}
+}
+
+func (r *queuedLeaseRunner) RunSweepGroupExecution(ctx context.Context, group, execution string) error {
+	close(r.entered)
+	return r.sweepLeaseRunner.RunSweepGroupExecution(ctx, group, execution)
+}
+
+func TestQueuedLeaseSlotRecheckedBeforeExecution(t *testing.T) {
+	for _, revoked := range []bool{false, true} {
+		t.Run(fmt.Sprint(revoked), func(t *testing.T) {
+			fixture := newLeaseExecutorFixture(t)
+			lease := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
+			fixture.install(t, lease.lease)
+			var nanos atomic.Int64
+			nanos.Store(testSlotStart.Add(time.Minute).UnixNano())
+			runner := &queuedLeaseRunner{sweepLeaseRunner: fixture.multi, entered: make(chan struct{})}
+			fixture.executor.runnerFor = func() sweepLeaseRunner { return runner }
+			fixture.service.runMu.Lock()
+			done := make(chan struct{})
+			go func() {
+				fixture.executor.step(context.Background(), func() time.Time { return time.Unix(0, nanos.Load()) })
+				close(done)
+			}()
+			<-runner.entered
+			if revoked {
+				revocation := testLeasePush(100, 101)
+				revocation.Revoked = true
+				fixture.install(t, revocation)
+			} else {
+				nanos.Store(lease.lease.Slots[0].CollectionExpiresUnixNano)
+			}
+			fixture.service.runMu.Unlock()
+			<-done
+			require.Zero(t, fixture.sweeper.runCount)
+		})
 	}
 }
