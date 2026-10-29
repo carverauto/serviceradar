@@ -32,7 +32,7 @@ objectStoreRetention:
 
 `pluginOrphanGraceSeconds` controls how old inactive plugin blobs must be before they are eligible for deletion. Staged and approved packages are protected, as are packages referenced by assignments or target policies.
 
-The release-management UI is intentionally bounded to the latest five published releases and the latest five discovered repository releases. The retention planner is the source of truth for artifact cleanup; the UI limit prevents old object-store history from looking like recommended rollout choices.
+The release-management UI is intentionally bounded to the latest five published releases and the latest five agent releases discovered from the repository. See [Agent Release Management](./agent-release-management.md). The retention planner is the source of truth for artifact cleanup; the UI limit prevents old object-store history from looking like recommended rollout choices.
 
 The plugin admin UI paginates installed plugin packages ten rows at a time. Object-store retention still protects staged, approved, assigned, and policy-referenced plugin blobs; operators should treat older unreferenced blobs as cleanup candidates rather than active package recommendations.
 

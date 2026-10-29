@@ -34,43 +34,13 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
     def get(url, _opts) do
       cond do
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases?per_page=") ->
+          query = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+          per_page = Map.fetch!(query, "per_page")
+
           {:ok,
            %Req.Response{
              status: 200,
-             body: [
-               %{
-                 "tag_name" => "netprobe-v0.2.9",
-                 "name" => "Native add-on netprobe 0.2.9",
-                 "body" => "Add-on only release",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/netprobe-v0.2.9",
-                 "published_at" => "2026-03-29T20:00:00Z",
-                 "assets" => [
-                   %{"name" => "serviceradar-native-addon-index.json"},
-                   %{"name" => "serviceradar-native-addon-index.sig"}
-                 ]
-               },
-               %{
-                 "tag_name" => "v1.2.4",
-                 "name" => "ServiceRadar 1.2.4",
-                 "body" => "Newest release",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.4",
-                 "published_at" => "2026-03-28T20:00:00Z",
-                 "assets" => [
-                   %{"name" => "serviceradar-agent-release-manifest.json"},
-                   %{"name" => "serviceradar-agent-release-manifest.sig"}
-                 ]
-               },
-               %{
-                 "tag_name" => "v1.2.3",
-                 "name" => "ServiceRadar 1.2.3",
-                 "body" => "Missing manifest asset",
-                 "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
-                 "published_at" => "2026-03-27T20:00:00Z",
-                 "assets" => [
-                   %{"name" => "serviceradar-agent-release-manifest.sig"}
-                 ]
-               }
-             ]
+             body: Enum.take(releases(), String.to_integer(per_page))
            }}
 
         String.contains?(url, "api.github.com/repos/carverauto/serviceradar/releases/tags/v1.2.3") ->
@@ -106,6 +76,51 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}
       end
+    end
+
+    # Newest first, as GitHub lists them. More add-on releases precede the
+    # agent releases than the browser shows, so the agent releases are only
+    # found when the scan reads past the visible limit.
+    defp releases do
+      addon_releases =
+        for patch <- 9..5//-1 do
+          %{
+            "tag_name" => "netprobe-v0.2.#{patch}",
+            "name" => "Native add-on netprobe 0.2.#{patch}",
+            "body" => "Add-on only release",
+            "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/netprobe-v0.2.#{patch}",
+            "published_at" => "2026-03-29T1#{patch}:00:00Z",
+            "assets" => [
+              %{"name" => "serviceradar-native-addon-index.json"},
+              %{"name" => "serviceradar-native-addon-index.sig"}
+            ]
+          }
+        end
+
+      addon_releases ++
+        [
+          %{
+            "tag_name" => "v1.2.4",
+            "name" => "ServiceRadar 1.2.4",
+            "body" => "Newest release",
+            "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.4",
+            "published_at" => "2026-03-28T20:00:00Z",
+            "assets" => [
+              %{"name" => "serviceradar-agent-release-manifest.json"},
+              %{"name" => "serviceradar-agent-release-manifest.sig"}
+            ]
+          },
+          %{
+            "tag_name" => "v1.2.3",
+            "name" => "ServiceRadar 1.2.3",
+            "body" => "Missing manifest asset",
+            "html_url" => "https://github.com/carverauto/serviceradar/releases/tag/v1.2.3",
+            "published_at" => "2026-03-27T20:00:00Z",
+            "assets" => [
+              %{"name" => "serviceradar-agent-release-manifest.sig"}
+            ]
+          }
+        ]
     end
   end
 
@@ -196,6 +211,86 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
                "repo_url" => "https://github.com/carverauto/serviceradar"
              })
 
-    refute Enum.any?(releases, &(&1.tag == "netprobe-v0.2.9"))
+    refute Enum.any?(releases, &String.starts_with?(&1.tag, "netprobe-"))
+  end
+
+  # Visible list is 5. The scan window is that limit times 10, capped at 50
+  # (ReleaseSourceImporter's documented recent-release scan). Five add-on
+  # releases sit in front, then a draft that carries the agent assets, then
+  # enough published agent releases that a correct browser keeps only five.
+  defmodule ScanWindowClient do
+    @moduledoc false
+
+    def get(url, _opts) do
+      query = url |> URI.parse() |> Map.fetch!(:query) |> URI.decode_query()
+      per_page = Map.fetch!(query, "per_page")
+      Process.put(:agent_release_scan_per_page, per_page)
+
+      {:ok,
+       %Req.Response{
+         status: 200,
+         body: Enum.take(releases(), String.to_integer(per_page))
+       }}
+    end
+
+    defp releases do
+      addons =
+        for patch <- 5..1//-1 do
+          %{
+            "tag_name" => "netprobe-v0.3.#{patch}",
+            "name" => "Native add-on netprobe 0.3.#{patch}",
+            "draft" => false,
+            "assets" => [
+              %{"name" => "serviceradar-native-addon-index.json"},
+              %{"name" => "serviceradar-native-addon-index.sig"}
+            ]
+          }
+        end
+
+      draft = %{
+        "tag_name" => "v9.0.0",
+        "name" => "ServiceRadar 9.0.0 draft",
+        "draft" => true,
+        "prerelease" => false,
+        "assets" => [
+          %{"name" => "serviceradar-agent-release-manifest.json"},
+          %{"name" => "serviceradar-agent-release-manifest.sig"}
+        ]
+      }
+
+      published =
+        for patch <- 4..0//-1 do
+          %{
+            "tag_name" => "v8.0.#{patch}",
+            "name" => "ServiceRadar 8.0.#{patch}",
+            "draft" => false,
+            "assets" => [
+              %{"name" => "serviceradar-agent-release-manifest.json"},
+              %{"name" => "serviceradar-agent-release-manifest.sig"}
+            ]
+          }
+        end
+
+      addons ++ [draft | published]
+    end
+  end
+
+  test "keeps a draft behind add-on releases and still shows only five" do
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ScanWindowClient)
+
+    assert {:ok, releases} =
+             ReleaseSourceImporter.list_recent_releases(%{
+               "repo_url" => "https://github.com/carverauto/serviceradar"
+             })
+
+    # Default visible limit is 5, so the scan asks GitHub for 50, not 5.
+    assert Process.get(:agent_release_scan_per_page) == "50"
+
+    assert Enum.map(releases, & &1.tag) == ["v9.0.0", "v8.0.4", "v8.0.3", "v8.0.2", "v8.0.1"]
+
+    assert hd(releases).draft?
+    assert hd(releases).import_ready?
+    refute Enum.any?(releases, &String.starts_with?(&1.tag, "netprobe-"))
+    refute Enum.any?(releases, &(&1.tag == "v8.0.0"))
   end
 end

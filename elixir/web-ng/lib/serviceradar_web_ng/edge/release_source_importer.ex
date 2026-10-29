@@ -197,9 +197,11 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
     end
   end
 
-  defp fetch_recent_releases(repo, limit) do
+  # `scan_limit` is wider than the visible limit: add-on releases and drafts
+  # share the release list, and the newest agent releases can sit behind them.
+  defp fetch_recent_releases(repo, scan_limit) do
     url =
-      "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{normalize_limit(limit)}"
+      "#{repo.api_base_url}/repos/#{repo.owner}/#{repo.repo}/releases?per_page=#{scan_limit}"
 
     with {:ok, request_url} <- validate_provider_api_url(repo, url),
          {:ok, response} <-
