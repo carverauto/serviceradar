@@ -1,3 +1,130 @@
+# ServiceRadar v1.4.99
+
+This release makes agents renew their own certificates, links agents to
+the right device by hardware identity instead of hostname, fixes
+add-on installs on agents, restores lost audit records, and makes
+ingestion and several database paths much cheaper.
+
+## Upgrade Notes
+
+- **Upgrade your agents.** Agents from v1.4.85 through v1.4.98 could
+  not install or upgrade systemd-delivered add-ons (for example
+  netprobe, scalibr and workload-identity), and held their
+  configuration unacknowledged while they kept retrying. Upgrade agents
+  to this release; they then retry the installs on their own. Add-on
+  rollouts that paused or rolled back during that time stay paused:
+  resume them, or publish a newer add-on version (#6140).
+- **Agent certificates renew automatically.** Agents on this release
+  renew their mTLS certificate over their existing connection at two
+  thirds of its lifetime, with no restart. New agent certificates last
+  90 days by default; set `certs.agentValidityDays` (Helm) or
+  `AGENT_CERT_VALIDITY_DAYS` to choose 7 to 365 days per deployment,
+  or pick a lifetime per package on the Create agent package form. An
+  agent whose certificate has already expired must be re-enrolled.
+  Earlier releases could issue one-day agent certificates; re-enroll
+  any agent that stopped connecting for that reason (#6132, #6139,
+  #6142).
+- **Device identity.** An agent now links to an existing device by the
+  permanent MAC address of its physical network interfaces, not by
+  hostname, so same-named hosts at different sites are never merged.
+  Agents in containers keep linking by the MAC they report today.
+  Proxmox nodes link to the agent running on them by the node's TLS
+  certificate once both the agent and the Proxmox plugin (0.1.13) are
+  upgraded, in either order (#6149, #6158).
+- **Armis northbound.** When an agent links to a device that Armis
+  also reports, the device's availability now follows the agent, so
+  an endpoint Armis reports as down is pushed as up while its agent
+  reaches it (#6149).
+- **SPIRE removed.** SPIRE/SPIFFE workload support and the `spire.*`
+  Helm values are gone. ServiceRadar's certificate-based mTLS is
+  unchanged. A configuration that still selects a `spiffe` or `spire`
+  security mode is rejected at startup with a migration message
+  (#6127, #6131).
+- **Postgres JIT is off by default** on the CNPG cluster. It is applied
+  by reload, without restarting Postgres. Set
+  `cnpg.postgresqlParameters.jit: "on"` to turn it back on (#6161).
+- **NATS** no longer has a default CPU limit, and requests 500m CPU, so
+  a brief host pause cannot throttle it into a cluster-wide stall. Set
+  `nats.resources.limits.cpu` to keep a limit (#6122).
+- **Host network metrics.** Container, CNI and overlay interfaces (for
+  example `cali*`, `flannel*`, `cilium*`, `vxlan*`) no longer report
+  network metrics. Routed tunnels such as WireGuard and GRE still report
+  (#6165).
+
+## Whats New
+
+**Agents and certificates**
+
+- Agents renew their own mTLS certificates without restarting, and
+  expiry is recorded per agent: `cert_expires_at` in SRQL `in:agents`,
+  an expiry badge on the Agents pages, and alerts 30 days and 7 days
+  before a certificate expires (#6132, #6139).
+- Certificate issuance and renewal are audited again. Records for
+  agent packages, edge-site NATS certificates and add-on identities had
+  been lost since v1.3.2 (#6144).
+- The Create agent package form keeps the partition and host IP you
+  enter, and shows when the package's certificate expires (#6142,
+  #6153).
+- The agent launcher repairs its own state directory ownership instead
+  of restarting forever when the directory belongs to root (#6125).
+
+**Device identity**
+
+- Agents report their full interface inventory, and only permanent
+  physical-NIC MACs identify a host (#6149).
+- Proxmox nodes and the agents on them link by the node's TLS
+  certificate, so a node without SNMP no longer appears twice (#6158).
+- Two hypervisor nodes with the same name in different clusters are no
+  longer merged on hostname (#6117).
+- A device swept at several addresses is up when any address answers,
+  and its availability timeline no longer flaps (#6095, #6107).
+- Coexisting assignments of one plugin keep separate results, and
+  northbound dispatch picks the assignment whose credential rule
+  covers the device (#6116, #6133).
+
+**Ingestion and performance**
+
+- Plugin results ingest much faster: per-result service-status reads
+  use their index, and Proxmox and Wi-Fi inventory results do far less
+  database work, so small results no longer time out behind them
+  (#6129, #6143).
+- BGP updates are no longer dropped by an ingestion crash (#6105).
+- NetFlow interface-cache writes no longer deadlock (#6115).
+- Large inventory syncs plan their identifier lookups in milliseconds
+  instead of seconds (#6152), and identity retirement and Armis MAC
+  succession queries use their indexes (#6154).
+- Exposure processing and reconciliation do less work per pass
+  (#6091, #6108, #6114, #6128, #6135).
+- Database calls that use short timeouts no longer fail under load
+  (#6103).
+- Agents with many SNMP targets receive shared OID lists instead of a
+  copy per target (#6100).
+
+**Observability and UI**
+
+- Flow Details shows the public endpoint, agent and container again
+  (#6106).
+- Observability tabs and the Services page load asynchronously, and the
+  Flows tab runs fewer, bounded queries (#6138).
+- Egress-proxy refusal messages name the host that was refused (#6102).
+- Telemetry traces start exporting immediately at startup (#6166).
+
+**Cameras and recording**
+
+- Browse and play back archived camera recordings (#6096).
+- Camera relays survive WebRTC disconnects (#6119).
+- New tooling for recording storage: per-member storage identity,
+  isolated spool provisioning and volume preflight, an isolated archive
+  reader installation, and provider encryption-policy diagnostics
+  (#6126, #6130, #6141, #6145, #6150, #6157).
+
+## Security and Dependencies
+
+- go-jose 4.1.6 (#6098).
+- rules_go 0.65.0, with a race fix for the bundled wazero runtime
+  (#6094).
+- pulldown-cmark 0.13.5 for RUSTSEC-2026-0414 (#6131).
+
 # ServiceRadar v1.4.98
 
 This release gives every device a single availability value, fixes
