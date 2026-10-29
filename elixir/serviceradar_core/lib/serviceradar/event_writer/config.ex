@@ -809,6 +809,7 @@ defmodule ServiceRadar.EventWriter.Config do
       name: "EDGE_RECORD",
       stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK",
       subject: "telemetry.edge-record.v1.bulk.>",
+      allow_stream_fallback: false,
       processor: ServiceRadar.EventWriter.Processors.EdgeRecord,
       batch_size: 1,
       batch_timeout: 1_000,

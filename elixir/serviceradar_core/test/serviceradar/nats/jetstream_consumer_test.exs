@@ -4,6 +4,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.ConsumerSetup
   alias ServiceRadar.NATS.JetstreamConsumer
 
   defmodule FakeJetStream do
@@ -36,9 +37,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     defp respond("$JS.API.STREAM.NAMES", body, streams) do
       {reason, streams} = Map.pop(streams, :names_error)
 
-      if reason != nil do
-        {%{"error" => %{"code" => 503, "description" => "stream names unavailable"}}, streams}
-      else
+      if reason == nil do
         %{"subject" => subject} = Jason.decode!(body)
 
         names =
@@ -47,6 +46,8 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
               do: name
 
         {%{"streams" => names}, streams}
+      else
+        {%{"error" => %{"code" => 503, "description" => "stream names unavailable"}}, streams}
       end
     end
 
@@ -414,8 +415,10 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
       start_supervised!(
         {FakeJetStream,
          %{
-           "telemetry_edge_record_v1_bulk" =>
-             %{"subjects" => ["telemetry.edge-record.v1.bulk.>"], "messages" => 0}
+           "telemetry_edge_record_v1_bulk" => %{
+             "subjects" => ["telemetry.edge-record.v1.bulk.>"],
+             "messages" => 0
+           }
          }}
       )
 
@@ -424,6 +427,51 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     streams = FakeJetStream.streams(conn)
     assert Map.has_key?(streams, "telemetry_edge_record_v1_bulk")
     refute Map.has_key?(streams, "TELEMETRY_EDGE_RECORD_V1_BULK")
+  end
+
+  test "edge record refuses a case-variant and any other owner of its subject" do
+    stream = Config.edge_record_stream()
+    subject = stream.subject
+    expected = Config.jetstream_stream_name(stream)
+
+    conn =
+      start_supervised!(
+        {FakeJetStream,
+         %{
+           "telemetry_edge_record_v1_bulk" => %{
+             "subjects" => [subject],
+             "messages" => 0
+           },
+           "events" => %{
+             "subjects" => [subject],
+             "messages" => 1
+           }
+         }}
+      )
+
+    assert {:error, %{"err_code" => 10_065}} = ensure_edge_record_consumer(conn)
+
+    streams = FakeJetStream.streams(conn)
+    assert Map.has_key?(streams, "telemetry_edge_record_v1_bulk")
+    assert Map.has_key?(streams, "events")
+    refute Map.has_key?(streams, expected)
+
+    assert :ok = ConsumerSetup.validate_resolved_stream(stream, expected)
+
+    assert {:error,
+            {:unexpected_stream, expected: ^expected, resolved: "telemetry_edge_record_v1_bulk"}} =
+             ConsumerSetup.validate_resolved_stream(stream, "telemetry_edge_record_v1_bulk")
+
+    assert {:error, {:unexpected_stream, expected: ^expected, resolved: "events"}} =
+             ConsumerSetup.validate_resolved_stream(stream, "events")
+
+    flow = Enum.find(Config.default_flow_streams(), &(&1.name == "NETFLOW_RAW"))
+
+    assert {:error, {:unexpected_stream, expected: "flows", resolved: "events"}} =
+             ConsumerSetup.validate_resolved_stream(flow, "events")
+
+    inventory = Enum.find(Config.default_streams(), &(&1.name == "K8S_INVENTORY"))
+    assert :ok = ConsumerSetup.validate_resolved_stream(inventory, "events")
   end
 
   test "a subject no stream owns is an empty discovery result, not a discovery error" do
@@ -716,10 +764,13 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   defp stream(subjects, messages), do: %{"subjects" => subjects, "messages" => messages}
 
   defp ensure_edge_record_consumer(conn) do
+    stream = Config.edge_record_stream()
+
     JetstreamConsumer.ensure_durable(conn,
-      stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK",
-      filter_subject: "telemetry.edge-record.v1.bulk.>",
-      consumer_name: "edge-record-bulk-test"
+      stream_name: Config.jetstream_stream_name(stream),
+      filter_subject: stream.subject,
+      consumer_name: "edge-record-bulk-test",
+      allow_stream_fallback: ConsumerSetup.allow_stream_fallback?(stream)
     )
   end
 
