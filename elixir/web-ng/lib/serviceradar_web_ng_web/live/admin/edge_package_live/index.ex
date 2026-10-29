@@ -46,8 +46,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         |> assign(:filter_status, nil)
         |> assign(:security_mode, security_mode)
         |> assign(:selected_component_type, "agent")
-        |> assign(:partition_value, "default")
-        |> assign(:host_ip_value, "")
         |> assign_default_cert_validity()
         |> assign(:gateway_options, gateway_options)
         |> assign(:default_gateway_id, default_gateway_id)
@@ -110,8 +108,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:create_form, build_create_form(security_mode))
      |> assign(:created_tokens, nil)
      |> assign(:selected_component_type, "agent")
-     |> assign(:partition_value, "default")
-     |> assign(:host_ip_value, "")
      |> assign_default_cert_validity()
      |> assign(:gateway_options, gateway_options)
      |> assign(:default_gateway_id, default_gateway_id)
@@ -128,8 +124,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:show_create_modal, false)
       |> assign(:create_form, build_create_form(security_mode))
       |> assign(:created_tokens, nil)
-      |> assign(:partition_value, "default")
-      |> assign(:host_ip_value, "")
       |> assign_default_cert_validity()
       |> assign(:gateway_options, gateway_options)
       |> assign(:default_gateway_id, default_gateway_id)
@@ -150,8 +144,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   def handle_event("validate_create", %{"form" => params}, socket) do
     params = ensure_gateway_id(params, socket.assigns.default_gateway_id)
     component_type = params["component_type"] || "agent"
-    partition = params["partition"] || socket.assigns.partition_value
-    host_ip = params["host_ip"] || socket.assigns.host_ip_value
     cert_validity_days = params["cert_validity_days"] || socket.assigns.cert_validity_days_value
 
     form = AshPhoenix.Form.validate(socket.assigns.create_form, params)
@@ -160,8 +152,6 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      socket
      |> assign(:create_form, form)
      |> assign(:selected_component_type, component_type)
-     |> assign(:partition_value, partition)
-     |> assign(:host_ip_value, host_ip)
      |> assign(:cert_validity_days_value, cert_validity_days)}
   end
 
@@ -577,12 +567,11 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       <.create_modal
         :if={@show_create_modal}
         form={to_form(@create_form)}
+        create_form={to_form(Map.take(@create_form.raw_params, ["partition", "host_ip"]), as: :form)}
         created_tokens={@created_tokens}
         creating={@creating}
         security_mode={@security_mode}
         selected_component_type={@selected_component_type}
-        partition_value={@partition_value}
-        host_ip_value={@host_ip_value}
         cert_validity_days_value={@cert_validity_days_value}
         timezone={@current_scope.user.timezone || "Etc/UTC"}
         gateway_options={@gateway_options}
@@ -714,9 +703,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                 <div class="sr-ui-collapse-content space-y-4">
                   <%= if @selected_component_type == "agent" do %>
                     <.input
-                      name="partition"
+                      id="create_package_partition"
+                      name="form[partition]"
                       label="Partition"
-                      value={@partition_value}
+                      value={Phoenix.HTML.Form.input_value(@create_form, :partition) || "default"}
                       placeholder="default"
                     />
                     <p class="text-xs text-sr-muted -mt-2 ml-1">
@@ -724,9 +714,10 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                     </p>
 
                     <.input
-                      name="host_ip"
+                      id="create_package_host_ip"
+                      name="form[host_ip]"
                       label="Host IP (Optional)"
-                      value={@host_ip_value}
+                      value={Phoenix.HTML.Form.input_value(@create_form, :host_ip)}
                       placeholder="Leave blank to auto-detect during enrollment"
                     />
                     <p class="text-xs text-sr-muted -mt-2 ml-1">
@@ -1329,7 +1320,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       transform_params: fn _form, params, _action ->
         # Convert component_type string to atom if needed (allowlist prevents DoS via atom exhaustion)
         params = Map.put(params, "component_type", :agent)
-        params = Map.drop(params, ["initial_addon_package_ids", "cert_validity_days"])
+        params = Map.drop(params, ["initial_addon_package_ids", "cert_validity_days", "partition", "host_ip"])
 
         # Set security mode from environment config
         params = Map.put(params, "security_mode", security_mode)
@@ -1354,8 +1345,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
     component_type = params["component_type"] || "agent"
     label = params["label"] || ""
     component_id = generate_component_id(label, component_type)
-    metadata_json = build_metadata_json(component_type, params)
-    partition_id = params["partition"] || "default"
+    partition_id = normalized_partition(params["partition"])
+    metadata_json = build_metadata_json(component_type, Map.put(params, "partition", partition_id))
 
     add_parent_type(
       %{
@@ -1430,11 +1421,26 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   defp add_parent_type(attrs, "agent"), do: Map.put(attrs, :parent_type, "gateway")
   defp add_parent_type(attrs, _), do: attrs
 
+  defp normalized_partition(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "default"
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalized_partition(_), do: "default"
+
   defp build_metadata_json("agent", params) do
     host_ip =
       case params["host_ip"] do
-        value when is_binary(value) and value != "" -> value
-        _ -> "PLACEHOLDER_HOST_IP"
+        value when is_binary(value) ->
+          case String.trim(value) do
+            "" -> "PLACEHOLDER_HOST_IP"
+            trimmed -> trimmed
+          end
+
+        _ ->
+          "PLACEHOLDER_HOST_IP"
       end
 
     metadata =
