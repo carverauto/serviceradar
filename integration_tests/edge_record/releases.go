@@ -122,10 +122,6 @@ type GatewayEnvConfig struct {
 	// snapshot (FixtureContractRegistryJSON). Without it the gateway's
 	// edge-records:v1 capability is never ready and every lane_open is refused.
 	ContractRegistryJSON string
-	// EdgeRecordTrustFile is the gateway's edge-record trust snapshot
-	// (WriteGatewayTrustFile). Without it edge-records:v1 never becomes ready
-	// and every lane_open is refused as unavailable.
-	EdgeRecordTrustFile string
 }
 
 // Env returns the environment variables StartRelease should merge in to boot
@@ -166,7 +162,7 @@ func (c GatewayEnvConfig) Env() map[string]string {
 		"CLOAK_KEY":                                   c.CloakKey,
 		"POOL_SIZE":                                   "2",
 		"CONTROL_REPO_POOL_SIZE":                      "2",
-		"AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE":        c.EdgeRecordTrustFile,
+		"AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE":      "core",
 		"AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY": c.ContractRegistryJSON,
 	}
 }
@@ -188,14 +184,16 @@ func (c GatewayEnvConfig) Secrets() []string {
 // generation, created and described by //rust/integration-db binaries the
 // harness executes (vertical_slice_test.go's provisionAndDescribeShard).
 type CoreEnvConfig struct {
-	MetricsPort   int
-	CNPGHost      string
-	CNPGPort      int
-	CNPGDatabase  string
-	CNPGUsername  string
-	CNPGPassword  string
-	NATSURL       string
-	NATSCredsFile string
+	IssuerKeyFile        string
+	ContractRegistryJSON string
+	MetricsPort          int
+	CNPGHost             string
+	CNPGPort             int
+	CNPGDatabase         string
+	CNPGUsername         string
+	CNPGPassword         string
+	NATSURL              string
+	NATSCredsFile        string
 	// CloakKey is a base64-encoded 32-byte key; CLOAK_KEY (or CLOAK_KEY_FILE)
 	// is a hard `raise` in runtime.exs:551 when config_env() == :prod (which
 	// a real `mix release` always is) -- generate one fresh per test run with
@@ -248,21 +246,23 @@ func (c CoreEnvConfig) Env() map[string]string {
 	}
 
 	env := map[string]string{
-		"CLUSTER_ENABLED":                "false",
-		"SERVICERADAR_CORE_METRICS_PORT": fmt.Sprintf("%d", c.MetricsPort),
-		"CNPG_HOST":                      c.CNPGHost,
-		"CNPG_PORT":                      fmt.Sprintf("%d", c.CNPGPort),
-		"CNPG_DATABASE":                  c.CNPGDatabase,
-		"CNPG_USERNAME":                  c.CNPGUsername,
-		"CNPG_PASSWORD":                  c.CNPGPassword,
-		"CNPG_SSL_MODE":                  sslMode,
-		"EVENT_WRITER_ENABLED":           "true",
-		"EVENT_WRITER_NATS_URL":          c.NATSURL,
-		"EVENT_WRITER_NATS_TLS":          "false",
-		"EVENT_WRITER_NATS_CREDS_FILE":   c.NATSCredsFile,
-		"CLOAK_KEY":                      c.CloakKey,
-		"POOL_SIZE":                      coreRepoPoolSize,
-		"CONTROL_REPO_POOL_SIZE":         "2",
+		"CLUSTER_ENABLED":                            "false",
+		"SERVICERADAR_CORE_METRICS_PORT":             fmt.Sprintf("%d", c.MetricsPort),
+		"SERVICERADAR_EDGE_ISSUER_KEY_FILE":          c.IssuerKeyFile,
+		"SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY": c.ContractRegistryJSON,
+		"CNPG_HOST":                    c.CNPGHost,
+		"CNPG_PORT":                    fmt.Sprintf("%d", c.CNPGPort),
+		"CNPG_DATABASE":                c.CNPGDatabase,
+		"CNPG_USERNAME":                c.CNPGUsername,
+		"CNPG_PASSWORD":                c.CNPGPassword,
+		"CNPG_SSL_MODE":                sslMode,
+		"EVENT_WRITER_ENABLED":         "true",
+		"EVENT_WRITER_NATS_URL":        c.NATSURL,
+		"EVENT_WRITER_NATS_TLS":        "false",
+		"EVENT_WRITER_NATS_CREDS_FILE": c.NATSCredsFile,
+		"CLOAK_KEY":                    c.CloakKey,
+		"POOL_SIZE":                    coreRepoPoolSize,
+		"CONTROL_REPO_POOL_SIZE":       "2",
 	}
 	if c.CNPGCAFile != "" {
 		env["CNPG_CA_FILE"] = c.CNPGCAFile

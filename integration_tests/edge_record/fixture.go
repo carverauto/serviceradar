@@ -23,11 +23,9 @@ package verticalslice
 import (
 	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -44,9 +42,10 @@ var fixtureHosts = []struct {
 	addr     [4]byte
 	hostname string
 }{
-	{[4]byte{192, 0, 2, 10}, "host01.example.com"},
-	{[4]byte{192, 0, 2, 11}, "host02.example.com"},
-	{[4]byte{192, 0, 2, 12}, "host03.example.com"},
+	{[4]byte{192, 0, 2, 8}, "host01.example.com"},
+	{[4]byte{192, 0, 2, 9}, "host02.example.com"},
+	{[4]byte{192, 0, 2, 10}, "host03.example.com"},
+	{[4]byte{192, 0, 2, 11}, "host04.example.com"},
 }
 
 // FixtureRecord is one committed, self-consistent EdgeRecordV1 (wrapping a
@@ -56,15 +55,8 @@ var fixtureHosts = []struct {
 // groups A/B/C require an INDEPENDENT observation, not a value re-derived by
 // calling back into this helper).
 //
-// Only four tables persist anything for this milestone
-// (elixir/serviceradar_core/priv/repo/migrations/20260910120000_create_edge_record_ledger.exs,
-// prefix "platform"): event_ledger, edge_delivery_slots,
-// edge_sweep_batch_slots, edge_sweep_projected_rows. None of them carry sweep
-// domain field values (host/ip/port) yet -- that is explicitly out of scope
-// for 0.12 per the migration's own moduledoc ("NOT the full OCSF sweep
-// domain schema... that belongs to task 5.1's decoder"). So "the queried
-// Sweep domain row" a caller can assert against today is these ledger/slot/
-// projected-row columns, keyed by the values below -- not host/IP content.
+// The harness also checks ordinary sweep results, execution progress, discovered
+// devices and device availability against Batch's independently chosen host values.
 type FixtureRecord struct {
 	// EventID is a UUIDv7 (16 bytes). Use it as BOTH the spool.Append
 	// eventID and it is embedded as EdgeRecordV1.event_id. Matches
@@ -129,16 +121,11 @@ type FixtureRecord struct {
 	Batch *edgev1.SweepObservationBatchV1
 }
 
-// BuildSweepFixture constructs one deterministic, structurally-valid
-// SweepObservationBatchV1 (3 hosts: a reachability-only host, a host with an
-// open port and a port error, and a host with an MTR summary -- 5 projected
-// rows total) wrapped in an EdgeRecordV1, uncompressed (NONE), with a
-// production_capability signed by the synthetic fixture issuer.
+// BuildSweepFixture constructs a complete four-host ICMP/TCP window in one
+// synthetic /30 range. The composed harness replaces its initial synthetic
+// capabilities with core-issued authority over durable assignments and slots
+// before delivery; offline selfchecks exercise the fixture's wire contract.
 //
-// The gateway authorizes every frame against its local trust snapshot (task
-// 3.2, EdgeRecordAuthorization), so the capability carries a real Ed25519
-// signature by fixtureIssuerKey; WriteGatewayTrustFile hands the gateway the
-// matching verifying key. Both are synthetic and derived in this file.
 // originPrincipalID MUST equal the exact bytes the gateway will record as
 // edge_delivery_slots.authenticated_agent_id for the RPC session that sends
 // this fixture -- ServiceRadar.EventWriter.Processors.EdgeRecord.ingest/3's
@@ -196,13 +183,8 @@ func BuildConflictingSweepFixture(networkScopeID, originPrincipalID []byte) (*Fi
 	return fx, nil
 }
 
-// The gateway withholds a record whose producer its trust snapshot has no
-// fence entry for, and it loads that snapshot once at boot, before any
-// fixture is built. So every fixture is attributed to one synthetic producer
-// per variant -- fixtureNetworkScopeID, fixtureProducerAssignmentID, run shard
-// = variant, authority epoch fixtureAuthorityEpoch -- and WriteGatewayTrustFile
-// fences exactly those. Fixtures stay distinct through their event, execution
-// and run ids and their content, which are generated per call.
+// Fixtures share one synthetic network scope. The composed harness obtains
+// fresh producer assignments and execution slots from core for each record.
 const (
 	primaryFixtureVariant     = 1
 	conflictingFixtureVariant = 2
@@ -245,12 +227,7 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 	if err != nil {
 		return nil, fmt.Errorf("fixture: target range id: %w", err)
 	}
-	sourceRunID, err := edgerecord.NewUUIDv7()
-	if err != nil {
-		return nil, fmt.Errorf("fixture: source run id: %w", err)
-	}
-
-	batch := sweepBatch(variant, executionID, targetRangeID, sourceRunID)
+	batch := sweepBatch(variant, executionID, targetRangeID, scopeID)
 	if err := edgerecord.ValidateSweepObservationBatch(batch); err != nil {
 		return nil, fmt.Errorf("fixture: built sweep batch failed local validation: %w", err)
 	}
@@ -298,11 +275,12 @@ func buildFixture(variant int, originPrincipalID []byte) (*FixtureRecord, error)
 		TrafficClass:        edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
 		NetworkScopeId:      networkScopeID,
 		ProjectedRowCount:   uint32(projection.SweepRows(batch)),
-		ProjectedWriteBytes: uint64(len(payload)) * 4,
+		ProjectedWriteBytes: uint64(projection.SweepRows(batch)) * 2048,
 		CostModelVersion:    fixtureCostModel,
 		Payload:             payload,
 	}
 	record.ProductionCapability = fixtureCapability(record)
+	record.SourceAuthorization = fixtureSourceAuthorization(record, batch)
 	record.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(record)
 
 	if err := edgerecord.ValidateRecord(record); err != nil {
@@ -354,6 +332,7 @@ func rebindNetworkScope(fx *FixtureRecord) {
 	record.NetworkScopeId = fx.NetworkScopeID
 	record.GetProducerContext().ScopeId = fx.NetworkScopeID
 	record.ProductionCapability = fixtureCapability(&record)
+	record.SourceAuthorization = fixtureSourceAuthorization(&record, fx.Batch)
 	record.SemanticEnvelopeSha256 = edgerecord.SemanticEnvelopeDigest(&record)
 
 	if err := edgerecord.ValidateRecord(&record); err != nil {
@@ -382,9 +361,7 @@ func rebindNetworkScope(fx *FixtureRecord) {
 // r's own fields, mirroring go/pkg/edge/edgerecord/validate_test.go's
 // productionCap, and signs it with Ed25519 under fixtureIssuerKey, the
 // synthetic fixture issuer. The gateway verifies that signature against its
-// local trust snapshot (task 3.2), so WriteGatewayTrustFile names the same
-// issuer id, key id and verifying key; both derive them from this file, so
-// they cannot drift apart.
+// live trust snapshot, whose public key core derives from the same synthetic seed.
 func fixtureCapability(r *edgev1.EdgeRecordV1) *edgev1.EdgeSignedCapabilityV1 {
 	p := r.GetProducerContext()
 	c := r.GetOutputContract()
@@ -404,7 +381,7 @@ func fixtureCapability(r *edgev1.EdgeRecordV1) *edgev1.EdgeSignedCapabilityV1 {
 	capability := &edgev1.EdgeSignedCapabilityV1{
 		CapabilityVersion: 1,
 		IssuerId:          []byte(fixtureIssuerID),
-		IssuerKeyId:       []byte(fixtureIssuerKeyID),
+		IssuerKeyId:       fixtureIssuerKeyID(),
 		Algorithm:         "ed25519",
 		NotBeforeUnixNano: notBefore,
 		ExpiresAtUnixNano: expires,
@@ -441,192 +418,78 @@ func fixtureCapability(r *edgev1.EdgeRecordV1) *edgev1.EdgeSignedCapabilityV1 {
 	return capability
 }
 
-// The synthetic issuer every fixture capability is signed by. The key is
-// derived from a fixed label, so the gateway trust file and the fixtures agree
-// without passing key material between them; it authorizes nothing outside
-// this test.
-const (
-	fixtureIssuerID    = "vertical-slice-issuer"
-	fixtureIssuerKeyID = "vertical-slice-key-1"
-)
+// The private seed is invented solely for this harness and supplied to core's
+// normal issuer-key file loader. The key id follows IssuerKey.key_id/1's wire identity.
+const fixtureIssuerID = "serviceradar-core"
 
-func fixtureIssuerKey() ed25519.PrivateKey {
+func fixtureIssuerSeed() []byte {
 	seed := sha256.Sum256([]byte("serviceradar vertical slice synthetic capability issuer v1"))
-	return ed25519.NewKeyFromSeed(seed[:])
+	return seed[:]
 }
 
-// FixtureIssuerPublicKey is the verifying key for every fixture capability.
+func fixtureIssuerKey() ed25519.PrivateKey { return ed25519.NewKeyFromSeed(fixtureIssuerSeed()) }
+
+func fixtureIssuerKeyID() []byte {
+	sum := sha256.Sum256(append([]byte("serviceradar.edge.issuer_key.v1"), FixtureIssuerPublicKey()...))
+	return sum[:16]
+}
+
 func FixtureIssuerPublicKey() ed25519.PublicKey {
 	return fixtureIssuerKey().Public().(ed25519.PublicKey)
 }
 
-// WriteGatewayTrustFile writes the gateway's edge-record trust snapshot
-// (ServiceRadarAgentGateway.EdgeRecordTrust, read from
-// AGENT_GATEWAY_EDGE_RECORD_TRUST_FILE): the fixture issuer's verifying key,
-// authorized for production, source and delivery capabilities, and a fence
-// entry for each fixture producer at fixtureAuthorityEpoch. No other producer
-// is fenced, so the gateway withholds anything else. It binds
-// agentComponentID -- the CN component id of the
-// harness agent's client certificate -- to the fixtures' network scope and to
-// nothing else, and binds no other agent.
-func WriteGatewayTrustFile(path, agentComponentID string) error {
-	type trustKey struct {
-		IssuerID    string   `json:"issuer_id"`
-		IssuerKeyID string   `json:"issuer_key_id"`
-		PublicKey   string   `json:"public_key"`
-		Purposes    []string `json:"purposes"`
-		Status      string   `json:"status"`
+func fixtureSourceAuthorization(r *edgev1.EdgeRecordV1, batch *edgev1.SweepObservationBatchV1) *edgev1.EdgeSourceAuthorizationV1 {
+	p := r.GetProducerContext()
+	production := r.GetProductionCapability()
+	kind := edgev1.EdgeSourceAuthorizationKind_EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP
+	claims := &edgev1.EdgeSourceClaimsV1{
+		Kind: kind, ContextId: batch.GetExecutionId(), ScopeId: batch.GetTargetRangeId(),
+		ScopeSha256: batch.GetTargetRangeSha256(), NetworkScopeId: r.GetNetworkScopeId(),
+		CollectionNotBeforeUnixNano: production.GetNotBeforeUnixNano(), CollectionExpiresUnixNano: production.GetExpiresAtUnixNano(),
+		OriginPrincipalId: p.GetOriginPrincipalId(), ProducerInstanceId: p.GetProducerInstanceId(),
+		ProducerAssignmentId: p.GetProducerAssignmentId(), RunId: p.GetRunId(), RunShard: p.GetRunShard(),
+		AuthorityEpoch: p.GetAuthorityEpoch(), TrafficClass: r.GetTrafficClass(), RouteProfile: r.GetRouteProfile(),
+		ExecutionPlanSha256: batch.GetExecutionPlanSha256(), TargetRangeSha256: batch.GetTargetRangeSha256(),
+		OriginKind: p.GetOriginKind(),
 	}
-
-	type trustFence struct {
-		NetworkScopeID       string `json:"network_scope_id"`
-		ProducerAssignmentID string `json:"producer_assignment_id"`
-		RunShard             uint32 `json:"run_shard"`
-		AuthorityEpoch       uint64 `json:"authority_epoch"`
+	capability := &edgev1.EdgeSignedCapabilityV1{
+		CapabilityVersion: 1, IssuerId: []byte(fixtureIssuerID), IssuerKeyId: fixtureIssuerKeyID(), Algorithm: "ed25519",
+		NotBeforeUnixNano: production.GetNotBeforeUnixNano(), ExpiresAtUnixNano: production.GetExpiresAtUnixNano(),
+		Claims: &edgev1.EdgeSignedCapabilityV1_Source{Source: claims},
 	}
-
-	type trustScope struct {
-		AgentID         string   `json:"agent_id"`
-		NetworkScopeIDs []string `json:"network_scope_ids"`
-	}
-
-	runShards := []uint32{primaryFixtureVariant, conflictingFixtureVariant}
-	fences := make([]trustFence, 0, len(runShards))
-	for _, runShard := range runShards {
-		fences = append(fences, trustFence{
-			NetworkScopeID:       base64.StdEncoding.EncodeToString(fixtureNetworkScopeID()),
-			ProducerAssignmentID: base64.StdEncoding.EncodeToString(fixtureProducerAssignmentID()),
-			RunShard:             runShard,
-			AuthorityEpoch:       fixtureAuthorityEpoch,
-		})
-	}
-
-	document := struct {
-		Keys   []trustKey   `json:"keys"`
-		Fences []trustFence `json:"fences"`
-		Scopes []trustScope `json:"scopes"`
-	}{
-		Keys: []trustKey{{
-			IssuerID:    base64.StdEncoding.EncodeToString([]byte(fixtureIssuerID)),
-			IssuerKeyID: base64.StdEncoding.EncodeToString([]byte(fixtureIssuerKeyID)),
-			PublicKey:   base64.StdEncoding.EncodeToString(FixtureIssuerPublicKey()),
-			Purposes:    []string{"production", "source", "delivery"},
-			Status:      "valid",
-		}},
-		Fences: fences,
-		Scopes: []trustScope{{
-			AgentID:         agentComponentID,
-			NetworkScopeIDs: []string{base64.StdEncoding.EncodeToString(fixtureNetworkScopeID())},
-		}},
-	}
-
-	body, err := json.Marshal(document)
-	if err != nil {
-		return fmt.Errorf("fixture: marshal gateway trust file: %w", err)
-	}
-
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		return fmt.Errorf("fixture: write gateway trust file: %w", err)
-	}
-
-	return nil
+	capability.Signature = ed25519.Sign(fixtureIssuerKey(), edgerecord.CapabilitySigningBytes(capability))
+	return &edgev1.EdgeSourceAuthorizationV1{Kind: kind, Capability: capability, ContextId: claims.ContextId,
+		ScopeId: claims.ScopeId, ScopeSha256: claims.ScopeSha256}
 }
 
-// sweepBatch builds a 3-host batch: host 0 is reachability-only (ICMP), host
-// 1 adds one open port and one port error, host 2 adds an MTR summary -- 6
-// projected rows total (host0: 1 reachability; host1: 1 reachability + 1
-// open_port + 1 port_error; host2: 1 reachability + 1 mtr_summary; see
-// go/pkg/edge/projection/projection.go's SweepProjectionRows, which always
-// emits one "reachability" row per host regardless of mode). variant
-// perturbs batch_sequence/hostnames/addresses so the primary and conflicting
-// fixtures never collide in content.
-func sweepBatch(variant int, executionID, targetRangeID, sourceRunID []byte) *edgev1.SweepObservationBatchV1 {
+// Every host completes both configured checks. One /30 range lets core issue
+// one real source authorization covering the entire terminal window.
+func sweepBatch(variant int, executionID, targetRangeID, groupID []byte) *edgev1.SweepObservationBatchV1 {
 	checks := []*edgev1.SweepTestV1{
 		{Mode: edgev1.SweepMode_SWEEP_MODE_ICMP, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
-		{Mode: edgev1.SweepMode_SWEEP_MODE_TCP_SYN, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, Port: 443},
-		{Mode: edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, Port: 8443},
-		{Mode: edgev1.SweepMode_SWEEP_MODE_MTR, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_ICMP},
+		{Mode: edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT, Protocol: edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, Port: 443},
 	}
-	modeBits := uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) |
-		uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_TCP_SYN) |
-		uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_TCP_CONNECT) |
-		uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR)
-
+	modeBits := uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP) | uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_TCP_CONNECT)
 	hosts := make([]*edgev1.SweepHostObservationV1, 0, len(fixtureHosts))
 	for i, h := range fixtureHosts {
 		addr := h.addr
-		addr[3] += byte(variant - 1) // perturb the low octet per variant, stays in 192.0.2.0/24
-		host := &edgev1.SweepHostObservationV1{
-			Address:             []byte{addr[0], addr[1], addr[2], addr[3]},
-			Hostname:            h.hostname,
-			ObservedAtDeltaNano: int64(-1000 - i),
-			ModeRevision:        1,
-		}
-
-		switch i {
-		case 0:
-			host.ResultModeBits = uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_ICMP)
-			host.Icmp = &edgev1.SweepIcmpSummaryV1{
-				Outcome:        edgev1.SweepModeOutcome_SWEEP_MODE_OUTCOME_SUCCESS,
-				TargetReached:  true,
-				RoundTripMicro: proto.Uint64(uint64(900 + i)),
-				PacketLossPct:  proto.Float64(0),
-				Sent:           3,
-				Received:       3,
-			}
-		case 1:
-			host.ResultModeBits = uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_TCP_SYN) |
-				uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_TCP_CONNECT)
-			host.Tcp = &edgev1.SweepTcpSummaryV1{
-				Outcome:     edgev1.SweepModeOutcome_SWEEP_MODE_OUTCOME_SUCCESS,
-				TestedCount: 2,
-				OpenCount:   1,
-			}
-			host.OpenPorts = []*edgev1.SweepOpenPortV1{
-				{TestedCheckIndex: 1, ResponseTimeNano: proto.Uint64(4200), Service: "https"},
-			}
-			host.PortErrors = []*edgev1.SweepPortErrorV1{
-				{TestedCheckIndex: 2, ErrorCode: "timeout"},
-			}
-		default:
-			traceID, err := edgerecord.NewUUIDv7()
-			if err != nil {
-				// sweepBatch has no error return; a UUID generation
-				// failure here means the process's randomness source is
-				// broken, which every other NewUUIDv7 call in this file
-				// would also already have failed on.
-				panic(fmt.Sprintf("verticalslice: sweepBatch: trace id: %v", err))
-			}
-			host.ResultModeBits = uint32(edgev1.SweepModeBit_SWEEP_MODE_BIT_MTR)
-			host.Mtr = &edgev1.SweepMtrSummaryV1{
-				TraceId:       traceID,
-				Outcome:       edgev1.MtrOutcome_MTR_OUTCOME_REACHED,
-				TargetReached: true,
-				FinalRttMicro: proto.Uint64(1500),
-				PacketLossPct: proto.Float64(0),
-				TotalHops:     4,
-			}
-		}
-
-		hosts = append(hosts, host)
+		addr[3] += byte(4 * (variant - 1))
+		hosts = append(hosts, &edgev1.SweepHostObservationV1{
+			Address: addr[:], Hostname: h.hostname, ObservedAtDeltaNano: int64(-1000 - i),
+			ModeRevision: 1, ResultModeBits: modeBits,
+			Icmp: &edgev1.SweepIcmpSummaryV1{Outcome: edgev1.SweepModeOutcome_SWEEP_MODE_OUTCOME_SUCCESS,
+				TargetReached: true, RoundTripMicro: proto.Uint64(uint64(900 + i)), PacketLossPct: proto.Float64(0), Sent: 3, Received: 3},
+			Tcp:       &edgev1.SweepTcpSummaryV1{Outcome: edgev1.SweepModeOutcome_SWEEP_MODE_OUTCOME_SUCCESS, TestedCount: 1, OpenCount: 1},
+			OpenPorts: []*edgev1.SweepOpenPortV1{{TestedCheckIndex: 1, ResponseTimeNano: proto.Uint64(4200), Service: "https"}},
+		})
 	}
-
 	return &edgev1.SweepObservationBatchV1{
-		ExecutionId:          executionID,
-		ExecutionShard:       1,
-		AssignmentEpoch:      1,
-		BatchSequence:        uint64(variant),
-		ObservedAtUnixNano:   1_800_000_000_000_000_000,
-		ExecutionPlanId:      executionID,
-		ExecutionPlanSha256:  fixtureDigest(0x10 + byte(variant)),
-		TargetRangeId:        targetRangeID,
-		TargetRangeSha256:    fixtureDigest(0x20 + byte(variant)),
-		TestedChecks:         checks,
-		ConfiguredModeBits:   modeBits,
-		AvailabilityPolicyId: []byte("vertical-slice-policy"),
-		Source:               edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_CHECK,
-		SourceRunId:          sourceRunID,
-		Hosts:                hosts,
+		ExecutionId: executionID, SweepGroupId: groupID, ExecutionShard: uint32(variant), AssignmentEpoch: 1,
+		BatchSequence: uint64(variant), ObservedAtUnixNano: time.Now().UnixNano(), ExecutionPlanId: executionID,
+		ExecutionPlanSha256: fixtureDigest(0x10 + byte(variant)), TargetRangeId: targetRangeID,
+		TargetRangeSha256: fixtureDigest(0x20 + byte(variant)), TestedChecks: checks, ConfiguredModeBits: modeBits,
+		AvailabilityPolicyId: []byte("any-success-v1"), Source: edgev1.SweepExecutionSource_SWEEP_EXECUTION_SOURCE_SCHEDULED_SWEEP,
+		Hosts: hosts,
 	}
 }
 
