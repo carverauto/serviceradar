@@ -127,6 +127,10 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
 
     assert_receive {:proxmox_console_closed, "complete"}
     assert_receive {:DOWN, ^ref, :process, ^broker, :normal}
+
+    # Browser frames already in flight when the agent closed the console.
+    assert {:error, :console_broker_closed} = ProxmoxConsoleBroker.resize(broker, 162, 41)
+    assert {:error, :console_broker_closed} = ProxmoxConsoleBroker.send_input(broker, "ls\r")
   end
 
   test "fails closed when the session lacks an exact assignment policy binding" do

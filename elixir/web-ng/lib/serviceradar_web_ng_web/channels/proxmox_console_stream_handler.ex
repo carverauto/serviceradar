@@ -72,6 +72,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
                  :ok <- state.broker_module.send_input(state.broker, payload) do
               {:ok, reset_idle_timer(state)}
             else
+              {:error, :console_broker_closed} -> close_stream("closed", state)
               {:error, reason} -> stop_for_broker_error(reason, state)
             end
 
@@ -81,6 +82,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
                  :ok <- state.broker_module.resize(state.broker, cols, rows) do
               {:ok, reset_idle_timer(state)}
             else
+              {:error, :console_broker_closed} -> close_stream("closed", state)
               {:error, reason} -> stop_for_broker_error(reason, state)
             end
 
@@ -111,16 +113,7 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
   end
 
   def handle_info({:proxmox_console_closed, reason}, state) do
-    with_current_authority(state, fn state ->
-      _ =
-        state.sessions_module.close_session(state.session.id,
-          reason: format_close_reason(reason),
-          scope: state.scope
-        )
-
-      {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: format_close_reason(reason)})}],
-       %{state | closing_action: :closed}}
-    end)
+    with_current_authority(state, &close_stream(reason, &1))
   end
 
   def handle_info(:idle_timeout, state) do
@@ -268,6 +261,17 @@ defmodule ServiceRadarWebNGWeb.Channels.ProxmoxConsoleStreamHandler do
           message: "Proxmox console could not start. Check edge-agent connectivity and console assignment."
         })}
      ], %{state | closing_action: :failed}}
+  end
+
+  defp close_stream(reason, state) do
+    _ =
+      state.sessions_module.close_session(state.session.id,
+        reason: format_close_reason(reason),
+        scope: state.scope
+      )
+
+    {:stop, :normal, 1000, [{:text, encode(%{type: "close", reason: format_close_reason(reason)})}],
+     %{state | closing_action: :closed}}
   end
 
   defp stop_for_broker_error(reason, state) do
