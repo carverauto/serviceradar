@@ -440,6 +440,12 @@ contract on the durable bulk route. Its bundle digest and registry snapshot
 digest identify the reviewed installation contract; do not use test-fixture
 identities in a deployment.
 
+The current registry is installation-static and unsigned. For the canary,
+derive its bundle fingerprint from the reviewed schema and cost/projection
+sources, recording the file list and commit alongside the deployment values.
+Hash the canonical registry body before adding `registry_snapshot_sha256`.
+Keep that exact document on core and every gateway throughout the run.
+
 The secret generator creates an `edge-issuer-seed` once and preserves it on
 upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
 the operator must supply the key in the configured existing Secret as a
@@ -451,6 +457,14 @@ volume's base path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scope
 sweep lease settings select which agent receives signed slots. Enable leasing
 only for the canary, and use an enabled static-target group without a target
 query. Other agents continue using the legacy results path.
+
+Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
+and MTR windows are not supported by this projection yet. Keep the issuer key
+and agent network scope fixed while records remain in the spool: historical
+key/scope trust and audit publication are later milestones. The sender persists
+terminal resolutions, but physical spool reclamation remains pending. Reaching
+the configured byte bound stops further appends; it does not permit growth past
+the bound. Monitor the spool and stop the canary before it fills.
 
 This wiring prepares the current-epoch sweep path. A successful deployment is
 proved by fresh scheduled executions, committed edge-record ledger entries and

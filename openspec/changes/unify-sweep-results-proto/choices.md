@@ -18,3 +18,16 @@ request for a running farm01 end-to-end sweep within 24 hours.
   supplies identical JSON to core and gateway and rejects an empty registry.
   This uses the existing static registry contract without adding a registry
   provisioning service during the canary pass.
+- **Keep key and network scope stable during the first run (high confidence).**
+  The live trust source carries the current issuer and assignment scope.
+  Historical issuer/scope retention and audit publication are not part of this
+  pass; rotating either with outstanding spool records can withhold delivery.
+- **Cap append growth before implementing reclamation (high confidence).**
+  The initial sender persists terminal dispositions and a resolved prefix.
+  It refuses new appends at the byte limit; it does not yet reclaim physical
+  segment bytes. This permits a bounded first run, not an unattended soak, and
+  leaves M2.5 incomplete.
+- **Project complete terminal ICMP/TCP windows (high confidence).**
+  The producer supplies every signed target and attempted check, including
+  unavailable hosts. The projector rejects partial-mode/MTR windows instead
+  of presenting incomplete host evidence as a finished sweep.
