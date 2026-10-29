@@ -81,6 +81,20 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLiveTest do
       assert html =~ "New Package"
     end
 
+    test "navigates from deploy agent page to edge packages within the same live_session", %{
+      conn: conn
+    } do
+      {:ok, deploy_lv, _html} = live(conn, ~p"/settings/agents/deploy")
+
+      {:ok, _edge_packages_lv, html} =
+        deploy_lv
+        |> element("a[href='/admin/edge-packages']", "View existing packages")
+        |> render_click()
+        |> follow_redirect(conn, ~p"/admin/edge-packages")
+
+      assert html =~ "Edge Onboarding"
+    end
+
     test "lists existing packages", %{conn: conn, actor: actor} do
       {:ok, _} =
         OnboardingPackages.create(

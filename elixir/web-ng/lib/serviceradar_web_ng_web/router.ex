@@ -1013,28 +1013,6 @@ defmodule ServiceRadarWebNGWeb.Router do
   scope "/admin", ServiceRadarWebNGWeb do
     pipe_through([:browser, :require_authenticated_user])
 
-    live_session :admin,
-      on_mount: [{ServiceRadarWebNGWeb.UserAuth, :require_authenticated}, ShellHook] do
-      live("/jobs", Admin.JobLive.Index, :index)
-      live("/jobs/:id", Admin.JobLive.Show, :show)
-      live("/edge-packages", Admin.EdgePackageLive.Index, :index)
-      live("/edge-packages/new", Admin.EdgePackageLive.Index, :new)
-      live("/edge-packages/:id", Admin.EdgePackageLive.Index, :show)
-      live("/plugins", Plugins.InstalledLive, :index)
-      live("/plugins/updates", Plugins.UpdatesLive, :index)
-      live("/plugins/catalog", Plugins.CatalogLive, :index)
-      live("/plugins/new", Plugins.CatalogLive, :new)
-      live("/plugins/:id", Plugins.ShowLive, :show)
-      live("/addons", Admin.AddonPackageLive.Index, :index)
-      live("/addons/:id", Admin.AddonPackageLive.Index, :show)
-      live("/cluster", Admin.ClusterLive.Index, :index)
-      live("/collectors", Admin.CollectorLive.Index, :index)
-      live("/collectors/:id", Admin.CollectorLive.Index, :show)
-      live("/edge-sites", Admin.EdgeSitesLive.Index, :index)
-      live("/edge-sites/new", Admin.EdgeSitesLive.Index, :new)
-      live("/edge-sites/:id", Admin.EdgeSitesLive.Show, :show)
-    end
-
     scope "/" do
       pipe_through([:oban_access])
 
@@ -1438,6 +1416,27 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/dashboards/packages", Admin.DashboardPackageLive.Index, :index)
       live("/settings/dashboards/packages/new", Admin.DashboardPackageLive.Index, :new)
       live("/settings/dashboards/packages/:id", Admin.DashboardPackageLive.Index, :show)
+
+      scope "/admin" do
+        live("/jobs", Admin.JobLive.Index, :index)
+        live("/jobs/:id", Admin.JobLive.Show, :show)
+        live("/edge-packages", Admin.EdgePackageLive.Index, :index)
+        live("/edge-packages/new", Admin.EdgePackageLive.Index, :new)
+        live("/edge-packages/:id", Admin.EdgePackageLive.Index, :show)
+        live("/plugins", Plugins.InstalledLive, :index)
+        live("/plugins/updates", Plugins.UpdatesLive, :index)
+        live("/plugins/catalog", Plugins.CatalogLive, :index)
+        live("/plugins/new", Plugins.CatalogLive, :new)
+        live("/plugins/:id", Plugins.ShowLive, :show)
+        live("/addons", Admin.AddonPackageLive.Index, :index)
+        live("/addons/:id", Admin.AddonPackageLive.Index, :show)
+        live("/cluster", Admin.ClusterLive.Index, :index)
+        live("/collectors", Admin.CollectorLive.Index, :index)
+        live("/collectors/:id", Admin.CollectorLive.Index, :show)
+        live("/edge-sites", Admin.EdgeSitesLive.Index, :index)
+        live("/edge-sites/new", Admin.EdgeSitesLive.Index, :new)
+        live("/edge-sites/:id", Admin.EdgeSitesLive.Show, :show)
+      end
 
       # Zen Rule Editor - visual JDM editor for rule logic
       live("/settings/rules/zen/new", Settings.ZenRuleEditorLive, :new)
