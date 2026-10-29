@@ -437,10 +437,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorAliasMergeTest do
           nil
         )
 
-      on_exit(fn -> :telemetry.detach(handler_id) end)
-
-      assert {:ok, ^expected} = Lookups.lookup_identifiers_strict(query_keys)
-      :ok = :telemetry.detach(handler_id)
+      try do
+        assert {:ok, ^expected} = Lookups.lookup_identifiers_strict(query_keys)
+      after
+        :telemetry.detach(handler_id)
+      end
 
       assert_receive {:identifier_lookup_query, sql, [types, values, partitions]}
       refute_receive {:identifier_lookup_query, _, _}
