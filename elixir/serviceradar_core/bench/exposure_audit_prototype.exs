@@ -306,6 +306,7 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
       State.query!(
         "SELECT id::text FROM platform.exposure_audit_runs ORDER BY started_at DESC LIMIT 1"
       )
+
     ordinals = Enum.to_list(1..32)
 
     view!(fn reader, _deadline ->

@@ -10,6 +10,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
   alias Oban.Peers.Database
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.MySQL
+  alias ServiceRadar.ExposureAudit.Prototype
   alias ServiceRadar.ExposureAudit.State
   alias ServiceRadar.Inventory.ExposureReadiness
   alias ServiceRadar.Inventory.ExposureReconciliationWorker
@@ -120,10 +121,10 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
 
     measurement =
       capture_errors(fn ->
-        ServiceRadar.ExposureAudit.Prototype.measure!(hosts, &verify_fixture!/1, "first")
+        Prototype.measure!(hosts, &verify_fixture!/1, "first")
       end)
 
-    diagnostics = capture_errors(&ServiceRadar.ExposureAudit.Prototype.diagnose!/0)
+    diagnostics = capture_errors(&Prototype.diagnose!/0)
     controls = capture_errors(&ServiceRadar.ExposureAudit.Controls.verify!/0)
     stop_queue!()
 

@@ -349,6 +349,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
     {:ok, _} =
       ServiceRadar.Repo.transaction(fn ->
         State.query!("SELECT pg_advisory_xact_lock($1)", [320_102_347_440_129])
+
         [second, first] =
           Prototype.compare!(run, [2, 1], fn _ -> :ok end, fn comparisons ->
             # Result publication still owns the second device's session lock.
