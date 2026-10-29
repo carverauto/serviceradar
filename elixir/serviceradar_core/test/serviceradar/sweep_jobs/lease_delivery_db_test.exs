@@ -606,6 +606,17 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert waiting.remaining_seconds == 1_800
     assert waiting.acknowledged_slot_count == 4
 
+    for offset <- [300, 600] do
+      assert %{pushed: 1} =
+               LeasePass.reconcile_group(
+                 group,
+                 DateTime.add(later, offset, :second),
+                 ctx.delivery
+               )
+
+      assert_receive {:pushed, _, _, _, _}
+    end
+
     overdue_at = DateTime.add(later, LeaseDelivery.ack_grace_seconds() + 1, :second)
 
     assert {:ok, %{^group_id => [overdue]}} =
@@ -679,12 +690,22 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert {:ok, %{withdrawn: 1, pushed: 0, errors: 0}} =
              LeasePass.run(now, ctx.delivery)
 
-    assert_receive {:pushed, _, group_id, revocation, _}
+    assert_receive {:pushed, _, group_id, revocation, payload}
     assert group_id == group.id
     assert revocation.revoked
     assert revocation.lease_id == first.lease_id
     assert revocation.slots == []
     assert revocation.production_capability == nil
+    assert {:ok, [pending]} = LeaseDelivery.list_for_group(group.id)
+    assert pending.revoked_at
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
     assert {:ok, []} = LeaseDelivery.list_for_group(group.id)
   end
 
@@ -698,13 +719,82 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
     setting!(ctx.admin, :agent, ctx.agent, leasing_enabled: false)
     assert %{withdrawn: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
-    assert_receive {:pushed, _, _, revocation, _}
+    assert_receive {:pushed, _, _, revocation, payload}
 
     assert revocation.revoked
     assert revocation.lease_id == first.lease_id
     assert revocation.slots == []
     assert revocation.production_capability == nil
+    assert {:ok, [pending]} = LeaseDelivery.list_for_group(group.id)
+    assert pending.revoked_at
+    retry = DateTime.add(now, 300, :second)
+    assert %{withdrawn: 1} = LeasePass.reconcile_group(group, retry, ctx.delivery)
+    assert_receive {:pushed, _, _, _, unacknowledged_payload}
+    assert unacknowledged_payload == payload
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest("older synthetic push"),
+               installed: true
+             })
+
+    assert {:ok, [_]} = LeaseDelivery.list_for_group(group.id)
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: false,
+               error: "installation failed"
+             })
+
+    assert {:ok, [_]} = LeaseDelivery.list_for_group(group.id)
+
+    retry = DateTime.add(now, 600, :second)
+    assert %{withdrawn: 1} = LeasePass.reconcile_group(group, retry, ctx.delivery)
+    assert_receive {:pushed, _, _, repeated, repeated_payload}
+    assert repeated.revoked
+    assert repeated_payload == payload
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
     assert {:ok, []} = LeaseDelivery.list_for_group(group.id)
+  end
+
+  test "resuming leasing supersedes a pending revocation and ignores its late acknowledgement",
+       ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, _, _}
+
+    assert {:ok, 1} = LeaseDelivery.withdraw_except(group.id, [], now, ctx.delivery.sender)
+    assert_receive {:pushed, _, _, revocation, payload}
+    assert revocation.revoked
+
+    later = DateTime.add(now, 60, :second)
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, later, ctx.delivery)
+    assert_receive {:pushed, _, _, resumed, _}
+    refute resumed.revoked
+    assert resumed.window_start_unix_nano == DateTime.to_unix(later, :nanosecond)
+
+    assert :ok =
+             LeaseDelivery.record_ack(ctx.agent, %{
+               sweep_group_id: group.id,
+               payload_sha256: digest(payload),
+               installed: true
+             })
+
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    assert is_nil(row.revoked_at)
+    assert DateTime.compare(row.ack_pending_since, later) == :eq
   end
 
   test "an agent that cannot be reached is sent the whole window once it can", ctx do

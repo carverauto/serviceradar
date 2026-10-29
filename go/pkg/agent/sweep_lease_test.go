@@ -20,6 +20,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -406,5 +407,42 @@ func TestSweepLeaseAgentInstallPersistsAndAcks(t *testing.T) {
 	held := store.Get(group)
 	if held == nil || !equalStarts(heldStarts(held), 100, 200, 300) {
 		t.Fatalf("lease after restart = %v, want [100 200 300]", held)
+	}
+}
+
+func TestSweepLeaseExecutionPersistenceFailureDoesNotSettleSlot(t *testing.T) {
+	built := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
+	group := testLeaseGroup.String()
+	dir := t.TempDir()
+	store, err := newSweepLeaseStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Install(built.lease, group); err != nil {
+		t.Fatal(err)
+	}
+	path := store.executedPath(group)
+	if err := os.Mkdir(path, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	expires := built.lease.Slots[0].CollectionExpiresUnixNano
+	if err := store.MarkExecuted(group, built.executionID, expires, testSlotStart); err == nil {
+		t.Fatal("publishing executions over a directory succeeded")
+	}
+	if store.Executed(group, built.executionID) {
+		t.Fatal("failed persistence settled the execution")
+	}
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.MarkExecuted(group, built.executionID, expires, testSlotStart); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := newSweepLeaseStore(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reopened.Executed(group, built.executionID) {
+		t.Fatal("successfully persisted execution disappeared on reopen")
 	}
 }

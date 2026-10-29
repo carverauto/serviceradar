@@ -15,6 +15,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/go/pkg/edge/spool",
     visibility = ["//visibility:public"],
     deps = [
+        "//go/pkg/durablefs",
         "//go/pkg/edge/edgerecord",
         "//go/pkg/edge/fairsched",
         "//proto/edge/v1:edgev1",

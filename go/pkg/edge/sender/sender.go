@@ -58,6 +58,7 @@ import (
 
 	"google.golang.org/grpc"
 
+	"github.com/carverauto/serviceradar/go/pkg/durablefs"
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
@@ -385,11 +386,17 @@ func randomNonce() ([]byte, error) {
 // the minimum durable state needed for that, distinct from the spool's own
 // segment/watermark files.
 func PersistentSpoolID(dir string) ([]byte, error) {
+	if err := durablefs.MkdirAll(dir, 0o700); err != nil {
+		return nil, fmt.Errorf("sender: mkdir: %w", err)
+	}
 	path := filepath.Join(dir, "spool_id")
 
 	if b, err := os.ReadFile(path); err == nil {
 		if err := edgerecord.ValidateUUIDv7(b); err != nil {
 			return nil, fmt.Errorf("sender: stored spool id: %w", err)
+		}
+		if err := durablefs.Sync(path); err != nil {
+			return nil, fmt.Errorf("sender: sync spool id: %w", err)
 		}
 		return b, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -400,10 +407,7 @@ func PersistentSpoolID(dir string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("sender: generate spool id: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return nil, fmt.Errorf("sender: mkdir: %w", err)
-	}
-	if err := os.WriteFile(path, id, 0o600); err != nil {
+	if err := durablefs.WriteFile(path, id, 0o600); err != nil {
 		return nil, fmt.Errorf("sender: write spool id: %w", err)
 	}
 	return id, nil

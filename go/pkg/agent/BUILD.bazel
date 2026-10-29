@@ -214,6 +214,7 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent",
     visibility = ["//visibility:public"],
     deps = [
+        "//go/pkg/durablefs",
         "//go/pkg/addon",
         "//go/pkg/agent/addon",
         "//go/pkg/agent/netprobe",
