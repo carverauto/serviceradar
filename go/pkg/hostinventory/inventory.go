@@ -113,15 +113,20 @@ func ClassifyName(name string) Interface {
 }
 
 // IsHostInternal reports whether the classified interface is loopback, a
-// tunnel, or has a host-internal container/guest/bridge/overlay
-// name. Host IP selection and sysmon network metrics use it to skip internal
-// interfaces while keeping physical and virtual uplinks, bonds, VLANs, and external bridges
-// such as vmbr* and br0.
+// tunnel, or has a host-internal container/guest/bridge/overlay name. Host IP
+// selection uses it so that neither a tunnel nor an internal interface becomes
+// the host's announced address, while physical and virtual uplinks, bonds,
+// VLANs, and external bridges such as vmbr* and br0 stay eligible.
 func (i Interface) IsHostInternal() bool {
-	if i.Flags&net.FlagLoopback != 0 {
-		return true
-	}
-	if i.Kind == KindLoopback || i.Kind == KindTunnel {
+	return i.Kind == KindTunnel || i.IsTrafficInternal()
+}
+
+// IsTrafficInternal reports whether the interface's traffic is internal to the
+// host: loopback, or a host-internal container/guest/bridge/overlay name.
+// Sysmon network metrics skip these. Routed tunnels such as WireGuard or GRE
+// are not internal here: they carry site traffic that operators watch.
+func (i Interface) IsTrafficInternal() bool {
+	if i.Flags&net.FlagLoopback != 0 || i.Kind == KindLoopback {
 		return true
 	}
 	return IsHostInternalName(i.Name)

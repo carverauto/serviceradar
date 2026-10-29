@@ -302,7 +302,7 @@ func TestFilterNetworkCountersUsesHostInventory(t *testing.T) {
 	for _, m := range metrics {
 		got = append(got, m.Interface)
 	}
-	want := []string{"eno1", "bond0", "eno1.20", "vmbr0", "br0", "en0"}
+	want := []string{"eno1", "bond0", "eno1.20", "vmbr0", "br0", "wg0", "en0"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("filterNetworkCounters interfaces = %v, want %v", got, want)
 	}

@@ -30,15 +30,17 @@ Sysmon Profiles let you control:
 
 ## Network Interface Filtering
 
-Network metrics exclude loopback, tunnels, and interfaces with host-internal
-container, guest, bridge, or overlay names. Physical and virtual uplinks
+Network metrics exclude loopback and interfaces with host-internal
+container, guest, bridge, or overlay names, including `tun*` and `tap*`.
+Routed tunnels such as WireGuard, GRE, SIT, IPIP, and Geneve remain eligible.
+Physical and virtual uplinks
 (including container `eth0` and SR-IOV VFs), bonds, VLANs, and external bridges
 such as `vmbr0` and `br0` remain eligible; virtual classification alone does not
 exclude an interface. Linux uses kernel interface classification as well as
 names; other platforms rely on interface flags and names.
 
-Sysmon's host IPv4 selection uses the same interface filter and additionally
-requires an up interface and a global-unicast IPv4 address outside
+Sysmon's host IPv4 selection additionally excludes interfaces classified as
+tunnels and requires an up interface and a global-unicast IPv4 address outside
 `172.17.0.0/16`, `172.18.0.0/16`, and `172.19.0.0/16`. If none is found, it
 falls back to the local address selected by a UDP dial.
 

@@ -149,3 +149,36 @@ func TestIsHostInternal(t *testing.T) {
 		})
 	}
 }
+
+func TestInterfaceIsTrafficInternalKeepsRoutedTunnels(t *testing.T) {
+	tests := []struct {
+		name     string
+		iface    Interface
+		internal bool
+	}{
+		{"tunnel wireguard", Interface{Interface: net.Interface{Name: "wg0"}, Kind: KindTunnel}, false},
+		{"tunnel gre", Interface{Interface: net.Interface{Name: "gre1"}, Kind: KindTunnel}, false},
+		{"physical NIC", Interface{Interface: net.Interface{Name: "eno1"}, Kind: KindPhysical}, false},
+		{"Proxmox host bridge", Interface{Interface: net.Interface{Name: "vmbr0"}, Kind: KindBridge}, false},
+		{"loopback by kind", Interface{Interface: net.Interface{Name: "lo"}, Kind: KindLoopback}, true},
+		{"loopback by flag", Interface{Interface: net.Interface{Name: "lo0", Flags: net.FlagLoopback}}, true},
+		{"tun fallback", Interface{Interface: net.Interface{Name: "tun0"}, Kind: KindUnspecified}, true},
+		{"virtual veth", Interface{Interface: net.Interface{Name: "veth1a2b"}, Kind: KindVirtual}, true},
+		{"cni bridge", Interface{Interface: net.Interface{Name: "cni0"}, Kind: KindBridge}, true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.iface.IsTrafficInternal(); got != test.internal {
+				t.Fatalf("Interface(%s, kind=%q).IsTrafficInternal() = %v, want %v",
+					test.iface.Name, test.iface.Kind, got, test.internal)
+			}
+		})
+	}
+
+	// A routed tunnel still never becomes the host's announced address.
+	tunnel := Interface{Interface: net.Interface{Name: "wg0"}, Kind: KindTunnel}
+	if !tunnel.IsHostInternal() {
+		t.Fatal("tunnel interface must stay host-internal for host IP selection")
+	}
+}
