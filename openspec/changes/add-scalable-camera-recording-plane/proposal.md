@@ -28,8 +28,8 @@ local disks when S3 is the durable destination.
   camera source sessions or edge-to-cloud live uplinks for the same profile.
   Serve customer-hosted live and recorded media through agent-originated
   connections; Cloud requires no inbound path into the customer network.
-- Define segmented archive playback with bounded read-ahead and shared immutable
-  fragment caching. S3 playback does not require restoring a whole recording to
+- Define segmented archive playback with bounded read-ahead and optional shared
+  immutable fragment caching. S3 playback does not require restoring a whole recording to
   local disk, and cache pressure must not compete with recording reserves.
 - Use bounded filesystem spools and restart-safe upload journals. S3-backed
   buffers cover a declared outage/recovery window; local-only storage retains

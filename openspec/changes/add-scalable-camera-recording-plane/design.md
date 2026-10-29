@@ -68,10 +68,10 @@ through the gateway. A public Membrane relay fans out the shared upload to each
 authorized browser's own WebRTC transport. The browser-facing protocol does not
 require the agent's uplink to be WebRTC.
 
-The existing monitoring `ControlStream` and camera `UploadMedia` establish this
-outbound transport pattern, but do not implement the proposed remote recorder
-and historical range contracts. Bulk bytes do not travel in control messages
-or JetStream. The default route uses the existing outbound gateway path, with
+The existing monitoring `ControlStream` and live client-streaming camera
+`UploadMedia` establish this outbound transport pattern, but do not implement
+the proposed remote recorder and historical range contracts. Bulk bytes do not
+travel in control messages or JetStream. The default route uses the existing outbound gateway path, with
 independently scalable gateway/media backends and explicit media/control budgets.
 Separate RPCs alone do not prove congestion isolation on a shared connection;
 qualification must prove control responsiveness under saturated media traffic.

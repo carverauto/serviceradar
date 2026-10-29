@@ -83,9 +83,10 @@ Before claiming a level, demonstrate:
 - Archive playback starts/seeks with valid init/keyframe dependencies and bounded
   range reads rather than downloading an entire recording. Exercise repeated
   seeks, slow storage and independent viewer timelines; assert per-session and
-  aggregate prefetch/cache limits and cancellation. Identical fragment reads
-  share cache/fetch work within the serving scope while every cache hit enforces
-  current authorization. A packed object never leaks ungranted intervals.
+  aggregate prefetch/cache limits and cancellation. When the optional shared
+  cache is enabled, verify the [shared-cache contract](design.md#object-storage-playback-and-bounded-buffering)
+  for identical fragment reads and fresh authorization. A packed object never
+  leaks ungranted intervals.
 - Holds, export leases, deletion, credential rotation and cross-mode migration
   retain the existing security/preservation assertions in every supported mode.
 
