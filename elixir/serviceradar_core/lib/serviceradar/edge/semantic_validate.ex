@@ -226,7 +226,7 @@ defmodule ServiceRadar.Edge.SemanticValidate do
   def enum_field_policy, do: @enum_field_policy
 
   # Struct keys that are protobuf/runtime bookkeeping rather than declared fields.
-  @runtime_struct_keys [:__struct__, :__unknown_fields__]
+  @runtime_struct_keys [:__struct__, :__unknown_fields__, :__protobuf__]
 
   # Protobuf's legal map KEY types (floating point, bytes, enums and messages are not permitted).
   @map_key_types [

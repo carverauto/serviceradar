@@ -58,6 +58,8 @@ go_test(
         "//go/pkg/agent",
         "//go/pkg/logger",
         "//proto:proto",
+        "//go/pkg/models",
+        "@com_github_rs_zerolog//:zerolog",
         "@org_golang_google_grpc//:grpc",
     ] + select({
         "@io_bazel_rules_go//go/platform:windows": [
