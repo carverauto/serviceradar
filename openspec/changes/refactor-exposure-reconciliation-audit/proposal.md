@@ -1,6 +1,6 @@
 # Proposal: bounded exposure audit with shared dimension evidence
 
-Status: design and disabled prototype approved by the product owner on 2026-10-28; hosted measurement pending. Related epic: [#5745](https://github.com/carverauto/serviceradar/issues/5745).
+Status: design and disabled prototype approved by the product owner on 2026-10-28. The approved hosted small-profile run passed its implemented correctness controls but failed its performance screen; experimentation stopped. Related epic: [#5745](https://github.com/carverauto/serviceradar/issues/5745).
 
 ## Why
 
@@ -11,7 +11,9 @@ Decision 27 experiment passed its tested correctness controls, but the best
 remain material. Increasing the cohort alone did not solve either cost.
 
 The [measured report](https://agentboard.farm01.carverauto.dev/documents/220)
-records the experiment and its limits. This proposal does not claim a speedup.
+records the prior experiment and its limits. This prototype's separate
+[measured result](prototype.md#measured-result) improves the small-fixture time
+but still misses the approved component screens; fleet capacity remains unproven.
 
 ## What Changes
 
@@ -45,12 +47,13 @@ public query API, ordinal width or fact digest format changes are proposed.
 The product owner approved the complete design and disabled prototype in the
 conversation on 2026-10-28. The approval includes cross-view reuse of
 content-bound dimension evidence and the component budgets. The implementation
-is confined to a manual scratch target and is awaiting execution evidence.
-Hosted run allocation/scheduling, a 50-million-row run, production adoption and
-rollout still require their subsequent explicit approvals. Task 1.6 remains open.
+is confined to a manual scratch target. The separately approved hosted allocation
+has completed and triggered the stop-on-failure rule. No further performance
+run, a 50-million-row run, production adoption or rollout is approved. Task 1.6
+remains open.
 
-See [prototype.md](prototype.md) for the implemented boundaries, pending checks
-and the concrete small-profile validation request.
+See [prototype.md](prototype.md) for measurements, passed controls, cleanup
+evidence, implemented boundaries and checks that remain pending.
 
 See [design.md](design.md), [tasks.md](tasks.md) and the
 [workflow diagram](../../../docs/architecture/exposure-reconciliation-audit.html).

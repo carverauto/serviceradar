@@ -1,9 +1,63 @@
-# Disabled prototype validation plan
+# Disabled prototype validation result
 
-Status: implementation prepared; no behavior or capacity result yet. The
-product owner approved implementation on 2026-10-28. Source parsing, remote formatting and strict OpenSpec validation succeeded.
-The remote core format/Credo target passed; behavioral execution is still pending. Hosted scratch measurement is
-still a separate gate.
+Status: the one approved hosted small-profile run completed. Its implemented
+correctness controls passed, but the fact-comparison performance screen failed.
+Performance experimentation stopped; there was no repeat or fleet attempt.
+Production adoption and parent task 1.6 remain open.
+
+## Measured result
+
+[Hosted execution](https://carverauto.buildbuddy.io/invocation/2cf93ca5-a39a-4abf-927a-6eb10a68adfc)
+validated immutable source commit `0b60e86d4e49bf3456eb0be3d2f68ec249357bb6`
+and tree `79d57280ed1f0eace2e53c91d89286f00f05f115`. The product owner
+authorized this single allocation after approving the disabled prototype.
+The run used the existing canonical fixture lifecycle, one disposable CNPG
+lane and restricted, never-used warehouse schemas. No workstation build ran.
+
+The fixture contained 200 synthetic devices and 500,000 active facts, using two
+workers and cohorts of at most 32 devices. Durations below are rounded.
+
+| Measurement | Observed | Small-profile screen | Result |
+| --- | --- | --- | --- |
+| Existing production reconciler | 143 seconds | Baseline only | 200 devices matched; zero verification violations |
+| Complete audit prototype | 34 seconds | Component screens below | All 200 devices matched; performance screen failed |
+| Dimension verification | 13 seconds | At most 120 seconds | Passed |
+| Fact comparison | 13 seconds | At most 6 seconds | Failed |
+| Remaining orchestration | 8 seconds | At most 0.9 seconds | Above budget; later assertion not reached |
+
+ExUnit reported one test and one failure: `fact component screen failed; no
+fleet attempt`. The first failed assertion stopped measurement before the
+orchestration assertion and second repetition. Correctness controls ran after
+the measurement failure and reached their final success marker. The reported
+fact interval excludes overlap between workers; remaining orchestration is
+the residual wall time after dimensions and fact intervals, not a separate
+CPU profile.
+
+Decoder/digest parity passed for 11 row cases and two aggregate cases on both
+engines. The implemented generated-binding, replay-drift, same-count corruption,
+missing-fact, terminal-reference, per-device failure, busy-device, snapshot
+generation, readiness, proof visibility/age, timeout, expiry, restore-fence,
+durable-resume and metadata-cleanup controls passed. Synthetic concurrent
+after-images covered sequences 40, 41 and 42; they are not live JetStream or
+snapshot-finalization validation.
+
+The prototype retained about 53,000 proof rows occupying about 10 MiB, and
+reported about 163 MiB of VM memory at completion. These are proof storage and
+completion memory, not total database footprint or peak RSS. The fixture and
+production baseline warmed the databases; this is not a cold measurement. The
+roughly fourfold improvement on this fixture does not establish fleet capacity
+or predict the unchanged 20,000-host / 50-million-active-fact / 900-second gate.
+
+Cleanup completed despite the test failure. The canonical observer, CNPG
+teardown and generation release each returned success. In both eligible
+warehouse contexts, all five scratch tables were independently counted empty
+before their schema grants were revoked and schemas dropped. Follow-up reads
+verified both schema absence and grant absence. Raw operational identifiers and
+credential-bearing runtime records remain outside the repository.
+
+The approved stop rule now applies. No further benchmark, codec tuning, extra
+workers, wider cohorts, fleet attempt or runtime adoption follows from this
+result. Independent no-mistakes review and publication remain outstanding.
 
 ## Executable boundary
 
@@ -27,7 +81,7 @@ jobs and supervised processes. Canonical observer, teardown and generation
 release remain mandatory; the outer coordinator drops the warehouse scratch
 schema and verifies absence.
 
-## Implemented behavior to verify
+## Implemented behavior exercised
 
 - Durable cursor and work admission commit together. Resume reads stored state;
   duplicate resume does not re-admit work. Read-only Ash resources expose the
@@ -50,8 +104,8 @@ schema and verifies absence.
   normalized replay fields and required types are checked independently. Actual
   warehouse columns supply the independent digest. Malformed inputs cannot be
   filtered into an empty match. Timestamp validation follows the decoder's
-  Gregorian date, fractional precision and offset rules; hosted differential
-  cases remain required.
+  Gregorian date, fractional precision and offset rules; the implemented hosted
+  differential cases passed.
 - Readiness batches preserve the existing reason set, including young outbox
   traffic, old outbox entries, recovery journals, repair obligations and snapshot
   generation floors. Cleanup pages remove expired superseded metadata while
@@ -87,10 +141,9 @@ are comparison controls; they do not prove JetStream delivery or snapshot
 finalization. The existing live harness owns those claims and remains required
 before adoption. No control is reported as passed merely because it is present.
 
-## Bounded hosted request
+## Approved hosted protocol
 
-Request one initial hosted validation allocation, scheduled by the coordinator,
-using a fresh canonical `serial_2` fixture clone and never-used exposure warehouse
+The approved allocation used a fresh canonical `serial_2` fixture clone and never-used exposure warehouse
 schema on the already-authorized lab warehouse. Use the existing fixture
 observer/teardown/release workflow described in
 [the live harness runbook](../../../docs/exposure-reconciliation-live-harness.md).
@@ -136,4 +189,7 @@ must not call an unrelated production migration, and fixture trigger control
 must not borrow a product remediation writer. These findings remain disclosed;
 no blanket acknowledgement or production refactor was used to make them green.
 It also flags the benchmark modules' length and dynamically invoked migration
-callbacks. Independent no-mistakes review and hosted execution remain pending.
+callbacks. Independent no-mistakes review, full repository checks, actual
+process-death injection, production restore-hook integration and adopted-runtime
+live validation remain pending. The hosted manual execution above does not
+replace those checks.

@@ -1,7 +1,10 @@
 # Bounded exposure reconciliation audit
 
 Status: approved for a disabled prototype on 2026-10-28. Prototype source is
-implemented in the manual harness; behavioral and capacity validation are pending.
+implemented in the manual harness. The approved small-profile run passed its
+implemented controls but failed the fact-comparison screen; the measured
+orchestration time also exceeded its budget. See [prototype.md](prototype.md).
+The stop rule applies and the fleet gate remains open.
 
 ## Evidence and objective
 

@@ -5,20 +5,26 @@
 
 ## 1. Disabled prototype (requires 0.2)
 
-Source for 1.1-1.5 is present in the manual harness. These items stay unchecked
-until their behavioral assertions run successfully. See [prototype.md](prototype.md).
+The implemented controls passed in the approved hosted run. Partial tasks stay
+unchecked where process-death or live delivery/finalization validation remains
+outstanding. See [prototype.md](prototype.md) for the exact scope and failed
+performance screen.
 
-- [ ] 1.1 Map every restore/rebuild entry point and implement fence invalidation in the isolated harness. Verify generated hash behavior on the supported PostgreSQL image, including equal-sequence edits.
-- [ ] 1.2 Add bounded run/proof control metadata and exact-version dimension verification. Preserve terminal references, evidence age and per-device deferral.
-- [ ] 1.3 Implement one current v1 hash and independent normalized replay validation. Differentially verify SQL against the existing decoder/digest oracle.
+- [x] 1.1 Map every restore/rebuild entry point and implement fence invalidation in the isolated harness. Verify generated hash behavior on the supported PostgreSQL image, including equal-sequence edits. Production hook integration remains an adoption obligation.
+- [x] 1.2 Add bounded run/proof control metadata and exact-version dimension verification. Preserve terminal references, evidence age and per-device deferral.
+- [x] 1.3 Implement one current v1 hash and independent normalized replay validation. Differentially verify SQL against the existing decoder/digest oracle.
 - [ ] 1.4 Batch admission and readiness with unchanged predicates. Preserve per-device locks, durable repair ownership and crash-safe enumeration.
 - [ ] 1.5 Add only missing behavior controls to the owning DB/capacity suites after test-audit review. Validate live 40/41 sequencing, proof expiry, restore fencing, partial failures and cleanup.
 
 ## 2. Measurement gate (separate run authorization)
 
-- [ ] 2.1 Request a bounded hosted run allocation and schedule for synthetic scratch schemas; copy protected physical `.bazelrc.remote` into every author/gate worktree. No local build fallback.
+- [x] 2.1 Request a bounded hosted run allocation and schedule for synthetic scratch schemas; copy protected physical `.bazelrc.remote` into every author/gate worktree. No local build fallback. One allocation approved directly and completed.
 - [ ] 2.2 Measure dimensions, fact comparison and full orchestration against design budgets with two workers, at most 32 devices/cohort and existing timeout/page limits. Report cold/warm runs and resource use.
-- [ ] 2.3 Stop on a failed component screen. If screens and correctness pass, request the 20,000-host / 50-million-active-fact run separately. Record all cleanup evidence.
+- [x] 2.3 Stop on a failed component screen. If screens and correctness pass, request the 20,000-host / 50-million-active-fact run separately. Record all cleanup evidence. Fact screen failed; no repeat/fleet run. Warehouse schemas/grants absent and canonical CNPG teardown/release passed.
+
+Task 2.2 has first-run measurements only. The failed screen deliberately prevents
+repeat execution; the warmed fixture is not a cold-database result. No rerun is
+authorized merely to fill this checkbox.
 
 ## 3. Adoption (separate approval)
 

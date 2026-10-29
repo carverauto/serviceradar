@@ -1,24 +1,113 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exposure reconciliation: approved prototype and validation</title><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exposure reconciliation: prototype measurement result</title><style>
 :root{color-scheme:light;--bg:#fcfdfd;--panel:#f1f5f3;--ink:#152620;--muted:#50665c;--brand:#0b824d;--line:#d5e1db;--warn:#905a13;--warn-bg:#fff5e4}
 html[data-theme=dark]{color-scheme:dark;--bg:#10191d;--panel:#17242a;--ink:#ecf7f1;--muted:#b3c7bc;--brand:#3ecf87;--line:#31483e;--warn:#f2c173;--warn-bg:#30271c}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 "Avenir Next",Avenir,"Segoe UI",sans-serif}main{max-width:1160px;margin:auto;padding:35px 28px 72px}a{color:var(--brand);overflow-wrap:anywhere}h1{font-size:clamp(32px,4.2vw,53px);line-height:1.12;letter-spacing:-1.8px;max-width:850px;margin:20px 0}h2{font-size:27px;line-height:1.3;margin:34px 0 15px}h3{font-size:21px}p{max-width:85ch}.eyebrow{font-size:12px;letter-spacing:1.8px;font-weight:750;text-transform:uppercase;color:var(--brand)}.top{display:flex;justify-content:space-between;gap:16px;align-items:center}.top>*{min-width:0}button,.jump{font:inherit;border:1px solid var(--line);padding:8px 14px;border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}.lead{font-size:21px;color:var(--muted);max-width:870px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.grid>*{min-width:0}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.card h3{margin:8px 0}.n{color:var(--brand);font-size:14px;font-weight:700}.card p{font-size:16px;color:var(--muted);margin-bottom:0}.status{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}.pill{border:1px solid var(--line);border-radius:100px;padding:5px 12px;font-size:13px;font-weight:700}.warning{border-left:4px solid var(--warn);padding:15px 22px;background:var(--warn-bg);border-radius:0 10px 10px 0;margin:26px 0}.warning p{margin:4px 0}.numbers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.numbers>*{min-width:0}.numbers strong{display:block;font-size:32px;color:var(--brand);line-height:1.2}.numbers small{color:var(--muted)}table{width:100%;border-collapse:collapse;table-layout:fixed;margin:18px 0;font-size:15px}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}th{background:var(--panel)}.source{border:1px solid var(--line);border-radius:12px;margin:15px 0;background:var(--bg)}summary{cursor:pointer;padding:18px 22px;font-weight:700;color:var(--brand)}article{padding:0 24px 24px;min-width:0}article h1{font-size:30px;letter-spacing:-.5px}article h2{font-size:25px}article h3{font-size:20px}code{font-size:.85em;overflow-wrap:anywhere}iframe{display:block;width:100%;height:900px;border:0;background:var(--panel)}nav{display:flex;gap:9px;flex-wrap:wrap;margin:25px 0}nav a{text-decoration:none}.muted,footer{color:var(--muted);font-size:14px}.options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.options>*{min-width:0}.recommend{border:2px solid var(--brand)}.flow{width:100%;height:auto;display:block}.flow text{fill:var(--ink);font-family:"Avenir Next",sans-serif}.flow .label{font-size:20px;font-weight:700}.flow .sub{font-size:15px;fill:var(--muted)}.flow rect{fill:var(--panel);stroke:var(--line);stroke-width:2}.flow path{fill:none;stroke:var(--brand);stroke-width:3}footer{margin-top:36px;border-top:1px solid var(--line);padding-top:20px}@media(max-width:700px){main{padding:22px 16px 48px}.grid,.options{grid-template-columns:minmax(0,1fr)}.numbers{grid-template-columns:repeat(2,minmax(0,1fr))}article{padding:0 14px 20px}table{font-size:13px}th,td{padding:8px 5px}.lead{font-size:18px}iframe{height:760px}}
 </style></head><body><main>
 <div class="top"><span class="eyebrow">ServiceRadar / exposure intelligence</span><button id="theme" type="button" aria-label="Toggle color theme">Dark / light</button></div>
-<header><h1>Stop verifying shared content over and over.</h1><p class="lead">The approved reconciliation design aims to reduce repeated dimension checks and source hashing while keeping recovery and freshness evidence explicit.</p><div class="status"><span class="pill">Prototype approved - validation pending</span><span class="pill">Task 1.6 remains open</span><span class="pill">Manual scratch target only</span></div></header>
-<div class="warning"><strong>Capacity is still unproven.</strong><p>The best completed cohort experiment took about 64 seconds for 500,000 active facts against its roughly 9-second screen. Larger cohorts alone did not close the gap. <a href="https://agentboard.farm01.carverauto.dev/documents/220">Read the measured result.</a></p></div>
-<nav aria-label="Review sections"><a class="jump" href="#approach">Approach</a><a class="jump" href="#budget">Time budget</a><a class="jump" href="#review">Decision</a><a class="jump" href="#design">Full design</a><a class="jump" href="#workflow">Workflow</a></nav>
+<header><h1>Faster on the small fixture. Still outside the budget.</h1><p class="lead">The disabled audit prototype completed in about 34 seconds versus 143 seconds for the existing reconciler. Its correctness controls passed, but fact comparison and orchestration remain above the approved limits.</p><div class="status"><span class="pill">Performance screen failed</span><span class="pill">Task 1.6 remains open</span><span class="pill">Manual scratch target only</span></div></header>
+<div class="warning"><strong>The approved stop rule applies.</strong><p>Fact comparison took about 13 seconds against a 6-second limit. Orchestration took about 8 seconds against 0.9 seconds. No repeat or fleet run followed. Scratch schemas and grants are verified absent. <a href="https://carverauto.buildbuddy.io/invocation/2cf93ca5-a39a-4abf-927a-6eb10a68adfc">Read the hosted execution evidence.</a></p></div>
+<nav aria-label="Review sections"><a class="jump" href="#approach">Approach</a><a class="jump" href="#budget">Time budget</a><a class="jump" href="#review">Measured result</a><a class="jump" href="#design">Full design</a><a class="jump" href="#workflow">Workflow</a></nav>
 <section id="approach"><h2>Three changes, one unchanged correctness contract</h2><div class="grid"><div class="card"><span class="n">01 / SHARED EVIDENCE</span><h3>Verify each dimension version once.</h3><p>A proof binds the exact source payload, sequence, run and recovery fence. Changed content cannot borrow an older proof.</p></div><div class="card"><span class="n">02 / SOURCE WORK</span><h3>Hash the current fact once.</h3><p>Validate retained replay separately with typed field equality. Read actual warehouse columns for its digest.</p></div><div class="card"><span class="n">03 / ORCHESTRATION</span><h3>Evaluate readiness in batches.</h3><p>Keep every device's blockers and recovery obligations. Share computation, never a cached ready verdict.</p></div></div>
 <svg class="flow" viewBox="0 0 1000 195" role="img" aria-labelledby="flowtitle"><title id="flowtitle">Content proof plus actual fact comparison is required before a fresh readiness evaluation.</title><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" style="fill:var(--brand);stroke:none" /></marker></defs><g id="proof"><title>Proof retains its original check time</title><rect x="10" y="55" width="270" height="98" rx="12" /><text class="label" x="32" y="92">Verified content version</text><text class="sub" x="32" y="123">Keep the original evidence time</text></g><path id="proof-link" d="M285 105 H350" marker-end="url(#arrow)" /><g id="facts"><title>Facts and retained replay checked in a finite source view</title><rect x="362" y="55" width="276" height="98" rx="12" /><text class="label" x="385" y="92">Current facts + replay</text><text class="sub" x="385" y="123">Independent warehouse digest</text></g><path id="result-link" d="M643 105 H707" marker-end="url(#arrow)" /><g id="ready"><title>Fresh recovery checks remain authoritative</title><rect x="720" y="55" width="270" height="98" rx="12" /><text class="label" x="742" y="92">Per-device result</text><text class="sub" x="742" y="123">Recheck current recovery state</text></g></svg></section>
 <section><h2>The tradeoff to review</h2><p>Dimension evidence can be reused across source views within one finite audit run. That is a deliberate change from the prior experiment. A stored source-content identity prevents equal-sequence edits from reusing stale proof; recovery invalidates the run.</p><p><strong>Evidence keeps its age.</strong> A later fact check cannot make an earlier dimension check look fresh. An out-of-band warehouse edit after verification is caught by a later audit, not retroactively by this one.</p></section>
 <section id="budget"><h2>900 seconds total. These are targets.</h2><div class="numbers"><div class="card"><strong>120 s</strong><small>Dimensions and version rechecks</small></div><div class="card"><strong>600 s</strong><small>Source validation and fact summaries</small></div><div class="card"><strong>90 s</strong><small>Orchestration and readiness</small></div><div class="card"><strong>90 s</strong><small>Retries and scheduling reserve</small></div></div><p>Two workers, at most 32 devices per cohort, 30-second statements and 60-second source views. The early linear screens are 6 seconds per 500,000 active facts and 0.9 seconds per 200 devices of orchestration; fixed costs are reported separately.</p><p class="muted">A failed component screen stops the experiment before a fleet run. A passed screen permits a separate fleet-run request. It does not prove the 20,000-host / 50-million-active-fact gate.</p></section>
-<section id="review"><h2>Next: one bounded hosted validation</h2><div class="grid"><div class="card"><span class="n">APPROVED</span><h3>Disabled prototype</h3><p>The product owner approved the design and implementation on October 28. The manual target is written; behavioral checks are pending.</p></div><div class="card"><span class="n">REQUESTED NEXT</span><h3>Small synthetic fixture</h3><p>One scheduled hosted allocation: 200 devices and 500,000 active facts. A failed component screen stops performance work.</p></div><div class="card"><span class="n">SEPARATE DECISIONS</span><h3>Fleet and adoption</h3><p>The 50-million-row run, production adoption and rollout remain separate. Task 1.6 stays open.</p></div></div><p class="muted">The canonical run allocation is recorded on Agentboard. This portable page is evidence and does not submit approval. Format and OpenSpec validation are not behavioral proof.</p></section>
-<h2>Implementation and validation</h2><details id="prototype" class="source" open><summary>Disabled prototype and bounded run request</summary><article><h1 id="disabled-prototype-validation-plan">Disabled prototype
-validation plan</h1>
-<p>Status: implementation prepared; no behavior or capacity result yet.
-The product owner approved implementation on 2026-10-28. Source parsing,
-remote formatting and strict OpenSpec validation succeeded. The remote
-core format/Credo target passed; behavioral execution is still pending.
-Hosted scratch measurement is still a separate gate.</p>
+<section id="review"><h2>One approved run. A clear stopping point.</h2><table><caption>Rounded measurements: 200 synthetic devices, 500,000 active facts</caption><thead><tr><th scope="col">Component</th><th scope="col">Observed</th><th scope="col">Screen</th><th scope="col">Verdict</th></tr></thead><tbody><tr><th scope="row">Dimensions</th><td>13 s</td><td>120 s</td><td>Passed</td></tr><tr><th scope="row">Fact comparison</th><td>13 s</td><td>6 s</td><td>Failed</td></tr><tr><th scope="row">Orchestration</th><td>8 s</td><td>0.9 s</td><td>Above budget; later assertion not reached</td></tr></tbody></table><div class="grid"><div class="card"><span class="n">VERIFIED</span><h3>Implemented controls passed</h3><p>Digest parity, corruption detection, version proofs, readiness, durable resume and recovery fencing passed in the hosted scratch harness.</p></div><div class="card"><span class="n">STOPPED</span><h3>No second repetition</h3><p>The first fact screen failed. The fixture was warmed by setup and the baseline; there is no cold/repeat or fleet capacity result.</p></div><div class="card"><span class="n">CLEANED</span><h3>Scratch resources removed</h3><p>CNPG teardown and generation release succeeded. Warehouse tables were empty; schemas and their grants are verified absent.</p></div></div><p class="muted">Production restore integration, process-death testing and live JetStream/snapshot validation remain open. No-mistakes review/publication is pending. The 20,000-host / 50-million-active-fact / 900-second gate and task 1.6 remain unchanged.</p></section>
+<h2>Implementation and validation</h2><details id="prototype" class="source" open><summary>Disabled prototype: evidence and limits</summary><article><h1 id="disabled-prototype-validation-result">Disabled prototype
+validation result</h1>
+<p>Status: the one approved hosted small-profile run completed. Its
+implemented correctness controls passed, but the fact-comparison
+performance screen failed. Performance experimentation stopped; there
+was no repeat or fleet attempt. Production adoption and parent task 1.6
+remain open.</p>
+<h2 id="measured-result">Measured result</h2>
+<p><a
+href="https://carverauto.buildbuddy.io/invocation/2cf93ca5-a39a-4abf-927a-6eb10a68adfc">Hosted
+execution</a> validated immutable source commit
+<code>0b60e86d4e49bf3456eb0be3d2f68ec249357bb6</code> and tree
+<code>79d57280ed1f0eace2e53c91d89286f00f05f115</code>. The product owner
+authorized this single allocation after approving the disabled
+prototype. The run used the existing canonical fixture lifecycle, one
+disposable CNPG lane and restricted, never-used warehouse schemas. No
+workstation build ran.</p>
+<p>The fixture contained 200 synthetic devices and 500,000 active facts,
+using two workers and cohorts of at most 32 devices. Durations below are
+rounded.</p>
+<table>
+<thead>
+<tr>
+<th>Measurement</th>
+<th>Observed</th>
+<th>Small-profile screen</th>
+<th>Result</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Existing production reconciler</td>
+<td>143 seconds</td>
+<td>Baseline only</td>
+<td>200 devices matched; zero verification violations</td>
+</tr>
+<tr>
+<td>Complete audit prototype</td>
+<td>34 seconds</td>
+<td>Component screens below</td>
+<td>All 200 devices matched; performance screen failed</td>
+</tr>
+<tr>
+<td>Dimension verification</td>
+<td>13 seconds</td>
+<td>At most 120 seconds</td>
+<td>Passed</td>
+</tr>
+<tr>
+<td>Fact comparison</td>
+<td>13 seconds</td>
+<td>At most 6 seconds</td>
+<td>Failed</td>
+</tr>
+<tr>
+<td>Remaining orchestration</td>
+<td>8 seconds</td>
+<td>At most 0.9 seconds</td>
+<td>Above budget; later assertion not reached</td>
+</tr>
+</tbody>
+</table>
+<p>ExUnit reported one test and one failure:
+<code>fact component screen failed; no fleet attempt</code>. The first
+failed assertion stopped measurement before the orchestration assertion
+and second repetition. Correctness controls ran after the measurement
+failure and reached their final success marker. The reported fact
+interval excludes overlap between workers; remaining orchestration is
+the residual wall time after dimensions and fact intervals, not a
+separate CPU profile.</p>
+<p>Decoder/digest parity passed for 11 row cases and two aggregate cases
+on both engines. The implemented generated-binding, replay-drift,
+same-count corruption, missing-fact, terminal-reference, per-device
+failure, busy-device, snapshot generation, readiness, proof
+visibility/age, timeout, expiry, restore-fence, durable-resume and
+metadata-cleanup controls passed. Synthetic concurrent after-images
+covered sequences 40, 41 and 42; they are not live JetStream or
+snapshot-finalization validation.</p>
+<p>The prototype retained about 53,000 proof rows occupying about 10
+MiB, and reported about 163 MiB of VM memory at completion. These are
+proof storage and completion memory, not total database footprint or
+peak RSS. The fixture and production baseline warmed the databases; this
+is not a cold measurement. The roughly fourfold improvement on this
+fixture does not establish fleet capacity or predict the unchanged
+20,000-host / 50-million-active-fact / 900-second gate.</p>
+<p>Cleanup completed despite the test failure. The canonical observer,
+CNPG teardown and generation release each returned success. In both
+eligible warehouse contexts, all five scratch tables were independently
+counted empty before their schema grants were revoked and schemas
+dropped. Follow-up reads verified both schema absence and grant absence.
+Raw operational identifiers and credential-bearing runtime records
+remain outside the repository.</p>
+<p>The approved stop rule now applies. No further benchmark, codec
+tuning, extra workers, wider cohorts, fleet attempt or runtime adoption
+follows from this result. Independent no-mistakes review and publication
+remain outstanding.</p>
 <h2 id="executable-boundary">Executable boundary</h2>
 <p>The only entry point is the manual Bazel target
 <code>//elixir/serviceradar_core:exposure_reconciliation_audit</code>.
@@ -41,8 +130,8 @@ Oban work, then restores parked bootstrap jobs and supervised processes.
 Canonical observer, teardown and generation release remain mandatory;
 the outer coordinator drops the warehouse scratch schema and verifies
 absence.</p>
-<h2 id="implemented-behavior-to-verify">Implemented behavior to
-verify</h2>
+<h2 id="implemented-behavior-exercised">Implemented behavior
+exercised</h2>
 <ul>
 <li>Durable cursor and work admission commit together. Resume reads
 stored state; duplicate resume does not re-admit work. Read-only Ash
@@ -69,7 +158,7 @@ once; normalized replay fields and required types are checked
 independently. Actual warehouse columns supply the independent digest.
 Malformed inputs cannot be filtered into an empty match. Timestamp
 validation follows the decoder's Gregorian date, fractional precision
-and offset rules; hosted differential cases remain required.</li>
+and offset rules; the implemented hosted differential cases passed.</li>
 <li>Readiness batches preserve the existing reason set, including young
 outbox traffic, old outbox entries, recovery journals, repair
 obligations and snapshot generation floors. Cleanup pages remove expired
@@ -150,12 +239,11 @@ after it closes. These are comparison controls; they do not prove
 JetStream delivery or snapshot finalization. The existing live harness
 owns those claims and remains required before adoption. No control is
 reported as passed merely because it is present.</p>
-<h2 id="bounded-hosted-request">Bounded hosted request</h2>
-<p>Request one initial hosted validation allocation, scheduled by the
-coordinator, using a fresh canonical <code>serial_2</code> fixture clone
-and never-used exposure warehouse schema on the already-authorized lab
-warehouse. Use the existing fixture observer/teardown/release workflow
-described in <a
+<h2 id="approved-hosted-protocol">Approved hosted protocol</h2>
+<p>The approved allocation used a fresh canonical <code>serial_2</code>
+fixture clone and never-used exposure warehouse schema on the
+already-authorized lab warehouse. Use the existing fixture
+observer/teardown/release workflow described in <a
 href="https://github.com/carverauto/serviceradar/blob/staging/docs/exposure-reconciliation-live-harness.md">the live
 harness runbook</a>. Run the manual audit target explicitly; never
 enable it for ordinary CI discovery.</p>
@@ -202,13 +290,17 @@ production migration, and fixture trigger control must not borrow a
 product remediation writer. These findings remain disclosed; no blanket
 acknowledgement or production refactor was used to make them green. It
 also flags the benchmark modules' length and dynamically invoked
-migration callbacks. Independent no-mistakes review and hosted execution
-remain pending.</p>
+migration callbacks. Independent no-mistakes review, full repository
+checks, actual process-death injection, production restore-hook
+integration and adopted-runtime live validation remain pending. The
+hosted manual execution above does not replace those checks.</p>
 </article></details><h2>Complete proposal</h2><details id="proposal" class="source"><summary>Proposal</summary><article><h1
 id="proposal-bounded-exposure-audit-with-shared-dimension-evidence">Proposal:
 bounded exposure audit with shared dimension evidence</h1>
 <p>Status: design and disabled prototype approved by the product owner
-on 2026-10-28; hosted measurement pending. Related epic: <a
+on 2026-10-28. The approved hosted small-profile run passed its
+implemented correctness controls but failed its performance screen;
+experimentation stopped. Related epic: <a
 href="https://github.com/carverauto/serviceradar/issues/5745">#5745</a>.</p>
 <h2 id="why">Why</h2>
 <p>Exposure reconciliation still misses its fleet capacity gate. The
@@ -219,8 +311,10 @@ verification and CNPG digest work both remain material. Increasing the
 cohort alone did not solve either cost.</p>
 <p>The <a
 href="https://agentboard.farm01.carverauto.dev/documents/220">measured
-report</a> records the experiment and its limits. This proposal does not
-claim a speedup.</p>
+report</a> records the prior experiment and its limits. This prototype's
+separate <a href="#measured-result">measured result</a>
+improves the small-fixture time but still misses the approved component
+screens; fleet capacity remains unproven.</p>
 <h2 id="what-changes">What Changes</h2>
 <ul>
 <li>Verify each published dimension content version once per bounded
@@ -256,13 +350,13 @@ changes are proposed.</p>
 <p>The product owner approved the complete design and disabled prototype
 in the conversation on 2026-10-28. The approval includes cross-view
 reuse of content-bound dimension evidence and the component budgets. The
-implementation is confined to a manual scratch target and is awaiting
-execution evidence. Hosted run allocation/scheduling, a 50-million-row
-run, production adoption and rollout still require their subsequent
-explicit approvals. Task 1.6 remains open.</p>
-<p>See <a href="#prototype">prototype.md</a> for the implemented
-boundaries, pending checks and the concrete small-profile validation
-request.</p>
+implementation is confined to a manual scratch target. The separately
+approved hosted allocation has completed and triggered the
+stop-on-failure rule. No further performance run, a 50-million-row run,
+production adoption or rollout is approved. Task 1.6 remains open.</p>
+<p>See <a href="#prototype">prototype.md</a> for measurements, passed
+controls, cleanup evidence, implemented boundaries and checks that
+remain pending.</p>
 <p>See <a href="#design">design.md</a>, <a
 href="#tasks">tasks.md</a> and the <a
 href="#workflow">workflow
@@ -270,8 +364,11 @@ diagram</a>.</p>
 </article></details><details id="design" class="source"><summary>Technical design</summary><article><h1 id="bounded-exposure-reconciliation-audit">Bounded exposure
 reconciliation audit</h1>
 <p>Status: approved for a disabled prototype on 2026-10-28. Prototype
-source is implemented in the manual harness; behavioral and capacity
-validation are pending.</p>
+source is implemented in the manual harness. The approved small-profile
+run passed its implemented controls but failed the fact-comparison
+screen; the measured orchestration time also exceeded its budget. See <a
+href="#prototype">prototype.md</a>. The stop rule applies and the
+fleet gate remains open.</p>
 <h2 id="evidence-and-objective">Evidence and objective</h2>
 <p>The existing worker compares each device independently. It reads
 referenced dimensions, decodes current and retained assessment
@@ -766,20 +863,23 @@ product-owner response on 2026-10-28.</label></li>
 </ul>
 <h2 id="1-disabled-prototype-requires-02">1. Disabled prototype
 (requires 0.2)</h2>
-<p>Source for 1.1-1.5 is present in the manual harness. These items stay
-unchecked until their behavioral assertions run successfully. See <a
-href="#prototype">prototype.md</a>.</p>
+<p>The implemented controls passed in the approved hosted run. Partial
+tasks stay unchecked where process-death or live delivery/finalization
+validation remains outstanding. See <a
+href="#prototype">prototype.md</a> for the exact scope and failed
+performance screen.</p>
 <ul class="task-list">
-<li><label><input type="checkbox" />1.1 Map every restore/rebuild entry
-point and implement fence invalidation in the isolated harness. Verify
-generated hash behavior on the supported PostgreSQL image, including
-equal-sequence edits.</label></li>
-<li><label><input type="checkbox" />1.2 Add bounded run/proof control
-metadata and exact-version dimension verification. Preserve terminal
-references, evidence age and per-device deferral.</label></li>
-<li><label><input type="checkbox" />1.3 Implement one current v1 hash
-and independent normalized replay validation. Differentially verify SQL
-against the existing decoder/digest oracle.</label></li>
+<li><label><input type="checkbox" checked="" />1.1 Map every
+restore/rebuild entry point and implement fence invalidation in the
+isolated harness. Verify generated hash behavior on the supported
+PostgreSQL image, including equal-sequence edits. Production hook
+integration remains an adoption obligation.</label></li>
+<li><label><input type="checkbox" checked="" />1.2 Add bounded run/proof
+control metadata and exact-version dimension verification. Preserve
+terminal references, evidence age and per-device deferral.</label></li>
+<li><label><input type="checkbox" checked="" />1.3 Implement one current
+v1 hash and independent normalized replay validation. Differentially
+verify SQL against the existing decoder/digest oracle.</label></li>
 <li><label><input type="checkbox" />1.4 Batch admission and readiness
 with unchanged predicates. Preserve per-device locks, durable repair
 ownership and crash-safe enumeration.</label></li>
@@ -791,19 +891,26 @@ failures and cleanup.</label></li>
 <h2 id="2-measurement-gate-separate-run-authorization">2. Measurement
 gate (separate run authorization)</h2>
 <ul class="task-list">
-<li><label><input type="checkbox" />2.1 Request a bounded hosted run
-allocation and schedule for synthetic scratch schemas; copy protected
-physical <code>.bazelrc.remote</code> into every author/gate worktree.
-No local build fallback.</label></li>
+<li><label><input type="checkbox" checked="" />2.1 Request a bounded
+hosted run allocation and schedule for synthetic scratch schemas; copy
+protected physical <code>.bazelrc.remote</code> into every author/gate
+worktree. No local build fallback. One allocation approved directly and
+completed.</label></li>
 <li><label><input type="checkbox" />2.2 Measure dimensions, fact
 comparison and full orchestration against design budgets with two
 workers, at most 32 devices/cohort and existing timeout/page limits.
 Report cold/warm runs and resource use.</label></li>
-<li><label><input type="checkbox" />2.3 Stop on a failed component
-screen. If screens and correctness pass, request the 20,000-host /
-50-million-active-fact run separately. Record all cleanup
-evidence.</label></li>
+<li><label><input type="checkbox" checked="" />2.3 Stop on a failed
+component screen. If screens and correctness pass, request the
+20,000-host / 50-million-active-fact run separately. Record all cleanup
+evidence. Fact screen failed; no repeat/fleet run. Warehouse
+schemas/grants absent and canonical CNPG teardown/release
+passed.</label></li>
 </ul>
+<p>Task 2.2 has first-run measurements only. The failed screen
+deliberately prevents repeat execution; the warmed fixture is not a
+cold-database result. No rerun is authorized merely to fill this
+checkbox.</p>
 <h2 id="3-adoption-separate-approval">3. Adoption (separate
 approval)</h2>
 <ul class="task-list">
