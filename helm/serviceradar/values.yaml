@@ -1817,6 +1817,14 @@ agent:
     requests:
       cpu: 200m
       memory: 512Mi
+# Durable sweep canary. Core lease settings select participating agents/groups.
+# contractRegistry is the installation-static document consumed by core and gateway.
+edgeRecords:
+  enabled: false
+  contractRegistry: {}
+  agentSweepEnabled: false
+  maxSpoolBytes: 1073741824
+
 agentGateway:
   enabled: true
   replicas: 3
