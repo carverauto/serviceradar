@@ -4,56 +4,88 @@ import (
 	"net"
 	"strconv"
 	"strings"
-)
 
-func hostInternalInterfacePrefixes() []string {
-	return []string{
-		"docker",
-		"br-",
-		"cni",
-		"flannel",
-		"veth",
-		"virbr",
-		"cali",
-		"vxlan",
-		"tunl",
-		"cilium",
-		"kube-",
-		"weave",
-		"podman",
-		"lxcbr",
-		"lxdbr",
-	}
-}
+	"github.com/carverauto/serviceradar/go/pkg/hostinventory"
+	"github.com/carverauto/serviceradar/proto"
+)
 
 const maxGatewayPrefixLen = 30
 
-type hostInterface struct {
-	net.Interface
-	addresses []net.Addr
-}
+// hostInterface is one entry of the shared host interface inventory.
+type hostInterface = hostinventory.Interface
 
 func defaultHostInventory() []hostInterface {
-	interfaces, err := net.Interfaces()
-	if err != nil {
-		return nil
-	}
-	local := make([]hostInterface, 0, len(interfaces))
-	for _, iface := range interfaces {
-		if addresses, err := iface.Addrs(); err == nil {
-			local = append(local, hostInterface{Interface: iface, addresses: addresses})
-		}
-	}
-	return local
+	return hostinventory.Collect()
 }
 
-// hostIdentity selects the announced IP and its MACs from one inventory snapshot.
-// A nil inventory uses the same operating-system interfaces as getSourceIP.
-func hostIdentity(configured string, inventory func() []hostInterface) (string, []string) {
+// hostIdentityReport is what both hello transports announce about the host:
+// the announced IP, the MAC of the interface owning it (host_macs, for cores
+// that predate the inventory) and the full classified inventory, all from one
+// snapshot.
+type hostIdentityReport struct {
+	ip         string
+	macs       []string
+	interfaces []*proto.HostInterface
+}
+
+// hostIdentity selects the announced IP and its MACs, and converts the
+// inventory, from one inventory snapshot. A nil inventory uses the same
+// operating-system interfaces as getSourceIP.
+func hostIdentity(configured string, inventory func() []hostInterface) hostIdentityReport {
 	if inventory == nil {
 		inventory = defaultHostInventory
 	}
-	return selectHostIdentity(configured, inventory())
+	interfaces := inventory()
+	ip, macs := selectHostIdentity(configured, interfaces)
+
+	return hostIdentityReport{ip: ip, macs: macs, interfaces: hostInterfacesProto(interfaces)}
+}
+
+// hostInterfacesProto reports every interface but loopback with the
+// platform's classification. Core, not the agent, decides which of these MACs
+// identify the host, so nothing is left out for being a bridge, a guest
+// device or a container interface: it is reported as one.
+func hostInterfacesProto(interfaces []hostInterface) []*proto.HostInterface {
+	hostInterfaceKinds := map[hostinventory.Kind]proto.HostInterfaceKind{
+		hostinventory.KindPhysical: proto.HostInterfaceKind_HOST_INTERFACE_KIND_PHYSICAL,
+		hostinventory.KindBond:     proto.HostInterfaceKind_HOST_INTERFACE_KIND_BOND,
+		hostinventory.KindBridge:   proto.HostInterfaceKind_HOST_INTERFACE_KIND_BRIDGE,
+		hostinventory.KindVLAN:     proto.HostInterfaceKind_HOST_INTERFACE_KIND_VLAN,
+		hostinventory.KindVirtual:  proto.HostInterfaceKind_HOST_INTERFACE_KIND_VIRTUAL,
+		hostinventory.KindTunnel:   proto.HostInterfaceKind_HOST_INTERFACE_KIND_TUNNEL,
+		hostinventory.KindLoopback: proto.HostInterfaceKind_HOST_INTERFACE_KIND_LOOPBACK,
+	}
+
+	macProvenances := map[hostinventory.MACProvenance]proto.MacProvenance{
+		hostinventory.ProvenancePermanent: proto.MacProvenance_MAC_PROVENANCE_PERMANENT,
+		hostinventory.ProvenanceRandom:    proto.MacProvenance_MAC_PROVENANCE_RANDOM,
+		hostinventory.ProvenanceInherited: proto.MacProvenance_MAC_PROVENANCE_INHERITED,
+		hostinventory.ProvenanceAssigned:  proto.MacProvenance_MAC_PROVENANCE_ASSIGNED,
+	}
+
+	out := make([]*proto.HostInterface, 0, len(interfaces))
+	for _, iface := range interfaces {
+		if iface.Kind == hostinventory.KindLoopback || iface.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+		entry := &proto.HostInterface{
+			Name:          iface.Name,
+			Ips:           iface.IPs(),
+			OperState:     iface.OperState,
+			Kind:          hostInterfaceKinds[iface.Kind],
+			MacProvenance: macProvenances[iface.MACProvenance],
+			Master:        iface.Master,
+		}
+		if len(iface.HardwareAddr) > 0 {
+			entry.Mac = iface.HardwareAddr.String()
+		}
+		if len(iface.PermanentMAC) > 0 {
+			entry.PermanentMac = iface.PermanentMAC.String()
+		}
+		out = append(out, entry)
+	}
+
+	return out
 }
 
 func selectHostIdentity(configured string, interfaces []hostInterface) (string, []string) {
@@ -78,7 +110,7 @@ func allSourceIPsFromInterfaces(interfaces []hostInterface) []net.IP {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		for _, address := range iface.addresses {
+		for _, address := range iface.Addrs {
 			ip, _ := hostAddrString(address)
 			if ip != nil && !ip.IsLoopback() && !ip.IsLinkLocalUnicast() {
 				ips = append(ips, ip)
@@ -94,7 +126,7 @@ func candidateSourceIPsFromInterfaces(interfaces []hostInterface) []net.IP {
 		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
 			continue
 		}
-		for _, address := range iface.addresses {
+		for _, address := range iface.Addrs {
 			ip, rawAddress := hostAddrString(address)
 			if ip == nil || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
 				continue
@@ -131,22 +163,9 @@ func hostAddrString(addr net.Addr) (net.IP, string) {
 // isHostInternalAddress mirrors ServiceRadar.Inventory.Identity.GuestAddress so
 // host-internal container bridges and CNI overlays never win fallback IP selection.
 func isHostInternalAddress(ifaceName, rawAddress string) bool {
-	return isHostInternalInterfaceName(ifaceName) ||
+	return hostinventory.IsHostInternalName(ifaceName) ||
 		isDockerDefaultBridgeAddress(rawAddress) ||
 		isOwnPrefixGatewayAddress(rawAddress)
-}
-
-func isHostInternalInterfaceName(name string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(name))
-	if normalized == "" {
-		return false
-	}
-	for _, prefix := range hostInternalInterfacePrefixes() {
-		if strings.HasPrefix(normalized, prefix) {
-			return true
-		}
-	}
-	return false
 }
 
 func isDockerDefaultBridgeAddress(rawAddress string) bool {
@@ -200,8 +219,9 @@ func parseIPv4Octets(raw string) ([4]byte, bool) {
 	return octets, true
 }
 
-// Only report the interface that owns the announced IP. Enumerating every MAC
-// would also claim bridges, guest veths and unrelated network namespaces.
+// host_macs carries only the MAC of the interface owning the announced IP, as
+// cores that predate host_interfaces expect: they register every host_macs value
+// as identity and cannot tell a bridge or guest device from a NIC.
 func selectHostInterfaceMACs(hostIP net.IP, interfaces []hostInterface) []string {
 	if hostIP == nil || hostIP.IsLoopback() || hostIP.IsUnspecified() || hostIP.IsMulticast() {
 		return nil
@@ -213,7 +233,7 @@ func selectHostInterfaceMACs(hostIP net.IP, interfaces []hostInterface) []string
 			len(mac) != 6 || mac[0]&1 != 0 || mac.String() == "00:00:00:00:00:00" {
 			continue
 		}
-		for _, address := range iface.addresses {
+		for _, address := range iface.Addrs {
 			var ip net.IP
 			switch value := address.(type) {
 			case *net.IPNet:

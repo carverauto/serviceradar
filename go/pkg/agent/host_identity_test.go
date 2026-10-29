@@ -5,7 +5,11 @@ import (
 	"reflect"
 	"testing"
 
+	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/carverauto/serviceradar/go/pkg/hostinventory"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func TestHostIdentityUsesOnlyUnambiguousAnnouncedInterface(t *testing.T) {
@@ -15,7 +19,7 @@ func TestHostIdentityUsesOnlyUnambiguousAnnouncedInterface(t *testing.T) {
 			t.Fatal(err)
 		}
 		return hostInterface{Interface: net.Interface{HardwareAddr: hardware, Flags: flags},
-			addresses: []net.Addr{&net.IPNet{IP: net.ParseIP(ip)}}}
+			Addrs: []net.Addr{&net.IPNet{IP: net.ParseIP(ip)}}}
 	}
 	owner := iface("02:00:00:00:01:03", "192.0.2.37", net.FlagUp)
 	other := iface("02:00:00:00:01:05", "198.51.100.41", net.FlagUp)
@@ -54,7 +58,7 @@ func TestHelloRequestsCarryAnnouncedInterfaceMAC(t *testing.T) {
 			t.Fatal(err)
 		}
 		return hostInterface{Interface: net.Interface{Name: name, HardwareAddr: hardware, Flags: flags},
-			addresses: []net.Addr{&net.IPNet{IP: net.ParseIP(ip)}}}
+			Addrs: []net.Addr{&net.IPNet{IP: net.ParseIP(ip)}}}
 	}
 	interfaces := []hostInterface{
 		iface("lo", "00:00:00:00:00:00", "127.0.0.1", net.FlagUp|net.FlagLoopback),
@@ -108,5 +112,94 @@ func TestHelloRequestsCarryAnnouncedInterfaceMAC(t *testing.T) {
 				t.Fatalf("both hellos read %d inventory snapshots, want 2", calls)
 			}
 		})
+	}
+}
+
+// Both hellos carry the classified inventory beside the legacy fields: host_ip and
+// host_macs stay exactly what a core that predates host_interfaces reads, and the
+// inventory reports every interface but loopback, a bridge or guest device as one,
+// leaving core to decide which MACs identify the host.
+func TestHelloRequestsCarryClassifiedInventory(t *testing.T) {
+	mac := func(text string) net.HardwareAddr {
+		hardware, err := net.ParseMAC(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return hardware
+	}
+	entry := func(name, hw, ip string, flags net.Flags, class hostinventory.Classification) hostInterface {
+		var addresses []net.Addr
+		if ip != "" {
+			addresses = []net.Addr{&net.IPNet{IP: net.ParseIP(ip), Mask: net.CIDRMask(24, 32)}}
+		}
+		var hardware net.HardwareAddr
+		if hw != "" {
+			hardware = mac(hw)
+		}
+		return hostinventory.Classify(net.Interface{Name: name, HardwareAddr: hardware, Flags: flags}, addresses, class)
+	}
+	interfaces := []hostInterface{
+		entry("lo", "", "127.0.0.1", net.FlagUp|net.FlagLoopback, hostinventory.Classification{Kind: hostinventory.KindLoopback}),
+		entry("eno1", "00:00:5e:00:53:31", "", net.FlagUp, hostinventory.Classification{
+			Kind: hostinventory.KindPhysical, MACProvenance: hostinventory.ProvenancePermanent,
+			PermanentMAC: mac("00:00:5e:00:53:31"), OperState: "up", Master: "vmbr0",
+		}),
+		entry("vmbr0", "00:00:5e:00:53:31", "192.0.2.31", net.FlagUp, hostinventory.Classification{
+			Kind: hostinventory.KindBridge, MACProvenance: hostinventory.ProvenanceAssigned, OperState: "up",
+		}),
+		entry("veth9f", "02:00:5e:00:53:32", "", net.FlagUp, hostinventory.Classification{
+			Kind: hostinventory.KindVirtual, MACProvenance: hostinventory.ProvenanceRandom, OperState: "up", Master: "vmbr0",
+		}),
+	}
+	want := []*proto.HostInterface{
+		{
+			Name: "eno1", Mac: "00:00:5e:00:53:31", PermanentMac: "00:00:5e:00:53:31", OperState: "up",
+			Kind:          proto.HostInterfaceKind_HOST_INTERFACE_KIND_PHYSICAL,
+			MacProvenance: proto.MacProvenance_MAC_PROVENANCE_PERMANENT, Master: "vmbr0",
+		},
+		{
+			Name: "vmbr0", Mac: "00:00:5e:00:53:31", Ips: []string{"192.0.2.31"}, OperState: "up",
+			Kind:          proto.HostInterfaceKind_HOST_INTERFACE_KIND_BRIDGE,
+			MacProvenance: proto.MacProvenance_MAC_PROVENANCE_ASSIGNED,
+		},
+		{
+			Name: "veth9f", Mac: "02:00:5e:00:53:32", OperState: "up",
+			Kind:          proto.HostInterfaceKind_HOST_INTERFACE_KIND_VIRTUAL,
+			MacProvenance: proto.MacProvenance_MAC_PROVENANCE_RANDOM, Master: "vmbr0",
+		},
+	}
+
+	loop := NewPushLoop(&Server{config: &ServerConfig{}}, nil, 0, logger.NewTestLogger())
+	loop.hostInventory = func() []hostInterface { return interfaces }
+
+	stream := &fakeControlStreamClient{}
+	if err := loop.sendControlHello(newControlStreamSender(stream)); err != nil {
+		t.Fatal(err)
+	}
+	if len(stream.sent) == 0 || stream.sent[0].GetHello() == nil {
+		t.Fatal("control stream did not send an initial hello")
+	}
+	controlHello := stream.sent[0].GetHello()
+	enrollHello := loop.buildEnrollmentHelloRequest()
+
+	for transport, got := range map[string]struct {
+		ip         string
+		macs       []string
+		interfaces []*proto.HostInterface
+	}{
+		"control":    {controlHello.HostIp, controlHello.HostMacs, controlHello.HostInterfaces},
+		"enrollment": {enrollHello.HostIp, enrollHello.HostMacs, enrollHello.HostInterfaces},
+	} {
+		if got.ip != "192.0.2.31" || !reflect.DeepEqual(got.macs, []string{"00:00:5e:00:53:31"}) {
+			t.Fatalf("%s hello legacy identity = %q/%v, want 192.0.2.31/[00:00:5e:00:53:31]", transport, got.ip, got.macs)
+		}
+		if len(got.interfaces) != len(want) {
+			t.Fatalf("%s hello inventory = %v, want %v", transport, got.interfaces, want)
+		}
+		for i := range want {
+			if !gproto.Equal(got.interfaces[i], want[i]) {
+				t.Fatalf("%s hello inventory[%d] = %v, want %v", transport, i, got.interfaces[i], want[i])
+			}
+		}
 	}
 }

@@ -44,7 +44,30 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
     # request to AgentGatewaySync.ensure_device_for_agent/2. If host_macs is
     # accidentally removed from device_attrs_from_request the evidence silently
     # stops reaching core identity reconciliation, so each request type that
-    # calls ensure_device_for_agent is covered here.
+    # calls ensure_device_for_agent is covered here. host_interfaces, the
+    # classified inventory core decides identity from, rides the same bridge.
+
+    @physical_nic %Monitoring.HostInterface{
+      name: "eno1",
+      mac: "00:00:5e:00:53:01",
+      permanent_mac: "00:00:5e:00:53:01",
+      ips: ["192.0.2.10", "2001:db8::10"],
+      oper_state: "up",
+      kind: :HOST_INTERFACE_KIND_PHYSICAL,
+      mac_provenance: :MAC_PROVENANCE_PERMANENT,
+      master: ""
+    }
+
+    @physical_nic_attrs %{
+      name: "eno1",
+      mac: "00:00:5e:00:53:01",
+      permanent_mac: "00:00:5e:00:53:01",
+      ips: ["192.0.2.10", "2001:db8::10"],
+      oper_state: "up",
+      kind: :HOST_INTERFACE_KIND_PHYSICAL,
+      mac_provenance: :MAC_PROVENANCE_PERMANENT,
+      master: ""
+    }
 
     test "unary enrollment hello (AgentHelloRequest) forwards host_macs to device attrs" do
       request = %Monitoring.AgentHelloRequest{
@@ -53,12 +76,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         os: "linux",
         arch: "amd64",
         host_ip: "192.0.2.10",
-        host_macs: ["00:00:5e:00:53:01"]
+        host_macs: ["00:00:5e:00:53:01"],
+        host_interfaces: [@physical_nic]
       }
 
       attrs = AgentGatewayServer.device_attrs_from_request("partition-1", request, "192.0.2.10")
 
       assert attrs.host_macs == ["00:00:5e:00:53:01"]
+      assert attrs.host_interfaces == [@physical_nic_attrs]
       assert attrs.source_ip == "192.0.2.10"
       assert attrs.partition == "partition-1"
     end
@@ -70,12 +95,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
         os: "linux",
         arch: "amd64",
         host_ip: "192.0.2.11",
-        host_macs: ["00:00:5e:00:53:02", "00:00:5e:00:53:03"]
+        host_macs: ["00:00:5e:00:53:02", "00:00:5e:00:53:03"],
+        host_interfaces: [@physical_nic]
       }
 
       attrs = AgentGatewayServer.device_attrs_from_request("partition-2", hello, "192.0.2.11")
 
       assert attrs.host_macs == ["00:00:5e:00:53:02", "00:00:5e:00:53:03"]
+      assert attrs.host_interfaces == [@physical_nic_attrs]
       assert attrs.source_ip == "192.0.2.11"
       assert attrs.partition == "partition-2"
     end
@@ -90,6 +117,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       attrs = AgentGatewayServer.device_attrs_from_request("partition-1", request, "192.0.2.12")
 
       assert attrs.host_macs == []
+      assert attrs.host_interfaces == []
     end
 
     test "control-stream hello without host_macs is backward compatible" do
@@ -102,6 +130,38 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       attrs = AgentGatewayServer.device_attrs_from_request("partition-2", hello, "192.0.2.13")
 
       assert attrs.host_macs == []
+      assert attrs.host_interfaces == []
+    end
+
+    # A gateway or core built before host_interfaces decodes a hello with the schema it was built
+    # with. The fields it reads keep their numbers and values, and the inventory is skipped as an
+    # unknown field; an agent built before it sends a hello that decodes with no inventory.
+    test "hello wire format stays readable across the host_interfaces change" do
+      for {current, legacy} <- [
+            {Monitoring.AgentHelloRequest, __MODULE__.LegacyAgentHello},
+            {Monitoring.ControlStreamHello, __MODULE__.LegacyControlStreamHello}
+          ] do
+        new_hello =
+          struct(current,
+            agent_id: "agent-test-06",
+            host_ip: "192.0.2.14",
+            host_macs: ["00:00:5e:00:53:05"],
+            host_interfaces: [@physical_nic]
+          )
+
+        read_by_older = new_hello |> current.encode() |> legacy.decode()
+        assert read_by_older.host_ip == "192.0.2.14"
+        assert read_by_older.host_macs == ["00:00:5e:00:53:05"]
+
+        from_older =
+          legacy
+          |> struct(agent_id: "agent-test-06", host_ip: "192.0.2.14", host_macs: ["00:00:5e:00:53:05"])
+          |> legacy.encode()
+          |> current.decode()
+
+        assert from_older.host_macs == ["00:00:5e:00:53:05"]
+        assert from_older.host_interfaces == []
+      end
     end
 
     test "prefers reported host_ip over TCP peer address for source_ip" do
@@ -810,5 +870,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
                [%Monitoring.ControlStreamRequest{payload: {:hello, request}}],
                stream
              )
+  end
+
+  defmodule LegacyAgentHello do
+    @moduledoc false
+    # AgentHelloRequest's identity fields as they were before host_interfaces (field 13).
+    use Protobuf, syntax: :proto3
+
+    field(:agent_id, 1, type: :string)
+    field(:host_ip, 11, type: :string)
+    field(:host_macs, 12, repeated: true, type: :string)
+  end
+
+  defmodule LegacyControlStreamHello do
+    @moduledoc false
+    # ControlStreamHello's identity fields as they were before host_interfaces (field 15).
+    use Protobuf, syntax: :proto3
+
+    field(:agent_id, 1, type: :string)
+    field(:host_ip, 11, type: :string)
+    field(:host_macs, 13, repeated: true, type: :string)
   end
 end

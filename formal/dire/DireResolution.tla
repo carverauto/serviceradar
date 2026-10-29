@@ -330,12 +330,14 @@ Resolve(h, x, S, recordAlias, aliasPath, kind, claims, keepIps) ==
         \*   Unsafe hostname_adopts_across_integration_ids: disjoint integration ids do not refuse
         \*       hostname-agreement adoption.
         hostAgree == IF kind \in {"Armis", "Integration"}
-                     THEN {y \in others0 \ seedHold : HostOf[h] \in HostsOf(recFs[y])}
+                     THEN {y \in others0 \ seedHold :
+                             HostOf[h] \in (HostsOf(recFs[y]) \cup
+                               {HostOf[a] : a \in {v \in Phys : AgentOf[v] \in AgentHeld(y)}})}
                      ELSE {}
         intConflict(y) == /\ "hostname_adopts_across_integration_ids" \notin Unsafe
                           /\ intS # {} /\ IntHeld(y) # {} /\ IntHeld(y) \cap intS = {}
         hostAdopt == {y \in hostAgree : /\ ~created[target0] /\ srcS = {} /\ SrcHist(y) = {}
-                                        /\ ~intConflict(y)}
+                                        /\ AgentHeld(y) = {} /\ ~intConflict(y)}
         \* A strong write creating a new record onto an address held by an anchorless provisional
         \* seed or an eligible hostname-agreement holder adopts it. An existing record never does
         \* (#4705): it takes the address below and the seed releases it. A record holding only
@@ -507,10 +509,18 @@ ArpObserve(h, x) ==
     /\ \E ra \in BOOLEAN : Resolve(h, x, {IfMac[x]} \cap HwIds, ra, "none", "Arp", {}, {})
 
 \* Agent check-in: AgentGatewaySync.ensure_device_for_agent/2 resolves through the Resolver,
-\* so AliasGuard runs on the strong-match branch.
+\* so AliasGuard runs on the strong-match branch. The agent reports its host's whole interface
+\* inventory, and HostInterfaces.eligible_macs/1 keeps the permanent, globally-unique MACs of
+\* its physical NICs: every interface here is one, so those are its globally-unique MACs, and a
+\* randomized MAC is never one. Its hostname and addresses are corroboration only and identify
+\* nothing (AgentCorroboration). An agent update carries no source-authoritative identifier, so
+\* srcMismatch never refuses a match: by the user's decision of 2026-10-28 an agent's eligible
+\* MACs link it to, and merge it with, a record holding or having held a source id. Step 1's
+\* SrcConflict and DistinctAgents guards still keep two source ids, or two agents, apart.
 AgentObserve(h, x) ==
     /\ AgentOf[h] # NoId /\ IfPhys[x] = h /\ ipAt[x] # NoIp
-    /\ \E ra \in BOOLEAN : Resolve(h, x, {AgentOf[h]} \cup MacsOf(h), ra, "guard", "Agent", {}, {})
+    /\ \E ra \in BOOLEAN :
+         Resolve(h, x, {AgentOf[h]} \cup (MacsOf(h) \cap HwIds), ra, "guard", "Agent", {}, {})
 
 \* Mapper/SNMP discovery polled at interface x's address, reporting every interface MAC and
 \* address (MapperResultsIngestor.resolve_device_ids/2). The reported globally-unique MACs

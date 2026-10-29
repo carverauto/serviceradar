@@ -347,23 +347,56 @@ defmodule ServiceRadar.DireTrace do
     end)
   end
 
-  @doc "Agent check-in through the gateway: its agent id and the host's MACs, at `x`'s address."
+  @doc """
+  Agent check-in through the gateway at `x`'s address: its agent id and the host's interface
+  inventory, whose globally-unique MACs are the step's identifiers. A world's
+  `:agent_hostname` map sets the hostname an agent reports.
+  """
   def agent(trace, h, x) do
     g = Map.fetch!(trace.world.agent_of, h)
-    macs = macs_of(trace, h)
+    identity_macs = Enum.filter(macs_of(trace, h), &(&1 in trace.world.hw_ids))
+    owner_mac = Map.get(trace.world.ifaces, x).mac
 
     attrs = %{
-      hostname: "trace-#{h}",
+      hostname: Map.get(Map.get(trace.world, :agent_hostname, %{}), h, "trace-#{h}"),
       os: "linux",
       arch: "amd64",
       partition: "default",
       source_ip: real_ip!(trace, x),
       capabilities: [],
-      host_macs: Enum.map(macs, &trace.real.mac[&1])
+      # What a current agent sends: the announced interface's MAC for older cores, and the
+      # classified inventory core decides identity from.
+      host_macs: if(owner_mac, do: [trace.real.mac[owner_mac]], else: []),
+      host_interfaces: host_interfaces(trace, h)
     }
 
-    step(trace, "Agent", h, x, [g | macs], fn ->
+    step(trace, "Agent", h, x, [g | identity_macs], fn ->
       assert {:ok, _uid} = AgentGatewaySync.ensure_device_for_agent(trace.real.agent[g], attrs)
+    end)
+  end
+
+  # Device h's interfaces as its agent's inventory reports them: every one a physical NIC, a
+  # globally-unique MAC permanent and a randomized one assigned with no permanent MAC behind it.
+  defp host_interfaces(trace, h) do
+    trace.world.ifaces
+    |> Enum.filter(fn {_x, iface} -> iface.phys == h end)
+    |> Enum.sort()
+    |> Enum.with_index(1)
+    |> Enum.map(fn {{ix, iface}, index} ->
+      mac = iface.mac && trace.real.mac[iface.mac]
+      permanent? = iface.mac in trace.world.hw_ids
+
+      %{
+        name: "eth#{index}",
+        mac: mac,
+        permanent_mac: if(permanent?, do: mac),
+        ips: if(trace.ip_at[ix] == "NoIp", do: [], else: [trace.real.ip[trace.ip_at[ix]]]),
+        oper_state: "up",
+        kind: :HOST_INTERFACE_KIND_PHYSICAL,
+        mac_provenance:
+          if(permanent?, do: :MAC_PROVENANCE_PERMANENT, else: :MAC_PROVENANCE_ASSIGNED),
+        master: ""
+      }
     end)
   end
 
@@ -1007,6 +1040,7 @@ defmodule ServiceRadar.DireTrace do
     IdentityDecision
     |> Ash.read!(actor: trace.actor)
     |> Enum.filter(&(Map.get(before, &1.id) != &1.occurrence_count))
+    |> Enum.reject(&(&1.reason == "agent_corroboration_not_identity"))
     |> Enum.filter(fn d -> Enum.any?(d.device_uids, &MapSet.member?(named, &1)) end)
     |> Enum.map(fn d ->
       kind =

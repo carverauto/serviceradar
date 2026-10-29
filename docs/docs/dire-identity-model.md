@@ -24,19 +24,55 @@ are rejected with telemetry, and rejected values never become rows.
 
 ### Agent host evidence
 
-The agent sends `host_macs` in both unary enrollment and control-stream hello.
-It reports only the MAC of an active, non-loopback local interface owning its
-announced `host_ip`. If no eligible interface owns that IP, or eligible owners
-have different MACs, it sends no MAC evidence. Unrelated interface MACs and
-neighbor observations are excluded. The selection contract is covered by
-`go/pkg/agent/host_identity_test.go`.
+The agent reports its host's interface inventory in both unary enrollment and the
+control-stream hello (`host_interfaces`): every interface but loopback, with its name,
+current MAC, permanent MAC when the platform reports one, addresses, operational state,
+kind (physical, bond, bridge, VLAN, virtual, tunnel) and MAC provenance. On Linux the
+agent classifies each interface from sysfs, which needs no privilege
+(`go/pkg/hostinventory`); elsewhere it reports interfaces unclassified.
 
-The gateway forwards this evidence to core's existing identity reconciliation.
-Both the agent and agent-gateway must be upgraded for this path to supply
-evidence; older peers remain compatible but do not supply or forward the new
-field. Matching Proxmox guest NIC evidence can then correlate a guest with the
-monitored device, subject to the merge policy below. This does not guarantee
-every missing VM-to-hypervisor edge, merge by hostname, or fabricate links.
+Core decides which MACs are identity (`Identity.HostInterfaces`): only the permanent,
+globally administered MAC of a physical NIC, a bond member's own `perm_hwaddr` included.
+A bridge such as `vmbr0` counts only through the port it takes its MAC from; a veth,
+tap, dummy, SR-IOV virtual function, randomized, software-set, locally administered or
+reserved MAC never counts as inventory identity. Those MACs resolve the agent to the device that already holds
+one of them, whatever either side's hostname or address, and records they name together
+converge under the merge policy below.
+
+The agent still sends `host_ip` and `host_macs`, the MAC of the interface owning its
+announced address, for cores that predate the inventory. When no interface of the
+inventory is classified, an older agent sends none, or no eligible physical MAC exists,
+core uses `host_macs` as before. This preserves container identity without claiming guest
+MACs on a hypervisor with eligible physical NICs. Fallback MACs must be globally administered
+unicast values and not reserved.
+Using the classified inventory requires upgraded agents, agent gateways and core;
+an older gateway does not forward it.
+
+The inventory's addresses and the first label of the agent's hostname are corroboration,
+never identity. When another live device in the agent's partition holds one of the
+agent's addresses (primary or confirmed alias), its hostname's first label equals the
+agent's, and it shares no eligible MAC with the agent, the pair is recorded as a
+`policy_block` decision with reason
+`agent_corroboration_not_identity`, which opens a de-duplication task. Same-named hosts at
+different sites share no eligible MAC and never fuse, in either arrival order. A later
+integration record cannot adopt an agent-bound holder by hostname: it records
+`hostname_agreement_not_identity` with refusal `agent_bound_holder`. Source-authoritative
+refusal takes precedence; mapper/MAC holders remain eligible for adoption. An agent enrolled
+before Proxmox inventory therefore remains separate from its node record without shared strong
+identity, at the cost of an operator de-duplication task.
+
+Corroboration candidates are captured before resolution can clear a primary address or stale an
+alias, then recorded after successful check-in, excluding the resolved device. Candidates
+sharing an eligible MAC are excluded even when a merge guard keeps the records separate;
+the merge path records its own refusal instead.
+
+An agent's eligible MACs may link it to, and merge it with, a record that holds or held an
+Armis id: the user's decision of 2026-10-28 is that an Armis record and what an agent learns
+about the same endpoint are one device. The value pushed northbound for that Armis id then
+follows the merged device: a `legacy`-semantics source pushes the agent's check-in
+availability, a `merged`-semantics source the availability its self-report resolves, and when
+the agent's device and an Armis record merge, the device holding the agent id survives with the
+Armis id. An update that itself carries an Armis id is still refused a record holding another.
 
 ### Integration identity admission
 
@@ -269,8 +305,10 @@ the MACs identify.
 
 Hypervisor enrichment resolves a node, in order, by its integration id, then by
 its own NIC MACs, then, for Proxmox, by the device fingerprinted at its address. The Proxmox
-API reports no node NIC MACs, so the last step is how a Proxmox node finds the
-record discovery already holds for it. That record must meet four conditions:
+API reports no node NIC MACs (`GET /nodes/{node}/network` carries no hardware address), so the
+last step is how a Proxmox node finds the record discovery already holds for it. For agent
+linking and the conditions that open a de-duplication task, see
+[Agent host evidence](#agent-host-evidence). The fingerprinted record must meet four conditions:
 
 - its primary IP is either the explicit node IP (falling back to the cluster
   node IP) or the selected management NIC IP reported by the authenticated API,

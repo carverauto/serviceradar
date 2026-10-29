@@ -25,6 +25,10 @@ SharedMac   == [x \in {"x1", "x2"} |-> "m1"]
 OneIfPhys   == [x \in {"x1"} |-> "h1"]
 OneHwMac    == [x \in {"x1"} |-> "m1"]
 ArmisA1     == [h \in {"h1"} |-> "a1"]
+\* a host known to a hypervisor integration (it reports i1, and no MAC) and running an agent
+IntOnH1     == [h \in {"h1"} |-> "i1"]
+\* two same-named devices at two sites: each known to its own integration, each running an agent
+BothAgents  == [h \in {"h1", "h2"} |-> IF h = "h1" THEN "g1" ELSE "g2"]
 \* every device reports its own hostname
 OwnHost     == [h \in Phys |-> h]
 \* cloned machines: every device reports the same hostname
@@ -41,6 +45,12 @@ StateView == <<ipAt, created, into, owner, recIp, alias, phys, ifClaims, srcOf, 
                IF Rekeys \/ "Integration" \in Observers THEN recFs ELSE <<>>,
                IF "Arp" \in Observers THEN idSeen ELSE <<>>,
                IF Rekeys /\ HostnameAlone THEN seenWith ELSE <<>>>>
+\* vacuity: an agent never lands on a record the mapper's poll identified (the goal links an
+\* agent to the record of its known host through a shared MAC)
+NeverAgentOnDiscoveredRecord == \A r \in Recs : Live(r) => ~(AgentHeld(r) # {} /\ ifClaims[r] # {})
+\* vacuity: an agent never shares a record with a source-authoritative id (the user's decision of
+\* 2026-10-28: an agent's eligible MACs link it to an Armis record of the same endpoint)
+NeverAgentOnSourceRecord == \A r \in Recs : Live(r) => ~(AgentHeld(r) # {} /\ SrcHeld(r) # {})
 \* vacuity: nothing is ever merged
 NeverMerged == \A r \in Recs : into[r] = NoRec
 \* vacuity: no identity decision is ever made

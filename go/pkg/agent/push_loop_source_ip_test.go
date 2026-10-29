@@ -86,7 +86,7 @@ func TestSelectSourceIPSkipsDockerBridgeAndOverlayInterfacesWhenFallingBack(t *t
 		ipNet.IP = ip
 		return hostInterface{
 			Interface: net.Interface{Name: name, HardwareAddr: hardware, Flags: net.FlagUp},
-			addresses: []net.Addr{ipNet},
+			Addrs:     []net.Addr{ipNet},
 		}
 	}
 

@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
 
   import ServiceRadar.TestSupport.AvailabilityFixtures,
     only: [
+      activate_armis_collection!: 2,
       armis_source!: 2,
       armis_source!: 3,
       create_device!: 2,
@@ -39,7 +40,6 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
   alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Availability.ReconcileWorker
   alias ServiceRadar.Inventory.Availability.Transitions
-  alias ServiceRadar.Inventory.DeviceSourceObservationIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.Repo.Migrations.ConvergeMergedAvailability, as: Migration
   alias ServiceRadar.TestSupport
@@ -355,7 +355,7 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
         {:ok, _} = Availability.resolve_devices([ap.uid, steady.uid, nulled.uid])
     end
 
-    activate_collection!(source, [ap, steady, nulled])
+    activate_armis_collection!(source, [ap, steady, nulled])
     %{source: source, ap: ap, steady: steady, nulled: nulled}
   end
 
@@ -372,7 +372,7 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
         device
       end
 
-    activate_collection!(source, devices)
+    activate_armis_collection!(source, devices)
     %{source: source, devices: devices}
   end
 
@@ -622,64 +622,5 @@ defmodule ServiceRadar.Inventory.AvailabilityConvergenceIntegrationTest do
       """)
 
     Map.new(rows, &List.to_tuple/1)
-  end
-
-  # -- Armis fixtures ---------------------------------------------------------------------
-
-  defp activate_collection!(source, devices) do
-    observed_at = ~U[2026-09-01 08:00:00.000000Z]
-    content_hash = String.duplicate("a", 64)
-    count = length(devices)
-
-    snapshot = %{
-      partition: "default",
-      source: "armis",
-      source_instance: to_string(source.id),
-      collection_id: "collection-" <> Ash.UUID.generate(),
-      content_hash: content_hash,
-      query_hash: nil,
-      observed_at: observed_at,
-      metadata: %{
-        "accounting_status" => "exact",
-        "raw_rows" => count,
-        "excluded_rows" => 0,
-        "invalid_rows" => 0,
-        "valid_occurrences" => count,
-        "distinct_source_ids" => count,
-        "duplicate_occurrences" => 0,
-        "conflicting_duplicate_ids" => 0
-      }
-    }
-
-    observations =
-      Enum.map(devices, fn device ->
-        %{
-          device_id: device.uid,
-          partition: "default",
-          source: "armis",
-          source_instance: snapshot.source_instance,
-          source_object_id: device.armis_id,
-          source_integration_id: "armis:source:#{source.id}:#{device.armis_id}",
-          collection_id: snapshot.collection_id,
-          content_hash: content_hash,
-          query_hash: nil,
-          present: true,
-          first_observed_at: observed_at,
-          last_observed_at: observed_at,
-          absent_since: nil,
-          hostname: device.hostname,
-          ip: device.ip,
-          mac: device.mac,
-          serial_number: nil,
-          vendor_name: nil,
-          model: nil,
-          device_type: nil,
-          site_name: nil,
-          management_status: nil,
-          metadata: %{"identifier_metadata" => %{"sync_service_id" => to_string(source.id)}}
-        }
-      end)
-
-    assert :ok = DeviceSourceObservationIngestor.activate_resolved(snapshot, observations)
   end
 end

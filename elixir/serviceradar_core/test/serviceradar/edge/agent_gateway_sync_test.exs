@@ -15,11 +15,16 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Gateway
+  alias ServiceRadar.Integrations.ArmisNorthboundPopulation
+  alias ServiceRadar.Inventory.Availability
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DistinctDeviceAssertion
   alias ServiceRadar.Inventory.IdentityDecision
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.SweepGroup
+  alias ServiceRadar.TestSupport.AvailabilityFixtures
 
   require Ash.Query
 
@@ -1292,6 +1297,413 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     end
   end
 
+  # link-agent-host-by-strong-identity. The agent reports its classified interface inventory,
+  # and only a shared eligible MAC links it to a device another source knows. Its addresses and
+  # hostname are corroboration: recorded for review, never a link. Every value is invented.
+  describe "agent host identity" do
+    test "an agent links by a NIC MAC on an interface it does not announce, whatever its hostname form",
+         %{actor: actor} do
+      for {form, offset} <- [{:short, 0}, {:fqdn, 4}] do
+        uniq = System.unique_integer([:positive, :monotonic])
+        name = "node#{uniq}"
+        [announced_mac, known_mac] = host_macs(uniq, 2)
+        known_ip = doc_ip(uniq, offset)
+        announced_ip = doc_ip(uniq, offset + 1)
+        known_uid = known_host!(name, known_ip, [known_mac], actor)
+        agent_id = "agent-known-host-#{form}-#{uniq}"
+
+        hostname = if form == :fqdn, do: "#{name}.site-a.example.com", else: name
+
+        assert {:ok, ^known_uid} =
+                 AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                   hostname: hostname,
+                   source_ip: announced_ip,
+                   partition: "default",
+                   capabilities: ["sysmon"],
+                   # An older agent's whole evidence: the announced interface's MAC alone.
+                   host_macs: [announced_mac],
+                   host_interfaces: [
+                     host_nic("eno1", announced_mac, [announced_ip]),
+                     host_nic("eno2", known_mac, [known_ip])
+                   ]
+                 })
+
+        assert identifiers(known_uid, actor) ==
+                 Enum.sort([
+                   {:agent_id, agent_id},
+                   {:mac, mac_value(announced_mac)},
+                   {:mac, mac_value(known_mac)}
+                 ])
+      end
+    end
+
+    test "a veth-only container links by its globally administered announced MAC", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      [mac] = host_macs(uniq, 1)
+      ip = doc_ip(uniq, 0)
+      known_uid = known_host!("container#{uniq}", ip, [mac], actor)
+      agent_id = "agent-container-#{uniq}"
+
+      assert {:ok, ^known_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "container#{uniq}.example.com",
+                 source_ip: ip,
+                 host_macs: [mac],
+                 host_interfaces: [
+                   %{
+                     name: "eth0",
+                     kind: :HOST_INTERFACE_KIND_VIRTUAL,
+                     mac: mac,
+                     mac_provenance: :MAC_PROVENANCE_ASSIGNED,
+                     ips: [ip]
+                   }
+                 ]
+               })
+
+      assert identifiers(known_uid, actor) ==
+               Enum.sort([{:agent_id, agent_id}, {:mac, mac_value(mac)}])
+    end
+
+    test "physical MACs exclude announced veth and tap MACs", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      [physical_mac, veth_mac, tap_mac] = host_macs(uniq, 3)
+      ip = doc_ip(uniq, 0)
+      known_uid = known_host!("host#{uniq}", ip, [physical_mac], actor)
+      agent_id = "agent-physical-#{uniq}"
+
+      assert {:ok, ^known_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 source_ip: ip,
+                 host_macs: [veth_mac],
+                 host_interfaces: [
+                   host_nic("eno1", physical_mac, [ip]),
+                   %{name: "veth0", kind: :virtual, mac: veth_mac, permanent_mac: veth_mac},
+                   %{name: "tap0", kind: :virtual, mac: tap_mac, permanent_mac: tap_mac}
+                 ]
+               })
+
+      assert identifiers(known_uid, actor) ==
+               Enum.sort([{:agent_id, agent_id}, {:mac, mac_value(physical_mac)}])
+    end
+
+    test "a veth-only agent rejects locally administered, multicast and reserved fallback MACs",
+         %{actor: actor} do
+      for mac <- ["02:1a:2c:00:00:01", "01:1a:2c:00:00:01", "00:00:00:00:00:00"] do
+        uniq = System.unique_integer([:positive, :monotonic])
+        agent_id = "agent-container-no-mac-#{uniq}"
+
+        assert {:ok, uid} =
+                 AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                   source_ip: doc_ip(uniq, 0),
+                   host_macs: [mac],
+                   host_interfaces: [%{name: "eth0", kind: :virtual, mac: mac}]
+                 })
+
+        assert identifiers(uid, actor) == [{:agent_id, agent_id}]
+      end
+    end
+
+    test "same-named hosts at two sites with disjoint MACs never fuse, even at one address",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      name = "node#{uniq}"
+      [site_a_mac, site_b_mac, site_b_second_mac] = host_macs(uniq, 3)
+      shared_ip = doc_ip(uniq, 0)
+      site_b_ip = doc_ip(uniq, 1)
+      site_a_uid = known_host!(name, shared_ip, [site_a_mac], actor)
+      agent_id = "agent-site-b-#{uniq}"
+
+      # Site B uses site A's address plan on its second NIC.
+      assert {:ok, site_b_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: "#{name}.site-b.example.com",
+                 source_ip: site_b_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"],
+                 host_macs: [site_b_mac],
+                 host_interfaces: [
+                   host_nic("eno1", site_b_mac, [site_b_ip]),
+                   host_nic("eno2", site_b_second_mac, [shared_ip])
+                 ]
+               })
+
+      refute site_b_uid == site_a_uid
+      assert identifiers(site_a_uid, actor) == [{:mac, mac_value(site_a_mac)}]
+
+      assert identifiers(site_b_uid, actor) ==
+               Enum.sort([
+                 {:agent_id, agent_id},
+                 {:mac, mac_value(site_b_mac)},
+                 {:mac, mac_value(site_b_second_mac)}
+               ])
+
+      assert corroboration_review(site_b_uid, site_a_uid, actor).subject == shared_ip
+    end
+
+    test "same-named integration arriving after an agent stays separate", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      name = "node#{uniq}"
+      ip = doc_ip(uniq, 0)
+      [mac] = host_macs(uniq, 1)
+      agent_id = "agent-first-#{uniq}"
+
+      integration_id =
+        "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:cluster:node:#{name}"
+
+      assert {:ok, agent_uid} =
+               AgentGatewaySync.ensure_device_for_agent(agent_id, %{
+                 hostname: name,
+                 source_ip: ip,
+                 partition: "default",
+                 host_interfaces: [host_nic("eno1", mac, [ip])]
+               })
+
+      assert :ok =
+               ServiceRadar.Inventory.SyncIngestor.ingest_updates(
+                 [
+                   %{
+                     "ip" => ip,
+                     "hostname" => name,
+                     "source" => "proxmox",
+                     "metadata" => %{
+                       "integration_type" => "proxmox",
+                       "integration_id" => integration_id
+                     }
+                   }
+                 ],
+                 actor: actor
+               )
+
+      [identifier] =
+        DeviceIdentifier
+        |> Ash.Query.filter(
+          identifier_type == :integration_id and identifier_value == ^integration_id
+        )
+        |> Ash.read!(actor: actor)
+
+      refute identifier.device_id == agent_uid
+
+      assert identifiers(agent_uid, actor) ==
+               Enum.sort([{:agent_id, agent_id}, {:mac, mac_value(mac)}])
+
+      assert identifiers(identifier.device_id, actor) == [{:integration_id, integration_id}]
+      review = decision(:policy_block, [agent_uid, identifier.device_id], actor)
+      assert review.reason == "hostname_agreement_not_identity"
+      assert review.evidence["refusal"] == "agent_bound_holder"
+    end
+
+    test "shared eligible MACs do not create corroboration for an operator-distinct pair",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      name = "node#{uniq}"
+      [agent_mac, holder_mac] = host_macs(uniq, 2)
+      agent_ip = doc_ip(uniq, 0)
+      holder_ip = doc_ip(uniq, 1)
+      agent_id = "agent-distinct-#{uniq}"
+
+      attrs = %{
+        hostname: "#{name}.example.com",
+        source_ip: agent_ip,
+        partition: "default",
+        host_interfaces: [host_nic("eno1", agent_mac, [agent_ip])]
+      }
+
+      assert {:ok, agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+      holder_uid = known_host!(name, holder_ip, [holder_mac], actor)
+      operator = %{id: "identity-test-operator", email: "operator@example.com", role: :operator}
+
+      DistinctDeviceAssertion
+      |> Ash.Changeset.for_create(:assert, %{device_a: agent_uid, device_b: holder_uid},
+        actor: operator
+      )
+      |> Ash.create!(actor: operator)
+
+      attrs = %{
+        attrs
+        | host_interfaces: [
+            host_nic("eno1", agent_mac, [agent_ip]),
+            host_nic("eno2", holder_mac, [holder_ip])
+          ]
+      }
+
+      assert {:ok, ^agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+      assert {:ok, %{deleted_at: nil}} = Device.get_by_uid(holder_uid, false, actor: actor)
+      assert identifiers(holder_uid, actor) == [{:mac, mac_value(holder_mac)}]
+      assert decision(:guard_block, [agent_uid, holder_uid], actor).reason == "asserted_distinct"
+
+      assert {:ok, decisions} = IdentityDecision.for_device(agent_uid, actor: actor)
+      refute Enum.any?(decisions, &(&1.reason == "agent_corroboration_not_identity"))
+    end
+
+    test "primary address corroboration survives address reassignment", %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      name = "node#{uniq}"
+      ip = doc_ip(uniq, 0)
+      [known_mac, agent_mac] = host_macs(uniq, 2)
+      known_uid = known_host!(name, ip, [known_mac], actor)
+
+      assert {:ok, agent_uid} =
+               AgentGatewaySync.ensure_device_for_agent("agent-primary-#{uniq}", %{
+                 hostname: "#{name}.example.com",
+                 source_ip: ip,
+                 partition: "default",
+                 host_interfaces: [host_nic("eno1", agent_mac, [ip])]
+               })
+
+      refute agent_uid == known_uid
+      assert {:ok, %{ip: nil}} = Device.get_by_uid(known_uid, false, actor: actor)
+      assert corroboration_review(agent_uid, known_uid, actor).subject == ip
+    end
+
+    # A hypervisor node an inventory knows only by its integration id, with the agent's address as
+    # a confirmed alias. The agent shares no strong identifier with it, so it gets its own device;
+    # the node keeps its identity and the agent takes none of it. The address follows the agent
+    # (the node's alias is invalidated, as documented), and the pair goes to review.
+    test "an agent sharing no strong identifier gets its own device and takes none of the other's",
+         %{actor: actor} do
+      uniq = System.unique_integer([:positive, :monotonic])
+      name = "node#{uniq}"
+      [mgmt_mac] = host_macs(uniq, 1)
+      cluster_ip = doc_ip(uniq, 0)
+      mgmt_ip = doc_ip(uniq, 1)
+
+      integration_id =
+        "proxmox:v3:#{Ecto.UUID.generate()}:#{Ecto.UUID.generate()}:cluster:node:#{name}"
+
+      node_uid = integration_node!(name, cluster_ip, integration_id, actor)
+      :ok = AvailabilityFixtures.ip_alias!(%{uid: node_uid}, mgmt_ip, DateTime.utc_now())
+      agent_id = "agent-no-shared-id-#{uniq}"
+
+      attrs = %{
+        hostname: "#{name}.site-a.example.com",
+        source_ip: mgmt_ip,
+        partition: "default",
+        capabilities: ["sysmon"],
+        host_macs: [mgmt_mac],
+        host_interfaces: [
+          host_nic("eno1", mgmt_mac, [mgmt_ip])
+        ]
+      }
+
+      assert {:ok, agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+      assert {:ok, ^agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+
+      refute agent_uid == node_uid
+      assert identifiers(node_uid, actor) == [{:integration_id, integration_id}]
+
+      assert identifiers(agent_uid, actor) ==
+               Enum.sort([
+                 {:agent_id, agent_id},
+                 {:mac, mac_value(mgmt_mac)}
+               ])
+
+      assert alias_state(node_uid, mgmt_ip) == "stale"
+      assert decision(:alias_invalidated, [agent_uid, node_uid], actor)
+      assert corroboration_review(agent_uid, node_uid, actor).subject == mgmt_ip
+    end
+  end
+
+  # The user's decision of 2026-10-28: "armis records and stuff learned about an endpoint
+  # through an agent should be fine to merge together". An agent's eligible MAC links it to, and
+  # merges it with, an Armis-held record of the same endpoint, and the value pushed northbound
+  # follows the merged device: the agent's check-in marks it available (legacy semantics through
+  # the compatibility table, merged semantics through agent self-report evidence).
+  describe "agent host identity and Armis northbound (user-approved change)" do
+    setup %{actor: actor} do
+      # A source needs a registered agent.
+      agent_uid = "agent-" <> Ecto.UUID.generate()
+
+      Agent
+      |> Ash.Changeset.for_create(:register_connected, %{uid: agent_uid, name: agent_uid},
+        actor: actor
+      )
+      |> Ash.create!(actor: actor)
+
+      legacy =
+        actor
+        |> AvailabilityFixtures.armis_source!("SITE01 legacy")
+        |> AvailabilityFixtures.keep_legacy_semantics!()
+
+      {:ok, sources: [legacy, AvailabilityFixtures.armis_source!(actor, "SITE01 merged")]}
+    end
+
+    test "an agent linking onto an Armis record by a shared MAC makes both semantics push it up",
+         %{actor: actor, sources: sources} do
+      pushed =
+        for source <- sources do
+          uniq = System.unique_integer([:positive, :monotonic])
+          [nic_mac] = host_macs(uniq, 1)
+          armis = armis_endpoint!(actor, source, uniq, nic_mac)
+          {:ok, _} = Availability.resolve_devices([armis.uid])
+          before = pushed(source, armis.armis_id)
+
+          assert {:ok, agent_uid} =
+                   AgentGatewaySync.ensure_device_for_agent("agent-armis-link-#{uniq}", %{
+                     hostname: "endpoint#{uniq}.site-a.example.com",
+                     source_ip: armis.ip,
+                     partition: "default",
+                     capabilities: ["sysmon"],
+                     host_macs: [nic_mac],
+                     host_interfaces: [host_nic("eno1", nic_mac, [armis.ip])]
+                   })
+
+          assert agent_uid == armis.uid
+          {:ok, _} = Availability.resolve_devices([armis.uid])
+
+          replace_uid(
+            {source.northbound_availability_semantics, before, pushed(source, armis.armis_id)},
+            armis.uid
+          )
+        end
+
+      # Legacy semantics pushed Armis's own "down" and now push the agent's check-in. Merged
+      # semantics had no availability state for an Armis-only device and withheld it; the
+      # agent's self-report now resolves it available.
+      assert pushed == [
+               {:legacy, {:device, false}, {:device, true}},
+               {:merged, {:withheld, "missing_availability"}, {:device, true}}
+             ]
+    end
+
+    test "merging an Armis record into the agent's device moves the Armis id to the agent's device",
+         %{actor: actor, sources: sources} do
+      for source <- sources do
+        uniq = System.unique_integer([:positive, :monotonic])
+        [agent_mac, endpoint_mac] = host_macs(uniq, 2)
+        agent_id = "agent-armis-merge-#{uniq}"
+        agent_ip = doc_ip(uniq, 3)
+
+        attrs = %{
+          hostname: "endpoint#{uniq}.site-a.example.com",
+          source_ip: agent_ip,
+          partition: "default",
+          capabilities: ["sysmon"],
+          host_macs: [agent_mac],
+          host_interfaces: [host_nic("eno1", agent_mac, [agent_ip])]
+        }
+
+        assert {:ok, agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+        armis = armis_endpoint!(actor, source, uniq, endpoint_mac)
+
+        # The agent's next check-in reports the endpoint's NIC too: the Resolver finds the two
+        # records and merges them; the agent's device, holding the agent id, survives.
+        attrs = %{
+          attrs
+          | host_interfaces: attrs.host_interfaces ++ [host_nic("eno2", endpoint_mac, [])]
+        }
+
+        assert {:ok, ^agent_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+        {:ok, _} = Availability.resolve_devices([agent_uid])
+
+        assert {:ok, %Device{deleted_reason: "merged"}} =
+                 Device.get_by_uid(armis.uid, true, actor: actor)
+
+        assert {:armis_device_id, armis.armis_id} in identifiers(agent_uid, actor)
+        assert pushed(source, armis.armis_id) == {agent_uid, true}
+      end
+    end
+  end
+
   describe "upsert_agent/2" do
     test "creates new agent record", %{
       agent_id: agent_id,
@@ -1673,6 +2085,185 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
     :eddsa
     |> :crypto.sign(:none, payload, [private_key, :ed25519])
     |> Base.encode64()
+  end
+
+  # -- agent host identity fixtures -------------------------------------------------------
+
+  # A physical NIC as the agent's inventory reports it: its permanent MAC is identity.
+  defp host_nic(name, mac, ips) do
+    %{
+      name: name,
+      mac: mac,
+      permanent_mac: mac,
+      ips: ips,
+      oper_state: "up",
+      kind: :HOST_INTERFACE_KIND_PHYSICAL,
+      mac_provenance: :MAC_PROVENANCE_PERMANENT,
+      master: ""
+    }
+  end
+
+  # Invented, globally administered MACs, distinct per test.
+  defp host_macs(uniq, count) do
+    for n <- 1..count do
+      suffix = rem(uniq * 4 + n, 0x1000000)
+
+      Enum.map_join(
+        [
+          0x00,
+          0x1A,
+          0x2C,
+          div(suffix, 0x10000),
+          rem(div(suffix, 0x100), 0x100),
+          rem(suffix, 0x100)
+        ],
+        ":",
+        &(&1 |> Integer.to_string(16) |> String.pad_leading(2, "0"))
+      )
+    end
+  end
+
+  defp mac_value(mac), do: mac |> String.replace(":", "") |> String.upcase()
+
+  # Documentation addresses (RFC 5737), distinct per test and offset.
+  defp doc_ip(uniq, offset) do
+    n = rem(uniq * 8 + offset, 3 * 254)
+    net = Enum.at(["192.0.2", "198.51.100", "203.0.113"], div(n, 254))
+    "#{net}.#{rem(n, 254) + 1}"
+  end
+
+  # A host network discovery already identified: its NIC MACs, at an address.
+  defp known_host!(hostname, ip, macs, actor) do
+    uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: uid,
+        hostname: hostname,
+        ip: ip,
+        type: "Hypervisor",
+        discovery_sources: ["mapper"]
+      })
+      |> Ash.create(actor: actor)
+
+    for mac <- macs, do: identifier!(uid, :mac, mac_value(mac), "mapper", actor)
+    uid
+  end
+
+  # A hypervisor node an inventory reports only by its integration id.
+  defp integration_node!(hostname, ip, integration_id, actor) do
+    uid = "sr:" <> Ecto.UUID.generate()
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{
+        uid: uid,
+        hostname: hostname,
+        ip: ip,
+        type: "Hypervisor",
+        discovery_sources: ["hypervisor_enrichment"],
+        metadata: %{"integration_id" => integration_id, "integration_type" => "proxmox"}
+      })
+      |> Ash.create(actor: actor)
+
+    identifier!(uid, :integration_id, integration_id, "sync_ingestor", actor)
+    uid
+  end
+
+  defp identifier!(uid, type, value, source, actor) do
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(:upsert, %{
+        device_id: uid,
+        identifier_type: type,
+        identifier_value: value,
+        partition: "default",
+        confidence: :strong,
+        source: source
+      })
+      |> Ash.create(actor: actor)
+
+    :ok
+  end
+
+  # An endpoint Armis reports down, in an activated exact collection, whose NIC MAC network
+  # discovery registered on its record (in the default partition, where an agent looks).
+  defp armis_endpoint!(actor, source, uniq, nic_mac) do
+    ip = doc_ip(uniq, 2)
+    armis_id = "SITE01-EP-#{uniq}"
+    AvailabilityFixtures.ingest_armis!(actor, source, ip, armis_id, false)
+
+    %{rows: [[uid, hostname, mac]]} =
+      Repo.query!(
+        "SELECT uid, hostname, mac FROM platform.ocsf_devices WHERE ip = $1 AND deleted_at IS NULL",
+        [ip]
+      )
+
+    identifier!(uid, :mac, mac_value(nic_mac), "mapper", actor)
+
+    armis = %{uid: uid, ip: ip, hostname: hostname, mac: mac, armis_id: armis_id}
+    AvailabilityFixtures.activate_armis_collection!(source, [armis])
+    armis
+  end
+
+  # The production push path: the device the source's population pushes an id from and the value
+  # it carries, or why the id is withheld.
+  defp pushed(source, armis_id) do
+    {:ok, population} = ArmisNorthboundPopulation.load(source)
+
+    case Enum.find(population.candidates, &(&1.armis_device_id == armis_id)) do
+      nil ->
+        withheld = Enum.find(population.withheld, &(&1.source_object_id == armis_id))
+        {:withheld, withheld && withheld.reason}
+
+      candidate ->
+        {candidate.device_id, candidate.is_available}
+    end
+  end
+
+  # The pushes of one endpoint, naming its own device :device.
+  defp replace_uid(tuple, uid) do
+    tuple
+    |> Tuple.to_list()
+    |> Enum.map(fn
+      {^uid, value} -> {:device, value}
+      other -> other
+    end)
+    |> List.to_tuple()
+  end
+
+  defp identifiers(uid, actor) do
+    DeviceIdentifier
+    |> Ash.Query.filter(device_id == ^uid)
+    |> Ash.read!(actor: actor)
+    |> Enum.map(&{&1.identifier_type, &1.identifier_value})
+    |> Enum.sort()
+  end
+
+  defp alias_state(uid, ip) do
+    %{rows: [[state]]} =
+      Repo.query!(
+        "SELECT state FROM platform.device_alias_states WHERE device_id = $1 AND alias_value = $2",
+        [uid, ip]
+      )
+
+    state
+  end
+
+  defp decision(kind, uids, actor) do
+    sorted = Enum.sort(uids)
+
+    IdentityDecision
+    |> Ash.Query.filter(decision_kind == ^kind)
+    |> Ash.read!(actor: actor)
+    |> Enum.find(&(Enum.sort(&1.device_uids) == sorted))
+  end
+
+  defp corroboration_review(uid, other_uid, actor) do
+    review = decision(:policy_block, [uid, other_uid], actor)
+    assert %{reason: "agent_corroboration_not_identity"} = review
+    review
   end
 
   defp restore_env_snapshot(key, {:ok, value}),
