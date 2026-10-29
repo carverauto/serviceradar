@@ -129,6 +129,32 @@ defmodule ServiceRadarWebNGWeb.Components.SettingsComponentsTest do
     assert html =~ "Recordings"
   end
 
+  test "deploy agent and admin edge-package routes share the require_authenticated_user live_session" do
+    deploy_session = live_session_name("/settings/agents/deploy")
+
+    assert deploy_session == :require_authenticated_user
+
+    for path <- [
+          "/admin/edge-packages",
+          "/admin/edge-packages/new",
+          "/admin/jobs",
+          "/admin/plugins",
+          "/admin/addons",
+          "/admin/cluster",
+          "/admin/collectors",
+          "/admin/edge-sites"
+        ] do
+      assert live_session_name(path) == deploy_session
+    end
+  end
+
+  defp live_session_name(path) do
+    %{phoenix_live_view: {_view, _action, _opts, %{name: session_name}}} =
+      Phoenix.Router.route_info(ServiceRadarWebNGWeb.Router, "GET", path, "")
+
+    session_name
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 end
