@@ -31,6 +31,5 @@ regexes = [
 # only blobs the pattern can ever match are the historical upstream ones above.
 paths = [
   '''^third_party/crate_mirror/''',
-  '''^third_party/crates/[^/]+/tests/examples/.*\.pem$''',
-  '''^third_party/crates/[^/]+/\.cargo-checksum\.json$''',
+  '''^third_party/crates/''',
 ]

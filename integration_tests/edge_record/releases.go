@@ -51,6 +51,8 @@ type ReleaseProcess struct {
 	RootDir   string // the extracted release directory (contains bin/<name>)
 
 	cmd        *exec.Cmd
+	exited     chan struct{}
+	waitErr    error
 	stdoutPath string
 	stderrPath string
 	secrets    []string
@@ -399,10 +401,15 @@ func StartRelease(
 		HealthURL:  healthURL,
 		RootDir:    extractDir,
 		cmd:        cmd,
+		exited:     make(chan struct{}),
 		stdoutPath: stdoutPath,
 		stderrPath: stderrPath,
 		secrets:    cfg.Secrets(),
 	}
+	go func() {
+		p.waitErr = cmd.Wait()
+		close(p.exited)
+	}()
 
 	if err := p.waitHealthy(timeout); err != nil {
 		p.Stop()
@@ -417,11 +424,13 @@ func (p *ReleaseProcess) waitHealthy(timeout time.Duration) error {
 	client := &http.Client{Timeout: 2 * time.Second}
 
 	for time.Now().Before(deadline) {
-		if p.cmd.ProcessState != nil {
+		select {
+		case <-p.exited:
 			return fmt.Errorf(
-				"verticalslice: %s exited early: %s\n--- stdout tail ---\n%s\n--- stderr tail ---\n%s",
-				p.Name, p.cmd.ProcessState, tailFile(p.stdoutPath, 4000, p.secrets), tailFile(p.stderrPath, 4000, p.secrets),
+				"verticalslice: %s exited early: %v (%s)\n--- stdout tail ---\n%s\n--- stderr tail ---\n%s",
+				p.Name, p.waitErr, p.cmd.ProcessState, tailFile(p.stdoutPath, 4000, p.secrets), tailFile(p.stderrPath, 4000, p.secrets),
 			)
+		default:
 		}
 
 		resp, err := client.Get(p.HealthURL)
@@ -505,16 +514,11 @@ func (p *ReleaseProcess) Stop() {
 		_ = stopCmd.Run()
 	}
 
-	done := make(chan struct{})
-	go func() {
-		_ = p.cmd.Wait()
-		close(done)
-	}()
-
 	select {
-	case <-done:
+	case <-p.exited:
 	case <-time.After(10 * time.Second):
 		_ = p.cmd.Process.Kill()
+		<-p.exited
 	}
 }
 
