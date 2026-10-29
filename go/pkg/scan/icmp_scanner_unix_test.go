@@ -688,3 +688,14 @@ func TestProcessResults(t *testing.T) {
 		}
 	}
 }
+
+func TestICMPFinalResultPreservesPacketCounts(t *testing.T) {
+	target := models.Target{Host: "192.0.2.10", Mode: models.ModeICMP}
+	scanner := &ICMPSweeper{logger: logger.NewTestLogger(), results: map[string]models.Result{target.Host: {Target: target, Available: true}}, hostStats: map[string]*hostICMPStats{target.Host: {sent: 5, received: 2, totalRTT: 10 * time.Millisecond}}}
+	results := make(chan models.Result, 1)
+	scanner.processResults([]models.Target{target}, results)
+	result := <-results
+	if result.PacketsSent != 5 || result.PacketsReceived != 2 || result.PacketLoss != 60 || result.RespTime != 5*time.Millisecond {
+		t.Fatalf("final ICMP result lost measured counters: %+v", result)
+	}
+}

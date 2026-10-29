@@ -1333,3 +1333,25 @@ func TestAppendAfterCloseIsRefusedWithoutCharging(t *testing.T) {
 		t.Fatalf("append after close charged %d bytes", got)
 	}
 }
+
+func TestTerminalEvidenceCannotExceedSpoolBudget(t *testing.T) {
+	dir := t.TempDir()
+	allocator := newTestAllocator(t, 4096, 1)
+	sp, err := Open(dir, WithAllocator(allocator))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sp.Close() }()
+	mustAppend(t, sp, 1, "synthetic terminal candidate")
+	before := allocator.Usage().OrdinaryUsed
+	err = sp.ResolveWithEvidence(1, make([]byte, 8192))
+	if !errors.Is(err, ErrAdmissionRefused) {
+		t.Fatalf("oversize terminal evidence=%v, want admission refusal", err)
+	}
+	if sp.Resolved() != 0 || allocator.Usage().OrdinaryUsed != before {
+		t.Fatal("refused terminal evidence advanced the prefix or charged capacity")
+	}
+	if _, err = os.Stat(filepath.Join(dir, "terminal-00000000000000000001.pb")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("refused terminal evidence created a file: %v", err)
+	}
+}

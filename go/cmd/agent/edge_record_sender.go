@@ -19,6 +19,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
@@ -29,11 +30,7 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
-// Defaults for the minimum edge-record sender (task 0.12 of
-// openspec/changes/unify-sweep-results-proto). These are deliberately fixed,
-// not configurable: task 0.12 scopes this to one durable-bulk lane driving
-// one synthetic fixture through the composed path, not a general-purpose,
-// tunable producer.
+// One bounded durable-bulk delivery session is attempted per poll interval.
 const (
 	defaultEdgeRecordSenderPollInterval  = 30 * time.Second
 	edgeRecordSenderRequestedByteCredits = 8 << 20 // 8 MiB
@@ -46,17 +43,16 @@ const (
 // explicitly enabled in config, since the gateway-side RPC server this
 // depends on (a separate, parallel task) may not exist in every deployment.
 //
-// This is intentionally the minimum sender: no reconnect/replay, no recovery/
-// rollover, and it never calls (*spool.Spool).Resolve -- see the sender
-// package doc for why a gateway ack alone must not reclaim the spool.
+// Sweep-enabled senders persist validated terminal dispositions before advancing
+// their local resolved prefix. Physical segment reclamation remains separate.
 //
 // Setup is not retried: if any setup step fails (missing gateway address or
-// spool_dir, spool open, spool id, security provider before its certificate
-// files exist, or client construction), the failure is logged once and the
-// sender stays stopped until the agent process restarts.
-func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, log logger.Logger) {
+// spool_dir, spool id, security provider before its certificate files exist,
+// or client construction), the failure is logged once and the sender stays
+// stopped until the agent process restarts.
+func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool.Spool, log logger.Logger) {
 	esCfg := cfg.EdgeRecordSender
-	if esCfg == nil || !esCfg.Enabled {
+	if esCfg == nil || !esCfg.Enabled || sp == nil {
 		return
 	}
 
@@ -81,13 +77,6 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, log logge
 	if interval <= 0 {
 		interval = defaultEdgeRecordSenderPollInterval
 	}
-
-	sp, err := spool.Open(esCfg.SpoolDir)
-	if err != nil {
-		log.Error().Err(err).Str("spool_dir", esCfg.SpoolDir).Msg("Failed to open edge record spool")
-		return
-	}
-	defer func() { _ = sp.Close() }()
 
 	spoolID, err := edgesender.PersistentSpoolID(esCfg.SpoolDir)
 	if err != nil {
@@ -116,11 +105,12 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, log logge
 	ingestClient := edgev1.NewEdgeRecordIngestServiceClient(client.GetConnection())
 
 	s, err := edgesender.New(sp, ingestClient, edgesender.Config{
-		SpoolID:               spoolID,
-		RouteProfile:          edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
-		TrafficClass:          edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
-		RequestedByteCredits:  edgeRecordSenderRequestedByteCredits,
-		RequestedFrameCredits: edgeRecordSenderRequestedFrameCreds,
+		SpoolID:                 spoolID,
+		RouteProfile:            edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+		TrafficClass:            edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
+		RequestedByteCredits:    edgeRecordSenderRequestedByteCredits,
+		RequestedFrameCredits:   edgeRecordSenderRequestedFrameCreds,
+		PersistAcknowledgements: esCfg.SweepEnabled,
 	})
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to construct edge record sender")
@@ -144,7 +134,9 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, log logge
 }
 
 func runEdgeRecordSenderOnce(ctx context.Context, s *edgesender.Sender, log logger.Logger) {
-	result, err := s.RunOnce(ctx)
+	runCtx, cancel := context.WithTimeout(ctx, defaultEdgeRecordSenderPollInterval)
+	defer cancel()
+	result, err := s.RunOnce(runCtx)
 	if err != nil {
 		if errors.Is(err, edgesender.ErrNoUnresolvedRecords) {
 			return
@@ -175,4 +167,34 @@ func highestSentSequence(result edgesender.Result) uint64 {
 		return result.Sent[n-1]
 	}
 	return 0
+}
+
+// openEdgeRecordSpool is called once for the process; producer and sender share
+// its mutex, sequence allocation, recovery state and byte allocator.
+func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, error) {
+	c := cfg.EdgeRecordSender
+	if c == nil {
+		return nil, nil
+	}
+	if !c.Enabled {
+		if c.SweepEnabled {
+			return nil, errors.New("edge sweep requires enabled edge record sender")
+		}
+		return nil, nil
+	}
+	if c.SpoolDir == "" {
+		return nil, errors.New("edge record sender requires spool_dir")
+	}
+	capacity := c.MaxBytes
+	if capacity == 0 {
+		capacity = 256 << 20
+	}
+	allocator, err := spool.NewAllocator(spool.AllocatorConfig{
+		Capacity: capacity, MinFree: 1 << 20, MaxConcurrentRecoveries: 1,
+		Recovery: spool.Footprint{DestinationSegment: 1 << 20, AttributionSidecar: 64 << 10, JournalCopy: 64 << 10, ManifestPages: 256 << 10, Mapping: 64 << 10, FilesystemMetadata: 64 << 10},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("edge spool capacity: %w", err)
+	}
+	return spool.Open(c.SpoolDir, spool.WithAllocator(allocator))
 }
