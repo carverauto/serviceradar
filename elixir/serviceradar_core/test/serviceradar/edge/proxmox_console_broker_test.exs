@@ -133,6 +133,20 @@ defmodule ServiceRadar.Edge.ProxmoxConsoleBrokerTest do
     assert {:error, :console_broker_closed} = ProxmoxConsoleBroker.send_input(broker, "ls\r")
   end
 
+  test "a wedged broker still exits the caller" do
+    wedged =
+      spawn(fn ->
+        receive do
+          :stop -> :ok
+        end
+      end)
+
+    assert catch_exit(ProxmoxConsoleBroker.resize(wedged, 80, 24)) ==
+             {:timeout, {GenServer, :call, [wedged, {:resize, 80, 24}, 5_000]}}
+
+    send(wedged, :stop)
+  end
+
   test "fails closed when the session lacks an exact assignment policy binding" do
     session = put_in(session_fixture(), [:metadata, "plugin_assignment_policy_fingerprint"], nil)
     previous_trap_exit = Process.flag(:trap_exit, true)
