@@ -19,10 +19,15 @@ package sysmon
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/hostinventory"
+	gopsutilnet "github.com/shirou/gopsutil/v3/net"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -250,6 +255,105 @@ func TestCollectNetwork(t *testing.T) {
 	// Should have at least one non-loopback interface on most systems
 	// but this may vary, so we just check it doesn't error
 	t.Logf("found %d network interfaces", len(network))
+}
+
+func TestFilterNetworkCountersUsesHostInventory(t *testing.T) {
+	inventory := []hostinventory.Interface{
+		{Interface: net.Interface{Name: "lo", Flags: net.FlagLoopback}, Kind: hostinventory.KindLoopback},
+		{Interface: net.Interface{Name: "eno1"}, Kind: hostinventory.KindPhysical},
+		{Interface: net.Interface{Name: "bond0"}, Kind: hostinventory.KindBond},
+		{Interface: net.Interface{Name: "eno1.20"}, Kind: hostinventory.KindVLAN},
+		{Interface: net.Interface{Name: "vmbr0"}, Kind: hostinventory.KindBridge},
+		{Interface: net.Interface{Name: "br0"}, Kind: hostinventory.KindBridge},
+		{Interface: net.Interface{Name: "docker0"}, Kind: hostinventory.KindBridge},
+		{Interface: net.Interface{Name: "br-0123456789ab"}, Kind: hostinventory.KindBridge},
+		{Interface: net.Interface{Name: "virbr0"}, Kind: hostinventory.KindBridge},
+		{Interface: net.Interface{Name: "cni0"}, Kind: hostinventory.KindBridge},
+		{Interface: net.Interface{Name: "veth1a2b"}, Kind: hostinventory.KindVirtual},
+		{Interface: net.Interface{Name: "tap100i0"}, Kind: hostinventory.KindVirtual},
+		{Interface: net.Interface{Name: "wg0"}, Kind: hostinventory.KindTunnel},
+	}
+
+	counters := []gopsutilnet.IOCountersStat{
+		{Name: "lo", BytesRecv: 10},
+		{Name: "eno1", BytesRecv: 100, BytesSent: 200},
+		{Name: "bond0", BytesRecv: 300, BytesSent: 400},
+		{Name: "eno1.20", BytesRecv: 500, BytesSent: 600},
+		{Name: "vmbr0", BytesRecv: 700, BytesSent: 800},
+		{Name: "br0", BytesRecv: 900, BytesSent: 1000},
+		{Name: "docker0", BytesRecv: 11},
+		{Name: "br-0123456789ab", BytesRecv: 12},
+		{Name: "virbr0", BytesRecv: 13},
+		{Name: "cni0", BytesRecv: 14},
+		{Name: "veth1a2b", BytesRecv: 15},
+		{Name: "tap100i0", BytesRecv: 16},
+		{Name: "wg0", BytesRecv: 17},
+		{Name: "vnet0", BytesRecv: 18},
+		{Name: "tun0", BytesRecv: 19},
+		{Name: "bridge0", BytesRecv: 20},
+		{Name: "en0", BytesRecv: 1100, BytesSent: 1200},
+	}
+
+	metrics := filterNetworkCounters(counters, inventory, func(name string) hostinventory.Interface {
+		return hostinventory.Interface{Interface: net.Interface{Name: name}, Kind: hostinventory.KindUnspecified}
+	})
+
+	got := make([]string, 0, len(metrics))
+	for _, m := range metrics {
+		got = append(got, m.Interface)
+	}
+	want := []string{"eno1", "bond0", "eno1.20", "vmbr0", "br0", "en0"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("filterNetworkCounters interfaces = %v, want %v", got, want)
+	}
+}
+
+func TestFirstUsableIPv4FromInventoryUsesHostInventory(t *testing.T) {
+	cidr := func(text string) net.Addr {
+		ip, ipNet, err := net.ParseCIDR(text)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ipNet.IP = ip
+		return ipNet
+	}
+
+	ifaces := []hostinventory.Interface{
+		{
+			Interface: net.Interface{Name: "lo", Flags: net.FlagUp | net.FlagLoopback},
+			Kind:      hostinventory.KindLoopback,
+			Addrs:     []net.Addr{cidr("127.0.0.1/8")},
+		},
+		{
+			Interface: net.Interface{Name: "docker0", Flags: net.FlagUp},
+			Kind:      hostinventory.KindBridge,
+			Addrs:     []net.Addr{cidr("198.51.100.10/24")},
+		},
+		{
+			Interface: net.Interface{Name: "veth1a2b", Flags: net.FlagUp},
+			Kind:      hostinventory.KindVirtual,
+			Addrs:     []net.Addr{cidr("198.51.100.11/24")},
+		},
+		{
+			Interface: net.Interface{Name: "wg0", Flags: net.FlagUp},
+			Kind:      hostinventory.KindTunnel,
+			Addrs:     []net.Addr{cidr("198.51.100.12/24")},
+		},
+		{
+			Interface: net.Interface{Name: "eno1", Flags: net.FlagUp},
+			Kind:      hostinventory.KindPhysical,
+			Addrs:     []net.Addr{cidr("172.17.0.1/16")},
+		},
+		{
+			Interface: net.Interface{Name: "vmbr0", Flags: net.FlagUp},
+			Kind:      hostinventory.KindBridge,
+			Addrs:     []net.Addr{cidr("192.0.2.25/24")},
+		},
+	}
+
+	if got := firstUsableIPv4FromInventory(ifaces); got != "192.0.2.25" {
+		t.Fatalf("firstUsableIPv4FromInventory() = %q, want 192.0.2.25", got)
+	}
 }
 
 func TestNewCollector(t *testing.T) {

@@ -110,3 +110,40 @@ func TestInterfaceIPsReportsEveryFamilyOnce(t *testing.T) {
 		t.Fatalf("IPs() = %v, want [192.0.2.10 2001:db8::10]", got)
 	}
 }
+
+func TestIsHostInternal(t *testing.T) {
+	tests := []struct {
+		name     string
+		iface    Interface
+		internal bool
+	}{
+		{"physical NIC", Interface{Interface: net.Interface{Name: "eno1"}, Kind: KindPhysical}, false},
+		{"bond", Interface{Interface: net.Interface{Name: "bond0"}, Kind: KindBond}, false},
+		{"VLAN", Interface{Interface: net.Interface{Name: "eno1.20"}, Kind: KindVLAN}, false},
+		{"Proxmox host bridge", Interface{Interface: net.Interface{Name: "vmbr0"}, Kind: KindBridge}, false},
+		{"Linux host bridge", Interface{Interface: net.Interface{Name: "br0"}, Kind: KindBridge}, false},
+		{"non-sysfs physical NIC", Interface{Interface: net.Interface{Name: "en0"}, Kind: KindUnspecified}, false},
+		{"loopback by kind", Interface{Interface: net.Interface{Name: "lo"}, Kind: KindLoopback}, true},
+		{"loopback by name", Interface{Interface: net.Interface{Name: "lo0"}, Kind: KindUnspecified}, true},
+		{"virtual veth", Interface{Interface: net.Interface{Name: "veth1a2b"}, Kind: KindVirtual}, true},
+		{"virtual custom name", Interface{Interface: net.Interface{Name: "guest0"}, Kind: KindVirtual}, true},
+		{"tunnel wireguard", Interface{Interface: net.Interface{Name: "wg0"}, Kind: KindTunnel}, true},
+		{"docker bridge", Interface{Interface: net.Interface{Name: "docker0"}, Kind: KindBridge}, true},
+		{"docker custom bridge", Interface{Interface: net.Interface{Name: "br-0123456789ab"}, Kind: KindBridge}, true},
+		{"libvirt bridge", Interface{Interface: net.Interface{Name: "virbr0"}, Kind: KindBridge}, true},
+		{"cni bridge", Interface{Interface: net.Interface{Name: "cni0"}, Kind: KindBridge}, true},
+		{"KVM vnet fallback", Interface{Interface: net.Interface{Name: "vnet0"}, Kind: KindUnspecified}, true},
+		{"tun fallback", Interface{Interface: net.Interface{Name: "tun0"}, Kind: KindUnspecified}, true},
+		{"tap fallback", Interface{Interface: net.Interface{Name: "tap0"}, Kind: KindUnspecified}, true},
+		{"macOS bridge fallback", Interface{Interface: net.Interface{Name: "bridge0"}, Kind: KindUnspecified}, true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.iface.IsHostInternal(); got != test.internal {
+				t.Fatalf("Interface(%s, kind=%q).IsHostInternal() = %v, want %v",
+					test.iface.Name, test.iface.Kind, got, test.internal)
+			}
+		})
+	}
+}

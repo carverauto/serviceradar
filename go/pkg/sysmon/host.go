@@ -20,8 +20,9 @@ import (
 	"context"
 	"net"
 	"os"
-	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/hostinventory"
 )
 
 // getHostID returns a unique identifier for this host.
@@ -62,6 +63,10 @@ func getLocalIP(ctx context.Context) string {
 
 // firstUsableIPv4 finds the first non-loopback, non-docker IPv4 address.
 func firstUsableIPv4() string {
+	return firstUsableIPv4FromInventory(hostinventory.Collect())
+}
+
+func firstUsableIPv4FromInventory(ifaces []hostinventory.Interface) string {
 	// Docker network CIDRs to skip
 	dockerCIDRs := []net.IPNet{
 		{IP: net.IPv4(172, 17, 0, 0), Mask: net.CIDRMask(16, 32)},
@@ -69,32 +74,12 @@ func firstUsableIPv4() string {
 		{IP: net.IPv4(172, 19, 0, 0), Mask: net.CIDRMask(16, 32)},
 	}
 
-	ifaces, err := net.Interfaces()
-	if err != nil {
-		return ""
-	}
-
 	for _, iface := range ifaces {
-		// Skip down and loopback interfaces
-		if iface.Flags&net.FlagUp == 0 || iface.Flags&net.FlagLoopback != 0 {
+		if iface.Flags&net.FlagUp == 0 || iface.IsHostInternal() {
 			continue
 		}
 
-		// Skip docker/virtual interfaces by name
-		name := strings.ToLower(iface.Name)
-		if strings.HasPrefix(name, "docker") ||
-			strings.HasPrefix(name, "br-") ||
-			strings.HasPrefix(name, "veth") ||
-			strings.HasPrefix(name, "virbr") {
-			continue
-		}
-
-		addrs, err := iface.Addrs()
-		if err != nil {
-			continue
-		}
-
-		for _, addr := range addrs {
+		for _, addr := range iface.Addrs {
 			ipNet, ok := addr.(*net.IPNet)
 			if !ok || ipNet == nil {
 				continue
