@@ -10,6 +10,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
   alias Oban.Peers.Database
   alias ServiceRadar.Analytics.StarRocks
   alias ServiceRadar.Analytics.StarRocks.MySQL
+  alias ServiceRadar.ExposureAudit.State
   alias ServiceRadar.Inventory.ExposureReadiness
   alias ServiceRadar.Inventory.ExposureReconciliationWorker
   alias ServiceRadar.Observability.ObanFailureEventReporter
@@ -28,6 +29,11 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
   @tag timeout: 3_600_000
   test "daily fleet reconciliation verifies the selected workload within fifteen minutes" do
     hosts = profile!()
+    audit? = System.get_env("EXPOSURE_AUDIT_PROTOTYPE") == "1"
+
+    if audit?,
+      do: assert(hosts == 200, "audit prototype is restricted to the approved small profile")
+
     configure_warehouse!()
 
     # This manual target owns a fresh canonical fixture clone and a never-used
@@ -52,6 +58,11 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
 
     errors =
       capture_errors(fn ->
+        if audit? do
+          State.install!()
+          Process.put(:exposure_audit_installed, true)
+        end
+
         seeded = now_ms()
         seed!(hosts)
         verify_fixture!(hosts)
@@ -66,6 +77,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
         )
 
         run_capacity!(hosts, fixture_ms)
+        if audit?, do: run_audit!(hosts)
         reject_equal_count_corruption!()
       end)
 
@@ -83,8 +95,41 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
                  Supervisor.restart_child(ServiceRadar.Supervisor, ObanFailureEventReporter)
       end)
 
-    all_errors = errors ++ shutdown_errors ++ cleanup_errors ++ restore_errors
+    audit_cleanup_errors =
+      if Process.delete(:exposure_audit_installed),
+        do: capture_errors(&State.uninstall!/0),
+        else: []
+
+    all_errors =
+      errors ++ shutdown_errors ++ cleanup_errors ++ restore_errors ++ audit_cleanup_errors
+
     if all_errors != [], do: raise(ExUnit.MultiError, errors: all_errors)
+  end
+
+  defp run_audit!(hosts) do
+    start_supervised!(
+      {Oban,
+       repo: Repo,
+       prefix: "platform",
+       testing: :manual,
+       notifier: PG,
+       queues: false,
+       plugins: false,
+       peer: false}
+    )
+
+    measurement =
+      capture_errors(fn ->
+        for repetition <- ["first", "repeat"] do
+          ServiceRadar.ExposureAudit.Prototype.measure!(hosts, &verify_fixture!/1, repetition)
+        end
+      end)
+
+    controls = capture_errors(&ServiceRadar.ExposureAudit.Controls.verify!/0)
+    stop_queue!()
+
+    if measurement ++ controls != [],
+      do: raise(ExUnit.MultiError, errors: measurement ++ controls)
   end
 
   defp profile! do

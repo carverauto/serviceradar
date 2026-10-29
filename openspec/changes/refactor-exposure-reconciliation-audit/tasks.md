@@ -1,9 +1,12 @@
 ## 0. Design gate
 
 - [x] 0.1 Record measured bottlenecks and propose a replacement design without changing runtime code.
-- [ ] 0.2 Obtain review of cross-view dimension proofs, source-local generated identity, recovery fencing, batched readiness and component screens. No prototype before approval.
+- [x] 0.2 Obtain review of cross-view dimension proofs, source-local generated identity, recovery fencing, batched readiness and component screens. Approved by direct product-owner response on 2026-10-28.
 
 ## 1. Disabled prototype (requires 0.2)
+
+Source for 1.1-1.5 is present in the manual harness. These items stay unchecked
+until their behavioral assertions run successfully. See [prototype.md](prototype.md).
 
 - [ ] 1.1 Map every restore/rebuild entry point and implement fence invalidation in the isolated harness. Verify generated hash behavior on the supported PostgreSQL image, including equal-sequence edits.
 - [ ] 1.2 Add bounded run/proof control metadata and exact-version dimension verification. Preserve terminal references, evidence age and per-device deferral.

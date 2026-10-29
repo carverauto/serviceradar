@@ -1,6 +1,7 @@
 # Bounded exposure reconciliation audit
 
-Status: proposed, not approved or implemented.
+Status: approved for a disabled prototype on 2026-10-28. Prototype source is
+implemented in the manual harness; behavioral and capacity validation are pending.
 
 ## Evidence and objective
 
@@ -26,7 +27,7 @@ The goal remains a fully verified daily reconciliation of 20,000 hosts and
 the actual fleet gate passes. Snapshot publication and terminal maintenance
 have separate gates; this proposal does not change them.
 
-## Decisions proposed for review
+## Approved design decisions
 
 ### 1. One finite audit run, bounded cohorts, existing repair ownership
 

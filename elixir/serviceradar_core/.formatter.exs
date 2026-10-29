@@ -16,6 +16,7 @@
     "{config,lib,test}/**/*.{ex,exs}",
     "bench/exposure_compaction_capacity_test.exs",
     "bench/exposure_reconciliation_capacity_test.exs",
+    "bench/exposure_audit_*.exs",
     "bench/ownership_replay_spike_test.exs"
   ]
 ]

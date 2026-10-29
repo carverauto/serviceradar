@@ -1,274 +1,546 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exposure reconciliation: proposed audit design</title><style>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Exposure reconciliation: approved prototype and validation</title><style>
 :root{color-scheme:light;--bg:#fcfdfd;--panel:#f1f5f3;--ink:#152620;--muted:#50665c;--brand:#0b824d;--line:#d5e1db;--warn:#905a13;--warn-bg:#fff5e4}
 html[data-theme=dark]{color-scheme:dark;--bg:#10191d;--panel:#17242a;--ink:#ecf7f1;--muted:#b3c7bc;--brand:#3ecf87;--line:#31483e;--warn:#f2c173;--warn-bg:#30271c}
 *{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 "Avenir Next",Avenir,"Segoe UI",sans-serif}main{max-width:1160px;margin:auto;padding:35px 28px 72px}a{color:var(--brand);overflow-wrap:anywhere}h1{font-size:clamp(32px,4.2vw,53px);line-height:1.12;letter-spacing:-1.8px;max-width:850px;margin:20px 0}h2{font-size:27px;line-height:1.3;margin:34px 0 15px}h3{font-size:21px}p{max-width:85ch}.eyebrow{font-size:12px;letter-spacing:1.8px;font-weight:750;text-transform:uppercase;color:var(--brand)}.top{display:flex;justify-content:space-between;gap:16px;align-items:center}.top>*{min-width:0}button,.jump{font:inherit;border:1px solid var(--line);padding:8px 14px;border-radius:8px;background:var(--panel);color:var(--ink);cursor:pointer}.lead{font-size:21px;color:var(--muted);max-width:870px}.grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px}.grid>*{min-width:0}.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:22px}.card h3{margin:8px 0}.n{color:var(--brand);font-size:14px;font-weight:700}.card p{font-size:16px;color:var(--muted);margin-bottom:0}.status{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}.pill{border:1px solid var(--line);border-radius:100px;padding:5px 12px;font-size:13px;font-weight:700}.warning{border-left:4px solid var(--warn);padding:15px 22px;background:var(--warn-bg);border-radius:0 10px 10px 0;margin:26px 0}.warning p{margin:4px 0}.numbers{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}.numbers>*{min-width:0}.numbers strong{display:block;font-size:32px;color:var(--brand);line-height:1.2}.numbers small{color:var(--muted)}table{width:100%;border-collapse:collapse;table-layout:fixed;margin:18px 0;font-size:15px}th,td{text-align:left;padding:12px 10px;border-bottom:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}th{background:var(--panel)}.source{border:1px solid var(--line);border-radius:12px;margin:15px 0;background:var(--bg)}summary{cursor:pointer;padding:18px 22px;font-weight:700;color:var(--brand)}article{padding:0 24px 24px;min-width:0}article h1{font-size:30px;letter-spacing:-.5px}article h2{font-size:25px}article h3{font-size:20px}code{font-size:.85em;overflow-wrap:anywhere}iframe{display:block;width:100%;height:900px;border:0;background:var(--panel)}nav{display:flex;gap:9px;flex-wrap:wrap;margin:25px 0}nav a{text-decoration:none}.muted,footer{color:var(--muted);font-size:14px}.options{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px}.options>*{min-width:0}.recommend{border:2px solid var(--brand)}.flow{width:100%;height:auto;display:block}.flow text{fill:var(--ink);font-family:"Avenir Next",sans-serif}.flow .label{font-size:20px;font-weight:700}.flow .sub{font-size:15px;fill:var(--muted)}.flow rect{fill:var(--panel);stroke:var(--line);stroke-width:2}.flow path{fill:none;stroke:var(--brand);stroke-width:3}footer{margin-top:36px;border-top:1px solid var(--line);padding-top:20px}@media(max-width:700px){main{padding:22px 16px 48px}.grid,.options{grid-template-columns:minmax(0,1fr)}.numbers{grid-template-columns:repeat(2,minmax(0,1fr))}article{padding:0 14px 20px}table{font-size:13px}th,td{padding:8px 5px}.lead{font-size:18px}iframe{height:760px}}
 </style></head><body><main>
 <div class="top"><span class="eyebrow">ServiceRadar / exposure intelligence</span><button id="theme" type="button" aria-label="Toggle color theme">Dark / light</button></div>
-<header><h1>Stop verifying shared content over and over.</h1><p class="lead">A proposed reconciliation design that reduces repeated dimension checks and source hashing while keeping recovery and freshness evidence explicit.</p><div class="status"><span class="pill">Proposed - review required</span><span class="pill">Task 1.6 remains open</span><span class="pill">No runtime change</span></div></header>
+<header><h1>Stop verifying shared content over and over.</h1><p class="lead">The approved reconciliation design aims to reduce repeated dimension checks and source hashing while keeping recovery and freshness evidence explicit.</p><div class="status"><span class="pill">Prototype approved - validation pending</span><span class="pill">Task 1.6 remains open</span><span class="pill">Manual scratch target only</span></div></header>
 <div class="warning"><strong>Capacity is still unproven.</strong><p>The best completed cohort experiment took about 64 seconds for 500,000 active facts against its roughly 9-second screen. Larger cohorts alone did not close the gap. <a href="https://agentboard.farm01.carverauto.dev/documents/220">Read the measured result.</a></p></div>
 <nav aria-label="Review sections"><a class="jump" href="#approach">Approach</a><a class="jump" href="#budget">Time budget</a><a class="jump" href="#review">Decision</a><a class="jump" href="#design">Full design</a><a class="jump" href="#workflow">Workflow</a></nav>
 <section id="approach"><h2>Three changes, one unchanged correctness contract</h2><div class="grid"><div class="card"><span class="n">01 / SHARED EVIDENCE</span><h3>Verify each dimension version once.</h3><p>A proof binds the exact source payload, sequence, run and recovery fence. Changed content cannot borrow an older proof.</p></div><div class="card"><span class="n">02 / SOURCE WORK</span><h3>Hash the current fact once.</h3><p>Validate retained replay separately with typed field equality. Read actual warehouse columns for its digest.</p></div><div class="card"><span class="n">03 / ORCHESTRATION</span><h3>Evaluate readiness in batches.</h3><p>Keep every device's blockers and recovery obligations. Share computation, never a cached ready verdict.</p></div></div>
 <svg class="flow" viewBox="0 0 1000 195" role="img" aria-labelledby="flowtitle"><title id="flowtitle">Content proof plus actual fact comparison is required before a fresh readiness evaluation.</title><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" style="fill:var(--brand);stroke:none" /></marker></defs><g id="proof"><title>Proof retains its original check time</title><rect x="10" y="55" width="270" height="98" rx="12" /><text class="label" x="32" y="92">Verified content version</text><text class="sub" x="32" y="123">Keep the original evidence time</text></g><path id="proof-link" d="M285 105 H350" marker-end="url(#arrow)" /><g id="facts"><title>Facts and retained replay checked in a finite source view</title><rect x="362" y="55" width="276" height="98" rx="12" /><text class="label" x="385" y="92">Current facts + replay</text><text class="sub" x="385" y="123">Independent warehouse digest</text></g><path id="result-link" d="M643 105 H707" marker-end="url(#arrow)" /><g id="ready"><title>Fresh recovery checks remain authoritative</title><rect x="720" y="55" width="270" height="98" rx="12" /><text class="label" x="742" y="92">Per-device result</text><text class="sub" x="742" y="123">Recheck current recovery state</text></g></svg></section>
 <section><h2>The tradeoff to review</h2><p>Dimension evidence can be reused across source views within one finite audit run. That is a deliberate change from the prior experiment. A stored source-content identity prevents equal-sequence edits from reusing stale proof; recovery invalidates the run.</p><p><strong>Evidence keeps its age.</strong> A later fact check cannot make an earlier dimension check look fresh. An out-of-band warehouse edit after verification is caught by a later audit, not retroactively by this one.</p></section>
 <section id="budget"><h2>900 seconds total. These are targets.</h2><div class="numbers"><div class="card"><strong>120 s</strong><small>Dimensions and version rechecks</small></div><div class="card"><strong>600 s</strong><small>Source validation and fact summaries</small></div><div class="card"><strong>90 s</strong><small>Orchestration and readiness</small></div><div class="card"><strong>90 s</strong><small>Retries and scheduling reserve</small></div></div><p>Two workers, at most 32 devices per cohort, 30-second statements and 60-second source views. The early linear screens are 6 seconds per 500,000 active facts and 0.9 seconds per 200 devices of orchestration; fixed costs are reported separately.</p><p class="muted">A failed component screen stops the experiment before a fleet run. A passed screen permits a separate fleet-run request. It does not prove the 20,000-host / 50-million-active-fact gate.</p></section>
-<section id="review"><h2>Recommended next decision</h2><div class="options"><div class="card recommend"><span class="n">RECOMMENDED</span><h3>Approve a disabled prototype.</h3><p>Test the exact-content proof contract and whether source work can meet the component budgets. Hosted runs and production adoption remain separate approvals.</p></div><div class="card"><span class="n">ALTERNATIVE</span><h3>Revise before implementation.</h3><p>Change the evidence-reuse tradeoff or budgets now. Retain the current reconciler and its known capacity miss while the design is revised.</p></div></div><p class="muted">The canonical decision is recorded on Agentboard. This portable page is review evidence and does not submit an approval.</p></section>
-<h2>Complete proposal</h2><details id="proposal" class="source"><summary>Proposal</summary><article><h1>Proposal: bounded exposure audit with shared dimension evidence</h1>
-<p>Status: proposed; design review only. Related epic: <a href="https://github.com/carverauto/serviceradar/issues/5745">#5745</a>.</p>
-<h2>Why</h2>
-<p>Exposure reconciliation still misses its fleet capacity gate. The completed
-Decision 27 experiment passed its tested correctness controls, but the best
-200-device / 500,000-active-fact run took about 64 seconds against its roughly
-9-second rate screen. Repeated dimension verification and CNPG digest work both
-remain material. Increasing the cohort alone did not solve either cost.</p>
-<p>The <a href="https://agentboard.farm01.carverauto.dev/documents/220">measured report</a>
-records the experiment and its limits. This proposal does not claim a speedup.</p>
-<h2>What Changes</h2>
+<section id="review"><h2>Next: one bounded hosted validation</h2><div class="grid"><div class="card"><span class="n">APPROVED</span><h3>Disabled prototype</h3><p>The product owner approved the design and implementation on October 28. The manual target is written; behavioral checks are pending.</p></div><div class="card"><span class="n">REQUESTED NEXT</span><h3>Small synthetic fixture</h3><p>One scheduled hosted allocation: 200 devices and 500,000 active facts. A failed component screen stops performance work.</p></div><div class="card"><span class="n">SEPARATE DECISIONS</span><h3>Fleet and adoption</h3><p>The 50-million-row run, production adoption and rollout remain separate. Task 1.6 stays open.</p></div></div><p class="muted">The canonical run allocation is recorded on Agentboard. This portable page is evidence and does not submit approval. Format and OpenSpec validation are not behavioral proof.</p></section>
+<h2>Implementation and validation</h2><details id="prototype" class="source" open><summary>Disabled prototype and bounded run request</summary><article><h1 id="disabled-prototype-validation-plan">Disabled prototype
+validation plan</h1>
+<p>Status: implementation prepared; no behavior or capacity result yet.
+The product owner approved implementation on 2026-10-28. Source parsing,
+remote formatting and strict OpenSpec validation succeeded. The remote
+core format/Credo target passed; behavioral execution is still pending.
+Hosted scratch measurement is still a separate gate.</p>
+<h2 id="executable-boundary">Executable boundary</h2>
+<p>The only entry point is the manual Bazel target
+<code>//elixir/serviceradar_core:exposure_reconciliation_audit</code>.
+It reuses the owning capacity fixture and accepts only
+<code>EXPOSURE_CAPACITY_PROFILE=smoke</code>: 200 invented devices,
+500,000 active facts, 50,000 CVEs, 2,551 package versions and 51
+resolved facts per device. Both the harness and prototype refuse the
+fleet profile.</p>
+<p>The six <code>bench/exposure_audit_*.exs</code> files own SQL
+comparison, scratch metadata, read-only Ash resources, grouped
+readiness, orchestration and controls. No production module, application
+domain, scheduler, migration-discovery path or warehouse grant enables
+this code. The original manual production capacity target remains
+available independently.</p>
+<p>A scratch-only Ecto migration adds the generated dimension content
+hash and four control tables. Installation requires the explicit
+prototype flag, a fresh canonical disposable CNPG clone and no prior
+prototype tables. Cleanup removes the migration, fixture rows and owned
+Oban work, then restores parked bootstrap jobs and supervised processes.
+Canonical observer, teardown and generation release remain mandatory;
+the outer coordinator drops the warehouse scratch schema and verifies
+absence.</p>
+<h2 id="implemented-behavior-to-verify">Implemented behavior to
+verify</h2>
 <ul>
-<li>Verify each published dimension content version once per bounded audit run,
-then reuse that evidence only for the exact source version a cohort observes.</li>
-<li>Compute the existing current-fact digest once in the database. Check retained
-replay independently through normalized field comparison, without building a
-second JSON after-image or hashing it again.</li>
-<li>Admit bounded cohorts and evaluate readiness for those devices together,
-preserving per-device results, recovery obligations and generation fences.</li>
-<li>Measure the entire orchestration path against an explicit time budget before
-requesting a fleet run. The 15-minute fleet reconciliation limit is unchanged.</li>
+<li>Durable cursor and work admission commit together. Resume reads
+stored state; duplicate resume does not re-admit work. Read-only Ash
+resources expose the control records; batched state transitions use
+fenced transactions.</li>
+<li>Dimension pages inspect at most 500 rows. Only actual
+source/warehouse content matches earn proofs. Failed versions leave
+dependent devices deferred while unrelated devices retain distinct
+results. Evidence is bound to run, source sequence and generated content
+hash.</li>
+<li>Two workers compare cohorts of at most 32 devices under the existing
+advisory lock namespace. Session locks span comparison, result commit
+and readiness; busy devices defer. Source views end within 60 seconds
+with 30-second statement limits. Result publication checks the recovery
+fence, run expiry and newest covering completed snapshot.</li>
+<li>A newer covering snapshot invalidates older evidence. One coalesced
+corrective proof pass can refresh stale or newly observed versions
+outside the cohort's source view, followed by a fresh comparison. The
+prototype conservatively refreshes proofs older than any completed
+snapshot; it does not claim an optimized per-reference refresh
+scheduler. Continuous changes fail the run.</li>
+<li>Current facts use the existing v1 SHA-256/count/modular-sum contract
+once; normalized replay fields and required types are checked
+independently. Actual warehouse columns supply the independent digest.
+Malformed inputs cannot be filtered into an empty match. Timestamp
+validation follows the decoder's Gregorian date, fractional precision
+and offset rules; hosted differential cases remain required.</li>
+<li>Readiness batches preserve the existing reason set, including young
+outbox traffic, old outbox entries, recovery journals, repair
+obligations and snapshot generation floors. Cleanup pages remove expired
+superseded metadata while retaining the active and latest completed
+proof set and all existing repairs.</li>
 </ul>
-<h2>Impact</h2>
-<p>This is a subordinate proposal to
-<a href="https://github.com/carverauto/serviceradar/blob/staging/openspec/changes/add-srql-exposure-intelligence/design.md"><code>add-srql-exposure-intelligence</code></a>,
-not an alternative exposure feature. It adds requirements to that capability;
-it does not replace its snapshot, delivery, retention, freshness or repair
-contracts. The parent proposal remains unarchived. The separate experiment
-report publication is not modified by this branch.</p>
-<p>Possible implementation surfaces are <code>ExposureReconciliationComparison</code>,
-<code>ExposureReconciliationWorker</code>, <code>ExposureReadiness</code>, dimension source metadata,
-Ash resources/migrations for audit control records, and the existing capacity
-harness. No CNPG exposure projection, telemetry path, warehouse write bypass,
-public query API, ordinal width or fact digest format changes are proposed.</p>
-<h2>Approval Requested</h2>
-<p>Approve this design for a bounded, disabled prototype and its validation plan,
-including cross-view reuse of content-bound dimension evidence and the proposed
-component budgets. This approval would permit prototype implementation only.
-Hosted run allocation/scheduling, a 50-million-row run, production adoption and
-rollout require their subsequent explicit approvals. Task 1.6 remains open.</p>
-<p>See <a href="#design">design.md</a>, <a href="#tasks">tasks.md</a> and the
-<a href="#workflow">workflow diagram</a>.</p>
-</article></details><details id="design" class="source"><summary>Technical design</summary><article><h1>Bounded exposure reconciliation audit</h1>
-<p>Status: proposed, not approved or implemented.</p>
-<h2>Evidence and objective</h2>
-<p>The existing worker compares each device independently. It reads referenced
-dimensions, decodes current and retained assessment after-images, hashes facts,
-reads warehouse facts, records the result and evaluates readiness. The same
-dimension is decoded and compared again for other devices.</p>
-<p>The completed synthetic Decision 27 experiment measured 105, 64 and 69 seconds
-for cohorts of 1, 8 and 32 devices respectively. Its best case was roughly
-7,800 active facts/second, short of the fleet floor of roughly 55,600. The
-32-device case still verified about 338,000 dimension rows for a fixture with
-about 53,000 distinct dimensions. All tested controls passed; no fleet run or
-production adoption followed. See the <a href="https://agentboard.farm01.carverauto.dev/documents/220">report and provenance</a>.</p>
-<p>Source and dimension timings overlapped across two workers, so their sums are
-not elapsed time. That candidate also did not exercise the complete production
-orchestration/readiness path. Neither subtracting its dimension time nor
-linearly extrapolating a small fixture establishes capacity.</p>
-<p>The goal remains a fully verified daily reconciliation of 20,000 hosts and
-50 million active facts within 900 seconds. Parent task 1.6 stays open until
-the actual fleet gate passes. Snapshot publication and terminal maintenance
-have separate gates; this proposal does not change them.</p>
-<h2>Decisions proposed for review</h2>
-<h3>1. One finite audit run, bounded cohorts, existing repair ownership</h3>
-<p>Create an audit run with a unique ID, format version, start time, 900-second
-deadline, recovery fence and resumable enumeration cursor. Enumerate the same
-union of source ordinals, prior checks, warehouse facts and lifecycle ordinals.
-Commit each bounded enumeration checkpoint with its admitted work. A cohort
-contains at most 32 device ordinals; at most two audit workers run concurrently.
-Dimension, comparison and readiness work share that same two-worker budget.
-Use the existing device advisory-lock namespace and acquire locks in ordinal
-order. A busy device is deferred, not treated as empty or silently omitted.</p>
-<p>Each cohort opens a finite repeatable-read source view V. Keep 30-second
-statement timeouts, a 60-second total source-view deadline and pages/evidence
-bounded at 500 rows. The cohort returns at most one summary per device plus a
-bounded exception page. A timeout aborts that cohort's comparison. Oversized
-cohorts may split deterministically; a single oversized device is deferred and
-reported. Partial digests never become matched results.</p>
-<p>The run records completion only after enumeration is exhausted and every
-admitted device has a qualifying comparison. A crash after enumeration cannot
-lose work; a crash after comparison but before commit repeats the comparison.
-Expired runs stop admitting work and cannot mint new successful results.
-Unresolved repair obligations survive run expiry in the existing durable
-repair records. No new repair executor or snapshot finalizer is introduced.</p>
-<h3>2. Verify shared dimensions once per exact source content version</h3>
-<p>Audit the published dimension-state catalog in bounded pages. A page's finite
-source view supplies the source payload; the verifier decodes it through the
-existing dimension decoder and compares the actual StarRocks row using the
-existing <code>ExposureSnapshotWarehouse.row_digest/2</code> contract. A successful proof
-contains <code>(run_id, recovery_fence, kind, ordinal, source_seq, source_content_hash, checked_at, source_view, warehouse_row_digest)</code>.
-Before issuing a proof, require the decoded payload kind, ordinal and sequence
-to agree with the dimension-state row that supplied it.</p>
-<p>The source content hash is a version binding, not a replacement for warehouse
-comparison. Add a <strong>stored generated</strong> hash of the dimension state's own JSONB
-payload, provisionally <code>sha256(jsonb_send(payload))</code>. It is recalculated by
-PostgreSQL on writes; an equal-sequence payload edit therefore cannot reuse an
-old proof. It hashes only a same-row immutable value: no joins, cached current
-assessment hashes, trigger-maintained cache or falsely immutable lookup UDF.</p>
-<p>PostgreSQL documents that stored generated values are computed on writes and
-generation expressions must be immutable and row-local. Its PostgreSQL 18
-catalog declares <code>jsonb_send</code> and <code>sha256</code> with the immutable default. These
-support the candidate expression, but the prototype must still verify it on
-the supported database image. This is a versioned source-local identity;
-PostgreSQL major/serialization changes invalidate all audit proofs and require
-recomputing the column before audit enablement. It is not a cross-engine wire
-format. Sources: <a href="https://www.postgresql.org/docs/18/ddl-generated-columns.html">generated columns</a>,
-<a href="https://github.com/postgres/postgres/blob/REL_18_STABLE/src/include/catalog/pg_proc.dat">function catalog</a>,
-<a href="https://github.com/postgres/postgres/blob/REL_18_STABLE/src/include/catalog/pg_proc.h">catalog defaults</a>.</p>
-<p>The cohort's source query joins its required dimension references to source
-state and proofs visible in V. Coverage includes retained assessment
-publications and deletion watermarks, including terminal rows and old package
-versions. Missing source dictionaries, malformed references, missing proofs,
-failed proofs or a content/sequence mismatch defer affected devices. Do not
-materialize a fleet-sized device/dimension edge table. Aggregate coverage while
-scanning the necessary source rows; return only bounded failure keys.</p>
-<p>A newly observed version schedules one deduplicated proof request. It cannot
-become visible inside an already-open V: retry the affected cohort in a new
-bounded view after verification. Unrelated cohorts continue. Existing versions
-retain their proof for this run; continuously changing dimensions can defer
-their dependent devices and cause a failed run, never a false match. Publish
-proofs only after the actual warehouse read and source-view validation finish.</p>
-<p><strong>This explicitly changes the experiment's prohibition on cross-view reuse.</strong>
-The binding is exact source content plus the audit run and recovery fence, not
-sequence alone, wall-clock recency alone or a process-wide cache. No proof is
-reused in another audit run.</p>
-<p>Freshness is the oldest evidence used: preserve <code>dimension_checked_at</code> per
-device as the minimum of its proofs, alongside <code>fact_started_at</code> and
-<code>comparison_finished_at</code>. Readiness uses the oldest relevant time, including
-the requirement that evidence follow the covering recovery generation. A
-later fact comparison does not refresh an older dimension check. A new covering
-snapshot can therefore require fresh dimension proofs even in the same run.</p>
-<p>This is a bounded observational audit, not an atomic CNPG/StarRocks snapshot.
-An out-of-band warehouse edit after its dimension was checked is detected by
-a later audit, as an edit after an existing per-device check is today. Expose
-the evidence times; do not describe the warehouse as verified at the later
-completion instant. A source edit in the cohort's V invalidates a mismatched
-proof even when its transition sequence did not change.</p>
-<h3>3. One current-fact hash; independently validate retained replay</h3>
-<p>In V, project typed current attributes directly from assessments, ordinals and
-the current package-version dictionary. Retain the existing eligibility and
-lifecycle rules. Validate retained publication structure, schema version,
-required fields, ordinals, types and timestamps against the existing decoder
-contract before normalization. Invalid inputs fail the affected comparison;
-SQL casts, defaults or filtered rows must not turn them into success.</p>
-<p>For an active current row, compare the normalized current tuple to its retained
-publication field by field, then calculate <code>exposure-fact/v1</code> once. The tuple is
-<code>device_ord, cve_ord, pkg_ord, transition_seq, device_lifecycle_seq, pkgver_ord, state, severity_rank, cvss_score, kev, exploit_available, fix_available, source_scope</code>. An active/non-active disagreement is a mismatch. Two valid
-non-active rows keep the existing zero-contribution digest semantics; terminal
-payload/marker verification remains owned by snapshot/retention contracts.
-Do not silently broaden that contract to equality of compacted terminal rows.</p>
-<p>Use explicit normalization for NULL, booleans/0/1, binary64 CVSS, signed zero,
-signed integers and UTF-8. Equality must correspond to the existing digest's
-typed values; generic JSON text equality is insufficient. No digest format,
-field order, SHA-256 algorithm or modular sum change is proposed. The existing
-Elixir implementation is the differential oracle, not a second tuning target.</p>
-<p>Group count and sum modulo 2^256 by device in CNPG. StarRocks independently
-computes the same digest from <strong>actual stored columns</strong>, not an ingestion-time
-hash. Include every requested device in the result, even when either side has
-zero active rows. Preserve duplicate multiplicity, source/warehouse-only keys,
-lifecycle checks and independent current-versus-retained drift detection.</p>
-<p>On mismatch, persist the existing per-device mismatch/generation floor and
-invoke bounded key localization. Only fixed durable repair targets can clear
-obligations. Changed content obtains a new sequence under the existing source
-lock and travels through JetStream. A higher warehouse sequence clears a
-repair only when the existing current-source verification proves it valid.</p>
-<h3>4. Batch readiness evaluation; never cache a ready verdict</h3>
-<p>Record per-device comparison results transactionally, then evaluate readiness
-for up to 32 devices in one fresh bounded source view. Share identical global
-subqueries and group scoped predicates by device/bucket. Preserve every
-existing reason: covering snapshot and generation floor, daily comparison age,
-enumeration coverage, source preparation, lifecycle/dimension coverage,
-delivery journals, pending snapshot pages, repairs from any generation and
-ten-minute outbox age. Normal young outbox traffic does not block completion.</p>
-<p>This batches computation, not authority. Retain each device's distinct result
-and reasons; one matched device cannot clear another's pending repair. Unknown
-warehouse ordinals keep conservative journal scope. The public status query
-still reads current recovery state; no cached <code>ready=true</code> flag serves it.
-Fleet readiness requires complete admitted coverage and unexpired evidence.
-Measure readiness costs even when a comparison is deferred or mismatched.</p>
-<h3>5. Fence recovery and bound control metadata</h3>
-<p>Use a persisted monotonically increasing audit recovery fence. Entering a
-warehouse restore/rebuild or changing audit formats increments it and
-invalidates active runs before warehouse mutation. Result/proof publication
-locks and rechecks the fence, run deadline and relevant generation floor in
-the commit transaction; an old worker cannot publish into a new recovery.
-All restore entry points must participate before prototype adoption. An
-unannounced external restore has no magical detection guarantee: daily audit
-and existing recovery signals remain responsible for discovering divergence.</p>
-<p>Audit runs and dimension proofs are Ash-backed CNPG <strong>control metadata</strong>.
-They store identities, digests, cursors, evidence times and statuses, not copies
-of exposure facts or dimension payloads. Index proof lookup by run/kind/key/
-content/version and work by run/status/cursor. Keep process memory bounded by
-pages and cohort width. Report database proof rows/bytes and versions per key;
-run duration bounds churn, and repeated failures end the run.</p>
-<p>Retain at most the active and latest completed run's reusable proof set. Remove
-expired superseded proof pages in bounded transactions after their consumers
-finish. Durable per-device checks copy their evidence times and digests, so
-cleanup cannot upgrade freshness or erase repair obligations. Restore and
-rollback invalidate proofs rather than making them authoritative again.</p>
-<h2>Capacity budget and stop rules</h2>
-<p>The following are proposed allocation targets, <strong>not measured results</strong>. They
-sum to the unchanged 900-second fleet gate. Charge actual critical-path elapsed
-work once; also report inclusive phase CPU/wall time without adding overlapping
-worker times as if they were elapsed time.</p>
+<h2 id="restore-and-rebuild-integration-boundary">Restore and rebuild
+integration boundary</h2>
+<table>
+<thead>
+<tr>
+<th>Existing entry point</th>
+<th>Prototype behavior</th>
+<th>Required before production adoption</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Operator warehouse restore or schema/table rebuild</td>
+<td>Harness calls <code>State.invalidate!/0</code> before an owned
+destructive operation</td>
+<td>Wire the persisted fence into the authorized operational
+restore/rebuild path before mutation</td>
+</tr>
+<tr>
+<td><code>ExposureSnapshotWorker.perform/1</code>, reader recovery and
+<code>ExposureSnapshotState.create/4</code></td>
+<td>Existing snapshot generation records are read; newer completion
+prevents stale result publication</td>
+<td>Integrate audit scheduling with normal and replacement snapshot
+initiation; verify interruption/restart behavior</td>
+</tr>
+<tr>
+<td><code>ExposureSnapshotFinalizer.recover/1</code> and reconciliation
+<code>recover_snapshot/1</code></td>
+<td>Existing recovery records stay authoritative and
+readiness-blocking</td>
+<td>Preserve assigned repair ownership while invalidating reusable
+evidence for warehouse recovery</td>
+</tr>
+<tr>
+<td><code>ExposureDelivery.with_lane/3</code> and retained delivery
+recovery</td>
+<td>Incomplete journal phases continue to block scoped readiness</td>
+<td>Verify live retained-input recovery with the adopted worker; never
+treat a journal acknowledgement as a dimension proof</td>
+</tr>
+<tr>
+<td>Audit format or PostgreSQL serialization change</td>
+<td>Persisted format version and fence reject obsolete runs</td>
+<td>Recompute generated identities and invalidate every prior proof
+before enablement</td>
+</tr>
+<tr>
+<td>Rollback</td>
+<td>Invalidation rejects old-worker result/proof commits; old production
+worker remains available</td>
+<td>Exercise rollback with unresolved repair obligations on the adopted
+runtime path</td>
+</tr>
+</tbody>
+</table>
+<p>An unannounced external restore is not detected by magic. No
+production restore hook has been installed by this disabled prototype.
+The mappings above are integration obligations, not claims that
+production adoption is complete.</p>
+<h2 id="controls-and-claims">Controls and claims</h2>
+<p>The manual target checks decoder/digest parity, generated identity
+after an equal-sequence edit, source/replay drift even when warehouse
+equals current source, same-count corruption, missing and warehouse-only
+facts, truthful empty devices, terminal-only references, missing shared
+dimensions, per-device lock contention, fresh readiness, newer
+snapshots, proof visibility across source views, expiry, recovery
+fencing, durable resume and retention cleanup.</p>
+<p>Concurrent synthetic after-images exercise sequence 40 in an open
+source view, resolution at 41 during that view and publication at 42
+after it closes. These are comparison controls; they do not prove
+JetStream delivery or snapshot finalization. The existing live harness
+owns those claims and remains required before adoption. No control is
+reported as passed merely because it is present.</p>
+<h2 id="bounded-hosted-request">Bounded hosted request</h2>
+<p>Request one initial hosted validation allocation, scheduled by the
+coordinator, using a fresh canonical <code>serial_2</code> fixture clone
+and never-used exposure warehouse schema on the already-authorized lab
+warehouse. Use the existing fixture observer/teardown/release workflow
+described in <a
+href="https://github.com/carverauto/serviceradar/blob/staging/docs/exposure-reconciliation-live-harness.md">the live
+harness runbook</a>. Run the manual audit target explicitly; never
+enable it for ordinary CI discovery.</p>
+<p>The run first verifies the existing production baseline on the
+synthetic fixture, then attempts two independent audit runs. The second
+runs only if the first passes every component screen. Correctness
+controls still run after a failed screen so a performance failure cannot
+hide their verdict. Do not call either run a cold-database measurement:
+the fixture and production baseline warm the storage engines. Report
+first/repeat evidence and this limitation explicitly.</p>
+<p>Required reports: original fixture/baseline markers,
+<code>EXPOSURE_AUDIT_PARITY</code>,
+<code>EXPOSURE_AUDIT_CAPACITY</code>,
+<code>EXPOSURE_AUDIT_CONTROLS</code>, named ExUnit result and canonical
+observer/teardown/release outcomes. Capacity output includes wall time,
+non-overlapping fact time, dimension time, remaining orchestration time,
+proof rows/bytes and VM memory at completion. VM memory is not peak RSS.
+The small harness retains at most 200 device summaries for oracle
+comparison; production adoption must stream these summaries rather than
+retain a fleet-sized list.</p>
+<p>The dimension screen is 120 seconds. The scaled fact and
+orchestration screens are 6 seconds and 0.9 seconds respectively; the
+total fleet deadline remains 900 seconds. A failed screen ends
+performance experimentation. It does not justify tuning the codec,
+widening cohorts, adding workers or requesting the fleet profile
+automatically. A pass supports only a separate fleet-run request.</p>
+<p>Remote format/quality and normal repository checks are still required
+before PR readiness. Publication goes through no-mistakes; this run
+allocation does not waive review, Test, lint, hosted PR CI or live
+validation requirements.</p>
+<h2 id="authoring-evidence-and-limits">Authoring evidence and
+limits</h2>
+<p>Remote core quality validation passed in <a
+href="https://carverauto.buildbuddy.io/invocation/c4273d0c-d162-4847-81a0-f9201f0f275d">BuildBuddy</a>.
+That target checks formatting and Credo; it does not execute the manual
+scratch prototype or prove its SQL, Ash resources, migration or capacity
+behavior. A mistyped initial quality target selected no tests and is not
+validation.</p>
+<p>Ripwire reported clone-shape findings against unrelated production
+migrations, a small timing helper and a synthetic fixture transaction
+helper. Its normalized SQL-string shapes do not establish
+interchangeable migrations. The scratch DDL must not call an unrelated
+production migration, and fixture trigger control must not borrow a
+product remediation writer. These findings remain disclosed; no blanket
+acknowledgement or production refactor was used to make them green. It
+also flags the benchmark modules' length and dynamically invoked
+migration callbacks. Independent no-mistakes review and hosted execution
+remain pending.</p>
+</article></details><h2>Complete proposal</h2><details id="proposal" class="source"><summary>Proposal</summary><article><h1
+id="proposal-bounded-exposure-audit-with-shared-dimension-evidence">Proposal:
+bounded exposure audit with shared dimension evidence</h1>
+<p>Status: design and disabled prototype approved by the product owner
+on 2026-10-28; hosted measurement pending. Related epic: <a
+href="https://github.com/carverauto/serviceradar/issues/5745">#5745</a>.</p>
+<h2 id="why">Why</h2>
+<p>Exposure reconciliation still misses its fleet capacity gate. The
+completed Decision 27 experiment passed its tested correctness controls,
+but the best 200-device / 500,000-active-fact run took about 64 seconds
+against its roughly 9-second rate screen. Repeated dimension
+verification and CNPG digest work both remain material. Increasing the
+cohort alone did not solve either cost.</p>
+<p>The <a
+href="https://agentboard.farm01.carverauto.dev/documents/220">measured
+report</a> records the experiment and its limits. This proposal does not
+claim a speedup.</p>
+<h2 id="what-changes">What Changes</h2>
+<ul>
+<li>Verify each published dimension content version once per bounded
+audit run, then reuse that evidence only for the exact source version a
+cohort observes.</li>
+<li>Compute the existing current-fact digest once in the database. Check
+retained replay independently through normalized field comparison,
+without building a second JSON after-image or hashing it again.</li>
+<li>Admit bounded cohorts and evaluate readiness for those devices
+together, preserving per-device results, recovery obligations and
+generation fences.</li>
+<li>Measure the entire orchestration path against an explicit time
+budget before requesting a fleet run. The 15-minute fleet reconciliation
+limit is unchanged.</li>
+</ul>
+<h2 id="impact">Impact</h2>
+<p>This is a subordinate proposal to <a
+href="https://github.com/carverauto/serviceradar/blob/staging/openspec/changes/add-srql-exposure-intelligence/design.md"><code>add-srql-exposure-intelligence</code></a>,
+not an alternative exposure feature. It adds requirements to that
+capability; it does not replace its snapshot, delivery, retention,
+freshness or repair contracts. The parent proposal remains unarchived.
+The separate experiment report publication is not modified by this
+branch.</p>
+<p>Possible implementation surfaces are
+<code>ExposureReconciliationComparison</code>,
+<code>ExposureReconciliationWorker</code>,
+<code>ExposureReadiness</code>, dimension source metadata, Ash
+resources/migrations for audit control records, and the existing
+capacity harness. No CNPG exposure projection, telemetry path, warehouse
+write bypass, public query API, ordinal width or fact digest format
+changes are proposed.</p>
+<h2 id="approval-recorded">Approval Recorded</h2>
+<p>The product owner approved the complete design and disabled prototype
+in the conversation on 2026-10-28. The approval includes cross-view
+reuse of content-bound dimension evidence and the component budgets. The
+implementation is confined to a manual scratch target and is awaiting
+execution evidence. Hosted run allocation/scheduling, a 50-million-row
+run, production adoption and rollout still require their subsequent
+explicit approvals. Task 1.6 remains open.</p>
+<p>See <a href="#prototype">prototype.md</a> for the implemented
+boundaries, pending checks and the concrete small-profile validation
+request.</p>
+<p>See <a href="#design">design.md</a>, <a
+href="#tasks">tasks.md</a> and the <a
+href="#workflow">workflow
+diagram</a>.</p>
+</article></details><details id="design" class="source"><summary>Technical design</summary><article><h1 id="bounded-exposure-reconciliation-audit">Bounded exposure
+reconciliation audit</h1>
+<p>Status: approved for a disabled prototype on 2026-10-28. Prototype
+source is implemented in the manual harness; behavioral and capacity
+validation are pending.</p>
+<h2 id="evidence-and-objective">Evidence and objective</h2>
+<p>The existing worker compares each device independently. It reads
+referenced dimensions, decodes current and retained assessment
+after-images, hashes facts, reads warehouse facts, records the result
+and evaluates readiness. The same dimension is decoded and compared
+again for other devices.</p>
+<p>The completed synthetic Decision 27 experiment measured 105, 64 and
+69 seconds for cohorts of 1, 8 and 32 devices respectively. Its best
+case was roughly 7,800 active facts/second, short of the fleet floor of
+roughly 55,600. The 32-device case still verified about 338,000
+dimension rows for a fixture with about 53,000 distinct dimensions. All
+tested controls passed; no fleet run or production adoption followed.
+See the <a
+href="https://agentboard.farm01.carverauto.dev/documents/220">report and
+provenance</a>.</p>
+<p>Source and dimension timings overlapped across two workers, so their
+sums are not elapsed time. That candidate also did not exercise the
+complete production orchestration/readiness path. Neither subtracting
+its dimension time nor linearly extrapolating a small fixture
+establishes capacity.</p>
+<p>The goal remains a fully verified daily reconciliation of 20,000
+hosts and 50 million active facts within 900 seconds. Parent task 1.6
+stays open until the actual fleet gate passes. Snapshot publication and
+terminal maintenance have separate gates; this proposal does not change
+them.</p>
+<h2 id="approved-design-decisions">Approved design decisions</h2>
+<h3
+id="1-one-finite-audit-run-bounded-cohorts-existing-repair-ownership">1.
+One finite audit run, bounded cohorts, existing repair ownership</h3>
+<p>Create an audit run with a unique ID, format version, start time,
+900-second deadline, recovery fence and resumable enumeration cursor.
+Enumerate the same union of source ordinals, prior checks, warehouse
+facts and lifecycle ordinals. Commit each bounded enumeration checkpoint
+with its admitted work. A cohort contains at most 32 device ordinals; at
+most two audit workers run concurrently. Dimension, comparison and
+readiness work share that same two-worker budget. Use the existing
+device advisory-lock namespace and acquire locks in ordinal order. A
+busy device is deferred, not treated as empty or silently omitted.</p>
+<p>Each cohort opens a finite repeatable-read source view V. Keep
+30-second statement timeouts, a 60-second total source-view deadline and
+pages/evidence bounded at 500 rows. The cohort returns at most one
+summary per device plus a bounded exception page. A timeout aborts that
+cohort's comparison. Oversized cohorts may split deterministically; a
+single oversized device is deferred and reported. Partial digests never
+become matched results.</p>
+<p>The run records completion only after enumeration is exhausted and
+every admitted device has a qualifying comparison. A crash after
+enumeration cannot lose work; a crash after comparison but before commit
+repeats the comparison. Expired runs stop admitting work and cannot mint
+new successful results. Unresolved repair obligations survive run expiry
+in the existing durable repair records. No new repair executor or
+snapshot finalizer is introduced.</p>
+<h3
+id="2-verify-shared-dimensions-once-per-exact-source-content-version">2.
+Verify shared dimensions once per exact source content version</h3>
+<p>Audit the published dimension-state catalog in bounded pages. A
+page's finite source view supplies the source payload; the verifier
+decodes it through the existing dimension decoder and compares the
+actual StarRocks row using the existing
+<code>ExposureSnapshotWarehouse.row_digest/2</code> contract. A
+successful proof contains
+<code>(run_id, recovery_fence, kind, ordinal, source_seq, source_content_hash, checked_at, source_view, warehouse_row_digest)</code>.
+Before issuing a proof, require the decoded payload kind, ordinal and
+sequence to agree with the dimension-state row that supplied it.</p>
+<p>The source content hash is a version binding, not a replacement for
+warehouse comparison. Add a <strong>stored generated</strong> hash of
+the dimension state's own JSONB payload, provisionally
+<code>sha256(jsonb_send(payload))</code>. It is recalculated by
+PostgreSQL on writes; an equal-sequence payload edit therefore cannot
+reuse an old proof. It hashes only a same-row immutable value: no joins,
+cached current assessment hashes, trigger-maintained cache or falsely
+immutable lookup UDF.</p>
+<p>PostgreSQL documents that stored generated values are computed on
+writes and generation expressions must be immutable and row-local. Its
+PostgreSQL 18 catalog declares <code>jsonb_send</code> and
+<code>sha256</code> with the immutable default. These support the
+candidate expression, but the prototype must still verify it on the
+supported database image. This is a versioned source-local identity;
+PostgreSQL major/serialization changes invalidate all audit proofs and
+require recomputing the column before audit enablement. It is not a
+cross-engine wire format. Sources: <a
+href="https://www.postgresql.org/docs/18/ddl-generated-columns.html">generated
+columns</a>, <a
+href="https://github.com/postgres/postgres/blob/REL_18_STABLE/src/include/catalog/pg_proc.dat">function
+catalog</a>, <a
+href="https://github.com/postgres/postgres/blob/REL_18_STABLE/src/include/catalog/pg_proc.h">catalog
+defaults</a>.</p>
+<p>The cohort's source query joins its required dimension references to
+source state and proofs visible in V. Coverage includes retained
+assessment publications and deletion watermarks, including terminal rows
+and old package versions. Missing source dictionaries, malformed
+references, missing proofs, failed proofs or a content/sequence mismatch
+defer affected devices. Do not materialize a fleet-sized
+device/dimension edge table. Aggregate coverage while scanning the
+necessary source rows; return only bounded failure keys.</p>
+<p>A newly observed version schedules one deduplicated proof request. It
+cannot become visible inside an already-open V: retry the affected
+cohort in a new bounded view after verification. Unrelated cohorts
+continue. Existing versions retain their proof for this run;
+continuously changing dimensions can defer their dependent devices and
+cause a failed run, never a false match. Publish proofs only after the
+actual warehouse read and source-view validation finish.</p>
+<p><strong>This explicitly changes the experiment's prohibition on
+cross-view reuse.</strong> The binding is exact source content plus the
+audit run and recovery fence, not sequence alone, wall-clock recency
+alone or a process-wide cache. No proof is reused in another audit
+run.</p>
+<p>Freshness is the oldest evidence used: preserve
+<code>dimension_checked_at</code> per device as the minimum of its
+proofs, alongside <code>fact_started_at</code> and
+<code>comparison_finished_at</code>. Readiness uses the oldest relevant
+time, including the requirement that evidence follow the covering
+recovery generation. A later fact comparison does not refresh an older
+dimension check. A new covering snapshot can therefore require fresh
+dimension proofs even in the same run.</p>
+<p>This is a bounded observational audit, not an atomic CNPG/StarRocks
+snapshot. An out-of-band warehouse edit after its dimension was checked
+is detected by a later audit, as an edit after an existing per-device
+check is today. Expose the evidence times; do not describe the warehouse
+as verified at the later completion instant. A source edit in the
+cohort's V invalidates a mismatched proof even when its transition
+sequence did not change.</p>
+<h3
+id="3-one-current-fact-hash-independently-validate-retained-replay">3.
+One current-fact hash; independently validate retained replay</h3>
+<p>In V, project typed current attributes directly from assessments,
+ordinals and the current package-version dictionary. Retain the existing
+eligibility and lifecycle rules. Validate retained publication
+structure, schema version, required fields, ordinals, types and
+timestamps against the existing decoder contract before normalization.
+Invalid inputs fail the affected comparison; SQL casts, defaults or
+filtered rows must not turn them into success.</p>
+<p>For an active current row, compare the normalized current tuple to
+its retained publication field by field, then calculate
+<code>exposure-fact/v1</code> once. The tuple is
+<code>device_ord, cve_ord, pkg_ord, transition_seq, device_lifecycle_seq, pkgver_ord, state, severity_rank, cvss_score, kev, exploit_available, fix_available, source_scope</code>.
+An active/non-active disagreement is a mismatch. Two valid non-active
+rows keep the existing zero-contribution digest semantics; terminal
+payload/marker verification remains owned by snapshot/retention
+contracts. Do not silently broaden that contract to equality of
+compacted terminal rows.</p>
+<p>Use explicit normalization for NULL, booleans/0/1, binary64 CVSS,
+signed zero, signed integers and UTF-8. Equality must correspond to the
+existing digest's typed values; generic JSON text equality is
+insufficient. No digest format, field order, SHA-256 algorithm or
+modular sum change is proposed. The existing Elixir implementation is
+the differential oracle, not a second tuning target.</p>
+<p>Group count and sum modulo 2^256 by device in CNPG. StarRocks
+independently computes the same digest from <strong>actual stored
+columns</strong>, not an ingestion-time hash. Include every requested
+device in the result, even when either side has zero active rows.
+Preserve duplicate multiplicity, source/warehouse-only keys, lifecycle
+checks and independent current-versus-retained drift detection.</p>
+<p>On mismatch, persist the existing per-device mismatch/generation
+floor and invoke bounded key localization. Only fixed durable repair
+targets can clear obligations. Changed content obtains a new sequence
+under the existing source lock and travels through JetStream. A higher
+warehouse sequence clears a repair only when the existing current-source
+verification proves it valid.</p>
+<h3 id="4-batch-readiness-evaluation-never-cache-a-ready-verdict">4.
+Batch readiness evaluation; never cache a ready verdict</h3>
+<p>Record per-device comparison results transactionally, then evaluate
+readiness for up to 32 devices in one fresh bounded source view. Share
+identical global subqueries and group scoped predicates by
+device/bucket. Preserve every existing reason: covering snapshot and
+generation floor, daily comparison age, enumeration coverage, source
+preparation, lifecycle/dimension coverage, delivery journals, pending
+snapshot pages, repairs from any generation and ten-minute outbox age.
+Normal young outbox traffic does not block completion.</p>
+<p>This batches computation, not authority. Retain each device's
+distinct result and reasons; one matched device cannot clear another's
+pending repair. Unknown warehouse ordinals keep conservative journal
+scope. The public status query still reads current recovery state; no
+cached <code>ready=true</code> flag serves it. Fleet readiness requires
+complete admitted coverage and unexpired evidence. Measure readiness
+costs even when a comparison is deferred or mismatched.</p>
+<h3 id="5-fence-recovery-and-bound-control-metadata">5. Fence recovery
+and bound control metadata</h3>
+<p>Use a persisted monotonically increasing audit recovery fence.
+Entering a warehouse restore/rebuild or changing audit formats
+increments it and invalidates active runs before warehouse mutation.
+Result/proof publication locks and rechecks the fence, run deadline and
+relevant generation floor in the commit transaction; an old worker
+cannot publish into a new recovery. All restore entry points must
+participate before prototype adoption. An unannounced external restore
+has no magical detection guarantee: daily audit and existing recovery
+signals remain responsible for discovering divergence.</p>
+<p>Audit runs and dimension proofs are Ash-backed CNPG <strong>control
+metadata</strong>. They store identities, digests, cursors, evidence
+times and statuses, not copies of exposure facts or dimension payloads.
+Index proof lookup by run/kind/key/ content/version and work by
+run/status/cursor. Keep process memory bounded by pages and cohort
+width. Report database proof rows/bytes and versions per key; run
+duration bounds churn, and repeated failures end the run.</p>
+<p>Retain at most the active and latest completed run's reusable proof
+set. Remove expired superseded proof pages in bounded transactions after
+their consumers finish. Durable per-device checks copy their evidence
+times and digests, so cleanup cannot upgrade freshness or erase repair
+obligations. Restore and rollback invalidate proofs rather than making
+them authoritative again.</p>
+<h2 id="capacity-budget-and-stop-rules">Capacity budget and stop
+rules</h2>
+<p>The following are proposed allocation targets, <strong>not measured
+results</strong>. They sum to the unchanged 900-second fleet gate.
+Charge actual critical-path elapsed work once; also report inclusive
+phase CPU/wall time without adding overlapping worker times as if they
+were elapsed time.</p>
 <table>
 <thead>
 <tr>
 <th>Work</th>
-<th style="text-align:right">Fleet allocation</th>
+<th style="text-align: right;">Fleet allocation</th>
 <th>Early falsification check</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Distinct dimension versions, including required rechecks</td>
-<td style="text-align:right">120 s</td>
-<td>Measure the entire catalog and live-change rechecks; count distinct versions and repeated verification</td>
+<td style="text-align: right;">120 s</td>
+<td>Measure the entire catalog and live-change rechecks; count distinct
+versions and repeated verification</td>
 </tr>
 <tr>
-<td>Current/replay validation plus CNPG and warehouse fact summaries</td>
-<td style="text-align:right">600 s</td>
-<td>500,000 active facts at two workers must take at most 6 s; roughly 83,300 facts/s is the component target</td>
+<td>Current/replay validation plus CNPG and warehouse fact
+summaries</td>
+<td style="text-align: right;">600 s</td>
+<td>500,000 active facts at two workers must take at most 6 s; roughly
+83,300 facts/s is the component target</td>
 </tr>
 <tr>
-<td>Enumeration, admission, lifecycle, persistence, readiness and cleanup</td>
-<td style="text-align:right">90 s</td>
-<td>200 devices must cost at most 0.9 s of equivalent linear work; measure fixed overhead separately</td>
+<td>Enumeration, admission, lifecycle, persistence, readiness and
+cleanup</td>
+<td style="text-align: right;">90 s</td>
+<td>200 devices must cost at most 0.9 s of equivalent linear work;
+measure fixed overhead separately</td>
 </tr>
 <tr>
 <td>Retries and scheduling reserve</td>
-<td style="text-align:right">90 s</td>
-<td>Report actual retries/queue delay; do not spend reserve to conceal a failed component screen</td>
+<td style="text-align: right;">90 s</td>
+<td>Report actual retries/queue delay; do not spend reserve to conceal a
+failed component screen</td>
 </tr>
 </tbody>
 </table>
-<p>The former 9-second whole-smoke screen assumed all costs scaled with facts.
-This proposal replaces that <strong>early screen only</strong> with distinct fixed/dimension
-and linear components. It does not relax fleet completion. A catalog-heavy
-smoke cannot prove fleet capacity, and a favorable warm cache is not a pass.</p>
-<p>First build a disabled prototype with these counters. After separate run
-authorization, use the existing synthetic fixture lifecycle and declared
-capacity profile. Include cold and warm runs, distinct/version-heavy catalogs,
-skewed devices, terminal references, normal live traffic and error paths.
-Keep fixture construction outside the audit timer but include all audit
-admission, recovery verification, readiness and cleanup. Report terminal and
-catalog cardinalities with the active count. Connection usage, database CPU,
-rows scanned and client memory must be captured; sampled process memory is
-not peak RSS. A single favorable invocation establishes neither p95 nor fleet
+<p>The former 9-second whole-smoke screen assumed all costs scaled with
+facts. This proposal replaces that <strong>early screen only</strong>
+with distinct fixed/dimension and linear components. It does not relax
+fleet completion. A catalog-heavy smoke cannot prove fleet capacity, and
+a favorable warm cache is not a pass.</p>
+<p>First build a disabled prototype with these counters. After separate
+run authorization, use the existing synthetic fixture lifecycle and
+declared capacity profile. Include cold and warm runs,
+distinct/version-heavy catalogs, skewed devices, terminal references,
+normal live traffic and error paths. Keep fixture construction outside
+the audit timer but include all audit admission, recovery verification,
+readiness and cleanup. Report terminal and catalog cardinalities with
+the active count. Connection usage, database CPU, rows scanned and
+client memory must be captured; sampled process memory is not peak RSS.
+A single favorable invocation establishes neither p95 nor fleet
 capacity.</p>
-<p>If either linear screen fails, stop before 50 million rows. Permit a correction
-only for a demonstrated query-plan or implementation defect; do not start
-another codec/cohort sweep or raise concurrency to disguise the miss. A passed
-screen permits a fleet-run request, not the run itself. Actual fleet success
-must include correctness controls and complete cleanup. Gate ownership stays
-with the parent exposure change.</p>
-<h2>Required correctness controls</h2>
+<p>If either linear screen fails, stop before 50 million rows. Permit a
+correction only for a demonstrated query-plan or implementation defect;
+do not start another codec/cohort sweep or raise concurrency to disguise
+the miss. A passed screen permits a fleet-run request, not the run
+itself. Actual fleet success must include correctness controls and
+complete cleanup. Gate ownership stays with the parent exposure
+change.</p>
+<h2 id="required-correctness-controls">Required correctness
+controls</h2>
 <table>
 <thead>
 <tr>
@@ -278,88 +550,114 @@ with the parent exposure change.</p>
 </thead>
 <tbody>
 <tr>
-<td>Same-count fact corruption, missing row, warehouse-only row, empty device</td>
+<td>Same-count fact corruption, missing row, warehouse-only row, empty
+device</td>
 <td>Mismatch or truthful empty match; never omitted scope</td>
 </tr>
 <tr>
 <td>Equal-sequence dimension content edit after proof</td>
-<td>New content hash prevents reuse; affected scope deferred/repaired</td>
+<td>New content hash prevents reuse; affected scope
+deferred/repaired</td>
 </tr>
 <tr>
-<td>New/higher dimension version and old package version referenced only by a terminal record</td>
-<td>Exact visible version proof required; no active-only coverage shortcut</td>
+<td>New/higher dimension version and old package version referenced only
+by a terminal record</td>
+<td>Exact visible version proof required; no active-only coverage
+shortcut</td>
 </tr>
 <tr>
 <td>Edit before dimension check versus edit after it</td>
-<td>First detected in this audit; second retains old evidence time and is detected by a later audit</td>
+<td>First detected in this audit; second retains old evidence time and
+is detected by a later audit</td>
 </tr>
 <tr>
-<td>Current assessment drifts from replay; malformed replay; missing dictionary</td>
-<td>Failure/mismatch survives SQL aggregation and produces bounded evidence</td>
+<td>Current assessment drifts from replay; malformed replay; missing
+dictionary</td>
+<td>Failure/mismatch survives SQL aggregation and produces bounded
+evidence</td>
 </tr>
 <tr>
-<td>Live fact changes before and after snapshot completion, including visible 40/resolved 41</td>
-<td>Existing visibility and higher-sequence rules win; no quiescence requirement</td>
+<td>Live fact changes before and after snapshot completion, including
+visible 40/resolved 41</td>
+<td>Existing visibility and higher-sequence rules win; no quiescence
+requirement</td>
 </tr>
 <tr>
-<td>Proof arrives after V; view/statement timeout; worker dies between scan and commit</td>
+<td>Proof arrives after V; view/statement timeout; worker dies between
+scan and commit</td>
 <td>Fresh bounded retry; no partial success</td>
 </tr>
 <tr>
-<td>Restore or newer covering snapshot between proof and result commit</td>
+<td>Restore or newer covering snapshot between proof and result
+commit</td>
 <td>Fence/generation recheck rejects stale evidence</td>
 </tr>
 <tr>
 <td>Young ordinary outbox vs pending recovery/old outbox</td>
-<td>Young traffic allowed; actual recovery and staleness still block</td>
+<td>Young traffic allowed; actual recovery and staleness still
+block</td>
 </tr>
 <tr>
-<td>One failed device in a cohort; duplicate jobs; restart after cursor commit</td>
-<td>Other scopes keep distinct outcomes; no lost coverage or double repair assignment</td>
+<td>One failed device in a cohort; duplicate jobs; restart after cursor
+commit</td>
+<td>Other scopes keep distinct outcomes; no lost coverage or double
+repair assignment</td>
 </tr>
 <tr>
 <td>Cleanup/rollback with outstanding repairs</td>
-<td>Reusable proofs expire; obligations and permanent markers survive</td>
+<td>Reusable proofs expire; obligations and permanent markers
+survive</td>
 </tr>
 </tbody>
 </table>
-<p>Use existing decoder/digest tests as the oracle and extend the owning DB
-integration/capacity suites. Test selection and fixture cleanup must follow
-the repository test-audit and hosted-build rules. SQL equivalence, end-to-end
-JetStream delivery and snapshot finalization are separate claims; synthetic
-after-image comparisons alone cannot prove live delivery.</p>
-<h2>Migration, rollout and alternatives</h2>
-<p>Prototype schema changes run only in its synthetic scratch database. Production
-migration planning follows only after evidence supports adoption: generated
-column backfill/lock cost, Ash metadata/resources, indexes, restore hooks and
-retention cleanup all need measured validation. No warehouse grants widen.
-Deployment code defaults to the existing reconciler until a separately reviewed
-adoption change enables this path. Rollback fences new runs and returns to the
-old worker while retaining per-device recovery state; throughput may again miss
-the gate and must be reported.</p>
-<p>Rejected for this experiment: more workers or larger unbounded cohorts; cached
-fact hashes that hide current/replay drift; sequence-only dimension caches;
-changing SHA-256/typed encoding again; dropping terminal references; treating
-the snapshot relay as proof that warehouse content matches. These either avoid
-the measured work without proving correctness, or repeat the failed approach.</p>
-<p>The main uncertainty is whether one current hash plus normalized validation is
-fast enough even after shared dimensions are removed. The failed experiment's
-source cost gives no assurance it is. The small-screen stop rules make that
-uncertainty cheap to resolve before another fleet attempt.</p>
-<h2>Repository evidence</h2>
-<p>All paths below are under <code>elixir/serviceradar_core/lib/serviceradar/</code>:</p>
+<p>Use existing decoder/digest tests as the oracle and extend the owning
+DB integration/capacity suites. Test selection and fixture cleanup must
+follow the repository test-audit and hosted-build rules. SQL
+equivalence, end-to-end JetStream delivery and snapshot finalization are
+separate claims; synthetic after-image comparisons alone cannot prove
+live delivery.</p>
+<h2 id="migration-rollout-and-alternatives">Migration, rollout and
+alternatives</h2>
+<p>Prototype schema changes run only in its synthetic scratch database.
+Production migration planning follows only after evidence supports
+adoption: generated column backfill/lock cost, Ash metadata/resources,
+indexes, restore hooks and retention cleanup all need measured
+validation. No warehouse grants widen. Deployment code defaults to the
+existing reconciler until a separately reviewed adoption change enables
+this path. Rollback fences new runs and returns to the old worker while
+retaining per-device recovery state; throughput may again miss the gate
+and must be reported.</p>
+<p>Rejected for this experiment: more workers or larger unbounded
+cohorts; cached fact hashes that hide current/replay drift;
+sequence-only dimension caches; changing SHA-256/typed encoding again;
+dropping terminal references; treating the snapshot relay as proof that
+warehouse content matches. These either avoid the measured work without
+proving correctness, or repeat the failed approach.</p>
+<p>The main uncertainty is whether one current hash plus normalized
+validation is fast enough even after shared dimensions are removed. The
+failed experiment's source cost gives no assurance it is. The
+small-screen stop rules make that uncertainty cheap to resolve before
+another fleet attempt.</p>
+<h2 id="repository-evidence">Repository evidence</h2>
+<p>All paths below are under
+<code>elixir/serviceradar_core/lib/serviceradar/</code>:</p>
 <ul>
-<li><code>inventory/exposure_reconciliation_comparison.ex</code>: independent current/replay,
-dimensions, lifecycle and warehouse comparisons in V.</li>
-<li><code>inventory/exposure_reconciliation_digest.ex</code>: typed v1 count and modular sum.</li>
-<li><code>inventory/exposure_reconciliation_worker.ex</code>: union enumeration, durable
-per-device mismatch state, sequenced repair and readiness after comparison.</li>
-<li><code>inventory/exposure_readiness.ex</code>: current recovery predicates and freshness.</li>
-<li><code>inventory/exposure_snapshot_worker.ex</code>: prerequisite and retained-reference coverage.</li>
-<li><code>event_writer/exposure_snapshot_warehouse.ex</code>: normalized row comparisons and
-higher-sequence/visibility rules.</li>
-<li><code>event_writer/processors/exposure_transitions.ex</code>: validation and conversion
-contract for retained after-images.</li>
+<li><code>inventory/exposure_reconciliation_comparison.ex</code>:
+independent current/replay, dimensions, lifecycle and warehouse
+comparisons in V.</li>
+<li><code>inventory/exposure_reconciliation_digest.ex</code>: typed v1
+count and modular sum.</li>
+<li><code>inventory/exposure_reconciliation_worker.ex</code>: union
+enumeration, durable per-device mismatch state, sequenced repair and
+readiness after comparison.</li>
+<li><code>inventory/exposure_readiness.ex</code>: current recovery
+predicates and freshness.</li>
+<li><code>inventory/exposure_snapshot_worker.ex</code>: prerequisite and
+retained-reference coverage.</li>
+<li><code>event_writer/exposure_snapshot_warehouse.ex</code>: normalized
+row comparisons and higher-sequence/visibility rules.</li>
+<li><code>event_writer/processors/exposure_transitions.ex</code>:
+validation and conversion contract for retained after-images.</li>
 </ul>
 </article></details><details id="requirements" class="source"><summary>Requirements and scenarios</summary><article><h2>ADDED Requirements</h2>
 <h3>Requirement: Content-bound dimension evidence within a finite audit</h3>
@@ -456,29 +754,66 @@ may be requested; they SHALL NOT establish fleet capacity or production approval
 <li><strong>WHEN</strong> the results are reported</li>
 <li><strong>THEN</strong> the fleet gate remains open pending a separately authorized complete fleet run</li>
 </ul>
-</article></details><details id="tasks" class="source"><summary>Implementation gates</summary><article><h2>0. Design gate</h2>
-<ul>
-<li>[x] 0.1 Record measured bottlenecks and propose a replacement design without changing runtime code.</li>
-<li>[ ] 0.2 Obtain review of cross-view dimension proofs, source-local generated identity, recovery fencing, batched readiness and component screens. No prototype before approval.</li>
+</article></details><details id="tasks" class="source"><summary>Implementation gates</summary><article><h2 id="0-design-gate">0. Design gate</h2>
+<ul class="task-list">
+<li><label><input type="checkbox" checked="" />0.1 Record measured
+bottlenecks and propose a replacement design without changing runtime
+code.</label></li>
+<li><label><input type="checkbox" checked="" />0.2 Obtain review of
+cross-view dimension proofs, source-local generated identity, recovery
+fencing, batched readiness and component screens. Approved by direct
+product-owner response on 2026-10-28.</label></li>
 </ul>
-<h2>1. Disabled prototype (requires 0.2)</h2>
-<ul>
-<li>[ ] 1.1 Map every restore/rebuild entry point and implement fence invalidation in the isolated harness. Verify generated hash behavior on the supported PostgreSQL image, including equal-sequence edits.</li>
-<li>[ ] 1.2 Add bounded run/proof control metadata and exact-version dimension verification. Preserve terminal references, evidence age and per-device deferral.</li>
-<li>[ ] 1.3 Implement one current v1 hash and independent normalized replay validation. Differentially verify SQL against the existing decoder/digest oracle.</li>
-<li>[ ] 1.4 Batch admission and readiness with unchanged predicates. Preserve per-device locks, durable repair ownership and crash-safe enumeration.</li>
-<li>[ ] 1.5 Add only missing behavior controls to the owning DB/capacity suites after test-audit review. Validate live 40/41 sequencing, proof expiry, restore fencing, partial failures and cleanup.</li>
+<h2 id="1-disabled-prototype-requires-02">1. Disabled prototype
+(requires 0.2)</h2>
+<p>Source for 1.1-1.5 is present in the manual harness. These items stay
+unchecked until their behavioral assertions run successfully. See <a
+href="#prototype">prototype.md</a>.</p>
+<ul class="task-list">
+<li><label><input type="checkbox" />1.1 Map every restore/rebuild entry
+point and implement fence invalidation in the isolated harness. Verify
+generated hash behavior on the supported PostgreSQL image, including
+equal-sequence edits.</label></li>
+<li><label><input type="checkbox" />1.2 Add bounded run/proof control
+metadata and exact-version dimension verification. Preserve terminal
+references, evidence age and per-device deferral.</label></li>
+<li><label><input type="checkbox" />1.3 Implement one current v1 hash
+and independent normalized replay validation. Differentially verify SQL
+against the existing decoder/digest oracle.</label></li>
+<li><label><input type="checkbox" />1.4 Batch admission and readiness
+with unchanged predicates. Preserve per-device locks, durable repair
+ownership and crash-safe enumeration.</label></li>
+<li><label><input type="checkbox" />1.5 Add only missing behavior
+controls to the owning DB/capacity suites after test-audit review.
+Validate live 40/41 sequencing, proof expiry, restore fencing, partial
+failures and cleanup.</label></li>
 </ul>
-<h2>2. Measurement gate (separate run authorization)</h2>
-<ul>
-<li>[ ] 2.1 Request a bounded hosted run allocation and schedule for synthetic scratch schemas; copy protected physical <code>.bazelrc.remote</code> into every author/gate worktree. No local build fallback.</li>
-<li>[ ] 2.2 Measure dimensions, fact comparison and full orchestration against design budgets with two workers, at most 32 devices/cohort and existing timeout/page limits. Report cold/warm runs and resource use.</li>
-<li>[ ] 2.3 Stop on a failed component screen. If screens and correctness pass, request the 20,000-host / 50-million-active-fact run separately. Record all cleanup evidence.</li>
+<h2 id="2-measurement-gate-separate-run-authorization">2. Measurement
+gate (separate run authorization)</h2>
+<ul class="task-list">
+<li><label><input type="checkbox" />2.1 Request a bounded hosted run
+allocation and schedule for synthetic scratch schemas; copy protected
+physical <code>.bazelrc.remote</code> into every author/gate worktree.
+No local build fallback.</label></li>
+<li><label><input type="checkbox" />2.2 Measure dimensions, fact
+comparison and full orchestration against design budgets with two
+workers, at most 32 devices/cohort and existing timeout/page limits.
+Report cold/warm runs and resource use.</label></li>
+<li><label><input type="checkbox" />2.3 Stop on a failed component
+screen. If screens and correctness pass, request the 20,000-host /
+50-million-active-fact run separately. Record all cleanup
+evidence.</label></li>
 </ul>
-<h2>3. Adoption (separate approval)</h2>
-<ul>
-<li>[ ] 3.1 Publish measured results through no-mistakes with current-head hosted checks. Keep parent task 1.6 open unless the actual fleet gate passes.</li>
-<li>[ ] 3.2 Review production migration/backfill cost, restore integration and rollback. Adopt only through a separately approved runtime PR and scheduled rollout.</li>
+<h2 id="3-adoption-separate-approval">3. Adoption (separate
+approval)</h2>
+<ul class="task-list">
+<li><label><input type="checkbox" />3.1 Publish measured results through
+no-mistakes with current-head hosted checks. Keep parent task 1.6 open
+unless the actual fleet gate passes.</label></li>
+<li><label><input type="checkbox" />3.2 Review production
+migration/backfill cost, restore integration and rollback. Adopt only
+through a separately approved runtime PR and scheduled
+rollout.</label></li>
 </ul>
 </article></details><details id="workflow" class="source"><summary>Validated workflow diagram</summary><iframe title="Proposed exposure audit workflow" srcdoc="<!DOCTYPE html>
 <html lang=&quot;en&quot; data-theme=&quot;dark&quot; data-preset=&quot;classic&quot;>

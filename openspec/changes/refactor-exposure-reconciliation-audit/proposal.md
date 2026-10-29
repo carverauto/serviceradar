@@ -1,6 +1,6 @@
 # Proposal: bounded exposure audit with shared dimension evidence
 
-Status: proposed; design review only. Related epic: [#5745](https://github.com/carverauto/serviceradar/issues/5745).
+Status: design and disabled prototype approved by the product owner on 2026-10-28; hosted measurement pending. Related epic: [#5745](https://github.com/carverauto/serviceradar/issues/5745).
 
 ## Why
 
@@ -40,13 +40,17 @@ Ash resources/migrations for audit control records, and the existing capacity
 harness. No CNPG exposure projection, telemetry path, warehouse write bypass,
 public query API, ordinal width or fact digest format changes are proposed.
 
-## Approval Requested
+## Approval Recorded
 
-Approve this design for a bounded, disabled prototype and its validation plan,
-including cross-view reuse of content-bound dimension evidence and the proposed
-component budgets. This approval would permit prototype implementation only.
+The product owner approved the complete design and disabled prototype in the
+conversation on 2026-10-28. The approval includes cross-view reuse of
+content-bound dimension evidence and the component budgets. The implementation
+is confined to a manual scratch target and is awaiting execution evidence.
 Hosted run allocation/scheduling, a 50-million-row run, production adoption and
-rollout require their subsequent explicit approvals. Task 1.6 remains open.
+rollout still require their subsequent explicit approvals. Task 1.6 remains open.
+
+See [prototype.md](prototype.md) for the implemented boundaries, pending checks
+and the concrete small-profile validation request.
 
 See [design.md](design.md), [tasks.md](tasks.md) and the
 [workflow diagram](../../../docs/architecture/exposure-reconciliation-audit.html).
