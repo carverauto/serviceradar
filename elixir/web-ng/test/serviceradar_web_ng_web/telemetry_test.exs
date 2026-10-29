@@ -82,4 +82,16 @@ defmodule ServiceRadarWebNGWeb.TelemetryTest do
     assert [:serviceradar, :prefix_tags, :snapshot_freshness, :known] in metric_names
     assert [:serviceradar, :prefix_tags, :import, :record_count] in metric_names
   end
+
+  test "starts :opentelemetry_exporter before :opentelemetry in the compiled application spec" do
+    assert Telemetry.metrics() != []
+
+    apps = Application.spec(:serviceradar_web_ng, :applications)
+    exporter_idx = Enum.find_index(apps, &(&1 == :opentelemetry_exporter))
+    otel_idx = Enum.find_index(apps, &(&1 == :opentelemetry))
+
+    assert is_integer(exporter_idx)
+    assert is_integer(otel_idx)
+    assert exporter_idx < otel_idx
+  end
 end

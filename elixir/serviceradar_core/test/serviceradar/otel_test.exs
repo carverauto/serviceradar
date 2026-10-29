@@ -15,6 +15,29 @@ defmodule ServiceRadar.OtelTest do
     assert Application.fetch_env!(:opentelemetry, :traces_exporter) == :none
   end
 
+  test "orders :opentelemetry_exporter before :opentelemetry and initializes the OTLP trace exporter on first attempt" do
+    Process.flag(:trap_exit, true)
+    assert ServiceRadar.Otel.span("test.exporter.boot_order", %{}, fn -> :ok end) == :ok
+
+    apps = Application.spec(:serviceradar_core, :applications)
+    exporter_idx = Enum.find_index(apps, &(&1 == :opentelemetry_exporter))
+    otel_idx = Enum.find_index(apps, &(&1 == :opentelemetry))
+
+    assert is_integer(exporter_idx)
+    assert is_integer(otel_idx)
+    assert exporter_idx < otel_idx
+
+    {:ok, _} = Application.ensure_all_started(:opentelemetry_exporter)
+
+    assert {:ok, state} =
+             :serviceradar_otel_exporter_traces_otlp.init(%{
+               protocol: :grpc,
+               endpoints: [{:http, ~c"127.0.0.1", 9, []}]
+             })
+
+    assert :ok = :serviceradar_otel_exporter_traces_otlp.shutdown(state)
+  end
+
   describe "span/3" do
     test "returns the function result" do
       assert ServiceRadar.Otel.span("test.span", %{}, fn -> {:ok, 42} end) == {:ok, 42}
