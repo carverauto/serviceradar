@@ -425,7 +425,10 @@ defmodule ServiceRadar.DireTrace do
       "metadata" =>
         Map.merge(
           %{"integration_type" => "proxmox", "integration_id" => trace.real.int[int_id]},
-          Map.new(certs_of(trace, h), &{"tls_certificate_fingerprint", "pve:sha256:" <> trace.real.cert[&1]})
+          Map.new(
+            certs_of(trace, h),
+            &{"tls_certificate_fingerprint", "pve:sha256:" <> trace.real.cert[&1]}
+          )
         )
     }
 
