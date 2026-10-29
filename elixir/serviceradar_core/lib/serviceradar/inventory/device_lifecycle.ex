@@ -33,6 +33,10 @@ defmodule ServiceRadar.Inventory.DeviceLifecycle do
   configs should fail on the error instead of guessing: `active?/2` keeps its
   fail-open `true` for event-suppression callers, which must not drop events
   because a lookup failed.
+
+  A non-empty device UID returns `{:error, :repo_unavailable}` when
+  `ServiceRadar.Repo` is disabled or not running. A nil or empty UID continues
+  to return `{:ok, true}` without a lookup.
   """
   @spec fetch_active?(String.t() | nil, keyword()) :: {:ok, boolean()} | {:error, term()}
   def fetch_active?(device_uid, opts \\ [])

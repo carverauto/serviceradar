@@ -69,6 +69,13 @@ defmodule ServiceRadar.Edge.RemoteAccessFileTransfers do
 
   def agent_frame?(_frame), do: false
 
+  @doc """
+  Applies a file-transfer progress, outcome, or error frame to its transfer.
+
+  Unrelated frame types return `:ignore`. With the default transfer resource,
+  recognized frames return `{:error, :repo_unavailable}` before reading transfer
+  state if `ServiceRadar.Repo` is disabled or not running.
+  """
   @spec handle_agent_frame(map(), keyword()) ::
           {:ok, map() | struct()} | :ignore | {:error, term()}
   def handle_agent_frame(frame, opts \\ []) when is_map(frame) do

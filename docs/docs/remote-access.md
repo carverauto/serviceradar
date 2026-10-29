@@ -926,6 +926,13 @@ The sidebar does not copy directories recursively or copy a local filesystem
 root to a remote root. Check the displayed errors and **Transfers** status for
 the result of each attempted transfer.
 
+The agent gateway forwards transfer progress, outcomes, and errors to core for
+persistence over the cluster connection. If no core node can handle the RPC,
+the gateway logs `Remote access file transfer failed because core is unavailable`
+and keeps the agent control stream open. The transfer update is not persisted
+by the gateway; check core availability and gateway-to-core cluster connectivity
+when transfer records stop updating.
+
 ### Open A Proxmox Host Shell
 
 For PVE host console modes and setup, see [Proxmox Console Access](./proxmox#console-access). For SSH access, the preferred enterprise setup is the SSH CA path: enroll the PVE host SSH server with the ServiceRadar user CA, allow only the intended principals, and route the session through the assigned edge agent.

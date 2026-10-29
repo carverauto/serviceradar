@@ -40,6 +40,11 @@ defmodule ServiceRadar.NATS.DurablePublish do
   failed and the durable retry job was stored, or `{:error, reason}` when
   neither the publish nor the retry job could be stored.
 
+  With the default transaction check, a disabled or unstarted `ServiceRadar.Repo`
+  returns `{:error, :repo_unavailable}` before attempting publication. The default
+  retry-job insert also requires an enabled, running repo; if it is unavailable,
+  enqueueing returns `{:error, {:publish_and_enqueue_failed, :repo_unavailable}}`.
+
   Options:
 
     * `:msg_id` (required) - the message's stable identity
