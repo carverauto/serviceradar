@@ -72,6 +72,9 @@ build --repo_env=NEXT_SKIP_TURBO=1
 build --repo_env=NEXT_PRIVATE_SKIP_TURBOPACK=1
 build --repo_env=TURBOPACK=
 build --@io_bazel_rules_go//go/config:pure
+# rules_go does not consume go.mod's godebug directive. Match its MPTCP default
+# in every Go executable, including release images and cross-compiled agents.
+build --@io_bazel_rules_go//go/config:gc_linkopts=-X=runtime.godebugDefault=multipathtcp=0
 
 # Standard test ergonomics: show failing logs and retry known flaky tests once.
 test --test_output=errors

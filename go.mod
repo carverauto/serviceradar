@@ -2,6 +2,9 @@ module github.com/carverauto/serviceradar
 
 go 1.26.3
 
+// Avoid MPTCP listeners while hosts await the CVE-2026-98432 kernel fix.
+godebug multipathtcp=0
+
 require (
 	github.com/atotto/clipboard v0.1.4
 	github.com/bazelbuild/rules_go v0.65.0
