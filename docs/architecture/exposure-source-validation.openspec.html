@@ -15,7 +15,7 @@ figure{margin:24px 0}figcaption{color:var(--muted);font-size:14px}.flow .label{f
 <path id="to-facts" d="M630 170 H670 V75 H718" marker-end="url(#arrow)" /><path id="to-refs" d="M630 220 H670 V315 H718" marker-end="url(#arrow)" />
 <g id="facts"><title>Fact summaries retain multiplicity</title><rect x="730" y="20" width="250" height="110" rx="12" /><text x="750" y="61" class="label">Fact summaries</text><text x="750" y="94" class="sub">Every fact still counts</text></g><g id="refs"><title>Distinct reference lookups</title><rect x="730" y="260" width="250" height="110" rx="12" /><text x="750" y="301" class="label">Dimension proofs</text><text x="750" y="334" class="sub">One lookup per shared key</text></g></svg><figcaption>Fact count and digest sums remain per device. Proof eligibility and evidence age also remain per device, even when lookup work is shared.</figcaption></figure>
 <div class="grid"><div class="card"><span class="n">01 / SOURCE</span><h3>Compact intermediates</h3><p>One validation per eligible row. Raw replay JSON stays out of materialized shared state. Invalid rows remain explicit failures.</p></div><div class="card"><span class="n">02 / COVERAGE</span><h3>Distinct keys</h3><p>Read each dimension version and proof once in the cohort. Preserve terminal references and each device's covering generation.</p></div><div class="card"><span class="n">03 / AUTHORITY</span><h3>Independent results</h3><p>Current state still compares with retained replay. StarRocks still reads actual stored columns. Locks, fences and fresh readiness remain required.</p></div></div></section>
-<section id="choice"><h2>Approved scope</h2><div class="options"><div class="card recommend"><span class="n">APPROVED 2026-10-29</span><h3>Implement the shared source pipeline</h3><p>Change only the disabled harness, preserve validation and digest semantics, and prepare remote validation through no-mistakes. No migration, writer changes or persistent cache.</p></div><div class="card"><span class="n">DEFERRED ALTERNATIVE</span><h3>Store prevalidated replay</h3><p>Could amortize validation, but adds write cost, format/backfill work, restore handling and a new trust boundary. The current evidence does not justify that complexity yet.</p></div></div><div class="warning"><strong>The one authorized run failed its fact screen.</strong><p>No further allocation, rerun, fleet execution, adoption, or performance waiver is approved. Parent task 1.6 stays open.</p></div><h3>What this run established</h3><table><thead><tr><th>Claim</th><th>Observed limit</th></tr></thead><tbody><tr><td>One shared source read</td><td>Observed for one diagnostic cohort. Fleet selectivity is still open: the scan still visited about 510,000 rows.</td></tr><tr><td>Less copied data and repeated lookup work</td><td>EXPLAIN Plan Width estimates were about 180 and 60 bytes. Those are planner estimates, not measured row sizes. Raw replay JSON is not carried through the typed shared materializations. Global key deduplication reduced the cohort to about 53,000 keys, from about 82,000 lookups. Per-device membership still equaled about 163,000 references, so that deduplication removed no rows.</td></tr><tr><td>Correctness is preserved</td><td>Implemented controls passed, including decoder and digest parity, generation floors, duplicate facts, malformed and terminal references, drift, and recovery fences. Process-death and live finalization remain open.</td></tr><tr><td>Timing meets the existing screens</td><td>Failed. The fused statement is inside the fact interval: about 16.5 seconds against 6 seconds. Remaining orchestration was about 2.0 seconds against 0.9 seconds, and that assertion was not reached.</td></tr></tbody></table><p>Fewer scans and lookups did not produce a speedup. A failed screen stops the experiment. Mostly-unique-key evidence and parent task 1.6 remain open.</p></section>
+<section id="choice"><h2>Approved scope</h2><div class="options"><div class="card recommend"><span class="n">APPROVED 2026-10-29</span><h3>Implement the shared source pipeline</h3><p>Change only the disabled harness, preserve validation and digest semantics, and prepare remote validation through no-mistakes. No migration, writer changes or persistent cache.</p></div><div class="card"><span class="n">LATER SCRATCH PROTOTYPE</span><h3>Store prevalidated replay</h3><p>This measurement rejected it. A later disabled scratch prototype was separately approved in <a href="exposure-publication-validation.openspec.html">content-bound publication validation</a>. Production adoption remains unapproved.</p></div></div><div class="warning"><strong>The one authorized run failed its fact screen.</strong><p>No further allocation, rerun, fleet execution, adoption, or performance waiver is approved for this measurement. The later receipt prototype does not rerun it or waive these screens. Parent task 1.6 stays open.</p></div><h3>What this run established</h3><table><thead><tr><th>Claim</th><th>Observed limit</th></tr></thead><tbody><tr><td>One shared source read</td><td>Observed for one diagnostic cohort. Fleet selectivity is still open: the scan still visited about 510,000 rows.</td></tr><tr><td>Less copied data and repeated lookup work</td><td>EXPLAIN Plan Width estimates were about 180 and 60 bytes. Those are planner estimates, not measured row sizes. Raw replay JSON is not carried through the typed shared materializations. Global key deduplication reduced the cohort to about 53,000 keys, from about 82,000 lookups. Per-device membership still equaled about 163,000 references, so that deduplication removed no rows.</td></tr><tr><td>Correctness is preserved</td><td>Implemented controls passed, including decoder and digest parity, generation floors, duplicate facts, malformed and terminal references, drift, and recovery fences. Process-death and live finalization remain open.</td></tr><tr><td>Timing meets the existing screens</td><td>Failed. The fused statement is inside the fact interval: about 16.5 seconds against 6 seconds. Remaining orchestration was about 2.0 seconds against 0.9 seconds, and that assertion was not reached.</td></tr></tbody></table><p>Fewer scans and lookups did not produce a speedup. A failed screen stops the experiment. Mostly-unique-key evidence and parent task 1.6 remain open.</p></section>
 <section id="source"><h2>Complete review material</h2><details class="source"><summary>Proposal</summary><article><h1>Proposal: one bounded source scan per exposure cohort</h1>
 <p>Status: disabled implementation approved by the product owner on 2026-10-29.
 One hosted measurement allocation has been consumed. Correctness controls passed
@@ -43,7 +43,12 @@ interpreting a timing improvement.</li>
 </ul>
 <p>This approval covers a disabled manual-harness implementation only. The one
 later measurement allocation is spent. No further hosted run, fleet execution,
-runtime adoption, schema change, rollout, or performance waiver is approved.</p>
+runtime adoption, schema change, rollout, or performance waiver is approved
+for this measurement. A later disabled receipt prototype was separately
+approved and is owned by
+<a href="exposure-publication-validation.openspec.html">add-exposure-publication-validation-receipts</a>.
+That approval does not rerun this measurement, waive these screens, or adopt
+the prototype in production.</p>
 <h2>Measured result</h2>
 <p>Commit <code>768bb8cebc1edcab762624c130c410eb9e6654ec</code> was tree-verified remotely
 and executed once. The synthetic profile was 200 devices, 500,000 active facts
@@ -185,9 +190,12 @@ cohort's deletion watermarks.</li>
 <li>Resolve the distinct keys and reduce their eligibility back to each device.
 Return explicit results for every admitted ordinal, including empty scopes.</li>
 </ol>
-<p>This is statement-local computation. No new durable source projection,
-materialized view, trigger, cache, generated assessment column or backfill is
-introduced. No second query rereads the same assessments for ordinary coverage.
+<p>This is statement-local computation. This measurement introduces no new durable
+source projection, materialized view, trigger, cache, generated assessment
+column or backfill. The later receipt prototype adds a scratch-only generated
+publication fingerprint; see
+<a href="exposure-publication-validation.openspec.html">its design</a>.
+No second query rereads the same assessments for ordinary coverage.
 A bounded mismatch-localization query remains allowed after failure.</p>
 <p>The implementation must show that the physical plan actually shares the source
 read and does not inline the expensive validator into both consumers. Naming a
@@ -217,7 +225,12 @@ existing view deadline, defer it visibly. No partial digest becomes success.</p>
 <h2>Decision 3: preserve the validation and recovery contracts</h2>
 <p>The existing SQL validator and <code>ExposureTransitions.decode/1</code> remain the
 differential pair. Do not tune the codec, relax timestamp/type/range checks,
-replace it with JSON text equality, or cache its result across source views.
+or replace it with JSON text equality. This measurement does not cache the
+validator result across source views. A later disabled scratch prototype
+stores a content-bound full-publication receipt and stops revalidating
+retained JSON inside the cohort statement. Current and warehouse hashes stay
+uncached. See
+<a href="exposure-publication-validation.openspec.html">content-bound publication validation</a>.
 Current attributes must still disagree when retained replay and warehouse
 agree but current state drifts.</p>
 <p>Keep <code>exposure-fact/v1</code>, field order, SHA-256, signed-zero handling, NULL
@@ -248,7 +261,7 @@ partial subset. Continue other admitted scopes without losing failed work.</p>
 </tr>
 <tr>
 <td>Persist prevalidated retained publications</td>
-<td>Could amortize validation, but adds write cost, stale-binding and restore rules, format migration, storage and backfill. Current evidence does not isolate enough of that benefit to justify the new trust boundary</td>
+<td>Rejected for this measurement: write cost, stale binding, restore rules, format migration, storage and backfill were not justified by this evidence. A later disabled scratch prototype was separately approved in <a href="exposure-publication-validation.openspec.html">add-exposure-publication-validation-receipts</a>. Production adoption remains unapproved</td>
 </tr>
 <tr>
 <td>Only narrow the existing CTEs</td>
@@ -325,11 +338,16 @@ implementation; no persistent source state needs reconciliation.</p>
 2026-10-29, authorizing this shared, compact source pipeline only in the
 disabled harness and its normal remote validation through no-mistakes.
 Hosted allocations, production integration,
-new persistent validation data and rollout require separate decisions.</p>
+new persistent validation data and rollout require separate decisions.
+The disabled receipt prototype is that later scratch-only decision; see
+<a href="exposure-publication-validation.openspec.html">its proposal</a>.</p>
 <h2>Implementation checkpoint</h2>
-<p>The manual harness now uses one statement for fact summaries and dimension
-coverage. A guarded lateral projection computes publication validity before
-materializing typed values; a second compact relation carries fact hashes,
+<p>This checkpoint describes the shared-scan harness that was measured below.
+The current manual statement is owned by
+<a href="exposure-publication-validation.openspec.html">content-bound publication validation</a>.</p>
+<p>That measured harness used one statement for fact summaries and dimension
+coverage. A guarded lateral projection computed publication validity before
+materializing typed values; a second compact relation carried fact hashes,
 drift flags and reference ordinals. No raw replay JSON is retained in either
 shared materialization. Per-device fact aggregation preserves every row.
 Distinct reference memberships resolve cohort dimension keys before applying
@@ -385,8 +403,9 @@ Fewer scans and lookups are confirmed. The screen still failed.</p>
 columns cannot be read as isolated speedups. Whole-audit time and combined
 source and coverage work show no improvement. This single execution is not a
 p95, cold, repeated, or fleet result. Execution stopped after the fact-screen
-failure. No rerun, tuning sweep, codec change, higher concurrency, persistent
-validation state, or fleet attempt is authorized. The result is not a
+failure. No rerun of this measurement, tuning sweep, codec change, higher
+concurrency, or fleet attempt is authorized. Persistent validation was a
+separate later decision and is not a rerun of this result. The result is not a
 performance waiver.</p>
 <p>Scratch warehouse tables were empty before removal. Schemas, temporary
 grants, and run-owned CNPG fixture databases were removed. Generation release

@@ -128,6 +128,12 @@ proof even when its transition sequence did not change.
 
 ### 3. One current-fact hash; independently validate retained replay
 
+The cohort statement in this section is the pre-receipt contract. The current
+manual statement requires a matching content-bound receipt and does not read
+retained JSON for assessment facts. Current-column hashing and independent
+warehouse hashing are unchanged. See
+[Disabled implementation](../add-exposure-publication-validation-receipts/design.md#disabled-implementation).
+
 In V, project typed current attributes directly from assessments, ordinals and
 the current package-version dictionary. Retain the existing eligibility and
 lifecycle rules. Validate retained publication structure, schema version,

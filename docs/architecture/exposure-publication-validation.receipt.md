@@ -2,7 +2,9 @@
 
 The product owner approved a disabled scratch prototype on 2026-10-29.
 The implementation is authored; it is not a measured optimization.
-Source baseline: `c29846f422a6cf68baa122bfb36058b0fc57f7d2`.
+Proposal source baseline: `c29846f422a6cf68baa122bfb36058b0fc57f7d2`.
+Publishing head: `5d28b659ea499da0ed4b6b5bf7af22d4e6728b96`
+on staging `64e91d0c3ab6dfccdfb5e2019dc4d6c8ac772828`.
 
 ## Artifacts
 
@@ -37,11 +39,17 @@ Source baseline: `c29846f422a6cf68baa122bfb36058b0fc57f7d2`.
 
 ## Prototype validation
 
-- The existing manual target assembled remotely. This builds its declared
-  inputs; it does not execute the scratch migration or database controls.
-- Remote core formatting and [quality validation](https://carverauto.buildbuddy.io/invocation/62bbd3c8-3274-4f2f-bed1-9204887332bb) passed.
-- The [repository-wide remote unit run](https://carverauto.buildbuddy.io/invocation/4de98a99-cc59-4156-a40e-83efccf523dc)
-  passed: 488 targets passed, 2 skipped. The manual audit is excluded.
+- Ordinary remote unit validation of publishing head `5d28b659` passed
+  488 tests and skipped 2:
+  `//build/arrow_swift:ios_compile_test` and
+  `//build/arrow_swift:swift_regression_test`.
+  [Invocation](https://app.buildbuddy.io/invocation/675cb465-5eb2-481c-aa59-b2fe6cae4cf1).
+  The manual audit target was not selected. This run does not execute the
+  scratch migration, SQL, or warehouse controls.
+- The implementation commit's manual-target assembly, [core quality run](https://carverauto.buildbuddy.io/invocation/62bbd3c8-3274-4f2f-bed1-9204887332bb),
+  and [unit run](https://carverauto.buildbuddy.io/invocation/4de98a99-cc59-4156-a40e-83efccf523dc)
+  predate the review fixes and this head. They do not certify it. Assembly
+  builds declared inputs and does not execute the scratch migration.
 - The updated portable proposal passed desktop and narrow-screen checks with
   all source sections expanded; screenshots were inspected. Export has zero
   unresolved local assets. The unchanged workflow again passed all 9 checks.

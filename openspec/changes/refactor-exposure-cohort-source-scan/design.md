@@ -83,9 +83,12 @@ ordinals to source UIDs once. The main statement has these logical stages:
 5. Resolve the distinct keys and reduce their eligibility back to each device.
    Return explicit results for every admitted ordinal, including empty scopes.
 
-This is statement-local computation. No new durable source projection,
-materialized view, trigger, cache, generated assessment column or backfill is
-introduced. No second query rereads the same assessments for ordinary coverage.
+This is statement-local computation. This measurement introduces no new durable
+source projection, materialized view, trigger, cache, generated assessment
+column or backfill. The later receipt prototype adds a scratch-only generated
+publication fingerprint; see
+[its design](../add-exposure-publication-validation-receipts/design.md).
+No second query rereads the same assessments for ordinary coverage.
 A bounded mismatch-localization query remains allowed after failure.
 
 The implementation must show that the physical plan actually shares the source
@@ -124,7 +127,12 @@ existing view deadline, defer it visibly. No partial digest becomes success.
 
 The existing SQL validator and `ExposureTransitions.decode/1` remain the
 differential pair. Do not tune the codec, relax timestamp/type/range checks,
-replace it with JSON text equality, or cache its result across source views.
+or replace it with JSON text equality. This measurement does not cache the
+validator result across source views. A later disabled scratch prototype
+stores a content-bound full-publication receipt and stops revalidating
+retained JSON inside the cohort statement. Current and warehouse hashes stay
+uncached. See
+[content-bound publication validation](../add-exposure-publication-validation-receipts/design.md).
 Current attributes must still disagree when retained replay and warehouse
 agree but current state drifts.
 
@@ -149,7 +157,7 @@ partial subset. Continue other admitted scopes without losing failed work.
 | Alternative | Disposition |
 | --- | --- |
 | Add another device index or force an index/JIT/session plan setting | Existing leading index is present. Inspect selectivity and physical reads first; no tuning settings or new index in this proposal |
-| Persist prevalidated retained publications | Could amortize validation, but adds write cost, stale-binding and restore rules, format migration, storage and backfill. Current evidence does not isolate enough of that benefit to justify the new trust boundary |
+| Persist prevalidated retained publications | Rejected for this measurement: write cost, stale binding, restore rules, format migration, storage and backfill were not justified by this evidence. A later disabled scratch prototype was separately approved in [add-exposure-publication-validation-receipts](../add-exposure-publication-validation-receipts/proposal.md). Production adoption remains unapproved |
 | Only narrow the existing CTEs | Reduces copying but retains the second assessment scan and repeated coverage extraction; include narrowing in the shared pipeline |
 | Raise worker or cohort limits | Changes contention and hides work amplification; excluded |
 | USP-01 orchestration | Does not by itself remove these SQL scans, projections or spills; any integration needs its own measured path |
@@ -225,12 +233,18 @@ Approval recorded: the product owner answered "approved continue" on
 disabled harness and its normal remote validation through no-mistakes.
 Hosted allocations, production integration,
 new persistent validation data and rollout require separate decisions.
+The disabled receipt prototype is that later scratch-only decision; see
+[its proposal](../add-exposure-publication-validation-receipts/proposal.md).
 
 ## Implementation checkpoint
 
-The manual harness now uses one statement for fact summaries and dimension
-coverage. A guarded lateral projection computes publication validity before
-materializing typed values; a second compact relation carries fact hashes,
+This checkpoint describes the shared-scan harness that was measured below.
+The current manual statement is owned by
+[content-bound publication validation](../add-exposure-publication-validation-receipts/design.md#disabled-implementation).
+
+That measured harness used one statement for fact summaries and dimension
+coverage. A guarded lateral projection computed publication validity before
+materializing typed values; a second compact relation carried fact hashes,
 drift flags and reference ordinals. No raw replay JSON is retained in either
 shared materialization. Per-device fact aggregation preserves every row.
 Distinct reference memberships resolve cohort dimension keys before applying
@@ -292,8 +306,9 @@ Fact and orchestration use different accounting in the two runs, so those
 columns cannot be read as isolated speedups. Whole-audit time and combined
 source and coverage work show no improvement. This single execution is not a
 p95, cold, repeated, or fleet result. Execution stopped after the fact-screen
-failure. No rerun, tuning sweep, codec change, higher concurrency, persistent
-validation state, or fleet attempt is authorized. The result is not a
+failure. No rerun of this measurement, tuning sweep, codec change, higher
+concurrency, or fleet attempt is authorized. Persistent validation was a
+separate later decision and is not a rerun of this result. The result is not a
 performance waiver.
 
 Scratch warehouse tables were empty before removal. Schemas, temporary
