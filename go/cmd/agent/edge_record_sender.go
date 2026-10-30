@@ -27,6 +27,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/models"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
@@ -40,6 +41,7 @@ const (
 	defaultEdgeRecordSenderPollInterval  = 30 * time.Second
 	edgeRecordSenderRequestedByteCredits = 8 << 20 // 8 MiB
 	edgeRecordSenderRequestedFrameCreds  = 256
+	edgeRecordSenderSetupInitialBackoff  = time.Second
 )
 
 // runEdgeRecordSender drains cfg.EdgeRecordSender's agent spool over a
@@ -51,10 +53,10 @@ const (
 // Sweep-enabled senders persist validated terminal dispositions before advancing
 // their local resolved prefix. Physical segment reclamation remains separate.
 //
-// Setup is not retried: if any setup step fails (missing gateway address or
-// spool_dir, spool id, security provider before its certificate files exist,
-// or client construction), the failure is logged once and the sender stays
-// stopped until the agent process restarts.
+// A missing gateway address or spool_dir is a configuration error and stops the
+// sender. Any other setup failure (spool id, security provider before its
+// certificate files exist, client or sender construction) is retried with a
+// doubling delay capped at the poll interval until setup succeeds or ctx ends.
 func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool.Spool, log logger.Logger) {
 	esCfg := cfg.EdgeRecordSender
 	if esCfg == nil || !esCfg.Enabled || sp == nil {
@@ -83,18 +85,45 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool
 		interval = defaultEdgeRecordSenderPollInterval
 	}
 
+	delay := min(edgeRecordSenderSetupInitialBackoff, interval)
+	for {
+		s, closeSender, err := newEdgeRecordSender(ctx, esCfg, addr, security, sp, log)
+		if err == nil {
+			defer closeSender()
+			log.Info().Str("addr", addr).Str("spool_dir", esCfg.SpoolDir).Dur("interval", interval).
+				Msg("Edge record sender starting")
+			pollEdgeRecordSender(ctx, s, interval, log)
+			return
+		}
+		log.Warn().Err(err).Str("addr", addr).Dur("retry_in", delay).Msg("Edge record sender setup failed")
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(delay):
+		}
+		delay = min(2*delay, interval)
+	}
+}
+
+// newEdgeRecordSender builds one sender over the shared spool. The returned
+// close function releases the client and security provider.
+func newEdgeRecordSender(
+	ctx context.Context,
+	esCfg *agent.EdgeRecordSenderConfig,
+	addr string,
+	security *models.SecurityConfig,
+	sp *spool.Spool,
+	log logger.Logger,
+) (*edgesender.Sender, func(), error) {
 	spoolID, err := edgesender.PersistentSpoolID(esCfg.SpoolDir)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to load edge record spool id")
-		return
+		return nil, nil, fmt.Errorf("load edge record spool id: %w", err)
 	}
 
 	securityProvider, err := srgrpc.NewSecurityProvider(ctx, security, log)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to build edge record sender security provider")
-		return
+		return nil, nil, fmt.Errorf("build edge record sender security provider: %w", err)
 	}
-	defer func() { _ = securityProvider.Close() }()
 
 	client, err := srgrpc.NewClient(ctx, srgrpc.ClientConfig{
 		Address:          addr,
@@ -102,14 +131,15 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool
 		Logger:           log,
 	})
 	if err != nil {
-		log.Error().Err(err).Str("addr", addr).Msg("Failed to dial edge record gateway")
-		return
+		_ = securityProvider.Close()
+		return nil, nil, fmt.Errorf("dial edge record gateway: %w", err)
 	}
-	defer func() { _ = client.Close() }()
+	closeAll := func() {
+		_ = client.Close()
+		_ = securityProvider.Close()
+	}
 
-	ingestClient := edgev1.NewEdgeRecordIngestServiceClient(client.GetConnection())
-
-	s, err := edgesender.New(sp, ingestClient, edgesender.Config{
+	s, err := edgesender.New(sp, edgev1.NewEdgeRecordIngestServiceClient(client.GetConnection()), edgesender.Config{
 		SpoolID:                 spoolID,
 		RouteProfile:            edgev1.EdgeRecordRouteProfile_EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
 		TrafficClass:            edgev1.EdgeRecordTrafficClass_EDGE_RECORD_TRAFFIC_CLASS_BULK,
@@ -118,13 +148,13 @@ func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, sp *spool
 		PersistAcknowledgements: esCfg.SweepEnabled,
 	})
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to construct edge record sender")
-		return
+		closeAll()
+		return nil, nil, fmt.Errorf("construct edge record sender: %w", err)
 	}
+	return s, closeAll, nil
+}
 
-	log.Info().Str("addr", addr).Str("spool_dir", esCfg.SpoolDir).Dur("interval", interval).
-		Msg("Edge record sender starting")
-
+func pollEdgeRecordSender(ctx context.Context, s *edgesender.Sender, interval time.Duration, log logger.Logger) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 

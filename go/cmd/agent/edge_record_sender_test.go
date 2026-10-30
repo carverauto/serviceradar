@@ -154,3 +154,49 @@ func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
 		t.Fatalf("refused append changed spool: %d records", len(records))
 	}
 }
+
+func TestRunEdgeRecordSenderRetriesSetupUntilSpoolDirAppears(t *testing.T) {
+	sp, err := spool.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sp.Close() }()
+	dir := filepath.Join(t.TempDir(), "late-spool")
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{
+		Enabled: true, GatewayAddr: "127.0.0.1:1", SpoolDir: dir,
+		Security: &models.SecurityConfig{Mode: models.SecurityModeNone},
+	}}
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		runEdgeRecordSender(ctx, cfg, sp, logger.NewTestLogger())
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		t.Fatal("sender stopped after its first setup failure")
+	case <-time.After(200 * time.Millisecond):
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	idPath := filepath.Join(dir, "spool_id")
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := os.Stat(idPath); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("sender never retried setup after the spool directory appeared")
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sender did not stop after cancellation")
+	}
+}

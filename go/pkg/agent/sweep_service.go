@@ -66,7 +66,6 @@ type SweepService struct {
 	// been copied into pendingSweeps. The push loop must not publish the live
 	// summary in that window, or it and the retained copy both go out.
 	sweepRunInProgress  bool
-	edgeResults         bool
 	lastEdgeExecutionID string
 }
 
@@ -290,9 +289,6 @@ func (s *SweepService) SetLeaseDriven(driven bool) {
 	}
 
 	if !driven {
-		s.mu.Lock()
-		s.edgeResults = false
-		s.mu.Unlock()
 		s.SetLeaseState("", 0, 0)
 	}
 }
@@ -530,10 +526,6 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	if s.edgeResults {
-		return &proto.ResultsResponse{ServiceName: networkSweepServiceName, ServiceType: "sweep", SweepGroupId: s.sweepGroupID, Available: true, Timestamp: time.Now().Unix()}, nil
-	}
 
 	totalHosts := summary.TotalHosts
 	hostsProcessed := len(summary.Hosts)

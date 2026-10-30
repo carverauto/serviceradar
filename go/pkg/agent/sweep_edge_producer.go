@@ -98,13 +98,19 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 	}
 
 	s.mu.Lock()
-	// Suppress the live summary and any cached legacy response for this group.
-	s.edgeResults = true
 	producer, err := newSweepEdgeProducer(s.config, lease, slot, sp, time.Now())
-	s.mu.Unlock()
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
+	s.lastEdgeExecutionID = uuid.UUID(slot.GetExecutionId()).String()
+	s.sweepRunInProgress = true
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.sweepRunInProgress = false
+		s.mu.Unlock()
+	}()
 	producer.claim = claim
 
 	runCtx, cancel := context.WithDeadline(ctx, time.Unix(0, slot.GetCollectionExpiresUnixNano()))
@@ -124,12 +130,6 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 		producer.mu.Unlock()
 		return err
 	}
-	s.mu.Lock()
-	s.lastEdgeExecutionID = uuid.UUID(slot.GetExecutionId()).String()
-	s.pendingSweeps = nil
-	s.cachedResults = nil
-	s.cachedCompletion = nil
-	s.mu.Unlock()
 	return producer.finish()
 }
 

@@ -987,6 +987,10 @@ func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 				require.NoError(t, goproto.Unmarshal(record.Payload, batch))
 				require.Equal(t, slot.ExecutionId, batch.ExecutionId)
 				require.Len(t, batch.Hosts, 4)
+				result, err := service.GetSweepResults(ctx, "")
+				require.NoError(t, err)
+				require.True(t, result.HasNewData)
+				require.Equal(t, "on-demand", result.ExecutionId)
 				return
 			}
 			sequence := ""
