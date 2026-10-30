@@ -32,6 +32,7 @@ sweep_join_positive_sweep_profile.bin - accept
 sweep_join_positive_trace_at_expires.bin - accept
 sweep_join_positive_trace_at_not_before.bin - accept
 sweep_join_positive_wide_window.bin - accept
+sweep_join_positive_zstd.bin - accept
 sweep_join_range_id.bin range_id correlation
 sweep_join_runid_absent_ad_hoc.bin source_run_id_disposition body
 sweep_join_runid_absent_on_demand.bin source_run_id_disposition body
