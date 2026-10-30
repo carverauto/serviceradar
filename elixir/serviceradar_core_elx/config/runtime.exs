@@ -165,6 +165,16 @@ if is_map(callback_deployment) do
     automation_launch_envelope_key_id: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_ENVELOPE_KEY_ID", "current")
 end
 
+# Core's edge-record issuer key (sweep schedule leases). Optional: without it core issues no
+# lease authority. Loaded at boot so a loose or malformed key file fails the release early.
+case System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE") do
+  path when is_binary(path) and path != "" ->
+    config :serviceradar_core, edge_issuer_key: ServiceRadar.Edge.IssuerKey.load_file!(path)
+
+  _ ->
+    :ok
+end
+
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
     nil ->
@@ -197,6 +207,13 @@ read_secret_env = fn env_name, file_env_name ->
       value
   end
 end
+
+# The installation's edge-record contract registry document: the same JSON the agent gateway
+# reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
+# against its sweep contract entry (ServiceRadar.Edge.SweepContract).
+config :serviceradar_core,
+       :edge_record_contract_registry,
+       System.get_env("SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY")
 
 # =============================================================================
 # Logger level override
@@ -1340,7 +1357,10 @@ if config_env() == :prod do
       # Composite checks' only scheduler: one evaluation job per enabled check per
       # minute; each job runs the full pass when it is due and the incremental
       # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
-      {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring}
+      {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring},
+      # Keeps sweep schedule leases full and in step with their groups. Inert until
+      # an operator enables sweep leasing (sweep_lease_settings).
+      {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
     ] ++
       object_store_retention_crontab ++
       capacity_forecasting_crontab ++
@@ -1782,6 +1802,9 @@ if config_env() == :prod do
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
         Config.analytics_predictions_stream(),
+        # Durable edge records the agent gateway publishes with PubAck; shared
+        # with Config.default_streams/0.
+        Config.edge_record_stream(),
         %{
           name: "ATTRIBUTED_FLOW",
           stream_name: "events",

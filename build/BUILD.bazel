@@ -2,6 +2,7 @@
 load("@bazel_skylib//rules:common_settings.bzl", "bool_flag", "string_flag")
 load("@rules_elixir//:ex_unit_test.bzl", "ex_unit_test")
 load("@rules_elixir//:mix_payloads.bzl", "mix_payloads")
+load("@rules_python//python:defs.bzl", "py_test")
 load(":integration_shards.bzl", "integration_selection_runner_names")
 load(
     ":integration_shards_test.bzl",
@@ -189,4 +190,14 @@ toolchain(
     name = "mix_payloads",
     toolchain = ":payloads",
     toolchain_type = "@rules_elixir//:mix_payloads_toolchain_type",
+)
+
+test_suite(
+    name = "go_test_inventory_test",
+    tests = [
+        "//go/pkg/edge/edgerecord:test_inventory_test",
+        "//go/pkg/edge/execstate:test_inventory_test",
+        "//go/pkg/edge/projection:test_inventory_test",
+        "//proto/edge/v1:test_inventory_test",
+    ],
 )

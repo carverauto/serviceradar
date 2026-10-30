@@ -415,6 +415,7 @@ func (p *PushLoop) handleControlStream(
 	go p.controlStreamHeartbeatLoop(heartbeatCtx, sender)
 
 	var pushedConfig configPushAssembler
+	var pushedLease sweepLeaseAssembler
 
 	for {
 		select {
@@ -450,6 +451,10 @@ func (p *PushLoop) handleControlStream(
 			case cfg != nil:
 				p.applyControlConfig(ctx, cfg, sender)
 			}
+		}
+
+		if chunk := resp.GetSweepLeaseChunk(); chunk != nil {
+			p.handleSweepLeaseChunk(chunk, &pushedLease, sender)
 		}
 
 		if frame := resp.GetConsoleFrame(); frame != nil {

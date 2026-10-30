@@ -2,18 +2,21 @@
 
 ### Requirement: Package-contributed EventWriter processors
 The ingestion pipeline SHALL allow approved package-backed plugins, native add-ons, and
-sidecars to contribute EventWriter processor definitions through package metadata. Core
-EventWriter routing SHALL use approved processor contributions and core platform
-defaults, not producer-specific aliases or subject clauses for integrations such as
-PowerDNS, Falco, Trivy, Bumblebee, or endpoint inventory.
+sidecars to request output contracts and bounded EventWriter projector definitions
+through package metadata. Core EventWriter dispatch SHALL use approved output-contract
+bundles, processor contributions, and core platform defaults, not producer-specific
+aliases or subject clauses for integrations such as PowerDNS, Falco, Trivy, Bumblebee,
+or endpoint inventory. The platform registry SHALL own route profiles, subjects,
+traffic classes, partitions, physical streams, cost models, and persistence
+destinations.
 
 #### Scenario: Add-on package contributes a processor
 - **GIVEN** a native add-on package includes a valid EventWriter processor contribution
 - **AND** the package version is approved
 - **WHEN** EventWriter builds its routing snapshot
 - **THEN** the processor contribution SHALL be included in the active routes
-- **AND** messages matching its approved subject filters SHALL be processed by the
-  declared platform processor engine
+- **AND** records bearing its exact trusted contract id, version, bundle digest, and
+  registry epoch SHALL be processed by the declared platform processor engine
 
 #### Scenario: Unapproved contribution is inert
 - **GIVEN** a package includes a valid EventWriter processor contribution
@@ -23,7 +26,8 @@ PowerDNS, Falco, Trivy, Bumblebee, or endpoint inventory.
 
 #### Scenario: Core has no producer-specific alias
 - **GIVEN** a PowerDNS package contributes an OCSF DNS Activity processor
-- **WHEN** EventWriter processes `pdns.ocsf` messages
+- **WHEN** EventWriter processes a record with the approved PowerDNS output-contract
+  identity
 - **THEN** routing SHALL resolve through the approved processor registry entry
 - **AND** core pipeline code SHALL NOT require a `ServiceRadar.EventWriter.Processors.PowerDNS`
   alias or producer-specific batcher clause
@@ -43,15 +47,20 @@ mapping logic, catalogs, or executable code.
 
 #### Scenario: Running add-on is unreachable
 - **GIVEN** a running add-on is offline or only reachable through agent-gateway command bus
-- **WHEN** EventWriter processes a message emitted by that add-on's approved subject
+- **WHEN** EventWriter processes an `EdgeRecordV1` carrying that add-on's exact
+  approved contract ID, version, bundle digest, and registry epoch
 - **THEN** EventWriter SHALL process the message using the persisted contract
 - **AND** SHALL NOT attempt to call the add-on to retrieve processor details
 
 ### Requirement: Processor contribution registry snapshots
 EventWriter SHALL consume a versioned registry snapshot containing approved processor
-contributions, normalized subject filters, processor engine ids, destination metadata,
-schema/display references, and device-correlation mappings. Snapshot refresh SHALL be
-atomic; if a new snapshot is invalid, EventWriter SHALL keep the previous valid snapshot.
+contributions, exact output-contract identities and immutable bundle digests,
+platform-assigned route/subject slots, processor engine ids, approved destination
+metadata, cost models, schema/display references, and device-correlation mappings.
+Snapshot refresh SHALL be atomic and coordinated with agent/gateway readiness; if a new
+snapshot is invalid, EventWriter SHALL keep the previous valid snapshot. Historical
+bundles SHALL remain readable through the maximum agent-spool, broker-retention, retry,
+DLQ, and redrive horizon.
 
 #### Scenario: Registry refresh succeeds
 - **GIVEN** a newly approved package processor contribution has no conflicts
@@ -66,16 +75,18 @@ atomic; if a new snapshot is invalid, EventWriter SHALL keep the previous valid 
 - **AND** EventWriter SHALL continue processing with the previous valid snapshot
 - **AND** the conflict SHALL be visible to operators
 
-### Requirement: Processor subject ownership is validated
-The system SHALL validate requested processor subject filters against package ownership
-and platform-reserved namespaces before activation. Processor contributions SHALL NOT
-claim internal health subjects, unrelated producer subjects, or cross-partition routing
-subjects.
+### Requirement: Processor output authority is validated
+The system SHALL validate requested output contracts and projector engines against
+package ownership and platform policy before activation. Processor contributions SHALL
+NOT select or claim subjects, streams, traffic class, partition rules, database
+destinations, SQL, DDL, internal health routes, unrelated producer contracts, or
+cross-scope authority.
 
-#### Scenario: Package claims reserved subject
-- **GIVEN** a package processor contribution requests an internal health subject
+#### Scenario: Package claims reserved routing authority
+- **GIVEN** a package processor contribution requests an internal subject, physical
+  stream, traffic-class promotion, or database destination
 - **WHEN** the package is validated for approval
-- **THEN** validation SHALL fail with a subject ownership error
+- **THEN** validation SHALL fail with an output-authority error
 - **AND** the contribution SHALL NOT become active
 
 ### Requirement: Processor contributions use platform-owned engines
@@ -91,14 +102,17 @@ JavaScript, native code, or database DDL for EventWriter execution.
 - **AND** EventWriter SHALL NOT execute package-supplied code
 
 ### Requirement: Broadway-backed package ingestion
-Package-contributed JetStream routes SHALL be consumed through the Broadway-backed
-EventWriter producer and pipeline so back-pressure, batching, acknowledgement, retries,
-and telemetry remain consistent with core EventWriter ingestion.
+Package-contributed records SHALL be consumed from the finite platform-owned JetStream
+route map through shared Broadway-backed EventWriter producers and pipelines so
+back-pressure, batching, acknowledgement, retries, and telemetry remain consistent with
+core EventWriter ingestion. A new package or contract SHALL NOT create a dedicated
+physical stream, consumer, connection, lane, or Broadway producer.
 
 #### Scenario: Package route is activated
-- **GIVEN** an approved processor contribution adds a new JetStream subject route
+- **GIVEN** an approved processor contribution adds a new output-contract dispatch entry
 - **WHEN** EventWriter refreshes its registry snapshot
-- **THEN** the route SHALL be consumed through the EventWriter Broadway pipeline
+- **THEN** matching trusted records SHALL be dispatched through the shared EventWriter
+  Broadway pipeline
 - **AND** no separate ad hoc receive loop SHALL be required for that package route
 
 ### Requirement: Package-contributed catalog refresh contracts

@@ -433,6 +433,23 @@ config :serviceradar_core,
   geolite_mmdb_dir: geolite_dir,
   egress_proxy: ServiceRadar.HTTP.EgressProxy.from_env()
 
+# Core's edge-record issuer key (sweep schedule leases), as in serviceradar_core_elx's
+# runtime.exs. Optional: without it core issues no lease authority.
+case System.get_env("SERVICERADAR_EDGE_ISSUER_KEY_FILE") do
+  path when is_binary(path) and path != "" ->
+    config :serviceradar_core, edge_issuer_key: ServiceRadar.Edge.IssuerKey.load_file!(path)
+
+  _ ->
+    :ok
+end
+
+# The installation's edge-record contract registry document: the same JSON the agent gateway
+# reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
+# against its sweep contract entry (ServiceRadar.Edge.SweepContract).
+config :serviceradar_core,
+       :edge_record_contract_registry,
+       System.get_env("SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY")
+
 if is_map(remote_access_ssh_certificate_policy) and
      map_size(remote_access_ssh_certificate_policy) > 0 do
   config :serviceradar_core,
@@ -1799,7 +1816,10 @@ if config_env() == :prod do
            # Composite checks' only scheduler: one evaluation job per enabled
            # check per minute (full or incremental pass). Kept in step with
            # serviceradar_core_elx's runtime.exs, which the release loads.
-           {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring}
+           {"* * * * *", ServiceRadar.CompositeChecks.TickWorker, queue: :monitoring},
+           # Kept in step with serviceradar_core_elx's runtime.exs, as above. Inert
+           # until an operator enables sweep leasing.
+           {"*/5 * * * *", ServiceRadar.SweepJobs.LeasePassWorker, queue: :maintenance}
          ] ++
            object_store_retention_crontab ++
            capacity_forecasting_crontab ++
@@ -2053,7 +2073,10 @@ if config_env() == :prod do
         # Dedicated anomaly/capacity verdict stream (restore-anomaly-alerting
         # design D9); definition shared with Config.default_streams/0 so the
         # retention stanza cannot drift.
-        Config.analytics_predictions_stream()
+        Config.analytics_predictions_stream(),
+        # Durable edge records the agent gateway publishes with PubAck; shared
+        # with Config.default_streams/0.
+        Config.edge_record_stream()
       ],
       # Dedicated demand domain for raw flows on JetStream stream `flows`.
       # Optional EVENT_WRITER_FLOW_* tuning is applied below only when set so

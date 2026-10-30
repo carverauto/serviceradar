@@ -20,6 +20,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
 )
 
@@ -37,16 +38,18 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 
 	s.ensureScannersInitialized()
 
-	initialCtx, initialCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
-	if err := s.runSweepWithLock(initialCtx); err != nil {
-		initialCancel()
-
-		s.logRunError(err, "Initial sweep failed")
+	if s.manualSchedule.Load() {
+		s.logger.Info().Msg("Manual schedule active, skipping initial sweep")
 	} else {
-		s.logger.Info().Msg("Initial sweep completed successfully")
-	}
+		initialCtx, initialCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
+		if err := s.runSweepWithLock(initialCtx); err != nil {
+			s.logRunError(err, "Initial sweep failed")
+		} else {
+			s.logger.Info().Msg("Initial sweep completed successfully")
+		}
 
-	initialCancel()
+		initialCancel()
+	}
 
 	ticker := time.NewTicker(s.config.Interval)
 	defer ticker.Stop()
@@ -70,6 +73,10 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 			s.logger.Info().Dur("newInterval", newInterval).Msg("Resetting sweep ticker due to interval change")
 			ticker.Reset(newInterval)
 		case t := <-ticker.C:
+			if s.manualSchedule.Load() {
+				continue
+			}
+
 			s.logger.Debug().Time("tickTime", t).Msg("Ticker fired, starting periodic sweep")
 
 			sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
@@ -84,14 +91,44 @@ func (s *NetworkSweeper) Start(ctx context.Context) error {
 	}
 }
 
+// SetManualSchedule switches the local interval ticker off or on. While on,
+// Start runs no initial or periodic sweep; an external scheduler drives the
+// sweeper through RunOnce. Turning it back off resumes ticking from the next
+// interval boundary.
+func (s *NetworkSweeper) SetManualSchedule(manual bool) {
+	if s.manualSchedule.Swap(manual) != manual {
+		s.logger.Info().Bool("manual_schedule", manual).Msg("Sweep schedule mode changed")
+	}
+}
+
+// ManualSchedule reports whether the local interval ticker is suppressed.
+func (s *NetworkSweeper) ManualSchedule() bool {
+	return s.manualSchedule.Load()
+}
+
 // RunOnce triggers a single sweep cycle immediately.
 func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
+	return s.RunOnceWithExecution(ctx, "")
+}
+
+// RunOnceWithExecution triggers one sweep whose published summary carries
+// executionID. An empty id is a locally scheduled sweep. The id is bound in
+// the same update that publishes the completed sweep's LastSweep, and it is
+// not visible on the previous cycle while this run is still in progress.
+func (s *NetworkSweeper) RunOnceWithExecution(ctx context.Context, executionID string) error {
+	return s.RunOnceWithObserver(ctx, executionID, nil)
+}
+
+// RunOnceWithObserver delivers each final scanner result during this cycle.
+// The observer may be called concurrently by different scan modes. These signed
+// plan runs enumerate every configured CIDR address, including IPv4 endpoints.
+func (s *NetworkSweeper) RunOnceWithObserver(ctx context.Context, executionID string, observer func(*models.Result) error) error {
 	done := s.ensureControlChannels()
 
 	select {
 	case <-done:
 		s.logger.Info().Msg("Sweep already stopped, skipping run-once")
-		return nil
+		return errSweeperStopped
 	default:
 	}
 
@@ -100,7 +137,7 @@ func (s *NetworkSweeper) RunOnce(ctx context.Context) error {
 	sweepCtx, sweepCancel := context.WithTimeout(ctx, effectiveScanTimeout(s.config))
 	defer sweepCancel()
 
-	if err := s.runSweepWithLock(sweepCtx); err != nil {
+	if err := s.runSweepWithObserver(sweepCtx, executionID, observer); err != nil {
 		s.logRunError(err, "Run-once sweep failed")
 		return err
 	}

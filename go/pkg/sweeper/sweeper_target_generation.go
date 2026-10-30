@@ -40,7 +40,8 @@ func (s *NetworkSweeper) generateTargetsForNetwork(network string) ([]models.Tar
 		return nil, 0, err
 	}
 
-	ips, err := scan.ExpandCIDR(network)
+	var ips []string
+	_, err = s.forEachTargetCIDR(network, func(ip string) error { ips = append(ips, ip); return nil })
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to expand CIDR %s: %w", network, err)
 	}
@@ -181,7 +182,7 @@ func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) erro
 			"source":      "legacy_networks",
 		}
 
-		visited, err := forEachCIDRHost(network, func(ip string) error {
+		visited, err := s.forEachTargetCIDR(network, func(ip string) error {
 			return s.emitTargetsForIP(ip, s.config.SweepModes, metadata, consume)
 		})
 		if err != nil {
@@ -234,7 +235,7 @@ func (s *NetworkSweeper) generateTargetsBatched(consume func(models.Target) erro
 			return err
 		}
 
-		visited, err := forEachCIDRHost(deviceTarget.Network, func(ip string) error {
+		visited, err := s.forEachTargetCIDR(deviceTarget.Network, func(ip string) error {
 			return s.emitTargetsForIP(ip, sweepModes, metadata, consume)
 		})
 		if err != nil {

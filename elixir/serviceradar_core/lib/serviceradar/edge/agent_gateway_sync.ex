@@ -178,6 +178,14 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   def record_config_section_statuses(_agent_id, _attrs), do: :ok
 
   @doc """
+  Records an agent's answer to a sweep lease push (`ServiceRadar.SweepJobs.LeaseDelivery`).
+  """
+  @spec record_sweep_lease_ack(String.t(), map()) :: :ok | {:error, term()}
+  def record_sweep_lease_ack(agent_id, ack) when is_binary(agent_id) and is_map(ack) do
+    ServiceRadar.SweepJobs.LeaseDelivery.record_ack(agent_id, ack)
+  end
+
+  @doc """
   Records the config version most recently pushed to an agent over the control
   stream.
 

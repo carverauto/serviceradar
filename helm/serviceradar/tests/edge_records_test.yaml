@@ -1,0 +1,122 @@
+suite: durable sweep deployment wiring
+templates:
+- templates/core.yaml
+- templates/agent-gateway.yaml
+- templates/serviceradar-config.yaml
+tests:
+- it: leaves edge publishing disabled by default
+  asserts:
+  - notContains:
+      path: spec.template.spec.containers[0].env
+      content:
+        name: AGENT_GATEWAY_EDGE_RECORDS_ENABLED
+        value: 'true'
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+- it: mounts the issuer seed only on core and enables runtime trust on the gateway
+  set:
+    edgeRecords.enabled: true
+    edgeRecords.contractRegistry:
+      registry_epoch: 1
+  asserts:
+  - contains:
+      path: spec.template.spec.containers[0].env
+      content:
+        name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
+        value: /etc/serviceradar/edge-issuer/seed
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - contains:
+      path: spec.template.spec.volumes
+      content:
+        name: edge-issuer
+        secret:
+          secretName: serviceradar-secrets
+          defaultMode: 288
+          items:
+          - key: edge-issuer-seed
+            path: seed
+    template: templates/core.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - contains:
+      path: spec.template.spec.containers[0].env
+      content:
+        name: AGENT_GATEWAY_EDGE_RECORD_TRUST_SOURCE
+        value: core
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - notContains:
+      path: spec.template.spec.containers[0].env
+      content:
+        name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
+        value: /etc/serviceradar/edge-issuer/seed
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+- it: refuses enabling the plane without an installation contract
+  set:
+    agentGateway.enabled: false
+    edgeRecords.enabled: true
+  asserts:
+  - failedTemplate:
+      errorMessage: edgeRecords.contractRegistry is required when edgeRecords.enabled=true
+    template: templates/core.yaml
+- it: connects an edge-only publisher to authenticated NATS
+  set:
+    edgeRecords.enabled: true
+    edgeRecords.contractRegistry:
+      registry_epoch: 1
+    agentGateway.sysmonMetricsEnabled: false
+    agentGateway.snmpMetricsEnabled: false
+    agentGateway.pluginMetricsEnabled: false
+    agentGateway.otlpRelayPublishEnabled: false
+    natsCreds.autoGenerate: true
+  asserts:
+  - contains:
+      path: spec.template.spec.containers[0].env
+      content:
+        name: AGENT_GATEWAY_NATS_URL
+        value: tls://serviceradar-nats:4222
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - contains:
+      path: spec.template.spec.containers[0].env
+      content:
+        name: AGENT_GATEWAY_NATS_CREDS_FILE
+        value: /etc/serviceradar/creds/platform.creds
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+  - contains:
+      path: spec.template.spec.containers[0].volumeMounts
+      content:
+        name: nats-creds
+        mountPath: /etc/serviceradar/creds
+        readOnly: true
+    template: templates/agent-gateway.yaml
+    documentSelector:
+      path: kind
+      value: Deployment
+- it: refuses a canary spool on ephemeral storage
+  set:
+    edgeRecords.enabled: true
+    edgeRecords.contractRegistry:
+      registry_epoch: 1
+    edgeRecords.agentSweepEnabled: true
+    agent.runtimeStorage.enabled: false
+  asserts:
+  - failedTemplate:
+      errorMessage: edgeRecords.agentSweepEnabled requires persistent agent.runtimeStorage
+    template: templates/serviceradar-config.yaml

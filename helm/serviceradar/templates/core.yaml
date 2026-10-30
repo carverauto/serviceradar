@@ -189,6 +189,12 @@ spec:
         - name: metrics
           containerPort: 9090
         env:
+        {{- if (default dict .Values.edgeRecords).enabled }}
+        - name: SERVICERADAR_EDGE_ISSUER_KEY_FILE
+          value: /etc/serviceradar/edge-issuer/seed
+        - name: SERVICERADAR_EDGE_RECORD_CONTRACT_REGISTRY
+          value: {{ include "serviceradar.edgeRecordContractRegistry" . | quote }}
+        {{- end }}
         - name: LANG
           value: "C.UTF-8"
         - name: LC_ALL
@@ -947,6 +953,11 @@ spec:
         {{- end }}
         {{- end }}
         volumeMounts:
+        {{- if (default dict .Values.edgeRecords).enabled }}
+        - name: edge-issuer
+          mountPath: /etc/serviceradar/edge-issuer
+          readOnly: true
+        {{- end }}
         - name: tmp
           mountPath: /tmp
         {{- include "serviceradar.dgraph.caVolumeMount" $ | nindent 8 }}
@@ -1022,6 +1033,15 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
+      {{- if (default dict .Values.edgeRecords).enabled }}
+      - name: edge-issuer
+        secret:
+          secretName: {{ $secrets | quote }}
+          defaultMode: 0440
+          items:
+          - key: edge-issuer-seed
+            path: seed
+      {{- end }}
       - name: tmp
         emptyDir: {}
       {{- include "serviceradar.dgraph.caVolume" $ | nindent 6 }}

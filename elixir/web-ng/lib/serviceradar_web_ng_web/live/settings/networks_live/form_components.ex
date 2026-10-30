@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   import ServiceRadarWebNGWeb.Settings.NetworksLive.AgentPickerComponents
 
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.Index.View.LeaseHorizons
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
   # Group Form
@@ -707,6 +708,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   # Group Detail View
   attr :group, :map, required: true
   attr :summary_agents, :map, default: %{}
+  attr :lease_horizons, :list, default: []
+  attr :lease_agents, :map, default: %{}
   attr :timezone, :string, required: true
 
   def group_detail(assigns) do
@@ -774,6 +777,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
           </div>
         </div>
       </.ui_panel>
+
+      <LeaseHorizons.panel
+        group_id={@group.id}
+        horizons={@lease_horizons}
+        agents={@lease_agents}
+        timezone={@timezone}
+      />
 
       <.ui_panel>
         <:header>

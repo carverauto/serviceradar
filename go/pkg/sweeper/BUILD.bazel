@@ -49,6 +49,7 @@ go_test(
         "summary_snapshot_test.go",
         "sweeper_banner_grab_test.go",
         "sweeper_cancel_test.go",
+        "sweeper_execution_test.go",
         "sweeper_prune_test.go",
         "sweeper_test.go",
         "target_count_test.go",

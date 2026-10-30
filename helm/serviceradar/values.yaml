@@ -940,7 +940,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261028120000"
+    expectedVersion: "20261029045323"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1817,6 +1817,14 @@ agent:
     requests:
       cpu: 200m
       memory: 512Mi
+# Durable sweep canary. Core lease settings select participating agents/groups.
+# contractRegistry is the installation-static document consumed by core and gateway.
+edgeRecords:
+  enabled: false
+  contractRegistry: {}
+  agentSweepEnabled: false
+  maxSpoolBytes: 1073741824
+
 agentGateway:
   enabled: true
   replicas: 3

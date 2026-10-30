@@ -1,0 +1,55 @@
+# SHARED SCALAR / CARRIER CORPUS (task 1.5-h).
+#
+# FIVE BOUNDS, EIGHT SITES. A BOUND is the frozen ceiling; a SITE is an independently
+# removable gate. The five are MaxPolicyIDBytes, MaxPrincipalBytes, MaxPlanHeaderBytes,
+# MaxTraceStrBytes and MaxReasonBytes; each runtime asserts the DISTINCT SET, not just a count,
+# so adding a row under a sixth bound cannot slip in as one more site of an existing one. `MaxPolicyIDBytes` and `MaxPrincipalBytes` are BOTH 128 and stay SEPARATE
+# NAMED BOUNDS: they bound different quantities and either may move alone, so collapsing them
+# would make one bound's drift invisible behind the other's rows.
+#
+# A LOWER BOUND NEEDS TWO CONTROLS, NOT ONE. SEVEN of the eight sites are SEMANTICALLY
+# two-sided -- they admit 1..Max, whatever spelling the gate uses -- which freezes a MINIMUM OF
+# 1 as well as a ceiling, and a zero-refusal alone does not pin it. A validator tightened to reject length 1 refuses zero exactly as before, so the
+# `min` column carries the SMALLEST ADMISSIBLE VALUE and each runtime asserts it is ACCEPTED.
+# FOUR controls per two-sided site: zero refused, min accepted, at accepted, over refused.
+# The lower pair is needed AT EACH SITE, not once per helper: a helper-level test proves the
+# helper's arithmetic, not that a given carrier still routes through it.
+#
+# `plan_header_raw` is ONE-SIDED -- a raw byte ceiling with no minimum -- so `zero` and `min`
+# are `n/a`. It carries at/over plus a STAGE WITNESS instead, because a raw ceiling's
+# pre-decode ordering is not something an at/over pair can show.
+#
+# `abort_reason` carries SIX: the four above apply when the kind is ABORTED, and a non-ABORTED
+# event must carry NO reason -- a separate, independently removable predicate needing its own
+# ACCEPTED (empty) and REFUSED (non-empty) control. Without the accepted one, a predicate
+# refusing every non-aborted event would satisfy the refusal.
+#
+# `tombstone_reason_signed` carries the four, on the signed recovery-control path.
+#
+# Both runtimes now enforce all three principal sites, including the raw record boundary.
+# Lifecycle abort reasons also have both peers; remaining n/a rows name their owner.
+#
+# THE LITERALS ARE STATED HERE AND NOWHERE ELSE. Deriving `over` from the production constant
+# would move every row with the bound, so a ceiling drifting to 64 or 4096 would keep the whole
+# corpus green. Each runtime asserts its constant against these values -- and where a runtime
+# keeps the ceiling private, it proves the value behaviourally rather than exposing a
+# test-only accessor.
+#
+# VERDICT COLUMNS are per runtime, for the OVER case. `n/a` means that runtime has no peer for
+# the site; `owner` names who owns building one, so an absent peer is a recorded gap and never
+# a silent exemption.
+#
+# NOT A SITE: the plan RANGE availability-policy length. It was a derived arm -- a range must
+# EQUAL the header's already-bounded policy, so no input reached its length arm alone -- and it
+# SHADOWED the header's own proof, refusing a consistent over-limit policy with the header
+# bound deleted. The bound is now CENTRALIZED at the header and the range is equality-only.
+#
+# site                        bound                 zero    min  at      over    go      elixir  owner
+policy_plan_header            MaxPolicyIDBytes      refuse  1    128     129     refuse  refuse  -
+policy_assignment_record      MaxPolicyIDBytes      refuse  1    128     129     refuse  refuse  -
+principal_producer_context    MaxPrincipalBytes     refuse  1    128     129     refuse  refuse  -
+principal_edge_slot           MaxPrincipalBytes     refuse  1    128     129     refuse  refuse  -
+principal_service_slot        MaxPrincipalBytes     refuse  1    128     129     refuse  refuse  -
+plan_header_raw               MaxPlanHeaderBytes    n/a     n/a  524288  524289  refuse  refuse  -
+abort_reason                  MaxTraceStrBytes      refuse  1    256     257     refuse  refuse  -
+tombstone_reason_signed       MaxReasonBytes        refuse  1    256     257     refuse  n/a     1.6-d

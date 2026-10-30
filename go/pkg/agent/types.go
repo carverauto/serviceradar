@@ -37,6 +37,7 @@ import (
 
 const (
 	intervalLiteral         = "interval"
+	cronLiteral             = "cron"
 	networkSweepServiceName = "network_sweep"
 )
 
@@ -212,6 +213,33 @@ type ServerConfig struct {
 	// when enabled and the helper binary is locally executable.
 	RemoteAccessRDPEnabled     *bool  `json:"remote_access_rdp_enabled,omitempty"`
 	RemoteAccessRDPAdapterPath string `json:"remote_access_rdp_adapter_path,omitempty"`
+
+	// EdgeRecordSender optionally enables the minimum durable-execution sender
+	// that drains go/pkg/edge/spool over one EdgeRecordIngestService.Stream mTLS
+	// lane per poll tick (openspec/changes/unify-sweep-results-proto, task 0.12
+	// groups B/D). Disabled unless explicitly configured: the gateway-side RPC
+	// server this depends on may not exist yet in a given deployment.
+	EdgeRecordSender *EdgeRecordSenderConfig `json:"edge_record_sender,omitempty"`
+}
+
+// EdgeRecordSenderConfig configures the optional edge-record spool sender.
+// GatewayAddr/Security default to the agent's own gateway_addr/gateway_security
+// when empty: the edge-record lane is a SEPARATE pooled mTLS connection from
+// the status-push connection (design.md's independent bulk/interactive/
+// recovery transport rule), not a reason to require duplicate credentials in
+// the common case where both point at the same gateway.
+type EdgeRecordSenderConfig struct {
+	Enabled bool `json:"enabled"`
+	// SweepEnabled opts leased static sweeps into durable edge records.
+	SweepEnabled bool `json:"sweep_enabled,omitempty"`
+	// MaxBytes bounds durable spool admission; zero uses 256 MiB.
+	MaxBytes uint64 `json:"max_bytes,omitempty"`
+	// SpoolDir is the directory holding the agent's edge-record spool segment
+	// (go/pkg/edge/spool) and its persisted lane spool_id.
+	SpoolDir     string                 `json:"spool_dir"`
+	GatewayAddr  string                 `json:"gateway_addr,omitempty"`
+	Security     *models.SecurityConfig `json:"security,omitempty"`
+	PollInterval Duration               `json:"poll_interval,omitempty"`
 }
 
 type BumblebeeStatusConfig struct {

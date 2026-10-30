@@ -36,12 +36,18 @@ import (
 type SweepService struct {
 	sweeper sweeper.SweepService // Use the full SweepService interface
 	mu      sync.RWMutex
+	runMu   sync.Mutex
 	config  *models.Config
 	stats   *ScanStats
 	logger  logger.Logger
 
-	// Caching fields for sequence tracking
+	// Caching fields for sequence tracking. pendingSweeps holds completed
+	// cycles, oldest first, until GetSweepResults publishes them. A catch-up
+	// of several slots finishes before the push loop reads, and two of those
+	// completions can share a LastSweep unix second.
 	cachedResults      *models.SweepSummary
+	pendingSweeps      []*completedSweep
+	cachedCompletion   *completedSweep
 	lastSweepTimestamp int64
 	currentSequence    uint64
 
@@ -49,6 +55,18 @@ type SweepService struct {
 	sweepGroupID string // Current sweep group UUID from config
 	executionID  string // Current execution UUID (generated per sweep cycle)
 	configHash   string // Config hash for change detection
+
+	// Lease execution state reported in status; empty state means the group
+	// is on its local schedule.
+	leaseState            string
+	leaseNextSlotUnixNano int64
+	leaseSlotsRemaining   int
+
+	// sweepRunInProgress is set around RunOnce until the completed cycle has
+	// been copied into pendingSweeps. The push loop must not publish the live
+	// summary in that window, or it and the retained copy both go out.
+	sweepRunInProgress  bool
+	lastEdgeExecutionID string
 }
 
 // NewSweepService creates a new SweepService.
@@ -111,7 +129,7 @@ func (s *SweepService) RunOnce(ctx context.Context) error {
 		return errSweepRunnerUnavailable
 	}
 
-	return runner.RunOnce(ctx)
+	return s.runAndRetain(ctx, runner.RunOnce)
 }
 
 // CancelRun aborts the in-flight sweep, reporting whether one was running.
@@ -122,6 +140,168 @@ func (s *SweepService) CancelRun() (bool, error) {
 	}
 
 	return canceller.CancelRun(), nil
+}
+
+type completedSweep struct {
+	*models.SweepSummary
+	cancelled    bool
+	scannerStats *models.ScannerStats
+	bannerStats  *models.BannerGrabStats
+}
+
+func (s *SweepService) snapshotCompletedSweep(summary *models.SweepSummary) *completedSweep {
+	cycle := &completedSweep{SweepSummary: cloneSweepSummaryForPublish(summary)}
+	if source, ok := s.sweeper.(interface{ WasCancelledSweep() bool }); ok {
+		cycle.cancelled = source.WasCancelledSweep()
+	}
+	if stats := s.sweeper.GetScannerStats(); stats != nil {
+		copy := *stats
+		cycle.scannerStats = &copy
+	}
+	if stats := s.sweeper.GetBannerGrabStats(); stats != nil {
+		copy := *stats
+		cycle.bannerStats = &copy
+	}
+	return cycle
+}
+
+// RunOnceForExecution runs one sweep as the core-minted executionID (a leased
+// slot). The completed cycle is retained here, hosts included, until
+// GetSweepResults publishes it. The sweeper keeps one summary, so the next
+// slot would otherwise replace this cycle before the push loop reads it.
+func (s *SweepService) RunOnceForExecution(ctx context.Context, executionID string) error {
+	if runner, ok := s.sweeper.(interface {
+		RunOnceWithExecution(context.Context, string) error
+	}); ok {
+		return s.runAndRetain(ctx, func(ctx context.Context) error {
+			return runner.RunOnceWithExecution(ctx, executionID)
+		})
+	}
+
+	return s.RunOnce(ctx)
+}
+
+// runAndRetain copies the finished cycle before GetSweepResults is allowed
+// to read the live summary. Otherwise a push that lands between completion
+// and the copy publishes that summary, and the copy publishes it again.
+func (s *SweepService) runAndRetain(ctx context.Context, run func(context.Context) error) error {
+	s.runMu.Lock()
+	defer s.runMu.Unlock()
+	if err := sweeper.CheckExecution(ctx); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.sweepRunInProgress = true
+	s.mu.Unlock()
+
+	err := run(ctx)
+	if err != nil {
+		s.mu.Lock()
+		s.sweepRunInProgress = false
+		s.mu.Unlock()
+
+		return err
+	}
+
+	retainErr := s.retainCompletedSweep(ctx)
+
+	s.mu.Lock()
+	s.sweepRunInProgress = false
+	s.mu.Unlock()
+
+	return retainErr
+}
+
+// retainCompletedSweep snapshots the cycle that just finished. A cycle with
+// no hosts is not a publication, and its execution id must not stick to the
+// next cycle. The snapshot is a copy because the sweeper rewrites the live
+// summary in place.
+func (s *SweepService) retainCompletedSweep(ctx context.Context) error {
+	summary, err := s.sweeper.GetStatus(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to retain sweep results: %w", err)
+	}
+	if summary == nil || summary.LastSweep <= 0 || len(summary.Hosts) == 0 {
+		return nil
+	}
+
+	retained := s.snapshotCompletedSweep(summary)
+
+	s.mu.Lock()
+	s.pendingSweeps = append(s.pendingSweeps, retained)
+	s.mu.Unlock()
+
+	return nil
+}
+
+// takeCompletedSweepLocked returns the oldest retained cycle, or the live
+// summary when nothing was retained and it is a new completion. The live
+// summary stays in the sweeper, so it is copied. Retained cycles are already
+// copies and are not compared by LastSweep: that unix second can repeat.
+func (s *SweepService) takeCompletedSweepLocked(live *models.SweepSummary) *completedSweep {
+	if len(s.pendingSweeps) > 0 {
+		next := s.pendingSweeps[0]
+		s.pendingSweeps = s.pendingSweeps[1:]
+
+		return next
+	}
+	if s.sweepRunInProgress || live == nil || live.LastSweep <= 0 || len(live.Hosts) == 0 {
+		return nil
+	}
+	if live.ExecutionID != "" && live.ExecutionID == s.lastEdgeExecutionID {
+		return nil
+	}
+	if samePublishedCycle(s.cachedResults, live) {
+		return nil
+	}
+
+	return s.snapshotCompletedSweep(live)
+}
+
+func samePublishedCycle(cached, live *models.SweepSummary) bool {
+	if cached == nil || live == nil {
+		return false
+	}
+
+	return cached.LastSweep == live.LastSweep && cached.ExecutionID == live.ExecutionID
+}
+
+func cloneSweepSummaryForPublish(summary *models.SweepSummary) *models.SweepSummary {
+	if summary == nil {
+		return nil
+	}
+
+	clone := *summary
+	clone.Ports = append([]models.PortCount(nil), summary.Ports...)
+	clone.Hosts = make([]models.HostResult, len(summary.Hosts))
+	for i := range summary.Hosts {
+		clone.Hosts[i] = models.DeepCopyHostResult(&summary.Hosts[i])
+	}
+
+	return &clone
+}
+
+// SetLeaseDriven replaces the group's local ticker with leased-slot
+// execution, or hands the group back to its local schedule.
+func (s *SweepService) SetLeaseDriven(driven bool) {
+	if scheduler, ok := s.sweeper.(interface{ SetManualSchedule(bool) }); ok {
+		scheduler.SetManualSchedule(driven)
+	}
+
+	if !driven {
+		s.SetLeaseState("", 0, 0)
+	}
+}
+
+// SetLeaseState records the lease execution state shown in status payloads:
+// "active" while slots remain, "exhausted" when none do, "" when unleased.
+func (s *SweepService) SetLeaseState(state string, nextSlotUnixNano int64, slotsRemaining int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.leaseState = state
+	s.leaseNextSlotUnixNano = nextSlotUnixNano
+	s.leaseSlotsRemaining = slotsRemaining
 }
 
 // Name returns the service name.
@@ -189,21 +369,24 @@ func (s *SweepService) GetStatusWithMetricPayload(ctx context.Context) (*proto.S
 	if bannerGrab != nil {
 		data["banner_grab"] = bannerGrab
 	}
+	var leaseReport map[string]any
+	if s.leaseState != "" {
+		leaseReport = sweepLeaseReport(s.leaseState, s.leaseNextSlotUnixNano, s.leaseSlotsRemaining, s.sweepGroupID)
+		data["sweep_lease"] = leaseReport
+	}
 	s.mu.RUnlock()
 
-	statusJSON, err := json.Marshal(struct {
-		Network      string `json:"network"`
-		LastSweep    int64  `json:"last_sweep"`
-		DefinedCIDRs int    `json:"defined_cidrs"`
-		Sequence     uint64 `json:"sequence"`
-		Status       string `json:"status"`
-	}{
-		Network:      network,
-		LastSweep:    summary.LastSweep,
-		DefinedCIDRs: definedCIDRs,
-		Sequence:     s.currentSequence,
-		Status:       "collecting",
-	})
+	statusDoc := map[string]any{
+		"network":       network,
+		"last_sweep":    summary.LastSweep,
+		"defined_cidrs": definedCIDRs,
+		"sequence":      s.currentSequence,
+		"status":        "collecting",
+	}
+	if leaseReport != nil {
+		statusDoc["sweep_lease"] = []map[string]any{leaseReport}
+	}
+	statusJSON, err := json.Marshal(statusDoc)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to marshal status")
 		return nil, nil, fmt.Errorf("failed to marshal sweep status: %w", err)
@@ -346,25 +529,32 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 	totalHosts := summary.TotalHosts
 	hostsProcessed := len(summary.Hosts)
-	sweepComplete := summary.LastSweep > 0 && hostsProcessed > 0
 
-	// Only publish results when a sweep has completed
-	if sweepComplete && summary.LastSweep != s.lastSweepTimestamp {
-		// Update cached results and increment sequence
-		s.cachedResults = summary
-		s.lastSweepTimestamp = summary.LastSweep
-		s.currentSequence++
+	// Publish one completed cycle per read. An empty caller sequence is a
+	// retry of the cycle already handed out; the next cycle waits until that
+	// sequence comes back. LastSweep's unix second is not the cycle identity:
+	// two retained completions may share it.
+	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
+	if s.currentSequence == 0 || (lastSequence != "" && lastSequence == currentSeqStr) {
+		if cycle := s.takeCompletedSweepLocked(summary); cycle != nil {
+			s.cachedResults = cycle.SweepSummary
+			s.cachedCompletion = cycle
+			s.lastSweepTimestamp = cycle.LastSweep
+			s.currentSequence++
+			if cycle.ExecutionID != "" {
+				s.executionID = cycle.ExecutionID
+			} else {
+				s.executionID = uuid.New().String()
+			}
 
-		// Generate a new execution ID for this sweep cycle
-		s.executionID = uuid.New().String()
-
-		s.logger.Info().
-			Uint64("newSequence", s.currentSequence).
-			Str("executionID", s.executionID).
-			Msg("Sweep data changed, updated sequence and execution ID")
+			s.logger.Info().
+				Uint64("newSequence", s.currentSequence).
+				Str("executionID", s.executionID).
+				Msg("Sweep data changed, updated sequence and execution ID")
+		}
 	}
 
-	currentSeqStr := fmt.Sprintf("%d", s.currentSequence)
+	currentSeqStr = fmt.Sprintf("%d", s.currentSequence)
 
 	sweepGroupID := s.sweepGroupID
 	if sweepGroupID == "" {
@@ -421,14 +611,16 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 	// Signal a scan-timeout cancellation so the server can record the correct
 	// execution status (cancelled rather than completed).
-	if wasCancelled, ok := s.sweeper.(interface{ WasCancelledSweep() bool }); ok && wasCancelled.WasCancelledSweep() {
+	if s.cachedCompletion != nil && s.cachedCompletion.cancelled {
 		resultPayload["cancelled"] = true
 	}
 
-	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
+	if s.cachedCompletion != nil && s.cachedCompletion.scannerStats != nil {
+		scannerStats := s.cachedCompletion.scannerStats
 		resultPayload["scanner_stats"] = scannerStats
 	}
-	if bannerStats := s.sweeper.GetBannerGrabStats(); bannerStats != nil {
+	if s.cachedCompletion != nil && s.cachedCompletion.bannerStats != nil {
+		bannerStats := s.cachedCompletion.bannerStats
 		resultPayload["banner_grab"] = bannerStats
 	}
 
@@ -452,11 +644,12 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		SweepGroupId:     sweepGroupID,
 		TotalTargets:     int32(len(s.cachedResults.Hosts)),
 		CompletedTargets: int32(len(s.cachedResults.Hosts)),
-		CompletionTime:   time.Now().Unix(),
+		CompletionTime:   s.cachedResults.LastSweep,
 	}
 
 	// Populate scanner stats if available
-	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
+	if s.cachedCompletion != nil && s.cachedCompletion.scannerStats != nil {
+		scannerStats := s.cachedCompletion.scannerStats
 		sweepCompletion.ScannerStats = &proto.SweepScannerStats{
 			Protocol:             scannerStats.Protocol,
 			AddressFamily:        scannerStats.AddressFamily,
@@ -501,6 +694,15 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 		SweepGroupId:    sweepGroupID,
 		SweepCompletion: sweepCompletion,
 	}, nil
+}
+
+func sweepLeaseReport(state string, nextSlotUnixNano int64, slotsRemaining int, sweepGroupID string) map[string]any {
+	return map[string]any{
+		"state":               state,
+		"next_slot_unix_nano": nextSlotUnixNano,
+		"slots_remaining":     slotsRemaining,
+		"sweep_group_id":      sweepGroupID,
+	}
 }
 
 // SetExecutionContext updates the sweep group ID and config hash from config.

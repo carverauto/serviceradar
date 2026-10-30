@@ -26,6 +26,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.Analytics.StarRocks.Destination
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Processors.AnalyticsSignals
+  alias ServiceRadar.EventWriter.Processors.EdgeRecord
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.Metrics
@@ -357,7 +358,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         emit_dead_letter(message)
         ack_message(message, :term)
 
-      retryable_alert_evaluation_status?(message.status) ->
+      retryable_alert_evaluation_status?(message.status) or edge_record_message?(message) ->
         delivery_count = get_in(message.metadata, [:jetstream_ack, :delivery_count]) || 1
         delay_ms = 10_000 * Bitwise.bsl(1, min(max(delivery_count, 1), 4) - 1)
         ack_message(message, {:nack, delay_ms})
@@ -366,6 +367,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         ack_message(message, :nack)
     end
   end
+
+  defp edge_record_message?(%{metadata: %{subject: "telemetry.edge-record." <> _}}), do: true
+  defp edge_record_message?(_message), do: false
 
   defp terminal_delivery?(%{metadata: metadata}) when is_map(metadata) do
     with %{delivery_count: delivery_count} <- metadata[:jetstream_ack],
@@ -633,6 +637,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:logs, &String.starts_with?(&1, "logs.")},
       {:flow_attribution, &String.starts_with?(&1, "events.flow.attribution")},
       {:events, &String.starts_with?(&1, "events.")},
+      # MUST precede the generic :telemetry rule below -- both match a
+      # "telemetry." prefix, and find_value/2 takes the first match.
+      {:edge_record, &String.starts_with?(&1, "telemetry.edge-record.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
       # Catch-all before specific prefixes are unnecessary: every raw-flow
       # subject (netflow/sflow/ipfix/extensions) must hit Processors.Flows.
@@ -732,6 +739,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
+  defp get_processor(:edge_record), do: EdgeRecord
   defp get_processor(:flows_raw), do: Flows
 
   defp get_processor(:flow_attribution_observations),

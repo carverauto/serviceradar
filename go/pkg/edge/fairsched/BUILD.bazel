@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "fairsched",
+    srcs = [
+        "fairqueue.go",
+        "scheduler.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/edge/fairsched",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//reflect/protoreflect",
+    ],
+)
+
+go_test(
+    name = "fairsched_test",
+    srcs = [
+        "fairsched_test.go",
+        "scheduler_taxonomy_test.go",
+    ],
+    embed = [":fairsched"],
+    deps = ["//proto/edge/v1:edgev1"],
+)

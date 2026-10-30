@@ -4,6 +4,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.ConsumerSetup
   alias ServiceRadar.NATS.JetstreamConsumer
 
   defmodule FakeJetStream do
@@ -34,14 +35,20 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     def handle_call({:unsub, _sid, _opts}, _from, streams), do: {:reply, :ok, streams}
 
     defp respond("$JS.API.STREAM.NAMES", body, streams) do
-      %{"subject" => subject} = Jason.decode!(body)
+      {reason, streams} = Map.pop(streams, :names_error)
 
-      names =
-        for {name, %{"subjects" => subjects}} <- streams,
-            Enum.any?(subjects, &Config.nats_filter_covers?(&1, subject)),
-            do: name
+      if reason == nil do
+        %{"subject" => subject} = Jason.decode!(body)
 
-      {%{"streams" => names}, streams}
+        names =
+          for {name, %{"subjects" => subjects}} <- streams,
+              Enum.any?(subjects, &Config.nats_filter_covers?(&1, subject)),
+              do: name
+
+        {%{"streams" => names}, streams}
+      else
+        {%{"error" => %{"code" => 503, "description" => "stream names unavailable"}}, streams}
+      end
     end
 
     defp respond("$JS.API.STREAM.INFO." <> name, _body, streams) do
@@ -383,6 +390,106 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
            ) == {:ok, "flows"}
   end
 
+  test "discovery failure creates the configured stream name without folding its case" do
+    conn = start_supervised!({FakeJetStream, %{names_error: :timeout}})
+
+    assert {:ok, %{stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK"}} =
+             ensure_edge_record_consumer(conn)
+
+    streams = FakeJetStream.streams(conn)
+    assert Map.has_key?(streams, "TELEMETRY_EDGE_RECORD_V1_BULK")
+    refute Map.has_key?(streams, "telemetry_edge_record_v1_bulk")
+  end
+
+  test "an empty discovery result still creates the configured stream name" do
+    conn = start_supervised!({FakeJetStream, %{}})
+
+    assert {:ok, %{stream_name: "TELEMETRY_EDGE_RECORD_V1_BULK"}} =
+             ensure_edge_record_consumer(conn)
+
+    assert Map.has_key?(FakeJetStream.streams(conn), "TELEMETRY_EDGE_RECORD_V1_BULK")
+  end
+
+  test "a discovered case-variant owner is not adopted in place of the configured stream" do
+    conn =
+      start_supervised!(
+        {FakeJetStream,
+         %{
+           "telemetry_edge_record_v1_bulk" => %{
+             "subjects" => ["telemetry.edge-record.v1.bulk.>"],
+             "messages" => 0
+           }
+         }}
+      )
+
+    assert {:error, %{"err_code" => 10_065}} = ensure_edge_record_consumer(conn)
+
+    streams = FakeJetStream.streams(conn)
+    assert Map.has_key?(streams, "telemetry_edge_record_v1_bulk")
+    refute Map.has_key?(streams, "TELEMETRY_EDGE_RECORD_V1_BULK")
+  end
+
+  test "edge record refuses a case-variant and any other owner of its subject" do
+    stream = Config.edge_record_stream()
+    subject = stream.subject
+    expected = Config.jetstream_stream_name(stream)
+
+    conn =
+      start_supervised!(
+        {FakeJetStream,
+         %{
+           "telemetry_edge_record_v1_bulk" => %{
+             "subjects" => [subject],
+             "messages" => 0
+           },
+           "events" => %{
+             "subjects" => [subject],
+             "messages" => 1
+           }
+         }}
+      )
+
+    assert {:error, %{"err_code" => 10_065}} = ensure_edge_record_consumer(conn)
+
+    streams = FakeJetStream.streams(conn)
+    assert Map.has_key?(streams, "telemetry_edge_record_v1_bulk")
+    assert Map.has_key?(streams, "events")
+    refute Map.has_key?(streams, expected)
+
+    assert :ok = ConsumerSetup.validate_resolved_stream(stream, expected)
+
+    assert {:error,
+            {:unexpected_stream, expected: ^expected, resolved: "telemetry_edge_record_v1_bulk"}} =
+             ConsumerSetup.validate_resolved_stream(stream, "telemetry_edge_record_v1_bulk")
+
+    assert {:error, {:unexpected_stream, expected: ^expected, resolved: "events"}} =
+             ConsumerSetup.validate_resolved_stream(stream, "events")
+
+    flow = Enum.find(Config.default_flow_streams(), &(&1.name == "NETFLOW_RAW"))
+
+    assert {:error, {:unexpected_stream, expected: "flows", resolved: "events"}} =
+             ConsumerSetup.validate_resolved_stream(flow, "events")
+
+    inventory = Enum.find(Config.default_streams(), &(&1.name == "K8S_INVENTORY"))
+    assert :ok = ConsumerSetup.validate_resolved_stream(inventory, "events")
+  end
+
+  test "a subject no stream owns is an empty discovery result, not a discovery error" do
+    # nats-server encodes "no stream owns this subject" as `"streams": null`.
+    assert JetstreamConsumer.stream_names_reply(
+             {:ok,
+              %{"type" => "io.nats.jetstream.api.v1.stream_names_response", "streams" => nil}}
+           ) == {:ok, []}
+
+    assert JetstreamConsumer.stream_names_reply({:ok, %{"streams" => ["events", 7]}}) ==
+             {:ok, ["events"]}
+
+    assert {:error, {:unexpected_stream_names_response, _}} =
+             JetstreamConsumer.stream_names_reply({:ok, %{"total" => 0}})
+
+    assert JetstreamConsumer.stream_names_reply({:error, :timeout}) == {:error, :timeout}
+  end
+
   test "overlap fallback re-resolves onto the stream owning the subject" do
     assert JetstreamConsumer.overlap_fallback_stream({:ok, ["events"]}, "analytics_predictions") ==
              {:ok, "events"}
@@ -391,6 +498,18 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
              {:ok, ["analytics_predictions", "events"]},
              "analytics_predictions"
            ) == {:ok, "events"}
+
+    assert JetstreamConsumer.overlap_fallback_stream(
+             {:ok, ["arancini_causal"]},
+             "ARANCINI_CAUSAL"
+           ) == {:ok, "arancini_causal"}
+
+    assert JetstreamConsumer.choose_requested_or_first_stream(
+             "ARANCINI_CAUSAL",
+             "arancini.updates.>",
+             ["arancini_causal"],
+             true
+           ) == {:ok, "arancini_causal"}
   end
 
   test "overlap fallback keeps the original error when discovery finds no other stream" do
@@ -643,6 +762,17 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
   end
 
   defp stream(subjects, messages), do: %{"subjects" => subjects, "messages" => messages}
+
+  defp ensure_edge_record_consumer(conn) do
+    stream = Config.edge_record_stream()
+
+    JetstreamConsumer.ensure_durable(conn,
+      stream_name: Config.jetstream_stream_name(stream),
+      filter_subject: stream.subject,
+      consumer_name: "edge-record-bulk-test",
+      allow_stream_fallback: ConsumerSetup.allow_stream_fallback?(stream)
+    )
+  end
 
   defp ensure_flow_consumer(conn, subject) do
     JetstreamConsumer.ensure_durable(conn,

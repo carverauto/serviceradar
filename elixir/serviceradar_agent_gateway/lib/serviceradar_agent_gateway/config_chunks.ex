@@ -55,6 +55,37 @@ defmodule ServiceRadarAgentGateway.ConfigChunks do
     end)
   end
 
+  @doc """
+  Splits an encoded `SweepLeaseV1` into `SweepLeaseChunk`s under the same budgets as a config
+  push: 1 MiB payload slices, each carrying the whole payload's SHA-256, the last marked final.
+  A lease above the 64 MiB stream window is refused.
+  """
+  @spec sweep_lease_chunks(String.t(), binary()) ::
+          {:ok, [Monitoring.SweepLeaseChunk.t()]} | {:error, :sweep_lease_too_large}
+  def sweep_lease_chunks(sweep_group_id, payload) when is_binary(sweep_group_id) and is_binary(payload) do
+    if byte_size(payload) > @max_stream_config_window_bytes do
+      {:error, :sweep_lease_too_large}
+    else
+      payload_sha256 = sha256_hex(payload)
+      total_chunks = max(ceil_div(byte_size(payload), @max_config_chunk_payload_bytes), 1)
+
+      {:ok,
+       Enum.map(0..(total_chunks - 1), fn chunk_index ->
+         offset = chunk_index * @max_config_chunk_payload_bytes
+         chunk_size = min(@max_config_chunk_payload_bytes, max(byte_size(payload) - offset, 0))
+
+         %Monitoring.SweepLeaseChunk{
+           sweep_group_id: sweep_group_id,
+           payload: binary_part(payload, offset, chunk_size),
+           chunk_index: chunk_index,
+           total_chunks: total_chunks,
+           is_final: chunk_index == total_chunks - 1,
+           payload_sha256: payload_sha256
+         }
+       end)}
+    end
+  end
+
   @doc "Encoded size of `response` in bytes."
   @spec size(Monitoring.AgentConfigResponse.t()) :: non_neg_integer()
   def size(%Monitoring.AgentConfigResponse{} = response) do
