@@ -49,7 +49,7 @@ defmodule ServiceRadar.Security.PeerCertificateDistributionTest do
       end)
 
     [hub, outbound, inbound, control] = peers
-    [_hub_fp, _outbound_fp, _inbound_fp, control_fp] = fingerprints
+    [_hub_fp, outbound_fp, inbound_fp, control_fp] = fingerprints
 
     # No ERTS connection is available to fetch bootstrap policy. HTTPS must
     # restore admission independently, including after the policy store restarts.
@@ -65,10 +65,33 @@ defmodule ServiceRadar.Security.PeerCertificateDistributionTest do
     assert true == peer_call(hub, Node, :connect, [elem(control, 1)])
     assert %{active: 3} = peer_call(hub, Policy, :status, [])
 
+    for fp <- [outbound_fp, inbound_fp, control_fp] do
+      assert %{
+               admission: :allowed,
+               active: 1,
+               closing: 0,
+               failed: 0,
+               generated_at: %DateTime{},
+               valid_until: %DateTime{}
+             } =
+               peer_call(hub, Policy, :peer_status, [fp])
+    end
+
     # Only the hub learns revocation. It must terminate both its outgoing and
     # incoming sessions while preserving the control link and every peer VM.
     serve_policy(responses, hub, snapshot([control_fp], 20_000), private_key)
     assert eventually(fn -> peer_call(hub, Node, :list, [:connected]) == [elem(control, 1)] end)
+
+    for fp <- [outbound_fp, inbound_fp] do
+      assert eventually(fn ->
+               match?(
+                 %{admission: :denied, fresh: true, active: 0, closing: 0, failed: 0},
+                 peer_call(hub, Policy, :peer_status, [fp])
+               )
+             end)
+    end
+
+    assert %{admission: :allowed, active: 1} = peer_call(hub, Policy, :peer_status, [control_fp])
     Enum.each(peers, fn peer -> assert true == peer_call(peer, :erlang, :is_alive, []) end)
 
     assert elem(control, 1) ==
@@ -90,6 +113,14 @@ defmodule ServiceRadar.Security.PeerCertificateDistributionTest do
 
     serve_policy(responses, hub, snapshot([control_fp], 300), private_key)
     assert eventually(fn -> peer_call(hub, Node, :list, [:connected]) == [] end)
+
+    assert eventually(fn ->
+             match?(
+               %{admission: :stale, fresh: false, active: 0, closing: 0, failed: 0},
+               peer_call(hub, Policy, :peer_status, [control_fp])
+             )
+           end)
+
     assert true == peer_call(hub, :erlang, :is_alive, [])
     assert true == peer_call(control, :erlang, :is_alive, [])
     serve_policy(responses, hub, snapshot(fingerprints, 20_000), private_key)

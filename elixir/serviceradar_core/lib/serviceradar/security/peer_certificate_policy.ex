@@ -26,6 +26,10 @@ defmodule ServiceRadar.Security.PeerCertificatePolicy do
   def authorize(fingerprint, server \\ __MODULE__), do: call(server, {:authorize, fingerprint})
   def status(server \\ __MODULE__), do: GenServer.call(server, :status)
 
+  @doc "Reports this receiver's admission and live guard counts for one full-DER fingerprint."
+  def peer_status(fingerprint, server \\ __MODULE__),
+    do: call(server, {:peer_status, fingerprint})
+
   def fingerprint(der) when is_binary(der),
     do: Base.encode16(:crypto.hash(:sha256, der), case: :lower)
 
@@ -195,17 +199,34 @@ defmodule ServiceRadar.Security.PeerCertificatePolicy do
     end
   end
 
-  def handle_call(:status, _from, state) do
-    counts = Enum.frequencies_by(Map.values(state.watchers), & &1.status)
+  def handle_call(:status, _from, state),
+    do: {:reply, policy_status(state.policy, Map.values(state.watchers)), state}
 
-    status = %{
-      fresh: fresh?(state.policy),
+  def handle_call({:peer_status, fp}, _from, state) do
+    watchers = state.watchers |> Map.values() |> Enum.filter(&(&1.fingerprint == fp))
+    status = policy_status(state.policy, watchers)
+
+    admission =
+      cond do
+        not status.fresh -> :stale
+        MapSet.member?(state.policy.allowed, fp) -> :allowed
+        true -> :denied
+      end
+
+    {:reply, Map.put(status, :admission, admission), state}
+  end
+
+  defp policy_status(policy, watchers) do
+    counts = Enum.frequencies_by(watchers, & &1.status)
+
+    %{
+      fresh: fresh?(policy),
+      generated_at: policy && policy.generated_at,
+      valid_until: policy && policy.valid_until,
       active: Map.get(counts, :active, 0),
       closing: Map.get(counts, :closing, 0),
       failed: Map.get(counts, :failed, 0)
     }
-
-    {:reply, status, state}
   end
 
   @impl true

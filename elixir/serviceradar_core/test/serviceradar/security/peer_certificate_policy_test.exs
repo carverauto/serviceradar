@@ -54,6 +54,50 @@ defmodule ServiceRadar.Security.PeerCertificatePolicyTest do
     assert {:error, :policy_unavailable} = Policy.authorize(fp_b, store)
   end
 
+  test "receiver reports closing and failed transports until the real socket closes", %{
+    tasks: tasks,
+    store: store
+  } do
+    certs = certificates()
+    fp = Policy.fingerprint(Keyword.fetch!(certs.server_config, :cert))
+    assert :ok = Policy.apply_snapshot(snapshot([fp], 20_000), store)
+    port = peer(tasks, certs.server_config, :receipt)
+
+    {:ok, socket} =
+      :ssl.connect(
+        ~c"localhost",
+        port,
+        Policy.ssl_options(certs.client_config, store: store) ++ [active: false],
+        2_000
+      )
+
+    owner = self()
+
+    close = fn ->
+      send(owner, {:closing_socket, self()})
+
+      receive do
+        :fail_close -> {:error, :synthetic_close_failure}
+        :close_socket -> :ssl.close(socket, 1_000)
+      end
+    end
+
+    assert {:ok, guard} = Policy.watch(fp, self(), close, store)
+    assert :ok = Policy.apply_snapshot(snapshot([], 20_000), store)
+    assert_receive {:closing_socket, ^guard}, 1_000
+    assert %{admission: :denied, active: 0, closing: 1, failed: 0} = Policy.peer_status(fp, store)
+    assert :ok = :ssl.send(socket, "still-open")
+    assert_receive {:payload, :receipt, "still-open"}, 1_000
+    send(guard, :fail_close)
+    assert eventually(fn -> Policy.peer_status(fp, store).failed == 1 end)
+    assert %{admission: :denied, active: 0, closing: 0, failed: 1} = Policy.peer_status(fp, store)
+    send(guard, :close_socket)
+    assert_receive {:closing_socket, ^guard}, 2_000
+    assert_receive {:closed, :receipt}, 2_000
+    assert eventually(fn -> Policy.peer_status(fp, store).closing == 0 end)
+    assert %{admission: :denied, active: 0, closing: 0, failed: 0} = Policy.peer_status(fp, store)
+  end
+
   test "Gnat owner binding closes its actual TLS connection if the policy store dies", %{
     tasks: tasks,
     store: store
@@ -123,6 +167,18 @@ defmodule ServiceRadar.Security.PeerCertificatePolicyTest do
              :ssl.connect(~c"localhost", port, Policy.ssl_options(opts, store: store), 2_000)
 
     assert_receive :prior_verifier_called
+  end
+
+  defp eventually(check, attempts \\ 100)
+  defp eventually(_check, 0), do: false
+
+  defp eventually(check, attempts) do
+    if check.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(check, attempts - 1)
+    end
   end
 
   defp snapshot(fingerprints, milliseconds) do
