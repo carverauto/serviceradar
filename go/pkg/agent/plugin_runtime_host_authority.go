@@ -986,7 +986,8 @@ func proxmoxInventoryPathAllowed(segments []string) bool {
 		return proxmoxInventoryNodeCollectionAllowed(segments[4])
 	case len(segments) == 6:
 		return segments[4] == "disks" && segments[5] == "list" ||
-			segments[4] == "ceph" && segments[5] == proxmoxAPIStatusSegment
+			segments[4] == "ceph" && segments[5] == proxmoxAPIStatusSegment ||
+			segments[4] == "certificates" && segments[5] == "info"
 	case len(segments) == 7 &&
 		(segments[4] == proxmoxObjectKindQEMU || segments[4] == proxmoxObjectKindLXC):
 		_, validVMID := parseStrictPositiveInt(segments[5])
