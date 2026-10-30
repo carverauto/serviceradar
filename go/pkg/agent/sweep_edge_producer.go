@@ -42,6 +42,26 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
+var (
+	errEdgeSweepStaticCIDRRequired = errors.New("edge sweep requires static CIDR targets")
+	errEdgeSweepCheckSetMismatch   = errors.New("edge sweep check set differs from signed plan")
+	errEdgeSweepProjectionBudget   = errors.New("edge sweep grant lacks supported projection budget")
+	errEdgeSweepCIDRMismatch       = errors.New("edge sweep targets differ from signed CIDR plan")
+	errEdgeSweepOverlappingRanges  = errors.New("edge sweep overlapping ranges are unsupported")
+	errEdgeSweepRangeUnauthorized  = errors.New("edge sweep range lacks source authorization")
+	errEdgeSweepTargetsMismatch    = errors.New("edge sweep targets differ from signed plan")
+	errEdgeSweepNoTCPPorts         = errors.New("edge sweep has no TCP ports")
+	errEdgeSweepInvalidPort        = errors.New("edge sweep invalid port")
+	errEdgeSweepNoChecks           = errors.New("edge sweep has no checks")
+	errEdgeSweepCheckOutsidePlan   = errors.New("edge sweep result check is outside signed plan")
+	errEdgeSweepPendingHostLimit   = errors.New("edge sweep pending host window limit reached")
+	errEdgeSweepAddressOutsidePlan = errors.New("edge sweep result address is outside signed plan")
+	errEdgeSweepDuplicateResult    = errors.New("edge sweep duplicate terminal check result")
+	errEdgeSweepWindowExpired      = errors.New("edge sweep collection window expired")
+	errEdgeSweepUnsupportedMode    = errors.New("edge sweep unsupported mode")
+	errEdgeSweepIncomplete         = errors.New("edge sweep incomplete")
+)
+
 // Pending windows are bounded independently of the batch builder. The scanner
 // can finish ICMP before TCP, so a pending host is not itself a completed host.
 const maxPendingSweepHosts = 4096
@@ -152,15 +172,15 @@ func newSweepEdgeProducer(cfg *models.Config, lease *edgev1.SweepLeaseV1, slot *
 		return nil, err
 	}
 	if len(cfg.DeviceTargets) != 0 || len(cfg.Networks) == 0 {
-		return nil, errors.New("edge sweep requires static CIDR targets")
+		return nil, errEdgeSweepStaticCIDRRequired
 	}
 	if !bytes.Equal(sweepCheckSetDigest(checks), slot.GetPlanHeader().GetCheckSetSha256()) {
-		return nil, errors.New("edge sweep check set differs from signed plan")
+		return nil, errEdgeSweepCheckSetMismatch
 	}
 	claims := lease.GetProductionCapability().GetProduction()
 	maxRows := min(uint64(claims.GetMaxProjectedRowCount()), claims.GetMaxProjectedWriteBytes()/sweepProjectedRowBytes)
 	if maxRows == 0 || claims.GetCostModelVersion() != 1 {
-		return nil, errors.New("edge sweep grant lacks supported projection budget")
+		return nil, errEdgeSweepProjectionBudget
 	}
 	p := &sweepEdgeProducer{lease: lease, slot: slot, spool: sp, checks: keys, modeBits: bits, observedAt: now.UnixNano(), pending: make(map[netip.Addr]*sweepHostWindow)}
 	networks := make(map[netip.Prefix]bool, len(cfg.Networks))
@@ -175,12 +195,12 @@ func newSweepEdgeProducer(cfg *models.Config, lease *edgev1.SweepLeaseV1, slot *
 		for _, targetRange := range page.GetRanges() {
 			prefix, err := netip.ParsePrefix(targetRange.GetCidr())
 			if err != nil || !networks[prefix] {
-				return nil, errors.New("edge sweep targets differ from signed CIDR plan")
+				return nil, errEdgeSweepCIDRMismatch
 			}
 			delete(networks, prefix)
 			for _, existing := range p.ranges {
 				if prefix.Overlaps(existing.prefix) {
-					return nil, errors.New("edge sweep overlapping ranges are unsupported")
+					return nil, errEdgeSweepOverlappingRanges
 				}
 			}
 			var authority *edgev1.EdgeSourceAuthorizationV1
@@ -191,7 +211,7 @@ func newSweepEdgeProducer(cfg *models.Config, lease *edgev1.SweepLeaseV1, slot *
 				}
 			}
 			if authority == nil {
-				return nil, errors.New("edge sweep range lacks source authorization")
+				return nil, errEdgeSweepRangeUnauthorized
 			}
 			batchContext := obsbatch.Context{
 				ExecutionID: slot.GetExecutionId(), SweepGroupID: lease.GetSweepGroupId(),
@@ -205,7 +225,7 @@ func newSweepEdgeProducer(cfg *models.Config, lease *edgev1.SweepLeaseV1, slot *
 		}
 	}
 	if len(networks) != 0 || len(p.ranges) == 0 {
-		return nil, errors.New("edge sweep targets differ from signed plan")
+		return nil, errEdgeSweepTargetsMismatch
 	}
 	return p, nil
 }
@@ -229,15 +249,18 @@ func sweepChecks(cfg *models.Config) ([]*edgev1.SweepTestV1, map[sweepCheck]uint
 			m, protocol, bit = edgev1.SweepMode_SWEEP_MODE_TCP_SYN, edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, 2
 		case models.ModeTCPConnect:
 			m, protocol, bit = edgev1.SweepMode_SWEEP_MODE_TCP_CONNECT, edgev1.TransportProtocol_TRANSPORT_PROTOCOL_TCP, 4
+		case models.ModeMTR:
+			// MTR has no edge sweep producer; reject it explicitly.
+			fallthrough
 		default:
-			return nil, nil, 0, fmt.Errorf("edge sweep unsupported mode %q", mode)
+			return nil, nil, 0, fmt.Errorf("%w %q", errEdgeSweepUnsupportedMode, mode)
 		}
 		if len(ports) == 0 {
-			return nil, nil, 0, errors.New("edge sweep has no TCP ports")
+			return nil, nil, 0, errEdgeSweepNoTCPPorts
 		}
 		for _, port := range ports {
 			if port < 0 || port > 65535 || (mode != models.ModeICMP && port == 0) {
-				return nil, nil, 0, errors.New("edge sweep invalid port")
+				return nil, nil, 0, errEdgeSweepInvalidPort
 			}
 			key := sweepCheck{mode, port}
 			entries[key] = entry{key, &edgev1.SweepTestV1{Mode: m, Protocol: protocol, Port: uint32(port)}, bit}
@@ -262,7 +285,7 @@ func sweepChecks(cfg *models.Config) ([]*edgev1.SweepTestV1, map[sweepCheck]uint
 		bits |= e.bit
 	}
 	if len(checks) == 0 {
-		return nil, nil, 0, errors.New("edge sweep has no checks")
+		return nil, nil, 0, errEdgeSweepNoChecks
 	}
 	return checks, keys, bits, nil
 }
@@ -303,12 +326,12 @@ func (p *sweepEdgeProducer) addResult(result *models.Result) error {
 	key := sweepCheck{result.Target.Mode, result.Target.Port}
 	index, ok := p.checks[key]
 	if !ok {
-		return errors.New("edge sweep result check is outside signed plan")
+		return errEdgeSweepCheckOutsidePlan
 	}
 	window := p.pending[addr]
 	if window == nil {
 		if len(p.pending) >= maxPendingSweepHosts {
-			return errors.New("edge sweep pending host window limit reached")
+			return errEdgeSweepPendingHostLimit
 		}
 		rangeIndex := -1
 		for i, r := range p.ranges {
@@ -318,13 +341,13 @@ func (p *sweepEdgeProducer) addResult(result *models.Result) error {
 			}
 		}
 		if rangeIndex < 0 {
-			return errors.New("edge sweep result address is outside signed plan")
+			return errEdgeSweepAddressOutsidePlan
 		}
 		window = &sweepHostWindow{host: &edgev1.SweepHostObservationV1{Address: addr.AsSlice(), ModeRevision: 1, ResultModeBits: p.modeBits}, seen: make(map[sweepCheck]bool), rangeIndex: rangeIndex}
 		p.pending[addr] = window
 	}
 	if window.seen[key] {
-		return errors.New("edge sweep duplicate terminal check result")
+		return errEdgeSweepDuplicateResult
 	}
 	window.seen[key] = true
 	h := window.host
@@ -421,7 +444,7 @@ func (p *sweepEdgeProducer) finish() error {
 		return p.err
 	}
 	if len(p.pending) != 0 || p.completed != p.slot.GetPlanHeader().GetTotalTargetCount() {
-		return fmt.Errorf("edge sweep incomplete: completed %d of %d hosts, %d open windows", p.completed, p.slot.GetPlanHeader().GetTotalTargetCount(), len(p.pending))
+		return fmt.Errorf("%w: completed %d of %d hosts, %d open windows", errEdgeSweepIncomplete, p.completed, p.slot.GetPlanHeader().GetTotalTargetCount(), len(p.pending))
 	}
 	for _, r := range p.ranges {
 		if batch := r.builder.Flush(); batch != nil {
@@ -435,7 +458,7 @@ func (p *sweepEdgeProducer) finish() error {
 
 func (p *sweepEdgeProducer) emit(batch *edgev1.SweepObservationBatchV1, source *edgev1.EdgeSourceAuthorizationV1) error {
 	if time.Now().UnixNano() >= p.slot.GetCollectionExpiresUnixNano() {
-		return errors.New("edge sweep collection window expired")
+		return errEdgeSweepWindowExpired
 	}
 	p.sequence++
 	batch.BatchSequence = p.sequence

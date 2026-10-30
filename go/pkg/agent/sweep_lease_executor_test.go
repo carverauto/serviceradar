@@ -40,6 +40,8 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
+var errTestPublicationBeforeObserver = errors.New("publication started before the observer returned")
+
 // Synthetic lease fixture for executor tests: fixed identities, the
 // documentation range 192.0.2.0/24, and a throwaway issuer key generated
 // per test. Nothing here came from a running system. Times derive from the
@@ -942,7 +944,7 @@ func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 					select {
 					case <-sw.observerFinished:
 					default:
-						return errors.New("publication started before the observer returned")
+						return errTestPublicationBeforeObserver
 					}
 					sw.pausePublication()
 					return nil

@@ -30,6 +30,11 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
+var (
+	errEdgeSweepRequiresSender    = errors.New("edge sweep requires enabled edge record sender")
+	errEdgeRecordSpoolDirRequired = errors.New("edge record sender requires spool_dir")
+)
+
 // One bounded durable-bulk delivery session is attempted per poll interval.
 const (
 	defaultEdgeRecordSenderPollInterval  = 30 * time.Second
@@ -178,12 +183,12 @@ func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, error) {
 	}
 	if !c.Enabled {
 		if c.SweepEnabled {
-			return nil, errors.New("edge sweep requires enabled edge record sender")
+			return nil, errEdgeSweepRequiresSender
 		}
 		return nil, nil
 	}
 	if c.SpoolDir == "" {
-		return nil, errors.New("edge record sender requires spool_dir")
+		return nil, errEdgeRecordSpoolDirRequired
 	}
 	capacity := c.MaxBytes
 	if capacity == 0 {
