@@ -263,6 +263,14 @@ func (c CoreEnvConfig) Env() map[string]string {
 		"CLOAK_KEY":                    c.CloakKey,
 		"POOL_SIZE":                    coreRepoPoolSize,
 		"CONTROL_REPO_POOL_SIZE":       "2",
+		// The authority fixtures (authority_test.go) create disabled sweep
+		// groups and issue their assignments by hand. Core's five-minute
+		// LeasePassWorker cron correctly revokes assignments of disabled
+		// groups, so a run that crossed a cron tick lost its fixture
+		// authority mid-test (Group D's restarted core rejected the
+		// redelivered record). Nothing on the edge-record path needs Oban;
+		// Group H revokes through ProducerAssignments directly.
+		"SERVICERADAR_CORE_OBAN_ENABLED": "false",
 	}
 	if c.CNPGCAFile != "" {
 		env["CNPG_CA_FILE"] = c.CNPGCAFile

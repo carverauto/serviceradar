@@ -68,6 +68,9 @@ go_test(
     name = "vertical_slice_test",
     size = "large",
     srcs = _HARNESS_SRCS,
+    # Verbose output records every passing A-H subtest in test.log, so an
+    # artifact proves each group ran rather than only listing failures.
+    args = ["-test.v"],
     data = [
         "//build:run_id_file",
         "//elixir/serviceradar_agent_gateway:release_tar",
