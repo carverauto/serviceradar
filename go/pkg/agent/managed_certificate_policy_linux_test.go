@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/natsutil"
 )
 
 func signedManagedPolicy(t *testing.T, key ed25519.PrivateKey, snapshot managedCertificatePolicySnapshot) ManagedCertificatePolicyEnvelope {
@@ -29,7 +31,7 @@ func TestManagedCertificatePolicyAuthenticatesAndPreservesActivePolicy(t *testin
 	now := time.Now().UTC().Truncate(time.Second)
 	store := managedCertificatePolicyStore{path: filepath.Join(t.TempDir(), "policy.json"), key: public, now: func() time.Time { return now }}
 	initial := managedCertificatePolicySnapshot{Version: 1, GeneratedAt: now, ValidUntil: now.Add(30 * time.Second), AllowedFingerprints: []string{strings.Repeat("a1", 32)}}
-	payload := []byte(fmt.Sprintf(`{"version":1,"generated_at":%q,"valid_until":%q,"allowed_fingerprints":[%q],"nats_permissions":{%q:{"publish":["logs.syslog","$JS.API.STREAM.INFO.events"],"subscribe":["_INBOX.>"]}}}`, now.Format(time.RFC3339Nano), initial.ValidUntil.Format(time.RFC3339Nano), strings.Repeat("a1", 32), strings.Repeat("a1", 32)))
+	payload := []byte(fmt.Sprintf(`{"version":1,"generated_at":%q,"valid_until":%q,"allowed_fingerprints":[%q],"nats_permissions":{%q:{"publish":["logs.syslog","$JS.API.STREAM.INFO.events"],"subscribe":["_INBOX.>"],"publish_deny":["logs.private.>"],"subscribe_deny":["_INBOX.private.>"]}}}`, now.Format(time.RFC3339Nano), initial.ValidUntil.Format(time.RFC3339Nano), strings.Repeat("a1", 32), strings.Repeat("a1", 32)))
 	envelope := ManagedCertificatePolicyEnvelope{Payload: payload, Signature: ed25519.Sign(private, append([]byte("serviceradar.certificate-policy.v1\x00"), payload...))}
 	result, err := store.install(envelope)
 	if err != nil {
@@ -102,7 +104,7 @@ func TestManagedCertificatePolicyRejectsInvalidLeases(t *testing.T) {
 		"short-fingerprint":     func(p *managedCertificatePolicySnapshot) { p.AllowedFingerprints = []string{"abc"} },
 		"nonhex-fingerprint":    func(p *managedCertificatePolicySnapshot) { p.AllowedFingerprints = []string{strings.Repeat("xy", 32)} },
 		"permissions-outside-allowlist": func(p *managedCertificatePolicySnapshot) {
-			p.NATSPermissions = map[string]managedCertificateNATSPermissions{strings.Repeat("ab", 32): {Publish: []string{"logs.syslog"}}}
+			p.NATSPermissions = map[string]natsutil.CertificatePermissions{strings.Repeat("ab", 32): {Publish: []string{"logs.syslog"}}}
 		},
 	} {
 		t.Run(name, func(t *testing.T) {

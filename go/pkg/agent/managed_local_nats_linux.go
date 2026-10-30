@@ -1,0 +1,434 @@
+package agent
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/tls"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/natsutil"
+	"github.com/nats-io/nats.go"
+	"github.com/nats-io/nkeys"
+)
+
+const localNATSEndpoint = "tls://localhost:4222"
+
+type managedLocalNATSBinding struct {
+	ComponentID string `json:"component_id"`
+	HostAgentID string `json:"host_agent_id"`
+	PartitionID string `json:"partition_id"`
+}
+
+type managedLocalNATSMetadata struct {
+	managedLocalNATSBinding
+	IssuerPublicKey   string `json:"issuer_public_key"`
+	AuthUserPublicKey string `json:"auth_user_public_key"`
+}
+
+type managedLocalNATSAuthorization struct {
+	*natsutil.CertificateAuthorization
+	PolicyStale bool `json:"policy_stale"`
+}
+
+func (s managedCertificateStore) bootstrapLocalNATS(binding managedLocalNATSBinding) (*managedLocalNATSMetadata, error) {
+	if !managedSafeID(binding.ComponentID) || binding.HostAgentID != s.agentID || binding.PartitionID != s.partition {
+		return nil, errors.New("local NATS binding does not belong to this enrolled host")
+	}
+	// Only the root CLI can select the fixed NATS service instance. The agent's
+	// remote command channel cannot repoint its local authorization authority.
+	declared, err := readManagedTrustedFile(filepath.Join(s.root, ".bindings", "nats-leaf.json"))
+	if err != nil {
+		return nil, err
+	}
+	var installed managedLocalNATSBinding
+	if err := json.Unmarshal(declared, &installed); err != nil {
+		return nil, err
+	}
+	if installed.ComponentID != binding.ComponentID || installed.HostAgentID != binding.HostAgentID {
+		return nil, errors.New("local NATS component differs from the root service binding")
+	}
+	metadataPath := filepath.Join(s.root, "local-nats.json")
+	var previous *managedLocalNATSMetadata
+	if data, err := readManagedTrustedFile(metadataPath); err == nil {
+		previous = &managedLocalNATSMetadata{}
+		if err := decodeManagedCertificateRequest(data, previous); err != nil {
+			return nil, err
+		}
+		if previous.managedLocalNATSBinding != binding {
+			return nil, errors.New("a different component owns the local NATS authority")
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, err
+	}
+	_, gid, err := s.owner("serviceradar")
+	if err != nil {
+		return nil, err
+	}
+	privateDir := filepath.Join(s.root, ".nats-auth")
+	if err := os.MkdirAll(privateDir, 0700); err != nil {
+		return nil, err
+	}
+	if err := validatePrivilegedAddonRootOwnership(privateDir); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(privateDir, 0700); err != nil {
+		return nil, err
+	}
+	loadKey := loadOrCreateLocalNATSKey
+	if previous != nil {
+		loadKey = func(path string, account bool, mode os.FileMode, _ int) (nkeys.KeyPair, error) {
+			return readLocalNATSKey(path, account, mode)
+		}
+	}
+	issuer, err := loadKey(filepath.Join(privateDir, "issuer.seed"), true, 0600, 0)
+	if err != nil {
+		return nil, err
+	}
+	auth, err := loadKey(filepath.Join(s.root, "local-nats-auth.seed"), false, 0640, gid)
+	if err != nil {
+		return nil, err
+	}
+	issuerPublic, _ := issuer.PublicKey()
+	authPublic, _ := auth.PublicKey()
+	metadata := &managedLocalNATSMetadata{binding, issuerPublic, authPublic}
+	if previous != nil && *previous != *metadata {
+		return nil, errors.New("local NATS keys differ from the existing authority")
+	}
+	componentDir := filepath.Join(s.root, binding.ComponentID)
+	if err := os.MkdirAll(componentDir, 0755); err != nil {
+		return nil, err
+	}
+	if err := validatePrivilegedAddonRootOwnership(componentDir); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(componentDir, 0755); err != nil {
+		return nil, err
+	}
+	configuration := fmt.Sprintf(`accounts: {
+  EDGE: {jetstream: enabled}
+  AUTH: {users: [{nkey: %q, permissions: {subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}]}
+}
+authorization: {auth_callout: {issuer: %q, account: AUTH, auth_users: [%q]}}
+`, authPublic, issuerPublic, authPublic)
+	if err := writeManagedLocalNATSFile(filepath.Join(componentDir, "local-auth.conf"), []byte(configuration), 0640, gid); err != nil {
+		return nil, err
+	}
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return nil, err
+	}
+	if err := writeManagedLocalNATSFile(metadataPath, data, 0644, 0); err != nil {
+		return nil, err
+	}
+	return metadata, nil
+}
+
+func loadOrCreateLocalNATSKey(path string, account bool, mode os.FileMode, gid int) (nkeys.KeyPair, error) {
+	key, err := readLocalNATSKey(path, account, mode)
+	if err == nil || !errors.Is(err, os.ErrNotExist) {
+		return key, err
+	}
+	if account {
+		key, err = nkeys.CreateAccount()
+	} else {
+		key, err = nkeys.CreateUser()
+	}
+	if err != nil {
+		return nil, err
+	}
+	data, err := key.Seed()
+	if err != nil {
+		return nil, err
+	}
+	if err := writeManagedLocalNATSFile(path, data, mode, gid); err != nil {
+		return nil, err
+	}
+	return key, nil
+}
+
+func readLocalNATSKey(path string, account bool, mode os.FileMode) (nkeys.KeyPair, error) {
+	data, err := readManagedTrustedFile(path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode().Perm() != mode {
+		return nil, errors.New("unsafe local NATS seed permissions")
+	}
+	key, err := nkeys.FromSeed(data)
+	if err != nil {
+		return nil, err
+	}
+	public, err := key.PublicKey()
+	if err != nil || (account && !nkeys.IsValidPublicAccountKey(public)) || (!account && !nkeys.IsValidPublicUserKey(public)) {
+		return nil, errors.New("wrong local NATS key kind")
+	}
+	return key, nil
+}
+
+func writeManagedLocalNATSFile(path string, data []byte, mode os.FileMode, gid int) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), ".local-nats-")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer func() { _ = os.Remove(name) }()
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := writeAndSyncTempFile(name, data, mode); err != nil {
+		return err
+	}
+	if err := os.Chmod(name, mode); err != nil {
+		return err
+	}
+	if err := os.Chown(name, -1, gid); err != nil {
+		return err
+	}
+	if err := os.Rename(name, path); err != nil {
+		return err
+	}
+	return syncCertDir(filepath.Dir(path))
+}
+
+func readLocalNATSMetadata() (*managedLocalNATSMetadata, error) {
+	if err := validatePrivilegedAddonRootOwnership(managedCertificateRoot); err != nil {
+		return nil, err
+	}
+	data, err := readManagedTrustedFile(filepath.Join(managedCertificateRoot, "local-nats.json"))
+	if err != nil {
+		return nil, err
+	}
+	var metadata managedLocalNATSMetadata
+	if err := decodeManagedCertificateRequest(data, &metadata); err != nil {
+		return nil, err
+	}
+	if !managedSafeID(metadata.ComponentID) || !managedSafeID(metadata.PartitionID) || !nkeys.IsValidPublicAccountKey(metadata.IssuerPublicKey) || !nkeys.IsValidPublicUserKey(metadata.AuthUserPublicKey) {
+		return nil, errors.New("invalid local NATS authority metadata")
+	}
+	return &metadata, nil
+}
+
+func readLocalNATSPolicy() (*managedCertificatePolicySnapshot, error) {
+	data, err := readManagedTrustedFile(ManagedCertificatePolicyPath)
+	if err != nil {
+		return nil, err
+	}
+	var policy managedCertificatePolicySnapshot
+	if err := decodeManagedCertificateRequest(data, &policy); err != nil {
+		return nil, err
+	}
+	// Only this fixed local-broker path uses a last verified expired snapshot.
+	// The privileged installer remains responsible for signature and monotonicity.
+	if policy.GeneratedAt.After(time.Now().Add(5 * time.Second)) {
+		return nil, errors.New("local NATS policy has a future generation time")
+	}
+	if err := policy.validate(policy.GeneratedAt); err != nil {
+		return nil, err
+	}
+	return &policy, nil
+}
+
+func localNATSTLS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*tls.Config, error) {
+	if binding.AgentID != metadata.HostAgentID || binding.Partition != metadata.PartitionID {
+		return nil, errors.New("local NATS authority does not belong to this host")
+	}
+	if binding.GatewaySecurity == nil {
+		return nil, errors.New("local NATS authority requires enrolled agent mTLS")
+	}
+	security := *binding.GatewaySecurity
+	security.ServerName = "localhost"
+	config, err := natsutil.TLSConfig(&security)
+	if err != nil {
+		return nil, err
+	}
+	identity := "spiffe://serviceradar.local/nats_leaf_server/" + metadata.PartitionID + "/" + metadata.ComponentID + "-server"
+	config.VerifyConnection = func(state tls.ConnectionState) error {
+		if len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
+			return errors.New("local NATS server did not pass PKIX verification")
+		}
+		server := state.PeerCertificates[0]
+		if len(server.URIs) != 1 || server.URIs[0].String() != identity {
+			return errors.New("local NATS server has the wrong managed identity")
+		}
+		policy, err := readLocalNATSPolicy()
+		if err != nil {
+			return err
+		}
+		fingerprint := fmt.Sprintf("%x", sha256.Sum256(server.Raw))
+		for _, allowed := range policy.AllowedFingerprints {
+			if allowed == fingerprint {
+				return nil
+			}
+		}
+		return errors.New("local NATS server certificate was revoked")
+	}
+	return config, nil
+}
+
+func connectLocalNATS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*nats.Conn, error) {
+	config, err := localNATSTLS(binding, metadata)
+	if err != nil {
+		return nil, err
+	}
+	seed, err := readManagedTrustedFile(filepath.Join(managedCertificateRoot, "local-nats-auth.seed"))
+	if err != nil {
+		return nil, err
+	}
+	key, err := nkeys.FromSeed(seed)
+	if err != nil {
+		return nil, err
+	}
+	public, err := key.PublicKey()
+	if err != nil || public != metadata.AuthUserPublicKey {
+		return nil, errors.New("local NATS auth key differs from root metadata")
+	}
+	return nats.Connect(localNATSEndpoint, nats.Secure(config), nats.Nkey(public, key.Sign), nats.NoReconnect(), nats.Timeout(time.Second), nats.IgnoreDiscoveredServers())
+}
+
+func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, output io.Writer) error {
+	var request struct {
+		Token string `json:"token"`
+	}
+	data, err := io.ReadAll(io.LimitReader(input, managedCertificateMaxRequest+1))
+	if err != nil {
+		return err
+	}
+	if len(data) > managedCertificateMaxRequest {
+		return errors.New("local NATS authorization request too large")
+	}
+	if err := decodeManagedCertificateRequest(data, &request); err != nil {
+		return err
+	}
+	metadata, err := readLocalNATSMetadata()
+	if err != nil {
+		return err
+	}
+	binding, err := readManagedHostConfig()
+	if err != nil {
+		return err
+	}
+	policy, err := readLocalNATSPolicy()
+	if err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	broker, err := connectLocalNATS(binding, metadata)
+	if err != nil {
+		return err
+	}
+	defer broker.Close()
+	privateDir := filepath.Join(managedCertificateRoot, ".nats-auth")
+	if err := validatePrivilegedAddonRootOwnership(privateDir); err != nil {
+		return err
+	}
+	signer, err := readLocalNATSKey(filepath.Join(privateDir, "issuer.seed"), true, 0600)
+	if err != nil {
+		return err
+	}
+	public, err := signer.PublicKey()
+	if err != nil || public != metadata.IssuerPublicKey {
+		return errors.New("local NATS issuer differs from root metadata")
+	}
+	tlsConfig, err := localNATSTLS(binding, metadata)
+	if err != nil {
+		return err
+	}
+	authorizer := natsutil.LocalCertificateAuthorizer{BrokerID: broker.ConnectedServerId(), Roots: tlsConfig.RootCAs, Signer: signer, Permissions: policy.NATSPermissions}
+	result, err := authorizer.Authorize(request.Token, time.Now())
+	if err != nil {
+		return err
+	}
+	return json.NewEncoder(output).Encode(managedLocalNATSAuthorization{result, !policy.ValidUntil.After(time.Now())})
+}
+
+func (p *PushLoop) managedLocalNATSLoop(ctx context.Context) {
+	for ctx.Err() == nil {
+		err := p.serveManagedLocalNATS(ctx)
+		if err != nil && !errors.Is(err, os.ErrNotExist) && ctx.Err() == nil {
+			p.logger.Warn().Err(err).Msg("Local NATS certificate authorization unavailable")
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(5 * time.Second):
+		}
+	}
+}
+
+func (p *PushLoop) serveManagedLocalNATS(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	metadata, err := readLocalNATSMetadata()
+	if err != nil {
+		return err
+	}
+	p.server.mu.RLock()
+	configuration := *p.server.config
+	p.server.mu.RUnlock()
+	broker, err := connectLocalNATS(configuration, metadata)
+	if err != nil {
+		return err
+	}
+	defer broker.Close()
+	workers := make(chan struct{}, 8)
+	_, err = broker.Subscribe("$SYS.REQ.USER.AUTH", func(message *nats.Msg) {
+		select {
+		case workers <- struct{}{}:
+		default:
+			return
+		}
+		go func() {
+			defer func() { <-workers }()
+			requestCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			var response managedLocalNATSAuthorization
+			request := struct {
+				Token string `json:"token"`
+			}{string(message.Data)}
+			if err := callManagedCertificateUpdater(requestCtx, "local-nats-authorize", request, &response); err != nil {
+				p.logger.Warn().Err(err).Msg("Local NATS certificate request rejected")
+				return
+			}
+			if response.CertificateAuthorization == nil || response.Token == "" {
+				p.logger.Warn().Msg("Local NATS helper returned no authorization response")
+				return
+			}
+			if response.PolicyStale {
+				p.logger.Warn().Msg("Local NATS ingestion is using the last verified certificate policy while refresh is unavailable")
+			}
+			if err := message.Respond([]byte(response.Token)); err != nil {
+				p.logger.Warn().Err(err).Msg("Local NATS certificate authorization response failed")
+			}
+		}()
+	})
+	if err != nil {
+		return err
+	}
+	if err := broker.FlushTimeout(time.Second); err != nil {
+		return err
+	}
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if broker.IsClosed() {
+				return errors.New("local NATS broker disconnected")
+			}
+		}
+	}
+}

@@ -25,7 +25,7 @@ elixir_escript(
 go_test(
     name = "nats_certificate_revocation_test",
     size = "medium",
-    srcs = ["certs.go", "nats_certificate_revocation_test.go"],
+    srcs = ["certs.go", "nats_certificate_revocation_test.go", "nats_local_authorization_test.go"],
     args = ["-test.v"],
     data = [":certificate_codec_bridge", "@nats_server_linux_amd64//:nats_server"],
     importpath = "github.com/carverauto/serviceradar/integration_tests/edge_record",
@@ -35,6 +35,7 @@ go_test(
         "github.com/carverauto/serviceradar/integration_tests/edge_record.certificateCodecBinary": "$(rlocationpath :certificate_codec_bridge)",
     },
     deps = [
+        "//go/pkg/natsutil",
         "@com_github_nats_io_jwt_v2//:jwt",
         "@com_github_nats_io_nkeys//:nkeys",
         "@com_github_nats_io_nats_go//:nats_go",

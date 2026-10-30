@@ -72,21 +72,17 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 	if action == "policy" {
 		return runManagedCertificatePolicyUpdater(input, output)
 	}
+	if action == "local-nats-authorize" {
+		return runManagedLocalNATSAuthorization(ctx, input, output)
+	}
 	for _, path := range []string{managedCertificateRoot, "/etc/serviceradar/agent.json", "/etc/serviceradar/certs/root.pem"} {
 		if err := validatePrivilegedAddonRootOwnership(filepath.Dir(path)); err != nil {
 			return err
 		}
 	}
-	config, err := readManagedTrustedFile("/etc/serviceradar/agent.json")
+	binding, err := readManagedHostConfig()
 	if err != nil {
 		return err
-	}
-	var binding ServerConfig
-	if err := json.Unmarshal(config, &binding); err != nil {
-		return fmt.Errorf("read installed agent identity: %w", err)
-	}
-	if binding.AgentID == "" || binding.Partition == "" {
-		return fmt.Errorf("%w: installed agent identity or partition is missing", errManagedCertificates)
 	}
 	roots, err := readManagedTrustedFile("/etc/serviceradar/certs/root.pem")
 	if err != nil {
@@ -129,6 +125,15 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 	}
 	var result any
 	switch action {
+	case "local-nats-bootstrap":
+		if os.Getuid() != 0 {
+			return errors.New("local NATS authority bootstrap requires the root CLI")
+		}
+		var request managedLocalNATSBinding
+		if err := decodeManagedCertificateRequest(data, &request); err != nil {
+			return err
+		}
+		result, err = store.bootstrapLocalNATS(request)
 	case "prepare":
 		var assignment ManagedCertificateAssignment
 		if err := decodeManagedCertificateRequest(data, &assignment); err != nil {
@@ -148,6 +153,24 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 		return err
 	}
 	return json.NewEncoder(output).Encode(result)
+}
+
+func readManagedHostConfig() (ServerConfig, error) {
+	var binding ServerConfig
+	if err := validatePrivilegedAddonRootOwnership("/etc/serviceradar"); err != nil {
+		return binding, err
+	}
+	config, err := readManagedTrustedFile("/etc/serviceradar/agent.json")
+	if err != nil {
+		return binding, err
+	}
+	if err := json.Unmarshal(config, &binding); err != nil {
+		return binding, fmt.Errorf("read installed agent identity: %w", err)
+	}
+	if binding.AgentID == "" || binding.Partition == "" {
+		return binding, fmt.Errorf("%w: installed agent identity or partition is missing", errManagedCertificates)
+	}
+	return binding, nil
 }
 
 func readManagedTrustedFile(path string) ([]byte, error) {

@@ -197,6 +197,10 @@ async function installManaged(
         await installManagedConfiguration(component, target.allowLocalLeaf, gid, previous)
       },
     },
+    ...(target.service === "nats-leaf" ? [{
+      describe: "bootstrap the local NATS authorization service through the root agent updater (issuer key stays root-only)",
+      run: () => execute(["/usr/local/bin/serviceradar-agent-updater", "--managed-certificates", "local-nats-bootstrap"], undefined, JSON.stringify({component_id: component.component_id, host_agent_id: component.host_agent_id, partition_id: component.partition_id})),
+    }] : []),
     commandStep(["systemctl", "daemon-reload"]),
     commandStep(["systemctl", "enable", MANAGED_SERVICES[target.service].unit]),
     {
@@ -386,9 +390,13 @@ async function runPlan(ctx: InstallContext, title: string, steps: Step[]): Promi
   }
 }
 
-function execute(argv: string[], cwd?: string): Promise<void> {
+function execute(argv: string[], cwd?: string, input?: string): Promise<void> {
   return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(argv[0], argv.slice(1), {cwd, stdio: "inherit"})
+    const child = spawn(argv[0], argv.slice(1), {cwd, stdio: input === undefined ? "inherit" : ["pipe", "ignore", "inherit"]})
+    if (input !== undefined) {
+      child.stdin.on("error", (error) => rejectRun(new Error(`${argv[0]} input failed: ${error.message}`)))
+      child.stdin.end(input)
+    }
     child.on("error", (error) => rejectRun(new Error(`${argv[0]} could not be started: ${error.message}`)))
     child.on("exit", (code, signal) => {
       if (code === 0) resolveRun()

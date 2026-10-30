@@ -112,6 +112,7 @@ go_library(
         "camera_relay_rtsp.go",
         "cert_renewal.go",
         "managed_certificates.go",
+        "managed_local_nats_linux.go",
         "managed_certificate_commands.go",
         "managed_certificate_policy.go",
         "managed_certificate_policy_linux.go",
@@ -221,6 +222,9 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent",
     visibility = ["//visibility:public"],
     deps = [
+        "//go/pkg/natsutil",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nkeys//:nkeys",
         "//go/pkg/durablefs",
         "//go/pkg/addon",
         "//go/pkg/agent/addon",

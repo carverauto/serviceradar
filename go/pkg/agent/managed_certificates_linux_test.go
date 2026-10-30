@@ -378,3 +378,55 @@ func TestManagedCertificatesInstallBMPIdentity(t *testing.T) {
 		t.Fatalf("BMP activation did not use its packaged service: %+v", f.operations)
 	}
 }
+
+// This owns the persisted privileged authority boundary; the real-broker suite
+// owns grants, permissions, offline ingestion and expiry of active connections.
+func TestManagedLocalNATSBootstrapPreservesAuthority(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Fatal("privileged bootstrap test requires the root RBE execution image")
+	}
+	f := newManagedCertificateFixture(t)
+	binding := managedLocalNATSBinding{ComponentID: "leaf-synthetic", HostAgentID: f.store.agentID, PartitionID: f.store.partition}
+	bindingDir := filepath.Join(f.store.root, ".bindings")
+	if err := os.Mkdir(bindingDir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(bindingDir, "nats-leaf.json"), []byte(`{"component_id":"leaf-synthetic","host_agent_id":"agent-synthetic"}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	previousUmask := syscall.Umask(0077)
+	defer syscall.Umask(previousUmask)
+	first, err := f.store.bootstrapLocalNATS(binding)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for path, mode := range map[string]os.FileMode{
+		".nats-auth": 0700, ".nats-auth/issuer.seed": 0600,
+		"local-nats-auth.seed": 0640, "local-nats.json": 0644,
+		"leaf-synthetic/local-auth.conf": 0640,
+	} {
+		info, err := os.Stat(filepath.Join(f.store.root, path))
+		if err != nil || info.Mode().Perm() != mode {
+			t.Fatalf("wrong persisted authority permissions for %s: %v", path, err)
+		}
+	}
+	again, err := f.store.bootstrapLocalNATS(binding)
+	if err != nil || !reflect.DeepEqual(first, again) {
+		t.Fatalf("bootstrap retry changed local authority: %v", err)
+	}
+	other := binding
+	other.ComponentID = "another-leaf"
+	if _, err := f.store.bootstrapLocalNATS(other); err == nil {
+		t.Fatal("a second component replaced the fixed broker authority")
+	}
+	issuerPath := filepath.Join(f.store.root, ".nats-auth", "issuer.seed")
+	if err := os.Remove(issuerPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.bootstrapLocalNATS(binding); err == nil {
+		t.Fatal("bootstrap silently replaced a missing established signing key")
+	}
+	if _, err := os.Stat(issuerPath); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("failed bootstrap recreated an established signing key")
+	}
+}

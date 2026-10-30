@@ -491,6 +491,7 @@ func (p *PushLoop) Start(ctx context.Context) error {
 	go p.monitorReleaseActivation(runCtx)
 	go p.certificateRenewalLoop(runCtx)
 	go p.managedCertificatePolicyLoop(runCtx)
+	go p.managedLocalNATSLoop(runCtx)
 
 	// Use a resettable timer so updated intervals take effect
 	timer := time.NewTimer(0) // fire immediately for first tick

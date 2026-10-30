@@ -13,21 +13,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/natsutil"
 )
 
 const managedCertificatePolicyDomain = "serviceradar.certificate-policy.v1\x00"
 
 type managedCertificatePolicySnapshot struct {
-	Version             int                                          `json:"version"`
-	GeneratedAt         time.Time                                    `json:"generated_at"`
-	ValidUntil          time.Time                                    `json:"valid_until"`
-	AllowedFingerprints []string                                     `json:"allowed_fingerprints"`
-	NATSPermissions     map[string]managedCertificateNATSPermissions `json:"nats_permissions,omitempty"`
-}
-
-type managedCertificateNATSPermissions struct {
-	Publish   []string `json:"publish"`
-	Subscribe []string `json:"subscribe"`
+	Version             int                                        `json:"version"`
+	GeneratedAt         time.Time                                  `json:"generated_at"`
+	ValidUntil          time.Time                                  `json:"valid_until"`
+	AllowedFingerprints []string                                   `json:"allowed_fingerprints"`
+	NATSPermissions     map[string]natsutil.CertificatePermissions `json:"nats_permissions,omitempty"`
 }
 
 type managedCertificatePolicyStore struct {
