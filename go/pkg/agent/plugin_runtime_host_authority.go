@@ -985,9 +985,7 @@ func proxmoxInventoryPathAllowed(segments []string) bool {
 	case len(segments) == 5:
 		return proxmoxInventoryNodeCollectionAllowed(segments[4])
 	case len(segments) == 6:
-		return segments[4] == "disks" && segments[5] == "list" ||
-			segments[4] == "ceph" && segments[5] == proxmoxAPIStatusSegment ||
-			segments[4] == "certificates" && segments[5] == "info"
+		return proxmoxInventoryNodeNestedReadAllowed(segments[4], segments[5])
 	case len(segments) == 7 &&
 		(segments[4] == proxmoxObjectKindQEMU || segments[4] == proxmoxObjectKindLXC):
 		_, validVMID := parseStrictPositiveInt(segments[5])
@@ -1006,6 +1004,19 @@ func proxmoxInventoryNodeCollectionAllowed(resource string) bool {
 	switch resource {
 	case proxmoxAPIStatusSegment, "storage", "network", proxmoxObjectKindQEMU, proxmoxObjectKindLXC:
 		return true
+	default:
+		return false
+	}
+}
+
+func proxmoxInventoryNodeNestedReadAllowed(parent, child string) bool {
+	switch parent {
+	case "disks":
+		return child == "list"
+	case "ceph":
+		return child == proxmoxAPIStatusSegment
+	case "certificates":
+		return child == "info"
 	default:
 		return false
 	}
