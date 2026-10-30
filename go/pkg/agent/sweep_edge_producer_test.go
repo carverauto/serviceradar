@@ -167,7 +167,7 @@ func (s *observingSweep) RunOnceWithObserver(ctx context.Context, executionID st
 	if s.err != nil {
 		return s.err
 	}
-	return s.mockSweeper.RunOnceWithExecution(ctx, executionID)
+	return s.RunOnceWithExecution(ctx, executionID)
 }
 
 func TestEdgeSweepPublishesCompleteWindowsWithoutLegacyOutput(t *testing.T) {

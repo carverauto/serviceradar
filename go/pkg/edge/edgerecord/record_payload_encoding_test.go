@@ -30,8 +30,8 @@ import (
 
 // syntheticSweepBatch is an invented sweep observation batch of the shape a
 // leased ICMP/TCP sweep emits: documentation-range addresses, example.com names.
-func syntheticSweepBatch(t testing.TB, hosts int) []byte {
-	t.Helper()
+func syntheticSweepBatch(tb testing.TB, hosts int) []byte {
+	tb.Helper()
 	batch := &edgev1.SweepObservationBatchV1{
 		ExecutionId: d32(0x11)[:16], SweepGroupId: d32(0x12)[:16], AssignmentEpoch: 3, BatchSequence: 1,
 		ObservedAtUnixNano: 1_800_000_000_000_000_000, ExecutionPlanId: d32(0x13)[:16], ExecutionPlanSha256: d32(0x14),
@@ -63,7 +63,7 @@ func syntheticSweepBatch(t testing.TB, hosts int) []byte {
 	}
 	body, err := proto.MarshalOptions{Deterministic: true}.Marshal(batch)
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	return body
 }
@@ -77,11 +77,12 @@ func randomBody(n int) []byte {
 	return b
 }
 
-func recordPayloadInputs(t testing.TB) []struct {
+func recordPayloadInputs(tb testing.TB) []struct {
 	name string
 	body []byte
 	want edgev1.EdgeRecordCompression
 } {
+	tb.Helper()
 	return []struct {
 		name string
 		body []byte
@@ -89,7 +90,7 @@ func recordPayloadInputs(t testing.TB) []struct {
 	}{
 		// A frame header alone outweighs what a tiny body could save.
 		{"small", []byte("canonical-contract-payload-bytes"), edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE},
-		{"representative", syntheticSweepBatch(t, 256), edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_ZSTD},
+		{"representative", syntheticSweepBatch(tb, 256), edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_ZSTD},
 		{"incompressible", randomBody(64 << 10), edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE},
 		// Expands past the frozen 100:1 admission ratio, so it must stay NONE.
 		{"highly_repetitive", bytes.Repeat([]byte{0}, 256<<10), edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE},
@@ -118,10 +119,14 @@ func TestEncodeRecordPayloadChoosesAdmissibleSmallerEncoding(t *testing.T) {
 				if !bytes.Equal(decoded, tc.body) {
 					t.Fatal("decompressed payload differs from the body")
 				}
-			default:
+			case edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE:
 				if !bytes.Equal(payload, tc.body) {
 					t.Fatal("NONE payload is not the body")
 				}
+			case edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_UNSPECIFIED:
+				t.Fatal("successful encode returned UNSPECIFIED")
+			default:
+				t.Fatalf("successful encode returned unknown codec %v", codec)
 			}
 
 			r := validRecord(t)

@@ -45,6 +45,8 @@ var (
 
 // recordPayloadEncoder is the one Zstandard level 1 encoder records are compressed
 // with: no dictionary, one frame per EncodeAll, safe for concurrent use.
+//
+//nolint:gochecknoglobals // immutable shared encoder; one level-1 writer for every record
 var recordPayloadEncoder = sync.OnceValues(func() (*zstd.Encoder, error) {
 	return zstd.NewWriter(nil,
 		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(1)),
