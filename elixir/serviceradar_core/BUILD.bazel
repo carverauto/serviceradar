@@ -1385,6 +1385,11 @@ ex_unit_test(
         "test/serviceradar/security/peer_certificate_distribution_test.exs",
         "test/serviceradar/security/peer_certificate_policy_test.exs",
     ],
+    data = [
+        "//elixir/serviceradar_core_elx:rel/env.sh.eex",
+        "//elixir/serviceradar_agent_gateway:rel/env.sh.eex",
+        "//elixir/web-ng:rel/env.sh.eex",
+    ],
     elixir_opts = ["-e", "ExUnit.start(include: [:cluster])"],
     deps = [":erlang_app"],
 )

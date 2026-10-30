@@ -72,6 +72,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
   alias ServiceRadar.Edge.PublisherSupervisor
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.Security.PeerCertificatePolicySupervisor
   alias ServiceRadar.Telemetry.OtelSetup
   alias ServiceRadarAgentGateway.JetStreamPublisher
 
@@ -173,6 +174,7 @@ defmodule ServiceRadarAgentGateway.Application do
   """
   def core_children do
     [
+      PeerCertificatePolicySupervisor.child(),
       pubsub_child(),
       nats_connection_child(),
       edge_publisher_pools_child(),

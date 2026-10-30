@@ -61,6 +61,7 @@ defmodule ServiceRadar.Application do
 
     children =
       [
+        ServiceRadar.Security.PeerCertificatePolicySupervisor.child(),
         # Encryption vault for AshCloak (must start before repo for encrypted field access)
         vault_child(),
 
