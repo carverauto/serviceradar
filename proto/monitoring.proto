@@ -55,6 +55,8 @@ service AgentGatewayService {
   // RenewCertificate renews the caller's mTLS client certificate from a PKCS#10 CSR
   // authenticated by the currently valid peer certificate on the gRPC stream.
   rpc RenewCertificate(CertificateRenewalRequest) returns (CertificateRenewalResponse) {}
+  // Fetch the short-lived deployment policy over the authenticated agent channel.
+  rpc GetCertificatePolicy(CertificatePolicyRequest) returns (CertificatePolicyResponse) {}
 }
 
 message DeviceStatusRequest {
@@ -1280,4 +1282,11 @@ message MtrCheckResult {
   MtrTraceResult trace = 6;          // Full trace result
   int64 timestamp = 7;               // Result timestamp (unix nanos)
   string error = 8;                  // Error message if trace failed
+}
+
+message CertificatePolicyRequest {}
+
+message CertificatePolicyResponse {
+  bytes payload = 1;   // Exact UTF-8 policy JSON bytes covered by the signature.
+  bytes signature = 2; // Ed25519 over "serviceradar.certificate-policy.v1\0" + payload.
 }

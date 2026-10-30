@@ -634,6 +634,27 @@ func (g *GatewayClient) RenewCertificate(ctx context.Context, req *proto.Certifi
 	return resp, nil
 }
 
+// GetCertificatePolicy retrieves a signed, short-lived policy using the existing mTLS channel.
+func (g *GatewayClient) GetCertificatePolicy(ctx context.Context, req *proto.CertificatePolicyRequest) (*proto.CertificatePolicyResponse, error) {
+	g.mu.RLock()
+	client, connected := g.client, g.connected
+	g.mu.RUnlock()
+
+	if !connected || client == nil {
+		return nil, ErrGatewayNotConnected
+	}
+
+	policyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	resp, err := client.GetCertificatePolicy(policyCtx, req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch certificate policy: %w", err)
+	}
+
+	return resp, nil
+}
+
 // GetConfig fetches the agent's configuration from the gateway.
 // Supports versioning - returns not_modified if config hasn't changed.
 func (g *GatewayClient) GetConfig(ctx context.Context, req *proto.AgentConfigRequest) (*proto.AgentConfigResponse, error) {

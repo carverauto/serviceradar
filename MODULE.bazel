@@ -852,6 +852,7 @@ use_repo(
     "io_opentelemetry_go_otel_trace",
     "net_pgregory_rapid",
     "org_golang_google_grpc",
+    "org_golang_google_grpc_cmd_protoc_gen_go_grpc",
     "org_golang_google_protobuf",
     "org_golang_x_crypto",
     "org_golang_x_net",
