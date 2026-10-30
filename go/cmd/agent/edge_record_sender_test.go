@@ -155,13 +155,17 @@ func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
 	}
 }
 
-func TestRunEdgeRecordSenderRetriesSetupUntilSpoolDirAppears(t *testing.T) {
+func TestRunEdgeRecordSenderRetriesSetupUntilSpoolDirIsCreatable(t *testing.T) {
 	sp, err := spool.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = sp.Close() }()
-	dir := filepath.Join(t.TempDir(), "late-spool")
+	blocker := filepath.Join(t.TempDir(), "not-a-directory")
+	if err := os.WriteFile(blocker, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(blocker, "spool")
 	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{
 		Enabled: true, GatewayAddr: "127.0.0.1:1", SpoolDir: dir,
 		Security: &models.SecurityConfig{Mode: models.SecurityModeNone},
@@ -178,17 +182,20 @@ func TestRunEdgeRecordSenderRetriesSetupUntilSpoolDirAppears(t *testing.T) {
 		t.Fatal("sender stopped after its first setup failure")
 	case <-time.After(200 * time.Millisecond):
 	}
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	idPath := filepath.Join(dir, "spool_id")
+	if _, err := os.Stat(idPath); err == nil {
+		t.Fatal("setup succeeded while the spool directory could not be created")
+	}
+	if err := os.Remove(blocker); err != nil {
 		t.Fatal(err)
 	}
-	idPath := filepath.Join(dir, "spool_id")
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, err := os.Stat(idPath); err == nil {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatal("sender never retried setup after the spool directory appeared")
+			t.Fatal("sender never retried setup after the spool directory became creatable")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

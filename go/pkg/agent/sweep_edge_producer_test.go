@@ -213,6 +213,29 @@ func TestEdgeSweepKeepsOtherExecutionsOnLegacyPath(t *testing.T) {
 	require.Equal(t, "manual", manual.ExecutionId)
 }
 
+func TestEdgeSweepFailedLeaseKeepsEarlierLeasedCycleOffLegacyPath(t *testing.T) {
+	cfg, lease, slot, sp := edgeSweepFixture(t)
+	scanner := &observingSweep{mockSweeper: &mockSweeper{summary: &models.SweepSummary{LastSweep: 1, TotalHosts: 1, Hosts: []models.HostResult{{Host: "192.0.2.1", Available: true}}}}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	ctx := context.Background()
+
+	require.NoError(t, svc.RunOnceForExecution(ctx, "queued"))
+	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil }))
+	leasedAgain := proto.Clone(slot).(*edgev1.SweepLeaseSlotV1)
+	leasedAgain.ExecutionId = newUUIDBytes()
+	scanner.results = []models.Result{{Target: models.Target{Host: "not-an-address", Mode: models.ModeICMP}}}
+	require.ErrorContains(t, svc.runLeaseToSpool(ctx, lease, leasedAgain, sp, func() error { return nil }), "edge sweep result address")
+
+	queued, err := svc.GetSweepResults(ctx, "")
+	require.NoError(t, err)
+	require.True(t, queued.HasNewData)
+	require.Equal(t, "queued", queued.ExecutionId)
+	after, err := svc.GetSweepResults(ctx, queued.CurrentSequence)
+	require.NoError(t, err)
+	require.False(t, after.HasNewData)
+	require.Equal(t, queued.CurrentSequence, after.CurrentSequence)
+}
+
 func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
 	// Only the ICMP half completed. None of these is a terminal host window.

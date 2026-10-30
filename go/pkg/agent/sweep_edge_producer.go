@@ -103,7 +103,9 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 		s.mu.Unlock()
 		return err
 	}
-	s.lastEdgeExecutionID = uuid.UUID(slot.GetExecutionId()).String()
+	executionID := uuid.UUID(slot.GetExecutionId()).String()
+	previousEdgeExecutionID := s.lastEdgeExecutionID
+	s.lastEdgeExecutionID = executionID
 	s.sweepRunInProgress = true
 	s.mu.Unlock()
 	defer func() {
@@ -115,7 +117,7 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 
 	runCtx, cancel := context.WithDeadline(ctx, time.Unix(0, slot.GetCollectionExpiresUnixNano()))
 	defer cancel()
-	err = runner.RunOnceWithObserver(runCtx, uuid.UUID(slot.GetExecutionId()).String(), func(result *models.Result) error {
+	err = runner.RunOnceWithObserver(runCtx, executionID, func(result *models.Result) error {
 		if err := producer.observe(result); err != nil {
 			cancel()
 			return err
@@ -123,6 +125,9 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 		return nil
 	})
 	if err != nil {
+		s.mu.Lock()
+		s.lastEdgeExecutionID = previousEdgeExecutionID
+		s.mu.Unlock()
 		producer.mu.Lock()
 		if producer.err != nil {
 			err = producer.err
