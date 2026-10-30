@@ -111,6 +111,9 @@ go_library(
         "camera_relay.go",
         "camera_relay_rtsp.go",
         "cert_renewal.go",
+        "managed_certificates.go",
+        "managed_certificates_linux.go",
+        "managed_certificates_unsupported.go",
         "config_section_state.go",
         "control_stream.go",
         "credential_broker_resolver.go",
@@ -597,4 +600,11 @@ filegroup(
 go_benchmark(
     name = "agent_bench",
     binary = ":agent_test",
+)
+
+go_test(
+    name = "managed_certificates_test",
+    srcs = ["managed_certificates_linux_test.go"],
+    embed = [":agent"],
+    target_compatible_with = ["@platforms//os:linux"],
 )
