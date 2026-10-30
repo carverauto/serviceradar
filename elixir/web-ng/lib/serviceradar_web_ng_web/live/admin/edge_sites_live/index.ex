@@ -324,7 +324,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Index do
   end
 
   defp leaf_status(assigns) do
-    leaf_server = Enum.find(assigns.site.nats_leaf_server || [], & &1)
+    leaf_server = assigns.site.nats_leaf_server
 
     assigns = assign(assigns, :leaf_server, leaf_server)
 
