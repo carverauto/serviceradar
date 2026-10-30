@@ -15,7 +15,7 @@ Source baseline: `c29846f422a6cf68baa122bfb36058b0fc57f7d2`.
 | --- | --- |
 | Workflow source | `4713a35af2bd85c3213217886a9914b39e718f8e6b715fafa6f61a945e1f8b85` |
 | Workflow HTML | `de4dfddbaeab1fb47f8edd48bb8690001ae5ab83eff3f4f57e2897db448079a1` |
-| Proposal HTML | `523d82323a86fe3468e54f3150cfe65a6f0b971685eb020938189c5c33dfe35f` |
+| Proposal HTML | `e02a6472cac8dc8743a5c45cd0edea00cdce9c0554c15cae9a6fa3910f19adf6` |
 
 ## Validation
 
