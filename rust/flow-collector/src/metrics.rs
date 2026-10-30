@@ -1399,9 +1399,16 @@ mod tests {
         s.write_all(b"GET /metrics HTTP/1.1\r\n").await.unwrap();
         for i in 0..35 {
             let h = format!("X-Custom-Header-{}: test\r\n", i);
-            s.write_all(h.as_bytes()).await.unwrap();
+            // The server may enforce the limit before all remaining headers
+            // reach its socket. An early close is the behavior under test.
+            if let Err(error) = s.write_all(h.as_bytes()).await {
+                assert!(matches!(
+                    error.kind(),
+                    std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset
+                ));
+                break;
+            }
         }
-        s.write_all(b"\r\n").await.unwrap();
 
         let mut resp = Vec::new();
         let read = tokio::time::timeout(Duration::from_secs(2), s.read_to_end(&mut resp)).await;
