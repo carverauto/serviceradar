@@ -149,6 +149,7 @@ func StartAgent(
 	}
 	stderrFile, err := os.Create(stderrPath)
 	if err != nil {
+		_ = stdoutFile.Close()
 		return nil, fmt.Errorf("verticalslice: create agent stderr log: %w", err)
 	}
 
@@ -157,8 +158,11 @@ func StartAgent(
 	cmd.Stderr = stderrFile
 	cmd.Dir = workDir
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("verticalslice: start agent: %w", err)
+	startErr := cmd.Start()
+	_ = stdoutFile.Close()
+	_ = stderrFile.Close()
+	if startErr != nil {
+		return nil, fmt.Errorf("verticalslice: start agent: %w", startErr)
 	}
 
 	return &AgentProcess{

@@ -383,6 +383,7 @@ func StartRelease(
 	}
 	stderrFile, err := os.Create(stderrPath)
 	if err != nil {
+		_ = stdoutFile.Close()
 		return nil, fmt.Errorf("verticalslice: create stderr log: %w", err)
 	}
 
@@ -392,8 +393,11 @@ func StartRelease(
 	cmd.Stderr = stderrFile
 	cmd.Dir = extractDir
 
-	if err := cmd.Start(); err != nil {
-		return nil, fmt.Errorf("verticalslice: start %s: %w", binPath, err)
+	startErr := cmd.Start()
+	_ = stdoutFile.Close()
+	_ = stderrFile.Close()
+	if startErr != nil {
+		return nil, fmt.Errorf("verticalslice: start %s: %w", binPath, startErr)
 	}
 
 	p := &ReleaseProcess{

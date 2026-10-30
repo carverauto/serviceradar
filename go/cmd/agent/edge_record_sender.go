@@ -49,6 +49,11 @@ const (
 // This is intentionally the minimum sender: no reconnect/replay, no recovery/
 // rollover, and it never calls (*spool.Spool).Resolve -- see the sender
 // package doc for why a gateway ack alone must not reclaim the spool.
+//
+// Setup is not retried: if any setup step fails (missing gateway address or
+// spool_dir, spool open, spool id, security provider before its certificate
+// files exist, or client construction), the failure is logged once and the
+// sender stays stopped until the agent process restarts.
 func runEdgeRecordSender(ctx context.Context, cfg *agent.ServerConfig, log logger.Logger) {
 	esCfg := cfg.EdgeRecordSender
 	if esCfg == nil || !esCfg.Enabled {

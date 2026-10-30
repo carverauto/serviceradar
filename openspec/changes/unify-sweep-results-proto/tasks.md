@@ -996,7 +996,7 @@ change together with the requirements they implement.
   and enforce the durable/ephemeral boundary in every producer SDK.
 
 - [x] 2.15 **Correct `fairsched`: derive lanes from the platform taxonomy.**
-  MERGED as PR #4735 into `usp-01-proposal`. It hardcoded sweep/MTR lanes; lanes
+  MERGED into `usp-01-proposal`. It hardcoded sweep/MTR lanes; lanes
   now come from the finite (route profile, traffic class) taxonomy via an injected
   `LaneTaxonomy`, with `LaneKey`, an explicit recovery lane, positive bounded
   weights, and typed `ErrLaneInvalid`/`ErrLaneNotReady`/`ErrTaxonomyInvalid`.
@@ -1005,7 +1005,7 @@ change together with the requirements they implement.
   regeneration alone. Regressions cover taxonomy-driven scheduling of an
   unknown-to-the-scheduler lane and rejection of undeclared enum numbers.
 - [x] 2.16 **Correct `gwprefix`: separate dispositions and separate remote
-  resolution from local reclaim.** MERGED as PR #4736 into `usp-01-proposal`. All
+  resolution from local reclaim.** MERGED into `usp-01-proposal`. All
   five frozen dispositions stay distinguishable (the tracker uses
   `EdgeRecordDispositionKind` directly rather than a local copy), only the four
   resolving kinds advance the remote prefix, and a `retryable_rejection` caps the
@@ -1018,7 +1018,7 @@ change together with the requirements they implement.
   before the agent can prove the outcome survived its own restart. Release MUST
   follow the durable terminal record and the coverage proof. Test that a crash
   after PubAck but before the terminal record leaves the bytes present.
-  STATUS -- DELIBERATELY UNCHECKED. The ADMISSION-SIDE boundary MERGED as PR #4739
+  STATUS -- DELIBERATELY UNCHECKED. The ADMISSION-SIDE boundary MERGED
   into `usp-01-proposal`: bytes are charged to an immutable `SlotKey{Spool, Seq}`,
   nothing releases them except a SEALED `ReclaimAuthorization` (an opaque carrier
   with no exported fields and deliberately NO producer, so no caller can mint one
@@ -1043,7 +1043,7 @@ change together with the requirements they implement.
   applies the wrong idempotency key and cost model for v2 records. Align both with
   the record identities and the versioned cost contract, and test replay
   idempotence plus cost accounting against the v2 model.
-- [ ] 2.19 **Hold PR #4685 until 2.15-2.18 are demonstrated.** The edge feature
+- [ ] 2.19 **Hold the edge feature PR until 2.15-2.18 are demonstrated.** The edge feature
   branch carries `fairsched`, `admission`, `gwprefix`, and `projection` as PARTIAL
   SCAFFOLDING: they compile and pass their tests against the v2 contract without
   being semantically correct under it. This is a temporary integration gate, not a
@@ -1367,7 +1367,7 @@ change together with the requirements they implement.
   per 3.3's gap contract) and never authorized. A fence advanced after boot is
   not learned either: a handed-off producer's previous generation still reads
   as current, and its new one as future, until restart.
-- [ ] 3.3 PARTIALLY LANDED: **#4733** (`usp-19`) is MERGED into `usp-01-proposal`.
+- [ ] 3.3 PARTIALLY LANDED: **`usp-19`** is MERGED into `usp-01-proposal`.
   Check what it actually delivered before starting -- duplicating it is how the
   earlier 22-PR chain accumulated, and its scope is NARROWER than this task.
   ALREADY LANDED in `ServiceRadarAgentGateway.JetStreamPublisher`: the publish

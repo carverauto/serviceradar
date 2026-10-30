@@ -26,8 +26,9 @@ defmodule ServiceRadarAgentGateway.EdgeRecordIngestServer do
   Then, for each `delivery_frame`:
 
     * it names a sequence inside the frame credits granted at `lane_open`, counted from the
-      watermark this session has acked; one beyond it ends the stream `:resource_exhausted` before
-      anything about it is kept;
+      watermark this session has acked, checked when the stream process handles the frame (frames
+      received while it awaits an earlier outcome wait in its mailbox until then); one beyond it
+      ends the stream `:resource_exhausted` before it is authorized or offered to the pipeline;
     * it is authorized locally by `ServiceRadarAgentGateway.EdgeRecordAuthorization` (task 3.2):
       exact record digest, structural record admission, the signed production grant and any source
       authorization and delivery capability, identity, network scope, route/class, range, expiry

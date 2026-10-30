@@ -68,10 +68,10 @@ From the primary checkout, fetch GitHub and create a no-track worktree before ed
 git fetch origin usp-01-proposal
 git worktree add --no-track -b usp-33-restart-overlap-spec \
   /private/tmp/serviceradar-usp33-restart-overlap-spec origin/usp-01-proposal
-ln -sfn /Users/mfreeman/src/serviceradar/.bazelrc.remote \
+ln -sfn "$PRIMARY"/.bazelrc.remote \
   /private/tmp/serviceradar-usp33-restart-overlap-spec/.bazelrc.remote
-test ! -e /Users/mfreeman/src/serviceradar/.bazelrc.local || \
-  ln -sfn /Users/mfreeman/src/serviceradar/.bazelrc.local \
+test ! -e "$PRIMARY"/.bazelrc.local || \
+  ln -sfn "$PRIMARY"/.bazelrc.local \
     /private/tmp/serviceradar-usp33-restart-overlap-spec/.bazelrc.local
 ```
 
@@ -122,7 +122,7 @@ State all four facts together:
 RESTART OVERLAP remains open until the implementation and evidence defined here land. POST-HANDOFF FENCING's local criterion was satisfied by PR #4258. Neither task-0.12 group is accepted until its required composed observation runs. Task 3.3 remains unchecked for production asynchronous issuance and delivery of out-of-order completions into the task-3.5-owned validation/contiguous-prefix seam; that broader debt is not a seventh task-0.12 acceptance group and does not precede the active vertical slice.
 ```
 
-Replace “owner death leaves the reservation charged, which (i) is what will free” with:
+Replace "owner death leaves the reservation charged, which (i) is what will free" with:
 
 ```markdown
 Owner death alone changes nothing. A non-terminal request completion reported by its owner through `attempt_failed` ends only the attempt and retains the reservation. Exact connection-PID death is the alternative transport fence and likewise retains the reservation. A resolving settlement ends the attempt and releases the reservation under its existing policy.
@@ -450,7 +450,7 @@ This check is intentionally conservative for a standalone pool restart: any conn
 Do not make a one-shot `nil` lookup into an unproved fence. Before accepting this implementation, bind all parts of the topology invariant on which the ready case depends:
 
 1. `NATSSupervisor.child_specs/3` passes `PublisherLane.connection_name(class)` as the actual Gnat process's `:name`, and the production lane owns exactly that child spec.
-2. Add a Bazel-safe BEAM-structure test in `publisher_connections_test.exs`, not a `deps/gnat/...` source-file read that disappears from runfiles. It must pin the audited Gnat application version (`1.15.2` at plan-writing time), obtain both `Gnat` and `Gnat.ConnectionSupervisor` through `:code.which/1`, and require `:beam_lib.chunks(..., [:abstract_code])` to return raw abstract forms for both. Assert the facts the pinned code actually has: `Gnat.start_link/2` delegates its `opts` (and therefore `name:`) to `GenServer.start_link`; the manager's connection-attempt handler calls `Gnat.start_link/2` with `name: state.name`; its generic `{:EXIT, _pid, _reason}` handler schedules another attempt; and neither module calls `Process.unregister/1` nor `:erlang.unregister/1`. Do **not** claim that the generic handler correlates `_pid` with `state.gnat`—Gnat 1.15.2 does not. Singleton safety instead comes from the local-name collision: an extra attempt cannot successfully start/register G2 while live G1 still owns that name. A Gnat version change, stripped abstract code, or changed call graph must fail the Bazel test and force this source assumption to be re-audited, not silently inherit the old conclusion. If the compiled dependency does not expose enough abstract code under Bazel, invoke the stop rule and use the retained-PID/teardown design.
+2. Add a Bazel-safe BEAM-structure test in `publisher_connections_test.exs`, not a `deps/gnat/...` source-file read that disappears from runfiles. It must pin the audited Gnat application version (`1.15.2` at plan-writing time), obtain both `Gnat` and `Gnat.ConnectionSupervisor` through `:code.which/1`, and require `:beam_lib.chunks(..., [:abstract_code])` to return raw abstract forms for both. Assert the facts the pinned code actually has: `Gnat.start_link/2` delegates its `opts` (and therefore `name:`) to `GenServer.start_link`; the manager's connection-attempt handler calls `Gnat.start_link/2` with `name: state.name`; its generic `{:EXIT, _pid, _reason}` handler schedules another attempt; and neither module calls `Process.unregister/1` nor `:erlang.unregister/1`. Do **not** claim that the generic handler correlates `_pid` with `state.gnat` -- Gnat 1.15.2 does not. Singleton safety instead comes from the local-name collision: an extra attempt cannot successfully start/register G2 while live G1 still owns that name. A Gnat version change, stripped abstract code, or changed call graph must fail the Bazel test and force this source assumption to be re-audited, not silently inherit the old conclusion. If the compiled dependency does not expose enough abstract code under Bazel, invoke the stop rule and use the retained-PID/teardown design.
 3. Every production request PID is returned by `ServiceRadar.NATS.Connection.get(PublisherLane.connection_name(class))`; the exact production child inventory contains one manager/name for the lane and no second request path with an unregistered connection.
 4. A controlled process registered under the lane name remains returned by `Process.whereis/1` throughout manager teardown and until that exact process terminates; trying to register G2 under the same name while G1 is live fails, and only after G1's exact `:DOWN` may G2 acquire it.
 5. No ServiceRadar production path calls `Process.unregister/1` for a `PublisherLane.connection_name/1` or otherwise rebinds that name while the PID is live. Add a narrow source/inventory assertion over the lane-connection ownership modules, not a repository-wide spelling claim.
@@ -554,7 +554,7 @@ Remove every statement that the pool and reconnect manager are one `:one_for_all
 - accounting failure orders downstream reconnect-manager termination before replacement accounting, while the replacement pool's exact-PID startup fence covers any linked inner Gnat process that outlives its manager;
 - the accountant-loss ready case depends on the pinned fact that a live actual Gnat process keeps owning the lane name until that exact PID terminates; if that dependency changes, the topology must fail closed rather than treating lookup absence as proof;
 - an ordinary inner Gnat reconnect replaces the actual connection PID, which the pool observes only when a pending/active attempt is bound to that PID; it retains no idle per-connection history;
-- the supervisor strategy is not itself the proof—the production frame/byte traces in Task 5 are.
+- the supervisor strategy is not itself the proof -- the production frame/byte traces in Task 5 are.
 
 Do not rename `PublisherPool` to `LaneAccountant` in this milestone.
 
@@ -608,7 +608,7 @@ This is the first implementation checkpoint. It must compile as a whole, contain
 
 - [ ] **Step 1: Build a deterministic controlled connection test double**
 
-The double must expose two independently controlled processes—the reconnect manager and the actual request-serving connection—and implement the project-owned connection API used by the publisher:
+The double must expose two independently controlled processes -- the reconnect manager and the actual request-serving connection -- and implement the project-owned connection API used by the publisher:
 
 ```elixir
 manager_pid :: pid()
@@ -623,7 +623,7 @@ Implement `request/4` in two stages, matching the property that matters in Gnat:
 {:request_started, generation_pid, request_ref, publisher_pid, subject, payload}
 ```
 
-Then let the publisher caller wait independently for `{request_ref, result}` from the test controller. Killing the generation must **not** release that wait automatically. The test decides when to deliver the transport error, which lets it prove that the pool's independent connection monitor—not owner-reported `attempt_failed/2`—made the reservation retryable. The controller can also deliver a valid PubAck after the old accountant is gone, which is the accountant-loss interval the production return path must classify as non-durable.
+Then let the publisher caller wait independently for `{request_ref, result}` from the test controller. Killing the generation must **not** release that wait automatically. The test decides when to deliver the transport error, which lets it prove that the pool's independent connection monitor -- not owner-reported `attempt_failed/2` -- made the reservation retryable. The controller can also deliver a valid PubAck after the old accountant is gone, which is the accountant-loss interval the production return path must classify as non-durable.
 
 Keep the generation GenServer responsive: its short `handle_call` records the request and replies with the wait reference immediately; it also serves synchronous history queries and additional requests while publisher callers wait outside it. Do not retain the original caller's `from` and return `{:noreply, state}` for the whole PubAck wait. That tempting fake dies with G1 and immediately wakes the publisher caller, allowing owner-reported failure to mask a broken generation-`DOWN` transition. Do not collapse manager and connection into one PID: their non-atomic termination is the accountant-loss defect. Use messages/monitors only; do not use `Process.sleep/1` to infer that a request started.
 
@@ -674,7 +674,7 @@ Verify through the controlled double that `{:error, :restart_fenced}` from admis
 
 At unit level, put the real `PublisherPool` child and the two-process controlled transport child under the same pool-first `:rest_for_one` ordering; Task 4's exact production child inventory binds that ordering to `LaneSupervisor`.
 
-Hold A after `request_started` on G1, then kill the pool. This trace uses the ordinary registered `PublisherPool.via(lane)` lookup—never a `pools:` override or a captured old pool PID. The controlled connection module may be injected, but its `get/1` must resolve the requested registered lane name and return that process; it may not accept a caller-selected generation PID. Drive and assert these phases explicitly:
+Hold A after `request_started` on G1, then kill the pool. This trace uses the ordinary registered `PublisherPool.via(lane)` lookup -- never a `pools:` override or a captured old pool PID. The controlled connection module may be injected, but its `get/1` must resolve the requested registered lane name and return that process; it may not accept a caller-selected generation PID. Drive and assert these phases explicitly:
 
 1. The controlled manager enters termination while G1 remains alive. The old pool is gone and there is no replacement pool yet. Deliver a valid PubAck for the original A request through the controller, explicitly await that original publisher task, and require `{:error, :systemic}`: the broker reply cannot be reported durable because the accountant that authorized A is gone. Assert `Process.whereis(PublisherPool.via(lane)) === nil`, then offer B through the test-only publisher entry point. It returns retryable `:systemic` with no request.
 2. Let the manager exit but deliberately keep its linked-like inner G1 alive and registered. Wait until `Process.whereis(PublisherPool.via(lane))` returns a new PID, assert it is the exact replacement pool being inspected, and assert that pool reports its exact `startup_fence` on G1. Offer B without a pool override. It again returns `:systemic`, performs no request, and leaves the empty replacement accounting unchanged. This call must reach the replacement pool's fence; a call against the dead old pool is not evidence.

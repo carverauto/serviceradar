@@ -125,4 +125,4 @@
 - [ ] 8.5 `./scripts/elixir_quality.sh --project elixir/web-ng --phoenix`
   and `--project elixir/serviceradar_core`.
 - [ ] 8.6 Verify dependency/rebase compatibility with
-  `unify-sweep-results-proto` and issue #4669.
+  `unify-sweep-results-proto` and its MTR JetStream migration.

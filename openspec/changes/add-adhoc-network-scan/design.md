@@ -193,5 +193,5 @@ and the direct-write ingestion (`StatusHandler` -> `MtrMetricsIngestor`) - and
 re-pointing the existing MTR automation (baseline/consensus workers) at the
 sweep-engine path is coordinated with `unify-sweep-results-proto`, because that machinery has its own
 baseline/trigger/consensus behavior that must be preserved. It folds in the
-JetStream migration tracked as forgejo issue #4669. This ad-hoc change SHALL NOT
+JetStream migration. This ad-hoc change SHALL NOT
 add a new direct or generic-metric result route while that migration proceeds.

@@ -82,7 +82,6 @@ import (
 	"github.com/bazelbuild/rules_go/go/runfiles"
 
 	"github.com/carverauto/serviceradar/go/pkg/edge/edgerecord"
-	"github.com/carverauto/serviceradar/go/pkg/edge/sender"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
@@ -467,6 +466,7 @@ func newHarness(t *testing.T) *harness {
 		t.Fatalf("open agent spool: %v", err)
 	}
 	h.sp = sp
+	t.Cleanup(func() { _ = sp.Close() })
 
 	spoolID, err := waitForSpoolID(agentProc.SpoolDir, pollTimeout)
 	if err != nil {
@@ -498,16 +498,19 @@ func resolveCNPG(t *testing.T, dir string) (*ShardCNPGConfig, string) {
 	return cfg, caPath
 }
 
-// waitForSpoolID polls for sender.PersistentSpoolID's on-disk file, written
-// by the real agent process the first time its edge-record sender loop
-// runs (go/pkg/edge/sender.PersistentSpoolID), rather than assuming a fixed
-// timing.
+// waitForSpoolID polls, read-only, for the spool_id file the real agent
+// process writes the first time its edge-record sender loop runs
+// (go/pkg/edge/sender.PersistentSpoolID), rather than assuming a fixed
+// timing. It never creates the file, so the id it returns is the agent's.
 func waitForSpoolID(spoolDir string, timeout time.Duration) ([]byte, error) {
 	deadline := time.Now().Add(timeout)
 	var lastErr error
 	for time.Now().Before(deadline) {
-		id, err := sender.PersistentSpoolID(spoolDir)
-		if err == nil && len(id) == 16 {
+		id, err := os.ReadFile(filepath.Join(spoolDir, "spool_id"))
+		if err == nil {
+			err = edgerecord.ValidateUUIDv7(id)
+		}
+		if err == nil {
 			return id, nil
 		}
 		lastErr = err

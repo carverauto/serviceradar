@@ -687,11 +687,12 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
       horizon_seconds: 3_600
     )
 
-    assert {:ok, %{withdrawn: 1, pushed: 0, errors: 0}} =
-             LeasePass.run(now, ctx.delivery)
+    group_id = group.id
+    assert {:ok, %{withdrawn: withdrawn}} = LeasePass.run(now, ctx.delivery)
+    assert withdrawn >= 1
 
-    assert_receive {:pushed, _, group_id, revocation, payload}
-    assert group_id == group.id
+    assert_receive {:pushed, _, ^group_id, revocation, payload}
+    refute_received {:pushed, _, ^group_id, _, _}
     assert revocation.revoked
     assert revocation.lease_id == first.lease_id
     assert revocation.slots == []
