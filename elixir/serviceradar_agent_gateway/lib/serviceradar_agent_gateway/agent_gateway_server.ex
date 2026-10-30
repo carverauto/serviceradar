@@ -226,6 +226,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  @doc "Return the core-signed certificate policy to an authenticated enrolled agent."
+  def get_certificate_policy(_request, stream) do
+    {cert_der, identity} = extract_renewal_peer_identity!(stream)
+    agent_id = required_agent_id(Map.get(identity, :component_id))
+    {identity, _type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    enforce_active_peer_certificate_for_renewal!(identity, cert_der, stream)
+
+    with {:ok, {:ok, envelope}} <-
+           core_call(ServiceRadar.Edge.ComponentCertificateAuthority, :sign_snapshot, []),
+         {:ok, payload} <- Base.decode64(envelope.payload),
+         {:ok, signature} <- Base.decode64(envelope.signature) do
+      %Monitoring.CertificatePolicyResponse{payload: payload, signature: signature}
+    else
+      _ ->
+        raise GRPC.RPCError, status: :unavailable, message: "certificate policy unavailable"
+    end
+  end
+
   @doc """
   Handle an agent config request.
 
