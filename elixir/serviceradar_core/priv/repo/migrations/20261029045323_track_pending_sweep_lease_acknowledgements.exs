@@ -1,4 +1,13 @@
 defmodule ServiceRadar.Repo.Migrations.TrackPendingSweepLeaseAcknowledgements do
+  @moduledoc """
+  Records when a lease delivery's acknowledgement became pending and when its lease was
+  revoked. A delivery whose ack does not match its last push starts pending at
+  `delivered_at`.
+
+  serviceradar:allow-startup-maintenance - the one UPDATE touches the sweep lease delivery
+  control table, which holds at most one row per sweep group and agent.
+  """
+
   use Ecto.Migration
 
   def up do
