@@ -240,6 +240,46 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", tls: {cert_file: %q, key_file:
 	}
 	t.Cleanup(b.Close)
 	awaitRevocation(t, "both leaves connected", func() bool { return revocationLeafCount(monitorPort) == 2 })
+	mu.Lock()
+	observedSessions := map[string]session{}
+	for fingerprint, active := range sessions {
+		if len(active) > 0 {
+			observedSessions[fingerprint] = active[0]
+		}
+	}
+	mu.Unlock()
+	for fingerprint := range allowed {
+		target, ok := observedSessions[fingerprint]
+		if !ok {
+			t.Fatalf("missing session for certificate %s", fingerprint)
+		}
+		body, _ := json.Marshal(map[string]any{"auth": true, "acc": "APP", "limit": 16})
+		awaitRevocation(t, "broker confirms certificate use", func() bool {
+			reply, err := operator.Request("$SYS.REQ.SERVER."+target.server+".CONNZ", body, 2*time.Second)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var result struct {
+				Data struct {
+					Connections []struct {
+						CID          uint64 `json:"cid"`
+						Certificates []struct {
+							Fingerprint string `json:"cert_sha256"`
+						} `json:"tls_peer_certs"`
+					} `json:"connections"`
+				} `json:"data"`
+			}
+			if err := json.Unmarshal(reply.Data, &result); err != nil {
+				t.Fatal(err)
+			}
+			for _, connection := range result.Data.Connections {
+				if connection.CID == target.cid && len(connection.Certificates) > 0 && connection.Certificates[0].Fingerprint == fingerprint {
+					return true
+				}
+			}
+			return false
+		})
+	}
 	start := time.Now()
 	mu.Lock()
 	revoked[collectorA.fingerprint] = true
@@ -340,6 +380,21 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", tls: {cert_file: %q, key_file:
 	default:
 	}
 	t.Logf("targeted leaf and collector revocation enforced in %s; controls still connected", time.Since(start))
+
+	// Losing the entire authorizer also loses its in-memory session map. The
+	// broker itself must still expire issued client AND leaf grants.
+	auth.Close()
+	deadline := time.Now().Add(35 * time.Second)
+	for b.IsConnected() || revocationLeafCount(monitorPort) != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("broker retained certificate authorization after the authorizer disappeared")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if nc, err := connect(collectorB); err == nil {
+		nc.Close()
+		t.Fatal("certificate client bypassed unavailable authorization service")
+	}
 }
 
 func revocationPort(t *testing.T) int {
