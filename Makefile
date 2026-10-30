@@ -658,8 +658,8 @@ generate-proto: proto-tools ## Generate Go and Rust code from protobuf definitio
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/edge/v1/sweep.proto
 	@# require_unimplemented_servers=false is the frozen protoc-gen-go-grpc setting for
-	@# the edge gRPC stub. protoc/Make is the single source for the checked-in bindings
-	@# and Bazel compiles those exact files (no second Bazel generator), so this option
+	@# the edge gRPC stub. protoc/Make is the single source for that checked-in stub
+	@# and Bazel compiles that file (no second generator for it), so this option
 	@# must stay fixed to keep regeneration byte-stable; verify-proto-go is the drift guard.
 	@PATH="$(PROTO_TOOLS_BIN):$$PATH" protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
