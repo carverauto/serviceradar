@@ -130,13 +130,16 @@ type observingSweep struct {
 	err     error
 }
 
-func (s *observingSweep) RunOnceWithObserver(_ context.Context, _ string, observe func(*models.Result) error) error {
+func (s *observingSweep) RunOnceWithObserver(ctx context.Context, executionID string, observe func(*models.Result) error) error {
 	for i := range s.results {
 		if err := observe(&s.results[i]); err != nil {
 			return err
 		}
 	}
-	return s.err
+	if s.err != nil {
+		return s.err
+	}
+	return s.mockSweeper.RunOnceWithExecution(ctx, executionID)
 }
 
 func TestEdgeSweepPublishesCompleteWindowsWithoutLegacyOutput(t *testing.T) {
@@ -182,6 +185,32 @@ func TestEdgeSweepPublishesCompleteWindowsWithoutLegacyOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, legacy.HasNewData)
 	require.Empty(t, legacy.Data)
+}
+
+func TestEdgeSweepKeepsOtherExecutionsOnLegacyPath(t *testing.T) {
+	cfg, lease, slot, sp := edgeSweepFixture(t)
+	scanner := &observingSweep{mockSweeper: &mockSweeper{summary: &models.SweepSummary{LastSweep: 1, TotalHosts: 1, Hosts: []models.HostResult{{Host: "192.0.2.1", Available: true}}}}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	ctx := context.Background()
+
+	require.NoError(t, svc.RunOnceForExecution(ctx, "queued"))
+	require.NoError(t, svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil }))
+
+	queued, err := svc.GetSweepResults(ctx, "")
+	require.NoError(t, err)
+	require.True(t, queued.HasNewData)
+	require.Equal(t, "queued", queued.ExecutionId)
+	leased, err := svc.GetSweepResults(ctx, queued.CurrentSequence)
+	require.NoError(t, err)
+	require.False(t, leased.HasNewData)
+
+	cfg.Ports = []int{8443}
+	require.ErrorContains(t, svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil }), "check set differs")
+	require.NoError(t, svc.RunOnceForExecution(ctx, "manual"))
+	manual, err := svc.GetSweepResults(ctx, leased.CurrentSequence)
+	require.NoError(t, err)
+	require.True(t, manual.HasNewData)
+	require.Equal(t, "manual", manual.ExecutionId)
 }
 
 func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
