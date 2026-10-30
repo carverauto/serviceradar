@@ -996,6 +996,12 @@ func (h *harness) testGroupC(t *testing.T) {
 		ack, err := h.sendOneRawFrame(
 			context.Background(), t, tlsCfg, h.spoolID, h.groupASequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
 		)
+		for deadline := time.Now().Add(inFlightTimeout); status.Code(err) == codes.AlreadyExists && time.Now().Before(deadline); {
+			time.Sleep(pollInterval)
+			ack, err = h.sendOneRawFrame(
+				context.Background(), t, tlsCfg, h.spoolID, h.groupASequence, conflictFx.RecordBytes, conflictFx.RecordSHA256, 20*time.Second,
+			)
+		}
 		if err != nil {
 			t.Fatalf("conflicting frame was refused before JetStream publication: %v", err)
 		}
@@ -1395,12 +1401,13 @@ func (h *harness) waitIngestObservation(t *testing.T, eventID []byte, point stri
 //     deliveries reaching commit and one transaction result, :inserted, so
 //     the released delivery is the one that committed. The ack floor then
 //     passes the message.
-//  3. RedeliveryAfterCoreKill appends a fresh entry to the agent's spool, lets
-//     the agent publish it, holds its first delivery inside its CNPG
-//     transaction with the ingest probe, SIGKILLs the core release while it is
-//     held, restarts core, and waits for the fixture to land. The hold means
-//     the killed delivery cannot have committed or been acknowledged, so the
-//     landing can only come from a redelivery to the restarted core. It is the
+//  3. RedeliveryAfterCoreKill sends one fresh fixture on a raw stream, holds
+//     its first delivery inside its CNPG transaction with the ingest probe,
+//     SIGKILLs the core release while it is held, restarts core, and waits for
+//     the fixture to land. The hold means the killed delivery cannot have
+//     committed or been acknowledged, and the fixture must still be the same
+//     stored message afterwards, so the landing can only come from a
+//     redelivery to the restarted core; the ack floor then passes it. It is the
 //     only coverage here of core crashing before it acknowledges and then
 //     consuming again after a restart. The replacement core gets the ingest
 //     probe reinstalled.
@@ -1552,18 +1559,33 @@ func (h *harness) testGroupD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("build fixture: %v", err)
 		}
-		h.armIngestProbe(t, fx4.EventID, probeBeforeCommit, 1, probeHold)
-		if _, err := h.sp.Append(fx4.EventID, fx4.RecordBytes); err != nil {
-			t.Fatalf("append: %v", err)
+		spoolID, err := edgerecord.NewUUIDv7()
+		if err != nil {
+			t.Fatalf("spool id: %v", err)
 		}
+		tlsCfg, err := h.certSet.AgentTLSConfig(h.gatewayServerName)
+		if err != nil {
+			t.Fatalf("agent tls config: %v", err)
+		}
+		h.armIngestProbe(t, fx4.EventID, probeBeforeCommit, 1, probeHold)
 
-		// Wait until the agent's publish reaches EventWriter and the probe
-		// holds that first delivery before its commit, then SIGKILL core.
+		ack, err := h.sendOneRawFrame(context.Background(), t, tlsCfg, spoolID, 1, fx4.RecordBytes, fx4.RecordSHA256, 20*time.Second)
+		if err != nil {
+			t.Fatalf("send fixture: %v", err)
+		}
+		requireAcceptedAck(t, ack, spoolID, 1)
+
+		// Wait until that publish reaches EventWriter and the probe holds its
+		// first delivery before its commit, then SIGKILL core.
 		// This is deliberately NOT ReleaseProcess.Stop: Stop runs the
 		// release's graceful `stop` first, which drains the EventWriter, so
 		// the redelivery path would never execute. The SIGKILLed process is
 		// reaped by the Stop cleanup newHarness registered for it.
 		h.waitIngestObservation(t, fx4.EventID, probeBeforeCommit, 1)
+		storedSeq := h.requireOneStoredMessage(t, fx4.RecordBytes)
+		if floor := h.edgeRecordAckFloor(t); floor >= storedSeq {
+			t.Fatalf("durable ack floor %d reached stream sequence %d while its only delivery is held before commit", floor, storedSeq)
+		}
 		redeliveryDeadline := time.Now().Add(h.edgeRecordConsumerInfo(t).Config.AckWait + pollTimeout)
 		if h.coreProc == nil || h.coreProc.cmd == nil || h.coreProc.cmd.Process == nil {
 			t.Fatal("core release has no OS process to SIGKILL")
@@ -1598,6 +1620,19 @@ func (h *harness) testGroupD(t *testing.T) {
 		}
 		if n != 1 {
 			t.Errorf("fixture was not redelivered/processed after core restarted (count=%d)", n)
+		}
+		if seq := h.requireOneStoredMessage(t, fx4.RecordBytes); seq != storedSeq {
+			t.Errorf("fixture is stored at sequence %d after the restart, want the original %d: a replacement publication committed instead of the redelivery", seq, storedSeq)
+		}
+
+		deadline := time.Now().Add(pollTimeout)
+		floor := h.edgeRecordAckFloor(t)
+		for floor < storedSeq && time.Now().Before(deadline) {
+			time.Sleep(pollInterval)
+			floor = h.edgeRecordAckFloor(t)
+		}
+		if floor < storedSeq {
+			t.Errorf("durable ack floor %d never reached stream sequence %d within %s after the redelivery committed", floor, storedSeq, pollTimeout)
 		}
 	})
 

@@ -276,6 +276,45 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       refute_receive {:ack, :term}, 20
     end
 
+    test "edge-record failures back off past the ordinary delivery limit and are never terminated" do
+      config = build_config(streams: [Config.edge_record_stream()])
+      state = init_state(config)
+      {:noreply, [], state} = Producer.handle_demand(1, state)
+
+      {:noreply, [message], _state} =
+        Producer.handle_info(
+          {:msg,
+           %{
+             body: "edge record",
+             topic: "telemetry.edge-record.v1.bulk.p01",
+             reply_to: "$JS.ACK.TELEMETRY_EDGE_RECORD_V1_BULK.consumer.9.9.9.0.0",
+             headers: %{}
+           }},
+          state
+        )
+
+      parent = self()
+
+      message =
+        Pipeline.transform(
+          %{
+            message
+            | ack_data: %{
+                ack_fun: fn action ->
+                  send(parent, {:ack, action})
+                  :ok
+                end
+              }
+          },
+          []
+        )
+
+      failed = Broadway.Message.failed(message, :db_unavailable)
+      assert :ok = Pipeline.ack(:ack_ref, [], [failed])
+      assert_receive {:ack, {:nack, 80_000}}
+      refute_receive {:ack, :term}, 20
+    end
+
     test "max_deliver resolution uses subject filters when streams share a JetStream stream" do
       config =
         build_config(

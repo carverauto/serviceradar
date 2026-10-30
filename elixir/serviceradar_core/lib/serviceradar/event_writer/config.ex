@@ -801,7 +801,9 @@ defmodule ServiceRadar.EventWriter.Config do
   not-yet-provisioned stream this task does not touch. `batch_size: 1` because
   `ServiceRadar.EventWriter.Processors.EdgeRecord` runs one real,
   all-or-nothing CNPG transaction per record -- a redelivered message must
-  never be folded into another record's batch outcome.
+  never be folded into another record's batch outcome. The gateway has already
+  acknowledged a stored record to its agent, so a failed projection is retried
+  without a delivery limit (`consumer_max_deliver: -1`), with backoff.
   """
   @spec edge_record_stream() :: stream_config()
   def edge_record_stream do
@@ -817,7 +819,8 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_storage: "file",
       stream_discard: "old",
       stream_max_bytes: 1_073_741_824,
-      stream_max_age: 86_400_000_000_000
+      stream_max_age: 86_400_000_000_000,
+      consumer_max_deliver: -1
     }
   end
 
