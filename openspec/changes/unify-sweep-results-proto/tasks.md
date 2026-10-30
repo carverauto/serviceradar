@@ -513,8 +513,10 @@ in `choices.md` and the chart README.
   commit `76d6eda5e5`, whose tree is identical to that PR's head `dbadb382d6`; its
   integration wave, BuildBuddy invocation
   `19851940-b6af-4093-ae88-0743f44128b3`, also reported
-  `vertical_slice_test PASSED`. The target runs without `-test.v`, so its test
-  log carries no per-group lines. A pass still means every group ran. The
+  `vertical_slice_test PASSED`. The target then ran without `-test.v`, so those
+  test logs carry no per-group lines; it now passes `-test.v`
+  (`integration_tests/edge_record/BUILD.bazel`), so later logs list every
+  passing group. A pass still means every group ran. The
   harness's only `t.Skip` guards are `-short` and a nil Group A fixture, which
   Group A sets before its first check and which no later group can see, because
   the target stops with `t.Fatal` when Group A fails. The subtests after the cut
