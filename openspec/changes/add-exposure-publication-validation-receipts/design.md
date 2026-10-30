@@ -70,6 +70,8 @@ image. Do not declare a lookup or full decoder falsely immutable. See
 ## Decision 2: bounded preparation with the existing decoder
 
 Read at most 500 assessment publications and their fingerprints per page.
+Release that page after its fenced write. Scan and retry carry forward only
+a scalar count.
 Use `ExposureTransitions.decode/1` to validate the complete after-image and
 the existing v1 digest implementation to derive its replay digest. A valid
 result must be exactly one fact, not an empty decode or lifecycle event.
@@ -231,13 +233,18 @@ per assessment, and explicit deferred assessment IDs per run. Run metadata
 persists an assessment UUID cursor and fixed upper boundary. Page receipt writes,
 deferrals and cursor advancement commit together. Deferred IDs deliberately have
 no source foreign key: recording a locked row must not wait for a foreign-key
-lock. A bounded retry removes IDs whose source has been deleted.
+lock. A bounded retry removes IDs whose source has been deleted. Canonical
+cleanup truncates the receipt table and assessments in one statement while that
+foreign key remains; emptying the child does not make a parent-only TRUNCATE
+legal. Uninstall then drops the scratch schema. Single-row deletion still
+cascades.
 
-Preparation reads at most 500 rows, decodes with at most two workers before
-locking, and conditionally writes after non-waiting shared source locks. It
-never takes the fact advisory lock. Cohort misses stay deferred, then request
-bounded device preparation before a fresh comparison. Existing recovery is
-not invoked merely because a validation receipt is missing.
+Preparation reads at most 500 rows and drops that page after the fenced commit.
+Scan and retry accumulate only a scalar count. Decoding uses at most two
+workers before locking, and receipt writes follow non-waiting shared source
+locks. Preparation never takes the fact advisory lock. Cohort misses stay
+deferred, then request bounded device preparation before a fresh comparison.
+Existing recovery is not invoked merely because a validation receipt is missing.
 
 The audit statement no longer reads retained JSON for assessment facts. It
 requires the matching receipt, recomputes the independent current hash, and

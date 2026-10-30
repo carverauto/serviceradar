@@ -19,7 +19,7 @@ defmodule ServiceRadar.ExposureAudit.Receipts do
         [run.id]
       )
 
-    prepared = if complete, do: 0, else: scan!(run, cursor, upper, nil)
+    prepared = if complete, do: 0, else: scan!(run, cursor, upper, nil, 0)
 
     [[retry_upper]] =
       State.query!(
@@ -27,7 +27,7 @@ defmodule ServiceRadar.ExposureAudit.Receipts do
         [run.id, @zero]
       )
 
-    prepared + retry!(run, @zero, retry_upper)
+    prepared + retry!(run, @zero, retry_upper, 0)
   end
 
   # A miss behind the durable admission cursor is revisited in a new source
@@ -46,10 +46,20 @@ defmodule ServiceRadar.ExposureAudit.Receipts do
         [ordinals, @zero]
       )
 
-    scan!(run, @zero, upper, ordinals)
+    scan!(run, @zero, upper, ordinals, 0)
   end
 
-  defp scan!(run, cursor, upper, ordinals) do
+  defp scan!(run, cursor, upper, ordinals, count) do
+    case commit_scan!(run, cursor, upper, ordinals) do
+      {:done, page_count} ->
+        count + page_count
+
+      {:more, next, page_count} ->
+        scan!(run, next, upper, ordinals, count + page_count)
+    end
+  end
+
+  defp commit_scan!(run, cursor, upper, ordinals) do
     rows =
       State.query!(
         """
@@ -69,14 +79,25 @@ defmodule ServiceRadar.ExposureAudit.Receipts do
         [cursor, upper, ordinals, @revision]
       )
 
-    next = if rows == [], do: cursor, else: rows |> List.last() |> hd()
-    progress = if is_nil(ordinals), do: {cursor, next, rows == []}
-    candidates = for [id, hash, payload, false] <- rows, do: [id, hash, payload]
-    count = persist!(run, validate(candidates), progress)
-    if rows == [], do: count, else: count + scan!(run, next, upper, ordinals)
+    if rows == [] do
+      progress = if is_nil(ordinals), do: {cursor, cursor, true}
+      {:done, persist!(run, [], progress)}
+    else
+      next = rows |> List.last() |> hd()
+      progress = if is_nil(ordinals), do: {cursor, next, false}
+      candidates = for [id, hash, payload, false] <- rows, do: [id, hash, payload]
+      {:more, next, persist!(run, validate(candidates), progress)}
+    end
   end
 
-  defp retry!(run, cursor, upper) do
+  defp retry!(run, cursor, upper, count) do
+    case commit_retry!(run, cursor, upper) do
+      :done -> count
+      {:more, next, page_count} -> retry!(run, next, upper, count + page_count)
+    end
+  end
+
+  defp commit_retry!(run, cursor, upper) do
     rows =
       State.query!(
         """
@@ -90,10 +111,9 @@ defmodule ServiceRadar.ExposureAudit.Receipts do
       )
 
     if rows == [] do
-      0
+      :done
     else
-      count = persist!(run, validate(rows))
-      count + retry!(run, rows |> List.last() |> hd(), upper)
+      {:more, rows |> List.last() |> hd(), persist!(run, validate(rows))}
     end
   end
 

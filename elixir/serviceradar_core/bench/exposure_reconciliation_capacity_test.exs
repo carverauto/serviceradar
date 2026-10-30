@@ -505,7 +505,18 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
   defp cleanup! do
     # The initial emptiness guard establishes ownership. TRUNCATE avoids firing
     # deletion-publication triggers for fifty million synthetic source rows.
-    pg!("TRUNCATE platform.endpoint_vulnerability_assessments")
+    # Receipts still reference assessments; uninstall drops that schema later.
+    # PostgreSQL rejects a parent TRUNCATE while the foreign key exists, including
+    # when the child is empty. Name both tables in this one statement.
+    if Process.get(:exposure_audit_installed) do
+      pg!(
+        "TRUNCATE platform.exposure_audit_receipts, platform.endpoint_vulnerability_assessments"
+      )
+
+      assert [[0]] == pg!("SELECT count(*) FROM platform.exposure_audit_receipts")
+    else
+      pg!("TRUNCATE platform.endpoint_vulnerability_assessments")
+    end
     pg!("DELETE FROM platform.oban_jobs WHERE queue = 'maintenance'")
 
     assert {:ok, _} =

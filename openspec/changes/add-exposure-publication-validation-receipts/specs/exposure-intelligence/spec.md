@@ -49,9 +49,12 @@ generation floors, evidence age and repair ownership SHALL remain intact.
 ### Requirement: Receipt preparation is bounded and has no publication side effects
 
 The prototype SHALL condition receipt persistence on unchanged source content,
-limit preparation pages to 500 rows under the existing two-worker budget, and
-preserve progress across interruption. Receipt writes SHALL NOT allocate
-transition sequences, enqueue publications, or clear repair obligations.
+limit preparation pages to 500 rows under the existing two-worker budget,
+retain only the current page, and preserve progress across interruption.
+Receipt writes SHALL NOT allocate transition sequences, enqueue publications,
+or clear repair obligations. Canonical cleanup SHALL truncate the scratch
+receipt table and assessments in one statement while the receipt foreign key
+remains, and SHALL NOT use TRUNCATE CASCADE.
 
 #### Scenario: Source changes while preparation runs
 
