@@ -6619,6 +6619,7 @@ version = "0.1.0"
 dependencies = [
  "async-nats",
  "chrono",
+ "futures",
  "hex",
  "rcgen",
  "rustls",
@@ -6629,6 +6630,9 @@ dependencies = [
  "thiserror 2.0.20",
  "tokio",
  "tokio-rustls",
+ "tokio-stream",
+ "tonic",
+ "tonic-health",
  "tracing",
  "x509-cert",
 ]
@@ -6888,6 +6892,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "serviceradar-cert-policy",
  "serviceradar-metric-proto",
  "tokio",
  "tonic",

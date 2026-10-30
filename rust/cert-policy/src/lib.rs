@@ -6,9 +6,11 @@ use chrono::{DateTime, Utc};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, SignatureScheme};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::watch;
@@ -16,6 +18,7 @@ use x509_cert::der::Decode;
 use x509_cert::ext::pkix::{SubjectAltName, name::GeneralName};
 
 pub mod nats;
+pub mod server;
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct Snapshot {
@@ -180,46 +183,17 @@ pub(crate) struct VerifiedPeer {
     bound_local_leaf: bool,
 }
 
-/// Adds full-DER policy admission after the supplied verifier's chain/name checks.
-/// TLS signature verification is delegated unchanged. Disable client resumption
-/// when installing this verifier so every connection passes this admission gate.
-#[derive(Debug)]
-pub struct PolicyVerifier {
-    verifier: Arc<dyn ServerCertVerifier>,
-    store: Arc<Store>,
-    peer: Arc<Mutex<Option<VerifiedPeer>>>,
-    local_leaf_spiffe_id: Option<String>,
-}
-
-impl PolicyVerifier {
-    pub fn new(verifier: Arc<dyn ServerCertVerifier>, store: Arc<Store>) -> Self {
-        Self {
-            verifier,
-            store,
-            peer: Arc::default(),
-            local_leaf_spiffe_id: None,
-        }
-    }
-
-    pub(crate) fn for_local_leaf(mut self, spiffe_id: String) -> Self {
-        self.local_leaf_spiffe_id = Some(spiffe_id);
-        self
-    }
-
-    pub(crate) fn peer(&self) -> Arc<Mutex<Option<VerifiedPeer>>> {
-        self.peer.clone()
-    }
-
-    fn verified_peer(
-        &self,
+impl VerifiedPeer {
+    fn from_certificates(
         end_entity: &CertificateDer<'_>,
         intermediates: &[CertificateDer<'_>],
+        local_leaf_spiffe_id: Option<&str>,
     ) -> Result<VerifiedPeer, rustls::Error> {
         let invalid =
             || rustls::Error::General("managed peer certificate identity is invalid".into());
         let certificate =
             x509_cert::Certificate::from_der(end_entity.as_ref()).map_err(|_| invalid())?;
-        let bound_local_leaf = if let Some(expected) = &self.local_leaf_spiffe_id {
+        let bound_local_leaf = if let Some(expected) = local_leaf_spiffe_id {
             let (_, names) = certificate
                 .tbs_certificate
                 .get::<SubjectAltName>()
@@ -260,6 +234,37 @@ impl PolicyVerifier {
     }
 }
 
+/// Adds full-DER policy admission after the supplied verifier's chain/name checks.
+/// TLS signature verification is delegated unchanged. Disable client resumption
+/// when installing this verifier so every connection passes this admission gate.
+#[derive(Debug)]
+pub struct PolicyVerifier {
+    verifier: Arc<dyn ServerCertVerifier>,
+    store: Arc<Store>,
+    peer: Arc<Mutex<Option<VerifiedPeer>>>,
+    local_leaf_spiffe_id: Option<String>,
+}
+
+impl PolicyVerifier {
+    pub fn new(verifier: Arc<dyn ServerCertVerifier>, store: Arc<Store>) -> Self {
+        Self {
+            verifier,
+            store,
+            peer: Arc::default(),
+            local_leaf_spiffe_id: None,
+        }
+    }
+
+    pub(crate) fn for_local_leaf(mut self, spiffe_id: String) -> Self {
+        self.local_leaf_spiffe_id = Some(spiffe_id);
+        self
+    }
+
+    pub(crate) fn peer(&self) -> Arc<Mutex<Option<VerifiedPeer>>> {
+        self.peer.clone()
+    }
+}
+
 impl ServerCertVerifier for PolicyVerifier {
     fn verify_server_cert(
         &self,
@@ -272,7 +277,11 @@ impl ServerCertVerifier for PolicyVerifier {
         let verified =
             self.verifier
                 .verify_server_cert(end_entity, intermediates, server_name, ocsp, now)?;
-        let peer = self.verified_peer(end_entity, intermediates)?;
+        let peer = VerifiedPeer::from_certificates(
+            end_entity,
+            intermediates,
+            self.local_leaf_spiffe_id.as_deref(),
+        )?;
         self.store
             .authorize_peer(&peer)
             .map_err(|err| rustls::Error::General(err.to_string()))?;
@@ -302,4 +311,40 @@ impl ServerCertVerifier for PolicyVerifier {
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
         self.verifier.supported_verify_schemes()
     }
+}
+
+pub(crate) fn read_privileged_json<T: DeserializeOwned>(
+    path: &Path,
+) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
+    if !path.is_absolute()
+        || path
+            .components()
+            .any(|part| matches!(part, std::path::Component::ParentDir))
+    {
+        return Err("certificate policy path must be absolute without parent traversal".into());
+    }
+    // A root-owned file in a writable directory can be replaced. Require the
+    // entire installation path to be controlled by the privileged host agent.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        for ancestor in path.ancestors() {
+            let metadata = std::fs::metadata(ancestor)?;
+            if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
+                return Err("certificate policy file and parents must be root-owned and not group/world writable".into());
+            }
+        }
+    }
+    #[cfg(not(unix))]
+    return Err("managed certificate policy file ownership is unsupported on this platform".into());
+    let file = std::fs::File::open(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let metadata = file.metadata()?;
+        if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 || !metadata.is_file() {
+            return Err("certificate policy file must be a privileged regular file".into());
+        }
+    }
+    Ok(serde_json::from_reader(file)?)
 }

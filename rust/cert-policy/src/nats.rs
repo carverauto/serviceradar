@@ -1,13 +1,12 @@
 //! Managed NATS TLS configuration and active-connection policy enforcement.
 
-use crate::{Admission, PolicyVerifier, Store, VerifiedPeer};
+use crate::{Admission, PolicyVerifier, Store, VerifiedPeer, read_privileged_json};
 use async_nats::{Client, ConnectOptions, Event, ServerAddr, ToServerAddrs};
 use rustls::client::{Resumption, WebPkiServerVerifier};
 use rustls::pki_types::pem::PemObject;
 use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::{ClientConfig, RootCertStore};
 use serde::Deserialize;
-use serde::de::DeserializeOwned;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -328,40 +327,6 @@ async fn monitor(
             );
         }
     }
-}
-
-fn read_privileged_json<T: DeserializeOwned>(path: &Path) -> Result<T> {
-    if !path.is_absolute()
-        || path
-            .components()
-            .any(|part| matches!(part, std::path::Component::ParentDir))
-    {
-        return Err("certificate policy path must be absolute without parent traversal".into());
-    }
-    // A root-owned file in a writable directory can be replaced. Require the
-    // entire installation path to be controlled by the privileged host agent.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        for ancestor in path.ancestors() {
-            let metadata = std::fs::metadata(ancestor)?;
-            if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 {
-                return Err("certificate policy file and parents must be root-owned and not group/world writable".into());
-            }
-        }
-    }
-    #[cfg(not(unix))]
-    return Err("managed certificate policy file ownership is unsupported on this platform".into());
-    let file = std::fs::File::open(path)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::MetadataExt;
-        let metadata = file.metadata()?;
-        if metadata.uid() != 0 || metadata.mode() & 0o022 != 0 || !metadata.is_file() {
-            return Err("certificate policy file must be a privileged regular file".into());
-        }
-    }
-    Ok(serde_json::from_reader(file)?)
 }
 
 #[cfg(test)]

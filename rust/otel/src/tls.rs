@@ -4,14 +4,36 @@ use tonic::transport::{Identity, ServerTlsConfig};
 
 use crate::config::{ClientAuthMode, Config};
 
+pub enum GrpcTlsConfig {
+    Standard(ServerTlsConfig),
+    Managed(serviceradar_cert_policy::server::Config),
+}
+
 /// Sets up gRPC TLS configuration from the provided config
 pub fn setup_grpc_tls(
     config: &Config,
-) -> Result<Option<ServerTlsConfig>, Box<dyn std::error::Error>> {
+) -> Result<Option<GrpcTlsConfig>, Box<dyn std::error::Error>> {
     let Some(ref tls) = config.grpc_tls else {
         return Ok(None);
     };
 
+    if let Some(policy_file) = &tls.cert_policy_file {
+        if tls.client_auth != ClientAuthMode::Required {
+            return Err("managed certificate policy requires client_auth = required".into());
+        }
+        let ca_file = tls
+            .ca_file
+            .as_ref()
+            .ok_or("managed certificate policy requires ca_file")?;
+        return Ok(Some(GrpcTlsConfig::Managed(
+            serviceradar_cert_policy::server::Config {
+                policy_file: policy_file.into(),
+                ca_file: ca_file.into(),
+                cert_file: (&tls.cert_file).into(),
+                key_file: (&tls.key_file).into(),
+            },
+        )));
+    }
     debug!("Loading gRPC TLS certificate from: {}", tls.cert_file);
     let cert = fs::read(&tls.cert_file).map_err(|e| {
         format!(
@@ -72,7 +94,7 @@ pub fn setup_grpc_tls(
         }
     }
 
-    Ok(Some(tls_config))
+    Ok(Some(GrpcTlsConfig::Standard(tls_config)))
 }
 
 /// Logs TLS configuration information
@@ -94,6 +116,34 @@ pub fn log_tls_info(config: &Config) {
 mod tests {
     use super::*;
     use crate::config::{Config, GRPCTLSConfig, ServerConfig};
+
+    #[test]
+    fn managed_listener_requires_client_auth_and_ca() {
+        let mut config = Config::default();
+        for client_auth in [ClientAuthMode::None, ClientAuthMode::Optional] {
+            config.grpc_tls = Some(GRPCTLSConfig {
+                cert_policy_file: Some("/etc/serviceradar/policy.json".into()),
+                cert_file: "/synthetic/server.pem".into(),
+                key_file: "/synthetic/server-key.pem".into(),
+                ca_file: Some("/synthetic/ca.pem".into()),
+                client_auth,
+            });
+            let error = setup_grpc_tls(&config)
+                .err()
+                .expect("managed mode must require client certificates");
+            assert_eq!(
+                error.to_string(),
+                "managed certificate policy requires client_auth = required"
+            );
+        }
+        let tls = config.grpc_tls.as_mut().unwrap();
+        tls.client_auth = ClientAuthMode::Required;
+        tls.ca_file = None;
+        assert_eq!(
+            setup_grpc_tls(&config).err().unwrap().to_string(),
+            "managed certificate policy requires ca_file"
+        );
+    }
 
     #[test]
     fn test_setup_grpc_tls_disabled() {
@@ -127,6 +177,7 @@ mod tests {
             server: ServerConfig::default(),
             nats: None,
             grpc_tls: Some(GRPCTLSConfig {
+                cert_policy_file: None,
                 cert_file: "/test.crt".to_string(),
                 key_file: "/test.key".to_string(),
                 ca_file: Some("/test-ca.pem".to_string()),
@@ -157,6 +208,7 @@ mod tests {
             server: ServerConfig::default(),
             nats: None,
             grpc_tls: Some(GRPCTLSConfig {
+                cert_policy_file: None,
                 cert_file: cert.path().to_str().unwrap().to_string(),
                 key_file: key.path().to_str().unwrap().to_string(),
                 // Deliberately points at a missing file: must NOT be read.
@@ -185,6 +237,7 @@ mod tests {
             server: ServerConfig::default(),
             nats: None,
             grpc_tls: Some(GRPCTLSConfig {
+                cert_policy_file: None,
                 cert_file: cert.path().to_str().unwrap().to_string(),
                 key_file: key.path().to_str().unwrap().to_string(),
                 ca_file: Some("/nonexistent/ca.pem".to_string()),

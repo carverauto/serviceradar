@@ -47,6 +47,8 @@ impl TryFrom<String> for SecurityMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TlsConfig {
+    #[serde(default)]
+    pub cert_policy_file: Option<String>,
     pub cert_file: Option<String>,
     pub key_file: Option<String>,
     pub ca_file: Option<String>,

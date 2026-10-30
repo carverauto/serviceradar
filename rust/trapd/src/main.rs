@@ -493,13 +493,26 @@ async fn start_grpc_server(cfg: Config) -> Result<()> {
             cert_path,
             key_path,
             ca_path,
+            policy_path,
         } => {
+            if let Some(policy_file) = policy_path {
+                let incoming = serviceradar_cert_policy::server::Config {
+                    policy_file,
+                    ca_file: ca_path,
+                    cert_file: cert_path,
+                    key_file: key_path,
+                }
+                .bind(addr)
+                .await
+                .map_err(anyhow::Error::from_boxed)?;
+                return serve_with_tls(addr, None, Some(incoming)).await;
+            }
             let cert = fs::read(&cert_path)?;
             let key = fs::read(&key_path)?;
             let identity = Identity::from_pem(cert, key);
             let ca = Certificate::from_pem(fs::read(&ca_path)?);
             let tls = ServerTlsConfig::new().identity(identity).client_ca_root(ca);
-            serve_with_tls(addr, tls).await
+            serve_with_tls(addr, Some(tls), None).await
         }
     }
 }
@@ -510,6 +523,7 @@ enum GrpcServerTransport {
         cert_path: PathBuf,
         key_path: PathBuf,
         ca_path: PathBuf,
+        policy_path: Option<PathBuf>,
     },
 }
 
@@ -524,6 +538,7 @@ fn resolve_grpc_server_transport(cfg: &Config) -> Result<GrpcServerTransport> {
             anyhow::bail!("grpc_security.mode \"none\" is not allowed when grpc_listen_addr is set")
         }
         SecurityMode::Mtls => Ok(GrpcServerTransport::Mtls {
+            policy_path: sec.cert_policy_file.as_ref().map(PathBuf::from),
             cert_path: sec
                 .cert_file
                 .as_ref()
@@ -541,7 +556,11 @@ fn resolve_grpc_server_transport(cfg: &Config) -> Result<GrpcServerTransport> {
     }
 }
 
-async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
+async fn serve_with_tls(
+    addr: SocketAddr,
+    tls: Option<ServerTlsConfig>,
+    incoming: Option<serviceradar_cert_policy::server::Incoming>,
+) -> Result<()> {
     let service = TrapdAgentService;
     let (health_reporter, health_service) = health_reporter();
     health_reporter
@@ -552,14 +571,19 @@ async fn serve_with_tls(addr: SocketAddr, tls: ServerTlsConfig) -> Result<()> {
         .register_encoded_file_descriptor_set(FILE_DESCRIPTOR_SET_MONITORING)
         .build_v1()?;
 
-    Server::builder()
-        .tls_config(tls)?
+    let mut builder = Server::builder();
+    if let Some(tls) = tls {
+        builder = builder.tls_config(tls)?;
+    }
+    let router = builder
         .add_service(health_service)
         .add_service(AgentServiceServer::new(service))
-        .add_service(reflection_service)
-        .serve(addr)
-        .await
-        .context("trapd gRPC server failed")
+        .add_service(reflection_service);
+    match incoming {
+        Some(incoming) => router.serve_with_incoming(incoming).await,
+        None => router.serve(addr).await,
+    }
+    .context("trapd gRPC server failed")
 }
 
 #[cfg(test)]
@@ -629,6 +653,7 @@ mod tests {
                 cert_path: Path::new("/etc/serviceradar/certs/trapd.pem").to_path_buf(),
                 key_path: Path::new("/etc/serviceradar/certs/trapd-key.pem").to_path_buf(),
                 ca_path: Path::new("/etc/serviceradar/certs/client-root.pem").to_path_buf(),
+                policy_path: None,
             }
         );
     }

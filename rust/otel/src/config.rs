@@ -208,6 +208,8 @@ pub struct MetricsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GRPCTLSConfig {
+    #[serde(default)]
+    pub cert_policy_file: Option<String>,
     pub cert_file: String,
     pub key_file: String,
     pub ca_file: Option<String>,
@@ -507,6 +509,7 @@ impl Config {
                 }),
             }),
             grpc_tls: Some(GRPCTLSConfig {
+                cert_policy_file: None,
                 cert_file: "/path/to/grpc-server.crt".to_string(),
                 key_file: "/path/to/grpc-server.key".to_string(),
                 ca_file: Some("/path/to/grpc-ca.pem".to_string()),
@@ -721,6 +724,7 @@ url = "nats://test:4222"
             server: ServerConfig::default(),
             nats: None,
             grpc_tls: Some(GRPCTLSConfig {
+                cert_policy_file: None,
                 cert_file: "/server.crt".to_string(),
                 key_file: "/server.key".to_string(),
                 ca_file: None,
