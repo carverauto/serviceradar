@@ -1,4 +1,6 @@
 defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLiveRenderTest do
+  @moduledoc false
+
   use ExUnit.Case, async: true
 
   import Phoenix.LiveViewTest
@@ -36,7 +38,9 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLiveRenderTest do
       html =
         render_component(&Index.render/1,
           flash: %{},
-          current_scope: %{user: %{email: "operator@example.com", role: :admin, timezone: "Etc/UTC"}},
+          current_scope: %{
+            user: %{email: "operator@example.com", role: :admin, timezone: "Etc/UTC"}
+          },
           settings_active_view: nil,
           settings_active_category: nil,
           settings_breadcrumbs: [],
