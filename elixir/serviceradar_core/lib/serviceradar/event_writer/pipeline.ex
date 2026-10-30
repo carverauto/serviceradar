@@ -358,7 +358,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         emit_dead_letter(message)
         ack_message(message, :term)
 
-      retryable_alert_evaluation_status?(message.status) ->
+      retryable_alert_evaluation_status?(message.status) or edge_record_message?(message) ->
         delivery_count = get_in(message.metadata, [:jetstream_ack, :delivery_count]) || 1
         delay_ms = 10_000 * Bitwise.bsl(1, min(max(delivery_count, 1), 4) - 1)
         ack_message(message, {:nack, delay_ms})
@@ -367,6 +367,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         ack_message(message, :nack)
     end
   end
+
+  defp edge_record_message?(%{metadata: %{subject: "telemetry.edge-record." <> _}}), do: true
+  defp edge_record_message?(_message), do: false
 
   defp terminal_delivery?(%{metadata: metadata}) when is_map(metadata) do
     with %{delivery_count: delivery_count} <- metadata[:jetstream_ack],
