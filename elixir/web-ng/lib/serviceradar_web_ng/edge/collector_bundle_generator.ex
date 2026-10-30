@@ -173,7 +173,19 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     policy = "/etc/serviceradar/managed-components/policy.json"
     local_file = if local_leaf_binding, do: "#{root}/local-leaf.json"
-    opts = [managed_tls: tls, policy_file: policy, local_leaf_file: local_file, partition: component.partition_id]
+
+    domain =
+      if Map.get(component, :edge_site_id),
+        do: ServiceRadar.Edge.ManagedComponentNatsPermissions.jetstream_domain(component.edge_site_id)
+
+    opts = [
+      managed_tls: tls,
+      policy_file: policy,
+      local_leaf_file: local_file,
+      partition: component.partition_id,
+      jetstream_domain: domain
+    ]
+
     nats_url = get_nats_url(package)
 
     case component.component_type do
@@ -200,7 +212,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
           listeners: [%{protocol: protocol, listen_addr: address, subject: "flows.raw.#{protocol}"}]
         }
 
-        %{"flow-collector.json" => Jason.encode!(config, pretty: true)}
+        %{"flow-collector.json" => Jason.encode!(optional(config, :nats_domain, domain), pretty: true)}
 
       "trapd" ->
         config = package |> generate_trapd_config([]) |> Jason.decode!() |> Map.delete("nats_creds_file")
@@ -213,6 +225,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
         config =
           config
+          |> Map.delete("nats_domain")
+          |> optional("nats_domain", domain)
           |> Map.put("nats_security", security)
           |> Map.put("partition", component.partition_id)
           |> Map.put("grpc_security", tls |> Map.put(:mode, "mtls") |> Map.put(:cert_policy_file, policy))
@@ -235,7 +249,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
             local_file
           )
 
-        %{"bmp-collector.json" => Jason.encode!(config, pretty: true)}
+        %{"bmp-collector.json" => Jason.encode!(optional(config, :nats_domain, domain), pretty: true)}
     end
   end
 
@@ -269,6 +283,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
           case kind do
             :flowgger ->
               [
+                {"nats_domain", opts[:jetstream_domain]},
                 {"nats_tls_ca_file", tls.ca_file},
                 {"nats_tls_cert", tls.cert_file},
                 {"nats_tls_key", tls.key_file},
@@ -278,6 +293,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
             :otel ->
               [
+                {"domain", opts[:jetstream_domain]},
                 {"cert_file", tls.cert_file},
                 {"key_file", tls.key_file},
                 {"ca_file", tls.ca_file},

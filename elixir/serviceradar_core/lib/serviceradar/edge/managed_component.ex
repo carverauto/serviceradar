@@ -11,25 +11,31 @@ defmodule ServiceRadar.Edge.ManagedComponent do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Edge.Changes.StampCertificateActor
+  alias ServiceRadar.Edge.Validations.InfrastructureNatsPermissions
   alias ServiceRadar.Policies.Checks.ActorHasPermission
 
   @manage_check {ActorHasPermission, permission: "settings.edge.manage"}
-  @types [
-    "agent",
+  @infrastructure_types [
     "core",
     "agent-gateway",
     "web-ng",
     "nats-server",
     "rperf-client",
     "datasvc",
-    "zen",
-    "nats-leaf",
-    "log-collector",
-    "flow-collector",
-    "bmp-collector",
-    "trapd",
-    "addon"
+    "zen"
   ]
+  @types @infrastructure_types ++
+           [
+             "agent",
+             "nats-leaf",
+             "log-collector",
+             "flow-collector",
+             "bmp-collector",
+             "trapd",
+             "addon"
+           ]
+
+  def infrastructure_type?(type), do: type in @infrastructure_types
 
   postgres do
     table "managed_components"
@@ -73,6 +79,25 @@ defmodule ServiceRadar.Edge.ManagedComponent do
             "addon"
           ])
         ]
+    end
+
+    create :adopt_infrastructure do
+      accept [:component_id, :component_type, :partition_id, :server_hosts]
+      argument :permissions, :map, allow_nil?: false
+      validate attribute_in(:component_type, @infrastructure_types)
+      validate InfrastructureNatsPermissions
+      change {StampCertificateActor, attribute: :generation_started_by}
+      change set_attribute(:nats_permissions, arg(:permissions))
+    end
+
+    update :set_infrastructure_permissions do
+      accept []
+      argument :permissions, :map, allow_nil?: false
+      argument :expected_generation, :integer, allow_nil?: false, constraints: [min: 1]
+      validate attribute_in(:component_type, @infrastructure_types)
+      validate InfrastructureNatsPermissions
+      change ServiceRadar.Edge.Changes.FenceCertificateGeneration
+      change set_attribute(:nats_permissions, arg(:permissions))
     end
 
     update :block do
@@ -124,6 +149,8 @@ defmodule ServiceRadar.Edge.ManagedComponent do
       default: 1,
       public?: true,
       constraints: [min: 1]
+
+    attribute :nats_permissions, :map, public?: true
 
     attribute :blocked, :boolean, allow_nil?: false, default: false, public?: true
     create_timestamp :inserted_at

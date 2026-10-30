@@ -219,5 +219,91 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert {:ok, []} = Ash.read(ManagedCertificatePolicyKey, actor: viewer)
   end
 
+  test "infrastructure permissions preserve explicit denies and cannot bypass adoption or generation",
+       ctx do
+    permissions = %{
+      "publish" => ["example.events.>"],
+      "subscribe" => [],
+      "publish_deny" => ["example.events.private.>"],
+      "subscribe_deny" => ["$SYS.>"]
+    }
+
+    id = ctx.component.component_id
+    assert {:ok, certificate} = Authority.record_issuance(id, ctx.metadata, ctx.opts)
+    assert {:ok, initial} = Authority.snapshot()
+    refute Map.has_key?(initial.nats_permissions, certificate.fingerprint)
+    assert {:ok, _} = Authority.set_infrastructure_permissions(id, 1, permissions, ctx.opts)
+    assert {:ok, snapshot} = Authority.snapshot()
+
+    assert snapshot.nats_permissions[certificate.fingerprint] == %{
+             publish: ["example.events.>"],
+             subscribe: [],
+             publish_deny: ["example.events.private.>"],
+             subscribe_deny: ["$SYS.>"]
+           }
+
+    viewer = %{id: "example-viewer", role: :viewer, permissions: MapSet.new()}
+
+    assert {:error, _} =
+             Authority.set_infrastructure_permissions(id, 1, permissions, actor: viewer)
+
+    assert {:error, _} =
+             Authority.set_infrastructure_permissions(
+               id,
+               1,
+               Map.delete(permissions, "subscribe"),
+               ctx.opts
+             )
+
+    assert {:error, _} =
+             Authority.set_infrastructure_permissions(
+               id,
+               1,
+               Map.put(permissions, "allow_responses", true),
+               ctx.opts
+             )
+
+    assert {:error, _} =
+             Authority.set_infrastructure_permissions(
+               id,
+               1,
+               Map.put(permissions, "publish", ["example.>.events"]),
+               ctx.opts
+             )
+
+    assert {:ok, _} = Authority.revoke_component(id, "operator-request", ctx.opts)
+    assert {:ok, _} = Authority.reenroll_component(id, ctx.opts)
+    assert {:error, _} = Authority.set_infrastructure_permissions(id, 1, permissions, ctx.opts)
+    assert {:ok, record} = Ash.get(ServiceRadar.Edge.ManagedComponent, id, ctx.opts)
+    assert record.nats_permissions == permissions
+
+    attrs = %{
+      component_id: "example-server-#{Ecto.UUID.generate()}",
+      component_type: "nats-server",
+      partition_id: "example-partition",
+      permissions: permissions
+    }
+
+    assert {:ok, adopted} = Authority.adopt_infrastructure_component(attrs, ctx.opts)
+    assert adopted.nats_permissions == permissions
+
+    assert {:error, _} =
+             Authority.adopt_infrastructure_component(
+               %{
+                 attrs
+                 | component_id: "example-leaf-#{Ecto.UUID.generate()}",
+                   component_type: "nats-leaf"
+               },
+               ctx.opts
+             )
+
+    assert {:error, _} =
+             attrs
+             |> Map.delete(:permissions)
+             |> Map.put(:component_id, "example-unadopted-#{Ecto.UUID.generate()}")
+             |> Map.put(:nats_permissions, permissions)
+             |> Authority.enroll_component(ctx.opts)
+  end
+
   defp fingerprint(value), do: :sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower)
 end

@@ -20,6 +20,28 @@ load("//build:world_snapshots.bzl", ash_schema = "world_snapshots")
 package(default_visibility = ["//visibility:public"])
 
 ash_schema(
+    name = "managed_component_permissions_schema",
+    outs = [
+        "generated_managed_component_permissions/component.json",
+        "generated_managed_component_permissions/migration.exs",
+    ],
+    srcs = ["priv/resource_snapshots/repo/platform.managed_components/20261030203000.json"],
+    app = ":erlang_app",
+    generator = "//build:managed_component_permissions_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_managed_component_permissions_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.managed_components/20261030213000.json": ":generated_managed_component_permissions/component.json",
+        "priv/repo/migrations/20261030213000_add_managed_component_permissions.exs": ":generated_managed_component_permissions/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
     name = "managed_certificate_lifecycle_schema",
     outs = [
         "generated_managed_certificate_lifecycle/component.json",

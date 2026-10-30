@@ -43,6 +43,45 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
     end
   end
 
+  test "every managed collector selects its site's JetStream domain" do
+    component = %{
+      component_id: "example-component",
+      component_type: "log-collector",
+      partition_id: "example-partition",
+      edge_site_id: "00000000-0000-4000-8000-000000000123"
+    }
+
+    package = %CollectorPackage{id: "3a000000-0000-4000-8000-000000000003", collector_type: :otel, config_overrides: %{}}
+    files = CollectorBundleGenerator.managed_configuration(package, component, nil)
+    assert files["flowgger.toml"] =~ ~s(nats_domain = "edge_00000000000040008000000000000123")
+    assert files["otel.toml"] =~ ~s(domain = "edge_00000000000040008000000000000123")
+
+    for {service, file} <- [
+          {"flow-collector", "flow-collector.json"},
+          {"trapd", "trapd.json"},
+          {"bmp-collector", "bmp-collector.json"}
+        ] do
+      config =
+        package
+        |> CollectorBundleGenerator.managed_configuration(%{component | component_type: service}, nil)
+        |> Map.fetch!(file)
+        |> Jason.decode!()
+
+      assert config["nats_domain"] == "edge_00000000000040008000000000000123"
+
+      unbound =
+        package
+        |> CollectorBundleGenerator.managed_configuration(
+          %{component | component_type: service, edge_site_id: nil},
+          nil
+        )
+        |> Map.fetch!(file)
+        |> Jason.decode!()
+
+      refute Map.has_key?(unbound, "nats_domain")
+    end
+  end
+
   describe "create_tarball/4 for falcosidekick" do
     test "does not bundle a second certificate set" do
       {:ok, tarball} =

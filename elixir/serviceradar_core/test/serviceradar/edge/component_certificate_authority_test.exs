@@ -84,7 +84,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
       %{
         component_id: "example-flow",
         component_type: "flow-collector",
-        edge_site_id: "example-site"
+        edge_site_id: "00000000-0000-4000-8000-000000000123"
       },
       %{component_id: "example-leaf", component_type: "nats-leaf"}
     ]
@@ -103,7 +103,9 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
 
     assert Map.keys(grants) == [@first]
     assert "flows.raw.netflow" in grants[@first].publish
-    assert "$JS.edge.API.STREAM.UPDATE.flows" in grants[@first].publish
+
+    assert "$JS.edge_00000000000040008000000000000123.API.STREAM.UPDATE.flows" in grants[@first].publish
+
     refute ">" in grants[@first].publish
     refute "$JS.API.>" in grants[@first].publish
     refute "logs.syslog" in grants[@first].publish

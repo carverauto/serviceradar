@@ -53,6 +53,30 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     |> notify()
   end
 
+  @doc "Adopts infrastructure with explicit effective NATS permissions supplied by an authorized operator."
+  def adopt_infrastructure_component(attrs, opts \\ []) do
+    ManagedComponent
+    |> Ash.Changeset.for_create(:adopt_infrastructure, attrs, opts)
+    |> Ash.create(opts)
+    |> notify()
+  end
+
+  def set_infrastructure_permissions(component_id, expected_generation, permissions, opts \\ []) do
+    fn ->
+      with {:ok, component} <- lock_component(component_id, opts) do
+        component
+        |> Ash.Changeset.for_update(
+          :set_infrastructure_permissions,
+          %{expected_generation: expected_generation, permissions: permissions},
+          opts
+        )
+        |> Ash.update(opts)
+      end
+    end
+    |> transaction()
+    |> notify()
+  end
+
   @doc "Records an issued certificate, with mandatory expected_generation and host_agent_id binding."
   def record_issuance(component_id, metadata, opts \\ []) do
     changeset =

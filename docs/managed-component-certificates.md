@@ -54,3 +54,15 @@ report that policy as stale.
 These interfaces do not themselves prove a deployment's active connection closure,
 local NATS authorization reload, or all collector listener enforcement. Those require
 the receiver and host acceptance checks in the managed-component OpenSpec proposal.
+
+Managed leaf JetStream domains are stable per site (`edge_` plus the site UUID without
+dashes). Bound collectors address that domain; their exact stream API permissions
+cover both the addressed and broker-mapped subject forms. Unbound collectors use
+the hub's default domain.
+
+Infrastructure adoption is separate from host registration. An authorized operator
+must supply effective `publish` and `subscribe` arrays and preserve optional
+`publish_deny` and `subscribe_deny` arrays from the existing broker configuration.
+Empty allow arrays mean no permission. Unadopted infrastructure gets no implicit
+NATS grant; adoption never unblocks a revoked component or records a certificate.
+Permission updates require the current certificate generation.

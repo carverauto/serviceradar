@@ -60,6 +60,12 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
 
     server_name = "nats-#{edge_site.slug}"
     managed_root = Keyword.get(opts, :managed_component_id)
+
+    domain =
+      if managed_root,
+        do: ServiceRadar.Edge.ManagedComponentNatsPermissions.jetstream_domain(edge_site.id),
+        else: "edge"
+
     local_listen = if managed_root, do: "0.0.0.0:4222", else: local_listen
 
     local_tls =
@@ -98,7 +104,7 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
         store_dir: /var/lib/nats/jetstream
         max_memory_store: #{jetstream_max_memory}
         max_file_store: #{jetstream_max_file}
-        domain: edge
+        domain: #{domain}
     }
 
     # Leaf Node configuration to connect to the SaaS NATS cluster
