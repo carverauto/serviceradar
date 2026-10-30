@@ -478,10 +478,14 @@ ratio. Core releases older than this
 change refuse compressed sweep records at ingest, and agents and gateways do
 not negotiate a codec yet. Upgrade core and every agent-gateway replica first,
 confirm each replica is ready on the new version, and only then upgrade the
-canary agent. To roll back, downgrade the agent first. Records it has already
-spooled stay compressed, so a core or gateway rollback must wait until the
-agent has delivered them. Broad mixed-version rollout is not certified until
-codec negotiation exists.
+canary agent. To roll back, pause new leased production and keep the compatible
+agent and its PVC and spool identity. Records already spooled stay compressed.
+Drain that compressed backlog before reverting core or the gateways. Do not
+downgrade an agent that has reclaimed its spool unless a separately supported
+reverse migration exists: accepted-drain reclamation turns `lane.seg` into a
+symlink to a data directory, and older agent binaries refuse to open that
+layout, which stops backlog delivery. Broad mixed-version rollout is not
+certified until codec negotiation exists.
 
 This wiring prepares the current-epoch sweep path. A successful deployment is
 proved by fresh scheduled executions, committed edge-record ledger entries and
