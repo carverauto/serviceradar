@@ -161,8 +161,12 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgeSitesLive.Show do
         </div>
 
         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <.site_details_card site={@site} />
-          <.leaf_server_card leaf_server={@leaf_server} />
+          <.site_details_card site={@site} current_scope={@current_scope} />
+          <.leaf_server_card
+            leaf_server={@leaf_server}
+            site={@site}
+            current_scope={@current_scope}
+          />
         </div>
 
         <.nats_url_card site={@site} />
