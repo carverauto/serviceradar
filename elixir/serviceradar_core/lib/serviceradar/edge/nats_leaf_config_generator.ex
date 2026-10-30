@@ -277,6 +277,11 @@ defmodule ServiceRadar.Edge.NatsLeafConfigGenerator do
     install -m 0644 -o nats -g serviceradar nats/certs/ca-chain.pem /etc/nats/certs/ca-chain.pem
     #{creds_block}
     install -d -m 0750 -o nats -g serviceradar /var/lib/nats /var/lib/nats/jetstream /var/log/nats
+    # systemd opens append logs as root before dropping to the service user.
+    # Pre-create them, and repair files left by an earlier failed start.
+    touch /var/log/nats/nats.log /var/log/nats/nats-error.log
+    chown nats:serviceradar /var/log/nats/nats.log /var/log/nats/nats-error.log
+    chmod 0640 /var/log/nats/nats.log /var/log/nats/nats-error.log
 
     echo "Validating configuration..."
     nats-server -c nats/nats-leaf.conf -t
