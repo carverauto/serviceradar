@@ -318,6 +318,48 @@ func TestManagedCertificatesServeVerifiedIntermediateChain(t *testing.T) {
 	}
 }
 
+func TestManagedCertificatesCollectorServerIdentity(t *testing.T) {
+	f := newManagedCertificateFixture(t)
+	a := ManagedCertificateAssignment{RequestID: "collector-server", ComponentID: "component-synthetic", HostAgentID: "agent-synthetic", PartitionID: "default", Generation: 1, Service: "trapd", ServerHosts: []string{"collector.example.test", "192.0.2.21"}}
+	p, err := f.store.prepare(a)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, usage := range []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth} {
+		req := f.issue(t, p, func(_ string, cert *x509.Certificate) { cert.ExtKeyUsage = []x509.ExtKeyUsage{usage} })
+		if _, err := f.store.install(context.Background(), req); err == nil {
+			t.Fatalf("accepted single-purpose certificate for dual-use collector: %v", usage)
+		}
+	}
+	if len(f.operations) != 0 {
+		t.Fatal("activated collector with unusable certificate")
+	}
+	req := f.issue(t, p, func(_ string, cert *x509.Certificate) {
+		cert.ExtKeyUsage = []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth, x509.ExtKeyUsageServerAuth}
+	})
+	result, err := f.store.install(context.Background(), req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := result.Files["client"]
+	pair, err := tls.LoadX509KeyPair(paths.CertificatePath, paths.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, host := range a.ServerHosts {
+		if err := leaf.VerifyHostname(host); err != nil {
+			t.Fatalf("installed collector cannot serve approved host: %v", err)
+		}
+	}
+	if len(leaf.DNSNames) != 1 || len(leaf.IPAddresses) != 1 || !result.Activated {
+		t.Fatal("collector installation changed approved hosts or did not activate")
+	}
+}
+
 func TestManagedCertificatesInstallBMPIdentity(t *testing.T) {
 	f := newManagedCertificateFixture(t)
 	p, _ := f.prepare(t, "bmp-request", "bmp-collector")

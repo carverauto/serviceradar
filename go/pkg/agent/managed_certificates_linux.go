@@ -204,9 +204,6 @@ func (s managedCertificateStore) validateAssignment(a ManagedCertificateAssignme
 	if err != nil {
 		return adapter, err
 	}
-	if a.Service != "nats-leaf" && len(a.ServerHosts) > 0 {
-		return adapter, fmt.Errorf("%w: server hosts are only valid for a NATS leaf server", errManagedCertificates)
-	}
 	for _, host := range a.ServerHosts {
 		if net.ParseIP(host) != nil {
 			continue
@@ -239,6 +236,8 @@ func managedCertificateIdentity(a ManagedCertificateAssignment, role string) *x5
 	if role == "local_server" {
 		csr.DNSNames = []string{"localhost"}
 		csr.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
+	}
+	if role == "local_server" || role == "client" {
 		for _, host := range a.ServerHosts {
 			if ip := net.ParseIP(host); ip != nil {
 				if !slices.ContainsFunc(csr.IPAddresses, func(existing net.IP) bool { return existing.Equal(ip) }) {
@@ -371,6 +370,12 @@ func (s managedCertificateStore) validateIssued(p *managedPendingCertificate, ro
 	chains, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: s.now(), KeyUsages: []x509.ExtKeyUsage{usage}})
 	if err != nil {
 		return nil, nil, fmt.Errorf("verify managed certificate: %w", err)
+	}
+	if role == "client" && len(p.Assignment.ServerHosts) > 0 {
+		// Verify each use separately: multiple KeyUsages in one call accept either.
+		if _, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: s.now(), KeyUsages: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}); err != nil {
+			return nil, nil, fmt.Errorf("verify managed collector server certificate: %w", err)
+		}
 	}
 	var certificatePEM []byte
 	for _, cert := range chains[0][:len(chains[0])-1] {
