@@ -3,8 +3,10 @@ defmodule ServiceRadar.Edge.SweepProjection do
   Projects a scheduled ICMP/TCP sweep into the ordinary sweep and inventory tables.
 
   EventWriter calls this only for a newly claimed primary event, inside its ledger
-  transaction. The persisted slot supplies the expected host count; an individual
-  microbatch never claims that the whole execution completed. A lock on the slot
+  transaction. Authority refusals return `{:error, reason}`; an ingest failure
+  raises so the caller rolls back and the delivery is redelivered. The persisted
+  slot supplies the expected host count; an individual microbatch never claims
+  that the whole execution completed. A lock on the slot
   serializes batches of one execution, including the first batch before its domain
   execution exists. The assignment lock keeps a concurrent fence change from
   authorizing a stale domain write. Signed range digests authorize the persisted
@@ -51,9 +53,8 @@ defmodule ServiceRadar.Edge.SweepProjection do
         is_final: false
       ]
 
-      with {:ok, _stats} <- SweepResultsIngestor.ingest_results(results, execution_id, opts) do
-        finish_if_complete(repo, execution_id, header, opts)
-      end
+      ingest!(results, execution_id, opts)
+      finish_if_complete(repo, execution_id, header, opts)
     else
       nil -> {:error, :sweep_partition_not_found}
       {:error, _} = error -> error
@@ -184,16 +185,16 @@ defmodule ServiceRadar.Edge.SweepProjection do
 
     if count == header.total_target_count and
          repo.get!(SweepGroupExecution, execution_id).status != :completed do
-      case SweepResultsIngestor.ingest_results(
-             [],
-             execution_id,
-             Keyword.put(opts, :is_final, true)
-           ) do
-        {:ok, _stats} -> :ok
-        {:error, _} = error -> error
-      end
-    else
-      :ok
+      ingest!([], execution_id, Keyword.put(opts, :is_final, true))
+    end
+
+    :ok
+  end
+
+  defp ingest!(results, execution_id, opts) do
+    case SweepResultsIngestor.ingest_results(results, execution_id, opts) do
+      {:ok, _stats} -> :ok
+      {:error, reason} -> raise "sweep result ingest failed: #{inspect(reason)}"
     end
   end
 

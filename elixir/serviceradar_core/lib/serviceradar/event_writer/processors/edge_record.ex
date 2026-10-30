@@ -105,7 +105,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   Returns `{:ok, :inserted | :replay}` or `{:error, reason}`, where `reason`
   is `{:delivery_slot_conflict, existing}`, `{:event_id_conflict, existing}`,
   `{:sweep_batch_slot_conflict, existing}`, a header/slot decode reason, or a
-  wire-decode reason from `ServiceRadar.Edge.WireDecode`.
+  wire-decode reason from `ServiceRadar.Edge.WireDecode`. A domain projection
+  failure that is not an authority refusal raises after the transaction rolls
+  back, so `process_batch/1` fails the batch and JetStream redelivers it.
 
   `opts[:test_hook]` is the test-only hook described in the moduledoc; it
   defaults to `nil`, which disables it.
@@ -203,7 +205,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       end)
 
     run_test_hook(test_hook, :transaction_result, event_id, result)
-    result
+
+    case result do
+      {:error, :rollback} -> raise "edge record transaction #{inspect(event_id)} rolled back"
+      result -> result
+    end
   end
 
   defp run_test_hook(nil, _point, _event_id, _result), do: :ok
