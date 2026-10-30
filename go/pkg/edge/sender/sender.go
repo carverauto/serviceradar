@@ -167,6 +167,11 @@ func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 // until every sent sequence is resolved, the stream ends, or ctx is done. It
 // persists validated dispositions only when configured to do so.
 func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
+	if s.cfg.PersistAcknowledgements {
+		if err := s.spool.ReclaimResolved(); err != nil {
+			return Result{}, fmt.Errorf("sender: reclaim accepted records: %w", err)
+		}
+	}
 	streamCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
