@@ -2,14 +2,14 @@
 
 - [x] 0.1 Record the failed shared-scan result and trace validation/projection ownership.
 - [x] 0.2 Define content binding, independent checks, preparation and recovery semantics.
-- [ ] 0.3 Obtain approval for a disabled receipt prototype before implementation.
+- [x] 0.3 Obtain approval for a disabled receipt prototype before implementation (direct product-owner approval, 2026-10-29).
 
 ## 1. Disabled prototype after approval
 
-- [ ] 1.1 Add scratch-only generated source fingerprint and bounded receipt metadata.
-- [ ] 1.2 Prepare receipts with the existing decoder and digest; condition persistence on unchanged source content.
-- [ ] 1.3 Use bound receipts in the manual audit while retaining independent current and warehouse hashes.
-- [ ] 1.4 Extend the owning harness after test-audit: stale/invalid receipts, current-only drift, duplicate facts, terminal references, revision change, concurrent preparation and deletion.
+- [x] 1.1 Add scratch-only generated source fingerprint and bounded receipt metadata.
+- [x] 1.2 Prepare receipts with the existing decoder and digest; condition persistence on unchanged source content.
+- [x] 1.3 Use bound receipts in the manual audit while retaining independent current and warehouse hashes.
+- [x] 1.4 Extend the owning harness after test-audit: stale/invalid receipts, current-only drift, duplicate facts, terminal references, revision change, concurrent preparation and deletion (authored, not executed).
 - [ ] 1.5 Verify no sequence/outbox side effects, finite preparation progress, proof age, recovery fences and before/after-finalization live changes.
 - [ ] 1.6 Run ordinary remote validation and no-mistakes; do not dispatch a manual benchmark without a separate allocation.
 

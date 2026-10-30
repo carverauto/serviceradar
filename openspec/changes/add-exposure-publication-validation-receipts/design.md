@@ -1,7 +1,9 @@
 # Content-bound retained-publication validation
 
-Status: proposed. This document authorizes no implementation, allocation or
-runtime adoption. The question is whether to build one disabled candidate.
+Status: the product owner approved one disabled scratch prototype on
+2026-10-29. Ordinary remote validation and no-mistakes publication are in scope.
+Manual measurement allocations, production migrations and runtime adoption
+remain separate decisions. No new capacity result is claimed.
 
 ## Evidence and limits
 
@@ -221,10 +223,40 @@ preserving repair state and permanent markers. Throughput may again miss the
 gate; rollback must not report capacity success. Receipt metadata can be
 discarded after consumers stop, without deleting source publications.
 
+## Disabled implementation
+
+`bench/exposure_audit_receipts.exs` uses the existing decoder and digest.
+The scratch migration adds the generated fingerprint, one cascading receipt
+per assessment, and explicit deferred assessment IDs per run. Run metadata
+persists an assessment UUID cursor and fixed upper boundary. Page receipt writes,
+deferrals and cursor advancement commit together. Deferred IDs deliberately have
+no source foreign key: recording a locked row must not wait for a foreign-key
+lock. A bounded retry removes IDs whose source has been deleted.
+
+Preparation reads at most 500 rows, decodes with at most two workers before
+locking, and conditionally writes after non-waiting shared source locks. It
+never takes the fact advisory lock. Cohort misses stay deferred, then request
+bounded device preparation before a fresh comparison. Existing recovery is
+not invoked merely because a validation receipt is missing.
+
+The audit statement no longer reads retained JSON for assessment facts. It
+requires the matching receipt, recomputes the independent current hash, and
+retains actual warehouse hashing and the direct terminal-watermark reference
+path. Preparation and its retries are included in end-to-end time and added
+to the fact component interval before applying the unchanged screen.
+
+The owning manual harness includes new stale-content, revision, paused-preparer,
+locked-row, poison-progress, deletion, late-view and side-effect controls.
+Authoring these controls is not execution evidence. Live finalization, supported
+database expression validation, source-write/storage cost and capacity remain
+unverified until separately authorized execution.
+
 ## Repository anchors
 
 - `bench/exposure_audit_sql.exs`: full replay validator, typed projection,
   current hash, safe references and existing shared coverage query.
+- `bench/exposure_audit_receipts.exs`: bounded scratch preparation and
+  content-conditional receipt persistence.
 - `inventory/exposure_reconciliation_comparison.ex`: independent current/replay
   digests and source-only drift detection in the production comparison.
 - `inventory/exposure_publication_prepare_worker.ex`: existing bounded,

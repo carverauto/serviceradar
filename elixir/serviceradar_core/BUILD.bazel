@@ -1181,6 +1181,7 @@ ex_unit_test(
         "bench/exposure_reconciliation_capacity_test.exs",
         "bench/exposure_audit_sql.exs",
         "bench/exposure_audit_state.exs",
+        "bench/exposure_audit_receipts.exs",
         "bench/exposure_audit_resources.exs",
         "bench/exposure_audit_readiness.exs",
         "bench/exposure_audit_prototype.exs",

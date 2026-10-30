@@ -6,6 +6,7 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
   alias ServiceRadar.EventWriter.Processors.ExposureDimensions
   alias ServiceRadar.EventWriter.Processors.ExposureTransitions
   alias ServiceRadar.ExposureAudit.Readiness
+  alias ServiceRadar.ExposureAudit.Receipts
   alias ServiceRadar.ExposureAudit.SQL
   alias ServiceRadar.ExposureAudit.State
   alias ServiceRadar.Inventory.ExposureReadiness
@@ -27,9 +28,14 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
     started = now_ms()
     run = State.open!()
     {_, admission_ms} = timed(fn -> resume_admission!(run.id) end)
+    {receipt_rows, preparation_ms} = timed(fn -> Receipts.prepare!(run) end)
     {dimension_rows, dimensions_ms} = timed(fn -> dimensions!(run) end)
     {initial, cohorts_ms} = timed(fn -> cohorts!(run, 0, []) end)
-    {results, attempts, retry_dimensions_ms, retry_dimension_rows} = retry_proofs!(run, initial)
+
+    {results, attempts, retry_dimensions_ms, retry_dimension_rows, retry_preparation_ms} =
+      retry_proofs!(run, initial)
+
+    preparation_ms = preparation_ms + retry_preparation_ms
     dimensions_ms = dimensions_ms + retry_dimensions_ms
     dimension_rows = dimension_rows + retry_dimension_rows
     {_, finish_ms} = timed(fn -> State.finish!(run) end)
@@ -48,7 +54,8 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
     assert length(results) == hosts
     for result <- results, do: assert(result.source == Map.fetch!(expected, result.ordinal))
     verify_fixture.(hosts)
-    fact_ms = attempts |> Enum.map(& &1.fact_interval) |> Enum.uniq() |> union_ms()
+    comparison_ms = attempts |> Enum.map(& &1.fact_interval) |> Enum.uniq() |> union_ms()
+    fact_ms = comparison_ms + preparation_ms
     orchestration_ms = elapsed - dimensions_ms - fact_ms
     # Worker phases overlap. Inclusive time is not a critical-path estimate.
     IO.puts(
@@ -59,6 +66,9 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
           active_facts: hosts * 2500,
           elapsed_ms: elapsed,
           admission_ms: admission_ms,
+          preparation_ms: preparation_ms,
+          receipt_rows_prepared: receipt_rows,
+          comparison_ms: comparison_ms,
           dimensions_ms: dimensions_ms,
           dimension_rows: dimension_rows,
           cohorts_ms: cohorts_ms,
@@ -247,7 +257,7 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
           assert now_ms() < deadline, "cohort source view exceeded sixty seconds"
 
           Enum.map(ordinals, fn ordinal ->
-            {current, drift, missing, proof_time} = Map.fetch!(source, ordinal)
+            {current, drift, missing, proof_time, receipt_misses} = Map.fetch!(source, ordinal)
             warehouse = Map.get(stored, ordinal, Digest.empty())
 
             evidence =
@@ -261,11 +271,13 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
               warehouse: Digest.export(warehouse),
               lock_busy: not locks[ordinal],
               matches:
-                locks[ordinal] and missing == 0 and drift == 0 and current == warehouse and
+                locks[ordinal] and receipt_misses == 0 and missing == 0 and drift == 0 and
+                  current == warehouse and
                   lifecycles[ordinal],
               lifecycle_match: lifecycles[ordinal],
               replay_drift: drift,
               missing_proofs: missing,
+              missing_receipts: receipt_misses,
               evidence_at: evidence,
               fact_started_at: started,
               view: view,
@@ -338,14 +350,24 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
   defp retry_proofs!(run, results) do
     ordinals =
       for result <- results,
-          result.missing_proofs > 0 or (result.matches and result.recorded_status == "deferred"),
+          result.missing_receipts > 0 or result.missing_proofs > 0 or
+            (result.matches and result.recorded_status == "deferred"),
           do: result.ordinal
 
     if ordinals == [] do
-      {results, results, 0, 0}
+      {results, results, 0, 0, 0}
     else
       # Coalesce requests across cohorts. No open source view waits for a proof.
       {count, elapsed} = timed(fn -> dimensions!(run) end)
+
+      {_, preparation_ms} =
+        timed(fn ->
+          results
+          |> Enum.filter(&(&1.missing_receipts > 0))
+          |> Enum.map(& &1.ordinal)
+          |> Enum.chunk_every(32)
+          |> Enum.each(&Receipts.prepare_devices!(run, &1))
+        end)
 
       State.fenced!(run, fn ->
         State.query!(
@@ -356,7 +378,9 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
 
       retried = cohorts!(run, 0, [])
       latest = Map.new(retried, &{&1.ordinal, &1})
-      {Enum.map(results, &Map.get(latest, &1.ordinal, &1)), results ++ retried, elapsed, count}
+
+      {Enum.map(results, &Map.get(latest, &1.ordinal, &1)), results ++ retried, elapsed, count,
+       preparation_ms}
     end
   end
 
@@ -411,7 +435,7 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
 
             for comparison <- result do
               if not comparison.matches and not comparison.lock_busy and
-                   comparison.missing_proofs == 0 do
+                   comparison.missing_proofs == 0 and comparison.missing_receipts == 0 do
                 # Existing recovery acquires its own source lock after ours closes.
                 Recovery.perform(%Oban.Job{args: %{"device_ord" => comparison.ordinal}})
               end

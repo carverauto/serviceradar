@@ -5,6 +5,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
   alias ServiceRadar.EventWriter.Processors.ExposureTransitions
   alias ServiceRadar.ExposureAudit.Prototype
   alias ServiceRadar.ExposureAudit.Readiness
+  alias ServiceRadar.ExposureAudit.Receipts
   alias ServiceRadar.ExposureAudit.SQL
   alias ServiceRadar.ExposureAudit.State
   alias ServiceRadar.Inventory.ExposureReadiness
@@ -31,6 +32,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
 
     assert 52_551 == Prototype.dimensions!(run)
     assert 0 == Prototype.dimensions!(run)
+    receipt_controls!(run)
     [first, second] = Prototype.compare!(run, [1, 2])
     assert first.matches and second.matches
     State.record!(run, [first, second])
@@ -183,11 +185,199 @@ defmodule ServiceRadar.ExposureAudit.Controls do
              )
 
     IO.puts(
-      "EXPOSURE_AUDIT_CONTROLS generated_binding replay_drift late_proof evidence_age restore_fence timeout expiry cleanup durable_admission same_count missing_fact terminal_reference new_generation grouped_readiness per_device_failure busy_device concurrent_after_images empty_device warehouse_only duplicate_source malformed_source watermark_reference"
+      "EXPOSURE_AUDIT_CONTROLS generated_binding replay_drift late_proof evidence_age restore_fence timeout expiry cleanup durable_admission same_count missing_fact terminal_reference new_generation grouped_readiness per_device_failure busy_device concurrent_after_images empty_device warehouse_only duplicate_source malformed_source watermark_reference receipt_content receipt_revision receipt_race receipt_lock receipt_delete receipt_poison receipt_side_effects receipt_late_view"
     )
   end
 
   defp warehouse!(sql), do: SQL.warehouse!(sql)
+
+  defp receipt_controls!(run) do
+    id = "00000000-0000-0000-0000-000000000001"
+
+    [[publication, seq]] =
+      State.query!(
+        "SELECT last_exposure_publication,last_transition_seq FROM platform.endpoint_vulnerability_assessments WHERE id=$1::text::uuid",
+        [id]
+      )
+
+    outbox = State.query!("SELECT count(*),max(id) FROM platform.exposure_transition_outbox")
+
+    # Poison in the first page produces a bound invalid verdict; the cursor
+    # still reaches the finite upper boundary and validates later rows.
+    source_change!(id, "last_exposure_publication=$2", [
+      Map.put(publication, "changed_at", "invalid")
+    ])
+
+    Receipts.prepare!(run)
+
+    assert [[false]] =
+             State.query!(
+               "SELECT valid_after_image FROM platform.exposure_audit_receipts WHERE assessment_id=$1::text::uuid",
+               [id]
+             )
+
+    assert [[true, true]] =
+             State.query!(
+               "SELECT receipts_enumerated,receipt_cursor=receipt_upper FROM platform.exposure_audit_runs WHERE id=$1::text::uuid",
+               [run.id]
+             )
+
+    assert [[true]] =
+             State.query!(
+               "SELECT valid_after_image FROM platform.exposure_audit_receipts WHERE assessment_id='00000000-0000-0000-0000-000000000002'"
+             )
+
+    assert 0 == Receipts.prepare!(run)
+
+    assert [%{matches: false, replay_drift: 1, missing_receipts: 0}] =
+             Prototype.compare!(run, [1])
+
+    mutate_devices!(fn ->
+      State.query!("UPDATE platform.device_fleet_ordinals SET tombstoned=true WHERE ordinal=1")
+    end)
+
+    try do
+      # Full validity is irrelevant to an ineligible fact, but its safe
+      # references still require the existing exact-version proofs.
+      assert [%{replay_drift: 0, missing_proofs: 0, missing_receipts: 0}] =
+               Prototype.compare!(run, [1])
+    after
+      mutate_devices!(fn ->
+        State.query!("UPDATE platform.device_fleet_ordinals SET tombstoned=false WHERE ordinal=1")
+      end)
+    end
+
+    source_change!(id, "last_exposure_publication=$2", [publication])
+    assert [%{matches: false, missing_receipts: 1}] = Prototype.compare!(run, [1])
+    assert 1 == Receipts.prepare_devices!(run, [1])
+    assert [%{matches: true}] = Prototype.compare!(run, [1])
+
+    # An old preparer resumes after newer content was validated. It may defer,
+    # but must not overwrite the newer receipt, even at the same sequence.
+    old = id |> receipt_page() |> Receipts.validate()
+
+    source_change!(id, "last_exposure_publication=$2", [
+      Map.put(publication, "changed_at", "2000-01-03T00:00:00")
+    ])
+
+    assert 1 == Receipts.prepare_devices!(run, [1])
+    assert 0 == Receipts.persist!(run, old)
+    assert [%{matches: true}] = Prototype.compare!(run, [1])
+    assert 1 == Receipts.prepare!(run)
+
+    State.query!(
+      "UPDATE platform.exposure_audit_receipts SET validator_revision=0 WHERE assessment_id=$1::text::uuid",
+      [
+        id
+      ]
+    )
+
+    assert [%{matches: false, missing_receipts: 1}] = Prototype.compare!(run, [1])
+    assert 1 == Receipts.prepare_devices!(run, [1])
+
+    receipt_locked_row!(run, id)
+
+    # A receipt committed after V cannot make V successful. Neither it nor a
+    # fresh receipt creation time advances the older dimension evidence.
+    [before] = Prototype.compare!(run, [1])
+
+    State.query!(
+      "DELETE FROM platform.exposure_audit_receipts WHERE assessment_id=$1::text::uuid",
+      [id]
+    )
+
+    assert [%{matches: false, missing_receipts: 1}] =
+             Prototype.compare!(run, [1], fn _ ->
+               assert 1 == Receipts.prepare_devices!(run, [1])
+             end)
+
+    assert [after_receipt] = Prototype.compare!(run, [1])
+    assert after_receipt.matches
+    assert after_receipt.evidence_at == before.evidence_at
+
+    # Receipt deletion follows the source FK. Roll back this synthetic deletion
+    # so subsequent controls retain the exact original assessment.
+    assert {:error, :receipt_delete_control} =
+             ServiceRadar.Repo.transaction(fn ->
+               State.query!(
+                 "ALTER TABLE platform.endpoint_vulnerability_assessments DISABLE TRIGGER USER"
+               )
+
+               State.query!(
+                 "DELETE FROM platform.endpoint_vulnerability_assessments WHERE id=$1::text::uuid",
+                 [id]
+               )
+
+               assert [[0]] =
+                        State.query!(
+                          "SELECT count(*) FROM platform.exposure_audit_receipts WHERE assessment_id=$1::text::uuid",
+                          [id]
+                        )
+
+               ServiceRadar.Repo.rollback(:receipt_delete_control)
+             end)
+
+    source_change!(id, "last_exposure_publication=$2", [publication])
+    assert 1 == Receipts.prepare_devices!(run, [1])
+
+    assert [[^seq]] =
+             State.query!(
+               "SELECT last_transition_seq FROM platform.endpoint_vulnerability_assessments WHERE id=$1::text::uuid",
+               [id]
+             )
+
+    assert outbox ==
+             State.query!("SELECT count(*),max(id) FROM platform.exposure_transition_outbox")
+  end
+
+  defp receipt_page(id) do
+    State.query!(
+      "SELECT id::text,audit_publication_hash,last_exposure_publication FROM platform.endpoint_vulnerability_assessments WHERE id=$1::text::uuid",
+      [id]
+    )
+  end
+
+  defp receipt_locked_row!(run, id) do
+    receipts = id |> receipt_page() |> Receipts.validate()
+    parent = self()
+
+    writer =
+      Task.async(fn ->
+        ServiceRadar.Repo.DirectSession.run(fn session ->
+          Postgrex.transaction(session, fn connection ->
+            Postgrex.query!(
+              connection,
+              "SELECT id FROM platform.endpoint_vulnerability_assessments WHERE id=$1::text::uuid FOR UPDATE",
+              [id]
+            )
+
+            send(parent, :receipt_source_locked)
+
+            receive do
+              :release -> :ok
+            after
+              10_000 -> flunk("receipt lock control timed out")
+            end
+          end)
+        end)
+      end)
+
+    try do
+      assert_receive :receipt_source_locked, 5_000
+      assert 0 == Receipts.persist!(run, receipts)
+
+      assert [[1]] =
+               State.query!(
+                 "SELECT count(*) FROM platform.exposure_audit_receipt_work WHERE run_id=$1::text::uuid AND assessment_id=$2::text::uuid",
+                 [run.id, id]
+               )
+    after
+      send(writer.pid, :release)
+      Task.await(writer, 15_000)
+    end
+
+    assert 1 == Receipts.prepare!(run)
+  end
 
   defp fact_controls!(run) do
     warehouse!("UPDATE exposure_facts SET severity_rank=1 WHERE device_ord=1 AND pkg_ord=1")
@@ -254,6 +444,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
     )
 
     try do
+      assert 1 == Receipts.prepare_devices!(run, [1])
       [first, second] = Prototype.compare!(run, [1, 2])
       assert first.source["count"] == 2500
       refute first.source == first.warehouse
@@ -271,6 +462,8 @@ defmodule ServiceRadar.ExposureAudit.Controls do
           second_publication
         ]
       )
+
+      assert 1 == Receipts.prepare_devices!(run, [1])
     end
 
     source_change!(second_id, "last_exposure_publication=$2", [
@@ -278,13 +471,31 @@ defmodule ServiceRadar.ExposureAudit.Controls do
     ])
 
     try do
+      assert 1 == Receipts.prepare_devices!(run, [1])
       [first, second] = Prototype.compare!(run, [1, 2])
       assert first.replay_drift == 1
       assert first.missing_proofs > 0
       refute first.matches
       assert second.matches
+
+      mutate_devices!(fn ->
+        State.query!("UPDATE platform.device_fleet_ordinals SET tombstoned=true WHERE ordinal=1")
+      end)
+
+      try do
+        [terminal] = Prototype.compare!(run, [1])
+        assert terminal.replay_drift == 0
+        assert terminal.missing_proofs > 0
+      after
+        mutate_devices!(fn ->
+          State.query!(
+            "UPDATE platform.device_fleet_ordinals SET tombstoned=false WHERE ordinal=1"
+          )
+        end)
+      end
     after
       source_change!(second_id, "last_exposure_publication=$2", [second_publication])
+      assert 1 == Receipts.prepare_devices!(run, [1])
     end
   end
 
@@ -490,6 +701,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
     )
 
     warehouse!("UPDATE exposure_facts SET transition_seq=40 WHERE device_ord=1 AND pkg_ord=1")
+    assert 1 == Receipts.prepare_devices!(run, [1])
 
     try do
       [during] =
@@ -506,6 +718,8 @@ defmodule ServiceRadar.ExposureAudit.Controls do
 
       refute during.matches
       assert during.source["count"] == 2500 and during.warehouse["count"] == 2499
+      assert [%{matches: false, missing_receipts: 1}] = Prototype.compare!(run, [1])
+      assert 1 == Receipts.prepare_devices!(run, [1])
       assert [%{matches: true}] = Prototype.compare!(run, [1])
 
       source_change!(
@@ -517,6 +731,7 @@ defmodule ServiceRadar.ExposureAudit.Controls do
         "UPDATE exposure_facts SET state=1,resolved_at=NULL,transition_seq=42 WHERE device_ord=1 AND pkg_ord=1"
       )
 
+      assert 1 == Receipts.prepare_devices!(run, [1])
       assert [%{matches: true}] = Prototype.compare!(run, [1])
     after
       source_change!(
@@ -530,6 +745,8 @@ defmodule ServiceRadar.ExposureAudit.Controls do
       warehouse!(
         "UPDATE exposure_facts SET state=1,resolved_at=NULL,transition_seq=100000 WHERE device_ord=1 AND pkg_ord=1"
       )
+
+      assert 1 == Receipts.prepare_devices!(run, [1])
     end
   end
 
@@ -624,7 +841,10 @@ defmodule ServiceRadar.ExposureAudit.Controls do
 
     for publication <- cases do
       expected =
-        match?({:ok, [_]}, ExposureTransitions.decode([%{data: Jason.encode!(publication)}]))
+        match?(
+          {:ok, [%{kind: :fact}]},
+          ExposureTransitions.decode([%{data: Jason.encode!(publication)}])
+        )
 
       [[valid]] =
         State.query!("SELECT COALESCE(#{SQL.valid_publication("$1::jsonb")},false)", [publication])

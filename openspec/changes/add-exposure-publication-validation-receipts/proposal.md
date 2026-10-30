@@ -1,6 +1,7 @@
 # Reuse content-bound exposure publication validation
 
-Status: proposed; implementation and hosted execution are not approved.
+Status: disabled scratch implementation approved by the product owner on
+2026-10-29. Manual hosted execution and runtime adoption are not approved.
 
 ## Why
 
@@ -18,7 +19,7 @@ independent checks every time.
 
 ## What Changes
 
-- Propose a disabled scratch prototype of content-bound validation receipts:
+- Add a disabled scratch prototype of content-bound validation receipts:
   retain a validity verdict, the existing replay digest and dimension reference
   ordinals, rather than another copy of the fact or normalized JSON tuple.
 - Bind each receipt to the full retained payload's database-maintained
@@ -32,7 +33,7 @@ independent checks every time.
   fleet readiness.
 
 This explicitly changes the preceding prototype's prohibition on persistent
-retained-publication validation. Approval would authorize only a disabled
+retained-publication validation. Approval authorizes only a disabled
 prototype and ordinary remote validation through no-mistakes. A hosted
 measurement allocation, production migration and adoption each remain separate.
 
