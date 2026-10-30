@@ -65,7 +65,10 @@ impl NATSOutput {
         .await
         .map_err(anyhow::Error::from_boxed)?;
         debug!("Creating JetStream context");
-        let jetstream = jetstream::new(client.clone());
+        let jetstream = match &config.domain {
+            Some(domain) => jetstream::with_domain(client.clone(), domain),
+            None => jetstream::new(client.clone()),
+        };
 
         Ok((client, jetstream, cert_policy))
     }

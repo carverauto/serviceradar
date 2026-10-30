@@ -1055,9 +1055,12 @@ impl Publisher {
         self.cert_policy = guard.map(Arc::new);
         // Control-plane context keeps the library default API timeout so a low
         // publish_timeout_ms cannot spuriously fail stream INFO/CREATE/UPDATE.
-        let admin_js = jetstream::new(client.clone());
-        // Data-path context: PublishAckFuture timeout only.
-        let mut publish_js = jetstream::new(client.clone());
+        let admin_js = match &self.config.nats_domain {
+            Some(domain) => jetstream::with_domain(client.clone(), domain),
+            None => jetstream::new(client.clone()),
+        };
+        // Data-path context retains the selected domain, with a shorter ACK timeout.
+        let mut publish_js = admin_js.clone();
         let ack_timeout = Duration::from_millis(self.config.publish_timeout_ms.max(1_000));
         publish_js.set_timeout(ack_timeout);
 

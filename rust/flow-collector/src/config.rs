@@ -14,6 +14,8 @@ pub struct Config {
     // NATS
     pub nats_url: String,
     #[serde(default)]
+    pub nats_domain: Option<String>,
+    #[serde(default)]
     pub nats_creds_file: Option<String>,
     pub stream_name: String,
     #[serde(default)]
@@ -801,6 +803,7 @@ mod tests {
     fn test_valid_multi_listener_config() {
         let json = r#"{
             "nats_url": "nats://localhost:4222",
+            "nats_domain": "synthetic_edge",
             "stream_name": "flows",
             "listeners": [
                 {
@@ -817,6 +820,7 @@ mod tests {
         }"#;
         let config: Config = serde_json::from_str(json).unwrap();
         assert!(config.validate().is_ok());
+        assert_eq!(config.nats_domain.as_deref(), Some("synthetic_edge"));
         assert_eq!(config.listeners.len(), 2);
         assert_eq!(config.channel_size, 10000);
         assert_eq!(config.batch_size, 100);

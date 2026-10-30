@@ -189,6 +189,7 @@ pub struct NATSOutput {
 #[derive(Clone)]
 struct NATSConfig {
     url: String,
+    domain: Option<String>,
     subject: String,
     stream: String,
     stream_replicas: usize,
@@ -215,6 +216,12 @@ impl NATSOutput {
             .as_str()
             .unwrap()
             .to_owned();
+        let domain = cfg.lookup("output.nats_domain").map(|value| {
+            value
+                .as_str()
+                .expect("output.nats_domain must be a string")
+                .to_owned()
+        });
         let subject = cfg
             .lookup("output.nats_subject")
             .unwrap_or_else(|| panic!("output.nats_subject is required"))
@@ -293,6 +300,7 @@ impl NATSOutput {
         Self {
             cfg: NATSConfig {
                 url,
+                domain,
                 subject,
                 stream,
                 stream_replicas,
@@ -354,10 +362,13 @@ impl NATSWorker {
             self.cfg.tls_key.as_deref(),
         )
         .await?;
-        let js = ContextBuilder::new()
+        let builder = ContextBuilder::new()
             .timeout(self.cfg.timeout)
-            .ack_timeout(self.cfg.timeout)
-            .build(client.clone());
+            .ack_timeout(self.cfg.timeout);
+        let js = match &self.cfg.domain {
+            Some(domain) => builder.domain(domain.clone()).build(client.clone()),
+            None => builder.build(client.clone()),
+        };
 
         match js.get_stream(&self.cfg.stream).await {
             Ok(mut stream) => {
@@ -734,6 +745,23 @@ impl Output for NATSOutput {
 mod tests {
     use super::*;
     use std::sync::mpsc::sync_channel;
+
+    #[test]
+    fn enrolled_domain_is_retained_in_output_configuration() {
+        let config = Config::from_string(
+            r#"
+[output]
+nats_url = "nats://localhost:4222"
+nats_subject = "logs.syslog"
+nats_domain = "synthetic_edge"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            NATSOutput::new(&config).cfg.domain.as_deref(),
+            Some("synthetic_edge")
+        );
+    }
 
     #[test]
     fn idle_queue_does_not_block_current_thread_runtime() {

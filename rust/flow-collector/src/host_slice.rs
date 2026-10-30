@@ -302,6 +302,7 @@ mod tests {
     ) -> Config {
         Config {
             nats_url: "nats://localhost:4222".to_string(),
+            nats_domain: None,
             nats_creds_file: None,
             stream_name: "flows".to_string(),
             stream_subjects: None,

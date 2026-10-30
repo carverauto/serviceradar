@@ -36,6 +36,7 @@ pub const DEFAULT_MAX_INFLIGHT_PUBLISHES: usize = 32;
 #[derive(Clone, Debug)]
 pub struct NATSConfig {
     pub url: String,
+    pub domain: Option<String>,
     pub subject: String,
     pub stream: String,
     pub logs_subject: Option<String>,
@@ -64,6 +65,7 @@ impl Default for NATSConfig {
     fn default() -> Self {
         Self {
             url: "nats://localhost:4222".to_string(),
+            domain: None,
             subject: "otel".to_string(),
             stream: "events".to_string(),
             logs_subject: None,

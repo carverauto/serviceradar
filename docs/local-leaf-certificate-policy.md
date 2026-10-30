@@ -64,3 +64,20 @@ its previous local identity in memory.
 The focused `//rust/cert-policy:cert_policy_test` target uses real rustls and
 async-nats sockets to verify stale restart, revocation, active certificate
 expiry, endpoint and SPIFFE mismatch rejection, and unaffected control traffic.
+
+An enrolled leaf also selects its server-owned JetStream domain explicitly:
+
+| Collector | JetStream domain field |
+| --- | --- |
+| Flow collector | `nats_domain` |
+| Trap collector | `nats_domain` |
+| OTEL and log collector | `nats.domain` |
+| Flowgger syslog | `output.nats_domain` |
+| BMP collector | `nats_domain` |
+
+A configured domain directs stream-management requests to
+`$JS.<domain>.API`; connection recovery retains that selection. It never retries
+against the default `$JS.API` namespace after a domain-scoped error. This
+selection does not rewrite telemetry subjects or establish leaf-to-hub
+replication. The enrollment service supplies the domain and matching broker
+permissions; operators should not substitute the hub's default namespace.

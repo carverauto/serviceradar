@@ -257,6 +257,8 @@ pub struct NATSTLSConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NATSConfigTOML {
     pub url: String,
+    #[serde(default)]
+    pub domain: Option<String>,
     #[serde(default = "default_nats_subject")]
     pub subject: String,
     #[serde(default)]
@@ -396,6 +398,7 @@ impl Config {
 
                 let mut config = NATSConfig {
                     url: nats.url.clone(),
+                    domain: nats.domain.clone(),
                     subject: nats.subject.clone(),
                     stream: nats.stream.clone(),
                     logs_subject: nats.logs_subject.clone(),
@@ -487,6 +490,7 @@ impl Config {
                 http: HttpConfig::default(),
             },
             nats: Some(NATSConfigTOML {
+                domain: None,
                 url: "nats://localhost:4222".to_string(),
                 subject: "otel".to_string(),
                 logs_subject: Some("logs.otel".to_string()),
@@ -679,6 +683,7 @@ port = 8888
 
 [nats]
 url = "nats://test:4222"
+domain = "synthetic_edge"
 "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -687,6 +692,15 @@ url = "nats://test:4222"
         let config = Config::load(Some(temp_file.path().to_str().unwrap())).unwrap();
         assert_eq!(config.server.port, 8888);
 
+        assert_eq!(
+            config
+                .nats_config_with_env(|_| None)
+                .unwrap()
+                .unwrap()
+                .domain
+                .as_deref(),
+            Some("synthetic_edge")
+        );
         let nats = config.nats.unwrap();
         assert_eq!(nats.url, "nats://test:4222");
     }
@@ -902,6 +916,7 @@ key_file = "/grpc.key"
         let config = Config {
             server: ServerConfig::default(),
             nats: Some(NATSConfigTOML {
+                domain: None,
                 url: "nats://test:4222".to_string(),
                 subject: "test.subject".to_string(),
                 logs_subject: None,
@@ -948,6 +963,7 @@ key_file = "/grpc.key"
     fn test_inline_nats_tls_material_is_ephemeral_and_private() {
         let config = Config {
             nats: Some(NATSConfigTOML {
+                domain: None,
                 url: "tls://leaf.example:4222".to_string(),
                 subject: default_nats_subject(),
                 logs_subject: None,
