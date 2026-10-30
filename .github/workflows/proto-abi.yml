@@ -8,12 +8,13 @@ name: Proto ABI
 # branch, so stacked contract PRs are gated too. It is path-filtered so it stays
 # cheap.
 #
-# Single-source model: protoc (via `make generate-proto`) is the ONE generator for
-# the checked-in *.pb.go; Bazel compiles those exact files (a plain go_library), so
-# there is no second generator to drift against and no Bazel-vs-Make parity gate.
-# `make verify-proto-go` / `make verify-proto-elixir` (regenerate into a clean temp
-# tree, then compare the file manifest AND bytes vs committed) are the sole drift
-# guards. This job needs no Bazel toolchain because `main.yml` ran the full
+# Bazel compiles the checked-in *.pb.go files (plain go_library). `make generate-proto`
+# is the generator this job diffs. `camera_media.pb.go` is also produced by
+# //proto:camera_media_go with this job's protoc 34.1 pin, and
+# //proto:update_camera_media_bindings fails on drift. See go/README.md section 7.
+# `make verify-proto-go` and `make verify-proto-elixir` compare regeneration with the
+# committed bindings; the edge targets also compare a temp-tree file manifest.
+# This job needs no Bazel toolchain because `main.yml` ran the full
 # Go/Elixir/Bazel graph on every pull request -- ON FORGEJO. THAT WORKFLOW IS NOT MIGRATED,
 # so on THIS host nothing else runs the edge Bazel build and the sentence below about a
 # required full-CI status describes the old host, not this one. It is kept because it

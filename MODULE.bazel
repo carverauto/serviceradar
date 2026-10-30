@@ -985,6 +985,17 @@ http_archive(
     urls = ["https://registry.npmjs.org/@stream-doctor/linux-x64/-/linux-x64-0.1.0.tgz"],
 )
 
+# Proto ABI CI installs this exact protoc release (header "protoc v7.34.1") and
+# `make verify-proto-go` diffs the checked-in Go bindings against it. The MODULE
+# protobuf dep stays at 35.1; @bazel_tools//tools/proto:protoc is that compiler and
+# must not generate camera_media.pb.go. Linux x86_64 matches //build/rbe:rbe_platform.
+http_archive(
+    name = "protoc_34_1_linux_x86_64",
+    build_file_content = 'exports_files(["bin/protoc"], visibility = ["//visibility:public"])',
+    sha256 = "af27ea66cd26938fe48587804ca7d4817457a08350021a1c6e23a27ccc8c6904",
+    urls = ["https://github.com/protocolbuffers/protobuf/releases/download/v34.1/protoc-34.1-linux-x86_64.zip"],
+)
+
 # The provider acceptance test consumes a real CLI as a declared input. Pin the
 # a release from the supported write-only-argument series so tests cannot depend on a
 # workstation install or fetch mutable tooling from inside a test action.

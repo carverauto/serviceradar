@@ -735,6 +735,59 @@ func (s *failingCameraRelayStream) Close() error {
 	return nil
 }
 
+// The identity belongs to the source registry, survives relay/control lifetimes,
+// and changes when that registry is replaced. It never proves the old source stopped.
+func TestCameraRelayRuntimeIncarnation(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var previous string
+	for _, runtimeID := range []string{"first", "replacement"} {
+		gateway := newFakeCameraRelayGateway()
+		manager := newCameraRelayManager(gateway, createTestLogger())
+		manager.sourceFactory = func(cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
+			return &blockingCameraRelayStream{}, nil
+		}
+		var current string
+		for _, relayID := range []string{"one", "two"} {
+			sessionID := runtimeID + "-" + relayID
+			_, err := manager.Start(ctx, cameraRelaySessionSpec{
+				RelaySessionID: sessionID, AgentID: "agent-example",
+				CameraSourceID: "camera-example", StreamProfileID: "main", LeaseToken: "lease-example",
+			})
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			if err := manager.Stop(ctx, cameraRelayStopPayload{RelaySessionID: sessionID}); err != nil {
+				t.Fatalf("Stop: %v", err)
+			}
+			gateway.mu.Lock()
+			request := gateway.openRequests[len(gateway.openRequests)-1]
+			gateway.mu.Unlock()
+			wire, err := gproto.Marshal(request)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var received proto.OpenRelaySessionRequest
+			if err := gproto.Unmarshal(wire, &received); err != nil {
+				t.Fatal(err)
+			}
+			got := received.GetSourceIncarnationId()
+			if got == "" {
+				t.Fatal("source runtime identity missing on media open")
+			}
+			if current != "" && got != current {
+				t.Fatal("relay replacement changed runtime identity")
+			}
+			current = got
+		}
+		if current == previous {
+			t.Fatal("new source runtime inherited its predecessor identity")
+		}
+		previous = current
+	}
+}
+
 func TestCameraRelayManagerStartUploadsMediaAndCloses(t *testing.T) {
 	t.Parallel()
 

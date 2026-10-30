@@ -129,7 +129,7 @@ defmodule ServiceRadar.Camera.RelaySession do
     end
 
     update :activate do
-      accept [:media_ingest_id, :lease_expires_at, :viewer_count]
+      accept [:media_ingest_id, :source_incarnation_id, :lease_expires_at, :viewer_count]
 
       change transition_state(:active)
       change set_attribute(:activated_at, &DateTime.utc_now/0)
@@ -212,6 +212,11 @@ defmodule ServiceRadar.Camera.RelaySession do
     end
 
     attribute :lease_expires_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :source_incarnation_id, :uuid do
+      description "Agent camera runtime bound at activation; nil means unknown legacy identity"
       public? true
     end
 

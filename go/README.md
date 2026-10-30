@@ -169,10 +169,21 @@ a dependency genuinely fails without it.
 
 ## 7. Protobuf
 
-Bazel does not generate the Go bindings. The `.pb.go` files are checked in and wrapped by a
-plain `go_library`, and `proto/BUILD.bazel` opens with `# gazelle:ignore` so nothing tries to
-regenerate them. Non-Bazel tooling depends on those checked-in files existing. Regenerate them
-with `make generate-proto` and commit the result.
+The `.pb.go` files are checked in and wrapped by a plain `go_library`. `proto/BUILD.bazel`
+opens with `# gazelle:ignore` so Gazelle does not regenerate them. Non-Bazel tooling depends
+on those checked-in files existing.
+
+`//proto:camera_media_go` generates `camera_media.pb.go` from `camera_media.proto` with
+declared `protoc` inputs. The compiler is the Proto ABI release pin, protoc 34.1
+(`protoc v7.34.1` in the generated header), not the MODULE protobuf 35.1 compiler.
+`//proto:update_camera_media_bindings` writes that output over the checked-in file, and
+its `write_source_files` test fails when the file drifts. The target covers the message
+binding. `camera_media_grpc.pb.go` stays with the other checked-in stubs.
+
+`make generate-proto` still regenerates `camera_media.pb.go` with those other bindings.
+Proto ABI CI runs that target with the same protoc 34.1 pin. Use that compiler, or
+`//proto:update_camera_media_bindings`, when the message file changes. A workstation
+`protoc` at another version rewrites the header, and both drift guards reject it.
 
 ## 8. What CI runs
 

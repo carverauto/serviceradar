@@ -22,8 +22,16 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
         with :ok <- valid_ingest(ingest_id),
              :ok <- ensure_status(session, [:requested, :opening, :active]),
              :ok <- ensure_assignment(session, attrs),
-             :ok <- ensure_ingest(session, ingest_id) do
-          sync_media(owner, session, ingest_id, attrs, opts)
+             :ok <- ensure_ingest(session, ingest_id),
+             {:ok, incarnation} <- source_incarnation(attrs),
+             :ok <- ensure_incarnation(session, incarnation) do
+          sync_media(
+            owner,
+            session,
+            ingest_id,
+            Map.put(attrs, :source_incarnation_id, incarnation),
+            opts
+          )
         end
       end,
       opts
@@ -109,7 +117,15 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
 
     if session.status == :active,
       do: RelaySession.renew_lease(session, lease, opts),
-      else: RelaySession.activate(session, Map.put(lease, :media_ingest_id, ingest_id), opts)
+      else:
+        RelaySession.activate(
+          session,
+          Map.merge(lease, %{
+            media_ingest_id: ingest_id,
+            source_incarnation_id: attrs[:source_incarnation_id]
+          }),
+          opts
+        )
   end
 
   defp finish_session(id, ingest_id, attrs, status, opts) do
@@ -144,6 +160,30 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycle do
       opts
     )
   end
+
+  defp source_incarnation(attrs) do
+    case Map.get(attrs, :source_incarnation_id) do
+      legacy when legacy in [nil, ""] ->
+        {:ok, nil}
+
+      value when is_binary(value) and byte_size(value) == 36 ->
+        case Ecto.UUID.cast(value) do
+          {:ok, id} -> {:ok, id}
+          :error -> {:error, :invalid_source_incarnation}
+        end
+
+      _ ->
+        {:error, :invalid_source_incarnation}
+    end
+  end
+
+  # Bind once. A new runtime cannot inherit an active relay, including a legacy
+  # relay whose runtime is unknown. Neither mismatch nor absence proves retirement.
+  defp ensure_incarnation(%{status: status, source_incarnation_id: nil}, _incarnation)
+       when status in [:requested, :opening], do: :ok
+
+  defp ensure_incarnation(%{source_incarnation_id: id}, id), do: :ok
+  defp ensure_incarnation(_session, _incarnation), do: {:error, :source_incarnation_mismatch}
 
   defp valid_ingest(id) when is_binary(id) and id != "", do: :ok
   defp valid_ingest(_), do: {:error, :media_ingest_mismatch}
