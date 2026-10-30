@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/gorilla/websocket"
+	"github.com/tetratelabs/wazero/api"
 )
 
 const (
@@ -604,6 +605,77 @@ func TestProxmoxInventorySemanticRequestRegistry(t *testing.T) {
 			}
 			if proxmoxInventoryHostAuthorityRequestAllowed(http.MethodGet, requestURL, nil) {
 				t.Fatalf("unregistered inventory path %q was accepted", path)
+			}
+		})
+	}
+}
+
+// A credential grant that already covers every /api2/json/nodes/ read (the
+// same shape that lets status, storage, and disks/list through) must let the
+// inventory plugin fetch the node certificate list, and must still refuse the
+// other certificates endpoints and any non-GET request.
+func TestProxmoxInventoryCertificateInfoHostRequest(t *testing.T) {
+	t.Parallel()
+
+	options := testInventoryAuthorityOptions()
+	options.paths = []string{"/api2/json/nodes/"}
+
+	newExec := func(t *testing.T) (*pluginExecution, api.Module, *countingPluginHTTPTransport) {
+		t.Helper()
+		transport := &countingPluginHTTPTransport{
+			respond: func(req *http.Request) *http.Response {
+				return pluginHTTPTestResponse(req, http.StatusOK, nil, `{"data":[]}`)
+			},
+		}
+		resolver := &fakeCredentialBrokerResolver{material: CredentialBrokerMaterial{Value: "user@pve!inventory=super-secret"}}
+		permissions := pluginPermissions{AllowedDomains: []string{"*"}, AllowedPorts: []int{8006}}
+		exec, module := newPluginHTTPHostTestExecution(t, permissions, transport, resolver)
+		assignment := newTestProxmoxHostAuthorityAssignment(t, options)
+		assignment.Permissions = permissions
+		assignment.Permissions.normalize()
+		exec.assignment = assignment
+		exec.configJSON = assignment.ParamsJSON
+		exec.mode = pluginExecutionModeScheduled
+		return exec, module, transport
+	}
+
+	t.Run("allows certificate info", func(t *testing.T) {
+		t.Parallel()
+		exec, module, transport := newExec(t)
+		got := callPluginHostHTTPRequestPayload(t, exec, module, httpRequestPayload{
+			Method:  http.MethodGet,
+			URL:     testProxmoxOrigin + "/api2/json/nodes/pve01/certificates/info",
+			Headers: map[string]string{"Authorization": pluginHostCredentialSentinel},
+		})
+		if got <= 0 || transport.calls != 1 {
+			t.Fatalf("certificate info returned %d with %d transport calls, want the outbound GET", got, transport.calls)
+		}
+	})
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		url    string
+		body   string
+	}{
+		{name: "denies certificates custom", method: http.MethodGet, url: testProxmoxOrigin + "/api2/json/nodes/pve01/certificates/custom"},
+		{name: "denies certificate info upload", method: http.MethodPost, url: testProxmoxOrigin + "/api2/json/nodes/pve01/certificates/info"},
+		{name: "denies certificate info query", method: http.MethodGet, url: testProxmoxOrigin + "/api2/json/nodes/pve01/certificates/info?full=1"},
+		{name: "denies certificate info body", method: http.MethodGet, url: testProxmoxOrigin + "/api2/json/nodes/pve01/certificates/info", body: `{"smuggled":true}`},
+		{name: "denies certificate info extra segment", method: http.MethodGet, url: testProxmoxOrigin + "/api2/json/nodes/pve01/certificates/info/extra"},
+		{name: "denies certificate info wrong case", method: http.MethodGet, url: testProxmoxOrigin + "/api2/json/nodes/pve01/Certificates/info"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			exec, module, transport := newExec(t)
+			got := callPluginHostHTTPRequestPayload(t, exec, module, httpRequestPayload{
+				Method:  tc.method,
+				URL:     tc.url,
+				Body:    tc.body,
+				Headers: map[string]string{"Authorization": pluginHostCredentialSentinel},
+			})
+			if got != pluginErrDenied || transport.calls != 0 {
+				t.Fatalf("got=%d transport=%d, want denial before any outbound call", got, transport.calls)
 			}
 		})
 	}
