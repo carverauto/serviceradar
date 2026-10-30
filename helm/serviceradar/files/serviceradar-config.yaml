@@ -293,7 +293,7 @@ data:
         "edge_record_sender": {
           "enabled": true,
           "sweep_enabled": true,
-          "max_bytes": {{ .Values.edgeRecords.maxSpoolBytes }},
+          "max_bytes": {{ .Values.edgeRecords.maxSpoolBytes | int64 }},
           "spool_dir": "{{ default "/var/lib/serviceradar/agent" (default dict $agentVals.runtimeStorage).basePath }}/edge-records"
         },
         {{- end }}
