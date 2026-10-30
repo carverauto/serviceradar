@@ -253,7 +253,7 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", tls: {cert_file: %q, key_file:
 		if !ok {
 			t.Fatalf("missing session for certificate %s", fingerprint)
 		}
-		body, _ := json.Marshal(map[string]any{"auth": true, "acc": "APP", "limit": 16})
+		body, _ := json.Marshal(map[string]any{"auth": true, "acc": "APP", "user": fingerprint, "limit": 1})
 		awaitRevocation(t, "broker confirms certificate use", func() bool {
 			reply, err := operator.Request("$SYS.REQ.SERVER."+target.server+".CONNZ", body, 2*time.Second)
 			if err != nil {
