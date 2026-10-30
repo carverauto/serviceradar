@@ -218,6 +218,54 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                Repo.get!(SweepGroupExecution, Ecto.UUID.cast!(frame.batch.execution_id))
     end
 
+    test "an ingest failure fails the batch with nothing committed, and the redelivery projects once" do
+      frame = build_frame()
+      execution_id = Ecto.UUID.cast!(frame.batch.execution_id)
+      now = DateTime.utc_now()
+
+      # The ingestor refuses an execution another reporter already owns. The
+      # signed slot passed, so this stands in for any database-side ingest error.
+      Repo.insert_all(SweepGroupExecution, [
+        %{
+          id: execution_id,
+          sweep_group_id: Ecto.UUID.cast!(frame.batch.sweep_group_id),
+          agent_id: "agent-other-#{System.unique_integer([:positive])}",
+          status: :running,
+          inserted_at: now,
+          updated_at: now
+        }
+      ])
+
+      message = %{data: frame.record_bytes, metadata: %{headers: frame.headers}}
+
+      assert {:error, %RuntimeError{}} = EdgeRecord.process_batch([message])
+      assert ledger_count(frame.record) == 0
+      assert delivery_slot_count(frame.record) == 0
+      assert sweep_batch_slot_count(frame.record, frame.batch) == 0
+      assert projected_row_keys(frame.record) == []
+
+      assert Repo.all(
+               Ecto.Query.from(a in DeviceAgentAvailability,
+                 where: a.execution_id == ^execution_id
+               )
+             ) == []
+
+      Repo.delete_all(Ecto.Query.from(e in SweepGroupExecution, where: e.id == ^execution_id))
+
+      assert {:ok, 1} = EdgeRecord.process_batch([message])
+      assert ledger_count(frame.record) == 1
+
+      assert %{status: :completed, hosts_total: 1, hosts_available: 1, hosts_failed: 0} =
+               Repo.get!(SweepGroupExecution, execution_id)
+
+      assert {:ok, :replay} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert [%{ip: "192.0.2.1"}] =
+               Repo.all(
+                 Ecto.Query.from(h in SweepHostResult, where: h.execution_id == ^execution_id)
+               )
+    end
+
     test "a conflicting frame that reuses the same delivery slot with different bytes fails distinctly and leaves the first binding immutable" do
       %{record_bytes: record_bytes, headers: headers, record: record, slot: slot} =
         build_frame()
