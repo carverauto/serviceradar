@@ -55,6 +55,19 @@ py_test(
     deps = ["@pyyaml//:yaml"],
 )
 
+py_test(
+    name = "edge_record_agent_config_test",
+    srcs = ["edge_record_agent_config_test.py"],
+    data = [
+        ":chart_files",
+        ":helm_unittest_binary",
+    ],
+    env = {
+        "SERVICERADAR_HELM_UNITTEST_BINARY": "$(rootpath :helm_unittest_binary)",
+    },
+    deps = ["@pyyaml//:yaml"],
+)
+
 # CNPG WAL/checkpoint defaults. PostgreSQL's stock max_wal_size=1GB forced a
 # checkpoint every ~14s at this product's ingest rate and parked every backend on
 # LWLock:WALWrite, failing probes across a whole namespace. These assertions pin the

@@ -230,6 +230,10 @@ type ServerConfig struct {
 // the common case where both point at the same gateway.
 type EdgeRecordSenderConfig struct {
 	Enabled bool `json:"enabled"`
+	// SweepEnabled opts leased static sweeps into durable edge records.
+	SweepEnabled bool `json:"sweep_enabled,omitempty"`
+	// MaxBytes bounds durable spool admission; zero uses 256 MiB.
+	MaxBytes uint64 `json:"max_bytes,omitempty"`
 	// SpoolDir is the directory holding the agent's edge-record spool segment
 	// (go/pkg/edge/spool) and its persisted lane spool_id.
 	SpoolDir     string                 `json:"spool_dir"`

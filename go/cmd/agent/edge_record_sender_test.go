@@ -20,12 +20,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
+	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/rs/zerolog"
@@ -54,7 +56,7 @@ func TestRunEdgeRecordSenderNoopWhenNil(t *testing.T) {
 	t.Parallel()
 	cfg := &agent.ServerConfig{}
 	mustReturnPromptly(t, func() {
-		runEdgeRecordSender(context.Background(), cfg, logger.NewTestLogger())
+		runEdgeRecordSender(context.Background(), cfg, nil, logger.NewTestLogger())
 	})
 }
 
@@ -66,6 +68,11 @@ type senderGuardLogger struct {
 func (l *senderGuardLogger) Error() *zerolog.Event { return l.output.Error() }
 
 func TestRunEdgeRecordSenderConfigurationGuards(t *testing.T) {
+	sp, err := spool.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sp.Close() }()
 	for _, tc := range []struct{ name, message string }{
 		{"disabled", ""},
 		{"address", "Edge record sender enabled without a gateway address"},
@@ -89,7 +96,7 @@ func TestRunEdgeRecordSenderConfigurationGuards(t *testing.T) {
 			log := &senderGuardLogger{Logger: logger.NewTestLogger(), output: zerolog.New(&output)}
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 			defer cancel()
-			mustReturnPromptly(t, func() { runEdgeRecordSender(ctx, cfg, log) })
+			mustReturnPromptly(t, func() { runEdgeRecordSender(ctx, cfg, sp, log) })
 			if tc.message == "" {
 				if output.Len() != 0 {
 					t.Fatalf("disabled sender emitted error: %s", output.String())
@@ -109,5 +116,41 @@ func TestRunEdgeRecordSenderConfigurationGuards(t *testing.T) {
 				t.Fatalf("guard created spool: %v", err)
 			}
 		})
+	}
+}
+
+func TestOpenEdgeRecordSpoolRejectsMissingDirectory(t *testing.T) {
+	_, err := openEdgeRecordSpool(&agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true}})
+	if err == nil {
+		t.Fatal("enabled sender accepted missing spool directory")
+	}
+}
+
+func TestOpenEdgeRecordSpoolRefusesAdmissionAtBudgetAfterRestart(t *testing.T) {
+	cfg := &agent.ServerConfig{EdgeRecordSender: &agent.EdgeRecordSenderConfig{Enabled: true, SweepEnabled: true, SpoolDir: t.TempDir(), MaxBytes: 4 << 20}}
+	sp, err := openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = sp.Append(make([]byte, 16), make([]byte, 1<<20)); err != nil {
+		t.Fatal(err)
+	}
+	if err = sp.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sp, err = openEdgeRecordSpool(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = sp.Close() }()
+	if _, err = sp.Append(make([]byte, 16), make([]byte, 1<<20)); !errors.Is(err, spool.ErrAdmissionRefused) {
+		t.Fatalf("second append=%v, want byte-budget refusal", err)
+	}
+	records, err := sp.Unresolved()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("refused append changed spool: %d records", len(records))
 	}
 }

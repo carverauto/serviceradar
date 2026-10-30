@@ -601,6 +601,57 @@ func (s *Spool) Resolve(through uint64) error {
 	return nil
 }
 
+// ResolveWithEvidence persists the caller's validated terminal acknowledgement
+// before advancing the local resolved prefix. Evidence is retained for every
+// advancement; a remote watermark alone is not durable local disposition proof.
+// This does not reclaim segment bytes.
+func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if through <= s.resolved {
+		return nil
+	}
+	if through >= s.nextSeq {
+		return ErrResolveBeyondHighWater
+	}
+	if len(evidence) == 0 {
+		return errors.New("spool: terminal evidence required")
+	}
+	if s.failErr != nil {
+		return s.failErr
+	}
+	charged := uint64(len(evidence) + 16)
+	if s.alloc != nil {
+		if err := s.alloc.admit(s.dir, charged); err != nil {
+			return err
+		}
+	}
+	err := s.persistResolution(through, evidence)
+	if s.alloc != nil {
+		s.alloc.settle(charged, err)
+	}
+	if err != nil {
+		s.failErr = asFailStop(err)
+		return s.failErr
+	}
+	s.resolved = through
+	return nil
+}
+
+func (s *Spool) persistResolution(through uint64, evidence []byte) error {
+	path := filepath.Join(s.dir, fmt.Sprintf("terminal-%020d.pb", through))
+	if err := os.WriteFile(path, evidence, filePerm); err != nil {
+		return err
+	}
+	if err := fsyncFile(path); err != nil {
+		return err
+	}
+	if err := fsyncDir(s.dir); err != nil {
+		return err
+	}
+	return s.writeResolved(through)
+}
+
 // ScanFrom streams COMMITTED records whose sequence is greater than both the
 // resolved watermark and after, in sequence order, invoking visit for each until
 // visit returns false (e.g. the sender's credit window is exhausted) or the

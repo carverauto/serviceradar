@@ -25,6 +25,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"sync"
@@ -47,7 +48,7 @@ import (
 // installed lease there replaces the group's local ticker.
 
 const (
-	// sweepLeaseDirName is the per-group lease store under the agent state dir.
+	// sweepLeaseDirName is the per-group lease store under the agent runtime root.
 	sweepLeaseDirName = "sweep-leases"
 	// sweepLeaseVersion is the only SweepLeaseV1 lease_version this agent installs.
 	sweepLeaseVersion = 1
@@ -163,7 +164,12 @@ type sweepLeaseStore struct {
 const sweepLeaseExecutedSuffix = ".executed.json"
 
 func defaultSweepLeaseDir() string {
-	return filepath.Join(defaultStateDir(), sweepLeaseDirName)
+	runtimeRoot := os.Getenv("SERVICERADAR_AGENT_RUNTIME_ROOT")
+	if runtime.GOOS == goosWindows && strings.TrimSpace(runtimeRoot) == "" {
+		return filepath.Join(defaultStateDir(), sweepLeaseDirName)
+	}
+
+	return filepath.Join(resolveReleaseRuntimeRoot(runtimeRoot), sweepLeaseDirName)
 }
 
 // newSweepLeaseStore opens dir and reloads every installed lease in it. A

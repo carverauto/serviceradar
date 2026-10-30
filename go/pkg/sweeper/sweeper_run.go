@@ -146,6 +146,10 @@ func (s *NetworkSweeper) runSweepWithLock(ctx context.Context) error {
 // executionID only if that cycle completes. A failed or stopped cycle leaves
 // the previously published id in place.
 func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID string) error {
+	return s.runSweepWithObserver(ctx, executionID, nil)
+}
+
+func (s *NetworkSweeper) runSweepWithObserver(ctx context.Context, executionID string, observer func(*models.Result) error) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
 	if err := CheckExecution(ctx); err != nil {
@@ -160,6 +164,7 @@ func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID 
 	s.mu.Lock()
 	s.activeRun = run
 	s.runExecutionID = executionID
+	s.resultObserver = observer
 	s.mu.Unlock()
 
 	err := s.runSweep(runCtx)
@@ -169,6 +174,7 @@ func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID 
 		s.activeRun = nil
 	}
 	s.runExecutionID = ""
+	s.resultObserver = nil
 	cancelled := run.cancelled
 	s.mu.Unlock()
 

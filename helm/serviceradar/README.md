@@ -430,6 +430,51 @@ core:
     consensusCohortRetentionMs: 300000
 ```
 
+### Durable sweep canary
+
+`edgeRecords.enabled` enables the gateway's durable bulk publisher and runtime
+trust refresh from core. Supply `edgeRecords.contractRegistry` with the
+installation's registry document: core and gateway receive the same JSON.
+The sweep entry must be the active `serviceradar.sweep.observation` version 1
+contract on the durable bulk route. Its bundle digest and registry snapshot
+digest identify the reviewed installation contract; do not use test-fixture
+identities in a deployment.
+
+The current registry is installation-static and unsigned. For the canary,
+derive its bundle fingerprint from the reviewed schema and cost/projection
+sources, recording the file list and commit alongside the deployment values.
+Hash the canonical registry body before adding `registry_snapshot_sha256`.
+Keep that exact document on core and every gateway throughout the run.
+
+The secret generator creates an `edge-issuer-seed` once and preserves it on
+upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
+the operator must supply the key in the configured existing Secret as a
+base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
+
+`edgeRecords.agentSweepEnabled` also enables the bundled agent's sweep producer.
+It requires `agent.runtimeStorage.enabled=true`; the spool lives under that
+volume's base path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scoped
+sweep lease settings select which agent receives signed slots. Enable leasing
+only for the canary, and use an enabled static-target group without a target
+query. Other agents continue using the legacy results path.
+
+Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
+and MTR windows are not supported by this projection yet. Keep the issuer key
+and agent network scope fixed while records remain in the spool: historical
+key/scope trust and audit publication are later milestones. The sender persists
+terminal resolutions, but physical spool reclamation remains pending. Reaching
+the configured byte bound stops further appends; it does not permit growth past
+the bound. Monitor the spool and stop the canary before it fills.
+An interrupted run remains incomplete and is not rescanned once the agent has
+durably claimed its first append attempt, even if that first append fails.
+
+This wiring prepares the current-epoch sweep path. A successful deployment is
+proved by fresh scheduled executions, committed edge-record ledger entries and
+normal sweep host results from the same execution after the rollout, followed
+by a check that the agent's spool stays within its bound. Pod readiness alone
+does not prove this path. The full reconnect, audit-publication and fault-drill
+milestones remain tracked in `unify-sweep-results-proto`.
+
 ## Network Requirements
 
 ### In-Cluster

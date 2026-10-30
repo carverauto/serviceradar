@@ -32,6 +32,7 @@ import (
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
+	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -142,6 +143,7 @@ type PushLoop struct {
 	configSectionMu       sync.Mutex
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
+	edgeSweepSpool *spool.Spool
 	sweepLeaseMu   sync.Mutex
 	sweepLeases    *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
 	sweepLeaseDir  string           // lease store dir override for tests; empty means defaultSweepLeaseDir()

@@ -770,6 +770,8 @@ func (s *ICMPSweeper) processResults(targets []models.Target, ch chan<- models.R
 			// Update final stats from hostStats
 			if stats, statsExist := s.hostStats[target.Host]; statsExist {
 				stats.mu.Lock()
+				result.PacketsSent = uint32(stats.sent)
+				result.PacketsReceived = uint32(stats.received)
 				if stats.sent > 0 {
 					result.PacketLoss = float64(stats.sent-stats.received) / float64(stats.sent) * 100
 					if stats.received > 0 && result.RespTime == 0 {

@@ -1603,3 +1603,12 @@ active
 prepared
 {{- end -}}
 {{- end -}}
+
+{{/* One installation contract document shared by the issuer and admission gateway. */}}
+{{- define "serviceradar.edgeRecordContractRegistry" -}}
+{{- $registry := (default dict .Values.edgeRecords).contractRegistry -}}
+{{- if empty $registry -}}
+{{- fail "edgeRecords.contractRegistry is required when edgeRecords.enabled=true" -}}
+{{- end -}}
+{{- $registry | toJson -}}
+{{- end -}}

@@ -56,6 +56,7 @@ go_test(
     },
     deps = [
         "//go/pkg/agent",
+        "//go/pkg/edge/spool",
         "//go/pkg/logger",
         "//proto:proto",
         "//go/pkg/models",

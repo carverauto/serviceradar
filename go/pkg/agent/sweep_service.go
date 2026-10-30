@@ -65,7 +65,9 @@ type SweepService struct {
 	// sweepRunInProgress is set around RunOnce until the completed cycle has
 	// been copied into pendingSweeps. The push loop must not publish the live
 	// summary in that window, or it and the retained copy both go out.
-	sweepRunInProgress bool
+	sweepRunInProgress  bool
+	edgeResults         bool
+	lastEdgeExecutionID string
 }
 
 // NewSweepService creates a new SweepService.
@@ -247,6 +249,9 @@ func (s *SweepService) takeCompletedSweepLocked(live *models.SweepSummary) *comp
 	if s.sweepRunInProgress || live == nil || live.LastSweep <= 0 || len(live.Hosts) == 0 {
 		return nil
 	}
+	if live.ExecutionID != "" && live.ExecutionID == s.lastEdgeExecutionID {
+		return nil
+	}
 	if samePublishedCycle(s.cachedResults, live) {
 		return nil
 	}
@@ -285,6 +290,9 @@ func (s *SweepService) SetLeaseDriven(driven bool) {
 	}
 
 	if !driven {
+		s.mu.Lock()
+		s.edgeResults = false
+		s.mu.Unlock()
 		s.SetLeaseState("", 0, 0)
 	}
 }
@@ -522,6 +530,10 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if s.edgeResults {
+		return &proto.ResultsResponse{ServiceName: networkSweepServiceName, ServiceType: "sweep", SweepGroupId: s.sweepGroupID, Available: true, Timestamp: time.Now().Unix()}, nil
+	}
 
 	totalHosts := summary.TotalHosts
 	hostsProcessed := len(summary.Hosts)

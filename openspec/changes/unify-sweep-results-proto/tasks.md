@@ -1,5 +1,14 @@
 # Tasks: Build the durable extensible edge producer data plane
 
+> **Immediate delivery target (2026-10-28, maintainer-directed):** get one
+> real static-target ICMP/TCP sweep running end to end in farm01 within 24 hours.
+> Work on runtime trust, agent emission, normal sweep domain projection and
+> deployment wiring concurrently. Close this checkpoint only with fresh
+> post-rollout execution, ledger and domain-row evidence. The 24-hour parallel
+> comparison, reconnect grants, audit routes and fault drills remain owed;
+> they do not block the first current-epoch canary run. Preserve authentication,
+> durable PubAck, replay idempotency and a finite spool bound throughout.
+
 > **ACTIVE WORK ORDER (scope amendment 2026-09-28, maintainer-approved):**
 > task 0.12 is closed. The active work is the four end-to-end milestones M1-M4
 > below and nothing else. Each milestone closes only on evidence from the
@@ -14,6 +23,16 @@
 > met. See `design.md`, "Scope amendment 2026-09-28".
 
 ## Active: end-to-end milestones
+
+**Current pickup:** the first-canary implementation connects live core trust,
+the leased agent producer, bounded spool, ordinary sweep projection and Helm.
+Continue by preserving the review proxy's proposal-base fixes, then run
+`make test` and the guarded `//integration_tests/edge_record:vertical_slice_test`
+(A-H) plus `//elixir/serviceradar_core:integration_tests_async`. Offline harness
+selfchecks and release builds do not close that gate. Deploy the reviewed head
+and collect the fresh execution/ledger/domain evidence required above before
+marking the corresponding milestones complete. Operating limits are recorded
+in `choices.md` and the chart README.
 
 ### M1. Vertical slice green on `usp-01-proposal`
 
@@ -295,15 +314,29 @@
   availability and discovery sources) by reusing
   `ServiceRadar.SweepJobs.SweepResultsIngestor`'s domain logic inside the ledger
   transaction, so a redelivered record changes nothing (narrows 5.3).
+  The initial canary implementation accepts complete ICMP/TCP host windows
+  with `any-success-v1` availability; partial-mode and MTR windows are refused.
+  It binds the current persisted assignment and scheduled execution, applies
+  domain writes only for a new primary event, derives execution progress from
+  distinct host rows, and completes only at the scheduled plan's target count.
+  Actual hosts and attempted checks must match the persisted signed plan;
+  matching caller-supplied plan/range digests alone does not authorize them.
+  The canary uses disjoint static targets so that this count matches distinct IPs.
+  The database regression covers domain projection, microbatch completion,
+  replay, source/fence rejection and transaction rollback. This item stays
+  unchecked until the guarded composed E2E proves these writes; audit routing,
+  partial-mode merging and MTR projection remain outside this canary slice.
 - [ ] M2.4 Deployment wiring. Helm values, off by default, enable the gateway
   edge-record publisher, EventWriter's EDGE_RECORD stream and durable, the
   gateway trust snapshot and static contract registry (the landed narrow slices
   of 3.2 and 3.8), and the agent spool directory and size bound.
 - [ ] M2.5 Bounded spool. The agent reclaims a spool record only after its
   terminal disposition is durable at the gateway, so a long-running agent's
-  spool stays within its configured bound. Today the sender never resolves a
-  record, so the spool only grows (the minimum of 3.10; the coverage proof and
-  rollover coordinator of 2.27-2.28 stay in the backlog).
+  spool stays within its configured bound. The canary sender now persists
+  validated terminal acknowledgements and advances its local resolved prefix,
+  but physical segment reclamation remains unimplemented. Capacity exhaustion
+  refuses further appends; this item stays unchecked (the minimum of 3.10;
+  coverage proof and rollover coordination of 2.27-2.28 stay in the backlog).
 - [ ] M2.6 Parallel run on farm01. One canary agent on the edge path and one
   control agent on the legacy path sweep the same target set for at least 24
   hours. Per execution, host count, availability and open ports match between
@@ -480,8 +513,10 @@
   commit `76d6eda5e5`, whose tree is identical to that PR's head `dbadb382d6`; its
   integration wave, BuildBuddy invocation
   `19851940-b6af-4093-ae88-0743f44128b3`, also reported
-  `vertical_slice_test PASSED`. The target runs without `-test.v`, so its test
-  log carries no per-group lines. A pass still means every group ran. The
+  `vertical_slice_test PASSED`. The target then ran without `-test.v`, so those
+  test logs carry no per-group lines; it now passes `-test.v`
+  (`integration_tests/edge_record/BUILD.bazel`), so later logs list every
+  passing group. A pass still means every group ran. The
   harness's only `t.Skip` guards are `-short` and a nil Group A fixture, which
   Group A sets before its first check and which no later group can see, because
   the target stops with `t.Fatal` when Group A fails. The subtests after the cut
