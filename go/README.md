@@ -180,9 +180,10 @@ declared `protoc` inputs. The compiler is the Proto ABI release pin, protoc 34.1
 its `write_source_files` test fails when the file drifts. The target covers the message
 binding. `camera_media_grpc.pb.go` stays with the other checked-in stubs.
 
-Regenerate the other bindings with `make generate-proto` and commit the result. Proto ABI
-CI runs that target with the same protoc 34.1 pin. A workstation `protoc` at another
-version rewrites `camera_media.pb.go` to a header the drift guard rejects.
+`make generate-proto` still regenerates `camera_media.pb.go` with those other bindings.
+Proto ABI CI runs that target with the same protoc 34.1 pin. Use that compiler, or
+`//proto:update_camera_media_bindings`, when the message file changes. A workstation
+`protoc` at another version rewrites the header, and both drift guards reject it.
 
 ## 8. What CI runs
 
