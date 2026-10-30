@@ -34,6 +34,8 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
+var errTestScannerInterrupted = errors.New("scanner interrupted")
+
 // All addresses and identity material are synthetic. The scanner boundary is
 // replaced so this exercises actual batching, authority binding and fsynced
 // spool publication without depending on external hosts or raw-socket access.
@@ -185,7 +187,7 @@ func TestEdgeSweepPublishesCompleteWindowsWithoutLegacyOutput(t *testing.T) {
 func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
 	// Only the ICMP half completed. None of these is a terminal host window.
-	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()[:4], err: errors.New("scanner interrupted")}
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()[:4], err: errTestScannerInterrupted}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
 	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { claimed = true; return nil }), "scanner interrupted")
@@ -207,7 +209,7 @@ func TestEdgeSweepRefusesMismatchedPlanBeforeScanning(t *testing.T) {
 
 func TestEdgeSweepInterruptedAfterPublicationConsumesAttempt(t *testing.T) {
 	cfg, lease, slot, sp := edgeSweepFixture(t)
-	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()[:7], err: errors.New("scanner interrupted")}
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()[:7], err: errTestScannerInterrupted}
 	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
 	claimed := false
 	require.ErrorContains(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { claimed = true; return nil }), "scanner interrupted")

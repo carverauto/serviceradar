@@ -98,6 +98,9 @@ var ErrCorruptHeader = errors.New("spool: corrupt record header")
 // rejected rather than persisted.
 var ErrResolveBeyondHighWater = errors.New("spool: resolve beyond durable high-water")
 
+// ErrTerminalEvidenceRequired is returned when ResolveWithEvidence is given no evidence.
+var ErrTerminalEvidenceRequired = errors.New("spool: terminal evidence required")
+
 // ErrEventIDLength is returned when Append is given an event id that is not the
 // fixed 16 bytes the record header reserves for it. The header is fixed-width,
 // so a short or long id would silently shift every field after it.
@@ -615,7 +618,7 @@ func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 		return ErrResolveBeyondHighWater
 	}
 	if len(evidence) == 0 {
-		return errors.New("spool: terminal evidence required")
+		return ErrTerminalEvidenceRequired
 	}
 	if s.failErr != nil {
 		return s.failErr
