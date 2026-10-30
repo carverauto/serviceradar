@@ -3,6 +3,18 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
 
   alias ServiceRadar.Edge.PublisherSupervisor
 
+  @publisher_keys [
+    :sysmon_metrics_publisher,
+    :snmp_metrics_publisher,
+    :icmp_metrics_publisher,
+    :plugin_metrics_publisher,
+    :rperf_metrics_publisher,
+    :mtr_metrics_publisher,
+    :sweep_metrics_publisher,
+    :otlp_relay_publisher,
+    :edge_records_publisher
+  ]
+
   test "fails closed when edge listener certs are missing" do
     cert_dir = unique_tmp_dir!("gateway-app-test")
 
@@ -27,16 +39,11 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
     # gateway application is not started, so a which_children/1 assertion passed locally and
     # failed there -- proving where it ran, not what it composed.
     setup do
-      previous = Application.get_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher)
+      previous = Map.new(@publisher_keys, &{&1, Application.get_env(:serviceradar_agent_gateway, &1)})
 
       Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher, enabled: true)
 
-      on_exit(fn ->
-        case previous do
-          nil -> Application.delete_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher)
-          value -> Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher, value)
-        end
-      end)
+      on_exit(fn -> Enum.each(previous, fn {key, value} -> restore_env(key, value) end) end)
 
       :ok
     end
@@ -49,17 +56,7 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
     test "omits them entirely when no publisher is enabled" do
       # NOT VACUOUS: the entry is conditional, so a test that only ever saw it present could not
       # tell a real gate from an unconditional one. Disabling every publisher must remove it.
-      for key <- [
-            :sysmon_metrics_publisher,
-            :snmp_metrics_publisher,
-            :icmp_metrics_publisher,
-            :plugin_metrics_publisher,
-            :rperf_metrics_publisher,
-            :mtr_metrics_publisher,
-            :sweep_metrics_publisher,
-            :otlp_relay_publisher,
-            :edge_records_publisher
-          ] do
+      for key <- @publisher_keys do
         Application.put_env(:serviceradar_agent_gateway, key, enabled: false)
       end
 
@@ -70,24 +67,11 @@ defmodule ServiceRadarAgentGateway.ApplicationTest do
     end
 
     test "composes the edge publisher lanes when edge_records_publisher alone is enabled" do
-      for key <- [
-            :sysmon_metrics_publisher,
-            :snmp_metrics_publisher,
-            :icmp_metrics_publisher,
-            :plugin_metrics_publisher,
-            :rperf_metrics_publisher,
-            :mtr_metrics_publisher,
-            :sweep_metrics_publisher,
-            :otlp_relay_publisher
-          ] do
+      for key <- @publisher_keys -- [:edge_records_publisher] do
         Application.put_env(:serviceradar_agent_gateway, key, enabled: false)
       end
 
       Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: true)
-
-      on_exit(fn ->
-        Application.put_env(:serviceradar_agent_gateway, :edge_records_publisher, enabled: false)
-      end)
 
       assert edge_publisher_lanes_composed?(),
              "edge_records_publisher alone must be sufficient to start the edge publisher lanes"

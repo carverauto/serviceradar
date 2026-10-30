@@ -880,8 +880,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     assert has_element?(
              list_view,
-             "[data-sweep-lease-agent='#{agent.uid}']",
-             "7"
+             "[data-sweep-lease-agent='#{agent.uid}'] [id^='sweep-lease-slots-']",
+             ~r/\A\s*7\s*\z/
            )
 
     render_patch(list_view, ~p"/settings/networks")
