@@ -195,13 +195,28 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert Enum.sort(Map.keys(decoded)) == [
              "allowed_fingerprints",
              "generated_at",
+             "nats_permissions",
              "valid_until",
              "version"
            ]
 
     assert decoded["version"] == 1
+    assert {:ok, public_envelope} = Authority.sign_public_snapshot()
+    public_payload = Base.decode64!(public_envelope.payload)
+
+    assert public_payload |> Jason.decode!() |> Map.keys() |> Enum.sort() ==
+             ["allowed_fingerprints", "generated_at", "valid_until", "version"]
+
+    assert :crypto.verify(
+             :eddsa,
+             :none,
+             ["serviceradar.certificate-policy.v1", <<0>>, public_payload],
+             Base.decode64!(public_envelope.signature),
+             [public_key, :ed25519]
+           )
+
     viewer = %{id: "example-viewer", role: :viewer, permissions: MapSet.new()}
-    assert {:error, _} = Ash.read(ManagedCertificatePolicyKey, actor: viewer)
+    assert {:ok, []} = Ash.read(ManagedCertificatePolicyKey, actor: viewer)
   end
 
   defp fingerprint(value), do: :sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower)

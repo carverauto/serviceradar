@@ -228,6 +228,8 @@ spec:
 
 The chart version selects matching images, so the Application needs no `global.imageTag`. Remove any `global.imageTag` an existing Application still sets before changing `targetRevision`.
 
+Operational enrollment and rotation: [Managed component certificates](docs/managed-component-certificates.md).
+
 ## Architecture
 
 1. **Agent**: Lightweight Go service on monitored hosts; manages WASM execution and local collection.

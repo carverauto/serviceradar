@@ -162,7 +162,17 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
           |> Enum.filter(&(authorize(payload, &1.component_id, &1.fingerprint, now) == :ok))
           |> Enum.map(& &1.fingerprint)
 
-        payload = Map.put(payload, :allowed_fingerprints, allowed)
+        payload =
+          payload
+          |> Map.put(:allowed_fingerprints, allowed)
+          |> Map.put(
+            :nats_permissions,
+            ServiceRadar.Edge.ManagedComponentNatsPermissions.snapshot(
+              components,
+              certificates,
+              allowed
+            )
+          )
 
         digest =
           :sha256
@@ -179,8 +189,13 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     with {:ok, key} <- ensure_policy_key(), do: {:ok, key.public_key}
   end
 
-  @doc "Signs a minimal receiver snapshot with the dedicated deployment policy key."
-  def sign_snapshot do
+  @doc "Signs authenticated receiver policy, including service-specific NATS permissions."
+  def sign_snapshot, do: sign_policy(true)
+
+  @doc "Signs public transport policy without deployment-specific NATS subjects."
+  def sign_public_snapshot, do: sign_policy(false)
+
+  defp sign_policy(include_permissions?) do
     opts = [actor: SystemActor.system(:component_certificate_authority)]
 
     with {:ok, snapshot} <- snapshot(),
@@ -191,7 +206,10 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
          {^public_key, _private} <- :crypto.generate_key(:eddsa, :ed25519, seed),
          {:ok, payload} <-
            snapshot
-           |> Map.take([:version, :generated_at, :valid_until, :allowed_fingerprints])
+           |> Map.take(
+             [:version, :generated_at, :valid_until, :allowed_fingerprints] ++
+               if(include_permissions?, do: [:nats_permissions], else: [])
+           )
            |> Jason.encode() do
       signature =
         :crypto.sign(:eddsa, :none, ["serviceradar.certificate-policy.v1", <<0>>, payload], [

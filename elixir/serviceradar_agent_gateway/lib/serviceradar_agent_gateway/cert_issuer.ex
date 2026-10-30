@@ -111,8 +111,16 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp extra_sans(:nats_leaf, partition_id, _opts), do: {:ok, ["URI:" <> nats_leaf_role_uri(partition_id)]}
 
   defp extra_sans(:nats_leaf_server, _partition_id, opts) do
-    hosts = ["localhost", "127.0.0.1" | List.wrap(Keyword.get(opts, :server_hosts, []))]
+    server_host_sans(["localhost", "127.0.0.1" | List.wrap(Keyword.get(opts, :server_hosts, []))])
+  end
 
+  defp extra_sans(type, _partition_id, opts) when type in [:log_collector, :flow_collector, :bmp_collector, :trapd] do
+    server_host_sans(List.wrap(Keyword.get(opts, :server_hosts, [])))
+  end
+
+  defp extra_sans(_component_type, _partition_id, _opts), do: {:ok, []}
+
+  defp server_host_sans(hosts) do
     hosts
     |> Enum.uniq()
     |> Enum.reduce_while({:ok, []}, fn host, {:ok, acc} ->
@@ -126,8 +134,6 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
       error -> error
     end
   end
-
-  defp extra_sans(_component_type, _partition_id, _opts), do: {:ok, []}
 
   defp server_host_san(host) when is_binary(host) do
     cond do
@@ -164,7 +170,18 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     end
   end
 
-  defp validate_component_type(type) when type in [:agent, :addon, :nats_leaf, :nats_leaf_server], do: :ok
+  defp validate_component_type(type)
+       when type in [
+              :agent,
+              :addon,
+              :nats_leaf,
+              :nats_leaf_server,
+              :log_collector,
+              :flow_collector,
+              :bmp_collector,
+              :trapd
+            ], do: :ok
+
   defp validate_component_type(_), do: {:error, :unsupported_component_type}
 
   defp validate_identity_tokens(component_id, partition_id) do
@@ -833,6 +850,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            cn: cn,
            validity_days: validity_days,
            certificate_fingerprint: cert_meta.certificate_fingerprint,
+           issuer_fingerprint: certificate_fingerprint(ca_chain_pem),
            serial_number: cert_meta.serial_number,
            serial_number_int: cert_meta.serial_number_int,
            not_before: cert_meta.not_before,

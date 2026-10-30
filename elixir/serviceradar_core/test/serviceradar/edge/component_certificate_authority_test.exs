@@ -79,6 +79,36 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
     assert :ok = Authority.authorize(reenrolled, "example-core", @second, @now)
   end
 
+  test "signed NATS grants exclude denied fingerprints and local server roles" do
+    components = [
+      %{
+        component_id: "example-flow",
+        component_type: "flow-collector",
+        edge_site_id: "example-site"
+      },
+      %{component_id: "example-leaf", component_type: "nats-leaf"}
+    ]
+
+    certificates = [
+      %{component_id: "example-flow", fingerprint: @first, role: "client"},
+      %{component_id: "example-leaf", fingerprint: @second, role: "local_server"},
+      %{component_id: "example-flow", fingerprint: String.duplicate("c", 64), role: "client"}
+    ]
+
+    grants =
+      ServiceRadar.Edge.ManagedComponentNatsPermissions.snapshot(components, certificates, [
+        @first,
+        @second
+      ])
+
+    assert Map.keys(grants) == [@first]
+    assert "flows.raw.netflow" in grants[@first].publish
+    assert "$JS.edge.API.STREAM.UPDATE.flows" in grants[@first].publish
+    refute ">" in grants[@first].publish
+    refute "$JS.API.>" in grants[@first].publish
+    refute "logs.syslog" in grants[@first].publish
+  end
+
   test "receiver lease and certificate validity have independent strict boundaries", ctx do
     assert :ok = Authority.authorize(ctx.snapshot, "example-core", @first, @now)
 

@@ -18,6 +18,11 @@ defmodule ServiceRadar.Edge.ManagedComponent do
     "agent",
     "core",
     "agent-gateway",
+    "web-ng",
+    "nats-server",
+    "rperf-client",
+    "datasvc",
+    "zen",
     "nats-leaf",
     "log-collector",
     "flow-collector",
@@ -30,13 +35,28 @@ defmodule ServiceRadar.Edge.ManagedComponent do
     table "managed_components"
     repo ServiceRadar.Repo
     schema "platform"
+    identity_wheres_to_sql leaf_site: "component_type = 'nats-leaf'"
+
+    references do
+      reference :edge_site, on_delete: :restrict
+      reference :collector, on_delete: :restrict
+    end
   end
 
   actions do
     defaults [:read]
 
     create :enroll do
-      accept [:component_id, :component_type, :partition_id, :host_agent_id, :server_hosts]
+      accept [
+        :component_id,
+        :component_type,
+        :partition_id,
+        :host_agent_id,
+        :server_hosts,
+        :edge_site_id,
+        :collector_id
+      ]
+
       validate attribute_in(:component_type, @types)
 
       change {StampCertificateActor, attribute: :generation_started_by}
@@ -111,11 +131,25 @@ defmodule ServiceRadar.Edge.ManagedComponent do
   end
 
   relationships do
+    belongs_to :edge_site, ServiceRadar.Edge.EdgeSite do
+      public? true
+    end
+
+    belongs_to :collector, ServiceRadar.Edge.CollectorPackage do
+      public? true
+    end
+
     belongs_to :host_agent, ServiceRadar.Infrastructure.Agent do
       source_attribute :host_agent_id
       destination_attribute :uid
       attribute_type :string
       public? true
     end
+  end
+
+  identities do
+    identity :host_service, [:host_agent_id, :component_type]
+    identity :leaf_site, [:edge_site_id], where: expr(component_type == "nats-leaf")
+    identity :collector_source, [:collector_id]
   end
 end

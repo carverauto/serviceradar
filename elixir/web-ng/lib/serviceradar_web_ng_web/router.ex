@@ -705,6 +705,10 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # Admin API (session/JWT auth)
+  scope "/.well-known/serviceradar", ServiceRadarWebNGWeb do
+    get("/certificate-policy", CertificatePolicyController, :show)
+  end
+
   scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_auth)
 
@@ -874,6 +878,14 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_key_auth)
+
+    get("/managed-components/bootstrap", ManagedComponentController, :bootstrap)
+    post("/managed-components", ManagedComponentController, :create)
+    get("/managed-components/:id", ManagedComponentController, :show)
+    post("/managed-components/:id/rotate", ManagedComponentController, :rotate)
+    post("/managed-components/:id/revoke", ManagedComponentController, :revoke)
+    post("/managed-components/:id/reenroll", ManagedComponentController, :reenroll)
+    post("/nats/certificate-authorization/bootstrap", ManagedComponentController, :bootstrap_nats)
 
     # Collector package management
     get("/collectors", CollectorController, :index)

@@ -60,6 +60,7 @@ defmodule ServiceRadar.Edge do
   end
 
   resources do
+    resource ServiceRadar.Edge.ManagedCertificateOperation
     resource ServiceRadar.Edge.ManagedCertificatePolicyKey
     resource ServiceRadar.Edge.ManagedCertificateNatsConfig
     resource ServiceRadar.Edge.ManagedComponent

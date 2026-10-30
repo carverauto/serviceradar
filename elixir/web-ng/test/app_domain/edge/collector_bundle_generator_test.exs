@@ -7,6 +7,42 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
   @moduletag :db_free
 
+  test "managed transport uses fixed current certificate paths and signed policy, without private material" do
+    component = %{component_id: "example-collector", component_type: "flow-collector", partition_id: "example-partition"}
+    package = %CollectorPackage{id: "3a000000-0000-4000-8000-000000000001", collector_type: :sflow, config_overrides: %{}}
+
+    config =
+      package
+      |> CollectorBundleGenerator.managed_configuration(component, %{version: 1})
+      |> Map.fetch!("flow-collector.json")
+      |> Jason.decode!()
+
+    assert config["listeners"] == [
+             %{"protocol" => "sflow", "listen_addr" => "0.0.0.0:6343", "subject" => "flows.raw.sflow"}
+           ]
+
+    assert config["security"]["tls"]["cert_file"] ==
+             "/etc/serviceradar/managed-components/example-collector/current/client/component.pem"
+
+    assert config["security"]["cert_policy_local_leaf_file"] ==
+             "/etc/serviceradar/managed-components/example-collector/local-leaf.json"
+
+    assert config["security"]["cert_policy_file"] == "/etc/serviceradar/managed-components/policy.json"
+    refute Map.has_key?(config, "nats_creds_file")
+
+    component = %{component | component_type: "log-collector"}
+    package = %{package | collector_type: :otel}
+    files = CollectorBundleGenerator.managed_configuration(package, component, nil)
+    assert files["log-collector.toml"] =~ "[otel]\nenabled = true"
+
+    for file <- ["flowgger.toml", "otel.toml"] do
+      assert files[file] =~ "/current/client/component.pem"
+      refute files[file] =~ "nats.creds"
+      refute files[file] =~ "local-leaf.json"
+      refute files[file] =~ "PRIVATE KEY"
+    end
+  end
+
   describe "create_tarball/4 for falcosidekick" do
     test "does not bundle a second certificate set" do
       {:ok, tarball} =

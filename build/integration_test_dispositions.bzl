@@ -9,6 +9,7 @@ ASYNC_INTEGRATION_SRCS = [
     "test/integration/component_certificate_authority_integration_test.exs",
     "test/integration/credential_broker_grant_lifecycle_integration_test.exs",
     "test/integration/device_upsert_bind_parameter_limit_integration_test.exs",
+    "test/integration/managed_certificate_lifecycle_integration_test.exs",
     "test/integration/secret_broker_audit_integration_test.exs",
     "test/integration/sweep_execution_reaper_integration_test.exs",
     "test/serviceradar/agent_commands/status_handler_result_gate_db_test.exs",

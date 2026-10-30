@@ -99,6 +99,7 @@ config :serviceradar_core, Oban,
        # serviceradar_core's runtime.exs and serviceradar_core_elx's runtime.exs.
        {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
        {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+       {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker, queue: :maintenance},
        {"*/30 * * * *", ServiceRadar.Observability.ResolveStaleAnomaliesWorker,
         queue: :maintenance}
      ]}

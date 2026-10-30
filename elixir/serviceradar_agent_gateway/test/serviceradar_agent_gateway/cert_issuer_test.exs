@@ -417,6 +417,47 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
     assert issued.issuance_audit[:resource_id] == "agent-1"
   end
 
+  test "managed collector CSR signs only approved server names and reports the actual issuer fingerprint" do
+    parent_dir = unique_tmp_dir!("managed-collector-csr")
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+    [{:Certificate, issuer_der, _}] = :public_key.pem_decode(File.read!(ca_cert))
+
+    for type <- [:log_collector, :flow_collector, :bmp_collector, :trapd] do
+      csr =
+        generate_csr_der!(
+          ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+          "/CN=example-collector.example.serviceradar",
+          "URI:spiffe://serviceradar.local/#{type}/example/example-collector,DNS:example-collector.example.serviceradar,DNS:collector.example.test"
+        )
+
+      options = [
+        ca_cert_file: ca_cert,
+        ca_key_file: ca_key,
+        temp_parent_dir: parent_dir,
+        server_hosts: ["collector.example.test"],
+        authorized_component_id: "example-collector",
+        authorized_partition_id: "example"
+      ]
+
+      assert {:ok, issued} = CertIssuer.issue_from_csr(csr, "example-collector", "example", type, options)
+      assert issued.issuer_fingerprint == Base.encode16(:crypto.hash(:sha256, issuer_der), case: :lower)
+      assert {:dNSName, ~c"collector.example.test"} in subject_alt_names(issued.certificate_pem)
+      refute Map.has_key?(issued, :private_key_pem)
+
+      assert {:error, :csr_identity_mismatch} =
+               CertIssuer.issue_from_csr(
+                 csr,
+                 "example-collector",
+                 "example",
+                 type,
+                 Keyword.put(options, :server_hosts, ["different.example.test"])
+               )
+    end
+  end
+
   test "rejects CSR with forged signature or weak key or mismatched CN/SAN" do
     parent_dir = unique_tmp_dir!("gateway-cert-issuer-csr-reject-test")
     on_exit(fn -> File.rm_rf(parent_dir) end)

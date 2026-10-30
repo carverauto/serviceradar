@@ -1354,6 +1354,7 @@ if config_env() == :prod do
       # serviceradar_core's runtime.exs and config.exs.
       {"* * * * *", ServiceRadar.Inventory.Availability.ResolverWorker, queue: :maintenance},
       {"* * * * *", ServiceRadar.Inventory.Availability.ExpiryWorker, queue: :maintenance},
+      {"* * * * *", ServiceRadar.Edge.ManagedCertificateReconcileWorker, queue: :maintenance},
       # Composite checks' only scheduler: one evaluation job per enabled check per
       # minute; each job runs the full pass when it is due and the incremental
       # pass otherwise. Kept in step with serviceradar_core's runtime.exs.
