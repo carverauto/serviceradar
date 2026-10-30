@@ -37,6 +37,7 @@ import (
 
 const (
 	intervalLiteral         = "interval"
+	cronLiteral             = "cron"
 	networkSweepServiceName = "network_sweep"
 )
 

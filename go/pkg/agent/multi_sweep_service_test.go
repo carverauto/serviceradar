@@ -105,8 +105,8 @@ func assertCronLeaseReport(t *testing.T, service *MultiSweepService, state strin
 	serialized, ok := raw[0].(map[string]any)
 	require.True(t, ok)
 	require.Equal(t, state, serialized["state"])
-	require.Equal(t, float64(nextSlot), serialized["next_slot_unix_nano"])
-	require.Equal(t, float64(remaining), serialized["slots_remaining"])
+	require.InDelta(t, float64(nextSlot), serialized["next_slot_unix_nano"], 0)
+	require.InDelta(t, float64(remaining), serialized["slots_remaining"], 0)
 }
 
 func assertCronLeaseReportAbsent(t *testing.T, service *MultiSweepService) {

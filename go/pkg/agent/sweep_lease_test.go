@@ -32,6 +32,7 @@ import (
 	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
+//nolint:gochecknoglobals // immutable synthetic fixture, not state
 var (
 	testLeaseGroup   = uuid.MustParse("11111111-2222-3333-4444-555555555555")
 	testLeaseID      = uuid.MustParse("66666666-7777-4888-8999-000000000000")

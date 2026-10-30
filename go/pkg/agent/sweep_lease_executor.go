@@ -74,6 +74,10 @@ const (
 // terminal: the slot is retried until its collection window closes.
 var errSweepLeaseClockFloor = errors.New("sweep lease clock floor")
 
+// errSweepLeaseSlotNotRunnable stops a sweep whose slot was replaced, revoked,
+// already executed, or moved outside its window while it was running.
+var errSweepLeaseSlotNotRunnable = errors.New("leased sweep slot is no longer executable")
+
 // sweepLeaseRunner is the slice of MultiSweepService the executor drives.
 type sweepLeaseRunner interface {
 	RunSweepGroupExecution(ctx context.Context, groupID string, executionID string) error
@@ -304,7 +308,7 @@ func (e *sweepLeaseExecutor) runSlot(ctx context.Context, runner sweepLeaseRunne
 		installed := sweepLeaseSlot(current, executionID)
 		now := clock().UnixNano()
 		if current == nil || !proto.Equal(installed, slot) || e.store.Executed(groupID, executionID) || now < slot.GetSlotStartUnixNano() || now >= slot.GetCollectionExpiresUnixNano() {
-			return errors.New("leased sweep slot is no longer executable")
+			return errSweepLeaseSlotNotRunnable
 		}
 		return validateSweepLeaseSlot(current, installed, now)
 	})
@@ -354,7 +358,7 @@ func (e *sweepLeaseExecutor) markExecuted(groupID string, executionID string, sl
 func validateSweepLeaseSlot(lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, nowUnixNano int64) error {
 	capability := lease.GetProductionCapability()
 	if err := edgerecord.ValidateCapability(capability, edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_PRODUCTION); err != nil {
-		return fmt.Errorf("%w: production capability: %v", errInvalidSweepLease, err)
+		return fmt.Errorf("%w: production capability: %w", errInvalidSweepLease, err)
 	}
 
 	production := capability.GetProduction()
@@ -376,7 +380,7 @@ func validateSweepLeaseSlot(lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseS
 
 	header := slot.GetPlanHeader()
 	if err := edgerecord.ValidatePlanPages(header, slot.GetPlanPages()); err != nil {
-		return fmt.Errorf("%w: slot plan: %v", errInvalidSweepLease, err)
+		return fmt.Errorf("%w: slot plan: %w", errInvalidSweepLease, err)
 	}
 
 	if !bytes.Equal(production.GetNetworkScopeId(), header.GetNetworkScopeId()) {
@@ -423,7 +427,7 @@ func validateSweepLeaseSourceAuthorization(
 ) error {
 	capability := authorization.GetCapability()
 	if err := edgerecord.ValidateCapability(capability, edgev1.EdgeCapabilityPurpose_EDGE_CAPABILITY_PURPOSE_SOURCE); err != nil {
-		return fmt.Errorf("%w: source authorization: %v", errInvalidSweepLease, err)
+		return fmt.Errorf("%w: source authorization: %w", errInvalidSweepLease, err)
 	}
 
 	source := capability.GetSource()
