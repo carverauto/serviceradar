@@ -112,43 +112,41 @@ async fn main() -> Result<()> {
     let socket = UdpSocket::bind(&cfg.listen_addr).await?;
 
     let creds_path = cfg.nats_creds_path();
-    let nats_client = if let Some(sec) = &cfg.nats_security {
-        match sec.mode {
-            SecurityMode::None => {
-                if let Some(creds_path) = &creds_path {
-                    async_nats::ConnectOptions::new()
-                        .credentials_file(creds_path)
-                        .await?
-                        .connect(&cfg.nats_url)
-                        .await?
-                } else {
-                    async_nats::connect(&cfg.nats_url).await?
-                }
-            }
-            SecurityMode::Mtls => {
-                let mut opts = async_nats::ConnectOptions::new();
-                if let Some(creds_path) = &creds_path {
-                    opts = opts.credentials_file(creds_path).await?;
-                }
-                if let Some(ca) = &sec.ca_file {
-                    opts = opts.add_root_certificates(sec.resolve_path(ca));
-                }
-                if let (Some(cert), Some(key)) = (&sec.cert_file, &sec.key_file) {
-                    opts =
-                        opts.add_client_certificate(sec.resolve_path(cert), sec.resolve_path(key));
-                }
-                opts.connect(&cfg.nats_url).await?
-            }
+    let mut options = async_nats::ConnectOptions::new();
+    if let Some(creds_path) = &creds_path {
+        options = options.credentials_file(creds_path).await?;
+    }
+    let security = cfg.nats_security.as_ref();
+    let ca = security.and_then(|sec| sec.ca_file.as_ref().map(|path| sec.resolve_path(path)));
+    let cert = security.and_then(|sec| sec.cert_file.as_ref().map(|path| sec.resolve_path(path)));
+    let key = security.and_then(|sec| sec.key_file.as_ref().map(|path| sec.resolve_path(path)));
+    if security.is_some_and(|sec| matches!(sec.mode, SecurityMode::Mtls)) {
+        if let Some(ca) = &ca {
+            options = options.add_root_certificates(ca.clone());
         }
-    } else if let Some(creds_path) = &creds_path {
-        async_nats::ConnectOptions::new()
-            .credentials_file(creds_path)
-            .await?
-            .connect(&cfg.nats_url)
-            .await?
-    } else {
-        async_nats::connect(&cfg.nats_url).await?
-    };
+        if let (Some(cert), Some(key)) = (&cert, &key) {
+            options = options.add_client_certificate(cert.clone(), key.clone());
+        }
+    }
+    anyhow::ensure!(
+        security.is_none_or(
+            |sec| sec.cert_policy_file.is_none() || matches!(sec.mode, SecurityMode::Mtls)
+        ),
+        "managed certificate policy requires mTLS mode"
+    );
+    let policy_file = security
+        .and_then(|sec| sec.cert_policy_file.as_deref())
+        .map(std::path::Path::new);
+    let (nats_client, cert_policy) = serviceradar_cert_policy::nats::connect(
+        options,
+        &cfg.nats_url,
+        policy_file,
+        ca.as_deref(),
+        cert.as_deref(),
+        key.as_deref(),
+    )
+    .await
+    .map_err(anyhow::Error::from_boxed)?;
     let js = if let Some(domain) = &cfg.nats_domain {
         async_nats::jetstream::with_domain(nats_client, domain)
     } else {
@@ -165,6 +163,13 @@ async fn main() -> Result<()> {
         let data = &buf[..len];
         match snmp2::Pdu::from_bytes(data) {
             Ok(pdu) => {
+                if cert_policy
+                    .as_ref()
+                    .is_some_and(|guard| guard.ensure_authorized().is_err())
+                {
+                    warn!("NATS peer certificate policy unavailable; trap delivery blocked");
+                    continue;
+                }
                 let msg = build_message(&pdu, addr);
                 let payload = serde_json::to_vec(&msg)?;
                 if let Err(e) = js.publish(cfg.subject.clone(), payload.into()).await?.await {
@@ -572,6 +577,7 @@ mod tests {
             nats_security: None,
             grpc_listen_addr: Some("0.0.0.0:50043".into()),
             grpc_security: Some(SecurityConfig {
+                cert_policy_file: None,
                 mode: SecurityMode::Mtls,
                 cert_dir: Some("/etc/serviceradar/certs".into()),
                 cert_file: Some("trapd.pem".into()),
@@ -600,6 +606,7 @@ mod tests {
     fn resolve_grpc_server_transport_resolves_mtls_paths() {
         let mut cfg = base_config();
         cfg.grpc_security = Some(SecurityConfig {
+            cert_policy_file: None,
             mode: SecurityMode::Mtls,
             cert_dir: Some("/etc/serviceradar/certs".into()),
             cert_file: Some("trapd.pem".into()),

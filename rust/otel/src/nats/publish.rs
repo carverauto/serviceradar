@@ -88,7 +88,12 @@ impl NATSOutput {
             .await
             .map_err(|_| anyhow!("NATS publish semaphore closed"))?;
 
-        let (js, generation) = self.current_jetstream().await?;
+        let (js, generation, cert_policy) = self.current_jetstream().await?;
+        if let Some(guard) = &cert_policy {
+            guard
+                .ensure_authorized()
+                .map_err(anyhow::Error::from_boxed)?;
+        }
 
         let publish_result = match headers {
             Some(h) => {

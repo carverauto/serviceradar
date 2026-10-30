@@ -48,6 +48,7 @@ rust_binary(
         cargo_only = True,
         normal = True,
     ) + [
+        "//rust/cert-policy:cert_policy",
         ":build_script",
     ],
 )

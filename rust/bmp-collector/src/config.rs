@@ -23,6 +23,8 @@ pub struct Config {
     pub stream_discard_policy: async_nats::jetstream::stream::DiscardPolicy,
     pub nats_url: String,
     #[serde(default)]
+    pub nats_cert_policy_file: Option<String>,
+    #[serde(default)]
     pub nats_domain: Option<String>,
     #[serde(default)]
     pub nats_creds_file: Option<String>,

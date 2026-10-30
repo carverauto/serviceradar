@@ -8,6 +8,7 @@ name = "serviceradar-bmp-collector"
 path = "src/main.rs"
 
 [dependencies]
+serviceradar-cert-policy = { path = "../cert-policy" }
 anyhow = { workspace = true }
 arancini-lib ={ workspace = true }
 async-nats = { workspace = true }

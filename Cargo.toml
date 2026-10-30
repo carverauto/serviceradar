@@ -17,6 +17,7 @@ members = [
     "elixir/web-ng/native/god_view_nif",
     "rust/kvutil",
     "rust/config-bootstrap",
+    "rust/cert-policy",
     "rust/age-to-dgraph",
     "rust/dgraph-migrate",
     "rust/network-config-downparser",

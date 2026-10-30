@@ -47,6 +47,7 @@ pub struct NATSConfig {
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub tls_ca: Option<PathBuf>,
+    pub cert_policy_file: Option<PathBuf>,
     /// Holds control-plane-delivered PEM files alive for this runtime. The
     /// files are removed when the output is dropped and are never persisted
     /// as a NATS credentials file.
@@ -73,6 +74,7 @@ impl Default for NATSConfig {
             tls_cert: None,
             tls_key: None,
             tls_ca: None,
+            cert_policy_file: None,
             tls_material_dir: None,
             max_inflight_publishes: DEFAULT_MAX_INFLIGHT_PUBLISHES,
         }
@@ -190,27 +192,34 @@ impl NATSOutput {
         info!("Initializing NATS output");
         debug!("NATS config: {config:?}");
 
-        let (_client, jetstream) = Self::connect(&config).await?;
+        let (_client, jetstream, cert_policy) = Self::connect(&config).await?;
         stream::ensure_stream(&jetstream, &config).await?;
 
         info!("NATS output initialized successfully");
-        Ok(Self::from_parts(config, Some(jetstream), false))
+        Ok(Self::from_parts(
+            config,
+            Some(jetstream),
+            cert_policy,
+            false,
+        ))
     }
 
     pub fn disabled() -> Self {
         info!("NATS output disabled (no-op)");
-        Self::from_parts(NATSConfig::default(), None, true)
+        Self::from_parts(NATSConfig::default(), None, None, true)
     }
 
     fn from_parts(
         config: NATSConfig,
         jetstream: Option<jetstream::Context>,
+        cert_policy: Option<serviceradar_cert_policy::nats::Guard>,
         disabled: bool,
     ) -> Self {
         let permits = config.max_inflight_publishes.max(1);
         Self {
             state: RwLock::new(ConnectionState {
                 jetstream,
+                cert_policy: cert_policy.map(Arc::new),
                 generation: 0,
             }),
             recovery: Mutex::new(()),
