@@ -14,6 +14,7 @@ defmodule Camera.OpenRelaySessionRequest do
   field :lease_token, 6, type: :string, json_name: "leaseToken"
   field :codec_hint, 7, type: :string, json_name: "codecHint"
   field :container_hint, 8, type: :string, json_name: "containerHint"
+  field :source_incarnation_id, 9, type: :string, json_name: "sourceIncarnationId"
 end
 
 defmodule Camera.OpenRelaySessionResponse do

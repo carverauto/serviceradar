@@ -38,6 +38,15 @@ dispatch, reconcile an agent incarnation, or prove physical retirement. Those
 recovery and handoff tasks remain open, as do durable close-operation identity
 and command-ledger retention beyond its existing cleanup policy.
 
+Source-runtime identity checkpoint for 2.5: a camera relay manager generates one
+UUID for its source registry lifetime and sends it on authenticated media open.
+Core persists it at first activation. Repeat activation must retain that identity;
+changing or omitting a known identity is rejected before lease renewal. Older
+agents remain compatible with an explicitly unknown identity, and an already
+active legacy relay cannot adopt a new identity. This does not reconcile a lost
+command, fence an earlier runtime, or prove physical retirement. Control reconnect
+does not replace the source registry. Pools and continuous recording remain open.
+
 ## 3. Storage modes and recovery
 
 - [ ] 3.1 Install qualified exclusive per-recorder filesystem volumes with explicit identities/initialization for Kubernetes and supported customer hosts.

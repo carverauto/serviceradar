@@ -45,6 +45,9 @@ message OpenRelaySessionRequest {
   string lease_token = 6;
   string codec_hint = 7;
   string container_hint = 8;
+  // Identity of the agent camera runtime, stable across control reconnects.
+  // Empty on older agents; a different value is not proof of source retirement.
+  string source_incarnation_id = 9;
 }
 
 message OpenRelaySessionResponse {

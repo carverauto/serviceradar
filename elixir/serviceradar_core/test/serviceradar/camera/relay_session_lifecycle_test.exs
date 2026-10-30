@@ -20,6 +20,7 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycleTest do
 
     assert {:ok, session} =
              Fixtures.activate(ctx, opening, "media-example", %{
+               source_incarnation_id: "b0ede4c7-23ca-412f-91ad-77ce4ae8e33c",
                lease_expires_at_unix: 4_000_000_000,
                viewer_count: 2,
                viewer_ids: [Ecto.UUID.generate(), Ecto.UUID.generate()]
@@ -28,10 +29,64 @@ defmodule ServiceRadar.Camera.RelaySessionLifecycleTest do
     owner = Fixtures.owner(ctx)
     assert session.status == :active
     assert session.media_ingest_id == "media-example"
+
+    assert {:ok, %{source_incarnation_id: "b0ede4c7-23ca-412f-91ad-77ce4ae8e33c"}} =
+             Fixtures.reload(ctx, session)
+
     assert session.viewer_count == 2
     assert session.lease_expires_at == owner.lease_expires_at
     assert DateTime.diff(owner.lease_expires_at, owner.database_now, :second) in 0..30
     assert [%{kind: :viewer}, %{kind: :viewer}] = consumers(ctx, owner)
+  end
+
+  test "repeat activation cannot change or remove the bound source runtime", ctx do
+    {:ok, opening} = Fixtures.open(ctx)
+    incarnation = Ecto.UUID.generate()
+    attrs = %{source_incarnation_id: incarnation}
+    {:ok, active} = Fixtures.activate(ctx, opening, "media-example", attrs)
+    assert {:ok, repeated} = Fixtures.activate(ctx, active, "media-example", attrs)
+    assert repeated.source_incarnation_id == incarnation
+    before = Fixtures.owner(ctx)
+
+    for supplied <- [Ecto.UUID.generate(), nil, ""] do
+      assert {:error, :source_incarnation_mismatch} =
+               Fixtures.activate(ctx, active, "media-example", %{source_incarnation_id: supplied})
+
+      assert Fixtures.owner(ctx).lease_expires_at == before.lease_expires_at
+
+      assert {:ok, %{source_incarnation_id: ^incarnation, status: :active}} =
+               Fixtures.reload(ctx, active)
+    end
+  end
+
+  test "an already active legacy relay remains unknown and cannot adopt a new runtime", ctx do
+    {:ok, opening} = Fixtures.open(ctx)
+    {:ok, active} = Fixtures.activate(ctx, opening, "media-example", %{source_incarnation_id: ""})
+    assert {:ok, %{source_incarnation_id: nil}} = Fixtures.activate(ctx, active, "media-example")
+    before = Fixtures.owner(ctx)
+
+    assert {:error, :source_incarnation_mismatch} =
+             Fixtures.activate(ctx, active, "media-example", %{
+               source_incarnation_id: Ecto.UUID.generate()
+             })
+
+    assert Fixtures.owner(ctx).lease_expires_at == before.lease_expires_at
+    assert {:ok, %{source_incarnation_id: nil, status: :active}} = Fixtures.reload(ctx, active)
+  end
+
+  test "malformed runtime identity leaves an opening reservation untouched", ctx do
+    {:ok, opening} = Fixtures.open(ctx)
+    before = Fixtures.owner(ctx)
+
+    for supplied <- ["invalid", String.duplicate("z", 36), 42] do
+      assert {:error, :invalid_source_incarnation} =
+               Fixtures.activate(ctx, opening, "media-example", %{source_incarnation_id: supplied})
+
+      assert Fixtures.owner(ctx).lease_expires_at == before.lease_expires_at
+
+      assert {:ok, %{source_incarnation_id: nil, media_ingest_id: nil, status: :opening}} =
+               Fixtures.reload(ctx, opening)
+    end
   end
 
   for field <- [:agent_id, :gateway_id, :camera_source_id, :stream_profile_id] do

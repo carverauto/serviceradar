@@ -54,6 +54,7 @@ defmodule ServiceRadarCoreElx.CameraMediaIngress do
       gateway_id: request.gateway_id,
       camera_source_id: request.camera_source_id,
       stream_profile_id: request.stream_profile_id,
+      source_incarnation_id: Map.get(request, :source_incarnation_id),
       codec_hint: request.codec_hint,
       container_hint: request.container_hint
     }

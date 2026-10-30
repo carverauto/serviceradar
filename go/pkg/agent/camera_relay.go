@@ -27,6 +27,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	"github.com/google/uuid"
 )
 
 var (
@@ -149,6 +150,8 @@ type cameraRelayHandle struct {
 }
 
 type cameraRelayManager struct {
+	// The source registry lifetime, not the gateway connection lifetime.
+	incarnationID       string
 	mu                  sync.Mutex
 	sessions            map[string]*cameraRelayHandle
 	sources             map[cameraRelaySourceKey]*cameraRelayHandle
@@ -161,6 +164,7 @@ type cameraRelayManager struct {
 
 func newCameraRelayManager(gateway cameraRelayGateway, log logger.Logger) *cameraRelayManager {
 	return &cameraRelayManager{
+		incarnationID:   uuid.NewString(),
 		sessions:        make(map[string]*cameraRelayHandle),
 		sources:         make(map[cameraRelaySourceKey]*cameraRelayHandle),
 		gateway:         gateway,
@@ -207,14 +211,15 @@ func (m *cameraRelayManager) Start(ctx context.Context, spec cameraRelaySessionS
 	}()
 
 	openResp, err := m.gateway.OpenRelaySession(ctx, &proto.OpenRelaySessionRequest{
-		RelaySessionId:  spec.RelaySessionID,
-		AgentId:         spec.AgentID,
-		GatewayId:       spec.GatewayID,
-		CameraSourceId:  spec.CameraSourceID,
-		StreamProfileId: spec.StreamProfileID,
-		LeaseToken:      spec.LeaseToken,
-		CodecHint:       spec.CodecHint,
-		ContainerHint:   spec.ContainerHint,
+		RelaySessionId:      spec.RelaySessionID,
+		AgentId:             spec.AgentID,
+		GatewayId:           spec.GatewayID,
+		CameraSourceId:      spec.CameraSourceID,
+		StreamProfileId:     spec.StreamProfileID,
+		LeaseToken:          spec.LeaseToken,
+		CodecHint:           spec.CodecHint,
+		ContainerHint:       spec.ContainerHint,
+		SourceIncarnationId: m.incarnationID,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("open relay session: %w", err)

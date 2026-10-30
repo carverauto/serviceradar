@@ -462,13 +462,18 @@ defmodule ServiceRadarAgentGateway.CameraMediaServerTest do
           gateway_id: "gateway-1",
           camera_source_id: "camera-1",
           stream_profile_id: "main",
-          lease_token: "lease-capacity-1"
+          lease_token: "lease-capacity-1",
+          source_incarnation_id: "b0ede4c7-23ca-412f-91ad-77ce4ae8e33c"
         },
         %{adapter: CameraMediaAdapterStub, payload: :test}
       )
     end
 
-    assert_receive {:open_relay_session, %Camera.OpenRelaySessionRequest{relay_session_id: "relay-capacity-1"}}
+    assert_receive {:open_relay_session,
+                    %Camera.OpenRelaySessionRequest{
+                      relay_session_id: "relay-capacity-1",
+                      source_incarnation_id: "b0ede4c7-23ca-412f-91ad-77ce4ae8e33c"
+                    }}
 
     assert_receive {:open_session,
                     %{

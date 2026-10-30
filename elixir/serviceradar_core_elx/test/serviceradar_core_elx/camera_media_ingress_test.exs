@@ -68,7 +68,8 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
           camera_source_id: "camera-1",
           stream_profile_id: "main",
           codec_hint: "h264",
-          container_hint: "annexb"
+          container_hint: "annexb",
+          source_incarnation_id: "b0ede4c7-23ca-412f-91ad-77ce4ae8e33c"
         },
         close_grace_ms: 50
       )
@@ -84,7 +85,8 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
                       agent_id: "agent-1",
                       gateway_id: "gateway-1",
                       camera_source_id: "camera-1",
-                      stream_profile_id: "main"
+                      stream_profile_id: "main",
+                      source_incarnation_id: "b0ede4c7-23ca-412f-91ad-77ce4ae8e33c"
                     }}
 
     assert open_response.media_ingest_id == media_ingest_id
@@ -158,6 +160,28 @@ defmodule ServiceRadarCoreElx.CameraMediaIngressTest do
 
     assert late_message =~ "drain"
     assert_receive {:DOWN, ^ingress_ref, :process, ^ingress_pid, :normal}, 1_000
+  end
+
+  test "accepts a legacy gateway request without a runtime identity field" do
+    relay_session_id = unique_id("relay-legacy-gateway")
+
+    request =
+      Map.delete(
+        %Camera.OpenRelaySessionRequest{
+          relay_session_id: relay_session_id,
+          agent_id: "agent-1",
+          gateway_id: "gateway-1",
+          camera_source_id: "camera-1",
+          stream_profile_id: "main"
+        },
+        :source_incarnation_id
+      )
+
+    assert {:ok, %{accepted: true}, %{ingress_pid: ingress_pid}} =
+             CameraMediaIngress.open_relay_session(request)
+
+    assert_receive {:activate_session, ^relay_session_id, _, %{source_incarnation_id: nil}}
+    assert Process.alive?(ingress_pid)
   end
 
   test "returns drain acknowledgments when the relay is already closing" do

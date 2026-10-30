@@ -140,7 +140,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
                  session.relay_session_id,
                  session.media_ingest_id,
                  session
-                 |> Map.take([:agent_id, :gateway_id, :camera_source_id, :stream_profile_id])
+                 |> Map.take([:agent_id, :gateway_id, :camera_source_id, :stream_profile_id, :source_incarnation_id])
                  |> Map.merge(%{
                    viewer_count: session.viewer_count,
                    viewer_ids: current_viewer_ids(state, relay_session_id)
@@ -418,6 +418,7 @@ defmodule ServiceRadarCoreElx.CameraMediaSessionTracker do
       gateway_id: required_string!(attrs, :gateway_id),
       camera_source_id: required_string!(attrs, :camera_source_id),
       stream_profile_id: required_string!(attrs, :stream_profile_id),
+      source_incarnation_id: Map.get(attrs, :source_incarnation_id),
       codec_hint: optional_string(attrs, :codec_hint),
       container_hint: optional_string(attrs, :container_hint),
       status: "active",

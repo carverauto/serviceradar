@@ -1,6 +1,7 @@
 # gazelle:ignore
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
 
 # NOTE: The checked-in Go protobuf sources are retained for non-Bazel tooling.
 
@@ -84,4 +85,24 @@ filegroup(
     name = "cri_proto_src",
     srcs = ["cri/v1.proto"],
     visibility = ["//visibility:public"],
+)
+
+# Generate the committed camera binding on RBE and export it through runfiles.
+genrule(
+    name = "camera_media_go",
+    srcs = ["camera_media.proto"],
+    outs = ["generated/camera_media.pb.go"],
+    cmd = "$(execpath @bazel_tools//tools/proto:protoc) -Iproto " +
+          "--plugin=protoc-gen-go=$(execpath @org_golang_google_protobuf//cmd/protoc-gen-go) " +
+          "--go_out=$(RULEDIR)/generated --go_opt=paths=source_relative " +
+          "$(execpath camera_media.proto)",
+    tools = [
+        "@bazel_tools//tools/proto:protoc",
+        "@org_golang_google_protobuf//cmd/protoc-gen-go",
+    ],
+)
+
+write_source_files(
+    name = "update_camera_media_bindings",
+    files = {"camera_media.pb.go": ":generated/camera_media.pb.go"},
 )
