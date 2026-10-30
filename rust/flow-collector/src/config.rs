@@ -371,6 +371,8 @@ pub enum SecurityMode {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct SecurityConfig {
     pub cert_policy_file: Option<String>,
+    #[serde(default)]
+    pub cert_policy_local_leaf_file: Option<String>,
     pub mode: SecurityMode,
     pub cert_dir: Option<String>,
     pub tls: Option<TlsConfig>,
@@ -1183,6 +1185,7 @@ mod tests {
     fn test_security_config_path_resolution() {
         let config = SecurityConfig {
             cert_policy_file: None,
+            cert_policy_local_leaf_file: None,
             mode: SecurityMode::Mtls,
             cert_dir: Some("/etc/serviceradar/certs".to_string()),
             tls: Some(TlsConfig {

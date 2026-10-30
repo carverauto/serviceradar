@@ -1018,7 +1018,7 @@ impl Publisher {
                 }
                 SecurityMode::None => {
                     anyhow::ensure!(
-                        sec.cert_policy_file.is_none(),
+                        sec.cert_policy_file.is_none() && sec.cert_policy_local_leaf_file.is_none(),
                         "managed certificate policy requires mTLS mode"
                     );
                 }
@@ -1043,6 +1043,9 @@ impl Publisher {
             options,
             &self.config.nats_url,
             policy_file,
+            security
+                .and_then(|sec| sec.cert_policy_local_leaf_file.as_deref())
+                .map(std::path::Path::new),
             ca.as_deref(),
             cert.as_deref(),
             key.as_deref(),

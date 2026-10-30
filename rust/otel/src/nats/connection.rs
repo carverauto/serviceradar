@@ -57,6 +57,7 @@ impl NATSOutput {
             options,
             &config.url,
             config.cert_policy_file.as_deref(),
+            config.cert_policy_local_leaf_file.as_deref(),
             config.tls_ca.as_deref(),
             config.tls_cert.as_deref(),
             config.tls_key.as_deref(),

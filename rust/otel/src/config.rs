@@ -237,6 +237,8 @@ pub enum ClientAuthMode {
 pub struct NATSTLSConfig {
     #[serde(default)]
     pub cert_policy_file: Option<String>,
+    #[serde(default)]
+    pub cert_policy_local_leaf_file: Option<String>,
     pub cert_file: String,
     pub key_file: String,
     pub ca_file: Option<String>,
@@ -403,6 +405,11 @@ impl Config {
                     tls_cert,
                     tls_key,
                     tls_ca,
+                    cert_policy_local_leaf_file: nats
+                        .tls
+                        .as_ref()
+                        .and_then(|tls| tls.cert_policy_local_leaf_file.as_ref())
+                        .map(PathBuf::from),
                     cert_policy_file: nats
                         .tls
                         .as_ref()
@@ -490,6 +497,7 @@ impl Config {
                 max_inflight_publishes: default_max_inflight_publishes(),
                 tls: Some(NATSTLSConfig {
                     cert_policy_file: None,
+                    cert_policy_local_leaf_file: None,
                     cert_file: "/path/to/nats-client.crt".to_string(),
                     key_file: "/path/to/nats-client.key".to_string(),
                     ca_file: Some("/path/to/nats-ca.crt".to_string()),
@@ -902,6 +910,7 @@ key_file = "/grpc.key"
                 max_inflight_publishes: 8,
                 tls: Some(NATSTLSConfig {
                     cert_policy_file: None,
+                    cert_policy_local_leaf_file: None,
                     cert_file: "/cert.pem".to_string(),
                     key_file: "/key.pem".to_string(),
                     ca_file: Some("/ca.pem".to_string()),
@@ -947,6 +956,7 @@ key_file = "/grpc.key"
                 max_inflight_publishes: default_max_inflight_publishes(),
                 tls: Some(NATSTLSConfig {
                     cert_policy_file: None,
+                    cert_policy_local_leaf_file: None,
                     cert_file: "/ignored/cert.pem".to_string(),
                     key_file: "/ignored/key.pem".to_string(),
                     ca_file: Some("/ignored/ca.pem".to_string()),

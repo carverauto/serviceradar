@@ -6630,6 +6630,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+ "x509-cert",
 ]
 
 [[package]]

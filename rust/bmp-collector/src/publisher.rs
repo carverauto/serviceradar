@@ -64,6 +64,10 @@ impl Publisher {
             options,
             &config.nats_url,
             config.nats_cert_policy_file.as_deref().map(Path::new),
+            config
+                .nats_cert_policy_local_leaf_file
+                .as_deref()
+                .map(Path::new),
             config.nats_tls_ca_cert_path.as_deref().map(Path::new),
             pair.as_ref().map(|pair| Path::new(&pair.0)),
             pair.as_ref().map(|pair| Path::new(&pair.1)),

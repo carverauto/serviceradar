@@ -129,9 +129,9 @@ async fn main() -> Result<()> {
         }
     }
     anyhow::ensure!(
-        security.is_none_or(
-            |sec| sec.cert_policy_file.is_none() || matches!(sec.mode, SecurityMode::Mtls)
-        ),
+        security.is_none_or(|sec| (sec.cert_policy_file.is_none()
+            && sec.cert_policy_local_leaf_file.is_none())
+            || matches!(sec.mode, SecurityMode::Mtls)),
         "managed certificate policy requires mTLS mode"
     );
     let policy_file = security
@@ -141,6 +141,9 @@ async fn main() -> Result<()> {
         options,
         &cfg.nats_url,
         policy_file,
+        security
+            .and_then(|sec| sec.cert_policy_local_leaf_file.as_deref())
+            .map(std::path::Path::new),
         ca.as_deref(),
         cert.as_deref(),
         key.as_deref(),
@@ -578,6 +581,7 @@ mod tests {
             grpc_listen_addr: Some("0.0.0.0:50043".into()),
             grpc_security: Some(SecurityConfig {
                 cert_policy_file: None,
+                cert_policy_local_leaf_file: None,
                 mode: SecurityMode::Mtls,
                 cert_dir: Some("/etc/serviceradar/certs".into()),
                 cert_file: Some("trapd.pem".into()),
@@ -607,6 +611,7 @@ mod tests {
         let mut cfg = base_config();
         cfg.grpc_security = Some(SecurityConfig {
             cert_policy_file: None,
+            cert_policy_local_leaf_file: None,
             mode: SecurityMode::Mtls,
             cert_dir: Some("/etc/serviceradar/certs".into()),
             cert_file: Some("trapd.pem".into()),

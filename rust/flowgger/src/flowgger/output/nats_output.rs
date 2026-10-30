@@ -198,6 +198,7 @@ struct NATSConfig {
     tls_key: Option<PathBuf>,
     tls_ca: Option<PathBuf>,
     cert_policy_file: Option<PathBuf>,
+    cert_policy_local_leaf_file: Option<PathBuf>,
     creds_file: Option<PathBuf>,
     connect_attempts: u32,
     connect_initial_backoff: Duration,
@@ -242,6 +243,14 @@ impl NATSOutput {
                     .expect("output.nats_cert_policy_file must be a path"),
             )
         });
+        let cert_policy_local_leaf_file = cfg
+            .lookup("output.nats_cert_policy_local_leaf_file")
+            .map(|v| {
+                PathBuf::from(
+                    v.as_str()
+                        .expect("output.nats_cert_policy_local_leaf_file must be a path"),
+                )
+            });
         let tls_cert = cfg
             .lookup("output.nats_tls_cert")
             .map(|v| PathBuf::from(v.as_str().unwrap()));
@@ -293,6 +302,7 @@ impl NATSOutput {
                 tls_key,
                 tls_ca,
                 cert_policy_file,
+                cert_policy_local_leaf_file,
                 creds_file,
                 connect_attempts,
                 connect_initial_backoff,
@@ -338,6 +348,7 @@ impl NATSWorker {
             options,
             &self.cfg.url,
             self.cfg.cert_policy_file.as_deref(),
+            self.cfg.cert_policy_local_leaf_file.as_deref(),
             self.cfg.tls_ca.as_deref(),
             self.cfg.tls_cert.as_deref(),
             self.cfg.tls_key.as_deref(),

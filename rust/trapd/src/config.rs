@@ -48,6 +48,8 @@ pub struct SecurityConfig {
     #[serde(default)]
     pub cert_policy_file: Option<String>,
     #[serde(default)]
+    pub cert_policy_local_leaf_file: Option<String>,
+    #[serde(default)]
     pub mode: SecurityMode,
     #[serde(default)]
     pub cert_dir: Option<String>,
@@ -203,6 +205,7 @@ mod tests {
             grpc_listen_addr: Some("0.0.0.0:50043".into()),
             grpc_security: Some(SecurityConfig {
                 cert_policy_file: None,
+                cert_policy_local_leaf_file: None,
                 mode: SecurityMode::Mtls,
                 cert_dir: Some("/etc/serviceradar/certs".into()),
                 cert_file: Some("trapd.pem".into()),
@@ -251,6 +254,7 @@ mod tests {
     fn client_ca_path_prefers_client_ca_file() {
         let config = SecurityConfig {
             cert_policy_file: None,
+            cert_policy_local_leaf_file: None,
             cert_dir: Some("/etc/serviceradar/certs".into()),
             client_ca_file: Some("custom-client.pem".into()),
             ca_file: Some("root.pem".into()),
@@ -265,6 +269,7 @@ mod tests {
     fn client_ca_path_falls_back_to_ca_file() {
         let config = SecurityConfig {
             cert_policy_file: None,
+            cert_policy_local_leaf_file: None,
             cert_dir: Some("/etc/serviceradar/certs".into()),
             client_ca_file: None,
             ca_file: Some("root.pem".into()),

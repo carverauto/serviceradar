@@ -25,6 +25,8 @@ pub struct Config {
     #[serde(default)]
     pub nats_cert_policy_file: Option<String>,
     #[serde(default)]
+    pub nats_cert_policy_local_leaf_file: Option<String>,
+    #[serde(default)]
     pub nats_domain: Option<String>,
     #[serde(default)]
     pub nats_creds_file: Option<String>,

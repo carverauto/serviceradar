@@ -48,6 +48,7 @@ pub struct NATSConfig {
     pub tls_key: Option<PathBuf>,
     pub tls_ca: Option<PathBuf>,
     pub cert_policy_file: Option<PathBuf>,
+    pub cert_policy_local_leaf_file: Option<PathBuf>,
     /// Holds control-plane-delivered PEM files alive for this runtime. The
     /// files are removed when the output is dropped and are never persisted
     /// as a NATS credentials file.
@@ -75,6 +76,7 @@ impl Default for NATSConfig {
             tls_key: None,
             tls_ca: None,
             cert_policy_file: None,
+            cert_policy_local_leaf_file: None,
             tls_material_dir: None,
             max_inflight_publishes: DEFAULT_MAX_INFLIGHT_PUBLISHES,
         }
