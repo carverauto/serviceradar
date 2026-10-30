@@ -256,7 +256,7 @@ class.
 - **ADD** an independent bidirectional gRPC record-ingest RPC per durable
   traffic/delivery lane, whose nonce-bound `EdgeDeliveryAckV1` carries the typed
   disposition as an `EdgeRecordDispositionKind` -- the six-value enum frozen by the
-  edge record v1 wire ABI change and landed in #4713, whose generated members are
+  edge record v1 wire ABI change, whose generated members are
   the only values on the wire. The runtime outcome names this change uses
   (`primary_publication`, `audit_publication`, `quarantine_publication`,
   `security_quarantine_publication`, `retryable_rejection`, `permanent_rejection`)
@@ -418,7 +418,7 @@ class.
   that the existing `mtr-metrics` path carries full traces. Phase 2 MUST emit the
   dedicated `MtrTraceBatchV1` event instead.
 - The same typed MTR trace contract over the shared route/class lane is the
-  target for scheduled, sweep-profile, ad-hoc, and on-demand MTR. Issue #4669
+  target for scheduled, sweep-profile, ad-hoc, and on-demand MTR. The MTR JetStream migration
   should converge on this lane rather than
   encode a complete trace as generic metric attributes.
 - `add-adhoc-network-scan` MUST replace its `adhoc-scan-metrics` result contract

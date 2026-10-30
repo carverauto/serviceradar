@@ -24,9 +24,15 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     {:ok, admin: admin, suffix: suffix, partition: partition, agent: agent}
   end
 
-  test "with leasing off and no lease anywhere the pass does nothing" do
-    assert {:ok, :idle} = LeasePass.run()
+  test "with leasing off the pass leases nothing to the group's agent", ctx do
+    group = leased_group!(ctx)
+
+    assert %{leases: 0, scheduled: 0, errors: 0} =
+             LeasePass.reconcile_group(group, DateTime.utc_now())
+
+    assert {:ok, _summary} = LeasePass.run()
     assert :ok = LeasePassWorker.perform(%Oban.Job{args: %{}})
+    assert {:ok, nil} = ProducerAssignments.get(group.id, ctx.agent)
   end
 
   test "an agent with leasing on gets the slots of its horizon, and a second pass changes nothing",

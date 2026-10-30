@@ -74,7 +74,6 @@ go_test(
     deps = [
         "//go/pkg/edge/edgerecord",
         "//go/pkg/edge/projection",
-        "//go/pkg/edge/sender",
         "//go/pkg/edge/spool",
         "//proto/edge/v1:edgev1",
         "@com_github_nats_io_jwt_v2//:jwt",

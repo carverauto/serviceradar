@@ -404,7 +404,7 @@ func padWithDuplicateKnownField(t *testing.T, b []byte, target int) []byte {
 func goldenBytes(t *testing.T, name string, b []byte) []byte {
 	t.Helper()
 	path := filepath.Join("testdata", name)
-	if os.Getenv("EDGE_GOLDEN_UPDATE") != "" {
+	if os.Getenv("EDGE_GOLDEN_UPDATE") == "1" {
 		_ = os.MkdirAll("testdata", 0o755)
 		if err := os.WriteFile(path, b, 0o644); err != nil {
 			t.Fatalf("write %s: %v", name, err)
