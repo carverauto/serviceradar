@@ -234,8 +234,10 @@ func GenerateCloakKey() (string, error) {
 // own boot-time jobs (advisory feeds, seeding, rollups) hold connections for
 // tens of seconds. At 2, those jobs and the probe exhausted the pool: D2's
 // snapshot was dropped from the queue and the restarted core in D3 could not
-// commit the redelivered fixture in time.
-const coreRepoPoolSize = "6"
+// commit the redelivered fixture in time. It must also fund
+// ServiceRadar.Ingestion.WorkerBudget, which refuses to boot below eight: a
+// three-connection reserve, four dedicated lane permits and one general permit.
+const coreRepoPoolSize = "8"
 
 // Env returns the environment variables StartRelease should merge in to boot
 // the core_elx release with EventWriter enabled for this test.

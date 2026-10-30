@@ -44,12 +44,16 @@ import (
 // per test. Nothing here came from a running system. Times derive from the
 // test run's clock so the lease windows are always ahead of the real
 // executed-record pruning in the store.
+//
+//nolint:gochecknoglobals // immutable synthetic fixture, not state
 var (
 	testNetworkScopeID = uuid.MustParse("99999999-8888-4777-a666-555555555555")
 	testSlotStart      = time.Now().Add(2 * time.Hour).Truncate(time.Minute)
 	testLeaseIssuedAt  = testSlotStart.Add(-time.Hour)
-	testSlotWindow     = 15 * time.Minute
+	errScannerFailed   = errors.New("scanner failed")
 )
+
+const testSlotWindow = 15 * time.Minute
 
 type executableLease struct {
 	lease       *edgev1.SweepLeaseV1
@@ -474,7 +478,7 @@ func TestSweepLeaseExecutorRetriesFailedSlot(t *testing.T) {
 	fixture := newLeaseExecutorFixture(t)
 	built := buildExecutableLease(t, testLeaseIssuedAt, testSlotStart, nil)
 	fixture.install(t, built.lease)
-	fixture.sweeper.runErr = errors.New("scanner failed")
+	fixture.sweeper.runErr = errScannerFailed
 
 	now := testSlotStart.Add(time.Minute)
 	fixture.executor.step(context.Background(), func() time.Time { return now })
@@ -572,7 +576,7 @@ func TestMultiSweepStatusReportsEveryLeasedGroup(t *testing.T) {
 	require.NotContains(t, leases, "group-newer")
 	require.Equal(t, sweepLeaseStateActive, leases["group-older"]["state"])
 	require.Equal(t, sweepLeaseStateExhausted, leases["group-quiet"]["state"])
-	require.Equal(t, float64(2), leases["group-older"]["slots_remaining"])
+	require.InDelta(t, float64(2), leases["group-older"]["slots_remaining"], 0)
 }
 
 func twoDueLeaseSlots(t *testing.T) (lease *edgev1.SweepLeaseV1, firstID, secondID string) {
@@ -781,7 +785,7 @@ func TestSweepLeaseExecutorDoesNotDispatchSlotsExpiredDuringScan(t *testing.T) {
 	require.NoError(t, err)
 	state := sweepLeaseStates(t, status.Message)[fixture.group]
 	require.Equal(t, sweepLeaseStateExhausted, state["state"])
-	require.Equal(t, float64(0), state["slots_remaining"])
+	require.InDelta(t, float64(0), state["slots_remaining"], 0)
 }
 
 func TestSweepLeaseExecutorRefreshesClockBetweenGroups(t *testing.T) {

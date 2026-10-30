@@ -218,7 +218,7 @@ func (s *MultiSweepService) SetGroupLeaseDriven(groupID string, driven bool) {
 		s.leaseDriven = make(map[string]bool)
 	}
 	s.leaseDriven[groupID] = driven
-	manual := driven || s.groupConfigs[groupID].ScheduleType == "cron"
+	manual := driven || s.groupConfigs[groupID].ScheduleType == cronLiteral
 	svc := s.groups[groupID]
 	s.mu.Unlock()
 
@@ -367,7 +367,7 @@ func (s *MultiSweepService) UpdateSweepGroupsContext(ctx context.Context, config
 		if svc, ok := existingGroups[groupID]; ok {
 			s.mu.RLock()
 			driven := s.leaseDriven[groupID]
-			manual := driven || group.ScheduleType == "cron"
+			manual := driven || group.ScheduleType == cronLiteral
 			s.mu.RUnlock()
 			setGroupSchedule(svc, driven, manual)
 			if err := svc.UpdateConfig(modelConfig); err != nil {
@@ -406,7 +406,7 @@ func (s *MultiSweepService) UpdateSweepGroupsContext(ctx context.Context, config
 		// A lease-driven group's replacement service must not tick before
 		// it starts; set the mode while the service is still unstarted.
 		driven := s.leaseDriven[groupID]
-		if driven || newGroups[groupID].ScheduleType == "cron" {
+		if driven || newGroups[groupID].ScheduleType == cronLiteral {
 			setGroupSchedule(svc, driven, true)
 		}
 	}
@@ -712,7 +712,7 @@ func isSweepGroupScheduleSupported(group SweepGroupConfig, log logger.Logger) bo
 			return false
 		}
 		return true
-	case "cron":
+	case cronLiteral:
 		return true
 	default:
 		log.Warn().Str("sweep_group_id", group.SweepGroupID).Str("schedule_type", scheduleType).Msg("Unknown sweep schedule type")

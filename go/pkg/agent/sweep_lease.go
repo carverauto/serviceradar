@@ -568,7 +568,7 @@ func (p *PushLoop) handleSweepLeaseChunk(chunk *proto.SweepLeaseChunk, assembler
 	if err := goproto.Unmarshal(payload, &push); err != nil {
 		p.logger.Warn().Err(err).Str("sweep_group_id", group).Msg("Discarded undecodable sweep lease push")
 		p.sendSweepLeaseAck(sender, sweepLeaseAckRefused(group, nil, digest,
-			fmt.Errorf("%w: decode lease: %v", errInvalidSweepLease, err)))
+			fmt.Errorf("%w: decode lease: %w", errInvalidSweepLease, err)))
 
 		return
 	}

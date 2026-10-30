@@ -431,8 +431,8 @@ func parseScheduleInterval(schedule gatewaySweepSchedule, log logger.Logger) (Du
 		}
 
 		return interval, true
-	case "cron":
-		log.Warn().Str("cron", schedule.Cron).Msg("Cron schedules are not supported for agent sweeps yet")
+	case cronLiteral:
+		log.Warn().Str(cronLiteral, schedule.Cron).Msg("Cron schedules are not supported for agent sweeps yet")
 		return 0, false
 	default:
 		log.Warn().Str("schedule_type", schedule.Type).Msg("Unknown sweep schedule type")
