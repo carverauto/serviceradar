@@ -803,7 +803,7 @@ A `Submission` contains an approved output-contract reference, a producer-local
 stable idempotency key, bounded UNCOMPRESSED contract-payload bytes, and bounded
 descriptive metadata. The sink computes `submission_sha256` over those
 pre-compression submission bytes, performs the producer retry lookup BEFORE
-compression, and then compresses the payload at most once. Producer instance,
+compression, and then applies the compression decision stated above. Producer instance,
 assignment, run, and scope handles are host-issued
 and unforgeable; caller-selected strings cannot create quota or identity
 namespaces. The sink supplies or verifies agent/package/assignment/producer/run
