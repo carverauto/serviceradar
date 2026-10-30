@@ -3,6 +3,7 @@ defmodule ServiceRadar.ExposureAudit.SQL do
   import ExUnit.Assertions
 
   alias ServiceRadar.Analytics.StarRocks.MySQL
+  alias ServiceRadar.ExposureAudit.Receipts
   alias ServiceRadar.Inventory.ExposureReconciliationDigest, as: Digest
   alias ServiceRadar.Repo
 
@@ -23,7 +24,8 @@ defmodule ServiceRadar.ExposureAudit.SQL do
 
     {summaries, work} =
       Enum.map_reduce(rows, counters, fn [ordinal | values], totals ->
-        {digest, [drift, missing, checked_at, assessments, refs, memberships, keys]} =
+        {digest,
+         [drift, missing, checked_at, assessments, refs, memberships, keys, receipt_misses]} =
           Enum.split(values, 9)
 
         totals = %{
@@ -33,7 +35,7 @@ defmodule ServiceRadar.ExposureAudit.SQL do
           dimension_keys: keys
         }
 
-        {{ordinal, {summary(digest), drift, missing, checked_at}}, totals}
+        {{ordinal, {summary(digest), drift, missing, checked_at, receipt_misses}}, totals}
       end)
 
     {Map.new(summaries), work}
@@ -60,13 +62,14 @@ defmodule ServiceRadar.ExposureAudit.SQL do
       SELECT ordinal,uid,lifecycle_seq,tombstoned FROM platform.device_fleet_ordinals
       WHERE ordinal=ANY($2)
     ), #{source_projection_sql()},
-    fact_totals(ordinal,n,#{names},drift,assessment_rows) AS (
-      SELECT ordinal,count(h),#{limbs(:pg)},count(*) FILTER (WHERE drift),count(*)
+    fact_totals(ordinal,n,#{names},drift,assessment_rows,receipt_misses) AS (
+      SELECT ordinal,count(h),#{limbs(:pg)},count(*) FILTER (WHERE drift),count(*),
+        count(*) FILTER (WHERE receipt_miss)
       FROM compact GROUP BY ordinal
     ), #{source_coverage_sql()}
     SELECT requested.ordinal,COALESCE(f.n,0),#{sums},COALESCE(f.drift,0),
       COALESCE(c.missing,0),c.checked_at,COALESCE(f.assessment_rows,0),
-      COALESCE(r.n,0),COALESCE(c.memberships,0),(SELECT count(*) FROM dimension_keys)
+      COALESCE(r.n,0),COALESCE(c.memberships,0),(SELECT count(*) FROM dimension_keys),COALESCE(f.receipt_misses,0)
     FROM unnest($2::bigint[]) AS requested(ordinal)
     LEFT JOIN fact_totals f USING(ordinal)
     LEFT JOIN coverage c USING(ordinal)
@@ -76,21 +79,16 @@ defmodule ServiceRadar.ExposureAudit.SQL do
 
   defp source_projection_sql do
     fields = Map.new(@columns, &{&1, "current_#{&1}"})
-    current_columns = Enum.map_join(@columns -- ~w(cve_ord pkg_ord), ",", &"current_#{&1}")
 
-    replay_columns =
-      Enum.map_join(@columns, ",", fn column ->
-        "CASE WHEN valid_replay THEN #{replay_field(column)} END AS replay_#{column}"
-      end)
-
-    equality =
-      Enum.map_join(@columns, " AND ", &"current_#{&1} IS NOT DISTINCT FROM replay_#{&1}")
-
-    # The lateral evaluation fence emits one validity scalar per input, not a
-    # materialized JSON payload. Both consumers read the compact relation below.
+    # The receipt binds full replay validation, not the current source values.
+    # Hash those values once per audit; reuse neither a current nor warehouse hash.
     """
     input AS NOT MATERIALIZED (
-      SELECT o.ordinal,NOT o.tombstoned AS fact_scope,a.last_exposure_publication AS replay,
+      SELECT o.ordinal,NOT o.tombstoned AS fact_scope,
+        r.assessment_id IS NULL AS receipt_miss,COALESCE(r.valid_after_image,false) AS valid_replay,
+        r.cve_ord AS ref_cve,r.pkgver_ord AS ref_package,r.replay_state,
+        encode(r.replay_digest,'hex') AS replay_digest,
+        r.cve_ord AS current_cve_ord,r.pkg_ord AS current_pkg_ord,
         o.ordinal AS current_device_ord,
         a.last_transition_seq AS current_transition_seq,o.lifecycle_seq AS current_device_lifecycle_seq,
         v.ordinal AS current_pkgver_ord,
@@ -105,28 +103,26 @@ defmodule ServiceRadar.ExposureAudit.SQL do
       JOIN platform.endpoint_vulnerability_assessments a ON a.device_uid=o.uid
       LEFT JOIN platform.exposure_package_version_ordinals v
         ON v.package_identity_key=a.package_identity_key AND v.installed_version=COALESCE(a.installed_version,'')
-    ), projected AS MATERIALIZED (
-      SELECT ordinal,fact_scope,#{current_columns},valid_replay,#{replay_columns},
-        #{reference_ordinal("replay", "cve_ord")} AS ref_cve,
-        #{reference_ordinal("replay", "pkgver_ord")} AS ref_package
-      FROM input CROSS JOIN LATERAL (
-        SELECT COALESCE(#{valid_publication("replay")},false) AS valid_replay OFFSET 0
-      ) validated
+      LEFT JOIN platform.exposure_audit_receipts r ON r.assessment_id=a.id
+        AND r.payload_hash=a.audit_publication_hash AND r.validator_revision=#{Receipts.revision()}
     ), typed AS NOT MATERIALIZED (
-      SELECT *,replay_cve_ord AS current_cve_ord,replay_pkg_ord AS current_pkg_ord,
+      SELECT *,
         COALESCE(valid_replay AND current_transition_seq > current_device_lifecycle_seq
           AND current_device_lifecycle_seq >= 0 AND current_pkgver_ord > 0
           AND (current_cvss_score IS NULL OR current_cvss_score BETWEEN 0 AND 10)
           AND (current_source_scope IS NULL OR octet_length(current_source_scope)<=32),false) AS valid
-      FROM projected
+      FROM input
+    ), hashed AS MATERIALIZED (
+      SELECT ordinal,ref_cve,ref_package,receipt_miss,fact_scope,valid,current_state,replay_state,replay_digest,
+        CASE WHEN fact_scope AND valid AND current_state=1 THEN #{hash(:pg, fields)} END AS h
+      FROM typed
     ), compact AS MATERIALIZED (
-      SELECT ordinal,ref_cve,ref_package,
-        CASE WHEN fact_scope AND valid AND current_state=1 THEN #{hash(:pg, fields)} END AS h,
+      SELECT ordinal,ref_cve,ref_package,receipt_miss,h,
         CASE WHEN NOT fact_scope THEN false
           WHEN NOT valid THEN true
           WHEN current_state=0 AND replay_state=0 THEN false
-          ELSE NOT (#{equality}) END AS drift
-      FROM typed
+          ELSE h IS DISTINCT FROM replay_digest END AS drift
+      FROM hashed
     )
     """
   end
@@ -241,17 +237,6 @@ defmodule ServiceRadar.ExposureAudit.SQL do
   defp severity(value),
     do:
       "CASE lower(#{value}) WHEN 'none' THEN 0 WHEN 'unknown' THEN 0 WHEN 'low' THEN 1 WHEN 'medium' THEN 2 WHEN 'high' THEN 3 WHEN 'critical' THEN 4 END"
-
-  defp replay_field("state"), do: "CASE replay->>'state' WHEN 'active' THEN 1 ELSE 0 END"
-  defp replay_field("severity_rank"), do: severity("replay->>'severity'")
-  defp replay_field("cvss_score"), do: "(replay->>'cvss_score')::double precision"
-  defp replay_field("source_scope"), do: "replay->>'source_scope'"
-
-  defp replay_field("device_lifecycle_seq"),
-    do: "COALESCE((replay->>'device_lifecycle_seq')::bigint,0)"
-
-  defp replay_field(flag) when flag in @flags, do: "(replay->>'#{flag}')::boolean"
-  defp replay_field(column), do: "(replay->>'#{column}')::bigint"
 
   def verify_digest! do
     base = Map.new(@columns, &{&1, 1})

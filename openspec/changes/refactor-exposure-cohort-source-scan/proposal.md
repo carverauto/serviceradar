@@ -29,7 +29,12 @@ moving validation into a persistent cache.
 
 This approval covers a disabled manual-harness implementation only. The one
 later measurement allocation is spent. No further hosted run, fleet execution,
-runtime adoption, schema change, rollout, or performance waiver is approved.
+runtime adoption, schema change, rollout, or performance waiver is approved
+for this measurement. A later disabled receipt prototype was separately
+approved and is owned by
+[add-exposure-publication-validation-receipts](../add-exposure-publication-validation-receipts/proposal.md).
+That approval does not rerun this measurement, waive these screens, or adopt
+the prototype in production.
 
 ## Measured result
 

@@ -73,14 +73,13 @@ capacity fixture and accepts only `EXPOSURE_CAPACITY_PROFILE=smoke`: 200 invente
 devices, 500,000 active facts, 50,000 CVEs, 2,551 package versions and 51 resolved
 facts per device. Both the harness and prototype refuse the fleet profile.
 
-The six `bench/exposure_audit_*.exs` files own SQL comparison, scratch metadata,
-read-only Ash resources, grouped readiness, orchestration and controls. No
-production module, application domain, scheduler, migration-discovery path or
+Manual harness files, generated fingerprints and scratch tables are owned by
+[content-bound publication validation](../add-exposure-publication-validation-receipts/design.md#disabled-implementation).
+No production module, application domain, scheduler, migration-discovery path or
 warehouse grant enables this code. The original manual production capacity
 target remains available independently.
 
-A scratch-only Ecto migration adds the generated dimension content hash and
-four control tables. Installation requires the explicit prototype flag, a fresh
+Installation requires the explicit prototype flag, a fresh
 canonical disposable CNPG clone and no prior prototype tables. Cleanup removes
 the migration, fixture rows and owned Oban work, then restores parked bootstrap
 jobs and supervised processes. Canonical observer, teardown and generation

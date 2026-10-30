@@ -17,7 +17,7 @@ This receipt validates documentation, not product behavior or capacity.
 
 - `exposure-source-validation.workflow.json`: `0aeb04f7b873bdf26a8c8d17223c47f55a324d8b1362b0fc51a1f5ca63c63142`.
 - `exposure-source-validation.html`: `ed436d40a76345b4bdb344eae399ac86cd31b0db6f09af3a6e31668e8f19e417`.
-- `exposure-source-validation.openspec.html`: `ba99d0da7f6cb621dc3b06ac9dc6c41a0592da0c5d13a195c23a0da24e3a744b`.
+- `exposure-source-validation.openspec.html`: `9053d5dd85f8a5aacccb436f0ba357b78685e9fad9e1a3c15bb9768598dfd66c`.
 
 ## Diagram browser scope
 
@@ -43,4 +43,4 @@ One allocation was consumed and cleaned up. Hosted execution [b7ddf7ab-a7ad-4b94
 
 Cleanup was verified independently. Scratch tables were empty before removal. Schemas, temporary grants, and run-owned CNPG fixture databases were removed. Generation release passed. No cluster was created or removed. The run used existing shared infrastructure. Both execution locations had zero run-owned databases. No raw plan, address, or operational credential is recorded here.
 
-This is a negative performance result. It is not a pass, a waiver, or a fleet result. Task 2.2 stays open for fleet selectivity and mostly-unique-key evidence. Parent task 1.6, fleet execution, and adoption stay open. No further allocation is approved. The publication-only exception covers publishing this negative report. It does not accept the performance screens. The wording corrections in the portable proposal have not had a new perceptual browser pass; earlier screenshot receipts remain historical.
+This is a negative performance result. It is not a pass, a waiver, or a fleet result. Task 2.2 stays open for fleet selectivity and mostly-unique-key evidence. Parent task 1.6, fleet execution, and adoption stay open. No further allocation is approved. The publication-only exception covers publishing this negative report. It does not accept the performance screens. The wording corrections in the portable proposal, including the 2026-10-30 pointers to the later receipt prototype, have not had a new perceptual browser pass; earlier screenshot receipts remain historical.

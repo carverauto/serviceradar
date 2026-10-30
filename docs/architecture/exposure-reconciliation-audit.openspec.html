@@ -5,7 +5,7 @@ html[data-theme=dark]{color-scheme:dark;--bg:#10191d;--panel:#17242a;--ink:#ecf7
 </style></head><body><main>
 <div class="top"><span class="eyebrow">ServiceRadar / exposure intelligence</span><button id="theme" type="button" aria-label="Toggle color theme">Dark / light</button></div>
 <header><h1>Faster on the small fixture. Still outside the budget.</h1><p class="lead">The disabled audit prototype completed its corrected run in about 31 seconds versus 153 seconds for the existing reconciler. Its correctness controls passed, but fact comparison and orchestration remain above the approved limits.</p><div class="status"><span class="pill">Performance screen failed</span><span class="pill">Task 1.6 remains open</span><span class="pill">Manual scratch target only</span></div></header>
-<div class="warning"><strong>The approved stop rule applies.</strong><p>Corrected fact comparison took 11.845 seconds against a 6-second limit. Orchestration took 4.377 seconds against 0.9 seconds; its assertion was not reached. The separate diagnostic and correction allocations are complete. This page's allocations are spent. The later shared-scan experiment is recorded in <a href="exposure-source-validation.openspec.html">the exposure source validation report</a>. Fleet execution remains unauthorized. Scratch schemas and grants are verified absent. <a href="https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70">Read the corrected hosted execution evidence.</a></p></div>
+<div class="warning"><strong>The approved stop rule applies.</strong><p>Corrected fact comparison took 11.845 seconds against a 6-second limit. Orchestration took 4.377 seconds against 0.9 seconds; its assertion was not reached. The separate diagnostic and correction allocations are complete. This page's allocations are spent. The later shared-scan experiment is recorded in <a href="exposure-source-validation.openspec.html">the exposure source validation report</a>. The later disabled receipt prototype is recorded in <a href="exposure-publication-validation.openspec.html">content-bound publication validation</a>. Neither later change reruns this measurement or waives these screens. Fleet execution remains unauthorized. Scratch schemas and grants are verified absent. <a href="https://carverauto.buildbuddy.io/invocation/bba2e1ab-20d8-47be-a620-5cf2c775db70">Read the corrected hosted execution evidence.</a></p></div>
 <nav aria-label="Review sections"><a class="jump" href="#approach">Approach</a><a class="jump" href="#budget">Time budget</a><a class="jump" href="#review">Measured result</a><a class="jump" href="#design">Full design</a><a class="jump" href="#workflow">Workflow</a></nav>
 <section id="approach"><h2>Three changes, one unchanged correctness contract</h2><div class="grid"><div class="card"><span class="n">01 / SHARED EVIDENCE</span><h3>Verify each dimension version once.</h3><p>A proof binds the exact source payload, sequence, run and recovery fence. Changed content cannot borrow an older proof.</p></div><div class="card"><span class="n">02 / SOURCE WORK</span><h3>Hash the current fact once.</h3><p>Validate retained replay separately with typed field equality. Read actual warehouse columns for its digest.</p></div><div class="card"><span class="n">03 / ORCHESTRATION</span><h3>Evaluate readiness in batches.</h3><p>Keep every device's blockers and recovery obligations. Share computation, never a cached ready verdict.</p></div></div>
 <svg class="flow" viewBox="0 0 1000 195" role="img" aria-labelledby="flowtitle"><title id="flowtitle">Content proof plus actual fact comparison is required before a fresh readiness evaluation.</title><defs><marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0 L10 5 L0 10 Z" style="fill:var(--brand);stroke:none" /></marker></defs><g id="proof"><title>Proof retains its original check time</title><rect x="10" y="55" width="270" height="98" rx="12" /><text class="label" x="32" y="92">Verified content version</text><text class="sub" x="32" y="123">Keep the original evidence time</text></g><path id="proof-link" d="M285 105 H350" marker-end="url(#arrow)" /><g id="facts"><title>Facts and retained replay checked in a finite source view</title><rect x="362" y="55" width="276" height="98" rx="12" /><text class="label" x="385" y="92">Current facts + replay</text><text class="sub" x="385" y="123">Independent warehouse digest</text></g><path id="result-link" d="M643 105 H707" marker-end="url(#arrow)" /><g id="ready"><title>Fresh recovery checks remain authoritative</title><rect x="720" y="55" width="270" height="98" rx="12" /><text class="label" x="742" y="92">Per-device result</text><text class="sub" x="742" y="123">Recheck current recovery state</text></g></svg></section>
@@ -123,14 +123,13 @@ It reuses the owning capacity fixture and accepts only
 500,000 active facts, 50,000 CVEs, 2,551 package versions and 51
 resolved facts per device. Both the harness and prototype refuse the
 fleet profile.</p>
-<p>The six <code>bench/exposure_audit_*.exs</code> files own SQL
-comparison, scratch metadata, read-only Ash resources, grouped
-readiness, orchestration and controls. No production module, application
+<p>Manual harness files, generated fingerprints and scratch tables are owned by
+<a href="exposure-publication-validation.openspec.html">content-bound publication validation</a>.
+No production module, application
 domain, scheduler, migration-discovery path or warehouse grant enables
 this code. The original manual production capacity target remains
 available independently.</p>
-<p>A scratch-only Ecto migration adds the generated dimension content
-hash and four control tables. Installation requires the explicit
+<p>Installation requires the explicit
 prototype flag, a fresh canonical disposable CNPG clone and no prior
 prototype tables. Cleanup removes the migration, fixture rows and owned
 Oban work, then restores parked bootstrap jobs and supervised processes.
@@ -786,6 +785,11 @@ sequence did not change.</p>
 <h3
 id="3-one-current-fact-hash-independently-validate-retained-replay">3.
 One current-fact hash; independently validate retained replay</h3>
+<p>The cohort statement in this section is the pre-receipt contract. The current
+manual statement requires a matching content-bound receipt and does not read
+retained JSON for assessment facts. Current-column hashing and independent
+warehouse hashing are unchanged. See
+<a href="exposure-publication-validation.openspec.html">content-bound publication validation</a>.</p>
 <p>In V, project typed current attributes directly from assessments,
 ordinals and the current package-version dictionary. Retain the existing
 eligibility and lifecycle rules. Validate retained publication

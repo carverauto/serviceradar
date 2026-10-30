@@ -3,6 +3,12 @@ defmodule ServiceRadar.ExposureAudit.Migration do
   use Ecto.Migration
 
   def up do
+    execute("""
+    ALTER TABLE platform.endpoint_vulnerability_assessments
+    ADD COLUMN audit_publication_hash bytea GENERATED ALWAYS AS
+      (sha256(jsonb_send(last_exposure_publication))) STORED
+    """)
+
     execute(
       "ALTER TABLE platform.exposure_dimension_state ADD COLUMN audit_content_hash bytea GENERATED ALWAYS AS (sha256(jsonb_send(payload))) STORED"
     )
@@ -18,7 +24,9 @@ defmodule ServiceRadar.ExposureAudit.Migration do
       id uuid PRIMARY KEY, fence bigint NOT NULL, format_version integer NOT NULL DEFAULT 1, status text NOT NULL,
       started_at timestamp NOT NULL DEFAULT (clock_timestamp() AT TIME ZONE 'utc'),
       expires_at timestamp NOT NULL DEFAULT (clock_timestamp() AT TIME ZONE 'utc' + interval '900 seconds'),
-      cursor bigint NOT NULL DEFAULT 0, enumerated boolean NOT NULL DEFAULT false)
+      cursor bigint NOT NULL DEFAULT 0, enumerated boolean NOT NULL DEFAULT false,
+      receipt_cursor uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000000',
+      receipt_upper uuid NOT NULL, receipts_enumerated boolean NOT NULL DEFAULT false)
     """)
 
     execute("""
@@ -40,14 +48,38 @@ defmodule ServiceRadar.ExposureAudit.Migration do
     execute(
       "CREATE INDEX exposure_audit_pending ON platform.exposure_audit_work(run_id,status,device_ord)"
     )
+
+    execute("""
+    CREATE TABLE platform.exposure_audit_receipts (
+      assessment_id uuid PRIMARY KEY REFERENCES platform.endpoint_vulnerability_assessments(id) ON DELETE CASCADE,
+      payload_hash bytea NOT NULL CHECK(octet_length(payload_hash)=32),
+      validator_revision integer NOT NULL, valid_after_image boolean NOT NULL,
+      replay_state smallint, replay_digest bytea,
+      cve_ord bigint CHECK(cve_ord>0), pkg_ord bigint CHECK(pkg_ord>0), pkgver_ord bigint CHECK(pkgver_ord>0),
+      CHECK(COALESCE((NOT valid_after_image AND replay_state IS NULL AND replay_digest IS NULL)
+        OR (valid_after_image AND replay_state=0 AND replay_digest IS NULL)
+        OR (valid_after_image AND replay_state=1 AND octet_length(replay_digest)=32),false)))
+    """)
+
+    # No source FK here: deferring a row locked by a writer must not wait for
+    # a foreign-key lock. A later bounded pass removes deleted source IDs.
+    execute("""
+    CREATE TABLE platform.exposure_audit_receipt_work (
+      run_id uuid NOT NULL REFERENCES platform.exposure_audit_runs(id) ON DELETE CASCADE,
+      assessment_id uuid NOT NULL, PRIMARY KEY(run_id,assessment_id))
+    """)
   end
 
   def down do
     execute(
-      "DROP TABLE platform.exposure_audit_work, platform.exposure_audit_proofs, platform.exposure_audit_runs, platform.exposure_audit_epoch"
+      "DROP TABLE platform.exposure_audit_receipt_work, platform.exposure_audit_receipts, platform.exposure_audit_work, platform.exposure_audit_proofs, platform.exposure_audit_runs, platform.exposure_audit_epoch"
     )
 
     execute("ALTER TABLE platform.exposure_dimension_state DROP COLUMN audit_content_hash")
+
+    execute(
+      "ALTER TABLE platform.endpoint_vulnerability_assessments DROP COLUMN audit_publication_hash"
+    )
   end
 end
 
@@ -82,8 +114,11 @@ defmodule ServiceRadar.ExposureAudit.State do
     [[fence, started]] =
       query!(
         """
-        INSERT INTO platform.exposure_audit_runs(id,fence,status)
-        SELECT $1::text::uuid,fence,'running' FROM platform.exposure_audit_epoch
+        INSERT INTO platform.exposure_audit_runs(id,fence,status,receipt_upper)
+        SELECT $1::text::uuid,fence,'running',COALESCE(
+          (SELECT id FROM platform.endpoint_vulnerability_assessments ORDER BY id DESC LIMIT 1),
+          '00000000-0000-0000-0000-000000000000'::uuid)
+        FROM platform.exposure_audit_epoch
         RETURNING fence,started_at
         """,
         [id]
@@ -111,6 +146,8 @@ defmodule ServiceRadar.ExposureAudit.State do
     {:ok, result} =
       Repo.transaction(
         fn ->
+          query!("SET LOCAL statement_timeout='30s'")
+
           assert [[run.fence]] ==
                    query!("SELECT fence FROM platform.exposure_audit_epoch FOR SHARE"),
                  "audit recovery fence changed"
@@ -291,6 +328,15 @@ defmodule ServiceRadar.ExposureAudit.State do
       assert [[true, 0]] =
                query!(
                  """
+                 SELECT receipts_enumerated,(SELECT count(*) FROM platform.exposure_audit_receipt_work
+                   WHERE run_id=r.id) FROM platform.exposure_audit_runs r WHERE id=$1::text::uuid
+                 """,
+                 [run.id]
+               )
+
+      assert [[true, 0]] =
+               query!(
+                 """
                  SELECT enumerated,(SELECT count(*) FROM platform.exposure_audit_work
                    WHERE run_id=r.id AND status<>'matched')
                  FROM platform.exposure_audit_runs r WHERE id=$1::text::uuid
@@ -317,7 +363,8 @@ defmodule ServiceRadar.ExposureAudit.State do
   def cleanup!(keep) do
     # Child deletion is paged so deleting a run cannot cascade an unbounded set.
     # The caller retains its run and the most recently completed proof set.
-    for table <- ~w(exposure_audit_proofs exposure_audit_work exposure_audit_runs) do
+    for table <-
+          ~w(exposure_audit_receipt_work exposure_audit_proofs exposure_audit_work exposure_audit_runs) do
       cleanup_page!(table, keep)
     end
   end
