@@ -46,6 +46,7 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   """
 
   alias ServiceRadar.Edge.CapabilityClaims
+  alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.SweepBodyValidate
   alias ServiceRadar.Edge.SweepMatrix
   alias ServiceRadar.Edge.SweepOutcomePolicy
@@ -224,10 +225,11 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   @spec correlate_own_payload(term()) :: result()
   def correlate_own_payload(%EdgeRecordV1{} = record) do
     with :ok <- framing_family(record),
-         :ok <- uncompressed(record),
+         :ok <- admitted_codec(record),
          {:ok, payload} <- payload_bytes(record),
          :ok <- payload_digest(record, payload),
-         {:ok, batch} <- decode_batch(payload) do
+         {:ok, body} <- inner_body(record),
+         {:ok, batch} <- decode_batch(body) do
       validate(record, batch)
     end
   end
@@ -263,10 +265,11 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   @spec ingest_own_payload(term()) :: combined_result() | {:error, {:wire, WireDecode.reason()}}
   def ingest_own_payload(%EdgeRecordV1{} = record) do
     with :ok <- framing_family(record),
-         :ok <- uncompressed(record),
+         :ok <- admitted_codec(record),
          {:ok, payload} <- payload_bytes(record),
          :ok <- payload_digest(record, payload),
-         {:ok, batch} <- validated_body(payload) do
+         {:ok, body} <- inner_body(record),
+         {:ok, batch} <- validated_body(body) do
       # `correlate/2`, not `validate/2`: the disposition is body-decidable and the body
       # validator has already decided it, under the same frozen label. Running it twice
       # would be harmless but would state the rule in two places on one path.
@@ -355,12 +358,20 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   # nowhere to hand the result in. Until an extraction and decompression boundary
   # exists in this runtime to feed it, the honest contract accepts only
   # EDGE_RECORD_COMPRESSION_NONE.
-  defp uncompressed(record) do
+  defp admitted_codec(record) do
     case Map.get(record, :compression) do
-      :EDGE_RECORD_COMPRESSION_NONE -> :ok
+      codec when codec in [:EDGE_RECORD_COMPRESSION_NONE, :EDGE_RECORD_COMPRESSION_ZSTD] -> :ok
       # UNSPECIFIED is the proto default and is NOT an accepted declaration: a record
-      # must say NONE, not leave the field unset.
+      # must say NONE or ZSTD, not leave the field unset.
       _ -> {:error, {:payload, :compressed}}
+    end
+  end
+
+  # The digest above covers the ENCODED payload; the body is what it decodes to.
+  defp inner_body(record) do
+    case Compression.inner_payload(record) do
+      {:ok, body} -> {:ok, body}
+      {:error, _reason} -> {:error, {:payload, :compressed}}
     end
   end
 

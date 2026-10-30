@@ -18,6 +18,7 @@ package sweeper
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -161,5 +162,26 @@ func TestGetScannerStatsDropRateIsTheShareOfRepliesDropped(t *testing.T) {
 				t.Fatalf("rx drop rate = %v, want %v", stats.RxDropRatePercent, tt.want)
 			}
 		})
+	}
+}
+
+func TestEffectiveSweepModesRunsIPv6SYNAsConnectWithoutRawSocket(t *testing.T) {
+	s := &NetworkSweeper{}
+	signed := []models.SweepMode{models.ModeICMP, models.ModeTCP}
+
+	v6, err := s.EffectiveSweepModes("2001:db8::/126", signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []models.SweepMode{models.ModeICMP, models.ModeTCPConnect}; !slices.Equal(v6, want) {
+		t.Fatalf("IPv6 modes = %v, want %v", v6, want)
+	}
+
+	v4, err := s.EffectiveSweepModes("192.0.2.0/30", signed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(v4, signed) {
+		t.Fatalf("IPv4 modes = %v, want %v", v4, signed)
 	}
 }

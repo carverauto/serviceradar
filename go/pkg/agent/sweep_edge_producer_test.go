@@ -48,25 +48,12 @@ func edgeSweepFixture(t *testing.T) (*models.Config, *edgev1.SweepLeaseV1, *edge
 	cfg := &models.Config{Networks: []string{"192.0.2.0/30"}, SweepModes: []models.SweepMode{models.ModeICMP, models.ModeTCPConnect}, Ports: []int{443}, SweepGroupID: testLeaseGroup.String()}
 	checks, _, _, err := sweepChecks(cfg)
 	require.NoError(t, err)
-	checkHash := sweepCheckSetDigest(checks)
 	r := slot.PlanPages[0].Ranges[0]
 	r.Cidr = "192.0.2.0/30"
 	r.TargetCount = 4
-	r.CheckSetSha256 = checkHash
-	r.RangeSha256 = edgerecord.RangeDigest(r)
-	page := slot.PlanPages[0]
-	page.CheckSetSha256 = checkHash
-	page.PageSha256 = edgerecord.PlanPageDigest(page)
-	header := slot.PlanHeader
-	header.TotalTargetCount = 4
-	header.CheckSetSha256 = checkHash
-	header.PlanRootSha256 = edgerecord.PlanRoot(slot.PlanPages)
-	header.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(header)
+	slot.PlanHeader.TotalTargetCount = 4
+	resignSweepFixtureChecks(slot, sweepCheckSetDigest(checks))
 	source := slot.SourceAuthorizations[0]
-	source.ScopeSha256 = r.RangeSha256
-	source.Capability.GetSource().ScopeSha256 = r.RangeSha256
-	source.Capability.GetSource().TargetRangeSha256 = r.RangeSha256
-	source.Capability.GetSource().ExecutionPlanSha256 = header.ExecutionPlanSha256
 	c := lease.ProductionCapability.GetProduction()
 	c.ScopeId = lease.SweepGroupId
 	digest := sha256.Sum256([]byte("synthetic-sweep-contract"))
@@ -100,6 +87,39 @@ func edgeSweepFixture(t *testing.T) (*models.Config, *edgev1.SweepLeaseV1, *edge
 	return cfg, lease, slot, sp
 }
 
+// resignSweepFixtureChecks rebinds the fixture's single-range plan and source
+// authorization to checkHash.
+func resignSweepFixtureChecks(slot *edgev1.SweepLeaseSlotV1, checkHash []byte) {
+	r := slot.PlanPages[0].Ranges[0]
+	r.CheckSetSha256 = checkHash
+	r.RangeSha256 = edgerecord.RangeDigest(r)
+	page := slot.PlanPages[0]
+	page.CheckSetSha256 = checkHash
+	page.PageSha256 = edgerecord.PlanPageDigest(page)
+	header := slot.PlanHeader
+	header.CheckSetSha256 = checkHash
+	header.PlanRootSha256 = edgerecord.PlanRoot(slot.PlanPages)
+	header.ExecutionPlanSha256 = edgerecord.PlanHeaderDigest(header)
+	source := slot.SourceAuthorizations[0]
+	source.ScopeSha256 = r.RangeSha256
+	source.Capability.GetSource().ScopeSha256 = r.RangeSha256
+	source.Capability.GetSource().TargetRangeSha256 = r.RangeSha256
+	source.Capability.GetSource().ExecutionPlanSha256 = header.ExecutionPlanSha256
+}
+
+// recordBody is the inner contract body a record carries under its declared
+// compression.
+func recordBody(t *testing.T, record *edgev1.EdgeRecordV1) []byte {
+	t.Helper()
+	if record.Compression == edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_ZSTD {
+		body, err := edgerecord.DecompressZstdPayload(record.Payload, record.UncompressedSize)
+		require.NoError(t, err)
+		return body
+	}
+	require.Equal(t, edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE, record.Compression)
+	return record.Payload
+}
+
 func edgeSweepResults() []models.Result {
 	var results []models.Result
 	now := time.Now()
@@ -126,8 +146,16 @@ func edgeSweepResults() []models.Result {
 
 type observingSweep struct {
 	*mockSweeper
-	results []models.Result
-	err     error
+	results   []models.Result
+	err       error
+	effective []models.SweepMode
+}
+
+func (s *observingSweep) EffectiveSweepModes(_ string, modes []models.SweepMode) ([]models.SweepMode, error) {
+	if s.effective != nil {
+		return s.effective, nil
+	}
+	return modes, nil
 }
 
 func (s *observingSweep) RunOnceWithObserver(ctx context.Context, executionID string, observe func(*models.Result) error) error {
@@ -157,7 +185,7 @@ func TestEdgeSweepPublishesCompleteWindowsWithoutLegacyOutput(t *testing.T) {
 		require.NoError(t, proto.Unmarshal(stored.Body, record))
 		require.NoError(t, edgerecord.ValidateRecord(record))
 		batch := &edgev1.SweepObservationBatchV1{}
-		require.NoError(t, proto.Unmarshal(record.Payload, batch))
+		require.NoError(t, proto.Unmarshal(recordBody(t, record), batch))
 		require.NoError(t, edgerecord.ValidateSweepObservationBatch(batch))
 		require.Equal(t, uint64(i+1), batch.BatchSequence)
 		require.Equal(t, slot.ExecutionId, batch.ExecutionId)
@@ -234,6 +262,25 @@ func TestEdgeSweepFailedLeaseKeepsEarlierLeasedCycleOffLegacyPath(t *testing.T) 
 	require.NoError(t, err)
 	require.False(t, after.HasNewData)
 	require.Equal(t, queued.CurrentSequence, after.CurrentSequence)
+}
+
+func TestEdgeSweepRefusesSignedModeTheScannerWouldRemap(t *testing.T) {
+	cfg, lease, slot, sp := edgeSweepFixture(t)
+	cfg.SweepModes = []models.SweepMode{models.ModeICMP, models.ModeTCP}
+	checks, _, _, err := sweepChecks(cfg)
+	require.NoError(t, err)
+	resignSweepFixtureChecks(slot, sweepCheckSetDigest(checks))
+	// The sweeper runs tcp as tcp_connect for IPv6 targets without raw SYN.
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults(), effective: []models.SweepMode{models.ModeICMP, models.ModeTCPConnect}}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	claimed := false
+	err = svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { claimed = true; return nil })
+	require.ErrorIs(t, err, errEdgeSweepModeUnavailable)
+	require.False(t, claimed)
+	require.Zero(t, scanner.runCount)
+	records, err := sp.Unresolved()
+	require.NoError(t, err)
+	require.Empty(t, records)
 }
 
 func TestEdgeSweepIncompleteBeforePublicationRemainsRetryable(t *testing.T) {
@@ -315,7 +362,7 @@ func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {
 		record := &edgev1.EdgeRecordV1{}
 		require.NoError(t, proto.Unmarshal(stored.Body, record))
 		batch := &edgev1.SweepObservationBatchV1{}
-		require.NoError(t, proto.Unmarshal(record.Payload, batch))
+		require.NoError(t, proto.Unmarshal(recordBody(t, record), batch))
 		expected := firstSource
 		if batch.Hosts[0].Address[3] >= 2 {
 			expected = secondSource

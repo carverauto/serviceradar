@@ -461,10 +461,13 @@ query. Other agents continue using the legacy results path.
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
 and agent network scope fixed while records remain in the spool: historical
-key/scope trust and audit publication are later milestones. The sender persists
-terminal resolutions, but physical spool reclamation remains pending. Reaching
-the configured byte bound stops further appends; it does not permit growth past
-the bound. Monitor the spool and stop the canary before it fills.
+key/scope trust and audit publication are later milestones. The sweep sender
+persists terminal resolutions. It reclaims a fully drained segment only when
+durable accepted dispositions cover every retained sequence and match each
+record's event identity. Unresolved and rejected records stay on disk, and
+partial-tail compaction is not implemented. Reaching the configured byte bound
+still stops further appends. Monitor the spool until the farm01 restart drill:
+a segment that is not fully accepted is retained.
 An interrupted run remains incomplete and is not rescanned once the agent has
 durably claimed its first append attempt, even if that first append fails.
 

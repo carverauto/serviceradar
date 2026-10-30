@@ -219,10 +219,8 @@ func (s *MultiSweepService) SetGroupLeaseDriven(groupID string, driven bool) {
 	}
 	s.leaseDriven[groupID] = driven
 	manual := driven || s.groupConfigs[groupID].ScheduleType == cronLiteral
-	svc := s.groups[groupID]
+	setGroupSchedule(s.groups[groupID], driven, manual)
 	s.mu.Unlock()
-
-	setGroupSchedule(svc, driven, manual)
 }
 
 func setGroupSchedule(svc *SweepService, driven, manual bool) {
@@ -368,8 +366,8 @@ func (s *MultiSweepService) UpdateSweepGroupsContext(ctx context.Context, config
 			s.mu.RLock()
 			driven := s.leaseDriven[groupID]
 			manual := driven || group.ScheduleType == cronLiteral
-			s.mu.RUnlock()
 			setGroupSchedule(svc, driven, manual)
+			s.mu.RUnlock()
 			if err := svc.UpdateConfig(modelConfig); err != nil {
 				s.logger.Error().Err(err).Str("sweep_group_id", groupID).Msg("Failed to update sweep group config")
 			}

@@ -96,6 +96,38 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                )
     end
 
+    test "a ZSTD-compressed frame passes gateway admission and projects its decoded batch" do
+      plain = build_frame()
+      body = plain.record.payload
+      frame_bytes = body |> :zstd.compress() |> IO.iodata_to_binary()
+
+      compressed =
+        encode_frame(
+          %{
+            plain.record
+            | compression: :EDGE_RECORD_COMPRESSION_ZSTD,
+              payload: frame_bytes,
+              encoded_size: byte_size(frame_bytes),
+              uncompressed_size: byte_size(body),
+              payload_sha256: :crypto.hash(:sha256, frame_bytes)
+          },
+          plain.batch,
+          plain.slot
+        )
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(compressed.record_bytes, compressed.headers, Repo)
+
+      assert sweep_batch_slot_count(compressed.record, compressed.batch) == 1
+
+      execution_id = Ecto.UUID.cast!(compressed.batch.execution_id)
+
+      assert [%{ip: "192.0.2.1", status: :available, open_ports: [443]}] =
+               Repo.all(
+                 Ecto.Query.from(h in SweepHostResult, where: h.execution_id == ^execution_id)
+               )
+    end
+
     test "forced redelivery of the exact same stored frame is an idempotent replay: no duplicate rows" do
       %{record_bytes: record_bytes, headers: headers, record: record, batch: batch} =
         build_frame()

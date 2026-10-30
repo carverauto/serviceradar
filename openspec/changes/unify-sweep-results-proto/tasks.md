@@ -334,9 +334,14 @@ in `choices.md` and the chart README.
   terminal disposition is durable at the gateway, so a long-running agent's
   spool stays within its configured bound. The canary sender now persists
   validated terminal acknowledgements and advances its local resolved prefix,
-  but physical segment reclamation remains unimplemented. Capacity exhaustion
-  refuses further appends; this item stays unchecked (the minimum of 3.10;
-  coverage proof and rollover coordination of 2.27-2.28 stay in the backlog).
+  and reclaims fully drained segments only when durable accepted dispositions
+  cover every retained sequence and match each record's event identity. A
+  checksummed checkpoint preserves the absolute sequence base across restart;
+  rejected records and unresolved tails remain on disk. Focused tests cover
+  repeated capacity reuse and interruption during
+  checkpoint publication and cleanup. This item stays unchecked until live
+  restart/reclamation verification; partial-tail compaction, local rejection
+  quarantine, and coverage/rollover coordination of 2.27-2.28 remain in the backlog.
 - [ ] M2.6 Parallel run on farm01. One canary agent on the edge path and one
   control agent on the legacy path sweep the same target set for at least 24
   hours. Per execution, host count, availability and open ports match between

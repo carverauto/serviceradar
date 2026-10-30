@@ -28,9 +28,9 @@
 // sender; every other allocated sequence is reported for rollover coverage and is
 // never reused.
 //
-// This slice implements a single segment. Multi-segment rotation/physical reclaim,
-// corrupt-segment quarantine, and the loss-manifest/recovery-generation rollover
-// are follow-on slices within task 2.4. Per-segment rotation bounds on distinct
+// This slice reclaims fully drained segments after durable accepted dispositions.
+// Partial-tail compaction, corrupt-segment quarantine, and loss-manifest/recovery
+// generation rollover remain follow-on slices within task 2.4. Per-segment bounds on distinct
 // attribution keys, same-key runs, and projected manifest size live in
 // segments.go (task 2.24): they refuse with ROTATION_REQUIRED on whichever
 // binds first, and the rotation they demand is task 2.4's.
@@ -159,6 +159,9 @@ const (
 	barrierRecord
 	barrierCommitA
 	barrierCommitB
+	barrierReclaimPrepared
+	barrierReclaimPublished
+	barrierReclaimCleaned
 )
 
 func dirBarrier(c int) barrier     { return barrierEvidenceDirA + barrier(c) }
@@ -186,6 +189,8 @@ type segmentHandle interface {
 // Spool is a single-lane append-only spool. It is safe for concurrent use.
 type Spool struct {
 	dir      string
+	dataDir  string
+	baseSeq  uint64
 	bindings BindingInspector
 	alloc    *Allocator
 
@@ -202,7 +207,7 @@ type Spool struct {
 	nextSeq         uint64
 	nextGen         uint64
 	resolved        uint64
-	slots           []slotLoc // index seq-1, for every allocated sequence
+	slots           []slotLoc // index seq-baseSeq-1, for every allocated sequence
 	restart         Resolution
 	// failErr is set by the first failed barrier, and every later commit is refused
 	// with it: the interrupted slot's durable state is unknown until restart
@@ -252,7 +257,7 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 	if err := durablefs.MkdirAll(dir, dirPerm); err != nil {
 		return nil, fmt.Errorf("spool: mkdir: %w", err)
 	}
-	s := &Spool{dir: dir, copyOrder: [evidenceCopies]int{copyA, copyB}, segBounds: segmentBounds{limits: defaultSegmentLimits()}}
+	s := &Spool{dir: dir, dataDir: dir, copyOrder: [evidenceCopies]int{copyA, copyB}, segBounds: segmentBounds{limits: defaultSegmentLimits()}}
 	for _, opt := range opts {
 		opt(s)
 	}
@@ -261,7 +266,14 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 			return nil, err
 		}
 	}
-	f, err := os.OpenFile(filepath.Join(dir, segmentFile), os.O_RDWR|os.O_CREATE, filePerm)
+	if err := s.loadLayout(); err != nil {
+		return nil, err
+	}
+	flags := os.O_RDWR
+	if s.baseSeq == 0 {
+		flags |= os.O_CREATE
+	}
+	f, err := os.OpenFile(s.segmentPath(), flags, filePerm)
 	if err != nil {
 		return nil, fmt.Errorf("spool: open segment: %w", err)
 	}
@@ -289,6 +301,9 @@ func (s *Spool) open() error {
 	if err != nil {
 		return err
 	}
+	if resolved < s.baseSeq || resolved >= s.nextSeq {
+		return fmt.Errorf("%w: resolved watermark outside retained sequence range", errReclaimState)
+	}
 	s.resolved = resolved
 	return nil
 }
@@ -297,16 +312,9 @@ func (s *Spool) open() error {
 // not only the segment: whatever the lane keeps beside it occupies its disk too,
 // including both commit evidence copies in their own directories.
 func (s *Spool) chargeLane() error {
-	total, err := regularFileBytes(s.dir)
+	total, err := s.laneBytes()
 	if err != nil {
 		return err
-	}
-	for c := range evidenceCopies {
-		n, err := regularFileBytes(filepath.Join(s.dir, evidenceDirName(c)))
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-		total += n
 	}
 	s.alloc.ChargeMeasured(s.dir, total)
 	return nil
@@ -381,6 +389,9 @@ func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) 
 	if s.failErr != nil {
 		return CommitReceipt{}, s.failErr
 	}
+	if err := s.requireCurrentLayout(); err != nil {
+		return CommitReceipt{}, err
+	}
 	// Segment rotation bounds (task 2.24) refuse before anything is written
 	// or charged: a refused append allocates no sequence, so the producer can
 	// rotate the lane's generation and retry it unchanged.
@@ -416,7 +427,7 @@ func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) 
 // slot's fixed-position entries.
 func (s *Spool) commitBytes(bodyLen int) (uint64, error) {
 	n := uint64(minRecordLen + bodyLen)
-	end := evidencePosition(s.nextSeq, stateCommitted) + evidenceEntryLen
+	end := s.evidencePosition(s.nextSeq, stateCommitted) + evidenceEntryLen
 	for c := range evidenceCopies {
 		var size int64
 		info, err := os.Stat(s.evidencePath(c))
@@ -475,7 +486,7 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 	if err := s.cross(barrierRecord); err != nil {
 		return CommitReceipt{}, err
 	}
-	segPath := filepath.Join(s.dir, segmentFile)
+	segPath := s.segmentPath()
 	if _, err := s.seg.WriteAt(rec, offset); err != nil {
 		return CommitReceipt{}, &FailStopError{Op: "write", Path: segPath, Err: err}
 	}
@@ -493,7 +504,7 @@ func (s *Spool) commitLocked(eventID, body []byte, b Bindings) (CommitReceipt, e
 		}
 	}
 
-	s.slots[seq-1].committed = true
+	s.slots[seq-s.baseSeq-1].committed = true
 	s.segBounds.observe(b.AttributionSHA256)
 	return CommitReceipt{
 		Sequence:           seq,
@@ -517,7 +528,7 @@ func (s *Spool) crossStat(file string) {
 }
 
 func (s *Spool) evidencePath(c int) string {
-	return filepath.Join(s.dir, evidenceDirName(c), evidenceFile)
+	return filepath.Join(s.dataDir, evidenceDirName(c), evidenceFile)
 }
 
 // ensureEvidence makes each evidence copy's file AND the directory entries that make
@@ -545,7 +556,7 @@ func (s *Spool) ensureEvidence() error {
 		if err := s.cross(dirBarrier(c)); err != nil {
 			return err
 		}
-		if err := fsyncDir(s.dir); err != nil {
+		if err := fsyncDir(s.dataDir); err != nil {
 			return err
 		}
 		if err := fsyncDir(filepath.Dir(path)); err != nil {
@@ -562,7 +573,7 @@ func (s *Spool) crossAndWriteEvidence(b barrier, c int, e evidenceEntry) error {
 	}
 	e.copyTag = copyTag(c)
 	path := s.evidencePath(c)
-	if _, err := s.evidence[c].WriteAt(e.encode(), evidencePosition(e.sequence, e.state)); err != nil {
+	if _, err := s.evidence[c].WriteAt(e.encode(), s.evidencePosition(e.sequence, e.state)); err != nil {
 		return &FailStopError{Op: "write", Path: path, Err: err}
 	}
 	if err := s.evidence[c].Sync(); err != nil {
@@ -590,6 +601,9 @@ func (s *Spool) Unresolved() ([]Record, error) {
 func (s *Spool) Resolve(through uint64) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.requireCurrentLayout(); err != nil {
+		return err
+	}
 	if through <= s.resolved {
 		return nil
 	}
@@ -607,12 +621,15 @@ func (s *Spool) Resolve(through uint64) error {
 // ResolveWithEvidence persists the caller's validated terminal acknowledgement
 // before advancing the local resolved prefix. Evidence is retained for every
 // advancement; a remote watermark alone is not durable local disposition proof.
-// This does not reclaim segment bytes.
+// A fully accepted drain checkpoints its sequence base and reclaims segment bytes.
 func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if err := s.requireCurrentLayout(); err != nil {
+		return err
+	}
 	if through <= s.resolved {
-		return nil
+		return s.reclaimLocked()
 	}
 	if through >= s.nextSeq {
 		return ErrResolveBeyondHighWater
@@ -638,7 +655,7 @@ func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 		return s.failErr
 	}
 	s.resolved = through
-	return nil
+	return s.reclaimLocked()
 }
 
 func (s *Spool) persistResolution(through uint64, evidence []byte) error {
@@ -669,6 +686,12 @@ func (s *Spool) persistResolution(through uint64, evidence []byte) error {
 // for the scan's duration.
 func (s *Spool) ScanFrom(after uint64, visit func(Record) bool) error {
 	s.mu.Lock()
+	if s.seg != nil {
+		if err := s.refreshLayout(); err != nil {
+			s.mu.Unlock()
+			return err
+		}
+	}
 	seq := max(s.resolved, after)
 	s.mu.Unlock()
 
@@ -693,17 +716,22 @@ func (s *Spool) ScanFrom(after uint64, visit func(Record) bool) error {
 			s.mu.Unlock()
 			return nil
 		}
-		loc := s.slots[seq-1]
+		seq = max(seq, s.baseSeq+1)
+		if seq >= s.nextSeq {
+			s.mu.Unlock()
+			return nil
+		}
+		loc := s.slots[seq-s.baseSeq-1]
 		seg := s.seg
-		s.mu.Unlock()
-
 		if !loc.committed {
+			s.mu.Unlock()
 			continue
 		}
 		if seg == nil {
 			if own == nil {
-				f, err := os.Open(filepath.Join(s.dir, segmentFile))
+				f, err := os.Open(s.segmentPath())
 				if err != nil {
+					s.mu.Unlock()
 					return fmt.Errorf("spool: open for scan: %w", err)
 				}
 				own = f
@@ -711,6 +739,7 @@ func (s *Spool) ScanFrom(after uint64, visit func(Record) bool) error {
 			seg = own
 		}
 		rec, err := readRecordAt(seg, loc)
+		s.mu.Unlock()
 		if err != nil {
 			return err
 		}

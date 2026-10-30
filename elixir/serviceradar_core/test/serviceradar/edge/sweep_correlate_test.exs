@@ -560,10 +560,29 @@ defmodule ServiceRadar.Edge.SweepCorrelateTest do
       assert SweepCorrelate.validate(:bad, :worse) == {:error, {:payload, :not_a_record}}
     end
 
-    test "a COMPRESSED record is refused, not mis-decoded" do
-      # The relation reads record.payload directly, so a ZSTD record's bytes are the
-      # compressed ones. It takes no decompressed value and so cannot honour a
-      # "caller decompressed it" precondition — it refuses instead.
+    test "correlates a ZSTD payload exactly as its uncompressed form" do
+      {record, batch} = control()
+      plain = with_payload(record, batch)
+      frame = plain.payload |> :zstd.compress() |> IO.iodata_to_binary()
+
+      compressed = %{
+        plain
+        | compression: :EDGE_RECORD_COMPRESSION_ZSTD,
+          payload: frame,
+          payload_sha256: :crypto.hash(:sha256, frame),
+          encoded_size: byte_size(frame),
+          uncompressed_size: byte_size(plain.payload)
+      }
+
+      assert SweepCorrelate.correlate_own_payload(compressed) == :ok
+
+      assert SweepCorrelate.ingest_own_payload(compressed) ==
+               SweepCorrelate.ingest_own_payload(plain)
+    end
+
+    test "a ZSTD declaration over bytes that are not one frame is refused, not mis-decoded" do
+      # The digest commits to these bytes, but they are the uncompressed body, so the
+      # declared codec cannot decode them.
       {record, batch} = control()
       r = with_payload(record, batch)
 

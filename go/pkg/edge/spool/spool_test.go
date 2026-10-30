@@ -27,6 +27,9 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestReadRecordPreservesStorageErrors(t *testing.T) {
@@ -352,5 +355,305 @@ func TestScanFromBoundedAndCursor(t *testing.T) {
 	}
 	if len(seen) != 3 || seen[0] != 8 || seen[2] != 10 {
 		t.Fatalf("cursor scan from 7 = %v, want 8,9,10", seen)
+	}
+}
+
+// Repeated drain/reopen cycles must reclaim bytes without reusing a sequence.
+// A durable acknowledgement alone used to hide records while retaining every byte.
+func TestAcceptedDrainsReclaimSpaceAcrossRestart(t *testing.T) {
+	dir := t.TempDir()
+	body := bytes.Repeat([]byte("synthetic record"), 4096)
+	footprint := testFootprint()
+	footprint.DestinationSegment = 1024
+	alloc, err := NewAllocator(AllocatorConfig{Capacity: 128 << 10, Recovery: footprint, MaxConcurrentRecoveries: 1, MinFree: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for cycle := uint64(1); cycle <= 8; cycle++ {
+		s, err := Open(dir, WithAllocator(alloc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		seq, err := s.Append(evid(byte(cycle)), body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seq != cycle {
+			t.Fatalf("sequence = %d, want %d", seq, cycle)
+		}
+		ack := terminalAck(t, seq, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, seq)
+		if err := s.ResolveWithEvidence(seq, ack); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
+		}
+		var retained int64
+		err = filepath.Walk(dir, func(_ string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if info.Mode().IsRegular() {
+				retained += info.Size()
+			}
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if retained >= int64(len(body)) {
+			t.Fatalf("drained spool retains %d bytes after cycle %d; acknowledged body must be reclaimed", retained, cycle)
+		}
+		if u := alloc.Usage(); u.OrdinaryUsed != uint64(retained) || u.ActiveRecoveries != 0 || u.RecoveryUsed != 0 {
+			t.Fatalf("capacity not returned after drain: %+v retained=%d", u, retained)
+		}
+		reopened, err := Open(dir, WithAllocator(alloc))
+		if err != nil {
+			t.Fatal(err)
+		}
+		records, err := reopened.Unresolved()
+		if err != nil || len(records) != 0 || reopened.Resolved() != seq || reopened.NextSequence() != seq+1 {
+			t.Fatalf("restart: records=%d resolved=%d next=%d error=%v", len(records), reopened.Resolved(), reopened.NextSequence(), err)
+		}
+		if err := reopened.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestAcceptedDrainsContinuePastSegmentRunLimit(t *testing.T) {
+	footprint := testFootprint()
+	footprint.DestinationSegment = 1024
+	alloc, err := NewAllocator(AllocatorConfig{Capacity: 128 << 10, Recovery: footprint, MaxConcurrentRecoveries: 1, MinFree: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(t.TempDir(), WithAllocator(alloc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	body := []byte("synthetic sweep record")
+	for want := uint64(1); want <= MaxSegmentRuns+8; want++ {
+		seq, err := s.Append(evid(byte(want)), body)
+		if err != nil {
+			t.Fatalf("append %d after %d accepted drains: %v", want, want-1, err)
+		}
+		if seq != want {
+			t.Fatalf("sequence = %d, want %d", seq, want)
+		}
+		if err := s.ResolveWithEvidence(seq, terminalAck(t, seq, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, seq)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ReclaimResolved(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func terminalAck(t *testing.T, through uint64, kind edgev1.EdgeRecordDispositionKind, seqs ...uint64) []byte {
+	t.Helper()
+	ack := &edgev1.EdgeDeliveryAckV1{SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: through}
+	for _, seq := range seqs {
+		ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{Sequence: seq, EventId: evid(byte(seq)), Kind: kind})
+	}
+	b, err := proto.Marshal(ack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+func TestReclaimRetainsRecordsWithoutAcceptedCoverage(t *testing.T) {
+	accepted := edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
+	for _, tc := range []struct {
+		name    string
+		through uint64
+		kind    edgev1.EdgeRecordDispositionKind
+		seqs    []uint64
+		bare    bool
+	}{
+		{"unresolved tail", 1, accepted, []uint64{1}, false},
+		{"permanent rejection", 2, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT, []uint64{1, 2}, false},
+		{"retryable rejection", 2, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE, []uint64{1, 2}, false},
+		{"missing disposition", 2, accepted, []uint64{2}, false},
+		{"watermark only", 2, accepted, nil, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for seq := byte(1); seq <= 2; seq++ {
+				mustAppend(t, s, seq, "synthetic retained payload")
+			}
+			before, err := os.ReadFile(filepath.Join(dir, segmentFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.bare {
+				err = s.Resolve(tc.through)
+			} else {
+				err = s.ResolveWithEvidence(tc.through, terminalAck(t, tc.through, tc.kind, tc.seqs...))
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s, err = Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.ReclaimResolved(); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.ReadFile(filepath.Join(dir, segmentFile))
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("records removed without accepted coverage: %v", err)
+			}
+			if tc.through == 1 {
+				records, err := s.Unresolved()
+				if err != nil || len(records) != 1 || records[0].Sequence != 2 {
+					t.Fatalf("unresolved tail lost: %v %v", records, err)
+				}
+			}
+		})
+	}
+}
+
+func TestReclaimRetainsAcceptedCoverageWithMismatchedEventID(t *testing.T) {
+	accepted := edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
+	for _, tc := range []struct {
+		name    string
+		records byte
+		ids     []byte
+	}{
+		{"fully resolved sole record", 1, []byte{9}},
+		{"second of two accepted records", 2, []byte{1, 9}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for seq := byte(1); seq <= tc.records; seq++ {
+				mustAppend(t, s, seq, "synthetic retained payload")
+			}
+			before, err := os.ReadFile(filepath.Join(dir, segmentFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			through := uint64(tc.records)
+			ack := &edgev1.EdgeDeliveryAckV1{SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: through}
+			for i := byte(0); i < tc.records; i++ {
+				ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{
+					Sequence: uint64(i + 1), EventId: evid(tc.ids[i]), Kind: accepted,
+				})
+			}
+			evidence, err := proto.Marshal(ack)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.ResolveWithEvidence(through, evidence); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s, err = Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.ReclaimResolved(); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.ReadFile(filepath.Join(dir, segmentFile))
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("segment reclaimed despite event identity mismatch: %v", err)
+			}
+			if s.Resolved() != through || s.NextSequence() != through+1 {
+				t.Fatalf("sequence identity changed: resolved=%d next=%d", s.Resolved(), s.NextSequence())
+			}
+		})
+	}
+}
+
+func TestReclaimRestartAtDurabilityBoundaries(t *testing.T) {
+	for _, stop := range []barrier{barrierReclaimPrepared, barrierReclaimPublished, barrierReclaimCleaned} {
+		t.Run(fmt.Sprint(stop), func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			mustAppend(t, s, 1, "synthetic acknowledged payload")
+			s.beforeBarrier = func(b barrier) error {
+				if b == stop {
+					return syscall.EIO
+				}
+				return nil
+			}
+			err = s.ResolveWithEvidence(1, terminalAck(t, 1, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, 1))
+			if !errors.Is(err, syscall.EIO) {
+				t.Fatalf("fault not observed: %v", err)
+			}
+			if _, err := s.Append(evid(2), []byte("must fail stop")); !errors.Is(err, syscall.EIO) {
+				t.Fatalf("append after failed barrier: %v", err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s, err = Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.ReclaimResolved(); err != nil {
+				t.Fatal(err)
+			}
+			if s.Resolved() != 1 || s.NextSequence() != 2 {
+				t.Fatalf("restart reused sequence: resolved=%d next=%d", s.Resolved(), s.NextSequence())
+			}
+			seq, err := s.Append(evid(2), []byte("synthetic next record"))
+			if err != nil || seq != 2 {
+				t.Fatalf("append after recovery=%d %v", seq, err)
+			}
+			records, err := s.Unresolved()
+			if err != nil || len(records) != 1 || records[0].Sequence != 2 {
+				t.Fatalf("recovered records=%v error=%v", records, err)
+			}
+		})
+	}
+}
+
+func TestReaderAdoptsReclaimedSegment(t *testing.T) {
+	dir := t.TempDir()
+	writer, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = writer.Close() }()
+	mustAppend(t, writer, 1, "synthetic old record")
+	reader, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = reader.Close() }()
+	if err := writer.ResolveWithEvidence(1, terminalAck(t, 1, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, 1)); err != nil {
+		t.Fatal(err)
+	}
+	mustAppend(t, writer, 2, "synthetic new record")
+	if _, err := reader.Append(evid(3), []byte("stale writer")); err == nil {
+		t.Fatal("stale writer appended into detached segment")
+	}
+	records, err := reader.Unresolved()
+	if err != nil || len(records) != 1 || records[0].Sequence != 2 {
+		t.Fatalf("reader failed to adopt current segment: %v %v", records, err)
 	}
 }

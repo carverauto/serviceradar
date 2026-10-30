@@ -61,7 +61,7 @@ func (s *Spool) openEvidence() error {
 // segment, one over both evidence copies in lockstep -- so it is bounded by the
 // segment's files, not by how many slots turn out to be damaged.
 func (s *Spool) recover() error {
-	readers, evidenceSlots, err := s.evidenceReaders(1)
+	readers, evidenceSlots, err := s.evidenceReaders(s.baseSeq + 1)
 	if err != nil {
 		return err
 	}
@@ -79,11 +79,11 @@ func (s *Spool) recover() error {
 		cursor       int
 	)
 	buf := make([]byte, evidenceEntryLen)
-	top := max(evidenceSlots, chain.maxHeaderSeq)
-	s.slots = make([]slotLoc, 0, top)
-	extents := make([]slotExtent, 0, top)
+	top := max(s.baseSeq, evidenceSlots, chain.maxHeaderSeq)
+	s.slots = make([]slotLoc, 0, top-s.baseSeq)
+	extents := make([]slotExtent, 0, top-s.baseSeq)
 
-	for seq := uint64(1); seq <= top; seq++ {
+	for seq := s.baseSeq + 1; seq <= top; seq++ {
 		views, present, gen, err := readSlotEvidence(readers, seq, buf)
 		if err != nil {
 			return err
@@ -134,8 +134,8 @@ func (s *Spool) recover() error {
 	// Every sequence up to the highest one any evidence or record names is allocated:
 	// sequences are assigned contiguously, so a gap below it is a slot whose evidence
 	// was lost, not a slot that never existed.
-	highWater := max(lastEvidence, chain.maxHeaderSeq)
-	s.slots = s.slots[:highWater]
+	highWater := max(s.baseSeq, lastEvidence, chain.maxHeaderSeq)
+	s.slots = s.slots[:highWater-s.baseSeq]
 
 	// The torn tail is the crash boundary: a slot whose own record never fully landed.
 	// Every slot is placed at the segment end, and a record that landed was durable
@@ -154,9 +154,9 @@ func (s *Spool) recover() error {
 			continue
 		}
 		for ; above > obs.Sequence; above-- {
-			limit = min(limit, extents[above-1].start)
+			limit = min(limit, extents[above-s.baseSeq-1].start)
 		}
-		if ext := extents[obs.Sequence-1]; ext.end > limit {
+		if ext := extents[obs.Sequence-s.baseSeq-1]; ext.end > limit {
 			obs.InTornTail = !ext.committed
 			obs.Bytes = BytesMissing
 		}
@@ -178,7 +178,7 @@ func (s *Spool) recover() error {
 	s.nextSeq = highWater + 1
 	// Monotonic over every surviving entry. A new commit only ever writes positions
 	// above the high-water, so it is never compared against a lost generation.
-	s.nextGen = maxGen + 1
+	s.nextGen = max(s.nextGen, maxGen+1)
 	return nil
 }
 
@@ -202,6 +202,9 @@ type slotExtent struct {
 // segment size after them, so every write a settled slot made -- its record and each
 // copy's entries -- landed before any size this scan judges it by.
 func (s *Spool) refreshLocked() error {
+	if err := s.refreshLayout(); err != nil {
+		return err
+	}
 	readers, slots, err := s.evidenceReaders(s.nextSeq)
 	if err != nil {
 		return err
@@ -357,14 +360,14 @@ func (s *Spool) evidenceReaders(from uint64) ([evidenceCopies]*bufio.Reader, uin
 	if err := s.openEvidence(); err != nil {
 		return readers, 0, err
 	}
-	start := evidencePosition(from, statePrepared)
+	start := s.evidencePosition(from, statePrepared)
 	for c, f := range s.evidence {
 		if f != nil {
 			section := io.NewSectionReader(f, start, max(size-start, 0))
 			readers[c] = bufio.NewReaderSize(section, resyncWindow)
 		}
 	}
-	return readers, uint64((size/evidenceEntryLen + 1) / 2), nil
+	return readers, s.baseSeq + uint64((size/evidenceEntryLen+1)/2), nil
 }
 
 // readSlotEvidence reads one slot's PREPARED and COMMITTED entries from each copy.
@@ -467,9 +470,9 @@ type tailFragment struct {
 func (s *Spool) scanChain(evidenceSlots uint64) (chainScan, error) {
 	var (
 		cs        chainScan
-		lastSeq   uint64
+		lastSeq   = s.baseSeq
 		lastEnd   int64
-		cleanHigh uint64
+		cleanHigh = s.baseSeq
 		fragments uint64
 		clean     = true
 	)

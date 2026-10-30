@@ -25,10 +25,16 @@ regexes = [
 # that pattern-match generic-api-key, plus the crates' own PKCS8 test vectors
 # (`elliptic-curve`'s and `sec1`'s p256 example), all published on crates.io.
 #
-# The whole directory rather than the individual file kinds: the narrower form this replaces
-# objected that a blanket exemption would also cover a first-party file that landed there by
-# mistake. That cannot happen now -- the tree is deleted, so nothing new can land in it, and the
-# only blobs the pattern can ever match are the historical upstream ones above.
+# crates/ is exempted as a whole directory rather than by file kind: the narrower form this
+# replaces objected that a blanket exemption would also cover a first-party file that landed
+# there by mistake. That cannot happen now -- the tree is deleted, so nothing new can land in
+# it, and the only blobs the pattern can ever match are the historical upstream ones above.
+#
+# crate_mirror/ is live and still gains archives (the libz-sys security upgrade added one).
+# Its exemption rests on a different argument: apart from its BUILD.bazel and sync.py, every
+# file there is a published crates.io .crate archive written by
+# `bazel run //third_party/crate_mirror:sync` and pinned by its Cargo.lock checksum, so those
+# bytes are upstream content that review cannot change.
 paths = [
   '''^third_party/crate_mirror/''',
   '''^third_party/crates/''',

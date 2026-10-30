@@ -151,6 +151,13 @@ func (s *NetworkSweeper) effectiveSweepModesForCIDR(cidr string, sweepModes []mo
 	return modes, len(modes) > 0, nil
 }
 
+// EffectiveSweepModes returns the modes this sweeper actually runs for targets
+// in cidr when configured with sweepModes.
+func (s *NetworkSweeper) EffectiveSweepModes(cidr string, sweepModes []models.SweepMode) ([]models.SweepMode, error) {
+	modes, _, err := s.effectiveSweepModesForCIDR(cidr, sweepModes)
+	return modes, err
+}
+
 func effectiveSweepModesForIPWithRawSYN(ip string, sweepModes []models.SweepMode, rawSYNIPv6Available bool) []models.SweepMode {
 	parsed := net.ParseIP(ip)
 	if parsed == nil {

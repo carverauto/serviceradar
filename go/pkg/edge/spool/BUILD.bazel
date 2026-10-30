@@ -6,6 +6,7 @@ go_library(
         "barrier.go",
         "evidence.go",
         "lanes.go",
+        "reclaim.go",
         "recover.go",
         "reserve.go",
         "resolve.go",
@@ -19,6 +20,7 @@ go_library(
         "//go/pkg/edge/edgerecord",
         "//go/pkg/edge/fairsched",
         "//proto/edge/v1:edgev1",
+        "@org_golang_google_protobuf//proto",
     ],
 )
 

@@ -3,12 +3,14 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 )
 
 func TestMultiSweepServiceDoesNotAckResultsBeforeSuccessfulStream(t *testing.T) {
@@ -84,6 +86,55 @@ func TestCronGroupRemainsManualAcrossLeaseAndConfigChanges(t *testing.T) {
 	require.NoError(t, service.UpdateSweepGroups(&SweepGroupsConfig{Groups: []SweepGroupConfig{group}}))
 	require.True(t, manual.ManualSchedule())
 	assertCronLeaseReportAbsent(t, service)
+}
+
+// interleavingScheduler runs before ahead of each schedule change it forwards.
+type interleavingScheduler struct {
+	sweeper.SweepService
+	inner  interface{ SetManualSchedule(bool) }
+	before func(manual bool)
+}
+
+func (s *interleavingScheduler) SetManualSchedule(manual bool) {
+	s.before(manual)
+	s.inner.SetManualSchedule(manual)
+}
+
+func TestLeaseDrivenGroupStaysManualWhenConfigApplyInterleaves(t *testing.T) {
+	group := SweepGroupConfig{SweepGroupID: "interval-group", Networks: []string{"192.0.2.0/30"}, Interval: Duration(15 * time.Minute)}
+	service, err := NewMultiSweepService(&ServerConfig{AgentID: "synthetic-agent"}, []SweepGroupConfig{group}, createTestLogger())
+	require.NoError(t, err)
+	svc := service.groups[group.SweepGroupID]
+	require.NotNil(t, svc)
+	inner := svc.sweeper.(interface {
+		SetManualSchedule(bool)
+		ManualSchedule() bool
+	})
+	require.False(t, inner.ManualSchedule())
+
+	leased := make(chan struct{})
+	var once sync.Once
+	svc.sweeper = &interleavingScheduler{SweepService: svc.sweeper, inner: inner, before: func(manual bool) {
+		if manual {
+			return
+		}
+		once.Do(func() {
+			// A lease lands while the config apply is switching the group to
+			// its local schedule.
+			go func() {
+				service.SetGroupLeaseDriven(group.SweepGroupID, true)
+				close(leased)
+			}()
+			select {
+			case <-leased:
+			case <-time.After(100 * time.Millisecond):
+			}
+		})
+	}}
+
+	require.NoError(t, service.UpdateSweepGroups(&SweepGroupsConfig{Groups: []SweepGroupConfig{group}}))
+	<-leased
+	require.True(t, inner.ManualSchedule(), "a lease-driven group resumed its local ticker")
 }
 
 func assertCronLeaseReport(t *testing.T, service *MultiSweepService, state string, nextSlot int64, remaining int) {

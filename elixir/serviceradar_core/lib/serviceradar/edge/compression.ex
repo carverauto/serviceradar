@@ -147,6 +147,27 @@ defmodule ServiceRadar.Edge.Compression do
   end
 
   @doc """
+  The inner contract body of a record: its payload under NONE, or the bounded
+  decompression of its single frame under ZSTD. Any other codec is `{:error, :compression}`.
+
+  This is the peer of Go's `innerPayload`. It does not run record-level admission; the
+  record must already have passed `admit_record/1`.
+  """
+  @spec inner_payload(term()) :: {:ok, binary()} | {:error, reason() | :compression}
+  def inner_payload(%EdgeRecordV1{compression: :EDGE_RECORD_COMPRESSION_NONE, payload: payload})
+      when is_binary(payload),
+      do: {:ok, payload}
+
+  def inner_payload(%EdgeRecordV1{
+        compression: :EDGE_RECORD_COMPRESSION_ZSTD,
+        payload: payload,
+        uncompressed_size: declared
+      }),
+      do: decompress(payload, declared)
+
+  def inner_payload(_), do: {:error, :compression}
+
+  @doc """
   RECORD-LEVEL compression admission -- the peer of Go's `validatePayloadBinding`.
 
   `admit_declared/2` is the ratio gate, but it takes `encoded_size` on trust; its own doc

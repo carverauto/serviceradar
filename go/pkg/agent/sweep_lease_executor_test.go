@@ -897,6 +897,10 @@ func (s *snapshotBlockingSweeper) RunOnceWithExecution(ctx context.Context, id s
 	return s.sameSecondSweeper.RunOnceWithExecution(ctx, id)
 }
 
+func (*snapshotBlockingSweeper) EffectiveSweepModes(_ string, modes []models.SweepMode) ([]models.SweepMode, error) {
+	return modes, nil
+}
+
 func (s *snapshotBlockingSweeper) RunOnceWithObserver(ctx context.Context, id string, observe func(*models.Result) error) error {
 	if err := s.RunOnceWithExecution(ctx, id); err != nil {
 		return err
@@ -984,7 +988,7 @@ func TestSweepCallersSerializeThroughSnapshot(t *testing.T) {
 				record := &edgev1.EdgeRecordV1{}
 				require.NoError(t, goproto.Unmarshal(records[0].Body, record))
 				batch := &edgev1.SweepObservationBatchV1{}
-				require.NoError(t, goproto.Unmarshal(record.Payload, batch))
+				require.NoError(t, goproto.Unmarshal(recordBody(t, record), batch))
 				require.Equal(t, slot.ExecutionId, batch.ExecutionId)
 				require.Len(t, batch.Hosts, 4)
 				result, err := service.GetSweepResults(ctx, "")
