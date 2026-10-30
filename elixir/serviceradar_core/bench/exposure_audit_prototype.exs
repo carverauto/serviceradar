@@ -64,6 +64,7 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
           cohorts_ms: cohorts_ms,
           fact_ms: fact_ms,
           summed_worker_ms: worker_timings(attempts),
+          source_work: source_work(attempts),
           orchestration_ms: orchestration_ms,
           finish_ms: finish_ms,
           readiness_ms: readiness_ms,
@@ -235,19 +236,19 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
 
           view_setup_ms = now_ms() - view_started
           after_view.(reader)
-          {coverage, coverage_ms} = timed(fn -> coverage!(reader, run, ordinals) end)
           {lifecycles, lifecycle_ms} = timed(fn -> lifecycle!(reader, ordinals) end)
           fact_started = now_ms()
 
-          {source, source_fact_ms} = timed(fn -> SQL.source!(reader, ordinals) end)
+          {{source, source_work}, source_and_coverage_ms} =
+            timed(fn -> SQL.source!(reader, run, ordinals) end)
+
           {stored, warehouse_fact_ms} = timed(fn -> SQL.warehouse_summary!(ordinals) end)
 
           assert now_ms() < deadline, "cohort source view exceeded sixty seconds"
 
           Enum.map(ordinals, fn ordinal ->
-            {current, drift} = Map.get(source, ordinal, {Digest.empty(), 0})
+            {current, drift, missing, proof_time} = Map.fetch!(source, ordinal)
             warehouse = Map.get(stored, ordinal, Digest.empty())
-            {missing, proof_time} = Map.get(coverage, ordinal, {0, nil})
 
             evidence =
               if proof_time && NaiveDateTime.before?(proof_time, started),
@@ -270,13 +271,13 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
               view: view,
               fact_interval: [fact_started, now_ms()],
               cohort_id: cohort_id,
+              source_work: source_work,
               worker_ms: %{
                 session_start: session_setup_ms,
                 locks_including_first_checkout: lock_ms,
                 source_view_setup: view_setup_ms,
-                coverage: coverage_ms,
                 lifecycle: lifecycle_ms,
-                source_fact: source_fact_ms,
+                source_and_coverage: source_and_coverage_ms,
                 warehouse_fact: warehouse_fact_ms
               }
             }
@@ -288,18 +289,6 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
     end)
   end
 
-  defp coverage!(reader, run, ordinals) do
-    rows =
-      Postgrex.query!(
-        reader,
-        coverage_sql(),
-        [run.id, ordinals],
-        timeout: 30_000
-      ).rows
-
-    Map.new(rows, fn [ordinal, missing, time] -> {ordinal, {missing, time}} end)
-  end
-
   # Query plans execute only after the single measurement, outside its intervals.
   def diagnose! do
     [[id]] =
@@ -307,48 +296,7 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
         "SELECT id::text FROM platform.exposure_audit_runs ORDER BY started_at DESC LIMIT 1"
       )
 
-    ordinals = Enum.to_list(1..32)
-
-    view!(fn reader, _deadline ->
-      SQL.explain_source!(reader, ordinals)
-
-      [[plan]] =
-        Postgrex.query!(
-          reader,
-          "EXPLAIN (ANALYZE, BUFFERS, FORMAT JSON) " <> coverage_sql(),
-          [id, ordinals],
-          timeout: 30_000
-        ).rows
-
-      IO.puts("EXPOSURE_AUDIT_PLAN " <> Jason.encode!(%{query: "coverage", plan: plan}))
-    end)
-  end
-
-  defp coverage_sql do
-    """
-    WITH covering AS MATERIALIZED (
-      SELECT o.ordinal,g.updated_at FROM platform.device_fleet_ordinals o
-      LEFT JOIN LATERAL (SELECT updated_at FROM platform.exposure_snapshot_generations
-        WHERE status='complete' AND (control->>'scope' IS NULL OR (control->>'scope')::bigint=o.ordinal)
-        ORDER BY id DESC LIMIT 1) g ON true
-      WHERE o.ordinal=ANY($2)
-    ), refs AS MATERIALIZED (
-      SELECT o.ordinal,(a.last_exposure_publication->>'cve_ord')::bigint AS cve_ord,
-        (a.last_exposure_publication->>'pkgver_ord')::bigint AS pkgver_ord FROM platform.device_fleet_ordinals o
-      JOIN platform.endpoint_vulnerability_assessments a ON a.device_uid=o.uid WHERE o.ordinal=ANY($2)
-      UNION ALL
-      SELECT o.ordinal,(w.payload->>'cve_ord')::bigint,(w.payload->>'pkgver_ord')::bigint
-      FROM platform.device_fleet_ordinals o
-      JOIN platform.exposure_fact_watermarks w ON w.device_uid=o.uid WHERE o.ordinal=ANY($2)
-    ), keys AS (SELECT r.ordinal device_ord,k.kind,k.key FROM refs r CROSS JOIN LATERAL
-      (VALUES ('cve',r.cve_ord),('package',r.pkgver_ord)) k(kind,key))
-    SELECT k.device_ord,count(*) FILTER(WHERE d.ordinal IS NULL OR p.run_id IS NULL OR p.checked_at<g.updated_at),min(p.checked_at)
-    FROM keys k LEFT JOIN platform.exposure_dimension_state d ON d.kind=k.kind AND d.ordinal=k.key
-    LEFT JOIN platform.exposure_audit_proofs p ON p.run_id=$1::text::uuid AND p.kind=d.kind
-      AND p.ordinal=d.ordinal AND p.source_seq=d.transition_seq AND p.source_hash=d.audit_content_hash
-    LEFT JOIN covering g ON g.ordinal=k.device_ord
-    GROUP BY k.device_ord
-    """
+    view!(fn reader, _deadline -> SQL.explain_source!(reader, %{id: id}, Enum.to_list(1..32)) end)
   end
 
   defp lifecycle!(reader, ordinals) do
@@ -535,6 +483,14 @@ defmodule ServiceRadar.ExposureAudit.Prototype do
     |> Enum.uniq_by(& &1.cohort_id)
     |> Enum.reduce(%{}, fn attempt, totals ->
       Map.merge(totals, attempt.worker_ms, fn _phase, left, right -> left + right end)
+    end)
+  end
+
+  defp source_work(attempts) do
+    attempts
+    |> Enum.uniq_by(& &1.cohort_id)
+    |> Enum.reduce(%{}, fn attempt, totals ->
+      Map.merge(totals, attempt.source_work, fn _counter, left, right -> left + right end)
     end)
   end
 

@@ -6,7 +6,7 @@ not a shipped camera-count guarantee.
 ## 1. Contracts and qualification design
 
 - [x] 1.1 Review/approve the three supported modes, independent recorder tier and no-JetStream-media decision.
-- [ ] 1.2 Specify source routing/consumer lifecycle and assignment/handoff transitions, including all crash and partition boundaries.
+- [x] 1.2 Specify source routing/consumer lifecycle and assignment/handoff transitions, including all crash and partition boundaries. [Source lifecycle](source-lifecycle.md) defines the three lifetimes, consumer ordering, transition evidence and failure matrix; implementation and offline-grant qualification remain open.
 - [ ] 1.3 Specify finite offline grants, conservative expiry/reboot behavior and provenance-checked historical reconciliation without weakening stale-owner fences.
 - [ ] 1.4 Define local durable publication/restore/hold guarantees separately from provisional spool and S3 archive proofs.
 - [ ] 1.5 Select measurable per-mode coverage, latency, outage, recovery, retention and cost SLOs; record supported codec/hardware profiles.
@@ -29,6 +29,14 @@ for executor cleanup and slot release. Distinct cameras/profiles remain
 independent. This closes duplicate admission within one agent manager; it does
 not implement cross-agent fencing, recorder pools or continuous recording, so
 2.4 and 2.5 remain open.
+
+Open-command identity checkpoint for 2.5: a new relay reservation persists its
+command UUID before dispatch, and the command ledger and control-stream request
+use that UUID. Concurrent opens reuse the reservation; an interrupted opener
+does not erase its command correlation. This does not replay an interrupted
+dispatch, reconcile an agent incarnation, or prove physical retirement. Those
+recovery and handoff tasks remain open, as do durable close-operation identity
+and command-ledger retention beyond its existing cleanup policy.
 
 ## 3. Storage modes and recovery
 

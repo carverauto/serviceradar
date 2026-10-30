@@ -178,9 +178,10 @@ class.
   means the agent-created, complete binary `EdgeRecordV1` bytes and their
   delivery wrapper are fsynced in the common agent spool, not merely admitted
   to a channel. The producer submits bounded UNCOMPRESSED contract-payload
-  bytes; the sink derives `submission_sha256` (pre-compression) and does its
-  retry/receipt lookup BEFORE compressing, then compresses once. The exact record
-  bytes later carried inside gRPC are stored unchanged by JetStream.
+  bytes. Receipt lookup and the one compression decision are the requirement
+  "Local acceptance transfers ownership crash-safely" in
+  `specs/edge-producer-data-plane/spec.md`; this proposal does not restate them.
+  The exact record bytes later carried inside gRPC are stored unchanged by JetStream.
 - **ADD** an atomic durable producer-key journal committed with each spool append.
   It binds package digest, assignment, host-issued run, output contract, and
   producer idempotency key to the event ID, the pre-compression

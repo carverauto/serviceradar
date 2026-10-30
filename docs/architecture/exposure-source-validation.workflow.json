@@ -1,0 +1,147 @@
+{
+  "schema_version": 2,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "One exposure source scan",
+    "subtitle": "Proposed disabled prototype; capacity remains unproven",
+    "quality_profile": "showcase",
+    "locale": "en"
+  },
+  "lanes": [
+    {
+      "id": "source",
+      "label": "Finite source view"
+    },
+    {
+      "id": "checks",
+      "label": "Independent checks"
+    },
+    {
+      "id": "failure",
+      "label": "Existing recovery",
+      "variant": "exception"
+    }
+  ],
+  "mainPath": [
+    "admit_scope",
+    "decode_once",
+    "check_keys",
+    "combine_results"
+  ],
+  "nodes": [
+    {
+      "id": "admit_scope",
+      "lane": "source",
+      "col": 0,
+      "type": "security",
+      "label": "Lock cohort",
+      "sublabel": "At most 32 devices"
+    },
+    {
+      "id": "decode_once",
+      "lane": "source",
+      "col": 1,
+      "type": "database",
+      "label": "Project source once",
+      "sublabel": "Typed values; no JSON spool",
+      "width": 160
+    },
+    {
+      "id": "check_keys",
+      "lane": "checks",
+      "col": 2,
+      "type": "database",
+      "label": "Check distinct keys",
+      "sublabel": "Exact version proofs",
+      "width": 155
+    },
+    {
+      "id": "combine_results",
+      "lane": "checks",
+      "col": 3,
+      "type": "security",
+      "label": "Publish per device",
+      "sublabel": "Fresh fences and readiness",
+      "width": 165
+    },
+    {
+      "id": "actual_facts",
+      "lane": "source",
+      "col": 3,
+      "type": "database",
+      "label": "Read warehouse",
+      "sublabel": "Actual columns; v1 digest",
+      "width": 155
+    },
+    {
+      "id": "retain_obligation",
+      "lane": "failure",
+      "col": 2,
+      "type": "database",
+      "label": "Retain failed scope",
+      "sublabel": "Bounded evidence",
+      "width": 155
+    }
+  ],
+  "edges": [
+    {
+      "from": "admit_scope",
+      "to": "decode_once",
+      "label": "one source view",
+      "role": "main"
+    },
+    {
+      "from": "decode_once",
+      "to": "check_keys",
+      "label": "facts and refs",
+      "role": "main"
+    },
+    {
+      "from": "check_keys",
+      "to": "combine_results",
+      "label": "version and age",
+      "role": "main"
+    },
+    {
+      "from": "actual_facts",
+      "to": "combine_results",
+      "label": "compare digests",
+      "role": "branch"
+    },
+    {
+      "from": "check_keys",
+      "to": "retain_obligation",
+      "label": "missing or stale",
+      "role": "error"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "Change the work shape",
+      "items": [
+        "One cohort assessment read",
+        "Only typed scalars cross materialization",
+        "Each dimension key looked up once"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "Keep the checks independent",
+      "items": [
+        "Current attributes versus retained replay",
+        "Warehouse values read independently",
+        "Duplicate facts still count separately"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "Approval boundary",
+      "items": [
+        "No writer, schema or digest change",
+        "Separate hosted run authorization",
+        "6-second fact screen remains open"
+      ]
+    }
+  ]
+}

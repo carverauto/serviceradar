@@ -8,6 +8,12 @@ The system SHALL run continuous recording in separately deployable recorder pool
 - **THEN** the assigned recorder SHALL start and maintain ingest without an open viewer
 - **AND** viewer attachment or departure SHALL not create a duplicate upstream for the same source/profile or end the recording assignment
 
+#### Scenario: Recording policy and first viewers start concurrently
+- **WHEN** a recording policy and authorized viewers concurrently request the same source/profile through different coordinator replicas
+- **THEN** their consumer admissions SHALL resolve one source reservation before external activation
+- **AND** the recording consumer SHALL not depend on a fabricated viewer session
+- **AND** a partial or uncertain start SHALL be reconciled under the same operation identity without starting a competing owner
+
 #### Scenario: Pool capacity is exhausted
 - **WHEN** a requested assignment exceeds any admitted bitrate, disk, I/O, network, connection, CPU or memory budget
 - **THEN** the system SHALL reject or defer the assignment with the limiting resource identified
@@ -43,6 +49,17 @@ The system SHALL bind capture to an authenticated source owner, recorder, storag
 - **THEN** the system SHALL durably retain responsibility for pending media and its original storage lifetime before activating the replacement
 - **AND** SHALL reject stale live writes while allowing only explicitly reconciled, provenance-verified historical publications
 - **AND** SHALL not retarget old files or manifests to the new owner
+
+#### Scenario: Stop acknowledgement is lost
+- **WHEN** the coordinator cannot establish the outcome of a dispatched stop or handoff
+- **THEN** it SHALL retain the captured epoch, incarnation and session as unresolved
+- **AND** retries SHALL reconcile the same operation rather than close a subsequently current session
+- **AND** database lease expiry or a gateway stream ending SHALL NOT substitute for physical source and writer retirement evidence
+
+#### Scenario: Participant restarts before reconciliation
+- **WHEN** an agent or recorder rejoins with a new process incarnation
+- **THEN** it SHALL reconcile source retirement, storage exclusivity and pending historical work before conflicting activation
+- **AND** an old operation or consumer handle SHALL NOT authorize the new incarnation or renew an expired grant
 
 ### Requirement: Filesystem media data path
 The system SHALL write recording payloads to qualified bounded filesystem storage and, when configured, directly to the authorized S3 destination. NATS and JetStream SHALL carry control metadata, telemetry and bounded job references only, not camera media payloads or Object Store staging.

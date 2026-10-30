@@ -147,9 +147,10 @@ partitions, database destinations, SQL/DDL, or executable Core processors.
   authority
 
 ### Requirement: Plugin durable output is backpressured and idempotent
-A guest SHALL supply bounded UNCOMPRESSED contract-payload (submission) bytes; the
-sink SHALL compute `submission_sha256` over them and perform its retry lookup BEFORE
-compression, then compress the payload once and construct the record. A
+A guest SHALL supply bounded UNCOMPRESSED contract-payload (submission) bytes. The
+sink's pre-compression receipt lookup and its one compression decision are owned by
+the edge-producer requirement "Local acceptance transfers ownership crash-safely";
+this requirement does not restate them. A
 successful Wasm publish receipt SHALL mean the exact record bytes the sink emitted,
 contract, producer key, and trusted provenance are fsynced in the common agent
 spool. A retryable `WOULD_BLOCK` SHALL mean ownership did not transfer and SHALL

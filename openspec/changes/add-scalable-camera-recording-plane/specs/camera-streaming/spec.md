@@ -95,6 +95,25 @@ The system SHALL require an authorized viewer session before exposing live camer
 - **THEN** recording SHALL continue without opening a second source session
 - **AND** a later viewer SHALL attach to the existing ingest
 
+#### Scenario: Last hosted viewer leaves a local recording
+- **GIVEN** an admitted customer-local recording and one shared cloud live upload for hosted viewers
+- **WHEN** the last hosted viewer leaves and no other admitted cloud consumer needs that upload
+- **THEN** the runtime SHALL retire only that upload and its downstream viewing resources after bounded idle handling
+- **AND** the local source and recording SHALL continue under their existing authority without a WAN media round-trip
+
+#### Scenario: Cloud recording retains the shared upload
+- **GIVEN** an admitted cloud recorder consumes the shared agent upload
+- **WHEN** the last viewer disconnects
+- **THEN** the recording consumer SHALL keep that upload active
+- **AND** a later viewer SHALL attach downstream without another source or upload
+
+#### Scenario: Attach races with idle retirement
+- **WHEN** a consumer attach races with reservation of idle source close
+- **THEN** both operations SHALL serialize on the same source/profile ownership boundary
+- **AND** an attach committed before close SHALL retain the source
+- **AND** an attach after close reservation SHALL wait within its deadline or fail until retirement/reconciliation permits activation
+- **AND** a delayed close SHALL address only its captured lifetime
+
 #### Scenario: Consumer overload is isolated
 - **WHEN** recording or optional analysis exceeds its admitted budget
 - **THEN** the system SHALL expose its gap or rejected work
