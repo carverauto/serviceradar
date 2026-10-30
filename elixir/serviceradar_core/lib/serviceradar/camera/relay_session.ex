@@ -57,7 +57,6 @@ defmodule ServiceRadar.Camera.RelaySession do
       args: [:lease_cutoff, :unleased_cutoff]
 
     define :create_session, action: :create
-    define :record_command, action: :record_command
     define :mark_opening, action: :mark_opening
     define :activate, action: :activate
     define :renew_lease, action: :renew_lease
@@ -127,10 +126,6 @@ defmodule ServiceRadar.Camera.RelaySession do
 
       change transition_state(:opening)
       change set_attribute(:opened_at, &DateTime.utc_now/0)
-    end
-
-    update :record_command do
-      accept [:command_id]
     end
 
     update :activate do

@@ -203,8 +203,9 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp normalize_preallocated_command_id(@notification_command_type, command_id)
-       when is_binary(command_id) do
+  defp normalize_preallocated_command_id(command_type, command_id)
+       when command_type in [@notification_command_type, "camera.open_relay"] and
+              is_binary(command_id) do
     case Ecto.UUID.cast(command_id) do
       {:ok, normalized} -> {:ok, normalized}
       :error -> {:error, :invalid_preallocated_command_id}
@@ -2639,8 +2640,8 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
        when command_type in @preallocated_callback_command_types and is_binary(value),
        do: canonical_command_id(value)
 
-  defp canonical_optional_command_id(@notification_command_type, value, _payload)
-       when is_binary(value),
+  defp canonical_optional_command_id(command_type, value, _payload)
+       when command_type in [@notification_command_type, "camera.open_relay"] and is_binary(value),
        do: canonical_command_id(value)
 
   defp canonical_optional_command_id(_command_type, _value, _payload),

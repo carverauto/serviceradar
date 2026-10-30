@@ -111,19 +111,24 @@ defmodule ServiceRadar.Camera.RelaySessionManager do
     case dispatch.(
            session.agent_id,
            payload,
-           dispatch_opts(opts, requester, session.gateway_id),
+           opts
+           |> dispatch_opts(requester, session.gateway_id)
+           |> Keyword.put(:command_id, session.command_id),
            requester
          ) do
-      {:ok, command_id} ->
+      {:ok, command_id} when command_id == session.command_id ->
         RelayOwnership.with_session(
           session.id,
           fn owner, current ->
             if RelayOwnership.current?(owner, current),
-              do: RelaySession.record_command(current, %{command_id: command_id}, write_opts),
+              do: {:ok, current},
               else: {:error, :ownership_lost}
           end,
           write_opts
         )
+
+      {:ok, _other_command_id} ->
+        {:error, :relay_command_id_mismatch}
 
       {:error, reason} = error ->
         fail_dispatch(session, reason, "request_open", write_opts)

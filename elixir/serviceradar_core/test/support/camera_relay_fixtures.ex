@@ -96,7 +96,7 @@ defmodule ServiceRadar.Test.CameraRelayFixtures do
     defaults = [
       actor: ctx.actor,
       control_gateway_resolver: fn _agent, gateway -> {:ok, gateway} end,
-      dispatch_open: fn _agent, _payload, _opts, _requester -> {:ok, Ecto.UUID.generate()} end
+      dispatch_open: fn _agent, _payload, opts, _requester -> {:ok, opts[:command_id]} end
     ]
 
     RelaySessionManager.request_open(ctx.source.id, ctx.profile.id, Keyword.merge(defaults, opts))
