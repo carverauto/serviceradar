@@ -18,10 +18,16 @@ import (
 const managedCertificatePolicyDomain = "serviceradar.certificate-policy.v1\x00"
 
 type managedCertificatePolicySnapshot struct {
-	Version             int       `json:"version"`
-	GeneratedAt         time.Time `json:"generated_at"`
-	ValidUntil          time.Time `json:"valid_until"`
-	AllowedFingerprints []string  `json:"allowed_fingerprints"`
+	Version             int                                          `json:"version"`
+	GeneratedAt         time.Time                                    `json:"generated_at"`
+	ValidUntil          time.Time                                    `json:"valid_until"`
+	AllowedFingerprints []string                                     `json:"allowed_fingerprints"`
+	NATSPermissions     map[string]managedCertificateNATSPermissions `json:"nats_permissions,omitempty"`
+}
+
+type managedCertificateNATSPermissions struct {
+	Publish   []string `json:"publish"`
+	Subscribe []string `json:"subscribe"`
 }
 
 type managedCertificatePolicyStore struct {
@@ -129,12 +135,19 @@ func (p managedCertificatePolicySnapshot) validate(now time.Time) error {
 	if p.Version != 1 || generatedOffset != 0 || validOffset != 0 || p.GeneratedAt.IsZero() || p.ValidUntil.IsZero() || !p.ValidUntil.After(p.GeneratedAt) || p.ValidUntil.Sub(p.GeneratedAt) > 30*time.Second || !p.ValidUntil.After(now) || p.GeneratedAt.After(now.Add(5*time.Second)) {
 		return fmt.Errorf("%w: certificate policy version or freshness is invalid", errManagedCertificates)
 	}
+	allowed := make(map[string]struct{}, len(p.AllowedFingerprints))
 	for _, fingerprint := range p.AllowedFingerprints {
 		if len(fingerprint) != 64 || strings.ToLower(fingerprint) != fingerprint {
 			return fmt.Errorf("%w: certificate policy fingerprint is not lowercase DER SHA256", errManagedCertificates)
 		}
 		if _, err := hex.DecodeString(fingerprint); err != nil {
 			return fmt.Errorf("decode certificate policy fingerprint: %w", err)
+		}
+		allowed[fingerprint] = struct{}{}
+	}
+	for fingerprint := range p.NATSPermissions {
+		if _, ok := allowed[fingerprint]; !ok {
+			return fmt.Errorf("%w: NATS permissions reference a certificate outside the allowed set", errManagedCertificates)
 		}
 	}
 	return nil

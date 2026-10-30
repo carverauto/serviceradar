@@ -5,7 +5,7 @@ import {join} from "node:path"
 import {createServer} from "node:http"
 import test from "node:test"
 import {parse as parseToml} from "smol-toml"
-import {atomicOwnedFile, decodePolicyPublicKey, managedConfigurationFiles, mergeManagedConfiguration, waitForManagedActivation} from "../managed-host.mjs"
+import {atomicOwnedFile, decodePolicyPublicKey, managedConfigurationFiles, mergeManagedConfiguration, selectLeafAdvertiseURL, waitForManagedActivation} from "../managed-host.mjs"
 
 test("managed configuration uses fixed destinations and binds offline access to a local leaf identity", () => {
   const component = {
@@ -77,6 +77,20 @@ test("deployment bootstrap accepts only canonical Ed25519 public keys", () => {
   const key = Buffer.alloc(32, 19).toString("base64")
   assert.equal(decodePolicyPublicKey(key + "\n"), key)
   for (const invalid of ["", "not-base64", Buffer.alloc(31).toString("base64"), key + "!"]) assert.throws(() => decodePolicyPublicKey(invalid), /Ed25519/)
+})
+
+test("leaf address selection prefers operator configuration and uses only unambiguous host addresses", () => {
+  const addresses = ["127.0.0.1", "::1", "169.254.1.2", "fe80::1", "192.0.2.24"]
+  assert.equal(selectLeafAdvertiseURL(undefined, undefined, "edge", addresses, []), "tls://192.0.2.24:4222")
+  assert.equal(selectLeafAdvertiseURL(undefined, "tls://localhost:4222", "leaf.example", addresses, ["192.0.2.24"]), "tls://leaf.example:4222")
+  assert.equal(selectLeafAdvertiseURL("tls://leaf.example:4322", "tls://old.example:4222", "edge", [], []), "tls://leaf.example:4322")
+  assert.equal(selectLeafAdvertiseURL(undefined, "nats://leaf.example:4222", "edge", [], []), "tls://leaf.example:4222")
+  assert.equal(selectLeafAdvertiseURL(undefined, undefined, "edge", ["2001:db8::24"], []), "tls://[2001:db8::24]:4222")
+  assert.throws(() => selectLeafAdvertiseURL(undefined, undefined, "edge", ["127.0.0.1"], []), /--advertise-url/)
+  assert.throws(() => selectLeafAdvertiseURL(undefined, undefined, "leaf.example", ["192.0.2.24", "198.51.100.24"], ["203.0.113.1"]), /--advertise-url/)
+  for (const value of ["https://leaf.example:4222", "tls://user:pass@leaf.example:4222", "tls://leaf.example:4222/path", "tls://leaf.example"]) {
+    assert.throws(() => selectLeafAdvertiseURL(value, undefined, "edge", [], []), /--advertise-url/)
+  }
 })
 
 test("activation polling waits for both receipts from the requested operation and rejects failures or stale results", async () => {

@@ -51,7 +51,7 @@ export function printEdgeHelp(): void {
 
   Edge host install helpers (run as root on the edge host; --dry-run prints the plan):
     serviceradar-cli edge install agent     --instance <url> --package <id> --token <onboarding-token> --version <release>
-    serviceradar-cli edge install leaf      --instance <url> --site <id> [--version <release>]
+    serviceradar-cli edge install leaf      --instance <url> --site <id> [--advertise-url tls://<host>:4222] [--version <release>]
     serviceradar-cli edge install collector --instance <url> --id <id> [--version <release>]
       common: [--format rpm|deb] [--arch x86_64|aarch64] [--release-base-url <url>] [--release-api-url <url>] [--server-hosts <dns,ip,...>] [--dry-run]
 
@@ -74,6 +74,9 @@ installs certificates, and activates the service. Installation is reported
 separately from receiver enforcement. One component owns each fixed host service;
 log protocols share log-collector, and flow protocols share flow-collector.
 Existing ingestion settings are preserved; TOML comments may be reformatted.
+Leaf enrollment retains an existing advertised URL or discovers an unambiguous
+host address. Use --advertise-url when collectors reach a different DNS name,
+load balancer, or address. The authority binds that address to the leaf certificate.
 A collector assigned to a managed local leaf keeps ingesting with its last
 verified policy during a WAN outage; the policy is reported as stale.`)
 }

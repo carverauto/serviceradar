@@ -608,7 +608,7 @@ test("edge install leaf without --version downloads the latest serviceradar-nats
     },
     async (instance, requests) => {
       const ok = await runCli(
-        ["edge", "install", "leaf", "--instance", instance, "--site", "site-1", "--release-api-url", `${instance}/github/releases/latest`, ...DRY],
+        ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "site-1", "--release-api-url", `${instance}/github/releases/latest`, ...DRY],
         {env: TOKEN_ENV},
       )
       assert.equal(ok.code, 0, ok.stderr)
@@ -622,7 +622,7 @@ test("edge install leaf without --version downloads the latest serviceradar-nats
       assert.ok(requests.some((request) => request.path === "/github/releases/latest"))
 
       const missing = await runCli(
-        ["edge", "install", "leaf", "--instance", instance, "--site", "site-1", "--release-api-url", `${instance}/github/releases/latest`, "--dry-run", "--format", "deb", "--arch", "arm64"],
+        ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "site-1", "--release-api-url", `${instance}/github/releases/latest`, "--dry-run", "--format", "deb", "--arch", "arm64"],
         {env: TOKEN_ENV},
       )
       assert.notEqual(missing.code, 0)
@@ -680,14 +680,14 @@ test("edge install leaf --dry-run checks the site exists and plans managed NATS 
       return json(res, 404, {errors: {detail: "Not Found"}})
     },
     async (instance, requests) => {
-      const ok = await runCli(["edge", "install", "leaf", "--instance", instance, "--site", "site-1", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
+      const ok = await runCli(["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "site-1", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
       assert.equal(ok.code, 0, ok.stderr)
       assert.match(ok.stdout, /leaf status: ready/)
       assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
       assert.match(ok.stdout, /register nats-leaf for the enrolled host agent/)
       assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), ["GET /api/admin/edge-sites/site-1", "GET /api/admin/managed-components/bootstrap"])
 
-      const missing = await runCli(["edge", "install", "leaf", "--instance", instance, "--site", "nope", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
+      const missing = await runCli(["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "nope", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
       assert.notEqual(missing.code, 0)
       assert.match(missing.stderr, /HTTP 404/)
     },

@@ -1,6 +1,7 @@
 import {randomUUID} from "node:crypto"
 import {chmod, link, lstat, mkdir, open, readFile, rename, unlink} from "node:fs/promises"
 import {basename, dirname, join} from "node:path"
+import {isIP} from "node:net"
 import {parse as parseToml, stringify as stringifyToml} from "smol-toml"
 import {edgeRequest, encodeId, type EdgeSession} from "./http.js"
 
@@ -74,12 +75,45 @@ function validateLocalLeafBinding(binding: LocalLeafBinding, partition: string):
   const endpoint = new URL(binding.endpoint)
   const identity = new URL(binding.server_spiffe_id)
   const parts = identity.pathname.split("/")
-  if (binding.version !== 1 || !["tls:", "nats:"].includes(endpoint.protocol) || !endpoint.hostname || !endpoint.port || endpoint.username || endpoint.password || (endpoint.pathname && endpoint.pathname !== "/") || endpoint.search || endpoint.hash || binding.endpoint.includes(",")) {
+  if (binding.version !== 1 || endpoint.protocol !== "tls:" || !endpoint.hostname || !endpoint.port || endpoint.username || endpoint.password || (endpoint.pathname && endpoint.pathname !== "/") || endpoint.search || endpoint.hash || binding.endpoint.includes(",")) {
     throw new Error("invalid managed local leaf endpoint binding")
   }
   if (identity.protocol !== "spiffe:" || identity.host !== "serviceradar.local" || parts.length !== 4 || parts[1] !== "nats_leaf_server" || parts[2] !== partition || !/^[A-Za-z0-9_-]+-server$/.test(parts[3]) || identity.search || identity.hash) {
     throw new Error("local policy binding does not identify this partition's managed leaf server")
   }
+}
+
+/** Choose an advertised address from explicit configuration or unambiguous host facts. */
+export function selectLeafAdvertiseURL(explicit: string | undefined, existing: string | undefined, hostName: string, interfaceAddresses: string[], resolvedAddresses: string[]): string {
+  if (explicit) return normalizeLeafURL(explicit)
+  if (existing) {
+    const normalized = normalizeLeafURL(existing)
+    if (!localOnlyHost(new URL(normalized).hostname)) return normalized
+  }
+  const addresses = [...new Set(interfaceAddresses.filter(usableHostAddress))]
+  if (hostName.includes(".") && !localOnlyHost(hostName) && resolvedAddresses.length > 0 && resolvedAddresses.every((address) => addresses.includes(address))) {
+    return normalizeLeafURL(`tls://${hostName}:4222`)
+  }
+  if (addresses.length === 1) return normalizeLeafURL(`tls://${isIP(addresses[0]) === 6 ? `[${addresses[0]}]` : addresses[0]}:4222`)
+  throw new Error("cannot determine a unique collector-facing leaf address; pass --advertise-url tls://<reachable-host>:4222")
+}
+
+function normalizeLeafURL(value: string): string {
+  const url = new URL(value)
+  if (!["tls:", "nats:"].includes(url.protocol) || !url.hostname || !url.port || url.username || url.password || (url.pathname && url.pathname !== "/") || url.search || url.hash) throw new Error("--advertise-url must be a tls://host:port URL without credentials, path, query or fragment")
+  return `tls://${url.host}`
+}
+
+function localOnlyHost(host: string): boolean {
+  const normalized = host.replace(/^\[|\]$/g, "").toLowerCase()
+  return normalized === "localhost" || normalized.endsWith(".localhost") || normalized.endsWith(".localdomain") || normalized === "::1" || normalized.startsWith("127.") || normalized === "0.0.0.0" || normalized === "::"
+}
+
+function usableHostAddress(address: string): boolean {
+  const family = isIP(address)
+  if (!family || localOnlyHost(address)) return false
+  if (family === 4) return !address.startsWith("169.254.") && Number(address.split(".")[0]) < 224
+  return !/^fe[89ab]/i.test(address) && !/^ff/i.test(address) && !address.includes("%")
 }
 
 export async function readEnrolledAgent(dryRun: boolean): Promise<{agent_id: string; partition: string} | null> {

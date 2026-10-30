@@ -11,13 +11,14 @@ import {execFile, spawn} from "node:child_process"
 import {promisify} from "node:util"
 import {existsSync, mkdtempSync} from "node:fs"
 import {writeFile} from "node:fs/promises"
-import {tmpdir} from "node:os"
+import {lookup} from "node:dns/promises"
+import {hostname, networkInterfaces, tmpdir} from "node:os"
 import {join} from "node:path"
 
 import {fetchCollector} from "./collectors.js"
 import {encodeId, edgeRequest, rawRequest, requireEdgeSession, requireInstance, type EdgeSession} from "./http.js"
 import {positiveNumber} from "./sites.js"
-import {decodePolicyPublicKey, installManagedConfiguration, installPolicyPublicKey, MANAGED_SERVICES, managedConfigurationFiles, POLICY_KEY_PATH, readEnrolledAgent, readManagedConfiguration, waitForManagedActivation, type ManagedComponent} from "./managed.js"
+import {decodePolicyPublicKey, installManagedConfiguration, installPolicyPublicKey, MANAGED_SERVICES, managedConfigurationFiles, POLICY_KEY_PATH, readEnrolledAgent, readManagedConfiguration, selectLeafAdvertiseURL, waitForManagedActivation, type ManagedComponent} from "./managed.js"
 
 export const DEFAULT_RELEASE_BASE_URL = "https://github.com/carverauto/serviceradar/releases/download"
 export const DEFAULT_RELEASE_API_URL = "https://api.github.com/repos/carverauto/serviceradar/releases/latest"
@@ -127,8 +128,14 @@ async function installLeaf(options: Record<string, any>): Promise<void> {
   const site = sitePayload?.data || sitePayload
   console.log(`Edge site ${site?.name || siteId} (${site?.slug || siteId}); leaf status: ${site?.leaf_server?.status || "pending"}`)
 
+  const host = hostname()
+  const addresses = Object.values(networkInterfaces()).flatMap((addresses) => addresses || []).filter((address) => !address.internal).map((address) => address.address)
+  const resolved = !options.advertiseUrl && host.includes(".") ? await lookup(host, {all: true}).catch(() => []) : []
+  const advertiseUrl = selectLeafAdvertiseURL(options.advertiseUrl, site?.nats_leaf_url, host, addresses, resolved.map((address) => address.address))
+  console.log(`Collector-facing leaf URL: ${advertiseUrl}`)
+
   await installManaged(ctx, session, options, {
-    service: "nats-leaf", source: {edge_site_id: siteId}, packageName: "serviceradar-nats", allowLocalLeaf: false,
+    service: "nats-leaf", source: {edge_site_id: siteId, advertise_url: advertiseUrl}, packageName: "serviceradar-nats", allowLocalLeaf: false,
   })
 }
 
@@ -154,8 +161,10 @@ async function installCollector(options: Record<string, any>): Promise<void> {
 
 async function installManaged(
   ctx: InstallContext, session: EdgeSession, options: Record<string, any>,
-  target: {service: string; source: {edge_site_id?: string; collector_id?: string}; packageName: string; allowLocalLeaf: boolean},
+  target: {service: string; source: {edge_site_id?: string; collector_id?: string; advertise_url?: string}; packageName: string; allowLocalLeaf: boolean},
 ): Promise<void> {
+  const instanceURL = new URL(session.instance)
+  if (instanceURL.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(instanceURL.hostname)) throw new Error("managed certificate bootstrap requires HTTPS (HTTP is permitted only for a loopback development instance)")
   const agent = await readEnrolledAgent(ctx.dryRun)
   const payload = await edgeRequest(session, "GET", "/api/admin/managed-components/bootstrap")
   const bootstrap = payload?.data || payload
