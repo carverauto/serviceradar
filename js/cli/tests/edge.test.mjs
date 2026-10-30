@@ -507,6 +507,12 @@ test("nats account status renders the deployment's NATS account", async () => {
 
 // ------------------------------------------------------------------ install helpers
 
+function managedBootstrap(req, res) {
+  if (req.path !== "/api/admin/managed-components/bootstrap") return false
+  json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats: {ready: true, auth_mode: "callout"}}})
+  return true
+}
+
 const DRY = ["--dry-run", "--format", "rpm", "--arch", "x86_64"]
 
 test("edge install agent --dry-run plans the release RPM, dnf, and srctl enroll without leaking the token", async () => {
@@ -557,9 +563,11 @@ test("edge install refuses to change the host unless run as root", {skip: proces
 
 test("edge install collector --dry-run picks the package for the collector's type", async () => {
   await withServer(
-    (req, res) => (req.path === "/api/admin/collectors/col-1"
-      ? json(res, 200, {id: "col-1", collector_type: "sflow", status: "ready"})
-      : json(res, 404, {})),
+    (req, res) => {
+      if (managedBootstrap(req, res)) return
+      if (req.path === "/api/admin/collectors/col-1") return json(res, 200, {id: "col-1", collector_type: "sflow", status: "ready"})
+      return json(res, 404, {})
+    },
     async (instance, requests) => {
       const {code, stdout, stderr} = await runCli(
         ["edge", "install", "collector", "--instance", instance, "--id", "col-1", "--token", "collectorpkg-v2:x", "--version", "1.4.81", ...DRY],
@@ -567,10 +575,11 @@ test("edge install collector --dry-run picks the package for the collector's typ
       )
       assert.equal(code, 0, stderr)
       assert.match(stdout, /serviceradar-flow-collector-1\.4\.81-1\.x86_64\.rpm/)
-      assert.match(stdout, /POST .*\/api\/collectors\/col-1\/bundle/)
-      assert.match(stdout, /run update\.sh from the extracted bundle in \/etc\/serviceradar\/collectors\/col-1/)
-      // The dry run only reads: it must not consume the collector bundle.
-      assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), ["GET /api/admin/collectors/col-1"])
+      assert.match(stdout, /register flow-collector for the enrolled host agent/)
+      assert.match(stdout, /request agent-generated keys and certificate installation/)
+      assert.equal(stdout.includes("update.sh"), false)
+      // Preview performs no registration, key issuance or host mutations.
+      assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), ["GET /api/admin/collectors/col-1", "GET /api/admin/managed-components/bootstrap"])
     },
   )
 })
@@ -592,6 +601,7 @@ const LATEST_PACKAGES = [
 test("edge install leaf without --version downloads the latest serviceradar-nats asset", async () => {
   await withServer(
     (req, res) => {
+      if (managedBootstrap(req, res)) return
       if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
       if (req.path === "/github/releases/latest") return json(res, 200, latestRelease(LATEST_PACKAGES))
       return json(res, 404, {})
@@ -605,9 +615,10 @@ test("edge install leaf without --version downloads the latest serviceradar-nats
       assert.match(ok.stdout, /download https:\/\/github\.com\/carverauto\/serviceradar\/releases\/download\/v9\.9\.9\/serviceradar-nats-9\.9\.9-1\.x86_64\.rpm/)
       assert.equal(ok.stdout.includes("serviceradar-agent-9.9.9"), false)
       assert.equal(ok.stdout.includes("serviceradar-nats_9.9.9_amd64.deb"), false)
-      const setup = ok.stdout.indexOf("setup.sh")
-      const confirm = ok.stdout.indexOf("confirm the local NATS leaf is active")
-      assert.ok(setup !== -1 && confirm > setup, ok.stdout)
+      const configure = ok.stdout.indexOf("install managed TLS")
+      const activate = ok.stdout.indexOf("request agent-generated keys")
+      assert.ok(configure !== -1 && activate > configure, ok.stdout)
+      assert.equal(ok.stdout.includes("setup.sh"), false)
       assert.ok(requests.some((request) => request.path === "/github/releases/latest"))
 
       const missing = await runCli(
@@ -620,9 +631,10 @@ test("edge install leaf without --version downloads the latest serviceradar-nats
   )
 })
 
-test("edge install collector without --version uses the latest package and waits for the local leaf", async () => {
+test("edge install collector without --version uses the latest package and configures managed certificates", async () => {
   await withServer(
     (req, res) => {
+      if (managedBootstrap(req, res)) return
       if (req.path === "/api/admin/collectors/col-1") {
         return json(res, 200, {
           id: "col-1",
@@ -645,10 +657,9 @@ test("edge install collector without --version uses the latest package and waits
       )
       assert.equal(bound.code, 0, bound.stderr)
       assert.match(bound.stdout, /serviceradar-flow-collector-9\.9\.9-1\.x86_64\.rpm/)
-      const confirm = bound.stdout.indexOf("confirm the local NATS leaf is active")
-      const bundle = bound.stdout.indexOf("/api/collectors/col-1/bundle")
-      assert.ok(confirm !== -1 && bundle !== -1 && confirm < bundle, bound.stdout)
-      assert.match(bound.stdout, /writes to tls:\/\/127\.0\.0\.1:4222/)
+      assert.match(bound.stdout, /register flow-collector/)
+      assert.match(bound.stdout, /policy public key/)
+      assert.equal(bound.stdout.includes("/bundle"), false)
 
       const unbound = await runCli(
         ["edge", "install", "collector", "--instance", instance, "--id", "col-2", "--token", "collectorpkg-v2:x", "--release-api-url", `${instance}/github/releases/latest`, ...DRY],
@@ -661,16 +672,20 @@ test("edge install collector without --version uses the latest package and waits
   )
 })
 
-test("edge install leaf --dry-run checks the site exists and plans NATS + setup.sh", async () => {
+test("edge install leaf --dry-run checks the site exists and plans managed NATS onboarding", async () => {
   await withServer(
-    (req, res) => (req.path === "/api/admin/edge-sites/site-1" ? json(res, 200, {data: SITE}) : json(res, 404, {errors: {detail: "Not Found"}})),
+    (req, res) => {
+      if (managedBootstrap(req, res)) return
+      if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
+      return json(res, 404, {errors: {detail: "Not Found"}})
+    },
     async (instance, requests) => {
       const ok = await runCli(["edge", "install", "leaf", "--instance", instance, "--site", "site-1", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
       assert.equal(ok.code, 0, ok.stderr)
       assert.match(ok.stdout, /leaf status: ready/)
       assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
-      assert.match(ok.stdout, /run setup\.sh from the extracted bundle in \/etc\/serviceradar\/edge-sites\/site-1/)
-      assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), ["GET /api/admin/edge-sites/site-1"])
+      assert.match(ok.stdout, /register nats-leaf for the enrolled host agent/)
+      assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), ["GET /api/admin/edge-sites/site-1", "GET /api/admin/managed-components/bootstrap"])
 
       const missing = await runCli(["edge", "install", "leaf", "--instance", instance, "--site", "nope", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
       assert.notEqual(missing.code, 0)

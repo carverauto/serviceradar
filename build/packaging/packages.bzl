@@ -385,14 +385,21 @@ PACKAGES = {
             "target": "//rust/bmp-collector:bmp-collector",
             "dest": "/usr/local/bin/serviceradar-bmp-collector",
         },
-        "files": [],
+        "files": [
+            {
+                "src": "config/bmp-collector.json",
+                "dest": "/etc/serviceradar/bmp-collector.json",
+                "mode": "0644",
+                "rpm_filetag": "config(noreplace)",
+            },
+        ],
         "systemd": {
             "src": "systemd/serviceradar-bmp-collector.service",
             "dest": "/lib/systemd/system/serviceradar-bmp-collector.service",
         },
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",
-        "conffiles": [],
+        "conffiles": ["/etc/serviceradar/bmp-collector.json"],
     },
     "nats": {
         "package_name": "serviceradar-nats",

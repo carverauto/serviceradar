@@ -4,8 +4,8 @@
 import {build} from "esbuild";
 
 await build({
-  entryPoints: ["../../../js/cli/src/cli.ts"],
-  outfile: "plugin_config_cli.mjs",
+  entryPoints: [process.argv[2] || "../../../js/cli/src/cli.ts"],
+  outfile: process.argv[3] || "plugin_config_cli.mjs",
   bundle: true,
   platform: "node",
   format: "esm",

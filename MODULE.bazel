@@ -940,7 +940,7 @@ npm.npm_translate_lock(
 )
 use_repo(npm, "web_ng_npm")
 
-# The real CLI acceptance lane needs only YAML; dashboard tooling is lazy-loaded.
+# The CLI acceptance lane bundles its config parsers; dashboard tooling is lazy-loaded.
 # Reuse the version and integrity already recorded in js/cli/package-lock.json.
 npm.npm_import(
     name = "cli_yaml",
@@ -951,6 +951,16 @@ npm.npm_import(
     version = "2.9.0",
 )
 use_repo(npm, "cli_yaml", "cli_yaml__links")
+
+npm.npm_import(
+    name = "cli_toml",
+    integrity = "sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==",
+    link_packages = {"js/cli": ["smol-toml"]},
+    package = "smol-toml",
+    root_package = "js/cli",
+    version = "1.9.1",
+)
+use_repo(npm, "cli_toml", "cli_toml__links")
 
 # Remote God View pre-commit typecheck; reuse the compiler receipt already
 # pinned by assets/component/bun.lock, without a bunx runtime fetch.
