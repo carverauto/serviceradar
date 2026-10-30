@@ -290,15 +290,17 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
 
     test "a different event_id with a different digest bound to the same event_id fails as an event_id conflict" do
-      %{record_bytes: record_bytes, headers: headers, record: record} = build_frame()
+      %{record_bytes: record_bytes, headers: headers, record: record, slot: slot} = build_frame()
 
       assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
 
-      # A distinct delivery slot (fresh spool/sequence) claiming the SAME
-      # event_id, but with different content -> different semantic digest.
+      # A distinct delivery slot (fresh spool/sequence) from the same agent
+      # claiming the SAME event_id, but with different content -> different
+      # semantic digest.
       %{record_bytes: reused_event_bytes, headers: reused_event_headers} =
         build_frame(
           network_scope_id: record.network_scope_id,
+          agent_id: slot.authenticated_agent_id,
           event_id: record.event_id,
           host_octet: 7
         )

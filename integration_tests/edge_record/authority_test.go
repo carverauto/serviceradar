@@ -212,7 +212,7 @@ AND hosts_total = %d AND hosts_available = %d AND hosts_failed = 0`, execution, 
 		ip := net.IP(host.Address).String()
 		if got := h.rpcQueryCount(t, fmt.Sprintf(`SELECT count(*) FROM platform.sweep_host_results
 WHERE execution_id = %s AND ip = '%s' AND status = 'available'
-AND hostname = '%s' AND open_ports = ARRAY[443] AND scanned_ports = ARRAY[443]`, execution, ip, host.Hostname)); got != 1 {
+AND hostname = '%s' AND open_ports = ARRAY[443]::bigint[] AND scanned_ports = ARRAY[443]::bigint[]`, execution, ip, host.Hostname)); got != 1 {
 			t.Errorf("sweep result missing or wrong for %s: count=%d", ip, got)
 		}
 		if got := h.rpcQueryCount(t, fmt.Sprintf(`SELECT count(*) FROM platform.ocsf_devices d
@@ -221,7 +221,7 @@ JOIN platform.device_agent_availability a ON a.device_uid = d.uid
 WHERE p.id = %s AND d.ip = '%s' AND d.is_available = true
 AND 'sweep' = ANY(d.discovery_sources) AND a.agent_id = '%s'
 AND a.execution_id = %s AND a.sweep_group_id = %s AND a.is_available = true
-AND a.open_ports = ARRAY[443]`, uuidLiteral(fx.NetworkScopeID), ip, h.certSet.AgentComponentID, execution, group)); got != 1 {
+AND a.open_ports = ARRAY[443]::integer[]`, uuidLiteral(fx.NetworkScopeID), ip, h.certSet.AgentComponentID, execution, group)); got != 1 {
 			t.Errorf("discovered device and agent availability missing or wrong for %s: count=%d", ip, got)
 		}
 	}
