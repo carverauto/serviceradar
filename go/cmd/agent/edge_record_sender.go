@@ -44,7 +44,7 @@ const (
 // depends on (a separate, parallel task) may not exist in every deployment.
 //
 // Sweep-enabled senders persist validated terminal dispositions before advancing
-// their local resolved prefix. Physical segment reclamation remains separate.
+// their local resolved prefix, then reclaim a fully accepted drained segment.
 //
 // Setup is not retried: if any setup step fails (missing gateway address or
 // spool_dir, spool id, security provider before its certificate files exist,
