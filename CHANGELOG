@@ -1,3 +1,45 @@
+# ServiceRadar v1.4.100
+
+This release makes the Proxmox node-to-agent certificate link from
+v1.4.99 actually work, restores the agent release list, fixes a
+Proxmox console crash, and keeps shared camera streams to one
+connection per camera.
+
+## Upgrade Notes
+
+- **Upgrade the agents that run the Proxmox inventory.** In v1.4.99
+  the agent refused the inventory plugin's request for each node's
+  TLS certificate, so Proxmox nodes never linked to the agents running
+  on them by certificate, and a node could stay split into two device
+  records. Agents on this release allow that request; the records
+  merge on the next inventory pass (#6179).
+
+## Whats New
+
+**Proxmox**
+
+- The agent lets the Proxmox inventory plugin read each node's
+  certificate information, so a Proxmox node and the agent on it link
+  by the node's TLS certificate as described for v1.4.99 (#6179).
+- A Proxmox browser console no longer crashes the web connection when
+  a resize or keystroke arrives just after the console closed; the
+  stream closes cleanly instead (#6172).
+
+**Agents**
+
+- Settings > Agents > Releases lists recent agent releases again. The
+  list read only the newest five GitHub releases, so draft and add-on
+  releases could leave it empty (#6173).
+
+**Cameras**
+
+- An agent opens one connection per camera and profile, even when a
+  replacement relay starts while the previous one is still starting
+  or closing (#6174).
+- A camera relay keeps the same command identity through dispatch, so
+  concurrent opens, and an open interrupted before its reply, reuse
+  one reservation (#6178).
+
 # ServiceRadar v1.4.99
 
 This release makes agents renew their own certificates, links agents to
