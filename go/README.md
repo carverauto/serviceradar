@@ -174,13 +174,15 @@ opens with `# gazelle:ignore` so Gazelle does not regenerate them. Non-Bazel too
 on those checked-in files existing.
 
 `//proto:camera_media_go` generates `camera_media.pb.go` from `camera_media.proto` with
-declared `protoc` inputs. `//proto:update_camera_media_bindings` writes that output over the
-checked-in file, and its `write_source_files` test fails when the file drifts. The target
-covers the message binding. `camera_media_grpc.pb.go` stays with the other checked-in stubs.
+declared `protoc` inputs. The compiler is the Proto ABI release pin, protoc 34.1
+(`protoc v7.34.1` in the generated header), not the MODULE protobuf 35.1 compiler.
+`//proto:update_camera_media_bindings` writes that output over the checked-in file, and
+its `write_source_files` test fails when the file drifts. The target covers the message
+binding. `camera_media_grpc.pb.go` stays with the other checked-in stubs.
 
-Regenerate the other bindings with `make generate-proto` and commit the result. That Make
-target also rewrites `camera_media.pb.go` with host `protoc`; the Bazel target is the drift
-check for that file.
+Regenerate the other bindings with `make generate-proto` and commit the result. Proto ABI
+CI runs that target with the same protoc 34.1 pin. A workstation `protoc` at another
+version rewrites `camera_media.pb.go` to a header the drift guard rejects.
 
 ## 8. What CI runs
 
