@@ -10,6 +10,9 @@ defmodule CertificateCodecBridge do
     end)
   end
 
+  defp respond(%{"generate" => "account"}), do: CertificateAuthorizationToken.new_key(:account)
+  defp respond(%{"generate" => "user"}), do: CertificateAuthorizationToken.new_key(:user)
+
   defp respond(input) do
     case CertificateAuthorizationToken.decode_request(input["request"], input["issuer"], input["now"] || System.system_time(:second)) do
       {:ok, request} ->

@@ -50,30 +50,35 @@ func TestNATSCertificateRevocation(t *testing.T) {
 	collectorA, collectorB := issue("collector-a"), issue("collector-b")
 	leafA, leafB := issue("leaf-a"), issue("leaf-b")
 	clientPort, monitorPort, leafPort := revocationPort(t), revocationPort(t), revocationPort(t)
-	signer, err := nkeys.CreateAccount()
-	if err != nil {
-		t.Fatal(err)
-	}
-	seed, err := signer.Seed()
-	if err != nil {
-		t.Fatal(err)
-	}
 	codec := startCertificateCodec(t)
 	if result, err := codec(map[string]any{"request": "invalid", "issuer": "invalid"}); err != nil || result["error"] == "" {
 		t.Fatalf("codec readiness/invalid request: %v %v", result, err)
+	}
+	newKey := func(kind string) nkeys.KeyPair {
+		result, err := codec(map[string]any{"generate": kind})
+		if err != nil {
+			t.Fatal(err)
+		}
+		key, err := nkeys.FromSeed([]byte(result["seed"]))
+		if err != nil {
+			t.Fatalf("production key is not a NATS seed: %v", err)
+		}
+		public, err := key.PublicKey()
+		if err != nil || public != result["public_key"] {
+			t.Fatalf("production public key differs from seed: %v", err)
+		}
+		return key
+	}
+	signer := newKey("account")
+	seed, err := signer.Seed()
+	if err != nil {
+		t.Fatal(err)
 	}
 	issuer, err := signer.PublicKey()
 	if err != nil {
 		t.Fatal(err)
 	}
-	authKey, err := nkeys.CreateUser()
-	if err != nil {
-		t.Fatal(err)
-	}
-	systemKey, err := nkeys.CreateUser()
-	if err != nil {
-		t.Fatal(err)
-	}
+	authKey, systemKey := newKey("user"), newKey("user")
 	authPub, err := authKey.PublicKey()
 	if err != nil {
 		t.Fatal(err)

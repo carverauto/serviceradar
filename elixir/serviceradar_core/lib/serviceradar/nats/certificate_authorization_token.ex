@@ -14,6 +14,17 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
   @audience "nats-authorization-request"
   @max_request_bytes 65_536
 
+  @doc "Generate a persistent NATS account or user signing key."
+  def new_key(type) when type in [:account, :user] do
+    prefix = if type == :account, do: 0, else: 20
+    # nkeys 0.3.1 new_* returns an empty seed and encode_seed uses the wrong
+    # seed prefix. Encode the NATS seed wire format before using its signer.
+    bytes = <<18::5, prefix::5, 0::6, :crypto.strong_rand_bytes(32)::binary>>
+    seed = Base.encode32(<<bytes::binary, NKEYS.CRC.compute(bytes)::little-16>>, padding: false)
+    {:ok, key} = Keypair.from_seed(seed)
+    %{seed: seed, public_key: Keypair.public_key(key)}
+  end
+
   @doc "Validate a broker request addressed to this authorization issuer."
   def decode_request(token, issuer_nkey, now \\ System.system_time(:second))
 
