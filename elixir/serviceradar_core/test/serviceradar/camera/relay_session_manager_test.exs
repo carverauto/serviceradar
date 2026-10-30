@@ -64,7 +64,8 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
         pending_config_version: nil
       })
 
-    start_supervised!({HoldingControlSession, name: name, test_pid: parent})
+    session = start_supervised!({HoldingControlSession, name: name, test_pid: parent})
+    assert wait_for_control_session("default", agent_id, session)
 
     dispatch = fn agent, payload, opts, _requester ->
       AgentCommandBus.start_camera_relay(
@@ -682,6 +683,24 @@ defmodule ServiceRadar.Camera.RelaySessionManagerTest do
     end
 
     assert {:error, :ownership_lost} = IngestOwnership.for_relay(allowed.id, ctx.opts)
+  end
+
+  defp wait_for_control_session(partition_id, agent_id, pid, attempts \\ 40)
+
+  defp wait_for_control_session(partition_id, agent_id, pid, 0) do
+    flunk("control session #{inspect(pid)} was not visible for #{partition_id}/#{agent_id}")
+  end
+
+  defp wait_for_control_session(partition_id, agent_id, pid, attempts) do
+    if Enum.any?(AgentCommandBus.lookup_control_session_entries(partition_id, agent_id), fn
+         {^pid, _metadata} -> true
+         _entry -> false
+       end) do
+      true
+    else
+      Process.sleep(25)
+      wait_for_control_session(partition_id, agent_id, pid, attempts - 1)
+    end
   end
 
   defp leased_session(ctx, kind, ingest_id \\ nil) do
