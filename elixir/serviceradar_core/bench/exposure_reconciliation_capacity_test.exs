@@ -517,6 +517,7 @@ defmodule ServiceRadar.ExposureReconciliationCapacityTest do
     else
       pg!("TRUNCATE platform.endpoint_vulnerability_assessments")
     end
+
     pg!("DELETE FROM platform.oban_jobs WHERE queue = 'maintenance'")
 
     assert {:ok, _} =
