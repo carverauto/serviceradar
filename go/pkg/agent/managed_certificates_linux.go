@@ -26,7 +26,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const managedCertificateRoot = "/etc/serviceradar/managed-components"
 const managedCertificateMaxRequest = 256 * 1024
 
 type managedCertificateAdapter struct {
@@ -69,6 +68,9 @@ type managedCertificateStore struct {
 func RunManagedCertificateUpdater(ctx context.Context, action string, input io.Reader, output io.Writer) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("%w: managed certificate installation requires the privileged agent updater", errManagedCertificates)
+	}
+	if action == "policy" {
+		return runManagedCertificatePolicyUpdater(input, output)
 	}
 	for _, path := range []string{managedCertificateRoot, "/etc/serviceradar/agent.json", "/etc/serviceradar/certs/root.pem"} {
 		if err := validatePrivilegedAddonRootOwnership(filepath.Dir(path)); err != nil {
@@ -113,15 +115,11 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 	if err := os.Chmod(store.root, 0755); err != nil {
 		return err
 	}
-	lock, err := os.OpenFile(filepath.Join(store.root, ".lock"), os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW, 0600)
+	unlock, err := lockManagedCertificatePath(filepath.Join(store.root, ".lock"))
 	if err != nil {
 		return err
 	}
-	defer func() { _ = lock.Close() }()
-	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
-		return err
-	}
-	defer func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN) }()
+	defer unlock()
 	data, err := io.ReadAll(io.LimitReader(input, managedCertificateMaxRequest+1))
 	if err != nil {
 		return err
@@ -133,13 +131,13 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 	switch action {
 	case "prepare":
 		var assignment ManagedCertificateAssignment
-		if err := json.Unmarshal(data, &assignment); err != nil {
+		if err := decodeManagedCertificateRequest(data, &assignment); err != nil {
 			return err
 		}
 		result, err = store.prepare(assignment)
 	case "install":
 		var request ManagedCertificateInstallRequest
-		if err := json.Unmarshal(data, &request); err != nil {
+		if err := decodeManagedCertificateRequest(data, &request); err != nil {
 			return err
 		}
 		result, err = store.install(ctx, request)
@@ -425,7 +423,7 @@ func (s managedCertificateStore) install(ctx context.Context, req ManagedCertifi
 		previous = pending.PreviousTarget
 	}
 	chains := map[string][]byte{}
-	receipt := &ManagedCertificateInstallation{RequestID: req.RequestID, Generation: req.Generation, PolicyPath: filepath.Join(managedCertificateRoot, "policy.json"), Fingerprints: map[string]string{}, Files: map[string]ManagedCertificateFiles{}}
+	receipt := &ManagedCertificateInstallation{RequestID: req.RequestID, Generation: req.Generation, PolicyPath: ManagedCertificatePolicyPath, Fingerprints: map[string]string{}, Files: map[string]ManagedCertificateFiles{}}
 	for _, role := range adapter.roles {
 		issued, ok := req.Certificates[role]
 		if !ok {
@@ -576,4 +574,16 @@ func (s managedCertificateStore) activateGeneration(ctx context.Context, pending
 		return err
 	}
 	return nil
+}
+
+func lockManagedCertificatePath(path string) (func(), error) {
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|unix.O_NOFOLLOW, 0600)
+	if err != nil {
+		return nil, err
+	}
+	if err := unix.Flock(int(lock.Fd()), unix.LOCK_EX); err != nil {
+		_ = lock.Close()
+		return nil, err
+	}
+	return func() { _ = unix.Flock(int(lock.Fd()), unix.LOCK_UN); _ = lock.Close() }, nil
 }

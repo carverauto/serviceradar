@@ -112,6 +112,9 @@ go_library(
         "camera_relay_rtsp.go",
         "cert_renewal.go",
         "managed_certificates.go",
+        "managed_certificate_commands.go",
+        "managed_certificate_policy.go",
+        "managed_certificate_policy_linux.go",
         "managed_certificates_linux.go",
         "managed_certificates_unsupported.go",
         "config_section_state.go",
@@ -604,7 +607,10 @@ go_benchmark(
 
 go_test(
     name = "managed_certificates_test",
-    srcs = ["managed_certificates_linux_test.go"],
+    srcs = [
+        "managed_certificates_linux_test.go",
+        "managed_certificate_policy_linux_test.go",
+    ],
     embed = [":agent"],
     target_compatible_with = ["@platforms//os:linux"],
 )

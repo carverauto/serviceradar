@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"time"
 
@@ -108,6 +109,21 @@ func callManagedCertificateUpdater(ctx context.Context, action string, request, 
 	}
 	if err := json.Unmarshal(output, result); err != nil {
 		return fmt.Errorf("decode managed certificate result: %w", err)
+	}
+	return nil
+}
+
+func decodeManagedCertificateRequest(data []byte, request any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(request); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("%w: trailing request JSON", errManagedCertificates)
 	}
 	return nil
 }

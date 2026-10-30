@@ -1543,3 +1543,22 @@ func TestOnDemandMtrOptions_TCPSynRetries(t *testing.T) {
 		t.Fatalf("expected the default retries when unset, got %d", opts.TCPSynRetries)
 	}
 }
+
+func TestHandleManagedCertificateCommandsRejectUnsafePayloads(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ name, command, payload, message string }{
+		{"prepare-id", "certificates.prepare", `{"request_id":"other-command"}`, "prepare request ID differs from command ID"},
+		{"remote-private-key", "certificates.prepare", `{"private_key":"forbidden"}`, `json: unknown field "private_key"`},
+		{"remote-path", "certificates.install", `{"path":"/tmp/forbidden"}`, `json: unknown field "path"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := &fakeControlStreamClient{}
+			loop := &PushLoop{logger: logger.NewTestLogger()}
+			loop.handleCommand(t.Context(), &proto.CommandRequest{CommandId: "synthetic-command", CommandType: tc.command, PayloadJson: []byte(tc.payload)}, newControlStreamSender(stream))
+			result := waitForCommandResult(t, stream, "synthetic-command")
+			if result.GetSuccess() || result.GetMessage() != tc.message {
+				t.Fatalf("unsafe certificate command result: %v", result)
+			}
+		})
+	}
+}
