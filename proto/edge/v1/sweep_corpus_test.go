@@ -243,6 +243,25 @@ func sweepCorpusVectors() []corpusVector {
 	return append(out, sweepCorpusRelationVectors()...)
 }
 
+// encodeSweepPayload re-encodes r's sweep body exactly as the agent producer does and
+// requires the result to be a Zstandard frame.
+func encodeSweepPayload(t *testing.T, r *edgev1.EdgeRecordV1) {
+	t.Helper()
+
+	body := r.GetPayload()
+	codec, payload, err := edgerecord.EncodeRecordPayload(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if codec != edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_ZSTD {
+		t.Fatalf("producer encoding chose %v for a %d-byte body, want ZSTD", codec, len(body))
+	}
+
+	sum := sha256.Sum256(payload)
+	r.Compression, r.Payload, r.PayloadSha256 = codec, payload, sum[:]
+	r.EncodedSize, r.UncompressedSize = uint32(len(payload)), uint32(len(body))
+}
+
 func indexOfRow(rows []sweepRow, row sweepRow) int {
 	for i, r := range rows {
 		if r.name == row.name {
@@ -400,6 +419,17 @@ func sweepCorpusRelationVectors() []corpusVector {
 		{"sweep_join_assignment_epoch.bin", string(edgerecord.SweepLabelAssignmentEpoch), "correlation",
 			mutate(row, func(_ *testing.T, r *edgev1.EdgeRecordV1) {
 				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) { b.AssignmentEpoch = 4242 })
+			})},
+
+		// --- the producer's default encoding: the representative positive control carried
+		// as the Zstandard frame edgerecord.EncodeRecordPayload chooses for it ---
+		{"sweep_join_positive_zstd.bin", "", verdictAccept,
+			mutate(row, func(t *testing.T, r *edgev1.EdgeRecordV1) {
+				t.Helper()
+				mutateSweepBody(r, func(b *edgev1.SweepObservationBatchV1) {
+					b.GetHosts()[0].Hostname = strings.Repeat("sweep.", 20) + "example.com"
+				})
+				encodeSweepPayload(t, r)
 			})},
 
 		// --- unreachable kinds: refused by DIFFERENT gates, so not a matching pair ---

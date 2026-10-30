@@ -60,6 +60,7 @@ var (
 	errEdgeSweepWindowExpired      = errors.New("edge sweep collection window expired")
 	errEdgeSweepUnsupportedMode    = errors.New("edge sweep unsupported mode")
 	errEdgeSweepIncomplete         = errors.New("edge sweep incomplete")
+	errEdgeSweepModeUnavailable    = errors.New("edge sweep signed modes cannot run")
 )
 
 // Pending windows are bounded independently of the batch builder. The scanner
@@ -87,6 +88,7 @@ func (s *MultiSweepService) RunSweepGroupLease(ctx context.Context, groupID stri
 func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, claim func() error) error {
 	runner, ok := s.sweeper.(interface {
 		RunOnceWithObserver(context.Context, string, func(*models.Result) error) error
+		EffectiveSweepModes(string, []models.SweepMode) ([]models.SweepMode, error)
 	})
 	if !ok {
 		return errSweepRunnerUnavailable
@@ -98,11 +100,23 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 	}
 
 	s.mu.Lock()
+	signedModes := s.config.SweepModes
 	producer, err := newSweepEdgeProducer(s.config, lease, slot, sp, time.Now())
+	s.mu.Unlock()
 	if err != nil {
-		s.mu.Unlock()
 		return err
 	}
+	for _, r := range producer.ranges {
+		effective, err := runner.EffectiveSweepModes(r.prefix.String(), signedModes)
+		if err != nil {
+			return err
+		}
+		if !sameSweepModes(effective, signedModes) {
+			return fmt.Errorf("%w: %s runs %v, signed %v", errEdgeSweepModeUnavailable, r.prefix, effective, signedModes)
+		}
+	}
+
+	s.mu.Lock()
 	executionID := uuid.UUID(slot.GetExecutionId()).String()
 	previousEdgeExecutionID := s.lastEdgeExecutionID
 	s.lastEdgeExecutionID = executionID
@@ -136,6 +150,26 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 		return err
 	}
 	return producer.finish()
+}
+
+func sameSweepModes(a, b []models.SweepMode) bool {
+	set := func(modes []models.SweepMode) map[models.SweepMode]struct{} {
+		out := make(map[models.SweepMode]struct{}, len(modes))
+		for _, m := range modes {
+			out[m] = struct{}{}
+		}
+		return out
+	}
+	sa, sb := set(a), set(b)
+	if len(sa) != len(sb) {
+		return false
+	}
+	for m := range sa {
+		if _, ok := sb[m]; !ok {
+			return false
+		}
+	}
+	return true
 }
 
 type sweepCheck struct {
@@ -478,12 +512,16 @@ func (p *sweepEdgeProducer) emit(batch *edgev1.SweepObservationBatchV1, source *
 	if err != nil {
 		return err
 	}
+	compression, encoded, err := edgerecord.EncodeRecordPayload(payload)
+	if err != nil {
+		return err
+	}
 	c := p.lease.GetProductionCapability().GetProduction()
-	sum := sha256.Sum256(payload)
+	sum := sha256.Sum256(encoded)
 	rows := uint32(projection.SweepRows(batch))
 	record := &edgev1.EdgeRecordV1{
 		EventId: eventID, PayloadFamily: edgev1.EdgeRecordPayloadFamily_EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
-		Compression: edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE, EncodedSize: uint32(len(payload)), UncompressedSize: uint32(len(payload)), PayloadSha256: sum[:], Payload: payload,
+		Compression: compression, EncodedSize: uint32(len(encoded)), UncompressedSize: uint32(len(payload)), PayloadSha256: sum[:], Payload: encoded,
 		OutputContract:  &edgev1.EdgeOutputContractRef{ContractId: c.GetContractId(), ContractVersion: c.GetContractVersion(), ContractBundleSha256: c.GetContractBundleSha256(), RegistryEpoch: c.GetRegistryEpoch(), RegistrySnapshotSha256: c.GetRegistrySnapshotSha256(), EffectiveGrantSha256: c.GetEffectiveGrantSha256()},
 		ProducerContext: &edgev1.EdgeProducerContext{OriginKind: c.GetOriginKind(), OriginPrincipalId: c.GetOriginPrincipalId(), ProducerInstanceId: c.GetProducerInstanceId(), ProducerAssignmentId: c.GetProducerAssignmentId(), RunId: c.GetRunId(), RunShard: c.GetRunShard(), AuthorityEpoch: proto.Uint64(c.GetAuthorityEpoch()), ScopeId: c.GetScopeId(), ScopeSha256: c.GetScopeSha256(), PackageId: c.GetPackageId(), PackageSha256: c.GetPackageSha256()},
 		RouteProfile:    c.GetRouteProfile(), TrafficClass: c.GetTrafficClass(), NetworkScopeId: c.GetNetworkScopeId(), ProductionCapability: p.lease.GetProductionCapability(), SourceAuthorization: source,

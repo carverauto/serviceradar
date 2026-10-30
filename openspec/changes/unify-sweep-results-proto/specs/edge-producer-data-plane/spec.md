@@ -95,8 +95,9 @@ mean ownership was not transferred and the producer remains responsible.
 The producer SHALL supply bounded UNCOMPRESSED contract-payload submission bytes;
 the sink SHALL compute `submission_sha256` over those pre-compression bytes and
 perform retry/receipt lookup BEFORE compressing or constructing `EdgeRecordV1`,
-then, only on a journal miss, compress at most once with the contract-selected
-codec (`NONE` performs no compression), hash the exact stored payload as
+then, only on a journal miss, compress at most once -- a single Zstandard level 1
+frame without a dictionary when it is smaller than the body and within the frozen
+expansion ratio, otherwise `NONE` -- hash the exact stored payload as
 `payload_sha256`, and construct and spool the record. The sink SHALL atomically bind `(package digest,
 producer assignment, host-issued run, output contract, producer idempotency key)`
 to event ID, `submission_sha256`, and durable receipt with the spool append. It

@@ -36,6 +36,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.SweepCorrelate
@@ -153,12 +154,15 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp decode_payload(%EdgeRecordV1{
-         output_contract: %{contract_id: "serviceradar.sweep.observation", contract_version: 1},
-         payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
-         payload: payload
-       }) do
-    WireDecode.decode_sweep_batch(payload)
+  defp decode_payload(
+         %EdgeRecordV1{
+           output_contract: %{contract_id: "serviceradar.sweep.observation", contract_version: 1},
+           payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1
+         } = record
+       ) do
+    with {:ok, body} <- Compression.inner_payload(record) do
+      WireDecode.decode_sweep_batch(body)
+    end
   end
 
   defp decode_payload(_record), do: {:error, :unsupported_payload_family}

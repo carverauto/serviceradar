@@ -762,8 +762,13 @@ All capabilities are signed over the frozen Appendix A grammar 2 preimage that b
 with the capability-signing grammar frozen by the frozen edge record v1 wire ABI -- its domain tag,
 version, field order, and framing are not restated here.
 
-Compression defaults to none. Zstandard level 1 may be enabled per capability
-only after CPU/wire benchmarks show a net benefit. Consumers use streaming
+Compression is on by default (an explicit product-owner decision that replaces
+the earlier default of none). The producer compresses each new record payload
+once, as a single Zstandard level 1 frame with no dictionary, before hashing and
+spooling it, and keeps `NONE` when that frame would not be smaller or would exceed
+the frozen 100:1 expansion ratio; a retry resends the spooled bytes and never
+recompresses. `payload_sha256` and `encoded_size` cover the stored bytes and
+`uncompressed_size` is the body length. Consumers use streaming
 decompression with independent hard output and expansion-ratio limits, reject
 unsupported dictionaries, concatenated/trailing frames, and excessive protobuf
 recursion/depth, then verify the actual output size equals the declaration. The

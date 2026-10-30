@@ -56,6 +56,7 @@ go_test(
         "range_string_corpus_test.go",
         "raw_decode_test.go",
         "record_admit_corpus_test.go",
+        "record_payload_encoding_test.go",
         "recovery_test.go",
         "scalar_corpus_test.go",
         "semantic_envelope_corpus_test.go",

@@ -19,6 +19,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.SemanticDigest
   alias ServiceRadar.Edge.SemanticValidate
+  alias ServiceRadar.Edge.SweepCorrelate
   alias Serviceradar.Edge.V1.CompiledSweepAssignmentV1
   alias Serviceradar.Edge.V1.EdgeDeliveryFrameV1
   alias Serviceradar.Edge.V1.EdgeLossManifestPageV1
@@ -232,8 +233,14 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert {:ok, %EdgeRecordV1{}} = WireDecode.decode_record(load("record.bin"))
   end
 
+  # The reviewer's repro (real negative-enum fixture flipping :poison -> :systemic after
+  # `:erlang.system_flag(:backtrace_depth, 1)`) cannot recur: `classify/1` above NEVER reads
   test "WireDecode classification is STACK-INDEPENDENT: keyed on the exception value, not the trace" do
     # The decoder's deliberate malformed-wire error -> poison (by exception type; no stacktrace).
+    # `__STACKTRACE__`, it keys only on the exception's own value, so the end-to-end verdict is immune to
+    # VM stack depth by construction. (We do not mutate the global `backtrace_depth` flag inside this
+    # async suite, which would race concurrent tests.)
+
     assert WireDecode.classify(%Protobuf.DecodeError{message: "x"}) == :poison
 
     # A MatchError is ambiguous (malformed wire OR a codegen/metadata bug) -> systemic, never poison.
@@ -263,12 +270,6 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     assert WireDecode.classify(%RuntimeError{message: "boom"}) == :systemic
     assert WireDecode.classify(%KeyError{key: :x}) == :systemic
   end
-
-  # The reviewer's repro (real negative-enum fixture flipping :poison -> :systemic after
-  # `:erlang.system_flag(:backtrace_depth, 1)`) cannot recur: `classify/1` above NEVER reads
-  # `__STACKTRACE__`, it keys only on the exception's own value, so the end-to-end verdict is immune to
-  # VM stack depth by construction. (We do not mutate the global `backtrace_depth` flag inside this
-  # async suite, which would race concurrent tests.)
 
   test "WireDecode refuses oversize input BEFORE decode (:too_large), non-binary input (:systemic)" do
     # Oversize raw bytes are a PERMANENT rejection checked before protobuf is invoked, per frozen stage
@@ -2275,10 +2276,6 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
     end
   end
 
-  # ==========================================================================================
-  # THE SHARED SWEEP-JOIN CORPUS (task 1.3-f)
-  # ==========================================================================================
-
   test "the shared sweep-join corpus: Go's bytes, Elixir's verdict, the SAME (label, gate)" do
     # An in-memory mutation inside one runtime proves only that runtime's opinion. These are
     # BYTES authored by Go, and the expectation travels WITH them in the manifest, so this
@@ -2308,7 +2305,7 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     for {file, label, gate} <- manifest do
       record = EdgeRecordV1.decode(load(file))
-      got = ServiceRadar.Edge.SweepCorrelate.ingest_own_payload(record)
+      got = SweepCorrelate.ingest_own_payload(record)
 
       expected =
         case {gate, label} do
@@ -2321,6 +2318,20 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
       assert got == expected,
              "#{file}: Elixir returned #{inspect(got)}, Go's manifest says #{inspect(expected)}"
     end
+  end
+
+  test "a Go-encoded ZSTD sweep record passes gateway admission and correlates on its decoded body" do
+    bytes = load("sweep_join_positive_zstd.bin")
+
+    assert {:ok, %EdgeRecordV1{compression: :EDGE_RECORD_COMPRESSION_ZSTD} = record} =
+             ServiceRadar.Edge.RecordValidate.validate_bytes(bytes)
+
+    assert record.encoded_size == byte_size(record.payload)
+    assert record.encoded_size < record.uncompressed_size
+    assert {:ok, body} = ServiceRadar.Edge.Compression.inner_payload(record)
+    assert byte_size(body) == record.uncompressed_size
+    assert %SweepObservationBatchV1{hosts: [_host]} = SweepObservationBatchV1.decode(body)
+    assert SweepCorrelate.ingest_own_payload(record) == :ok
   end
 
   test "the corpus covers every frozen label that has a vector, and names no others" do
@@ -2343,4 +2354,8 @@ defmodule Serviceradar.Proto.EdgeV1GoldenTest do
 
     assert MapSet.size(frozen) == 15
   end
+
+  # ==========================================================================================
+  # THE SHARED SWEEP-JOIN CORPUS (task 1.3-f)
+  # ==========================================================================================
 end

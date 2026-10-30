@@ -21,8 +21,11 @@ import (
 	"encoding/binary"
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/klauspost/compress/zstd"
+
+	edgev1 "github.com/carverauto/serviceradar/proto/edge/v1"
 )
 
 // zstdScratch bounds the streaming decode buffer so validation never reserves the
@@ -39,6 +42,34 @@ var (
 	// second concatenated frame.
 	ErrZstdTrailing = errors.New("edgerecord: zstd payload has trailing/second-frame data")
 )
+
+// recordPayloadEncoder is the one Zstandard level 1 encoder records are compressed
+// with: no dictionary, one frame per EncodeAll, safe for concurrent use.
+var recordPayloadEncoder = sync.OnceValues(func() (*zstd.Encoder, error) {
+	return zstd.NewWriter(nil,
+		zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(1)),
+		zstd.WithEncoderConcurrency(1),
+		zstd.WithWindowSize(1<<20),
+	)
+})
+
+// EncodeRecordPayload chooses how a record carries body: one Zstandard level 1
+// frame when that is smaller than body and its expansion stays within
+// MaxCompressionRatio, and body itself under NONE otherwise. The returned bytes
+// are the record payload, so payload_sha256 and encoded_size cover them, and
+// uncompressed_size is len(body). It is called once, before the record is
+// hashed and spooled, so a retry resends the same bytes.
+func EncodeRecordPayload(body []byte) (edgev1.EdgeRecordCompression, []byte, error) {
+	enc, err := recordPayloadEncoder()
+	if err != nil {
+		return edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_UNSPECIFIED, nil, err
+	}
+	frame := enc.EncodeAll(body, nil)
+	if len(frame) < len(body) && uint64(len(body)) <= uint64(len(frame))*MaxCompressionRatio {
+		return edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_ZSTD, frame, nil
+	}
+	return edgev1.EdgeRecordCompression_EDGE_RECORD_COMPRESSION_NONE, body, nil
+}
 
 // ValidateZstdPayload performs a bounded streaming validation of a Zstd payload.
 // It FIRST parses the encoded frame structure and requires the single standard

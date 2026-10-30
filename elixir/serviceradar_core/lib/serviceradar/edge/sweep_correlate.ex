@@ -46,6 +46,7 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   """
 
   alias ServiceRadar.Edge.CapabilityClaims
+  alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.SweepBodyValidate
   alias ServiceRadar.Edge.SweepMatrix
   alias ServiceRadar.Edge.SweepOutcomePolicy
@@ -180,13 +181,14 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   defp correlate(_record, _batch), do: {:error, {:enum_admission, :source}}
 
   @doc """
-  Correlate the batch carried in `record.payload` against that record's authority.
+  Correlate the batch carried in `record.payload` (decoded under its declared codec)
+  against that record's authority.
 
   ## THIS IS NOT AN AUTHENTICATED BOUNDARY, and must not be used as one
 
   It performs NO signature verification, NO whole-record validation, NO
   outer-versus-signed mirror check, NO semantic-envelope check, NO contract
-  dispatch, NO decompression, and NOT the full sweep body validator. A record whose
+  dispatch, and NOT the full sweep body validator. A record whose
   source capability carries an EMPTY SIGNATURE passes this function.
 
   Its only advantage over `validate/2` is that the batch demonstrably comes from
@@ -199,11 +201,12 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
     2. its capabilities were signature-verified against resolved trust;
     3. the outer `source_authorization` mirrors agree with the signed claims;
     4. contract dispatch accepted the record's output contract;
-    5. the record declares `EDGE_RECORD_COMPRESSION_NONE`. This function does NOT
-       accept a decompressed payload -- it reads `record.payload` -- so a compressed
-       record is REFUSED with `{:payload, :compressed}` rather than assumed
-       pre-decompressed. UNSPECIFIED is refused too: the proto default is not a
-       declaration of NONE;
+    5. the record declares `EDGE_RECORD_COMPRESSION_NONE` or
+       `EDGE_RECORD_COMPRESSION_ZSTD`. `payload_sha256` is checked against the ENCODED
+       bytes, and a ZSTD payload is decoded through `Compression.inner_payload/1` under
+       its bounded frame rules. `{:payload, :compressed}` means the declared codec could
+       not yield a body: UNSPECIFIED (the proto default is not a declaration), or a ZSTD
+       declaration whose payload is not one admissible frame of the declared size;
     6. the decoded batch passed the full body validator.
 
   Go composes all of that in `ValidateSweepRecord`, which is why its equivalent of
@@ -224,10 +227,11 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   @spec correlate_own_payload(term()) :: result()
   def correlate_own_payload(%EdgeRecordV1{} = record) do
     with :ok <- framing_family(record),
-         :ok <- uncompressed(record),
+         :ok <- admitted_codec(record),
          {:ok, payload} <- payload_bytes(record),
          :ok <- payload_digest(record, payload),
-         {:ok, batch} <- decode_batch(payload) do
+         {:ok, body} <- inner_body(record),
+         {:ok, batch} <- decode_batch(body) do
       validate(record, batch)
     end
   end
@@ -263,10 +267,11 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
   @spec ingest_own_payload(term()) :: combined_result() | {:error, {:wire, WireDecode.reason()}}
   def ingest_own_payload(%EdgeRecordV1{} = record) do
     with :ok <- framing_family(record),
-         :ok <- uncompressed(record),
+         :ok <- admitted_codec(record),
          {:ok, payload} <- payload_bytes(record),
          :ok <- payload_digest(record, payload),
-         {:ok, batch} <- validated_body(payload) do
+         {:ok, body} <- inner_body(record),
+         {:ok, batch} <- validated_body(body) do
       # `correlate/2`, not `validate/2`: the disposition is body-decidable and the body
       # validator has already decided it, under the same frozen label. Running it twice
       # would be harmless but would state the rule in two places on one path.
@@ -347,20 +352,22 @@ defmodule ServiceRadar.Edge.SweepCorrelate do
     end
   end
 
-  # UNCOMPRESSED ONLY, and refused rather than mis-decoded otherwise.
-  #
-  # This relation reads `record.payload` directly, so a ZSTD record's bytes are the
-  # COMPRESSED ones and the decode would fail on valid input. It takes no decompressed
-  # value, so it cannot honour a "caller already decompressed" precondition -- there is
-  # nowhere to hand the result in. Until an extraction and decompression boundary
-  # exists in this runtime to feed it, the honest contract accepts only
-  # EDGE_RECORD_COMPRESSION_NONE.
-  defp uncompressed(record) do
+  # NONE or ZSTD, and a ZSTD payload is decoded by `inner_body/1` rather than read as the
+  # body; anything else is refused rather than mis-decoded.
+  defp admitted_codec(record) do
     case Map.get(record, :compression) do
-      :EDGE_RECORD_COMPRESSION_NONE -> :ok
+      codec when codec in [:EDGE_RECORD_COMPRESSION_NONE, :EDGE_RECORD_COMPRESSION_ZSTD] -> :ok
       # UNSPECIFIED is the proto default and is NOT an accepted declaration: a record
-      # must say NONE, not leave the field unset.
+      # must say NONE or ZSTD, not leave the field unset.
       _ -> {:error, {:payload, :compressed}}
+    end
+  end
+
+  # The digest above covers the ENCODED payload; the body is what it decodes to.
+  defp inner_body(record) do
+    case Compression.inner_payload(record) do
+      {:ok, body} -> {:ok, body}
+      {:error, _reason} -> {:error, {:payload, :compressed}}
     end
   end
 

@@ -395,12 +395,11 @@ defmodule ServiceRadar.SweepJobs.LeaseDelivery do
           slots: slots
         })
 
-      case sender.(assignment.agent_id, assignment.sweep_group_id, payload) do
-        :ok ->
-          record_push(assignment, lease_id, push, payload, now)
-
-        {:error, reason} ->
-          {:ok, {:not_delivered, reason}}
+      with {:ok, :pushed} <- record_push(assignment, lease_id, push, payload, now) do
+        case sender.(assignment.agent_id, assignment.sweep_group_id, payload) do
+          :ok -> {:ok, :pushed}
+          {:error, reason} -> {:ok, {:not_delivered, reason}}
+        end
       end
     end
   end

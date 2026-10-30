@@ -421,6 +421,36 @@ func TestAcceptedDrainsReclaimSpaceAcrossRestart(t *testing.T) {
 	}
 }
 
+func TestAcceptedDrainsContinuePastSegmentRunLimit(t *testing.T) {
+	footprint := testFootprint()
+	footprint.DestinationSegment = 1024
+	alloc, err := NewAllocator(AllocatorConfig{Capacity: 128 << 10, Recovery: footprint, MaxConcurrentRecoveries: 1, MinFree: 4096})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(t.TempDir(), WithAllocator(alloc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	body := []byte("synthetic sweep record")
+	for want := uint64(1); want <= MaxSegmentRuns+8; want++ {
+		seq, err := s.Append(evid(byte(want)), body)
+		if err != nil {
+			t.Fatalf("append %d after %d accepted drains: %v", want, want-1, err)
+		}
+		if seq != want {
+			t.Fatalf("sequence = %d, want %d", seq, want)
+		}
+		if err := s.ResolveWithEvidence(seq, terminalAck(t, seq, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, seq)); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.ReclaimResolved(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
 func terminalAck(t *testing.T, through uint64, kind edgev1.EdgeRecordDispositionKind, seqs ...uint64) []byte {
 	t.Helper()
 	ack := &edgev1.EdgeDeliveryAckV1{SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: through}

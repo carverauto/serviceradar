@@ -809,11 +809,42 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     }
 
     assert %{pushed: 0, errors: 0} = LeasePass.reconcile_group(group, now, unreachable)
-    assert {:ok, []} = LeaseDelivery.list_for_group(group.id)
+    assert {:ok, [pending]} = LeaseDelivery.list_for_group(group.id)
+    refute pending.ack_installed == true
+    refute pending.acked_payload_sha256 == pending.delivered_payload_sha256
 
     LeasePass.reconcile_group(group, now, ctx.delivery)
     assert_receive {:pushed, _, _, lease, _}
     assert lease.window_start_unix_nano == DateTime.to_unix(now, :nanosecond)
+  end
+
+  test "an installation ack that arrives while the push is being sent is kept", ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    test_pid = self()
+
+    acking = %{
+      ctx.delivery
+      | sender: fn agent_id, group_id, payload ->
+          send(
+            test_pid,
+            {:ack_result,
+             LeaseDelivery.record_ack(agent_id, %{
+               sweep_group_id: group_id,
+               payload_sha256: digest(payload),
+               installed: true
+             })}
+          )
+
+          :ok
+        end
+    }
+
+    assert %{pushed: 1, errors: 0} = LeasePass.reconcile_group(group, DateTime.utc_now(), acking)
+    assert_receive {:ack_result, :ok}
+    assert {:ok, [row]} = LeaseDelivery.list_for_group(group.id)
+    assert row.ack_installed
+    assert row.acked_payload_sha256 == row.delivered_payload_sha256
   end
 
   test "without a delivery context the pass plans leases and sends nothing", ctx do
