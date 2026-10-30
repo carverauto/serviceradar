@@ -495,6 +495,65 @@ func TestReclaimRetainsRecordsWithoutAcceptedCoverage(t *testing.T) {
 	}
 }
 
+func TestReclaimRetainsAcceptedCoverageWithMismatchedEventID(t *testing.T) {
+	accepted := edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE
+	for _, tc := range []struct {
+		name    string
+		records byte
+		ids     []byte
+	}{
+		{"fully resolved sole record", 1, []byte{9}},
+		{"second of two accepted records", 2, []byte{1, 9}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			s, err := Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for seq := byte(1); seq <= tc.records; seq++ {
+				mustAppend(t, s, seq, "synthetic retained payload")
+			}
+			before, err := os.ReadFile(filepath.Join(dir, segmentFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			through := uint64(tc.records)
+			ack := &edgev1.EdgeDeliveryAckV1{SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: through}
+			for i := byte(0); i < tc.records; i++ {
+				ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{
+					Sequence: uint64(i + 1), EventId: evid(tc.ids[i]), Kind: accepted,
+				})
+			}
+			evidence, err := proto.Marshal(ack)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.ResolveWithEvidence(through, evidence); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s, err = Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.ReclaimResolved(); err != nil {
+				t.Fatal(err)
+			}
+			after, err := os.ReadFile(filepath.Join(dir, segmentFile))
+			if err != nil || !bytes.Equal(before, after) {
+				t.Fatalf("segment reclaimed despite event identity mismatch: %v", err)
+			}
+			if s.Resolved() != through || s.NextSequence() != through+1 {
+				t.Fatalf("sequence identity changed: resolved=%d next=%d", s.Resolved(), s.NextSequence())
+			}
+		})
+	}
+}
+
 func TestReclaimRestartAtDurabilityBoundaries(t *testing.T) {
 	for _, stop := range []barrier{barrierReclaimPrepared, barrierReclaimPublished, barrierReclaimCleaned} {
 		t.Run(fmt.Sprint(stop), func(t *testing.T) {

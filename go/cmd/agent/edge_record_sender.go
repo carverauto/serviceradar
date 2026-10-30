@@ -51,7 +51,7 @@ const (
 // depends on (a separate, parallel task) may not exist in every deployment.
 //
 // Sweep-enabled senders persist validated terminal dispositions before advancing
-// their local resolved prefix. Physical segment reclamation remains separate.
+// their local resolved prefix, then reclaim a fully accepted drained segment.
 //
 // A missing gateway address or spool_dir is a configuration error and stops the
 // sender. Any other setup failure (spool id, security provider before its

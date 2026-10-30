@@ -22,7 +22,8 @@
 // bounded lane-open/send/drain-acks cycle sufficient to carry a committed
 // spool record through the real composed path end to end. Reconnect/replay,
 // credit renewal and recovery/rollover remain outside this sender. Optional local
-// disposition persistence advances the resolved prefix, without byte reclamation.
+// disposition persistence advances the resolved prefix and reclaims a fully
+// accepted drained segment. Unresolved and rejected records stay on disk.
 //
 // # The negative reclaim rule
 //
@@ -32,7 +33,8 @@
 // durability for that sequence commits -- never directly from the wire ack.
 // Without PersistAcknowledgements the remote watermark remains in memory only.
 // With it, the validated acknowledgement is fsynced before the local watermark
-// advances. Physical reclamation remains a separate operation.
+// advances. Only that local durability can reclaim a fully accepted drained
+// segment. A remote watermark alone never does.
 //
 // # Ambiguous sequence gaps
 //
@@ -115,7 +117,8 @@ type Config struct {
 	RequestedByteCredits  uint64
 	RequestedFrameCredits uint32
 	// PersistAcknowledgements saves validated terminal dispositions locally before
-	// suppressing their replay. It does not physically reclaim segment bytes.
+	// suppressing their replay, and reclaims a fully accepted drained segment.
+	// Unresolved and rejected records stay on disk.
 	PersistAcknowledgements bool
 }
 
