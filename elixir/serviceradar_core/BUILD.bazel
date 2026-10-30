@@ -1377,3 +1377,14 @@ filegroup(
     name = "credo_checks",
     srcs = glob(["credo/**/*.ex"]),
 )
+
+# Real isolated TLS distribution peers; no database or core application boot.
+ex_unit_test(
+    name = "peer_certificate_distribution_test",
+    srcs = [
+        "test/serviceradar/security/peer_certificate_distribution_test.exs",
+        "test/serviceradar/security/peer_certificate_policy_test.exs",
+    ],
+    elixir_opts = ["-e", "ExUnit.start(include: [:cluster])"],
+    deps = [":erlang_app"],
+)
