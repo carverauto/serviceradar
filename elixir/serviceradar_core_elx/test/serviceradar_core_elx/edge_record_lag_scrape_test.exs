@@ -92,7 +92,9 @@ defmodule ServiceRadarCoreElx.EdgeRecordLagScrapeTest do
     edge_lines =
       body
       |> String.split("\n")
-      |> Enum.filter(&(&1 =~ "serviceradar_event_writer_consumer_lag_messages_value" and &1 =~ ~s(subject_class="edge_record")))
+      |> Enum.filter(
+        &(&1 =~ "serviceradar_event_writer_consumer_lag_messages_value" and &1 =~ ~s(subject_class="edge_record"))
+      )
 
     assert length(edge_lines) == 1
     refute Enum.any?(edge_lines, &(&1 =~ ~s(subject_class="sweep")))
