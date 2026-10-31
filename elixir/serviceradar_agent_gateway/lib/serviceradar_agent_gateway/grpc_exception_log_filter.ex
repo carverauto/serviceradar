@@ -33,8 +33,7 @@ defmodule ServiceRadarAgentGateway.GRPCExceptionLogFilter do
 
   def report?(_exception), do: true
 
-  defp request_path(%ReportException{adapter_extra: [req: %{path: path}]}) when is_binary(path),
-    do: safe_log_value(path)
+  defp request_path(%ReportException{adapter_extra: [req: %{path: path}]}) when is_binary(path), do: safe_log_value(path)
 
   defp request_path(_exception), do: "unknown"
 
