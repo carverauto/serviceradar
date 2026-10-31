@@ -27,20 +27,47 @@ defmodule ServiceRadarAgentGateway.GRPCExceptionLogFilterTest do
     refute log =~ @client_cert
   end
 
+  test "another expected status is sanitized the same way" do
+    noisy = "missing\r\nsession " <> String.duplicate("y", 300)
+
+    exception =
+      report(
+        %GRPC.RPCError{status: GRPC.Status.not_found(), message: noisy},
+        path: "/camera.CameraMediaService/Heartbeat\n" <> String.duplicate("p", 300)
+      )
+
+    log =
+      capture_log([level: :warning], fn ->
+        refute GRPCExceptionLogFilter.report?(exception)
+      end)
+
+    sanitized_message = "missing session " <> String.duplicate("y", 240)
+    sanitized_path = "/camera.CameraMediaService/Heartbeat " <> String.duplicate("p", 219)
+
+    assert log =~
+             "gRPC request returned path=#{sanitized_path} status=NotFound message=#{sanitized_message}"
+
+    assert byte_size(sanitized_message) == 256
+    assert byte_size(sanitized_path) == 256
+    refute log =~ @client_cert
+    refute log =~ "Heartbeat\n"
+    refute log =~ "\r"
+  end
+
   test "internal failures and non-RPC exceptions keep the crash report" do
     for reason <- [
           %GRPC.RPCError{status: GRPC.Status.unknown(), message: "Internal Server Error"},
           %GRPC.RPCError{status: GRPC.Status.internal(), message: "encode failed"},
+          %GRPC.RPCError{status: GRPC.Status.data_loss(), message: "lost"},
           %RuntimeError{message: "boom"}
         ] do
       assert GRPCExceptionLogFilter.report?(report(reason))
     end
   end
 
-  defp report(reason) do
-    ReportException.new(
-      [req: %{path: "/camera.CameraMediaService/Heartbeat", cert: @client_cert}],
-      reason
-    )
+  defp report(reason, opts \\ []) do
+    path = Keyword.get(opts, :path, "/camera.CameraMediaService/Heartbeat")
+
+    ReportException.new([req: %{path: path, cert: @client_cert}], reason)
   end
 end
