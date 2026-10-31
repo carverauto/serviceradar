@@ -170,6 +170,13 @@ async function installManaged(
   const bootstrap = payload?.data || payload
   const publicKey = decodePolicyPublicKey(bootstrap?.policy_public_key)
   if (bootstrap?.nats?.ready !== true) throw new Error(`NATS managed certificate authorization is not ready: ${bootstrap?.nats?.reason || "readiness not confirmed"}`)
+  if (bootstrap?.nats?.auth_mode !== "static_mtls") {
+    const mode = bootstrap?.nats?.auth_mode
+    throw new Error(`NATS managed certificate onboarding requires static mTLS; got ${typeof mode === "string" && mode ? mode : "no authentication mode"}`)
+  }
+  const account = bootstrap?.nats?.account_name
+  if (typeof account !== "string" || !/^[A-Za-z0-9_-]+$/.test(account)) throw new Error("NATS managed certificate onboarding requires the deployment account name")
+  console.log(`NATS certificate authorization: static mTLS account ${account}`)
   const asset = await resolvePackage(ctx, target.packageName)
   const local = join(ctx.workDir, asset.file)
   const previous = ctx.dryRun ? {} : await readManagedConfiguration(target.service)

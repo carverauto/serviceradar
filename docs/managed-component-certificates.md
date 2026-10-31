@@ -111,3 +111,9 @@ while that name disagrees with the deployment account. An authorization
 request in that state is answered with `nats_account_mismatch` and no user
 JWT, and the session is not remembered. A matching account is still decided
 from the certificate policy. Broker authorization callout stays disabled.
+
+`serviceradar-cli edge install` for a leaf or collector continues only when
+that bootstrap reports `nats.ready`, `auth_mode` `static_mtls`, and the
+deployment account name. It does not create the account or require a JWT
+account seed. Any other authentication mode stops before package
+installation. Broker authorization callout stays disabled.

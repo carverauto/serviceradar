@@ -509,7 +509,7 @@ test("nats account status renders the deployment's NATS account", async () => {
 
 function managedBootstrap(req, res) {
   if (req.path !== "/api/admin/managed-components/bootstrap") return false
-  json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats: {ready: true, auth_mode: "callout"}}})
+  json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats: {ready: true, auth_mode: "static_mtls", account_name: "EDGE"}}})
   return true
 }
 
@@ -672,6 +672,43 @@ test("edge install collector without --version uses the latest package and confi
   )
 })
 
+test("edge install leaf stops before packaging unless static mTLS names the deployment account", async () => {
+  const leaf = ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--version", "1.4.81", ...DRY]
+  const bootstrap = (nats) => (req, res) => {
+    if (req.path === "/api/admin/managed-components/bootstrap") {
+      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats}})
+      return
+    }
+    if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
+    return json(res, 404, {})
+  }
+  const calls = ["GET /api/admin/edge-sites/site-1", "GET /api/admin/managed-components/bootstrap"]
+
+  await withServer(bootstrap({ready: true, auth_mode: "callout", account_name: "EDGE"}), async (instance, requests) => {
+    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.notEqual(refused.code, 0)
+    assert.match(refused.stderr, /requires static mTLS; got callout/)
+    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+    assert.deepEqual(requests.map((request) => `${request.method} ${request.path}`), calls)
+  })
+
+  await withServer(bootstrap({ready: true, auth_mode: "static_mtls"}), async (instance, requests) => {
+    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.notEqual(refused.code, 0)
+    assert.match(refused.stderr, /requires the deployment account name/)
+    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+    assert.deepEqual(requests.map((request) => `${request.method} ${request.path}`), calls)
+  })
+
+  await withServer(bootstrap({ready: false, reason: "nats_account_mismatch", auth_mode: "static_mtls", account_name: "EDGE"}), async (instance, requests) => {
+    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.notEqual(refused.code, 0)
+    assert.match(refused.stderr, /not ready: nats_account_mismatch/)
+    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+    assert.deepEqual(requests.map((request) => `${request.method} ${request.path}`), calls)
+  })
+})
+
 test("edge install leaf --dry-run checks the site exists and plans managed NATS onboarding", async () => {
   await withServer(
     (req, res) => {
@@ -683,6 +720,7 @@ test("edge install leaf --dry-run checks the site exists and plans managed NATS 
       const ok = await runCli(["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--instance", instance, "--site", "site-1", "--version", "1.4.81", ...DRY], {env: TOKEN_ENV})
       assert.equal(ok.code, 0, ok.stderr)
       assert.match(ok.stdout, /leaf status: ready/)
+      assert.match(ok.stdout, /NATS certificate authorization: static mTLS account EDGE/)
       assert.match(ok.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
       assert.match(ok.stdout, /register nats-leaf for the enrolled host agent/)
       assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), ["GET /api/admin/edge-sites/site-1", "GET /api/admin/managed-components/bootstrap"])
