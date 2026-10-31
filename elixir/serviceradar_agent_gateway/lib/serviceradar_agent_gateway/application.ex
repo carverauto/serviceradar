@@ -226,6 +226,7 @@ defmodule ServiceRadarAgentGateway.Application do
          endpoint: ServiceRadarAgentGateway.Endpoint,
          port: grpc_port,
          start_server: true,
+         exception_log_filter: {ServiceRadarAgentGateway.GRPCExceptionLogFilter, :report?},
          adapter_opts: edge_grpc_adapter_opts(grpc_ssl_opts)},
         ServiceRadarAgentGateway.ReleaseArtifactServer.child_spec(artifact_server_opts)
       ]
