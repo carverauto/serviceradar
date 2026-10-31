@@ -143,8 +143,9 @@ in `choices.md` and the chart README.
       Proven by BuildBuddy invocation 8b09d0de-c8b4-49fe-ab4d-5674e24181f1.
     - [x] M2.0b3b Lease pass. `LeasePass`, run every five minutes by
       `LeasePassWorker` from both Oban crontabs, revokes, ensures and re-plans
-      as Lease pass in `design.md` says. It re-plans slots; re-signing and
-      re-delivering them arrive with M2.0c and M2.0d.
+      as Lease pass in `design.md` says. With the issuer (M2.0c) and delivery
+      (M2.0d) in place, that same pass re-signs and re-delivers the slots it
+      re-plans. The group-action proof is the M2.0b3 note below.
       Proven by BuildBuddy invocation 88835747-8ffe-4ce7-a10b-ed76c621fcd1.
     - [x] M2.0b3 Lease scheduler (M2.0b3b is the scheduler pass that uses the
       three modules above). For each leased assignment core pre-mints the
