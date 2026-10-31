@@ -13,8 +13,10 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
   Slot end is `collection_expires`. A commit is a row in
   `platform.edge_sweep_batch_slots` for the slot id, or a
   `sweep_group_executions` row under that same id. Either one leaves the
-  slot scheduled. The check and the update are one statement, so a batch
-  that commits before the statement starts is left alone.
+  slot scheduled. The mark locks those due slot rows, then a later statement
+  marks only the locked rows that still have no batch and no execution. A
+  batch insert takes that same slot lock before its row commits, so a commit
+  that landed while the lock was waiting is visible to the later statement.
 
   Core does not store the agent's own lease-exhausted flag. While the
   assignment is still active and a later slot is scheduled, the closed slot
@@ -55,6 +57,7 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
   WHERE assignment.id = slot.producer_assignment_id
     AND slot.state = 'scheduled'
     AND slot.collection_expires <= $2
+    AND slot.id = ANY($3::uuid[])
     AND NOT EXISTS (
       SELECT 1
       FROM platform.edge_sweep_batch_slots AS batch
@@ -66,6 +69,15 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
       WHERE execution.id = slot.id
     )
   RETURNING slot.state
+  """
+
+  @lock_sql """
+  SELECT slot.id
+  FROM platform.sweep_execution_slots AS slot
+  WHERE slot.state = 'scheduled'
+    AND slot.collection_expires <= $1
+  ORDER BY slot.id
+  FOR UPDATE
   """
 
   @doc "Seconds after `collection_expires` before a slot with no commit is missed."
@@ -82,8 +94,28 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
   def mark(%DateTime{} = now) do
     cutoff = DateTime.shift(now, second: -@grace_seconds)
 
-    case Repo.query(@mark_sql, [now, cutoff]) do
-      {:ok, %{rows: rows}} -> {:ok, tally(rows)}
+    Repo.transaction(fn ->
+      with {:ok, ids} <- lock_due_slot_ids(cutoff),
+           {:ok, rows} <- mark_locked_slots(now, cutoff, ids) do
+        tally(rows)
+      else
+        {:error, reason} -> Repo.rollback(reason)
+      end
+    end)
+  end
+
+  defp lock_due_slot_ids(cutoff) do
+    case Repo.query(@lock_sql, [cutoff]) do
+      {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, fn [id] -> id end)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp mark_locked_slots(_now, _cutoff, []), do: {:ok, []}
+
+  defp mark_locked_slots(now, cutoff, ids) do
+    case Repo.query(@mark_sql, [now, cutoff, ids]) do
+      {:ok, %{rows: rows}} -> {:ok, rows}
       {:error, reason} -> {:error, reason}
     end
   end
