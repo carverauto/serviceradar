@@ -886,6 +886,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/managed-components/:id/rotate", ManagedComponentController, :rotate)
     post("/managed-components/:id/revoke", ManagedComponentController, :revoke)
     post("/managed-components/:id/reenroll", ManagedComponentController, :reenroll)
+    post("/managed-components/:id/certificates", ManagedComponentController, :record_successor)
     post("/nats/certificate-authorization/bootstrap", ManagedComponentController, :bootstrap_nats)
 
     # Collector package management

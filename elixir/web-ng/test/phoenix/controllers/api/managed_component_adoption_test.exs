@@ -6,6 +6,7 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionTest do
 
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNGWeb.Api.ManagedComponentController, as: Controller
+  alias ServiceRadarWebNGWeb.Auth.NarrowScopes
   alias ServiceRadarWebNGWeb.Router
 
   @moduletag :db_free
@@ -41,6 +42,45 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionTest do
 
     leaf = Controller.adopt(conn, Map.put(public_params(), "component_type", "nats-leaf"))
     assert json_response(leaf, 409) == %{"error" => "not_infrastructure"}
+  end
+
+  test "the successor route stays on the managed-component API key pipeline" do
+    info =
+      Phoenix.Router.route_info(
+        Router,
+        "POST",
+        "/api/admin/managed-components/example-gateway/certificates",
+        "localhost"
+      )
+
+    assert info.plug == Controller
+    assert info.plug_opts == :record_successor
+    assert info.pipe_through == [:api_key_auth]
+  end
+
+  test "refuses a successor without settings.edge.manage before it reads the certificate", %{
+    conn: conn
+  } do
+    denied =
+      assign(conn, :current_scope, %Scope{user: %{id: "example-viewer"}, permissions: MapSet.new()})
+
+    assert {:error, :forbidden} =
+             Controller.record_successor(denied, Map.put(private_key_params(), "id", "example-gateway"))
+  end
+
+  test "maps a successor private key to a conflict error", %{conn: conn} do
+    refused =
+      Controller.record_successor(conn, Map.put(private_key_params(), "id", "example-gateway"))
+
+    assert json_response(refused, 409) == %{"error" => "private_key"}
+  end
+
+  test "a narrow edge.manage token cannot record a successor certificate" do
+    refute NarrowScopes.allowed?(
+             ["edge.manage"],
+             "POST",
+             "/api/admin/managed-components/example-gateway/certificates"
+           )
   end
 
   defp private_key_params do

@@ -80,8 +80,12 @@ broker authorization callout. The service-certificates inventory shows that
 stored grant for an infrastructure component. An empty allow there is no
 permission. A host service does not show this grant.
 
-The certificate authority records a successor public certificate for that
-same component at the component's current generation. The stored grant stays
-unchanged. The predecessor stays authorized until that fingerprint is revoked.
-A component with no certificate, a host service, a blocked component, and a
-private key are refused. Broker authorization callout stays disabled.
+`POST /api/admin/managed-components/:id/certificates` records a successor
+public certificate for that component. The JSON body carries `certificate_pem`
+only. The component's current generation and stored grant stay unchanged.
+The predecessor stays authorized until that fingerprint is revoked. The
+response uses the same component and certificate fields as adoption and does
+not return the PEM. A component with no certificate, a host service, a blocked
+component, and a private key are refused. The route uses the same API key
+pipeline and `settings.edge.manage` permission as adoption. Broker
+authorization callout stays disabled.

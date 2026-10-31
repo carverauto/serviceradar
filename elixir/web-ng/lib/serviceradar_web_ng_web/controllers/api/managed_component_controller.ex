@@ -53,6 +53,16 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
     end
   end
 
+  def record_successor(conn, %{"id" => id} = params) do
+    with :ok <- authorize(conn),
+         {:ok, %{component: component, certificate: certificate}} <-
+           Authority.record_infrastructure_successor(id, params, opts(conn)) do
+      conn |> put_status(:created) |> json(%{data: adopted(component, certificate)})
+    else
+      error -> error_response(conn, error)
+    end
+  end
+
   def show(conn, %{"id" => id}) do
     with :ok <- authorize(conn),
          {:ok, component} <- Lifecycle.component(id, opts(conn)),
