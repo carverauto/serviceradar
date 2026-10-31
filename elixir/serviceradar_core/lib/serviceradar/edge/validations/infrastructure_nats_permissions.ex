@@ -32,7 +32,8 @@ defmodule ServiceRadar.Edge.Validations.InfrastructureNatsPermissions do
 
   defp valid?(_), do: false
 
-  defp valid_subject?(subject) when is_binary(subject) do
+  @doc "NATS subject token grammar accepted for a stored infrastructure grant."
+  def valid_subject?(subject) when is_binary(subject) do
     tokens = String.split(subject, ".")
 
     byte_size(subject) in 1..512 && !String.match?(subject, ~r/\s/u) &&
@@ -42,5 +43,5 @@ defmodule ServiceRadar.Edge.Validations.InfrastructureNatsPermissions do
       end)
   end
 
-  defp valid_subject?(_), do: false
+  def valid_subject?(_), do: false
 end

@@ -76,6 +76,27 @@ the core-elx runtime config.
      (serviceradar.jetstreamBudget in _helpers.tpl). */ -}}
 {{- $jsBudget := include "serviceradar.jetstreamBudget" . | fromJson -}}
 {{- include "serviceradar.validateJetStreamBudget" (list . $jsBudget) -}}
+{{- /* Callout stays off unless an operator has already stored explicit grants
+     for existing infrastructure clients. The chart cannot see that inventory. */ -}}
+{{- $certAuth := default (dict) $nats.certificateAuthorization -}}
+{{- $certAuthEnabled := eq (toString (default false $certAuth.enabled)) "true" -}}
+{{- $certAuthIssuer := default "" $certAuth.issuerPublicKey -}}
+{{- $certAuthUser := default "" $certAuth.authUserPublicKey -}}
+{{- $certAuthSystem := default "" $certAuth.systemUserPublicKey -}}
+{{- if $certAuthEnabled -}}
+{{- if ne (toString (default false $certAuth.infrastructureAdopted)) "true" -}}
+  {{- fail "nats.certificateAuthorization.enabled requires infrastructureAdopted true after existing clients have explicit grants" -}}
+{{- end -}}
+{{- if not (regexMatch `^A[A-Z2-7]{55}$` $certAuthIssuer) -}}
+  {{- fail "nats.certificateAuthorization.issuerPublicKey must be an account public nkey" -}}
+{{- end -}}
+{{- if not (regexMatch `^U[A-Z2-7]{55}$` $certAuthUser) -}}
+  {{- fail "nats.certificateAuthorization.authUserPublicKey must be a user public nkey" -}}
+{{- end -}}
+{{- if not (regexMatch `^U[A-Z2-7]{55}$` $certAuthSystem) -}}
+  {{- fail "nats.certificateAuthorization.systemUserPublicKey must be a user public nkey" -}}
+{{- end -}}
+{{- end -}}
 ---
 apiVersion: v1
 kind: Service
@@ -176,6 +197,9 @@ spec:
             verify: true
             verify_and_map: true
           }
+          {{- if $certAuthEnabled }}
+          authorization: {auth_callout: {issuer: {{ $certAuthIssuer | quote }}, account: AUTH, auth_users: [{{ $certAuthUser | quote }}, {{ $certAuthSystem | quote }}]}}
+          {{- end }}
           {{- if $leafnodesEnabled }}
 
           # Edge-site leaf servers. TLS terminates here (a Gateway API route,
@@ -216,9 +240,22 @@ spec:
 
           {{- end }}
           accounts {
+            {{- if $certAuthEnabled }}
+            SYS: {
+              users: [
+                {nkey: {{ $certAuthSystem | quote }}, permissions: {publish: {allow: ["\$SYS.REQ.SERVER.*.CONNZ", "\$SYS.REQ.SERVER.*.KICK"]}, subscribe: {allow: ["_INBOX.>"]}}}
+              ]
+            }
+            AUTH: {
+              users: [
+                {nkey: {{ $certAuthUser | quote }}, permissions: {subscribe: ["\$SYS.REQ.USER.AUTH"], publish: ["\$SYS._INBOX.>"]}}
+              ]
+            }
+            {{- else }}
             SYS: {
               users: []
             }
+            {{- end }}
 
             SERVICERADAR: {
               jetstream: enabled

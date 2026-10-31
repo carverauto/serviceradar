@@ -281,6 +281,18 @@ nats:
     port: 7422
     tls:
       extraDnsNames: []
+  # Hub authorization callout for managed component certificates. Leave this
+  # disabled. Turning it on before every existing infrastructure client has an
+  # explicit stored grant denies those clients. A static empty allow list is
+  # unrestricted and must be adopted as [">"] plus the same deny list. These
+  # flags do not check that adoption. Paste public nkeys only; signing seeds
+  # stay in the certificate configuration record.
+  certificateAuthorization:
+    enabled: false
+    infrastructureAdopted: false
+    issuerPublicKey: ""
+    authUserPublicKey: ""
+    systemUserPublicKey: ""
   # Do not set resources.limits.cpu by default: a CFS quota on nats-server can
   # freeze JetStream RAFT heartbeats and readloops across multiple periods after
   # a brief host/hypervisor vCPU pause (#5635).
