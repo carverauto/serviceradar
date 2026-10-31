@@ -10,7 +10,7 @@ This namespace hosts lightweight, disposable dependencies for KV/JetStream integ
 - `tls-secret.yaml` – template for the TLS secret if you want to pre-create it manually.
 - `generate-nats-certs.sh` – helper to mint a self-signed CA + server/client certs and create the `sr-testing-nats-tls` secret.
 - `kustomization.yaml` – applies the namespace and NATS resources together (expects `sr-testing-nats-tls` to exist).
-- `nats-ext-service.yaml` – LoadBalancer service with MetalLB + ExternalDNS annotations for public reachability.
+- `nats-ext-service.yaml` – LAN-only LoadBalancer on MetalLB `k3s-lan-pool` (`192.168.6.90`). ExternalDNS publishes `sr-testing-nats.serviceradar.cloud` to that private address.
 - `export-nats-env.sh` – fetches the client certs from the secret and prints the env exports for local Bazel runs.
 
 ## Usage
@@ -26,7 +26,7 @@ kubectl -n sr-testing get pods -w
 
 The NATS service is exposed in-cluster at `sr-testing-nats.sr-testing.svc.cluster.local:4222` (TLS). JetStream monitoring is available on port `8222` (HTTP). Client certs are required; use the `client.crt`/`client.key` emitted by the generator script.
 
-For GitHub/BuildBuddy runners inside the cluster, use the cluster DNS name above. For external consumers, use the LoadBalancer service `sr-testing-nats-ext` (hostname `sr-testing-nats.serviceradar.cloud` via ExternalDNS).
+For GitHub/BuildBuddy runners inside the cluster, use the cluster DNS name above. From the LAN or VPN, use `sr-testing-nats-ext` (`sr-testing-nats.serviceradar.cloud`, `192.168.6.90`). That address is not reachable from the public internet.
 
 ### Client environment (Go/Rust tests)
 
