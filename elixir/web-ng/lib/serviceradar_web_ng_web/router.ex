@@ -881,6 +881,7 @@ defmodule ServiceRadarWebNGWeb.Router do
 
     get("/managed-components/bootstrap", ManagedComponentController, :bootstrap)
     post("/managed-components", ManagedComponentController, :create)
+    post("/managed-components/adopt", ManagedComponentController, :adopt)
     get("/managed-components/:id", ManagedComponentController, :show)
     post("/managed-components/:id/rotate", ManagedComponentController, :rotate)
     post("/managed-components/:id/revoke", ManagedComponentController, :revoke)

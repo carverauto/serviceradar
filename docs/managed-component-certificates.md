@@ -60,9 +60,20 @@ dashes). Bound collectors address that domain; their exact stream API permission
 cover both the addressed and broker-mapped subject forms. Unbound collectors use
 the hub's default domain.
 
-Infrastructure adoption is separate from host registration. An authorized operator
-must supply effective `publish` and `subscribe` arrays and preserve optional
-`publish_deny` and `subscribe_deny` arrays from the existing broker configuration.
-Empty allow arrays mean no permission. Unadopted infrastructure gets no implicit
-NATS grant; adoption never unblocks a revoked component or records a certificate.
-Permission updates require the current certificate generation.
+Infrastructure adoption is separate from host registration. Permission-only
+adoption stores effective `publish` and `subscribe` arrays, plus optional
+`publish_deny` and `subscribe_deny` arrays. An empty allow array on that path
+means no permission. That path does not record a certificate, and it does not
+unblock a revoked component. Permission updates require the current certificate
+generation. Unadopted infrastructure gets no implicit NATS grant.
+
+`POST /api/admin/managed-components/adopt` records one existing public
+infrastructure certificate. The JSON body carries `component_id`,
+`component_type`, `partition_id`, optional `server_hosts`, `certificate_pem`,
+and a static NATS `permissions` block. `publish` and `subscribe` are objects
+with optional `allow` and `deny` arrays. An empty or omitted allow is stored
+as `[">"]` and the deny list is kept. A non-empty allow is copied unchanged.
+The PEM may contain only certificates. A private key is refused and nothing
+is written. The response returns the component, the stored grant, and the
+certificate fingerprint. It does not return the PEM. The route does not enable
+broker authorization callout.

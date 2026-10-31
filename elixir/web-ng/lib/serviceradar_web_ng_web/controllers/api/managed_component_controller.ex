@@ -43,6 +43,16 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
     end
   end
 
+  def adopt(conn, params) do
+    with :ok <- authorize(conn),
+         {:ok, %{component: component, certificate: certificate}} <-
+           Authority.adopt_existing_certificate(params, opts(conn)) do
+      conn |> put_status(:created) |> json(%{data: adopted(component, certificate)})
+    else
+      error -> error_response(conn, error)
+    end
+  end
+
   def show(conn, %{"id" => id}) do
     with :ok <- authorize(conn),
          {:ok, component} <- Lifecycle.component(id, opts(conn)),
@@ -77,6 +87,27 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
     else
       error -> error_response(conn, error)
     end
+  end
+
+  defp adopted(component, certificate) do
+    %{
+      component_id: component.component_id,
+      service: component.component_type,
+      host_agent_id: component.host_agent_id,
+      partition_id: component.partition_id,
+      generation: component.generation,
+      blocked: component.blocked,
+      server_hosts: component.server_hosts,
+      nats_permissions: component.nats_permissions,
+      certificate: %{
+        fingerprint: certificate.fingerprint,
+        issuer_fingerprint: certificate.issuer_fingerprint,
+        serial_number: certificate.serial_number,
+        not_before: DateTime.to_iso8601(certificate.not_before),
+        not_after: DateTime.to_iso8601(certificate.not_after),
+        role: certificate.role
+      }
+    }
   end
 
   defp project(component, operation) do
