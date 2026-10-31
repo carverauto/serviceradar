@@ -1,3 +1,66 @@
+# ServiceRadar v1.4.101
+
+This release adds a durable path for leased sweep results. Core can
+hand an agent a sweep slot, the agent keeps the observations in a
+local spool, and the gateway commits them before they are projected
+into sweep results. The path stays off until a deployment turns it on.
+
+## Upgrade Notes
+
+- **Database.** Migrations through `20261030033000` add the sweep
+  lease and edge-record tables, and a camera relay session records
+  the source incarnation that activated it.
+  `core.migrations.expectedVersion` moves from `20261028120000` to
+  `20261030033000`.
+- **Leave durable sweeps off until the participating roles match.**
+  `edgeRecords.enabled` and `edgeRecords.agentSweepEnabled` default
+  to false, and core lease settings choose the agents and sweep
+  groups that take part. Existing sweep delivery is unchanged while
+  those settings stay off. Turn the path on only when core, the
+  gateways, and the leased agents are all on this release.
+
+## Whats New
+
+**Sweeps**
+
+- Core can lease a scheduled sweep to an agent. The agent writes
+  completed host windows into a bounded local spool and sends them as
+  signed observation batches. The gateway waits for a JetStream
+  acknowledgement before that spool record can be reclaimed, and core
+  projects the batches into sweep results (#3597).
+- Agents and sweep groups that are not leased keep the existing
+  result path (#3597).
+
+**Cameras**
+
+- A camera relay session keeps the identity of the source incarnation
+  that activated it. A later activation with a different identity is
+  rejected, and relays that never sent an identity keep working
+  (#6183).
+
+**Edge**
+
+- NATS leaf startup creates its log directory when the directory is
+  missing (#6185).
+- An edge site renders one NATS leaf, and the site detail cards keep
+  the site scope (#6186, #6188).
+
+**Exposure**
+
+- A disabled harness can prepare exposure publication validation
+  receipts without updating source rows. It is not enabled in this
+  release (#6184).
+
+**Agents**
+
+- Service builds leave MPTCP off unless the build turns it on
+  (#6187).
+
+**Packaging**
+
+- The sr-testing NATS service is published on the private LAN only
+  (#6189).
+
 # ServiceRadar v1.4.100
 
 This release makes the Proxmox node-to-agent certificate link from
