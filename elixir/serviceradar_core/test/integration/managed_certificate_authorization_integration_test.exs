@@ -3,7 +3,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
   Proves the central certificate authorizer over a real Gnat exchange.
 
   The broker is a local process with no authorization and no auth callout.
-  Readiness only means this process subscribed and loaded a snapshot.
+  Readiness means this process subscribed, loaded a snapshot, and the stored
+  account equals the configured deployment account.
   """
   use ServiceRadar.DataCase, async: false
 
@@ -22,7 +23,10 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
   @tag timeout: 120_000
   test "signed grants follow stored permissions and deny a certificate without them" do
     previous = Application.get_env(:serviceradar_core, Connection)
+    previous_account = Application.get_env(:serviceradar, :nats_account_name)
     on_exit(fn -> restore_connection(previous) end)
+    on_exit(fn -> restore_account(previous_account) end)
+    Application.put_env(:serviceradar, :nats_account_name, @account)
 
     listen_port = free_port()
     assert listen_port != 4222
@@ -82,7 +86,9 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
     )
 
     start_supervised_authorizer!()
-    assert %{ready: true, reason: nil, auth_mode: "static_mtls"} = await_ready()
+
+    assert %{ready: true, reason: nil, auth_mode: "static_mtls", account_name: @account} =
+             await_ready()
 
     %{public_key: user_nkey} = Token.new_key(:user)
     server = server_keypair()
@@ -325,4 +331,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
   defp restore_connection(nil), do: Application.delete_env(:serviceradar_core, Connection)
 
   defp restore_connection(value), do: Application.put_env(:serviceradar_core, Connection, value)
+
+  defp restore_account(nil), do: Application.delete_env(:serviceradar, :nats_account_name)
+
+  defp restore_account(value), do: Application.put_env(:serviceradar, :nats_account_name, value)
 end

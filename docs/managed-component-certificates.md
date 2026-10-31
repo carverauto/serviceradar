@@ -101,3 +101,11 @@ The service-certificates inventory history offers the same fingerprint
 revocation. The component stays unblocked. Its generation and stored grant
 stay unchanged. The component Revoke control still blocks renewal until
 re-enrollment. Broker authorization callout stays disabled.
+
+`POST /api/nats/certificate-authorization/bootstrap` stores signing material
+only for the deployment account (`:nats_account_name`). A missing or unusable
+deployment account returns `nats_account_unconfigured`. A different requested
+name returns `nats_account_mismatch`. An existing record for another account
+stays in place. Readiness includes the stored account name and stays unready
+while that name disagrees with the deployment account. Broker authorization
+callout stays disabled.

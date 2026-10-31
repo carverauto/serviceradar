@@ -13,8 +13,11 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
     with :ok <- authorize(conn), {:ok, key} <- Authority.policy_public_key() do
       readiness =
         case nats_rpc(:readiness, []) do
-          %{ready: _} = value -> value
-          _ -> %{auth_mode: nil, ready: false, reason: "core_unavailable"}
+          %{ready: _} = value ->
+            value
+
+          _ ->
+            %{auth_mode: nil, account_name: nil, ready: false, reason: "core_unavailable"}
         end
 
       json(conn, %{data: %{policy_public_key: key, nats: readiness}})

@@ -28,7 +28,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   def readiness do
     GenServer.call(__MODULE__, :readiness)
   catch
-    :exit, _ -> %{auth_mode: nil, ready: false, reason: "authorizer_unavailable"}
+    :exit, _ ->
+      %{auth_mode: nil, account_name: nil, ready: false, reason: "authorizer_unavailable"}
   end
 
   @impl true
@@ -50,10 +51,14 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
 
   @impl true
   def handle_call(:readiness, _from, state) do
+    account_name = stored_account_name(state)
+    reason = readiness_reason(state.reason, account_name)
+
     status = %{
       auth_mode: state.config && state.config.auth_mode,
-      ready: state.reason == nil,
-      reason: state.reason
+      account_name: account_name,
+      ready: reason == nil,
+      reason: reason
     }
 
     {:reply, status, state}
@@ -100,6 +105,20 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
 
   @impl true
   def format_status(status), do: Map.put(status, :state, %{reason: status.state.reason})
+
+  defp stored_account_name(%{config: %{account_name: name}}) when is_binary(name), do: name
+  defp stored_account_name(_state), do: nil
+
+  defp readiness_reason(nil, account_name) when is_binary(account_name) do
+    if Configuration.deployment_account() == account_name do
+      nil
+    else
+      "nats_account_mismatch"
+    end
+  end
+
+  defp readiness_reason(nil, _account_name), do: "nats_account_mismatch"
+  defp readiness_reason(reason, _account_name), do: reason
 
   defp configure(%{config: nil} = state) do
     with {:ok, %{auth_mode: "static_mtls"} = config} <- Configuration.credentials(),
