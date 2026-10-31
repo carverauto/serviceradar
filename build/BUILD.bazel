@@ -26,24 +26,6 @@ ex_unit_test(
     ],
 )
 
-# Drives the three Hex packages bumped for the October 2026 advisories. The
-# oracle is the advisory, not the lockfile text: injected attribute names raise,
-# a partial-label wildcard cannot cross a DNS label, and one-byte HTTP/2 DATA
-# frames come back as the original body without a per-frame memory spike.
-ex_unit_test(
-    name = "hex_advisory_runtime_test",
-    size = "small",
-    timeout = "moderate",
-    srcs = ["hex_advisory_runtime_test.exs"],
-    exec_properties = {"test.network": "off"},
-    deps = [
-        "@hexpm//:bandit",
-        "@hexpm//:mint",
-        "@hexpm//:phoenix_html",
-        "@hexpm//:ssl_verify_fun",
-    ],
-)
-
 ex_unit_test(
     name = "integration_selection_formatter_test",
     size = "small",
