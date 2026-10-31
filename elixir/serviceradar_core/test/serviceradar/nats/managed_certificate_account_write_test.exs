@@ -6,6 +6,10 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountWriteTest do
 
   use ServiceRadar.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.ManagedCertificateNatsConfig
+  alias ServiceRadar.NATS.CertificateAuthorizationToken, as: Token
+  alias ServiceRadar.NATS.ManagedCertificateAuthorization, as: Authorizer
   alias ServiceRadar.NATS.ManagedCertificateConfiguration, as: Configuration
 
   setup do
@@ -47,6 +51,61 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountWriteTest do
     Application.put_env(:serviceradar, :nats_account_name, "EDGE")
     assert {:ok, kept} = Configuration.bootstrap("EDGE", actor)
     assert same_material?(kept, stored)
+  end
+
+  test "reports a JWT deployment unready when no account signer is configured" do
+    issuer = Token.new_key(:account)
+    auth = Token.new_key(:user)
+    system = Token.new_key(:user)
+
+    assert {:ok, _config} =
+             ManagedCertificateNatsConfig
+             |> Ash.Changeset.for_create(
+               :configure,
+               %{
+                 auth_mode: "operator_jwt",
+                 account_name: "EDGE",
+                 issuer_nkey: issuer.public_key,
+                 issuer_seed: issuer.seed,
+                 auth_nkey: auth.public_key,
+                 auth_seed: auth.seed,
+                 system_nkey: system.public_key,
+                 system_seed: system.seed
+               },
+               actor: SystemActor.system(:managed_certificate_nats)
+             )
+             |> Ash.create()
+
+    assert {:noreply, state} = Authorizer.handle_info(:tick, blank_authorizer())
+    assert state.reason == "jwt_account_signer_unconfigured"
+    assert state.signer == nil
+    assert state.subscription == nil
+    assert state.config.auth_mode == "operator_jwt"
+    assert state.config.account_name == "EDGE"
+    refute Map.has_key?(state.config, :issuer_seed)
+    refute Map.has_key?(state.config, :auth_seed)
+    refute Map.has_key?(state.config, :system_seed)
+
+    assert {:reply, status, ^state} = Authorizer.handle_call(:readiness, self(), state)
+
+    assert status == %{
+             auth_mode: "operator_jwt",
+             account_name: "EDGE",
+             ready: false,
+             reason: "jwt_account_signer_unconfigured"
+           }
+  end
+
+  defp blank_authorizer do
+    %{
+      config: nil,
+      signer: nil,
+      snapshot: nil,
+      subscription: nil,
+      sessions: %{},
+      probe: nil,
+      reason: "not_configured"
+    }
   end
 
   defp public_fields?(config) do

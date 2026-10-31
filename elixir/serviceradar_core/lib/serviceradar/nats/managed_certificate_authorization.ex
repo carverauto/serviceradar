@@ -130,8 +130,19 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
          :ok <- start_connection(@system, config.system_seed, settings, backoff) do
       %{state | config: Configuration.public_config(config), signer: signer, reason: "connecting"}
     else
-      {:ok, %{auth_mode: mode}} -> %{state | reason: "unsupported_auth_mode:#{mode}"}
-      _ -> state
+      {:ok, %{auth_mode: "operator_jwt"} = config} ->
+        %{
+          state
+          | config: Configuration.public_config(config),
+            signer: nil,
+            reason: "jwt_account_signer_unconfigured"
+        }
+
+      {:ok, %{auth_mode: mode}} ->
+        %{state | reason: "unsupported_auth_mode:#{mode}"}
+
+      _ ->
+        state
     end
   end
 
@@ -166,6 +177,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     end
   end
 
+  defp subscribe(%{reason: "jwt_account_signer_unconfigured"} = state), do: state
   defp subscribe(%{config: nil} = state), do: state
 
   defp subscribe(state) do
@@ -186,6 +198,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     end
   end
 
+  defp refresh(%{reason: "jwt_account_signer_unconfigured"} = state), do: state
   defp refresh(%{config: nil} = state), do: state
 
   defp refresh(state) do

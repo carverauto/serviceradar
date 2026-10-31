@@ -117,3 +117,9 @@ that bootstrap reports `nats.ready`, `auth_mode` `static_mtls`, and the
 deployment account name. It does not create the account or require a JWT
 account seed. Any other authentication mode stops before package
 installation. Broker authorization callout stays disabled.
+
+A stored `operator_jwt` authentication mode reports readiness reason
+`jwt_account_signer_unconfigured`. The authorizer does not open a broker
+connection and does not create an account signer. `edge install` stops
+before package installation because that readiness is false. Broker
+authorization callout stays disabled.
