@@ -76,4 +76,6 @@ as `[">"]` and the deny list is kept. A non-empty allow is copied unchanged.
 The PEM may contain only certificates. A private key is refused and nothing
 is written. The response returns the component, the stored grant, and the
 certificate fingerprint. It does not return the PEM. The route does not enable
-broker authorization callout.
+broker authorization callout. The service-certificates inventory shows that
+stored grant for an infrastructure component. An empty allow there is no
+permission. A host service does not show this grant.

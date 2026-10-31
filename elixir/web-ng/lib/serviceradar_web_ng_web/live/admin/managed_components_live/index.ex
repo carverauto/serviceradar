@@ -211,6 +211,8 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
   attr :operation, :any, required: true
 
   def component_row(assigns) do
+    assigns = assign(assigns, :infrastructure_grant, infrastructure_grant(assigns.component))
+
     ~H"""
     <div id={"managed-component-#{@component.component_id}"} class="space-y-3">
       <div class="flex flex-wrap justify-between gap-3">
@@ -237,6 +239,22 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
         <p :if={@operation.error} class="text-error">{@operation.error}</p>
       </div>
       <p class="text-xs text-sr-muted">Revocation enforcement across receivers: unconfirmed.</p>
+      <div
+        :if={@infrastructure_grant}
+        id={"managed-component-grant-#{@component.component_id}"}
+        class="space-y-1 text-sm"
+      >
+        <%= case @infrastructure_grant do %>
+          <% {:stored, grant} -> %>
+            <p>Stored NATS grant</p>
+            <p class="font-mono text-xs">Publish allow: {format_subjects(grant.publish)}</p>
+            <p class="font-mono text-xs">Publish deny: {format_subjects(grant.publish_deny)}</p>
+            <p class="font-mono text-xs">Subscribe allow: {format_subjects(grant.subscribe)}</p>
+            <p class="font-mono text-xs">Subscribe deny: {format_subjects(grant.subscribe_deny)}</p>
+          <% :missing -> %>
+            <p>No stored NATS grant.</p>
+        <% end %>
+      </div>
       <div class="flex flex-wrap gap-2">
         <.ui_button phx-click="inspect" phx-value-id={@component.component_id} size="sm">Certificates</.ui_button>
         <.ui_button
@@ -264,6 +282,45 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index do
     </div>
     """
   end
+
+  defp infrastructure_grant(%{component_type: type, nats_permissions: permissions}) do
+    if ManagedComponent.infrastructure_type?(type) do
+      case grant_lists(permissions) do
+        {:ok, grant} -> {:stored, grant}
+        :missing -> :missing
+      end
+    end
+  end
+
+  defp grant_lists(permissions) when is_map(permissions) do
+    with publish when is_list(publish) <- grant_list(permissions, :publish),
+         subscribe when is_list(subscribe) <- grant_list(permissions, :subscribe),
+         {:ok, publish_deny} <- optional_list(grant_list(permissions, :publish_deny)),
+         {:ok, subscribe_deny} <- optional_list(grant_list(permissions, :subscribe_deny)) do
+      {:ok,
+       %{
+         publish: publish,
+         subscribe: subscribe,
+         publish_deny: publish_deny,
+         subscribe_deny: subscribe_deny
+       }}
+    else
+      _ -> :missing
+    end
+  end
+
+  defp grant_lists(_permissions), do: :missing
+
+  defp grant_list(permissions, key) do
+    Map.get(permissions, key, Map.get(permissions, Atom.to_string(key)))
+  end
+
+  defp optional_list(nil), do: {:ok, []}
+  defp optional_list(subjects) when is_list(subjects), do: {:ok, subjects}
+  defp optional_list(_subjects), do: :error
+
+  defp format_subjects([]), do: "(empty)"
+  defp format_subjects(subjects), do: Enum.join(subjects, ", ")
 
   defp empty_as_pending(""), do: "Not confirmed"
   defp empty_as_pending(value), do: value
