@@ -553,6 +553,49 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 		}
 	}
 
+	return s.writeEdgeSpoolMetrics(w)
+}
+
+// SetEdgeSpoolSampler registers the read-only unresolved-spool sample used by
+// WritePrometheusMetrics. The agent process sets it where the spool is opened.
+func (s *Server) SetEdgeSpoolSampler(sample EdgeSpoolSampler) {
+	if sample == nil {
+		return
+	}
+	s.edgeSpoolSampler.Store(sample)
+}
+
+func (s *Server) writeEdgeSpoolMetrics(w io.Writer) error {
+	loaded := s.edgeSpoolSampler.Load()
+	sample, ok := loaded.(EdgeSpoolSampler)
+	if !ok || sample == nil {
+		return nil
+	}
+	unresolvedBytes, age, reportAge, ok := sample(time.Now())
+	if !ok {
+		return nil
+	}
+	if _, err := fmt.Fprintf(
+		w,
+		"# TYPE agent_edge_spool_unresolved_bytes gauge\nagent_edge_spool_unresolved_bytes %d\n",
+		unresolvedBytes,
+	); err != nil {
+		return fmt.Errorf("write agent edge spool bytes: %w", err)
+	}
+	if !reportAge {
+		return nil
+	}
+	seconds := uint64(0)
+	if age > 0 {
+		seconds = uint64(age / time.Second)
+	}
+	if _, err := fmt.Fprintf(
+		w,
+		"# TYPE agent_edge_spool_oldest_unresolved_age_seconds gauge\nagent_edge_spool_oldest_unresolved_age_seconds %d\n",
+		seconds,
+	); err != nil {
+		return fmt.Errorf("write agent edge spool age: %w", err)
+	}
 	return nil
 }
 

@@ -4,10 +4,10 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
 
   The EventWriter producer exposes local Broadway/backpressure state. This
   process emits the server-side view so operators can distinguish a controlled
-  pull-consumer slowdown from an accumulating JetStream backlog. For flow
-  consumers it also polls each unique JetStream stream once per interval and
-  combines MaxBytes/current bytes plus MaxAge/oldest retained-message age into
-  the retention-risk telemetry event.
+  pull-consumer slowdown from an accumulating JetStream backlog. For flow and
+  edge-record consumers it also polls each unique JetStream stream once per
+  interval and combines MaxBytes/current bytes plus MaxAge/oldest
+  retained-message age into the retention-risk telemetry event.
   """
 
   use GenServer
@@ -56,10 +56,13 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
   @spec retention_stream_names([consumer_ref()]) :: [String.t()]
   def retention_stream_names(consumers) when is_list(consumers) do
     consumers
-    |> Enum.filter(&(&1.subject_class == "flows"))
+    |> Enum.filter(&retention_subject?(&1.subject_class))
     |> Enum.map(& &1.stream)
     |> Enum.uniq()
   end
+
+  defp retention_subject?(class) when class in ["flows", "edge_record"], do: true
+  defp retention_subject?(_class), do: false
 
   @impl true
   def init(%Config{} = config) do
@@ -118,8 +121,8 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporter do
     end
   end
 
-  defp retention_info_for_consumer(%{subject_class: "flows", stream: stream}, stream_info),
-    do: Map.get(stream_info, stream)
+  defp retention_info_for_consumer(%{subject_class: class, stream: stream}, stream_info)
+       when class in ["flows", "edge_record"], do: Map.get(stream_info, stream)
 
   defp retention_info_for_consumer(_consumer, _stream_info), do: nil
 

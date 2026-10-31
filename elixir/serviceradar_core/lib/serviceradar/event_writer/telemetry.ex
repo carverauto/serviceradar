@@ -148,8 +148,9 @@ defmodule ServiceRadar.EventWriter.Telemetry do
   Emits consumer state together with authoritative JetStream stream retention state.
 
   `stream_info` is the response from `Gnat.Jetstream.API.Stream.info/2`. It is
-  optional so non-flow consumers and temporary stream-info failures keep emitting
-  the existing consumer backlog gauges.
+  optional so a consumer outside the retention poll, and a temporary stream-info
+  failure, still emit the existing consumer backlog gauges. The retention poll
+  covers flow and edge-record consumers.
   """
   @spec emit_consumer_state(map(), map() | nil, map()) :: :ok
   def emit_consumer_state(info, stream_info, metadata)
@@ -203,6 +204,7 @@ defmodule ServiceRadar.EventWriter.Telemetry do
       String.starts_with?(subject, "falco.") -> "falco"
       String.starts_with?(subject, "trivy.") -> "trivy"
       String.starts_with?(subject, "sweep.") -> "sweep"
+      String.starts_with?(subject, "telemetry.edge-record.") -> "edge_record"
       String.starts_with?(subject, "signals.analytics.") -> "analytics"
       String.starts_with?(subject, "causal.") -> "causal"
       subject == "" -> "unknown"

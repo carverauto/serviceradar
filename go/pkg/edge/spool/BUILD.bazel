@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "barrier.go",
         "evidence.go",
+        "health.go",
         "lanes.go",
         "reclaim.go",
         "recover.go",
@@ -27,6 +28,7 @@ go_library(
 go_test(
     name = "spool_test",
     srcs = [
+        "health_test.go",
         "lanes_test.go",
         "reserve_test.go",
         "restart_test.go",

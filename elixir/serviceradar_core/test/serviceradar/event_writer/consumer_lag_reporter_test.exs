@@ -92,4 +92,21 @@ defmodule ServiceRadar.EventWriter.ConsumerLagReporterTest do
 
     assert ConsumerLagReporter.retention_stream_names(consumers) == ["flows", "events"]
   end
+
+  test "retention stream INFO polling includes the edge record stream" do
+    consumers = [
+      %{stream: "flows", durable: "netflow", subject_class: "flows"},
+      %{
+        stream: "TELEMETRY_EDGE_RECORD_V1_BULK",
+        durable: "edge-record",
+        subject_class: "edge_record"
+      },
+      %{stream: "events", durable: "otel", subject_class: "otel_metrics"}
+    ]
+
+    assert ConsumerLagReporter.retention_stream_names(consumers) == [
+             "flows",
+             "TELEMETRY_EDGE_RECORD_V1_BULK"
+           ]
+  end
 end

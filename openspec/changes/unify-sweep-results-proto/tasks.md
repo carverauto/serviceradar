@@ -366,9 +366,15 @@ in `choices.md` and the chart README.
   mid-execution. Afterwards CNPG shows zero missing and zero duplicated host
   results against the control agent. The evidence goes in the M3 tracking
   issue.
-- [ ] M3.4 Operator signals. Dashboards and alerts for agent spool bytes, oldest
+- [x] M3.4 Operator signals. Dashboards and alerts for agent spool bytes, oldest
   unresolved record age, gateway PubAck errors and EDGE_RECORD consumer lag
   (narrows 4.5).
+  DONE: the agent Prometheus exporter reports unresolved spool bytes and the
+  oldest UUIDv7 event age. The gateway counts PubAck errors from
+  `JetStreamPublisher.publish_record/2`. EventWriter labels
+  `telemetry.edge-record.` as `edge_record` and includes that stream in
+  consumer-lag and retention-age polling. The ingestion dashboard and
+  PrometheusRule alerts name those four series.
 
 ### M4. Cut over sweep, then MTR
 

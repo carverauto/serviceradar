@@ -99,6 +99,58 @@
         }
       ],
       "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "EDGE_RECORD Consumer Lag",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{
+        "refId": "A",
+        "expr": "max by (durable) (serviceradar_event_writer_consumer_lag_messages_value{namespace=\"$namespace\", subject_class=\"edge_record\"})",
+        "legendFormat": "{{durable}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 10,
+      "type": "timeseries",
+      "title": "Agent Gateway PubAck Errors",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 21},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{
+        "refId": "A",
+        "expr": "sum by (reason) (increase(serviceradar_agent_gateway_jetstream_puback_error_count{namespace=\"$namespace\"}[5m]))",
+        "legendFormat": "{{reason}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 11,
+      "type": "timeseries",
+      "title": "Agent Edge Spool Unresolved Bytes",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 29},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{
+        "refId": "A",
+        "expr": "max by (instance) (agent_edge_spool_unresolved_bytes)",
+        "legendFormat": "{{instance}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "id": 12,
+      "type": "timeseries",
+      "title": "Agent Edge Spool Oldest Unresolved Age",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 29},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [{
+        "refId": "A",
+        "expr": "max by (instance) (agent_edge_spool_oldest_unresolved_age_seconds)",
+        "legendFormat": "{{instance}}"
+      }],
+      "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
     }
   ]
 }

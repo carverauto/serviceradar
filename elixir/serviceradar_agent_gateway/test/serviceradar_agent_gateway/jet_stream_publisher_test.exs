@@ -947,6 +947,45 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisherTest do
       assert {:ok, %{seq: 5}} = JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
     end
 
+    test "a misrouted PubAck is counted and a local refusal is not" do
+      handler = "puback-error-#{System.unique_integer([:positive])}"
+      parent = self()
+
+      :telemetry.attach(
+        handler,
+        [:serviceradar, :agent_gateway, :jetstream, :puback_error],
+        fn event, measurements, metadata, _config ->
+          send(parent, {:telemetry, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(handler) end)
+
+      {pub, _planned} = planned_pub()
+
+      assert {:error, {:derivation, :record_bytes}} =
+               JetStreamPublisher.publish_record(Map.delete(pub, :record_bytes), with_pools(connection: FakeConn))
+
+      refute_received {:telemetry, [:serviceradar, :agent_gateway, :jetstream, :puback_error], _, _}
+
+      with_reply({:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_V1_INTERACTIVE","seq":5})}})
+
+      assert {:error, :misrouted} =
+               JetStreamPublisher.publish_record(pub, with_pools(connection: FakeConn))
+
+      assert_receive {:telemetry, [:serviceradar, :agent_gateway, :jetstream, :puback_error], %{count: 1},
+                      %{reason: "misrouted"}}
+
+      {ok_pub, planned} = planned_pub()
+      with_reply({:ok, %{body: ~s({"stream":"#{planned.route.expected_stream}","seq":6})}})
+
+      assert {:ok, %{seq: 6}} =
+               JetStreamPublisher.publish_record(ok_pub, with_pools(connection: FakeConn))
+
+      refute_received {:telemetry, [:serviceradar, :agent_gateway, :jetstream, :puback_error], _, _}
+    end
+
     test "an ack from ANOTHER stream is :misrouted, and :misrouted is RETRYABLE" do
       {pub, _planned} = planned_pub()
       with_reply({:ok, %{body: ~s({"stream":"TELEMETRY_EDGE_RECORD_V1_INTERACTIVE","seq":5})}})
