@@ -96,3 +96,8 @@ and stored grant stay unchanged. Other fingerprints on the component stay
 authorized. A fingerprint recorded for another component is refused. The
 route uses the same API key pipeline and `settings.edge.manage` permission.
 Broker authorization callout stays disabled.
+
+The service-certificates inventory history offers the same fingerprint
+revocation. The component stays unblocked. Its generation and stored grant
+stay unchanged. The component Revoke control still blocks renewal until
+re-enrollment. Broker authorization callout stays disabled.

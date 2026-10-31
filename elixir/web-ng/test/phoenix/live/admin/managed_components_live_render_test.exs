@@ -7,6 +7,9 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLiveRenderTest do
   alias ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index
 
   @moduletag :db_free
+  @active "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+  @retired "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+  @generation_retired "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
 
   setup_all do
     case ServiceRadarWebNGWeb.Endpoint.start_link() do
@@ -97,7 +100,57 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLiveRenderTest do
     assert Enum.empty?(LazyHTML.query(doc, "#managed-component-example-gateway [phx-click=rotate]"))
   end
 
-  defp render_inventory(components, operations \\ %{}) do
+  test "history revokes one fingerprint and leaves the component enrolled" do
+    component = %ManagedComponent{
+      component_id: "example-gateway",
+      component_type: "agent-gateway",
+      host_agent_id: nil,
+      generation: 1,
+      blocked: false
+    }
+
+    html =
+      render_inventory([component], %{}, %{
+        selected: component.component_id,
+        certificates: [
+          certificate(@active, 1),
+          certificate(@retired, 1),
+          certificate(@generation_retired, 2)
+        ],
+        revoked_fingerprints: MapSet.new([@retired]),
+        revoked_generations: MapSet.new([2])
+      })
+
+    doc = LazyHTML.from_fragment(html)
+    row = LazyHTML.query(doc, "#managed-component-example-gateway")
+    active = LazyHTML.query(doc, "#managed-certificate-#{@active}")
+    retired = LazyHTML.query(doc, "#managed-certificate-#{@retired}")
+    generation = LazyHTML.query(doc, "#managed-certificate-#{@generation_retired}")
+
+    assert LazyHTML.text(row) =~ "Enrollment allowed"
+    assert LazyHTML.to_html(row) =~ "Revoke this component and block its automatic renewal?"
+    refute Enum.empty?(LazyHTML.query(row, "[phx-click=revoke]"))
+    assert Enum.empty?(LazyHTML.query(row, "[phx-click=revoke-certificate]"))
+
+    assert LazyHTML.to_html(active) =~ ~s(phx-click="revoke-certificate")
+    assert LazyHTML.to_html(active) =~ ~s(phx-value-id="example-gateway")
+    assert LazyHTML.to_html(active) =~ ~s(phx-value-fingerprint="#{@active}")
+    assert LazyHTML.to_html(active) =~ "The component stays enrolled."
+    assert LazyHTML.text(active) =~ "Revoke fingerprint"
+    refute LazyHTML.text(active) =~ "Revoked"
+    refute LazyHTML.to_html(active) =~ ~s(phx-click="revoke")
+
+    assert LazyHTML.text(retired) =~ "Revoked"
+    assert Enum.empty?(LazyHTML.query(retired, "[phx-click=revoke-certificate]"))
+    assert LazyHTML.text(generation) =~ "Revoked"
+    assert Enum.empty?(LazyHTML.query(generation, "[phx-click=revoke-certificate]"))
+  end
+
+  defp certificate(fingerprint, generation) do
+    %{role: "client", generation: generation, fingerprint: fingerprint, not_after: "2027-06-01"}
+  end
+
+  defp render_inventory(components, operations \\ %{}, history \\ %{}) do
     render_component(&Index.render/1,
       flash: %{},
       current_scope: %{user: %{email: "operator@example.com", role: :admin, timezone: "Etc/UTC"}},
@@ -110,8 +163,10 @@ defmodule ServiceRadarWebNGWeb.Admin.ManagedComponentsLiveRenderTest do
       components: components,
       operations: operations,
       loading?: false,
-      selected: nil,
-      certificates: [],
+      selected: Map.get(history, :selected),
+      certificates: Map.get(history, :certificates, []),
+      revoked_fingerprints: Map.get(history, :revoked_fingerprints, MapSet.new()),
+      revoked_generations: Map.get(history, :revoked_generations, MapSet.new()),
       cursor: nil,
       more?: false
     )

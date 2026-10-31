@@ -22,7 +22,8 @@ defmodule ServiceRadarWebNGWeb.UIComponents do
   attr :rest, :global, include: ~w(
       href navigate patch method download name value type disabled form
       target rel replace
-      phx-click phx-target phx-value-idx phx-value-id phx-value-entity phx-value-group_id phx-value-metric
+      phx-click phx-target phx-value-idx phx-value-id phx-value-fingerprint phx-value-entity
+      phx-value-group_id phx-value-metric
       phx-value-q phx-value-type phx-value-favorite phx-value-field phx-value-value
       phx-value-state phx-value-severity phx-value-mode phx-value-cursor phx-value-page
       phx-value-addon_id phx-value-version phx-value-release_tag phx-value-replace

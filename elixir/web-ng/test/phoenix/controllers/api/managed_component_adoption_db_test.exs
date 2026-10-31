@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionDbTest do
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.RevokedComponentCertificate
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index, as: Inventory
   alias ServiceRadarWebNGWeb.Api.ManagedComponentController, as: Controller
 
   require Ash.Query
@@ -225,6 +226,121 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionDbTest do
     assert json_response(missing, 409) == %{"error" => "unknown_certificate"}
     assert {:ok, [still_one]} = revocations(id)
     assert still_one.fingerprint == fingerprint(first.der)
+  end
+
+  test "inventory history revokes one fingerprint and leaves the component enrolled", %{conn: conn} do
+    first = self_signed()
+    successor = self_signed(~c"example-gateway-next")
+    other = self_signed(~c"example-gateway-other")
+    id = "example-gateway-#{System.unique_integer([:positive])}"
+    other_id = "example-gateway-other-#{System.unique_integer([:positive])}"
+    predecessor = fingerprint(first.der)
+
+    adopted =
+      conn
+      |> assign(:current_scope, operator_scope())
+      |> Controller.adopt(params(id, first.pem))
+
+    assert json_response(adopted, 201)
+
+    recorded =
+      adopted
+      |> recycle()
+      |> assign(:current_scope, operator_scope())
+      |> Controller.record_successor(%{"id" => id, "certificate_pem" => successor.pem})
+
+    assert json_response(recorded, 201)
+
+    other_adopted =
+      recorded
+      |> recycle()
+      |> assign(:current_scope, operator_scope())
+      |> Controller.adopt(params(other_id, other.pem))
+
+    assert json_response(other_adopted, 201)
+
+    assert {:noreply, denied} =
+             Inventory.handle_event(
+               "revoke-certificate",
+               %{"id" => id, "fingerprint" => predecessor},
+               inventory_socket(denied_scope(), id)
+             )
+
+    assert denied.assigns.flash["error"] ==
+             "You do not have permission to manage service certificates."
+
+    assert {:ok, []} = revocations(id)
+
+    assert {:noreply, revoked} =
+             Inventory.handle_event(
+               "revoke-certificate",
+               %{"id" => id, "fingerprint" => predecessor},
+               inventory_socket(operator_scope(), id)
+             )
+
+    assert revoked.assigns.flash["info"] =~ "The component stays enrolled."
+    assert revoked.assigns.selected == id
+    assert MapSet.member?(revoked.assigns.revoked_fingerprints, predecessor)
+    refute MapSet.member?(revoked.assigns.revoked_fingerprints, fingerprint(successor.der))
+
+    assert Enum.any?(revoked.assigns.certificates, &(&1.fingerprint == predecessor))
+    assert Enum.any?(revoked.assigns.certificates, &(&1.fingerprint == fingerprint(successor.der)))
+
+    component = Enum.find(revoked.assigns.components, &(&1.component_id == id))
+    assert component.blocked == false
+    assert component.generation == 1
+    assert component.nats_permissions["publish"] == ["metrics.example.>"]
+    assert component.nats_permissions["subscribe"] == [">"]
+    assert component.nats_permissions["subscribe_deny"] == ["$SYS.>", "flow.example.>"]
+
+    assert {:ok, stored} = Ash.get(ManagedComponent, id, scope: operator_scope())
+    assert stored.generation == 1
+    assert stored.blocked == false
+    assert stored.nats_permissions["subscribe"] == [">"]
+
+    assert {:ok, [decision]} = revocations(id)
+    assert decision.fingerprint == predecessor
+    assert decision.generation == 1
+    assert decision.reason == "operator-request"
+
+    assert {:noreply, mismatched} =
+             Inventory.handle_event(
+               "revoke-certificate",
+               %{"id" => id, "fingerprint" => fingerprint(other.der)},
+               inventory_socket(operator_scope(), id)
+             )
+
+    assert mismatched.assigns.flash["error"] ==
+             "The certificate could not be revoked. Refresh the history and try again."
+
+    assert {:ok, []} = revocations(other_id)
+    assert {:ok, [still_one]} = revocations(id)
+    assert still_one.fingerprint == predecessor
+  end
+
+  defp inventory_socket(scope, selected) do
+    socket = %Phoenix.LiveView.Socket{}
+    socket = %{socket | assigns: Map.put(socket.assigns, :flash, %{})}
+
+    Phoenix.Component.assign(socket,
+      current_scope: scope,
+      components: [],
+      operations: %{},
+      certificates: [],
+      revoked_fingerprints: MapSet.new(),
+      revoked_generations: MapSet.new(),
+      selected: selected,
+      cursor: nil,
+      more?: false,
+      loading?: false
+    )
+  end
+
+  defp denied_scope do
+    %Scope{
+      user: %{id: "example-operator", role: :operator},
+      permissions: MapSet.new()
+    }
   end
 
   defp operator_scope do
