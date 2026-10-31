@@ -5,6 +5,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
   alias ServiceRadar.Edge.ComponentCertificate
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
   alias ServiceRadar.Edge.ManagedCertificatePolicyKey
+  alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.RevokedComponentCertificate
 
   require Ash.Query
@@ -274,7 +275,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert {:ok, _} = Authority.revoke_component(id, "operator-request", ctx.opts)
     assert {:ok, _} = Authority.reenroll_component(id, ctx.opts)
     assert {:error, _} = Authority.set_infrastructure_permissions(id, 1, permissions, ctx.opts)
-    assert {:ok, record} = Ash.get(ServiceRadar.Edge.ManagedComponent, id, ctx.opts)
+    assert {:ok, record} = Ash.get(ManagedComponent, id, ctx.opts)
     assert record.nats_permissions == permissions
 
     attrs = %{
@@ -303,6 +304,83 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
              |> Map.put(:component_id, "example-unadopted-#{Ecto.UUID.generate()}")
              |> Map.put(:nats_permissions, permissions)
              |> Authority.enroll_component(ctx.opts)
+  end
+
+  test "adopts a public certificate under the projected grant and rolls back a duplicate",
+       ctx do
+    %{pem: pem, der: der} = self_signed_certificate()
+    id = "example-gateway-#{System.unique_integer([:positive])}"
+
+    attrs = %{
+      component_id: id,
+      component_type: "agent-gateway",
+      partition_id: "example-partition",
+      certificate_pem: pem,
+      permissions: %{
+        "publish" => %{"allow" => ["metrics.example.>"], "deny" => []},
+        "subscribe" => %{"allow" => [], "deny" => ["$SYS.>", "flow.example.>"]}
+      }
+    }
+
+    viewer = %{id: "example-viewer", role: :viewer, permissions: MapSet.new()}
+
+    operator = %{
+      id: "example-operator",
+      role: :operator,
+      permissions: MapSet.new(["settings.edge.manage"])
+    }
+
+    assert {:error, _} = Authority.adopt_existing_certificate(attrs, actor: viewer)
+
+    assert {:ok, %{component: component, certificate: certificate}} =
+             Authority.adopt_existing_certificate(attrs, actor: operator)
+
+    assert component.generation_started_by == "example-operator"
+    assert component.host_agent_id == nil
+    assert component.nats_permissions["publish"] == ["metrics.example.>"]
+    assert component.nats_permissions["subscribe"] == [">"]
+    assert component.nats_permissions["subscribe_deny"] == ["$SYS.>", "flow.example.>"]
+    assert certificate.fingerprint == fingerprint(der)
+    assert certificate.issuer_fingerprint == certificate.fingerprint
+    assert certificate.role == "client"
+    assert certificate.generation == 1
+
+    assert {:ok, snapshot} = Authority.snapshot()
+    assert certificate.fingerprint in snapshot.allowed_fingerprints
+    assert snapshot.nats_permissions[certificate.fingerprint][:subscribe] == [">"]
+
+    assert snapshot.nats_permissions[certificate.fingerprint][:subscribe_deny] == [
+             "$SYS.>",
+             "flow.example.>"
+           ]
+
+    duplicate_id = "example-gateway-#{System.unique_integer([:positive])}"
+
+    assert {:error, :certificate_metadata_conflict} =
+             Authority.adopt_existing_certificate(
+               %{attrs | component_id: duplicate_id},
+               actor: operator
+             )
+
+    assert {:ok, []} =
+             ManagedComponent
+             |> Ash.Query.filter(component_id == ^duplicate_id)
+             |> Ash.read(ctx.opts)
+
+    assert {:ok, stored} = Ash.get(ManagedComponent, id, ctx.opts)
+    assert stored.component_id == id
+  end
+
+  defp self_signed_certificate do
+    %{cert: der} =
+      :public_key.pkix_test_root_cert(~c"example-gateway",
+        validity: {{2026, 1, 1}, {2027, 6, 1}}
+      )
+
+    %{
+      der: der,
+      pem: :public_key.pem_encode([{:Certificate, der, :not_encrypted}])
+    }
   end
 
   defp fingerprint(value), do: :sha256 |> :crypto.hash(value) |> Base.encode16(case: :lower)

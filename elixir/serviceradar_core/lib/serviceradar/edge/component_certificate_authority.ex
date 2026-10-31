@@ -15,6 +15,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
   alias Ash.Error.Query.InvalidArgument
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ComponentCertificate
+  alias ServiceRadar.Edge.InfrastructureCertificateAdoption
   alias ServiceRadar.Edge.ManagedCertificatePolicyKey
   alias ServiceRadar.Edge.ManagedComponent
   alias ServiceRadar.Edge.RevokedComponentCertificate
@@ -61,6 +62,42 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     |> notify()
   end
 
+  @doc """
+  Adopts one existing public infrastructure certificate.
+
+  The permission block is a static NATS user block. An empty allow list is
+  stored as `[">"]` with its deny list. The caller must be allowed to adopt
+  infrastructure. The certificate is recorded in that same transaction, so a
+  refused certificate leaves no component.
+  """
+  def adopt_existing_certificate(attrs, opts \\ []) do
+    with {:ok, prepared} <- InfrastructureCertificateAdoption.prepare(attrs) do
+      issuance_opts = [actor: SystemActor.system(:infrastructure_certificate_adoption)]
+
+      changeset =
+        Ash.Changeset.for_create(
+          ComponentCertificate,
+          :record_issuance,
+          Map.put(prepared.issuance, :component_id, prepared.component.component_id),
+          issuance_opts
+        )
+
+      if changeset.valid? do
+        fn ->
+          with {:ok, component} <- create_infrastructure(prepared.component, opts),
+               {:ok, certificate} <-
+                 bound_issuance(component.component_id, changeset, issuance_opts) do
+            {:ok, %{component: component, certificate: certificate}}
+          end
+        end
+        |> transaction()
+        |> notify()
+      else
+        Ash.create(changeset, issuance_opts)
+      end
+    end
+  end
+
   def set_infrastructure_permissions(component_id, expected_generation, permissions, opts \\ []) do
     fn ->
       with {:ok, component} <- lock_component(component_id, opts) do
@@ -88,19 +125,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
       )
 
     if changeset.valid? do
-      fn ->
-        with {:ok, component} <- lock_component(component_id, opts),
-             false <- component.blocked,
-             true <-
-               component.generation == Ash.Changeset.get_argument(changeset, :expected_generation),
-             true <-
-               component.host_agent_id == Ash.Changeset.get_argument(changeset, :host_agent_id) do
-          create_or_reuse_certificate(changeset, opts)
-        else
-          result when is_boolean(result) -> {:error, :issuance_binding_unavailable}
-          error -> error
-        end
-      end
+      fn -> bound_issuance(component_id, changeset, opts) end
       |> transaction()
       |> notify()
     else
@@ -370,6 +395,25 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     case Ash.read_one(query, opts) do
       {:ok, nil} -> {:ok, certificate}
       {:ok, _} -> {:error, :certificate_revoked}
+      error -> error
+    end
+  end
+
+  defp create_infrastructure(attrs, opts) do
+    ManagedComponent
+    |> Ash.Changeset.for_create(:adopt_infrastructure, attrs, opts)
+    |> Ash.create(opts)
+  end
+
+  defp bound_issuance(component_id, changeset, opts) do
+    with {:ok, component} <- lock_component(component_id, opts),
+         false <- component.blocked,
+         true <-
+           component.generation == Ash.Changeset.get_argument(changeset, :expected_generation),
+         true <- component.host_agent_id == Ash.Changeset.get_argument(changeset, :host_agent_id) do
+      create_or_reuse_certificate(changeset, opts)
+    else
+      result when is_boolean(result) -> {:error, :issuance_binding_unavailable}
       error -> error
     end
   end
