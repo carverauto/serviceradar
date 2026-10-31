@@ -98,6 +98,32 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     end
   end
 
+  @doc """
+  Records a successor public certificate on an adopted infrastructure component.
+
+  Generation and the stored NATS grant stay unchanged. The predecessor stays
+  authorized until that fingerprint is revoked. The PEM may contain only
+  certificates. A private key is refused before any record is written.
+  """
+  def record_infrastructure_successor(component_id, attrs, opts \\ []) do
+    with {:ok, issuance} <- InfrastructureCertificateAdoption.prepare_certificate(attrs) do
+      issuance_opts = [actor: SystemActor.system(:infrastructure_certificate_adoption)]
+
+      fn ->
+        with {:ok, component} <- lock_component(component_id, opts),
+             :ok <- infrastructure_successor(component),
+             :ok <- adopted_certificate(component, issuance_opts),
+             changeset = successor_changeset(component, issuance, issuance_opts),
+             {:ok, certificate} <-
+               bound_issuance(component.component_id, changeset, issuance_opts) do
+          {:ok, %{component: component, certificate: certificate}}
+        end
+      end
+      |> transaction()
+      |> notify()
+    end
+  end
+
   def set_infrastructure_permissions(component_id, expected_generation, permissions, opts \\ []) do
     fn ->
       with {:ok, component} <- lock_component(component_id, opts) do
@@ -403,6 +429,44 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     ManagedComponent
     |> Ash.Changeset.for_create(:adopt_infrastructure, attrs, opts)
     |> Ash.create(opts)
+  end
+
+  defp infrastructure_successor(%{blocked: true}), do: {:error, :issuance_binding_unavailable}
+
+  defp infrastructure_successor(%{component_type: type} = component) do
+    cond do
+      not ManagedComponent.infrastructure_type?(type) ->
+        {:error, :not_infrastructure}
+
+      is_binary(component.host_agent_id) ->
+        {:error, :issuance_binding_unavailable}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp adopted_certificate(component, opts) do
+    query =
+      ComponentCertificate
+      |> Ash.Query.filter(component_id == ^component.component_id)
+      |> Ash.Query.limit(1)
+
+    case Ash.read_one(query, opts) do
+      {:ok, %ComponentCertificate{}} -> :ok
+      {:ok, nil} -> {:error, :unknown_certificate}
+      error -> error
+    end
+  end
+
+  defp successor_changeset(component, issuance, opts) do
+    metadata =
+      issuance
+      |> Map.put(:component_id, component.component_id)
+      |> Map.put(:expected_generation, component.generation)
+      |> Map.put(:host_agent_id, nil)
+
+    Ash.Changeset.for_create(ComponentCertificate, :record_issuance, metadata, opts)
   end
 
   defp bound_issuance(component_id, changeset, opts) do

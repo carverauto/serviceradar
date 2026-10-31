@@ -79,3 +79,9 @@ certificate fingerprint. It does not return the PEM. The route does not enable
 broker authorization callout. The service-certificates inventory shows that
 stored grant for an infrastructure component. An empty allow there is no
 permission. A host service does not show this grant.
+
+The certificate authority records a successor public certificate for that
+same component at the component's current generation. The stored grant stays
+unchanged. The predecessor stays authorized until that fingerprint is revoked.
+A component with no certificate, a host service, a blocked component, and a
+private key are refused. Broker authorization callout stays disabled.

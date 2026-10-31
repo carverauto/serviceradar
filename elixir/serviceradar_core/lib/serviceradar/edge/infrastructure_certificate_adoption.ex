@@ -8,6 +8,10 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   component certificate. The next certificate is its issuer, and the last
   must validate that chain. A self-signed certificate is its own issuer.
   A private key is refused here, before any record is written.
+  `prepare/1` is the first adoption and binds generation 1.
+  `prepare_certificate/1` reads a public certificate for a component that
+  already exists. That result has no generation. The authority binds the
+  locked component generation before recording.
   """
 
   alias ServiceRadar.Edge.ManagedComponent
@@ -44,6 +48,28 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoption do
   end
 
   def prepare(_attrs), do: {:error, :invalid_adoption}
+
+  @doc """
+  Reads one public certificate for an infrastructure component that already exists.
+
+  The returned issuance has no `expected_generation`. The caller binds the
+  locked component generation. A private key is refused before any record is written.
+  """
+  @spec prepare_certificate(map()) ::
+          {:ok, map()}
+          | {:error,
+             :invalid_certificate
+             | :private_key
+             | :certificate_not_valid
+             | :issuer_certificate_required
+             | :untrusted_issuer}
+  def prepare_certificate(attrs) when is_map(attrs) do
+    with {:ok, issuance} <- certificate(fetch(attrs, :certificate_pem)) do
+      {:ok, Map.delete(issuance, :expected_generation)}
+    end
+  end
+
+  def prepare_certificate(_attrs), do: {:error, :invalid_certificate}
 
   defp project(permissions) when is_map(permissions),
     do: StaticNatsPermissionProjection.project(permissions)

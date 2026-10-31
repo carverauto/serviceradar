@@ -371,11 +371,161 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityIntegrationTest do
     assert stored.component_id == id
   end
 
-  defp self_signed_certificate do
+  test "records an infrastructure successor at the current generation and keeps the grant",
+       ctx do
+    %{pem: pem} = self_signed_certificate()
+    next = self_signed_certificate(~c"example-gateway-next")
+    later = self_signed_certificate(~c"example-gateway-later")
+    id = "example-gateway-#{System.unique_integer([:positive])}"
+
+    attrs = %{
+      component_id: id,
+      component_type: "agent-gateway",
+      partition_id: "example-partition",
+      certificate_pem: pem,
+      permissions: %{
+        "publish" => %{"allow" => ["metrics.example.>"], "deny" => []},
+        "subscribe" => %{"allow" => [], "deny" => ["$SYS.>", "flow.example.>"]}
+      }
+    }
+
+    operator = %{
+      id: "example-operator",
+      role: :operator,
+      permissions: MapSet.new(["settings.edge.manage"])
+    }
+
+    viewer = %{id: "example-viewer", role: :viewer, permissions: MapSet.new()}
+
+    assert {:ok, %{certificate: first}} =
+             Authority.adopt_existing_certificate(attrs, actor: operator)
+
+    assert {:error, _} =
+             Authority.record_infrastructure_successor(id, %{certificate_pem: next.pem},
+               actor: viewer
+             )
+
+    assert {:error, :unknown_component} =
+             Authority.record_infrastructure_successor(
+               "example-missing-#{System.unique_integer([:positive])}",
+               %{certificate_pem: next.pem},
+               actor: operator
+             )
+
+    assert {:error, :private_key} =
+             Authority.record_infrastructure_successor(
+               id,
+               %{certificate_pem: next.pem <> private_key_pem()},
+               actor: operator
+             )
+
+    collector_id = "example-collector-#{System.unique_integer([:positive])}"
+
+    assert {:ok, %{num_rows: 1}} =
+             ServiceRadar.Repo.query(
+               """
+               INSERT INTO platform.managed_components
+                 (component_id, component_type, partition_id, generation_started_by)
+               VALUES ($1, 'log-collector', 'example-partition', 'example-operator')
+               """,
+               [collector_id]
+             )
+
+    assert {:error, :not_infrastructure} =
+             Authority.record_infrastructure_successor(
+               collector_id,
+               %{certificate_pem: next.pem},
+               actor: operator
+             )
+
+    assert {:ok, []} = certificates(collector_id, ctx.opts)
+
+    assert {:error, :unknown_certificate} =
+             Authority.record_infrastructure_successor(
+               ctx.component.component_id,
+               %{certificate_pem: next.pem},
+               ctx.opts
+             )
+
+    assert {:ok, %{certificate: successor}} =
+             Authority.record_infrastructure_successor(id, %{certificate_pem: next.pem},
+               actor: operator
+             )
+
+    assert successor.fingerprint == fingerprint(next.der)
+    assert successor.generation == 1
+    refute successor.fingerprint == first.fingerprint
+
+    assert {:ok, stored} = Ash.get(ManagedComponent, id, actor: operator)
+    assert stored.generation == 1
+    assert stored.blocked == false
+    assert stored.nats_permissions["publish"] == ["metrics.example.>"]
+    assert stored.nats_permissions["subscribe"] == [">"]
+    assert stored.nats_permissions["subscribe_deny"] == ["$SYS.>", "flow.example.>"]
+
+    assert {:ok, snapshot} = Authority.snapshot()
+    assert first.fingerprint in snapshot.allowed_fingerprints
+    assert successor.fingerprint in snapshot.allowed_fingerprints
+    assert snapshot.nats_permissions[first.fingerprint][:subscribe] == [">"]
+    assert snapshot.nats_permissions[successor.fingerprint][:subscribe] == [">"]
+
+    assert {:ok, recorded} = certificates(id, ctx.opts)
+
+    assert Enum.sort(Enum.map(recorded, & &1.fingerprint)) ==
+             Enum.sort([first.fingerprint, successor.fingerprint])
+
+    assert {:ok, []} =
+             RevokedComponentCertificate
+             |> Ash.Query.filter(component_id == ^id)
+             |> Ash.read(ctx.opts)
+
+    assert {:ok, %{generation: 2}} = Authority.reenroll_component(id, ctx.opts)
+
+    assert {:ok, %{certificate: renewed}} =
+             Authority.record_infrastructure_successor(id, %{certificate_pem: later.pem},
+               actor: operator
+             )
+
+    assert renewed.generation == 2
+    assert renewed.fingerprint == fingerprint(later.der)
+    assert {:ok, stored} = Ash.get(ManagedComponent, id, ctx.opts)
+    assert stored.generation == 2
+    assert stored.nats_permissions["publish"] == ["metrics.example.>"]
+    assert stored.nats_permissions["subscribe"] == [">"]
+
+    assert {:ok, snapshot} = Authority.snapshot()
+    refute first.fingerprint in snapshot.allowed_fingerprints
+    refute successor.fingerprint in snapshot.allowed_fingerprints
+    assert renewed.fingerprint in snapshot.allowed_fingerprints
+    assert snapshot.nats_permissions[renewed.fingerprint][:publish] == ["metrics.example.>"]
+
+    assert {:ok, %{blocked: true}} = Authority.revoke_component(id, "emergency", ctx.opts)
+
+    assert {:error, :issuance_binding_unavailable} =
+             Authority.record_infrastructure_successor(
+               id,
+               %{certificate_pem: self_signed_certificate(~c"example-gateway-blocked").pem},
+               actor: operator
+             )
+
+    assert {:ok, snapshot} = Authority.snapshot()
+    refute renewed.fingerprint in snapshot.allowed_fingerprints
+  end
+
+  defp certificates(component_id, opts) do
+    ComponentCertificate
+    |> Ash.Query.filter(component_id == ^component_id)
+    |> Ash.read(opts)
+  end
+
+  defp private_key_pem do
+    key = :public_key.generate_key({:namedCurve, :secp256r1})
+    :public_key.pem_encode([:public_key.pem_entry_encode(:ECPrivateKey, key)])
+  end
+
+  defp self_signed_certificate(name \\ ~c"example-gateway") do
     %{cert: der} =
-      :public_key.pkix_test_root_cert(~c"example-gateway",
-        validity: {{2026, 1, 1}, {2027, 6, 1}}
-      )
+      :public_key.pkix_test_root_cert(name, validity: {{2026, 1, 1}, {2027, 6, 1}})
 
     %{
       der: der,
