@@ -1445,6 +1445,7 @@ defmodule ServiceRadarWebNGWeb.Router do
         live("/cluster", Admin.ClusterLive.Index, :index)
         live("/collectors", Admin.CollectorLive.Index, :index)
         live("/collectors/:id", Admin.CollectorLive.Index, :show)
+        live("/service-certificates", Admin.ManagedComponentsLive.Index, :index)
         live("/edge-sites", Admin.EdgeSitesLive.Index, :index)
         live("/edge-sites/new", Admin.EdgeSitesLive.Index, :new)
         live("/edge-sites/:id", Admin.EdgeSitesLive.Show, :show)

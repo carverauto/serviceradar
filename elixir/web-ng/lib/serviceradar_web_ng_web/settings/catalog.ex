@@ -2237,6 +2237,26 @@ defmodule ServiceRadarWebNGWeb.Settings.Catalog do
 
     # === Edge Ops · Sites & Collectors =======================================
     %{
+      id: :service_certificates,
+      category: :edge_ops,
+      parent_group: :edge_sites,
+      subgroup: nil,
+      title: "Service Certificates",
+      description: "Rotate and revoke managed service identities.",
+      icon: "hero-key",
+      route: "/admin/service-certificates",
+      live_view: ServiceRadarWebNGWeb.Admin.ManagedComponentsLive.Index,
+      permission: "settings.edge.manage",
+      order: 325,
+      has_own_stats: false,
+      feature_flag: nil,
+      capability: nil,
+      match_prefixes: nil,
+      keywords: ["certificate", "mtls", "rotate", "revoke", "renewal", "leaf"],
+      badge: nil,
+      hidden_from_nav: false
+    },
+    %{
       id: :edge_sites,
       category: :edge_ops,
       parent_group: :edge_sites,

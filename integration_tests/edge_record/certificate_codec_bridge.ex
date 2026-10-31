@@ -14,13 +14,25 @@ defmodule CertificateCodecBridge do
   defp respond(%{"generate" => "user"}), do: CertificateAuthorizationToken.new_key(:user)
 
   defp respond(input) do
-    case CertificateAuthorizationToken.decode_request(input["request"], input["issuer"], input["now"] || System.system_time(:second)) do
+    case CertificateAuthorizationToken.decode_request(
+           input["request"],
+           input["issuer"],
+           input["now"] || System.system_time(:second)
+         ) do
       {:ok, request} ->
         {:ok, signer} = NKEYS.Keypair.from_seed(input["seed"])
+        permissions = input["permissions"] || %{}
 
         decision =
           if input["allow"] do
-            {:allow, %{publish: [">"], subscribe: [">"], expires_at: System.system_time(:second) + 30}}
+            {:allow,
+             %{
+               publish: Map.get(permissions, "publish", [">"]),
+               subscribe: Map.get(permissions, "subscribe", [">"]),
+               publish_deny: Map.get(permissions, "publish_deny", []),
+               subscribe_deny: Map.get(permissions, "subscribe_deny", []),
+               expires_at: System.system_time(:second) + 30
+             }}
           else
             {:deny, "certificate not authorized"}
           end

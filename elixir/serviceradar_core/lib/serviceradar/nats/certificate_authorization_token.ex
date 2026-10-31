@@ -85,7 +85,7 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
       ) do
     result =
       case decision do
-        {:allow, %{publish: publish, subscribe: subscribe, expires_at: expires_at}} ->
+        {:allow, %{publish: publish, subscribe: subscribe, expires_at: expires_at} = permissions} ->
           user =
             encode(
               %{
@@ -96,8 +96,9 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
                 "nats" => %{
                   "type" => "user",
                   "version" => 2,
-                  "pub" => %{"allow" => publish},
-                  "sub" => %{"allow" => subscribe},
+                  "pub" => subject_permissions(publish, Map.get(permissions, :publish_deny, [])),
+                  "sub" =>
+                    subject_permissions(subscribe, Map.get(permissions, :subscribe_deny, [])),
                   "subs" => -1,
                   "data" => -1,
                   "payload" => -1
@@ -124,6 +125,11 @@ defmodule ServiceRadar.NATS.CertificateAuthorizationToken do
       now
     )
   end
+
+  # An empty JWT allow list means unrestricted access to NATS, while the
+  # managed policy uses an empty list to grant no subjects.
+  defp subject_permissions([], _deny), do: %{"deny" => [">"]}
+  defp subject_permissions(allow, deny), do: %{"allow" => allow, "deny" => deny}
 
   defp encode(claims, signer, now) do
     claims = Map.merge(claims, %{"iss" => Keypair.public_key(signer), "iat" => now})

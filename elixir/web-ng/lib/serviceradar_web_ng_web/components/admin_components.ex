@@ -37,6 +37,11 @@ defmodule ServiceRadarWebNGWeb.AdminComponents do
         show: Capabilities.collectors_enabled?()
       },
       %{
+        label: "Service Certificates",
+        href: "/admin/service-certificates",
+        active: String.starts_with?(assigns.current_path || "", "/admin/service-certificates")
+      },
+      %{
         label: "Edge Sites",
         href: "/admin/edge-sites",
         active: String.starts_with?(assigns.current_path || "", "/admin/edge-sites")

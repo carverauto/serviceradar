@@ -204,6 +204,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/integration/advisory_ordinal_backfill_worker_integration_test.exs": 1,
     "test/integration/credential_event_writer_resolution_integration_test.exs": 1,
     "test/integration/audit_history_retention_integration_test.exs": 1,
+    "test/integration/managed_certificate_authorization_integration_test.exs": 1,
     "test/integration/netflow_ingestion_integration_test.exs": 1,
     "test/serviceradar/actors/device_test.exs": 1,
     "test/serviceradar/agent_commands/status_handler_cleanup_test.exs": 1,

@@ -124,6 +124,7 @@ defmodule ServiceRadar.Application do
 
         # NATS JetStream connection supervisor (fault-tolerant with auto-reconnect)
         nats_connection_child(),
+        managed_certificate_nats_child(),
 
         # Evaluation workers run on every core, so each node needs its own
         # bounded JetStream metric accumulator rather than a coordinator ETS.
@@ -494,6 +495,14 @@ defmodule ServiceRadar.Application do
       nil -> Application.get_env(:serviceradar_core, :nats_enabled, false)
       value when value in ["true", "1", "yes"] -> true
       _ -> false
+    end
+  end
+
+  # Tests leave this flag false, so the suite does not open a broker connection.
+  defp managed_certificate_nats_child do
+    if repo_enabled?() and nats_enabled?() and
+         Application.get_env(:serviceradar_core, :status_handler_enabled, false) do
+      ServiceRadar.NATS.ManagedCertificateSupervisor
     end
   end
 

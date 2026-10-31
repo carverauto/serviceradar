@@ -107,12 +107,18 @@ leafnodes: {
 `, clientPort, monitorPort, authPub, systemPub, issuer, authPub, systemPub, pki.GatewayCertPath, pki.GatewayKeyPath, pki.CACertPath,
 		leafPort, pki.GatewayCertPath, pki.GatewayKeyPath, pki.CACertPath)
 	startRevocationBroker(t, config, monitorPort)
+	permissionErrors := make(chan string, 16)
 	connectAs := func(id identity, key nkeys.KeyPair) (*nats.Conn, error) {
 		cfg, err := pki.clientTLSConfig(id.cert, id.key, "127.0.0.1")
 		if err != nil {
 			return nil, err
 		}
 		opts := []nats.Option{nats.Secure(cfg), nats.NoReconnect(), nats.Timeout(time.Second)}
+		if id.fingerprint == collectorA.fingerprint {
+			opts = append(opts, nats.ErrorHandler(func(_ *nats.Conn, _ *nats.Subscription, err error) {
+				permissionErrors <- err.Error()
+			}))
+		}
 		if key != nil {
 			public, err := key.PublicKey()
 			if err != nil {
@@ -176,7 +182,11 @@ leafnodes: {
 			sessions[fingerprint] = append(sessions[fingerprint], session{req.Server.ID, req.ClientInformation.ID})
 		}
 		mu.Unlock()
-		result, err := codec(map[string]any{"request": string(m.Data), "issuer": issuer, "seed": string(seed), "allow": allow})
+		input := map[string]any{"request": string(m.Data), "issuer": issuer, "seed": string(seed), "allow": allow}
+		if fingerprint == collectorA.fingerprint {
+			input["permissions"] = map[string]any{"publish": []string{"synthetic.acl.>"}, "subscribe": []string{}, "publish_deny": []string{"synthetic.acl.denied"}}
+		}
+		result, err := codec(input)
 		if err != nil {
 			report(err)
 			return
@@ -240,6 +250,38 @@ leafnodes: {remotes: [{url: "tls://127.0.0.1:%d", tls: {cert_file: %q, key_file:
 	}
 	t.Cleanup(b.Close)
 	awaitRevocation(t, "both leaves connected", func() bool { return revocationLeafCount(monitorPort) == 2 })
+	assertPermissionDenied := func(subject string) {
+		t.Helper()
+		select {
+		case message := <-permissionErrors:
+			if !strings.Contains(message, subject) {
+				t.Fatalf("wrong permission rejection: %s", message)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("broker did not deny %s", subject)
+		}
+	}
+	if _, err := a.SubscribeSync("synthetic.acl.forbidden"); err != nil {
+		t.Fatal(err)
+	}
+	assertPermissionDenied("synthetic.acl.forbidden")
+	if err := a.Publish("synthetic.acl.denied", []byte("synthetic")); err != nil {
+		t.Fatal(err)
+	}
+	assertPermissionDenied("synthetic.acl.denied")
+	allowedMessages, err := b.SubscribeSync("synthetic.acl.allowed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := b.FlushTimeout(time.Second); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Publish("synthetic.acl.allowed", []byte("synthetic")); err != nil {
+		t.Fatal(err)
+	}
+	if msg, err := allowedMessages.NextMsg(time.Second); err != nil || string(msg.Data) != "synthetic" {
+		t.Fatalf("allowed publish failed: %v", err)
+	}
 	mu.Lock()
 	observedSessions := map[string]session{}
 	for fingerprint, active := range sessions {
