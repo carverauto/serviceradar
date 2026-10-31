@@ -8,6 +8,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   limits every grant to the current snapshot lease, including after a core crash.
   This implies periodic managed-client reconnects, which acceptance must measure.
   Local leaf authorization has a separate offline policy contract.
+  A stored account other than the deployment account is answered with an
+  authorization error and no user JWT.
   """
   use GenServer
 
@@ -201,7 +203,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   defp respond(token, reply, connection, state) do
     case Token.decode_request(token, state.config.issuer_nkey) do
       {:ok, request} ->
-        decision = decision(state.snapshot, request.fingerprint)
+        decision = authorization_decision(state, request.fingerprint)
 
         encoded =
           Token.encode_response(request, decision, state.signer, state.config.account_name)
@@ -216,6 +218,16 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     end
   catch
     :exit, _ -> state
+  end
+
+  defp authorization_decision(state, fingerprint) do
+    account = stored_account_name(state)
+
+    if is_binary(account) and account == Configuration.deployment_account() do
+      decision(state.snapshot, fingerprint)
+    else
+      {:deny, "nats_account_mismatch"}
+    end
   end
 
   defp decision(nil, _), do: {:deny, "certificate policy unavailable"}

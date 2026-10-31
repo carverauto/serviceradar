@@ -107,5 +107,7 @@ only for the deployment account (`:nats_account_name`). A missing or unusable
 deployment account returns `nats_account_unconfigured`. A different requested
 name returns `nats_account_mismatch`. An existing record for another account
 stays in place. Readiness includes the stored account name and stays unready
-while that name disagrees with the deployment account. Broker authorization
-callout stays disabled.
+while that name disagrees with the deployment account. An authorization
+request in that state is answered with `nats_account_mismatch` and no user
+JWT, and the session is not remembered. A matching account is still decided
+from the certificate policy. Broker authorization callout stays disabled.
