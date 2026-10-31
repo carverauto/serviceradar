@@ -3,6 +3,7 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
 
   alias ServiceRadar.Edge.CapabilitySigning
   alias ServiceRadar.Edge.IssuerKey
+  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias Serviceradar.Edge.V1.SweepLeaseV1
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
@@ -856,6 +857,125 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
     assert {:ok, []} = LeaseDelivery.list_for_group(group.id)
   end
 
+  test "a target update through the group action re-plans, re-signs, and re-delivers", ctx do
+    lease_on!(ctx, 3_600)
+    group = leased_group!(ctx)
+    now = DateTime.utc_now()
+
+    assert %{pushed: 1} = LeasePass.reconcile_group(group, now, ctx.delivery)
+    assert_receive {:pushed, _, _, first, _}
+    before = assignment!(group, ctx.agent)
+    old = unrun!(before, now)
+    count = length(old)
+    assert count > 0
+
+    assert {:ok, stored} =
+             group
+             |> Ash.Changeset.for_update(
+               :update,
+               %{static_targets: ["203.0.113.9", "203.0.113.0/25"]},
+               actor: ctx.admin
+             )
+             |> Ash.update()
+
+    fenced = assignment!(stored, ctx.agent)
+    assert fenced.state == :active
+    assert fenced.authority_epoch == before.authority_epoch + 1
+
+    assert %{dropped: ^count, scheduled: ^count, pushed: 1, errors: 0} =
+             LeasePass.reconcile_group(%{stored | enabled: true}, now, ctx.delivery)
+
+    assert_receive {:pushed, _, _, resent, _}
+    new = unrun!(fenced, now)
+
+    assert MapSet.new(new, &DateTime.to_unix(&1.slot_start)) ==
+             MapSet.new(old, &DateTime.to_unix(&1.slot_start))
+
+    assert MapSet.disjoint?(MapSet.new(new, & &1.id), MapSet.new(old, & &1.id))
+    assert Enum.all?(new, &(&1.authority_epoch == fenced.authority_epoch))
+    assert Enum.all?(new, &(&1.lease_id == LeasePass.lease_id(fenced)))
+    refute LeasePass.lease_id(fenced) == LeasePass.lease_id(before)
+    assert range_cidrs(new) == [["203.0.113.0/25", "203.0.113.9/32"]]
+
+    assert resent.lease_id == Ecto.UUID.dump!(LeasePass.lease_id(fenced))
+    assert resent.authority_epoch == fenced.authority_epoch
+    refute resent.lease_id == first.lease_id
+    assert CapabilitySigning.verify(resent.production_capability, :production, @key.public_key)
+    refute resent.production_capability.signature == first.production_capability.signature
+
+    assert Enum.map(resent.slots, & &1.plan_header.execution_plan_sha256) !=
+             Enum.map(first.slots, & &1.plan_header.execution_plan_sha256)
+
+    for slot <- resent.slots do
+      assert Enum.all?(
+               slot.source_authorizations,
+               &CapabilitySigning.verify(&1.capability, :source, @key.public_key)
+             )
+    end
+  end
+
+  test "an agent the group update no longer selects has its unrun slots dropped", ctx do
+    lease_on!(ctx, 3_600)
+
+    other =
+      agent_with_device!(ctx.admin, "other-#{ctx.suffix}", ctx.partition.slug, "198.51.100.10")
+
+    group = leased_group!(ctx, agent_ids: [ctx.agent, other])
+    now = DateTime.utc_now()
+
+    assert %{leases: 2, pushed: 2} =
+             LeasePass.reconcile_group(group, now, ctx.delivery)
+
+    assert_receive {:pushed, _, _, _, _}
+    assert_receive {:pushed, _, _, _, _}
+
+    kept = assignment!(group, ctx.agent)
+    removed = assignment!(group, other)
+    old_kept = unrun!(kept, now)
+    old_removed = unrun!(removed, now)
+    assert old_kept != []
+    assert old_removed != []
+    removed_ids = MapSet.new(old_removed, & &1.id)
+
+    assert {:ok, stored} =
+             group
+             |> Ash.Changeset.for_update(:update, %{agent_ids: [ctx.agent]}, actor: ctx.admin)
+             |> Ash.update()
+
+    assert %{state: :revoked} = assignment!(stored, other)
+    assert [] = unrun!(removed, now)
+
+    assert {:ok, rows} = ExecutionSlots.list_for_group(stored.id)
+
+    removed_rows = Enum.filter(rows, &(&1.id in removed_ids))
+    assert removed_rows != []
+    assert Enum.all?(removed_rows, &(&1.state == :dropped))
+
+    kept_now = assignment!(stored, ctx.agent)
+    assert kept_now.state == :active
+    assert kept_now.authority_epoch == kept.authority_epoch + 1
+    count = length(old_kept)
+
+    assert %{dropped: ^count, scheduled: ^count, pushed: 1, withdrawn: 1, errors: 0} =
+             LeasePass.reconcile_group(%{stored | enabled: true}, now, ctx.delivery)
+
+    assert_receive {:pushed, first_agent, _, first_msg, _}
+    assert_receive {:pushed, second_agent, _, second_msg, _}
+    pushes = %{first_agent => first_msg, second_agent => second_msg}
+
+    assert pushes[other].revoked
+    assert pushes[other].slots == []
+    assert pushes[other].production_capability == nil
+
+    resent = pushes[ctx.agent]
+    refute resent.revoked
+    assert resent.authority_epoch == kept_now.authority_epoch
+    assert CapabilitySigning.verify(resent.production_capability, :production, @key.public_key)
+    assert [] = unrun!(removed, now)
+    assert length(unrun!(kept_now, now)) == count
+    assert Enum.all?(unrun!(kept_now, now), &(&1.authority_epoch == kept_now.authority_epoch))
+  end
+
   # The group row is created disabled, so it schedules no Oban worker and the test can run
   # async; the pass is handed the enabled struct, which is what it evaluates.
   defp leased_group!(ctx, overrides \\ []) do
@@ -945,6 +1065,16 @@ defmodule ServiceRadar.SweepJobs.LeaseDeliveryDbTest do
   defp digest(payload), do: Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
 
   defp starts(slots), do: MapSet.new(slots, & &1.slot_start_unix_nano)
+
+  defp range_cidrs(slots) do
+    slots
+    |> Enum.map(fn slot ->
+      Enum.flat_map(slot.plan_pages, fn page ->
+        page |> ScheduledPlanPageV1.decode() |> Map.fetch!(:ranges) |> Enum.map(& &1.cidr)
+      end)
+    end)
+    |> Enum.uniq()
+  end
 
   defp assignment!(group, agent_id) do
     assert {:ok, %{} = assignment} = ProducerAssignments.get(group.id, agent_id)

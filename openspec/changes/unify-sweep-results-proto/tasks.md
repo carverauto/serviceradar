@@ -143,10 +143,11 @@ in `choices.md` and the chart README.
       Proven by BuildBuddy invocation 8b09d0de-c8b4-49fe-ab4d-5674e24181f1.
     - [x] M2.0b3b Lease pass. `LeasePass`, run every five minutes by
       `LeasePassWorker` from both Oban crontabs, revokes, ensures and re-plans
-      as Lease pass in `design.md` says. It re-plans slots; re-signing and
-      re-delivering them arrive with M2.0c and M2.0d.
+      as Lease pass in `design.md` says. With the issuer (M2.0c) and delivery
+      (M2.0d) in place, that same pass re-signs and re-delivers the slots it
+      re-plans. The group-action proof is the M2.0b3 note below.
       Proven by BuildBuddy invocation 88835747-8ffe-4ce7-a10b-ed76c621fcd1.
-    - [ ] M2.0b3 Lease scheduler (M2.0b3b is the scheduler pass that uses the
+    - [x] M2.0b3 Lease scheduler (M2.0b3b is the scheduler pass that uses the
       three modules above). For each leased assignment core pre-mints the
       executions of the lease horizon from the group's schedule and records each
       as scheduled before it runs. The horizon settings are Schedule lease in
@@ -173,6 +174,10 @@ in `choices.md` and the chart README.
       group is re-enabled, is a new lease for that (group, agent), reissued
       under a new epoch through the existing reissue path, not a re-plan of
       the old slots.
+      DONE: an Ash update of `static_targets` bumps the authority epoch, and
+      the next pass re-plans, re-signs, and re-delivers the unrun slots. An
+      Ash update that removes an agent drops that agent's unrun slots and the
+      next pass delivers a revocation instead of a new lease.
   - [x] M2.0c Issuer. Core holds an Ed25519 issuer key through a core-only file
     mount and signs, per lease, the production capability (`run_id` = the lease)
     and one SCHEDULED_SWEEP source authorization per (execution, range). Every
