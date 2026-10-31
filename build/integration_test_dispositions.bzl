@@ -450,6 +450,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/sweep_jobs/sweep_targeting_integration_test.exs": 1,
     "test/serviceradar/test_support_sandbox_test.exs": 1,
     "test/serviceradar/workload_identity_test.exs": 1,
+    "test/serviceradar/nats/managed_certificate_account_write_test.exs": 1,
 }
 
 FIXED_EXTERNAL_INTEGRATION_SRCS = [
