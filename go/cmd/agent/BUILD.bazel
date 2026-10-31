@@ -43,8 +43,10 @@ go_binary(
 
 go_test(
     name = "agent_test",
+    size = "medium",
     srcs = [
         "edge_record_sender_test.go",
+        "edge_spool_metrics_live_test.go",
         "main_test.go",
         "main_windows_test.go",
         "startup_socket_probe_test.go",
