@@ -29,6 +29,11 @@ defmodule ServiceRadar.Edge.SweepProjection do
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
+  # A missed slot is still this execution. A batch that commits after the mark
+  # reopens it, because the record is judged by event time. A dropped slot
+  # was withdrawn and stays refused.
+  @committable_slot_states [:scheduled, :missed_offline, :missed_exhausted]
+
   @doc "Project a correlated scheduled batch in the caller's database transaction."
   def project(repo, record, batch) do
     execution_id = Ecto.UUID.cast!(batch.execution_id)
@@ -40,6 +45,7 @@ defmodule ServiceRadar.Edge.SweepProjection do
              from(s in SweepExecutionSlot, where: s.id == ^execution_id, lock: "FOR UPDATE")
            ),
          :ok <- slot_matches(slot, record, batch),
+         :ok <- reopen_missed_slot(repo, slot),
          %Partition{slug: partition} <- repo.get(Partition, slot.network_scope_id),
          {:ok, header} <- authorized_plan(slot, record, batch) do
       results = results(batch)
@@ -131,7 +137,7 @@ defmodule ServiceRadar.Edge.SweepProjection do
   defp slot_matches(slot, record, batch) do
     context = record.producer_context
 
-    if slot.state == :scheduled and
+    if slot.state in @committable_slot_states and
          Ecto.UUID.dump!(slot.sweep_group_id) == batch.sweep_group_id and
          slot.agent_id == context.origin_principal_id and
          Ecto.UUID.dump!(slot.network_scope_id) == record.network_scope_id and
@@ -144,6 +150,24 @@ defmodule ServiceRadar.Edge.SweepProjection do
     else
       {:error, :sweep_slot_mismatch}
     end
+  end
+
+  defp reopen_missed_slot(_repo, %{state: :scheduled}), do: :ok
+
+  defp reopen_missed_slot(repo, %{id: id, state: state})
+       when state in [:missed_offline, :missed_exhausted] do
+    %{num_rows: 1} =
+      repo.query!(
+        """
+        UPDATE platform.sweep_execution_slots
+        SET state = 'scheduled', updated_at = now()
+        WHERE id = $1::uuid
+          AND state IN ('missed_offline', 'missed_exhausted')
+        """,
+        [Ecto.UUID.dump!(id)]
+      )
+
+    :ok
   end
 
   defp current_assignment(repo, record) do

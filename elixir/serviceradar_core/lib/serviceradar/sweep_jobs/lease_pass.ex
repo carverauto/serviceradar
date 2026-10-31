@@ -30,6 +30,11 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   part-way through, converges on the same slots. With no leasing enabled, no active
   assignment and no delivery row it reads nothing else. A delivery row outlives its group, so
   a pass with one still revokes it.
+
+  After the horizon is refilled, `LeaseMisses.mark/1` closes any scheduled slot whose
+  collection window ended, with grace, and that still has no committed batch. That mark
+  runs even when the pass is otherwise idle, so a slot that expires after its lease was
+  withdrawn is still closed.
   """
 
   alias Ash.Error.Query.NotFound
@@ -41,6 +46,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   alias ServiceRadar.SweepJobs.LeaseAgents
   alias ServiceRadar.SweepJobs.LeaseDelivery
   alias ServiceRadar.SweepJobs.LeaseEligibility
+  alias ServiceRadar.SweepJobs.LeaseMisses
   alias ServiceRadar.SweepJobs.LeaseSchedule
   alias ServiceRadar.SweepJobs.LeaseSettings
   alias ServiceRadar.SweepJobs.ProducerAssignments
@@ -63,6 +69,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
           dropped: non_neg_integer(),
           pushed: non_neg_integer(),
           withdrawn: non_neg_integer(),
+          missed_offline: non_neg_integer(),
+          missed_exhausted: non_neg_integer(),
           errors: non_neg_integer()
         }
 
@@ -190,17 +198,38 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   end
 
   defp execute(now, delivery) do
-    with {:ok, true} <- active?(),
-         {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
-      summary =
-        groups
-        |> Enum.reduce(empty(), &add(&2, reconcile_group(&1, now, delivery)))
-        |> add(orphan_withdrawals(now, delivery))
+    planned =
+      with {:ok, true} <- active?(),
+           {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
+        summary =
+          groups
+          |> Enum.reduce(empty(), &add(&2, reconcile_group(&1, now, delivery)))
+          |> add(orphan_withdrawals(now, delivery))
 
-      {:ok, summary}
-    else
-      {:ok, false} -> {:ok, :idle}
-      {:error, reason} -> {:error, reason}
+        {:ok, summary}
+      else
+        {:ok, false} -> {:ok, :idle}
+        {:error, reason} -> {:error, reason}
+      end
+
+    finish(planned, now)
+  end
+
+  defp finish({:error, reason}, _now), do: {:error, reason}
+
+  defp finish({:ok, planned}, now) do
+    case LeaseMisses.mark(now) do
+      {:ok, %{missed_offline: 0, missed_exhausted: 0}} when planned == :idle ->
+        {:ok, :idle}
+
+      {:ok, misses} when planned == :idle ->
+        {:ok, add(empty(), misses)}
+
+      {:ok, misses} ->
+        {:ok, add(planned, misses)}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -477,6 +506,8 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       dropped: 0,
       pushed: 0,
       withdrawn: 0,
+      missed_offline: 0,
+      missed_exhausted: 0,
       errors: 0
     }
 

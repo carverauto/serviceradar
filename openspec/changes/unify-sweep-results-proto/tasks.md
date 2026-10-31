@@ -271,11 +271,20 @@ in `choices.md` and the chart README.
     `event_id`, `record_sha256`, `spool_id`, `sequence`) for each unresolved
     backlog record. Collection windows are still checked against event time (the
     original interval), never receipt age.
-  - [ ] M2.0h Enforcement and missed runs. Edge sweep records are accepted only
+  - [x] M2.0h Enforcement and missed runs. Edge sweep records are accepted only
     with a valid source authorization that correlates with the batch
     (`ValidateSweepRecord` / `SweepCorrelate` on the live path), and core marks a
     scheduled execution missed when no batch commits by its slot end plus grace,
     distinguishing an agent offline inside its lease from an exhausted lease.
+    DONE: `SweepCorrelate.ingest_own_payload/1` already gates EventWriter sweep
+    ingest. `ServiceRadar.SweepJobs.LeaseMisses` marks a scheduled slot
+    `missed_offline` or `missed_exhausted` once `collection_expires` plus the
+    existing 300-second sweep grace has passed with no sweep batch and no sweep
+    execution. A batch that commits afterwards reopens the slot in
+    `ServiceRadar.Edge.SweepProjection`; a dropped slot stays refused. Offline
+    means the assignment is still active and a later slot is scheduled.
+    Exhausted is every other closed slot. Core does not store the agent's own
+    lease-exhausted flag, and the pass refills the horizon before it marks.
 - [ ] M2.1 Sweep producer. Completed host windows from the agent's sweep become
   byte-bounded `SweepObservationBatchV1` records appended to the existing agent
   spool and sent by the existing sender, while the scan continues (narrows 2.1,

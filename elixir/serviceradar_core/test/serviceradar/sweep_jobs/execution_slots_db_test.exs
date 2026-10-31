@@ -1,10 +1,13 @@
 defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
   use ServiceRadar.DataCase, async: true
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.PlanValidate
   alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
+  alias ServiceRadar.SweepJobs.LeaseMisses
   alias ServiceRadar.SweepJobs.ProducerAssignments
   alias ServiceRadar.SweepJobs.SweepGroup
 
@@ -125,6 +128,158 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     assert Enum.sort(Enum.map(slots, & &1.state)) == [:dropped, :scheduled]
   end
 
+  test "a closed slot whose lease still has a later slot is offline", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+    grace = LeaseMisses.grace_seconds()
+    assert grace == 300
+
+    closed =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, hour: -1),
+        DateTime.shift(now, second: -(grace + 1))
+      )
+
+    later =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, hour: 1),
+        DateTime.shift(now, minute: 65)
+      )
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, closed.id) == :missed_offline
+    assert state(group, later.id) == :scheduled
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, closed.id) == :missed_offline
+    assert state(group, later.id) == :scheduled
+  end
+
+  test "when several slots close, the earlier ones are offline and the last is exhausted", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+    grace = LeaseMisses.grace_seconds()
+
+    earlier =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, hour: -2),
+        DateTime.shift(now, hour: -1)
+      )
+
+    last =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, hour: -1),
+        DateTime.shift(now, second: -(grace + 1))
+      )
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, earlier.id) == :missed_offline
+    assert state(group, last.id) == :missed_exhausted
+  end
+
+  test "the last closed slot of an active assignment is exhausted", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+
+    closed =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, hour: -1),
+        DateTime.shift(now, second: -LeaseMisses.grace_seconds())
+      )
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, closed.id) == :missed_exhausted
+  end
+
+  test "a slot still inside the grace stays scheduled", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+
+    inside =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, hour: -1),
+        DateTime.shift(now, second: -(LeaseMisses.grace_seconds() - 1))
+      )
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, inside.id) == :scheduled
+  end
+
+  test "a revoked assignment's closed slot is exhausted while a later started slot remains",
+       ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+
+    closed =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, hour: -2),
+        DateTime.shift(now, hour: -1)
+      )
+
+    started =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, second: -30),
+        DateTime.shift(now, minute: 5)
+      )
+
+    assert {:ok, 1} = ProducerAssignments.revoke_agents(group.id, ["agent-a"])
+    assert {:ok, _} = LeaseMisses.mark(now)
+
+    assert state(group, closed.id) == :missed_exhausted
+    assert state(group, started.id) == :scheduled
+  end
+
+  test "a committed batch or a sweep execution keeps the closed slot scheduled", ctx do
+    group = create_group!(ctx)
+    batched = assign!(group, "agent-batch")
+    executed = assign!(group, "agent-exec")
+    now = DateTime.utc_now()
+    start = DateTime.shift(now, hour: -1)
+    expires = DateTime.shift(now, second: -(LeaseMisses.grace_seconds() + 1))
+
+    batch_slot = schedule_window!(batched, start, expires)
+    execution_slot = schedule_window!(executed, start, expires)
+    insert_batch!(batched, batch_slot)
+    insert_execution!(group, executed, execution_slot)
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, batch_slot.id) == :scheduled
+    assert state(group, execution_slot.id) == :scheduled
+  end
+
+  test "a dropped slot stays dropped", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+
+    slot =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, hour: -1),
+        DateTime.shift(now, second: -LeaseMisses.grace_seconds())
+      )
+
+    slot
+    |> Ash.Changeset.for_update(:drop, %{}, actor: SystemActor.system(:sweep_execution_slots))
+    |> Ash.update!()
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, slot.id) == :dropped
+  end
+
   defp create_group!(%{actor: actor, suffix: suffix}) do
     unique = System.unique_integer([:positive, :monotonic])
 
@@ -164,6 +319,45 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
   defp schedule!(assignment, slot_start) do
     assert {:ok, slot} = do_schedule(assignment, slot_start)
     slot
+  end
+
+  defp schedule_window!(assignment, slot_start, expires) do
+    assert {:ok, slot} =
+             ExecutionSlots.schedule(assignment, slot_start, expires,
+               targets: ["198.51.100.5", "192.0.2.9/24"],
+               check_set_sha256: :crypto.hash(:sha256, "checks"),
+               lease_id: Ash.UUID.generate()
+             )
+
+    slot
+  end
+
+  defp insert_batch!(assignment, slot) do
+    Repo.query!(
+      """
+      INSERT INTO platform.edge_sweep_batch_slots (
+        network_scope_id, execution_id, execution_shard, assignment_epoch, batch_sequence,
+        event_id, semantic_envelope_sha256, projected_row_count, committed_row_count
+      ) VALUES ($1::uuid, $2::uuid, 0, 1, 0, $3::uuid, $4::bytea, 0, 0)
+      """,
+      [
+        Ecto.UUID.dump!(assignment.network_scope_id),
+        Ecto.UUID.dump!(slot.id),
+        Ecto.UUID.dump!(Ash.UUID.generate()),
+        :crypto.strong_rand_bytes(32)
+      ]
+    )
+  end
+
+  defp insert_execution!(group, assignment, slot) do
+    Repo.query!(
+      """
+      INSERT INTO platform.sweep_group_executions (
+        id, status, sweep_group_id, agent_id, inserted_at, updated_at
+      ) VALUES ($1::uuid, 'running', $2::uuid, $3, now(), now())
+      """,
+      [Ecto.UUID.dump!(slot.id), Ecto.UUID.dump!(group.id), assignment.agent_id]
+    )
   end
 
   defp state(group, slot_id) do
