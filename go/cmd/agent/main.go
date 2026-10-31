@@ -199,6 +199,7 @@ func runPushMode(
 	}
 	if edgeSpool != nil {
 		defer func() { _ = edgeSpool.Close() }()
+		attachEdgeSpoolMetrics(server, edgeSpool)
 	}
 	pushLoop := agent.NewPushLoop(server, gatewayClient, interval, log)
 	if cfg.EdgeRecordSender != nil && cfg.EdgeRecordSender.SweepEnabled {

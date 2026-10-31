@@ -393,6 +393,30 @@ func TestRecoveryLaneMatrix(t *testing.T) {
 // Reviewer repro (r3-11): a cumulative ACK cannot reclaim a sent window with no
 // dispositions, nor beyond the sent window, and each disposition must match the
 // sent event id.
+func TestValidateAckRejectsAStaleSession(t *testing.T) {
+	sess := Session{
+		SpoolID: mustUUID(t), Nonce: mustUUID(t), NextSequence: 1, HighestSent: 0, ResolvedThrough: 0,
+	}
+	current := &edgev1.EdgeDeliveryAckV1{
+		SpoolId: sess.SpoolID, SessionNonce: sess.Nonce, ResolvedThroughSequence: 0,
+	}
+	if err := ValidateAck(current, sess, 100, 1<<16); err != nil {
+		t.Fatalf("current session = %v", err)
+	}
+	stale := &edgev1.EdgeDeliveryAckV1{
+		SpoolId: sess.SpoolID, SessionNonce: mustUUID(t), ResolvedThroughSequence: 0,
+	}
+	if err := ValidateAck(stale, sess, 100, 1<<16); !errors.Is(err, ErrAckBinding) {
+		t.Fatalf("stale nonce = %v, want ErrAckBinding", err)
+	}
+	otherSpool := &edgev1.EdgeDeliveryAckV1{
+		SpoolId: mustUUID(t), SessionNonce: sess.Nonce, ResolvedThroughSequence: 0,
+	}
+	if err := ValidateAck(otherSpool, sess, 100, 1<<16); !errors.Is(err, ErrAckBinding) {
+		t.Fatalf("other spool = %v, want ErrAckBinding", err)
+	}
+}
+
 func TestValidateAckExplicitDispositions(t *testing.T) {
 	e5, e6 := mustUUID(t), mustUUID(t)
 	sess := Session{

@@ -11,6 +11,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
@@ -64,6 +65,56 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 		if !strings.Contains(metrics, want) {
 			t.Fatalf("metrics missing %q in:\n%s", want, metrics)
 		}
+	}
+	if strings.Contains(metrics, "agent_edge_spool_") {
+		t.Fatalf("edge spool metrics rendered without a sampler:\n%s", metrics)
+	}
+}
+
+func TestServerWritePrometheusMetricsIncludesEdgeSpoolSample(t *testing.T) {
+	server := &Server{}
+	server.SetEdgeSpoolSampler(func(time.Time) (uint64, time.Duration, bool, bool) {
+		return 4096, 125 * time.Second, true, true
+	})
+
+	var out bytes.Buffer
+	if err := server.WritePrometheusMetrics(&out); err != nil {
+		t.Fatalf("WritePrometheusMetrics() error = %v", err)
+	}
+	metrics := out.String()
+	for _, want := range []string{
+		"# TYPE agent_edge_spool_unresolved_bytes gauge\nagent_edge_spool_unresolved_bytes 4096\n",
+		"# TYPE agent_edge_spool_oldest_unresolved_age_seconds gauge\nagent_edge_spool_oldest_unresolved_age_seconds 125\n",
+	} {
+		if !strings.Contains(metrics, want) {
+			t.Fatalf("metrics missing %q in:\n%s", want, metrics)
+		}
+	}
+
+	server.SetEdgeSpoolSampler(func(time.Time) (uint64, time.Duration, bool, bool) {
+		return 12, 0, false, true
+	})
+	out.Reset()
+	if err := server.WritePrometheusMetrics(&out); err != nil {
+		t.Fatalf("WritePrometheusMetrics() error = %v", err)
+	}
+	metrics = out.String()
+	if !strings.Contains(metrics, "agent_edge_spool_unresolved_bytes 12\n") {
+		t.Fatalf("bytes missing in:\n%s", metrics)
+	}
+	if strings.Contains(metrics, "agent_edge_spool_oldest_unresolved_age_seconds") {
+		t.Fatalf("age rendered without a UUIDv7 timestamp:\n%s", metrics)
+	}
+
+	server.SetEdgeSpoolSampler(func(time.Time) (uint64, time.Duration, bool, bool) {
+		return 99, 10 * time.Second, true, false
+	})
+	out.Reset()
+	if err := server.WritePrometheusMetrics(&out); err != nil {
+		t.Fatalf("WritePrometheusMetrics() error = %v", err)
+	}
+	if strings.Contains(out.String(), "agent_edge_spool_") {
+		t.Fatalf("failed sample rendered metrics:\n%s", out.String())
 	}
 }
 

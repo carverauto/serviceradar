@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
@@ -79,7 +80,15 @@ type Server struct {
 	// deliveryTelemetry counts retained-delivery outcomes for the Prometheus
 	// exporter.
 	deliveryTelemetry retainedDeliveryTelemetry
+	// edgeSpoolSampler reads unresolved edge-spool bytes and age for /metrics.
+	// It stays unset when the process has no edge spool.
+	edgeSpoolSampler atomic.Value // EdgeSpoolSampler
 }
+
+// EdgeSpoolSampler reads unresolved edge-spool health. ok is false when the
+// spool cannot be read. reportAge is false when unresolved records exist and
+// none carry a UUIDv7 event time.
+type EdgeSpoolSampler func(now time.Time) (bytes uint64, oldestAge time.Duration, reportAge bool, ok bool)
 
 type sidecarStatusProvider interface {
 	Status() []sidecar.Status

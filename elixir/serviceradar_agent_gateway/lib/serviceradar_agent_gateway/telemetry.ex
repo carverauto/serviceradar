@@ -79,6 +79,12 @@ defmodule ServiceRadarAgentGateway.Telemetry do
         measurement: :count,
         tags: [:gateway_id],
         tag_values: &control_stream_tag_values/1
+      ),
+      counter("serviceradar.agent_gateway.jetstream.puback_error.count",
+        event_name: [:serviceradar, :agent_gateway, :jetstream, :puback_error],
+        measurement: :count,
+        tags: [:reason],
+        tag_values: &puback_tag_values/1
       )
     ] ++ ServiceRadar.Telemetry.audit_metrics()
   end
@@ -125,6 +131,10 @@ defmodule ServiceRadarAgentGateway.Telemetry do
 
   defp control_stream_tag_values(metadata) do
     %{gateway_id: stringify(metadata[:gateway_id], "unknown")}
+  end
+
+  defp puback_tag_values(metadata) do
+    %{reason: stringify(metadata[:reason], "unknown")}
   end
 
   defp stringify(nil, default), do: default

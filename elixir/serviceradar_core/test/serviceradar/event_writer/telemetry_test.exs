@@ -33,6 +33,7 @@ defmodule ServiceRadar.EventWriter.TelemetryTest do
       assert Telemetry.subject_class("falco.alert") == "falco"
       assert Telemetry.subject_class("trivy.report") == "trivy"
       assert Telemetry.subject_class("sweep.result") == "sweep"
+      assert Telemetry.subject_class("telemetry.edge-record.v1.bulk.p00") == "edge_record"
       assert Telemetry.subject_class("signals.analytics.predictions.cpu") == "analytics"
       assert Telemetry.subject_class("signals.analytics.inventory.added") == "analytics"
       assert Telemetry.subject_class("causal.signal") == "causal"

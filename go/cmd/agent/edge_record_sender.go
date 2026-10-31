@@ -204,6 +204,22 @@ func highestSentSequence(result edgesender.Result) uint64 {
 	return 0
 }
 
+// attachEdgeSpoolMetrics publishes unresolved spool bytes and oldest record
+// age through the agent's Prometheus exporter. The sampler only reads.
+func attachEdgeSpoolMetrics(server *agent.Server, sp *spool.Spool) {
+	if server == nil || sp == nil {
+		return
+	}
+	server.SetEdgeSpoolSampler(func(now time.Time) (uint64, time.Duration, bool, bool) {
+		records, err := sp.Unresolved()
+		if err != nil {
+			return 0, 0, false, false
+		}
+		unresolvedBytes, age, reportAge := spool.UnresolvedHealth(records, now)
+		return unresolvedBytes, age, reportAge, true
+	})
+}
+
 // openEdgeRecordSpool is called once for the process; producer and sender share
 // its mutex, sequence allocation, recovery state and byte allocator.
 func openEdgeRecordSpool(cfg *agent.ServerConfig) (*spool.Spool, error) {

@@ -60,6 +60,38 @@ spec:
           annotations:
             summary: "ServiceRadar agent-gateway dropped buffered statuses"
             description: "The agent-gateway results buffer dropped one or more statuses in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarAgentGatewayPubAckErrors
+          expr: sum(increase(serviceradar_agent_gateway_jetstream_puback_error_count{namespace="{{ .Release.Namespace }}"}[5m])) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar agent-gateway JetStream PubAck errors"
+            description: "The agent-gateway durable edge publisher received PubAck errors in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarEdgeRecordConsumerLag
+          expr: max(serviceradar_event_writer_consumer_lag_messages_value{namespace="{{ .Release.Namespace }}", subject_class="edge_record"}) > 0
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar EDGE_RECORD consumer lag"
+            description: "The EventWriter EDGE_RECORD durable has pending or unacked messages in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarAgentEdgeSpoolUnresolvedAge
+          expr: max(agent_edge_spool_oldest_unresolved_age_seconds) > 900
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar agent edge spool has an old unresolved record"
+            description: "An agent edge spool still holds an unresolved record older than 15 minutes."
+        - alert: ServiceRadarAgentEdgeSpoolBytes
+          expr: max(agent_edge_spool_unresolved_bytes) > 1073741824
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar agent edge spool unresolved bytes are high"
+            description: "An agent edge spool is holding more than 1 GiB of unresolved records."
         - alert: ServiceRadarCNPGMetricsTargetDown
           expr: up{namespace="{{ .Release.Namespace }}", job=~".*/cnpg"} == 0
           for: 5m

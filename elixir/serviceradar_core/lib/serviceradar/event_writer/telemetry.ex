@@ -203,6 +203,7 @@ defmodule ServiceRadar.EventWriter.Telemetry do
       String.starts_with?(subject, "falco.") -> "falco"
       String.starts_with?(subject, "trivy.") -> "trivy"
       String.starts_with?(subject, "sweep.") -> "sweep"
+      String.starts_with?(subject, "telemetry.edge-record.") -> "edge_record"
       String.starts_with?(subject, "signals.analytics.") -> "analytics"
       String.starts_with?(subject, "causal.") -> "causal"
       subject == "" -> "unknown"

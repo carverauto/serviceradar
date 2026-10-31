@@ -273,17 +273,34 @@ defmodule ServiceRadarAgentGateway.JetStreamPublisher do
   end
 
   defp settle({:error, :poison} = result, pool, reservation) do
+    emit_puback_error(:poison)
     pool_call(fn -> PublisherPool.settle(pool, reservation, :permanent_rejection) end)
     result
   end
 
-  defp settle(result, pool, reservation) do
+  defp settle({:error, reason} = result, pool, reservation) do
+    emit_puback_error(reason)
     # NON-terminal: the record is still owed a republish, so the credits stay charged -- but the
     # ATTEMPT is over. Saying so is what makes the next retry a legal re-admission instead of
     # `:attempt_in_flight` forever.
     pool_call(fn -> PublisherPool.attempt_failed(pool, reservation) end)
     result
   end
+
+  defp settle(result, pool, reservation) do
+    pool_call(fn -> PublisherPool.attempt_failed(pool, reservation) end)
+    result
+  end
+
+  defp emit_puback_error(reason) when is_atom(reason) do
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :jetstream, :puback_error],
+      %{count: 1},
+      %{reason: Atom.to_string(reason)}
+    )
+  end
+
+  defp emit_puback_error(_reason), do: :ok
 
   # EVERY pool call is guarded, not just settlement. A lane restart can land between resolving the
   # pool and admitting through it, and an unguarded GenServer.call would then exit the caller --
