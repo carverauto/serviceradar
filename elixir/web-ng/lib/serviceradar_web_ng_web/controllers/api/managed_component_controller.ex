@@ -63,6 +63,16 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentController do
     end
   end
 
+  def revoke_certificate(conn, %{"id" => id, "fingerprint" => fingerprint}) do
+    with :ok <- authorize(conn),
+         {:ok, _} <-
+           Authority.revoke_component_certificate(id, fingerprint, "operator-request", opts(conn)) do
+      show(conn, %{"id" => id})
+    else
+      error -> error_response(conn, error)
+    end
+  end
+
   def show(conn, %{"id" => id}) do
     with :ok <- authorize(conn),
          {:ok, component} <- Lifecycle.component(id, opts(conn)),

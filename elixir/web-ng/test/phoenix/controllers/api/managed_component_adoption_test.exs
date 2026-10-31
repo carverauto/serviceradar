@@ -11,6 +11,7 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionTest do
 
   @moduletag :db_free
   @validity {{2026, 1, 1}, {2027, 6, 1}}
+  @fingerprint "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
 
   setup do
     scope = %Scope{
@@ -80,6 +81,36 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionTest do
              ["edge.manage"],
              "POST",
              "/api/admin/managed-components/example-gateway/certificates"
+           )
+  end
+
+  test "the fingerprint revoke route stays on the managed-component API key pipeline" do
+    info =
+      Phoenix.Router.route_info(
+        Router,
+        "POST",
+        "/api/admin/managed-components/example-gateway/certificates/#{@fingerprint}/revoke",
+        "localhost"
+      )
+
+    assert info.plug == Controller
+    assert info.plug_opts == :revoke_certificate
+    assert info.pipe_through == [:api_key_auth]
+  end
+
+  test "refuses fingerprint revocation without settings.edge.manage", %{conn: conn} do
+    denied =
+      assign(conn, :current_scope, %Scope{user: %{id: "example-viewer"}, permissions: MapSet.new()})
+
+    assert {:error, :forbidden} =
+             Controller.revoke_certificate(denied, %{"id" => "example-gateway", "fingerprint" => @fingerprint})
+  end
+
+  test "a narrow edge.manage token cannot revoke one certificate fingerprint" do
+    refute NarrowScopes.allowed?(
+             ["edge.manage"],
+             "POST",
+             "/api/admin/managed-components/example-gateway/certificates/#{@fingerprint}/revoke"
            )
   end
 

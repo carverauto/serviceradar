@@ -186,6 +186,30 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
     |> notify()
   end
 
+  @doc """
+  Revokes one recorded fingerprint on a component.
+
+  The component stays unblocked. Generation and the stored NATS grant stay
+  unchanged. A fingerprint recorded for another component is refused.
+  """
+  def revoke_component_certificate(component_id, fingerprint, reason, opts \\ [])
+      when is_binary(component_id) and is_binary(fingerprint) and is_binary(reason) do
+    fn ->
+      with {:ok, component} <- lock_component(component_id, opts),
+           {:ok, certificate} <- find_certificate(fingerprint, opts),
+           :ok <- certificate_owner(certificate, component.component_id) do
+        record_revocation(
+          %{component | generation: certificate.generation},
+          fingerprint,
+          reason,
+          opts
+        )
+      end
+    end
+    |> transaction()
+    |> notify()
+  end
+
   def reenroll_component(component_id, opts \\ []) do
     fn ->
       with {:ok, component} <- lock_component(component_id, opts),
@@ -492,6 +516,9 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthority do
       error -> error
     end
   end
+
+  defp certificate_owner(%{component_id: component_id}, component_id), do: :ok
+  defp certificate_owner(_certificate, _component_id), do: {:error, :unknown_certificate}
 
   defp find_certificate(fingerprint, opts) do
     case ComponentCertificate

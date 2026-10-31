@@ -89,3 +89,10 @@ not return the PEM. A component with no certificate, a host service, a blocked
 component, and a private key are refused. The route uses the same API key
 pipeline and `settings.edge.manage` permission as adoption. Broker
 authorization callout stays disabled.
+
+`POST /api/admin/managed-components/:id/certificates/:fingerprint/revoke`
+revokes that one fingerprint. The component stays unblocked. Its generation
+and stored grant stay unchanged. Other fingerprints on the component stay
+authorized. A fingerprint recorded for another component is refused. The
+route uses the same API key pipeline and `settings.edge.manage` permission.
+Broker authorization callout stays disabled.

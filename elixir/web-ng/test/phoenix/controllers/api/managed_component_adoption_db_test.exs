@@ -128,6 +128,105 @@ defmodule ServiceRadarWebNGWeb.Api.ManagedComponentAdoptionDbTest do
     assert json_response(missing, 409) == %{"error" => "unknown_component"}
   end
 
+  test "revokes one fingerprint and leaves the successor authorized", %{conn: conn} do
+    first = self_signed()
+    successor = self_signed(~c"example-gateway-next")
+    other = self_signed(~c"example-gateway-other")
+    id = "example-gateway-#{System.unique_integer([:positive])}"
+    other_id = "example-gateway-#{System.unique_integer([:positive])}"
+
+    adopted =
+      conn
+      |> assign(:current_scope, operator_scope())
+      |> Controller.adopt(params(id, first.pem))
+
+    assert json_response(adopted, 201)
+
+    recorded =
+      adopted
+      |> recycle()
+      |> assign(:current_scope, operator_scope())
+      |> Controller.record_successor(%{"id" => id, "certificate_pem" => successor.pem})
+
+    assert json_response(recorded, 201)
+
+    other_adopted =
+      recorded
+      |> recycle()
+      |> assign(:current_scope, operator_scope())
+      |> Controller.adopt(params(other_id, other.pem))
+
+    assert json_response(other_adopted, 201)
+
+    revoked =
+      other_adopted
+      |> recycle()
+      |> assign(:current_scope, operator_scope())
+      |> Controller.revoke_certificate(%{
+        "id" => id,
+        "fingerprint" => fingerprint(first.der)
+      })
+
+    body = json_response(revoked, 200)
+    data = body["data"]
+    assert data["component_id"] == id
+    assert data["generation"] == 1
+    assert data["blocked"] == false
+    refute revoked.resp_body =~ "BEGIN CERTIFICATE"
+
+    repeated =
+      revoked
+      |> recycle()
+      |> assign(:current_scope, operator_scope())
+      |> Controller.revoke_certificate(%{
+        "id" => id,
+        "fingerprint" => fingerprint(first.der)
+      })
+
+    assert json_response(repeated, 200)
+
+    assert {:ok, stored} = Ash.get(ManagedComponent, id, scope: operator_scope())
+    assert stored.generation == 1
+    assert stored.blocked == false
+    assert stored.nats_permissions["publish"] == ["metrics.example.>"]
+    assert stored.nats_permissions["subscribe"] == [">"]
+    assert stored.nats_permissions["subscribe_deny"] == ["$SYS.>", "flow.example.>"]
+
+    assert {:ok, [decision]} = revocations(id)
+    assert decision.fingerprint == fingerprint(first.der)
+    assert decision.generation == 1
+    assert decision.reason == "operator-request"
+    assert {:ok, rows} = certificates(id)
+
+    assert MapSet.new(rows, & &1.fingerprint) ==
+             MapSet.new([fingerprint(first.der), fingerprint(successor.der)])
+
+    mismatched =
+      repeated
+      |> recycle()
+      |> assign(:current_scope, operator_scope())
+      |> Controller.revoke_certificate(%{
+        "id" => id,
+        "fingerprint" => fingerprint(other.der)
+      })
+
+    assert json_response(mismatched, 409) == %{"error" => "unknown_certificate"}
+    assert {:ok, []} = revocations(other_id)
+
+    missing =
+      mismatched
+      |> recycle()
+      |> assign(:current_scope, operator_scope())
+      |> Controller.revoke_certificate(%{
+        "id" => id,
+        "fingerprint" => "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+      })
+
+    assert json_response(missing, 409) == %{"error" => "unknown_certificate"}
+    assert {:ok, [still_one]} = revocations(id)
+    assert still_one.fingerprint == fingerprint(first.der)
+  end
+
   defp operator_scope do
     %Scope{
       user: %{id: "example-operator", role: :operator},
