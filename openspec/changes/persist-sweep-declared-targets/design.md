@@ -13,8 +13,8 @@ declared side is empty in every deployment and the entity's alert
 
 The sweep-diagnostics plan assumed the resolved target list "survives in the
 compiled config ... versioned per agent"; it does not, and
-`refactor-sweep-config-shared-targets` is about to make per-agent documents
-smaller, not persisted.
+`refactor-sweep-config-shared-targets` (archived) makes per-agent documents
+smaller and leaves them unpersisted.
 
 ## Goals / Non-Goals
 
@@ -61,7 +61,7 @@ smaller, not persisted.
   `{:error, reason}` for a failed target-query read, from the same
   normalize/paginate/normalize-ip path `compile/3` uses, so the persisted
   relation is what the compiler would deliver.
-  `refactor-sweep-config-shared-targets` will optimize query evaluation
+  Archived `refactor-sweep-config-shared-targets` optimizes query evaluation
   underneath this seam (its task 2.1 evaluates each distinct query once per
   compile); it does not invalidate the seam.
 - Decision: static targets are persisted too, not read from
