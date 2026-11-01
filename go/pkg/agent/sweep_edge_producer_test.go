@@ -21,6 +21,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 	"time"
 
@@ -487,4 +488,49 @@ func TestEdgeSweepAdmissionWaitEndsWithTheRun(t *testing.T) {
 	records, readErr := sp.Unresolved()
 	require.NoError(t, readErr)
 	require.Empty(t, records)
+}
+
+// The caller context stays open. The run context's own deadline is the slot
+// collection expiry, so a spool that never frees stops there and writes nothing.
+func TestEdgeSweepAdmissionWaitEndsAtCollectionExpiry(t *testing.T) {
+	cfg, lease, slot, _ := edgeSweepFixture(t)
+	slot.CollectionExpiresUnixNano = time.Now().Add(400 * time.Millisecond).UnixNano()
+	sp, _ := fullEdgeSweepSpool(t)
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	// The parent stays open well past the slot. A wait on the caller context, or
+	// on the original 15m window, would still be running when this returns.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil })
+	elapsed := time.Since(start)
+	require.NoError(t, ctx.Err())
+	require.ErrorIs(t, err, spool.ErrAdmissionRefused)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Less(t, elapsed, time.Second, "wait followed the collection expiry, not the caller context")
+	records, readErr := sp.Unresolved()
+	require.NoError(t, readErr)
+	require.Empty(t, records)
+}
+
+// A closed spool is not an admission refusal. The run returns that error at
+// once, and the slot claim has already happened because it precedes the append.
+func TestEdgeSweepReturnsOtherAppendErrorsWithoutWaiting(t *testing.T) {
+	cfg, lease, slot, sp := edgeSweepFixture(t)
+	require.NoError(t, sp.Close())
+	claims := 0
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	start := time.Now()
+	err := svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error {
+		claims++
+		return nil
+	})
+	elapsed := time.Since(start)
+	t.Logf("closed-spool append returned in %s with %d claim(s): %v", elapsed, claims, err)
+	require.ErrorIs(t, err, os.ErrClosed)
+	require.False(t, errors.Is(err, spool.ErrAdmissionRefused))
+	require.Equal(t, 1, claims)
+	require.Less(t, elapsed, sweepAdmissionInitialBackoff, "a non-admission append error must not enter the backoff")
 }
