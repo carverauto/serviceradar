@@ -31,7 +31,10 @@ gateway already loads. Where a typed protobuf exists it becomes the record
 payload unchanged, so producers and projectors reuse their encoders and decoders.
 `metric.v1.MetricBatch` covers sysmon, SNMP, ICMP, MTR metrics, sweep metrics and
 rperf as ONE contract, `serviceradar.metrics.batch`, because they share one sink
-and one schema; `ProducerKind` inside the batch already distinguishes them.
+and one schema; `ProducerKind` inside the batch already distinguishes them. Sweep
+metric batches on that contract are a byproduct of the sweep lease. They keep
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. They are not a standing grant
+and they are not `SCHEDULED_CHECK`.
 
 JSON producers do not get a "JSON blob" contract. Each gets a typed batch message
 first, because the pipeline's semantic digest, idempotency key and projector
@@ -45,12 +48,17 @@ contract smuggle arbitrary future data past registry review.
 
 ### Decision 2: Two grant models, both inside the frozen ABI
 
-- **Check leases** mirror sweep leases for producers core schedules. Core mints
-  execution slots per (assignment, schedule), signs a production capability per
-  lease and a `SCHEDULED_CHECK` (or `INTEGRATION_RUN` for sync sources) source
-  authorization per execution, and delivers them on the control stream the sweep
-  lease carrier already uses. Missed-run marking, epoch fencing and lease-pass
-  scheduling reuse the M2.0 machinery.
+- **Check leases** mirror sweep leases for the producers this change schedules
+  with them: MTR checks, ICMP checks, SNMP polls, plugin runs, mapper jobs, and
+  sync runs. Core mints execution slots per (assignment, schedule), signs a
+  production capability per lease and a `SCHEDULED_CHECK` source authorization
+  per execution (`INTEGRATION_RUN` for sync runs), and delivers them on the
+  control stream the sweep lease carrier already uses. Missed-run marking, epoch
+  fencing and lease-pass scheduling reuse the M2.0 machinery. Generalizing that
+  scheduler does not retarget sweep slots.
+- Sweep executions, including the metric batches a sweep lease produces, keep
+  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under the existing sweep
+  lease. Generalizing the scheduler leaves those sweep slots on that kind.
 - **Standing output grants** cover passive producers. Core signs one production
   capability per (agent, contract, authority epoch) with a bounded validity window
   and renews it while the agent is enrolled and the contract is enabled. Records
@@ -86,13 +94,27 @@ control agent), a separately gated release removes the legacy emission and the
 gateway's matching publisher. Order, by loss exposure and payload readiness:
 
 1. `serviceradar.metrics.batch` (sysmon, SNMP, ICMP, MTR metrics, sweep metrics,
-   rperf): highest volume, typed, lossy today, passive or check-leased.
+   rperf): highest volume, typed, lossy today. Passive producers and check-leased
+   producers share this contract. Sweep metric batches keep `SCHEDULED_SWEEP`
+   under the sweep lease that produced them.
 2. MTR traces (`MtrTraceBatchV1`, already frozen) under check leases (USP-01 M4.3).
 3. Flow attribution and OTLP relay: typed, already ack-shaped.
 4. Plugin signals and native add-on telemetry (`TelemetryBatch`), then Wasm plugin
    results via a typed result batch (USP-01 tasks 2.11, 2.12, 2.14).
 5. Inventory producers (mapper, netprobe discovery, sync pages, workload identity,
    endpoint inventory, bumblebee, k8s endpoints) after their typed batch contracts.
+6. Query-resolved sweeps, last: resolve `target_query` at lease time into a
+   signed scheduled plan under the existing sweep lease (Decision 6).
+
+### Decision 6: Query-resolved sweeps freeze a signed plan per execution
+
+Sweep groups with a `target_query` are in scope as the final phase. Core resolves
+the `target_query` at lease time and freezes the resolved address set into a
+signed scheduled plan for that execution. The plan uses the existing sweep lease
+machinery and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. When the resolved
+set changes, core re-plans. The frozen set must fit the plan builder's range
+limits. A group whose resolved set cannot be represented stays on the legacy
+path and is reported. It is not silently dropped.
 
 ## Risks
 

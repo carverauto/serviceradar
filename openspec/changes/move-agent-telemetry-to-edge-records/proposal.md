@@ -36,7 +36,8 @@ were deferred to prove the transport on one producer first. That proof is done.
   - **Check leases** for producers core schedules (MTR, ICMP checks, SNMP polls,
     plugin runs, sync runs, mapper jobs): a production capability plus a
     `SCHEDULED_CHECK` or `INTEGRATION_RUN` source authorization, mirroring sweep
-    leases.
+    leases. Sweep executions, including the metric batches a sweep lease
+    produces, keep `SCHEDULED_SWEEP` under the existing sweep lease.
   - **Standing output grants** for passive producers (sysmon, add-on telemetry,
     OTLP relay, flow attribution, netprobe discovery, workload identity): a
     renewable production capability per (agent, contract) with no source
@@ -51,6 +52,12 @@ were deferred to prove the transport on one producer first. That proof is done.
 - Migrate producers one family at a time behind a per-agent opt-in, with one
   path per producer at a time (never both), then remove each legacy emission after
   a farm01 parity soak.
+- Move sweep groups that use a `target_query` in a final phase. Core resolves the
+  query at lease time, freezes the resolved address set into a signed scheduled
+  plan for that execution under the existing sweep lease machinery and
+  `SCHEDULED_SWEEP`, and re-plans when the resolved set changes, within the plan
+  builder's range limits. A group whose resolved set cannot be represented stays
+  on the legacy path and is reported, not silently dropped.
 
 ## Out of Scope
 
@@ -60,8 +67,6 @@ were deferred to prove the transport on one producer first. That proof is done.
 - Ephemeral latest-wins status summaries (agent health, service status signature
   heartbeats, plugin-engine counters). Per USP-01 task 2.14 these stay on
   `GatewayServiceStatus`.
-- Sweep groups with a `target_query`: they need a separate design decision
-  because a signed plan cannot commit to an address set resolved at run time.
 
 ## Impact
 

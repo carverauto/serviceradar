@@ -34,11 +34,15 @@ registry SHALL NOT admit a contract whose payload is an untyped status envelope.
 - **THEN** the gateway rejects it permanently as an unknown contract
 
 ### Requirement: Scheduled producers run under core-signed check leases
-A producer whose work core schedules SHALL emit records only under a check lease
-that core signed: a production capability for the lease and, per execution, a
-source authorization of kind `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`, or
-`EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN` for integration sync runs. Check
-leases SHALL reuse the sweep lease epoch fence and missed-run marking.
+MTR checks, ICMP checks, SNMP polls, plugin runs and mapper jobs SHALL emit
+records only under a check lease that core signed: a production capability for
+the lease and, per execution, a source authorization of kind
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`. Integration sync runs SHALL emit
+under that same check-lease machinery with a source authorization of kind
+`EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN`. Check leases SHALL reuse the
+sweep lease epoch fence and missed-run marking. Sweep executions, including the
+metric batches a sweep lease produces, SHALL keep
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under the existing sweep lease.
 
 #### Scenario: A scheduled MTR check is authorized per execution
 - **WHEN** core schedules an MTR check for an agent
@@ -46,6 +50,12 @@ leases SHALL reuse the sweep lease epoch fence and missed-run marking.
   source authorization
 - **AND** a record whose lease epoch is stale is refused unless it carries a
   delivery grant
+
+#### Scenario: A leased sweep keeps the sweep source kind
+- **WHEN** an agent emits the sweep results and the metric batch for one sweep
+  lease execution
+- **THEN** both carry `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
+- **AND** neither carries `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`
 
 ### Requirement: Passive producers run under standing output grants
 A producer that core does not schedule SHALL emit records only under a standing
