@@ -11,10 +11,13 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
   Slot end is `collection_expires`. A commit is a row in
   `platform.edge_sweep_batch_slots` for the slot id, or a
   `sweep_group_executions` row under that same id. Either one leaves the
-  slot scheduled. The mark locks those due slot rows, then a later statement
-  marks only the locked rows that still have no batch and no execution. A
-  batch insert takes that same slot lock before its row commits, so a commit
-  that landed while the lock was waiting is visible to the later statement.
+  slot scheduled. The mark locks the due slot rows that have no batch and no
+  execution in its snapshot, then a later statement marks only the locked rows
+  that still have neither. A batch insert takes that same slot lock before its
+  row commits, so a commit that landed while the lock was waiting is visible
+  to the later statement. A completed slot stays `scheduled`, so the first
+  statement filters on the evidence too; otherwise every historical slot would
+  be locked and rewritten on every pass.
 
   Core does not store the agent's own lease-exhausted flag. While the
   assignment is still active and a later slot is scheduled, the closed slot
@@ -74,6 +77,16 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
   FROM platform.sweep_execution_slots AS slot
   WHERE slot.state = 'scheduled'
     AND slot.collection_expires <= $1
+    AND NOT EXISTS (
+      SELECT 1
+      FROM platform.edge_sweep_batch_slots AS batch
+      WHERE batch.execution_id = slot.id
+    )
+    AND NOT EXISTS (
+      SELECT 1
+      FROM platform.sweep_group_executions AS execution
+      WHERE execution.id = slot.id
+    )
   ORDER BY slot.id
   FOR UPDATE
   """

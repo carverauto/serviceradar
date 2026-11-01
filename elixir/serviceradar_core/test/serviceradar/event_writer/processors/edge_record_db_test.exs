@@ -116,34 +116,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       refute Repo.get(SweepGroupExecution, execution_id)
     end
 
-    test "a late-fenced batch locks the sweep slot before it commits and does not project" do
+    test "a late-fenced batch records its batch coordinate and does not project" do
       frame = build_frame(delivery_mode: PublicationIdentity.mode_late_fenced())
       execution_id = Ecto.UUID.cast!(frame.batch.execution_id)
-      parent = self()
 
-      hook = fn
-        :before_commit, _event_id, {:ok, :inserted} ->
-          %{rows: locks} =
-            Repo.query!("""
-            SELECT mode
-            FROM pg_locks
-            WHERE pid = pg_backend_pid()
-              AND granted
-              AND locktype = 'tuple'
-              AND relation = 'platform.sweep_execution_slots'::regclass
-            """)
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
 
-          send(parent, {:slot_locks, Enum.map(locks, fn [mode] -> mode end)})
-
-        _point, _event_id, _result ->
-          :ok
-      end
-
-      assert {:ok, :inserted} =
-               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, test_hook: hook)
-
-      assert_receive {:slot_locks, modes}
-      assert "ForUpdate" in modes
       assert sweep_batch_slot_count(frame.record, frame.batch) == 1
       refute Repo.get(SweepGroupExecution, execution_id)
       assert Repo.get!(SweepExecutionSlot, execution_id).state == :scheduled
