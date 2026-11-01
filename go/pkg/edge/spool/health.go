@@ -16,40 +16,101 @@
 
 package spool
 
-import "time"
+import (
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"time"
+)
 
-// UnresolvedHealth summarizes records the sender has not yet resolved.
-// Bytes is the sum of record bodies. The oldest age comes from UUIDv7 event
-// ids: the first 48 bits are a Unix millisecond timestamp and the high nibble
-// of byte 6 is version 7. reportAge is true when the spool is empty, and when
-// at least one unresolved id is a version-7 timestamp. It is false when
-// unresolved records exist and none of those ids carry that timestamp, so a
-// caller does not publish a fresh age for an unknown clock.
-func UnresolvedHealth(records []Record, now time.Time) (bytes uint64, oldest time.Duration, reportAge bool) {
+// UnresolvedHealth summarizes the records the sender has not yet resolved.
+// Bytes is the sum of their bodies. The oldest age comes from UUIDv7 event ids:
+// the first 48 bits are a Unix millisecond timestamp and the high nibble of
+// byte 6 is version 7. reportAge is true when nothing is unresolved, and when at
+// least one unresolved id is a version-7 timestamp. It is false when unresolved
+// records exist and none of those ids carry that timestamp, so a caller does not
+// publish a fresh age for an unknown clock.
+//
+// It reads only each record's header, never its body, so a metrics scrape of a
+// large backlog costs one small read per record and constant memory. Like
+// ScanFrom it takes the spool lock per record, so producer appends interleave.
+func (s *Spool) UnresolvedHealth(now time.Time) (bytes uint64, oldest time.Duration, reportAge bool, err error) {
+	s.mu.Lock()
+	if s.seg == nil {
+		s.mu.Unlock()
+		return 0, 0, false, fmt.Errorf("spool: health: %w", os.ErrClosed)
+	}
+	// Like ScanFrom, adopt a layout another handle reclaimed into, and below
+	// discover records another handle appended, before trusting the index.
+	if err := s.refreshLayout(); err != nil {
+		s.mu.Unlock()
+		return 0, 0, false, err
+	}
+	seq := s.resolved
+	s.mu.Unlock()
+
+	var unresolved int
 	var oldestMs int64
 	var found bool
-	for _, rec := range records {
-		bytes += uint64(len(rec.Body))
-		ms, ok := uuidV7UnixMilli(rec.EventID)
-		if !ok {
+	header := make([]byte, headerLen+headerCRC)
+	refreshed := false
+	for {
+		seq++
+		s.mu.Lock()
+		if s.seg == nil {
+			s.mu.Unlock()
+			return 0, 0, false, fmt.Errorf("spool: health: %w", os.ErrClosed)
+		}
+		if seq >= s.nextSeq && !refreshed {
+			refreshed = true
+			if err := s.refreshLocked(); err != nil {
+				s.mu.Unlock()
+				return 0, 0, false, err
+			}
+		}
+		seq = max(seq, s.resolved+1, s.baseSeq+1)
+		if seq >= s.nextSeq {
+			s.mu.Unlock()
+			break
+		}
+		loc := s.slots[seq-s.baseSeq-1]
+		if !loc.committed {
+			s.mu.Unlock()
 			continue
 		}
-		if !found || ms < oldestMs {
+		_, readErr := s.seg.ReadAt(header, loc.offset)
+		s.mu.Unlock()
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				readErr = io.ErrUnexpectedEOF
+			}
+			return 0, 0, false, fmt.Errorf("spool: health: read header: %w", readErr)
+		}
+		h, ok := parseHeader(header)
+		if !ok || h.seq != seq {
+			return 0, 0, false, fmt.Errorf("%w: slot %d", ErrCorruptHeader, seq)
+		}
+
+		unresolved++
+		bytes += uint64(h.bodyLen)
+		if ms, ok := uuidV7UnixMilli(h.eventID[:]); ok && (!found || ms < oldestMs) {
 			oldestMs = ms
 			found = true
 		}
 	}
-	if len(records) == 0 {
-		return 0, 0, true
+
+	if unresolved == 0 {
+		return 0, 0, true, nil
 	}
 	if !found {
-		return bytes, 0, false
+		return bytes, 0, false, nil
 	}
 	age := now.Sub(time.UnixMilli(oldestMs))
 	if age < 0 {
 		age = 0
 	}
-	return bytes, age, true
+	return bytes, age, true, nil
 }
 
 func uuidV7UnixMilli(id []byte) (int64, bool) {

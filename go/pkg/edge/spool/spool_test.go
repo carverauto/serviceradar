@@ -451,6 +451,66 @@ func TestAcceptedDrainsContinuePastSegmentRunLimit(t *testing.T) {
 	}
 }
 
+// A spool filled to its ordinary ceiling must still record the acknowledgement
+// that drains it. If that evidence had to win fresh admission, a spool left full
+// by a long gateway outage would refuse every acknowledgement, never reclaim, and
+// refuse every new record forever.
+func TestFullSpoolRecordsTheAckThatReclaimsIt(t *testing.T) {
+	footprint := testFootprint()
+	footprint.DestinationSegment = 1024
+	perRecovery, err := footprint.PerRecovery()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const minFree = 4096
+	body := "synthetic full-spool record"
+	alloc, err := NewAllocator(AllocatorConfig{
+		Capacity:                perRecovery + minFree + 8*laneChargeLen(body),
+		Recovery:                footprint,
+		MaxConcurrentRecoveries: 1,
+		MinFree:                 minFree,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(t.TempDir(), WithAllocator(alloc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	// Fill the way an outage does: records until one is refused, then the smallest
+	// records until even those are refused, so no ordinary space is left over.
+	var seqs []uint64
+	for _, fill := range []string{body, "x"} {
+		for {
+			seq, err := s.Append(evid(byte(len(seqs)+1)), []byte(fill))
+			if errors.Is(err, ErrAdmissionRefused) {
+				break
+			}
+			if err != nil {
+				t.Fatalf("fill: %v", err)
+			}
+			seqs = append(seqs, seq)
+			if len(seqs) > 64 {
+				t.Fatal("the spool never filled")
+			}
+		}
+	}
+	last := seqs[len(seqs)-1]
+
+	ack := terminalAck(t, last, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE, seqs...)
+	if err := s.ResolveWithEvidence(last, ack); err != nil {
+		t.Fatalf("acknowledgement on a full spool: %v", err)
+	}
+	if s.Resolved() != last {
+		t.Fatalf("resolved = %d, want %d", s.Resolved(), last)
+	}
+	if _, err := s.Append(evid(byte(len(seqs)+1)), []byte(body)); err != nil {
+		t.Fatalf("append after the drain reclaimed the segment: %v", err)
+	}
+}
+
 func terminalAck(t *testing.T, through uint64, kind edgev1.EdgeRecordDispositionKind, seqs ...uint64) []byte {
 	t.Helper()
 	ack := &edgev1.EdgeDeliveryAckV1{SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: through}
