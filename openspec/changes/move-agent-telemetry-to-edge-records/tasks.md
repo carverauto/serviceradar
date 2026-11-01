@@ -22,15 +22,19 @@
 - [ ] 2.2 Agent: sysmon, SNMP, ICMP, MTR metrics and rperf append through the sink
   when opted in, and stop the legacy emission for those producers. Sweep metric
   batches for a sweep that already has a lease append under `SCHEDULED_SWEEP`.
-  A `target_query` group's sweep metric batch stays with its sweep results until
-  that group's lease exists, then both move together under `SCHEDULED_SWEEP`.
+  A sweep group with no lease yet, including a `target_query`, short-interval,
+  mtr-mode, or banner-grab group, keeps its sweep metric batch with its sweep
+  results until that lease exists, then both move together under
+  `SCHEDULED_SWEEP`.
 - [ ] 2.3 EventWriter projector writing the existing metrics destination inside the
   ledger transaction.
 - [ ] 2.4 farm01 parity soak against a control agent.
 
 ## 3. MTR traces
 
-- [ ] 3.1 Check leases for MTR checks; agent emits `MtrTraceBatchV1`.
+- [ ] 3.1 Check leases for MTR checks, including traces from a sweep group whose
+  modes include mtr; the agent emits `MtrTraceBatchV1`. Reachability and port
+  results of that sweep stay on the sweep lease.
 - [ ] 3.2 Projector into `mtr_traces` and hops; parity soak.
 
 ## 4. Flow attribution and OTLP relay
@@ -53,13 +57,15 @@
 
 ## 7. Query-resolved sweeps
 
-- [ ] 7.1 Approve the resolution model: core resolves `target_query` at lease
-  time to individual host addresses, freezes that set into a signed scheduled
-  plan per execution under the existing sweep lease and `SCHEDULED_SWEEP`, and
-  re-plans when the resolved set changes. A set that exceeds plan limits is
-  split across executions or ranges.
-- [ ] 7.2 Build that signed plan from the resolved host addresses, splitting
-  across executions or ranges when the set exceeds plan limits.
+- [ ] 7.1 Approve the resolution model: at lease time core freezes the compiler's
+  full scan set (the query's hosts, their alias addresses, and the group's
+  static targets) into a signed scheduled plan per execution under the existing
+  sweep lease and `SCHEDULED_SWEEP`, and re-plans when that set changes. A set
+  that exceeds plan limits is split across executions or ranges.
+- [ ] 7.2 Build that signed plan from the full scan set, splitting across
+  executions or ranges when the set exceeds plan limits. A failed device read
+  keeps the last signed plan and does not sign an empty one. An unparseable
+  query contributes no hosts, and the group's static targets still run.
 - [ ] 7.3 Issue the frozen plan through the existing sweep lease scheduler. The
   group's sweep results and sweep metric batch move together once the lease
   exists, both under `SCHEDULED_SWEEP`.
@@ -69,10 +75,28 @@
   not runnable. Do not send it on the legacy path.
 - [ ] 7.5 farm01 parity soak against a control agent.
 
-## 8. Closure
+## 8. Lease homes before cutover
 
-- [ ] 8.1 In the next release, after every per-family parity soak and after every
+- [ ] 8.1 Lower `LeaseSchedule.min_interval_seconds` from 300 to 1 so every
+  whole-second interval leases, and so does a cron whose closest fires are at
+  least one second apart. State the cost: a one-second group over seven days is
+  about 604800 slots, 300 times the five-minute floor.
+- [ ] 8.2 A sweep group whose modes include mtr: the sweep lease covers
+  reachability and port results under `SCHEDULED_SWEEP`, and the traces are
+  `MtrTraceBatchV1` under the MTR check lease. SweepPlan no longer refuses the
+  group for mtr mode.
+- [ ] 8.3 Add an additive banner-results output contract: a new typed payload
+  message and a contract registry entry. `EdgeRecordV1` and the frozen payloads
+  stay unchanged. Banner results ride under the same sweep lease and
+  `SCHEDULED_SWEEP` as the execution they belong to.
+- [ ] 8.4 Refuse anything still unrepresentable after 8.1-8.3 at sweep group
+  configuration with an operator-visible error. Report an existing group as not
+  runnable. Do not send it on the legacy path.
+
+## 9. Closure
+
+- [ ] 9.1 In the next release, after every per-family parity soak and after every
   runnable sweep group has a signed sweep lease, remove legacy agent status-path
   emission and the gateway's matching publishers together.
-- [ ] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`;
+- [ ] 9.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`;
   only control traffic and ephemeral status summaries stay there.

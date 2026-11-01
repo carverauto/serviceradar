@@ -55,17 +55,26 @@ were deferred to prove the transport on one producer first. That proof is done.
   every runnable sweep group has a signed sweep lease. There is no long-lived
   per-family legacy.
 - Move sweep groups that use a `target_query` in a final phase, before that
-  cutover. Core resolves the query at lease time to individual host addresses,
-  which the plan builder can always represent, and freezes that set into a signed
-  scheduled plan per execution under the existing sweep lease machinery and
-  `SCHEDULED_SWEEP`. When the resolved set changes, core re-plans. A set that
-  exceeds plan limits is split across executions or ranges, and every host is
-  placed in a signed plan. The group's sweep results and sweep metric batch move
-  together once that lease exists. A target the plan builder cannot represent,
-  such as an IPv6 prefix wider than /65 (`:target_too_wide`), is refused at sweep
-  group configuration with an operator-visible validation error. An existing
-  group of that kind is reported as not runnable and does not run on the legacy
-  path.
+  cutover. At lease time core freezes the compiler's full scan set for that
+  execution: the query's hosts, their alias addresses, and the group's static
+  targets, under the existing sweep lease and `SCHEDULED_SWEEP`. When that set
+  changes, core re-plans. A set that exceeds plan limits is split across
+  executions or ranges so every member is in a signed plan. A failed device read
+  keeps the last signed plan and does not sign an empty one. An unparseable
+  query contributes no hosts, and the group's static targets still run. The
+  group's sweep results and sweep metric batch move together once that lease
+  exists.
+- Give every other runnable sweep group a lease before that same cutover. Lower
+  the lease schedule minimum from 300 seconds to 1 second, so a whole-second
+  interval leases; the cost is more slots per horizon. A group whose modes
+  include mtr keeps reachability and port results on the sweep lease, and its
+  traces are `MtrTraceBatchV1` under the MTR check lease. Banner results are a
+  new typed output contract under that same sweep lease and `SCHEDULED_SWEEP`;
+  `EdgeRecordV1` and the frozen payloads stay unchanged. Anything still
+  unrepresentable, such as an IPv6 prefix wider than /65 (`:target_too_wide`),
+  is refused at sweep group configuration with an operator-visible validation
+  error. An existing group of that kind is reported as not runnable and does not
+  run on the legacy path.
 
 ## Out of Scope
 
@@ -82,7 +91,8 @@ were deferred to prove the transport on one producer first. That proof is done.
   migration requirements).
 - Affected code: `go/pkg/agent` push loops and buffers, `go/pkg/edge` (sink,
   contracts), `go/cmd/agent` sender wiring, agent-gateway contract registry and
-  authorization, core issuer/lease/grant modules, EventWriter projectors, Helm
-  contract registry values.
+  authorization, core issuer/lease/grant modules, `LeaseSchedule` minimum,
+  SweepPlan mtr handling, the banner-results contract, EventWriter projectors,
+  Helm contract registry values.
 - Depends on: `unify-sweep-results-proto` (pipeline, spool, sender, gateway relay,
   ledger), which stays the runtime change of record for the shared transport.

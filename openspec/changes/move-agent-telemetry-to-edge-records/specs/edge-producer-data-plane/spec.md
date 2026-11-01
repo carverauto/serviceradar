@@ -41,8 +41,10 @@ the lease and, per execution, a source authorization of kind
 under that same check-lease machinery with a source authorization of kind
 `EDGE_SOURCE_AUTHORIZATION_KIND_INTEGRATION_RUN`. Check leases SHALL reuse the
 sweep lease epoch fence and missed-run marking. Sweep executions, including the
-metric batches a sweep lease produces, SHALL keep
+metric batches and banner results a sweep lease produces, SHALL keep
 `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under the existing sweep lease.
+Traces from a sweep whose modes include mtr SHALL be `MtrTraceBatchV1` under
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`.
 
 #### Scenario: A scheduled MTR check is authorized per execution
 - **WHEN** core schedules an MTR check for an agent
@@ -57,31 +59,91 @@ metric batches a sweep lease produces, SHALL keep
 - **THEN** both carry `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
 - **AND** neither carries `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`
 
-### Requirement: Query-resolved sweeps freeze host addresses under the sweep lease
-Core SHALL resolve a sweep group's `target_query` at lease time to individual
-host addresses and SHALL freeze that set into a signed scheduled plan for the
-execution, under the existing sweep lease and
-`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. Host addresses are representable
-by the plan builder. A resolved set that exceeds the plan builder's limits SHALL
-be split across executions or ranges so every host is in a signed plan. The
-group's sweep results and sweep metric batch SHALL be emitted together under
-that lease.
+### Requirement: Query-resolved sweeps freeze the compiler scan set
+At lease time core SHALL freeze the scan set the sweep compiler scans today and
+SHALL sign that set as the scheduled plan for the execution, under the existing
+sweep lease and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. The scan set is
+the query's hosts, the alias addresses of those devices, and the group's static
+targets. A set that exceeds the plan builder's limits SHALL be split across
+executions or ranges so every member is in a signed plan. The group's sweep
+results and sweep metric batch SHALL be emitted together under that lease. A
+failed device read SHALL keep the last signed plan and SHALL NOT sign an empty
+plan. When no signed plan exists yet, the group waits for a successful read. An
+unparseable query SHALL contribute no hosts, and the group's static targets
+SHALL still run.
 
-#### Scenario: A large resolved host set is split
-- **WHEN** the host set resolved from a `target_query` exceeds the plan builder's
-  limits
+#### Scenario: The signed plan is the compiler scan set
+- **GIVEN** a sweep group whose `target_query` matches 10.0.0.5, whose matched
+  device has alias 10.0.0.9, and whose static targets include 10.1.1.1
+- **WHEN** core freezes the plan for an execution
+- **THEN** the signed plan contains 10.0.0.5, 10.0.0.9, and 10.1.1.1
+
+#### Scenario: A large scan set is split
+- **WHEN** the scan set exceeds the plan builder's limits
 - **THEN** core splits it across executions or ranges
-- **AND** every host is included in a signed sweep plan under
+- **AND** every member is included in a signed sweep plan under
   `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
 - **AND** the group's sweep results and sweep metric batch are both edge records
 
+#### Scenario: A failed device read keeps the last plan
+- **GIVEN** a sweep group with a signed plan from the previous resolution
+- **WHEN** the device read for its `target_query` fails
+- **THEN** core keeps that signed plan
+- **AND** it does not sign an empty plan
+
+#### Scenario: An unparseable query leaves static targets
+- **GIVEN** a sweep group with static target 10.1.1.1 and a `target_query` that
+  cannot be parsed
+- **WHEN** core resolves the group
+- **THEN** the query contributes no hosts
+- **AND** the signed plan contains 10.1.1.1
+
+### Requirement: Sweep groups the lease skipped get a home before cutover
+Before legacy status-path emission is removed, core SHALL lease every runnable
+sweep group.
+
+The lease schedule minimum SHALL be 1 second. A whole-second interval, and a
+cron whose closest fires are at least one second apart, SHALL be leased. A
+schedule denser than one second SHALL be refused at configuration with an
+operator-visible validation error.
+
+A sweep group whose modes include mtr SHALL be leased. Its reachability and port
+results SHALL carry `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. Its traces
+SHALL be `MtrTraceBatchV1` under `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`.
+The group SHALL NOT be refused for mtr mode.
+
+Banner results SHALL use a new typed banner-results batch and its own output
+contract in the signed registry. `EdgeRecordV1` and the frozen payloads SHALL
+stay unchanged. Banner results for an execution SHALL carry that execution's
+sweep lease and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`.
+
+#### Scenario: A one-minute sweep is leased
+- **WHEN** a sweep group runs on a 60 second interval
+- **THEN** core signs a sweep lease for it
+
+#### Scenario: An mtr-mode sweep splits traces from reachability
+- **WHEN** a sweep group's modes include mtr
+- **THEN** its reachability and port results carry
+  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
+- **AND** its traces are `MtrTraceBatchV1` records under
+  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`
+- **AND** the group is not refused for mtr mode
+
+#### Scenario: Banner results use the sweep lease
+- **WHEN** a leased sweep execution grabs banners
+- **THEN** the banner results are records on the banner-results contract
+- **AND** they carry that execution's
+  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
+- **AND** `EdgeRecordV1` is unchanged
+
 ### Requirement: Unrepresentable sweep targets are refused at configuration
-The plan builder SHALL refuse a sweep target it cannot represent, including a
-static or resolved IPv6 prefix wider than /65 (`:target_too_wide`), when the
-sweep group is configured. The refusal SHALL be an operator-visible validation
-error. An existing group with such a target SHALL be reported as not runnable.
-That group SHALL NOT emit on the legacy status path and SHALL NOT emit edge
-records.
+After short intervals, mtr mode, and banner results have a home, the plan
+builder SHALL refuse a sweep group it still cannot represent, including a static
+or resolved IPv6 prefix wider than /65 (`:target_too_wide`) and a schedule
+denser than one second, when the sweep group is configured. The refusal SHALL be
+an operator-visible validation error. An existing group of that kind SHALL be
+reported as not runnable. That group SHALL NOT emit on the legacy status path
+and SHALL NOT emit edge records.
 
 #### Scenario: A prefix wider than /65 is refused
 - **WHEN** an operator saves a sweep group whose target is an IPv6 prefix wider
@@ -122,10 +184,12 @@ producer that drops a batch SHALL count the drop with its reason.
 
 ### Requirement: Each family emits on one path at a time
 For a given agent and producer, the agent SHALL emit on exactly one of the
-legacy status path or the edge-record path. A `target_query` sweep group's
-results and its sweep metric batch are one producer for this rule: they SHALL
-stay on the legacy path together until that group has a signed sweep lease, and
-SHALL move to edge records together under that lease. Per-family parity soaks
+legacy status path or the edge-record path. A sweep group's results, its sweep
+metric batch, and its banner results are one producer for this rule until that
+group has a signed sweep lease: they SHALL stay on the legacy path together,
+and SHALL move to edge records together under that lease. Traces from a group
+whose modes include mtr SHALL move with that lease onto the MTR check lease.
+Per-family parity soaks
 SHALL finish before cutover. The next release SHALL remove legacy agent
 status-path emission and the gateway's matching publishers together, and only
 after every runnable sweep group has a signed sweep lease. After that release,
@@ -136,10 +200,12 @@ no durable agent data remains on `StreamStatus` or `PushStatus`.
 - **WHEN** it collects sysmon metrics
 - **THEN** it emits them only as edge records and not through `StreamStatus`
 
-#### Scenario: Query-resolved sweep output stays paired
+#### Scenario: An unleashed sweep stays paired
 - **GIVEN** an agent opted in for the metrics batch contract
-- **AND** a `target_query` sweep group with no signed sweep lease yet
-- **WHEN** that group produces sweep results and a sweep metric batch
-- **THEN** both are emitted on the legacy status path
-- **AND** after the group has a signed sweep lease, both are edge records under
+- **AND** a sweep group with no signed sweep lease yet
+- **WHEN** that group produces sweep results, a sweep metric batch, and banner
+  results
+- **THEN** all three are emitted on the legacy status path
+- **AND** after the group has a signed sweep lease, the results, the metric
+  batch, and the banner results are edge records under
   `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
