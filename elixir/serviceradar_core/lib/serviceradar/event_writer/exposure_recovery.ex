@@ -149,25 +149,30 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
     end
   end
 
-  def ensure_stream do
+  def ensure_stream(opts \\ []) when is_list(opts) do
+    request = Keyword.get(opts, :request, &request/2)
+
     desired_replicas =
       StateBucketSizing.replicas_from_env!(
         "SERVICERADAR_JS_EXPOSURE_RECOVERY_REPLICAS",
         @default_replicas
       )
 
-    case JetstreamConsumer.stream_info(&request/2, @stream) do
+    case JetstreamConsumer.stream_info(request, @stream) do
       {:ok, config, bytes} ->
-        reconcile_and_validate(config, bytes, desired_replicas)
+        reconcile_and_validate(request, config, bytes, desired_replicas)
 
       :absent ->
         # A concurrent creator is harmless only if its effective configuration
         # satisfies the same retention contract; never rewrite a conflicting one.
-        create_stream(desired_replicas)
+        create_stream(request, desired_replicas)
 
-        case JetstreamConsumer.stream_info(&request/2, @stream) do
-          {:ok, config, bytes} -> reconcile_and_validate(config, bytes, desired_replicas)
-          other -> {:error, {:exposure_recovery_stream, other}}
+        case JetstreamConsumer.stream_info(request, @stream) do
+          {:ok, config, bytes} ->
+            reconcile_and_validate(request, config, bytes, desired_replicas)
+
+          other ->
+            {:error, {:exposure_recovery_stream, other}}
         end
 
       error ->
@@ -175,13 +180,13 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
     end
   end
 
-  defp create_stream(replicas) do
+  defp create_stream(request, replicas) do
     payload = @config |> Map.put("num_replicas", replicas) |> Jason.encode!()
 
-    case request("$JS.API.STREAM.CREATE.#{@stream}", payload) do
+    case request.("$JS.API.STREAM.CREATE.#{@stream}", payload) do
       {:ok, %{"error" => error}} ->
         if replicas > 1 and JetstreamConsumer.non_clustered_replicas_error?(error) do
-          create_stream(1)
+          create_stream(request, 1)
         else
           :ok
         end
@@ -191,17 +196,13 @@ defmodule ServiceRadar.EventWriter.ExposureRecovery do
     end
   end
 
-  defp reconcile_and_validate(config, bytes, desired_replicas) do
+  defp reconcile_and_validate(request, config, bytes, desired_replicas) do
     with :ok <- validate_config(config) do
       current_replicas = Map.get(config, "num_replicas", 1)
 
       if desired_replicas > current_replicas do
         updated = Map.put(config, "num_replicas", desired_replicas)
-
-        _ =
-          JetstreamConsumer.update_stream_if_changed(&request/2, @stream, config, updated, bytes)
-
-        :ok
+        JetstreamConsumer.update_stream_if_changed(request, @stream, config, updated, bytes)
       else
         :ok
       end

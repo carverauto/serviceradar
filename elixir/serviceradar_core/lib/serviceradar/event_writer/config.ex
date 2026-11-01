@@ -92,7 +92,8 @@ defmodule ServiceRadar.EventWriter.Config do
     "analytics_predictions" => @gib,
     "mtr_results" => @gib,
     "scan_results" => 268_435_456,
-    "trivy_reports" => @gib
+    "trivy_reports" => @gib,
+    "TELEMETRY_EDGE_RECORD_V1_BULK" => @gib
   }
 
   # Compiled default `num_replicas` for streams only EventWriter creates.
@@ -608,7 +609,8 @@ defmodule ServiceRadar.EventWriter.Config do
   Reads every EventWriter stream size from the environment (design D3, D7).
 
   * `SERVICERADAR_JS_<STREAM>_MAX_BYTES` for `metrics`, `k8s_inventory`,
-    `analytics_predictions`, `mtr_results`, `scan_results` and `trivy_reports`;
+    `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` and
+    `TELEMETRY_EDGE_RECORD_V1_BULK`;
   * `SERVICERADAR_JS_<STREAM>_REPLICAS` for `metrics`, `k8s_inventory`,
     `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` and
     `TELEMETRY_EDGE_RECORD_V1_BULK`;

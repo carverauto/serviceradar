@@ -29,13 +29,13 @@
 # enabled; flows and ARANCINI_CAUSAL are always counted at the collector size.
 #
 #   profile   servers  need (GiB)                          limit (GiB)
-#   small     3        18.5625 + 9/3 + 2 = 23.56           28.50
-#   small     1        24.3125                             28.50
-#   medium    3        56.5625 + 28/3 + 12 = 77.90         79.16
-#   medium    1        76.5625                             79.16
-#   large     3        278.0625 + 128/3 + 64 = 384.73      395.81
-#   large     1        374.0625                            395.81
-#   tenant-2g 3        1.09 + 0.22 + 0.25 = 1.56           1.58
+#   small     3        19.5625 + 6/3 + 2 = 23.56           28.50
+#   small     1        25.3125                             28.50
+#   medium    3        57.5625 + 28/3 + 12 = 78.90         79.16
+#   medium    1        77.5625                             79.16
+#   large     3        279.0625 + 128/3 + 64 = 385.73      395.81
+#   large     1        375.0625                            395.81
+#   tenant-2g 3        1.125 + 0.1875 + 0.25 = 1.56        1.58
 profiles:
   small:
     maxFileStore: 36G
@@ -48,16 +48,17 @@ profiles:
       plugins: 2Gi
       arancini: 2Gi
       metrics: 1Gi
-      k8s_inventory: 1Gi
-      analytics_predictions: 1Gi
-      mtr_results: 1Gi
+      telemetry_edge_record_v1_bulk: 1Gi
+      k8s_inventory: 512Mi
+      analytics_predictions: 512Mi
+      mtr_results: 512Mi
       scan_results: 256Mi
       notifications: 256Mi
       exposureTransitions: 512Mi
       exposureDimensions: 512Mi
-      trivy_reports: 1Gi
-      fieldsurvey: 1Gi
-      threatIntel: 1Gi
+      trivy_reports: 512Mi
+      fieldsurvey: 512Mi
+      threatIntel: 512Mi
       flowsFallback: 1Gi
       aranciniFallback: 1Gi
     singleServerSizes:
@@ -68,6 +69,7 @@ profiles:
       plugins: 2Gi
       arancini: 2Gi
       metrics: 1Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       k8s_inventory: 1Gi
       analytics_predictions: 1Gi
       mtr_results: 1Gi
@@ -91,6 +93,7 @@ profiles:
       plugins: 4Gi
       arancini: 12Gi
       metrics: 2Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       k8s_inventory: 2Gi
       analytics_predictions: 2Gi
       mtr_results: 2Gi
@@ -111,6 +114,7 @@ profiles:
       plugins: 4Gi
       arancini: 12Gi
       metrics: 2Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       k8s_inventory: 2Gi
       analytics_predictions: 2Gi
       mtr_results: 2Gi
@@ -134,6 +138,7 @@ profiles:
       plugins: 8Gi
       arancini: 64Gi
       metrics: 8Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       k8s_inventory: 8Gi
       analytics_predictions: 8Gi
       mtr_results: 8Gi
@@ -154,6 +159,7 @@ profiles:
       plugins: 8Gi
       arancini: 64Gi
       metrics: 8Gi
+      telemetry_edge_record_v1_bulk: 1Gi
       k8s_inventory: 8Gi
       analytics_predictions: 8Gi
       mtr_results: 8Gi
@@ -169,14 +175,20 @@ profiles:
   # Hosted tenant plan with a 2G JetStream disk entitlement (limit 85% of
   # 2000000000 bytes = 1.58 GiB), sized for three NATS servers and the replica
   # counts values-tenant.yaml sets: KV, objects, events, plugins,
-  # ARANCINI_CAUSAL, metrics, scan_results, NOTIFICATIONS and EXPOSURE_RECOVERY
-  # at R3 (full on every server), flows and the remaining EventWriter streams
-  # at R1 (spread). Every fallback stays at or below its collector size.
-  #   full   = 32 + 384 + 256 + 128 + 128 + 64 + 32 + 32 + 64 MiB = 1120 MiB
-  #            (the last 64 MiB is the fixed EXPOSURE_RECOVERY reservation)
-  #   spread = 256 + 32 + 64 + 64 + 32 + 32 + 64 + 64 + 64 MiB = 672 MiB,
+  # ARANCINI_CAUSAL, metrics, scan_results, NOTIFICATIONS,
+  # TELEMETRY_EDGE_RECORD_V1_BULK and EXPOSURE_RECOVERY at R3 (full on every
+  # server), flows and the remaining EventWriter streams at R1 (spread). Every
+  # fallback stays at or below its collector size.
+  #   full   = 32 + 384 + 256 + 128 + 128 + 64 + 32 + 32 + 32 + 64 MiB = 1152 MiB
+  #            (KV, objects, events, plugins, ARANCINI_CAUSAL, metrics,
+  #            scan_results, NOTIFICATIONS, TELEMETRY_EDGE_RECORD_V1_BULK 32 MiB,
+  #            and the fixed 64 MiB EXPOSURE_RECOVERY reservation)
+  #   spread = 256 + 32 + 32 + 32 + 32 + 32 + 32 + 64 + 64 MiB = 576 MiB,
   #            largest 256 MiB (flows)
-  #   need   = 1120 MiB + ceil(672 MiB / 3) + 256 MiB = 1677721600 bytes (1.56 GiB)
+  #   need   = 1152 MiB + ceil(576 MiB / 3) + 256 MiB = 1600 MiB
+  #            = 1677721600 bytes (1.56 GiB)
+  #   account = 1152 MiB * 3 + 576 MiB = 4032 MiB = 3.9375 GiB
+  #            (an un-tiered account limit counts max_bytes * replicas)
   tenant-2g:
     maxFileStore: 2G
     persistenceSize: 3Gi
@@ -188,14 +200,15 @@ profiles:
       plugins: 128Mi
       arancini: 128Mi
       metrics: 64Mi
+      telemetry_edge_record_v1_bulk: 32Mi
       k8s_inventory: 32Mi
-      analytics_predictions: 64Mi
-      mtr_results: 64Mi
+      analytics_predictions: 32Mi
+      mtr_results: 32Mi
       scan_results: 32Mi
       notifications: 32Mi
       exposureTransitions: 32Mi
       exposureDimensions: 32Mi
-      trivy_reports: 64Mi
+      trivy_reports: 32Mi
       fieldsurvey: 64Mi
       threatIntel: 64Mi
       flowsFallback: 64Mi
@@ -211,6 +224,7 @@ replicas:
   plugins: 3
   arancini: 1
   metrics: 3
+  telemetry_edge_record_v1_bulk: 3
   k8s_inventory: 1
   analytics_predictions: 1
   mtr_results: 1

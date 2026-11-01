@@ -1035,7 +1035,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "analytics_predictions" => @gib,
                  "mtr_results" => @gib,
                  "scan_results" => 268_435_456,
-                 "trivy_reports" => @gib
+                 "trivy_reports" => @gib,
+                 "TELEMETRY_EDGE_RECORD_V1_BULK" => @gib
                },
                replicas: %{
                  "metrics" => 3,
@@ -1062,6 +1063,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         "SERVICERADAR_JS_MTR_RESULTS_MAX_BYTES" => "14",
         "SERVICERADAR_JS_SCAN_RESULTS_MAX_BYTES" => "15",
         "SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES" => "16",
+        "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_MAX_BYTES" => "33554432",
         "SERVICERADAR_JS_METRICS_REPLICAS" => "1",
         "SERVICERADAR_JS_K8S_INVENTORY_REPLICAS" => "3",
         "SERVICERADAR_JS_ANALYTICS_PREDICTIONS_REPLICAS" => "3",
@@ -1084,7 +1086,8 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "analytics_predictions" => 13,
                  "mtr_results" => 14,
                  "scan_results" => 15,
-                 "trivy_reports" => 16
+                 "trivy_reports" => 16,
+                 "TELEMETRY_EDGE_RECORD_V1_BULK" => 33_554_432
                },
                replicas: %{
                  "metrics" => 1,
@@ -1101,6 +1104,12 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "ARANCINI_CAUSAL" => %{max_bytes: 23, replicas: 1}
                }
              }
+
+      [edge] =
+        Config.apply_jetstream_sizes([Config.edge_record_stream()], sizes_from(env))
+
+      assert edge.stream_max_bytes == 33_554_432
+      assert edge.stream_replicas == 1
     end
 
     test "treats an empty or whitespace-only variable as unset" do
