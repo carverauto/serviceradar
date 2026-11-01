@@ -247,21 +247,30 @@ in-memory coordinator state:
   `serviceradar_admission_lane_timeout_count`, and
   `serviceradar_admission_lane_crash_count` with bounded lane/class tags only.
   `helm/serviceradar/dashboards/serviceradar-ingestion-edge.json` charts lane
-  queue depth, admissions vs rejections, and NACK / incomplete-run counters, and
+  queue depth, admissions vs rejections, and NACK / incomplete-run counters with
+  `max by (lane)` for gauges and `sum by (lane)` for counter increases, and
   `helm/serviceradar/templates/serviceradar-prometheus-rules.yaml` defines
   `ServiceRadarAdmissionLaneNotAccepted` and `ServiceRadarSyncIncompleteRun`.
 - **ServiceRadar Dashboard (`result-ingestion-lanes`)**: Seeded by
   `ServiceRadarWebNG.Dashboards.SystemReports` from
-  `elixir/web-ng/priv/dashboards/result-ingestion-lanes.json`, charting
-  `in:timeseries_metrics metric_type:core.result_ingestion` series for item and
-  byte depth, admissions vs rejections, terminal completions / NACKs / crashes /
-  incomplete sync runs, and queue/execution/ack latency.
+  `elixir/web-ng/priv/dashboards/result-ingestion-lanes.json`. Each chart is one
+  `in:timeseries_metrics metric_type:core.result_ingestion` metric split by the
+  lane tag (`series:tags.lane`). Depth, queue-wait, execution
+  (`result_ingestion_duration_ms`), and acknowledgement gauges use `agg:avg`.
+  Admission, rejection, terminal, crash, and incomplete-run counters use
+  `agg:sum`, so a one-minute bucket does not average away the 30-second deltas.
+  Lane, sweep, and sync all publish execution as `duration_ms`. A
+  `result_ingestion_terminals_not_accepted` delta is any non-accepted
+  completion: queue-wait timeouts, sweep cancellations, worker failures, and
+  persistence failures.
 - **Cluster Status (`Settings -> Cluster Status`)**: Queries
   `ServiceRadar.Ingestion.RuntimeMetrics.lane_stats/0` on connected mount and
   refresh (never in disconnected mount) to render the **Ingestion** summary card
   and the **Ingestion Lanes** table directly from ETS without calling any lane
-  GenServer or touching the database. When no core coordinator is reachable, the
-  panel renders an explicit unavailable state rather than zeroed counters.
+  GenServer or touching the database. The card follows current queued depth and
+  shows unavailable when no core coordinator is reachable. The table keeps each
+  node's cumulative admitted, rejected, accepted, not-accepted, timeout, crash,
+  and incomplete-run totals.
 
 Two synthetic harnesses are selected by ordinary PR BazelCI:
 

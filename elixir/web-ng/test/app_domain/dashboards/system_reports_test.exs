@@ -207,7 +207,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
              "the MTR dashboard must not ship a GeoLite2-dependent AS panel: #{inspect(asn_panel && asn_panel.title)}"
     end
 
-    test "the result-ingestion-lanes dashboard charts depth, admissions, rejections, NACKs, and incomplete sync runs" do
+    test "the result-ingestion-lanes dashboard charts each published lane metric as its own series" do
       ingestion =
         Enum.find(
           SystemReports.dashboard_specs(),
@@ -215,16 +215,52 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
         )
 
       assert ingestion.enabled_by_default
-      queries = Enum.map(ingestion.panels, & &1.srql_query)
 
-      assert Enum.all?(queries, &String.contains?(&1, "in:timeseries_metrics"))
-      assert Enum.all?(queries, &String.contains?(&1, "metric_type:core.result_ingestion"))
-      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_pending_count"))
-      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_pending_bytes"))
-      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_events_admitted"))
-      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_events_rejected"))
-      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_terminals_not_accepted"))
-      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_events_incomplete_run"))
+      {charts, tables} = Enum.split_with(ingestion.panels, &(&1.visual_type != :table))
+      assert [table] = tables
+
+      table_query = srql_clauses(table.srql_query)
+      assert table_query[:entity] == "timeseries_metrics"
+      assert table_query[:metric_type] == "core.result_ingestion"
+      refute Map.has_key?(table_query, :series)
+
+      # Names RuntimeMetrics publishes on metrics.ingestion_lanes. One metric per
+      # chart with series:tags.lane, because a metric_name series averages every
+      # lane into a single line. Counter deltas are summed; gauges are averaged.
+      gauges = [
+        "result_ingestion_pending_count",
+        "result_ingestion_in_flight_count",
+        "result_ingestion_pending_bytes",
+        "result_ingestion_in_flight_bytes",
+        "result_ingestion_queue_wait_ms",
+        "result_ingestion_duration_ms",
+        "result_ingestion_acknowledgement_ms"
+      ]
+
+      counters = [
+        "result_ingestion_events_admitted",
+        "result_ingestion_events_rejected",
+        "result_ingestion_terminals_accepted",
+        "result_ingestion_terminals_not_accepted",
+        "result_ingestion_events_crash",
+        "result_ingestion_events_incomplete_run"
+      ]
+
+      by_metric =
+        Map.new(charts, fn panel ->
+          query = srql_clauses(panel.srql_query)
+
+          assert query[:entity] == "timeseries_metrics"
+          assert query[:metric_type] == "core.result_ingestion"
+          assert query[:series] == "tags.lane"
+          assert is_binary(query[:metric_name])
+
+          {query[:metric_name], query[:agg]}
+        end)
+
+      assert Enum.sort(Map.keys(by_metric)) == Enum.sort(gauges ++ counters)
+      assert Enum.all?(gauges, &(by_metric[&1] == "avg"))
+      assert Enum.all?(counters, &(by_metric[&1] == "sum"))
     end
   end
 
@@ -280,4 +316,23 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
       refute AccessControls.can_manage?(nil, %{can_edit?: true})
     end
   end
+
+  defp srql_clauses(query) do
+    query
+    |> String.split(~r/\s+/, trim: true)
+    |> Map.new(fn token ->
+      case String.split(token, ":", parts: 2) do
+        ["in", entity] -> {:entity, entity}
+        ["metric_name", value] -> {:metric_name, metric_name_clause(value)}
+        [key, value] -> {String.to_atom(key), value}
+        [bare] -> {String.to_atom(bare), true}
+      end
+    end)
+  end
+
+  defp metric_name_clause("(" <> rest) do
+    rest |> String.trim_trailing(")") |> String.split(",", trim: true)
+  end
+
+  defp metric_name_clause(name), do: name
 end

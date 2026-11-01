@@ -166,10 +166,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   def handle_info({:worker_result, pid, result}, %{active: %{pid: pid} = active} = state),
     do: {:noreply, %{state | active: Map.put(active, :result, result)}}
 
-  def handle_info({:worker_timeout, pid}, %{active: %{pid: pid}} = state) do
+  def handle_info({:worker_timeout, pid}, %{active: %{pid: pid} = active} = state) do
     emit(:timeout, %{count: 1}, %{reason: :execution_timeout})
     Process.exit(pid, :kill)
-    {:noreply, state}
+    {:noreply, %{state | active: Map.put(active, :timed_out, true)}}
   end
 
   def handle_info({:worker_timeout, _}, state), do: {:noreply, state}
@@ -178,33 +178,37 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Process.cancel_timer(active.timer)
     state = %{state | active: nil}
 
-    if reason == :normal and active.result != nil do
-      accepted = Enum.all?(active.result, &(&1 == :ok or match?({:ok, _}, &1)))
-      outcome = if(accepted, do: :accepted, else: :not_accepted)
-      result = if(accepted, do: :committed, else: :execution_failed)
-      execution_ms = System.monotonic_time(:millisecond) - active.started_at
+    cond do
+      reason == :normal and active.result != nil ->
+        accepted = Enum.all?(active.result, &(&1 == :ok or match?({:ok, _}, &1)))
+        outcome = if(accepted, do: :accepted, else: :not_accepted)
+        result = if(accepted, do: :committed, else: :execution_failed)
+        duration_ms = System.monotonic_time(:millisecond) - active.started_at
 
-      emit(
-        :completion,
-        %{
-          count: length(active.ids),
-          outcome: outcome,
-          execution_ms: execution_ms,
-          acknowledgement_ms: execution_ms
-        },
-        %{result: result, outcome: outcome}
-      )
+        emit(
+          :completion,
+          %{
+            count: length(active.ids),
+            outcome: outcome,
+            duration_ms: duration_ms,
+            acknowledgement_ms: duration_ms
+          },
+          %{result: result, outcome: outcome}
+        )
 
-      {:noreply, state |> release(active.ids) |> maybe_flush()}
-    else
-      emit(:crash, %{count: 1}, %{reason: :worker_crash, exit_reason: bounded_reason(reason)})
+        {:noreply, state |> release(active.ids) |> maybe_flush()}
 
-      Logger.warning("Sync ingestion worker exited; retrying retained bounded batch",
-        reason: inspect(reason)
-      )
+      true ->
+        if Map.get(active, :timed_out) != true do
+          emit(:crash, %{count: 1}, %{reason: :worker_crash, exit_reason: bounded_reason(reason)})
 
-      pending = :queue.join(:queue.from_list(active.ids), state.pending)
-      {:noreply, arm(%{state | pending: pending})}
+          Logger.warning("Sync ingestion worker exited; retrying retained bounded batch",
+            reason: inspect(reason)
+          )
+        end
+
+        pending = :queue.join(:queue.from_list(active.ids), state.pending)
+        {:noreply, arm(%{state | pending: pending})}
     end
   end
 

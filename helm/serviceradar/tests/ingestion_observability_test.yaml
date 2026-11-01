@@ -34,33 +34,14 @@ tests:
               summary: "ServiceRadar sync ingestion detected an incomplete sync run"
               description: "Sync ingestion recorded an incomplete sync run and skipped snapshot finalization in namespace sr-test."
 
-  - it: ships admission lane depth, rejection, NACK, and incomplete sync run panels in the ingestion dashboard configmap
+  - it: ships the ingestion edge dashboard configmap when grafana dashboards are enabled
     template: templates/grafana-dashboards.yaml
     set:
       observability.enabled: true
       observability.grafana.dashboards.enabled: true
     asserts:
-      - matchRegex:
+      - isNotEmpty:
           path: data["serviceradar-ingestion-edge.json"]
-          pattern: serviceradar_admission_lane_pending_count
-        documentSelector:
-          path: metadata.name
-          value: serviceradar-dashboard-serviceradar-ingestion-edge
-      - matchRegex:
-          path: data["serviceradar-ingestion-edge.json"]
-          pattern: serviceradar_admission_lane_rejected_count
-        documentSelector:
-          path: metadata.name
-          value: serviceradar-dashboard-serviceradar-ingestion-edge
-      - matchRegex:
-          path: data["serviceradar-ingestion-edge.json"]
-          pattern: serviceradar_admission_lane_completion_count
-        documentSelector:
-          path: metadata.name
-          value: serviceradar-dashboard-serviceradar-ingestion-edge
-      - matchRegex:
-          path: data["serviceradar-ingestion-edge.json"]
-          pattern: serviceradar_admission_lane_incomplete_run_count
         documentSelector:
           path: metadata.name
           value: serviceradar-dashboard-serviceradar-ingestion-edge

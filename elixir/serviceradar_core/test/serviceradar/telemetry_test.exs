@@ -3,6 +3,12 @@ defmodule ServiceRadar.TelemetryTest do
 
   alias ServiceRadar.Telemetry
 
+  @ingestion_dashboard_path Path.expand(
+                              "../../../../helm/serviceradar/dashboards/serviceradar-ingestion-edge.json",
+                              __DIR__
+                            )
+  @external_resource @ingestion_dashboard_path
+
   setup do
     # Detach any existing handlers to avoid conflicts (ignore if not found)
     _ = :telemetry.detach("test-handler")
@@ -680,5 +686,91 @@ defmodule ServiceRadar.TelemetryTest do
       assert measurements.count >= 1
       assert is_list(metadata.nodes)
     end
+  end
+
+  describe "ingestion edge grafana panels" do
+    test "aggregate each admission lane gauge and counter by lane" do
+      published =
+        Map.new(Telemetry.admission_lane_metrics(), fn metric ->
+          {Enum.join(metric.name, "_"), metric.__struct__}
+        end)
+
+      assert published["serviceradar_admission_lane_pending_count"] ==
+               Elixir.Telemetry.Metrics.LastValue
+
+      parsed =
+        @ingestion_dashboard_path
+        |> File.read!()
+        |> Jason.decode!()
+        |> Map.fetch!("panels")
+        |> Enum.flat_map(fn panel -> panel["targets"] || [] end)
+        |> Enum.map(& &1["expr"])
+        |> Enum.filter(&String.contains?(&1, "serviceradar_admission_lane_"))
+        |> Enum.map(&parse_lane_expr/1)
+
+      charted = MapSet.new(parsed, & &1.metric)
+
+      for {name, kind} <- published,
+          kind in [Elixir.Telemetry.Metrics.LastValue, Elixir.Telemetry.Metrics.Counter] do
+        assert name in charted, "ingestion dashboard does not chart #{name}"
+      end
+
+      Enum.each(parsed, fn sample ->
+        assert "lane" in sample.by
+        assert sample.labels["namespace"] == "$namespace"
+
+        case published[sample.metric] do
+          Elixir.Telemetry.Metrics.LastValue ->
+            assert sample.agg == "max"
+            assert sample.window == nil
+
+          Elixir.Telemetry.Metrics.Counter ->
+            assert sample.agg == "sum"
+            assert sample.window == "5m"
+
+          other ->
+            flunk("charted #{sample.metric} is #{inspect(other)}")
+        end
+      end)
+
+      completion =
+        Enum.find(parsed, &(&1.metric == "serviceradar_admission_lane_completion_count"))
+
+      assert completion.labels["outcome"] == "not_accepted"
+    end
+  end
+
+  defp parse_lane_expr(expr) do
+    case Regex.named_captures(
+           ~r/^(?<agg>max|sum) by \((?<by>[^)]+)\) \((?:increase\()?(?<metric>serviceradar_admission_lane_[a-z0-9_]+)\{(?<selector>[^}]*)\}(?:\[(?<window>[0-9]+[smhd])\])?\){1,2}$/,
+           expr
+         ) do
+      nil ->
+        flunk("admission lane panel expr is not a per-lane aggregation: #{expr}")
+
+      captures ->
+        window =
+          case captures["window"] do
+            blank when blank in [nil, ""] -> nil
+            window -> window
+          end
+
+        %{
+          agg: captures["agg"],
+          by: captures["by"] |> String.split(",", trim: true) |> Enum.map(&String.trim/1),
+          metric: captures["metric"],
+          labels: label_matchers(captures["selector"]),
+          window: window
+        }
+    end
+  end
+
+  defp label_matchers(selector) do
+    selector
+    |> String.split(",", trim: true)
+    |> Map.new(fn pair ->
+      [key, value] = String.split(pair, "=", parts: 2)
+      {String.trim(key), String.trim(value, "\"")}
+    end)
   end
 end

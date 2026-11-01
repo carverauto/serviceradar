@@ -55,14 +55,20 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         socket
         |> assign(:page_title, "Cluster Status")
         |> assign(:current_path, "/settings/cluster")
-        |> assign(:cluster_status, if(connected?, do: load_cluster_status(), else: standalone_status()))
+        |> assign(
+          :cluster_status,
+          if(connected?, do: load_cluster_status(), else: standalone_status())
+        )
         |> assign(:gateways_cache, gateways_cache)
         |> assign(:gateways, gateways)
         |> stream_configure(:agents, dom_id: &agent_dom_id/1)
         |> assign_agents(agents_cache)
         |> assign(:is_admin, is_admin)
         |> assign(:job_counts, if(connected?, do: load_job_counts(scope), else: %{total: 0}))
-        |> assign(:oban_stats, if(connected?, do: load_oban_stats(), else: %{queues: %{}, total_executing: 0}))
+        |> assign(
+          :oban_stats,
+          if(connected?, do: load_oban_stats(), else: %{queues: %{}, total_executing: 0})
+        )
         |> assign(:ingestion_stats, ingestion_stats_for_mount(connected?))
         |> assign(:events, [])
 
@@ -175,7 +181,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   end
 
   def handle_info({:gateway_unregistered, gateway_id, node}, socket) do
-    updated_cache = Map.delete(socket.assigns.gateways_cache, gateway_instance_key(gateway_id, node))
+    updated_cache =
+      Map.delete(socket.assigns.gateways_cache, gateway_instance_key(gateway_id, node))
+
     gateways = compute_gateways(updated_cache)
     cluster_health = build_cluster_health(gateways, socket.assigns.agent_count)
 
@@ -211,7 +219,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         # Every agent push lands here, in every open tab: update only the
         # pushing agent's row instead of rebuilding and re-rendering the list.
         updated_cache = upsert_agent_cache_entry(socket.assigns.agents_cache, agent_info)
-        agent = connected_agent(Map.fetch!(updated_cache, agent_id), System.system_time(:millisecond))
+
+        agent =
+          connected_agent(Map.fetch!(updated_cache, agent_id), System.system_time(:millisecond))
 
         socket =
           socket
@@ -224,7 +234,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
           else
             socket
             |> assign(:agent_count, map_size(updated_cache))
-            |> assign(:cluster_health, build_cluster_health(socket.assigns.gateways, map_size(updated_cache)))
+            |> assign(
+              :cluster_health,
+              build_cluster_health(socket.assigns.gateways, map_size(updated_cache))
+            )
           end
 
         {:noreply, socket}
@@ -841,7 +854,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     Map.get(gateway, atom_key) || Map.get(gateway, string_key) || default
   end
 
-  defp gateway_instance_key(%{gateway_id: gateway_id, node: node}), do: gateway_instance_key(gateway_id, node)
+  defp gateway_instance_key(%{gateway_id: gateway_id, node: node}),
+    do: gateway_instance_key(gateway_id, node)
 
   defp gateway_instance_key(gateway_id, node) when is_binary(gateway_id) do
     "#{gateway_id}@#{node}"
@@ -988,7 +1002,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
     existing_cache
     |> Enum.filter(fn {instance_key, gateway} ->
-      Map.has_key?(authoritative_cache, instance_key) or gateway_node_online?(gateway, online_nodes)
+      Map.has_key?(authoritative_cache, instance_key) or
+        gateway_node_online?(gateway, online_nodes)
     end)
     |> Map.new()
     |> merge_gateways_cache(authoritative_cache)
@@ -1009,7 +1024,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     node_str = to_string(node)
 
     gateways_cache
-    |> Enum.reject(fn {_instance_key, gateway} -> to_string(Map.get(gateway, :node)) == node_str end)
+    |> Enum.reject(fn {_instance_key, gateway} ->
+      to_string(Map.get(gateway, :node)) == node_str
+    end)
     |> Map.new()
   end
 
@@ -1378,18 +1395,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   @doc false
   def ingestion_card_variant(%{available: false}), do: "warning"
 
-  def ingestion_card_variant(%{totals: totals}) do
-    cond do
-      totals.not_accepted_total > 0 or totals.incomplete_run_total > 0 or totals.crash_total > 0 ->
-        "error"
+  def ingestion_card_variant(%{totals: %{pending_count: pending}}) when pending > 0, do: "warning"
 
-      totals.rejected_total > 0 or totals.timeout_total > 0 or totals.pending_count > 0 ->
-        "warning"
-
-      true ->
-        "success"
-    end
-  end
+  def ingestion_card_variant(%{totals: _totals}), do: "success"
 
   defp format_ingestion_bytes(bytes) when is_integer(bytes) and bytes >= 1_048_576 do
     "#{Float.round(bytes / 1_048_576, 1)} MiB"

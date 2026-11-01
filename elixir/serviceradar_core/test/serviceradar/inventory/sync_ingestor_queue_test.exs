@@ -137,6 +137,33 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
     # Only the first attempt hangs; the timeout kills it.
     Application.put_env(:serviceradar_core, :sync_ingestor_test_delays, [10_000])
 
+    parent = self()
+
+    handler = fn event, _measurements, metadata, _config ->
+      send(parent, {:lane_event, List.last(event), metadata[:reason]})
+    end
+
+    :ok =
+      :telemetry.attach(
+        "sync-timeout-lane-timeout",
+        [:serviceradar, :admission_lane, :timeout],
+        handler,
+        nil
+      )
+
+    :ok =
+      :telemetry.attach(
+        "sync-timeout-lane-crash",
+        [:serviceradar, :admission_lane, :crash],
+        handler,
+        nil
+      )
+
+    on_exit(fn ->
+      :telemetry.detach("sync-timeout-lane-timeout")
+      :telemetry.detach("sync-timeout-lane-crash")
+    end)
+
     a = %{"device_id" => "dev-a"}
     b = %{"device_id" => "dev-b"}
     c = %{"device_id" => "dev-c"}
@@ -149,7 +176,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
 
     assert_receive {:ingest_started, retry}, 2_000
     assert retry == [a, b]
+    assert_receive {:lane_event, :timeout, :execution_timeout}
+    refute_receive {:lane_event, :crash, _reason}, 50
     assert_receive {:ingest_started, [^c]}, 2_000
+    refute_receive {:lane_event, :crash, _reason}, 0
   end
 
   test "a batch's deadline grows with the chunks it carries" do

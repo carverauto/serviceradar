@@ -2,7 +2,7 @@
   "version": 1,
   "slug": "result-ingestion-lanes",
   "title": "Result ingestion lanes",
-  "description": "Bounded admission lane queue depth, throughput, rejections, NACKs, crashes, and incomplete sync runs across serviceradar-core nodes.",
+  "description": "Bounded admission lane queue depth, throughput, rejections, NACKs, crashes, and incomplete sync runs across serviceradar-core nodes. Each chart is one metric split by the lane tag.",
   "default_time_range": "last_1h",
   "metadata": {
     "system_report": true,
@@ -10,61 +10,152 @@
   },
   "panels": [
     {
-      "title": "Queue depth (items)",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:(result_ingestion_pending_count,result_ingestion_in_flight_count) time:last_1h bucket:1m agg:avg series:metric_name limit:500",
+      "title": "Pending items",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_pending_count time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
-        "caption": "Pending and in-flight item occupancy across bounded core ingestion lanes."
+        "caption": "Pending item occupancy for each bounded core ingestion lane."
       },
       "layout": { "x": 0, "y": 0, "w": 6, "h": 5 },
       "position": 0
     },
     {
-      "title": "Queue depth (bytes)",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:(result_ingestion_pending_bytes,result_ingestion_in_flight_bytes) time:last_1h bucket:1m agg:avg series:metric_name limit:500",
+      "title": "In-flight items",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_in_flight_count time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
-        "unit": "bytes",
-        "caption": "Pending and in-flight byte occupancy across bounded core ingestion lanes."
+        "caption": "In-flight item occupancy for each bounded core ingestion lane."
       },
       "layout": { "x": 6, "y": 0, "w": 6, "h": 5 },
       "position": 1
     },
     {
-      "title": "Admitted vs rejected counters",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:(result_ingestion_events_admitted,result_ingestion_events_rejected) time:last_1h bucket:1m agg:avg series:metric_name limit:500",
+      "title": "Pending bytes",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_pending_bytes time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
-        "caption": "Admitted and rejected interval deltas published by RuntimeMetrics on metrics.ingestion_lanes."
+        "unit": "bytes",
+        "caption": "Pending byte occupancy for each bounded core ingestion lane."
       },
       "layout": { "x": 0, "y": 5, "w": 6, "h": 5 },
       "position": 2
     },
     {
-      "title": "Completions, NACKs, crashes & incomplete sync runs",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:(result_ingestion_terminals_accepted,result_ingestion_terminals_not_accepted,result_ingestion_events_crash,result_ingestion_events_incomplete_run) time:last_1h bucket:1m agg:avg series:metric_name limit:500",
+      "title": "In-flight bytes",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_in_flight_bytes time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
-        "caption": "Non-zero not_accepted or incomplete_run deltas indicate downstream persistence failures or incomplete sync runs."
+        "unit": "bytes",
+        "caption": "In-flight byte occupancy for each bounded core ingestion lane."
       },
       "layout": { "x": 6, "y": 5, "w": 6, "h": 5 },
       "position": 3
     },
     {
-      "title": "Admission wait & execution latency (ms)",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:(result_ingestion_queue_wait_ms,result_ingestion_execution_ms,result_ingestion_acknowledgement_ms) time:last_1h bucket:1m agg:avg series:metric_name limit:500",
+      "title": "Admitted",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_admitted time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Admitted interval deltas published by RuntimeMetrics, summed per lane."
+      },
+      "layout": { "x": 0, "y": 10, "w": 6, "h": 5 },
+      "position": 4
+    },
+    {
+      "title": "Rejected",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_rejected time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Rejected interval deltas published by RuntimeMetrics, summed per lane."
+      },
+      "layout": { "x": 6, "y": 10, "w": 6, "h": 5 },
+      "position": 5
+    },
+    {
+      "title": "Accepted completions",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_terminals_accepted time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Accepted completion deltas, summed per lane."
+      },
+      "layout": { "x": 0, "y": 15, "w": 6, "h": 5 },
+      "position": 6
+    },
+    {
+      "title": "Not-accepted completions",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_terminals_not_accepted time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Not-accepted completions per lane, including queue-wait timeouts, sweep cancellations, worker failures, and persistence failures."
+      },
+      "layout": { "x": 6, "y": 15, "w": 6, "h": 5 },
+      "position": 7
+    },
+    {
+      "title": "Crashes",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_crash time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Worker crash deltas per lane. A deadline kill is a timeout, not a crash."
+      },
+      "layout": { "x": 0, "y": 20, "w": 6, "h": 5 },
+      "position": 8
+    },
+    {
+      "title": "Incomplete sync runs",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_incomplete_run time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "caption": "Sync ledger checks that did not finalize, summed per lane."
+      },
+      "layout": { "x": 6, "y": 20, "w": 6, "h": 5 },
+      "position": 9
+    },
+    {
+      "title": "Queue wait (ms)",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_queue_wait_ms time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
         "unit": "ms",
-        "caption": "Queue wait, worker execution, and end-to-end acknowledgement duration gauges."
+        "caption": "Queue wait gauges per lane."
       },
-      "layout": { "x": 0, "y": 10, "w": 6, "h": 5 },
-      "position": 4
+      "layout": { "x": 0, "y": 25, "w": 4, "h": 5 },
+      "position": 10
+    },
+    {
+      "title": "Execution (ms)",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_duration_ms time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "unit": "ms",
+        "caption": "Worker execution gauges per lane. Lane, sweep, and sync all publish duration_ms."
+      },
+      "layout": { "x": 4, "y": 25, "w": 4, "h": 5 },
+      "position": 11
+    },
+    {
+      "title": "Acknowledgement (ms)",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_acknowledgement_ms time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "visual_type": "line",
+      "data_binding": {},
+      "display_config": {
+        "unit": "ms",
+        "caption": "End-to-end acknowledgement gauges per lane."
+      },
+      "layout": { "x": 8, "y": 25, "w": 4, "h": 5 },
+      "position": 12
     },
     {
       "title": "Recent lane telemetry samples",
@@ -74,8 +165,8 @@
       "display_config": {
         "caption": "Latest per-lane metric samples persisted from metrics.ingestion_lanes."
       },
-      "layout": { "x": 6, "y": 10, "w": 6, "h": 5 },
-      "position": 5
+      "layout": { "x": 0, "y": 30, "w": 12, "h": 5 },
+      "position": 13
     }
   ]
 }
