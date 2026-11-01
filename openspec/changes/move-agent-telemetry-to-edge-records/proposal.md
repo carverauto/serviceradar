@@ -26,27 +26,35 @@ were deferred to prove the transport on one producer first. That proof is done.
 
 ## What Changes
 
-- Add one typed output contract per agent data family. Each carries an EXISTING
-  protobuf as its payload where one exists (`metric.v1.MetricBatch`,
+- Add one typed output contract per source-authorization rule. Each carries an
+  EXISTING protobuf as its payload where one exists (`metric.v1.MetricBatch`,
   `addon.v1.TelemetryBatch`, `addon.v1.OtlpRelayFrame`,
-  `netprobe.v1.FlowAttributionEventBatch`, `edge.v1.MtrTraceBatchV1`). JSON-only
-  producers get a typed batch contract before they move.
+  `netprobe.v1.FlowAttributionEventBatch`, `edge.v1.MtrTraceBatchV1`). Metrics
+  uses two contracts with that one `MetricBatch` payload, one projector, and one
+  destination: `serviceradar.metrics.batch` v1 for passive producers (sysmon and
+  any other passive metric producer; standing grant; no source authorization) and
+  `serviceradar.metrics.scheduled` v1 for lease-run metrics (`SCHEDULED_CHECK` for
+  SNMP, ICMP, and MTR metrics and rperf; `SCHEDULED_SWEEP` for sweep metric
+  batches). JSON-only producers get a typed batch contract before they move.
 - Add two core-signed grant models, both expressible in the frozen record ABI with
   no ABI change:
   - **Check leases** for producers core schedules (MTR, ICMP checks, SNMP polls,
     plugin runs, sync runs, mapper jobs): a production capability plus a
     `SCHEDULED_CHECK` or `INTEGRATION_RUN` source authorization, mirroring sweep
-    leases. Sweep executions, including the metric batches a sweep lease
-    produces, keep `SCHEDULED_SWEEP` under the existing sweep lease.
-  - **Standing output grants** for passive producers (sysmon, add-on telemetry,
-    OTLP relay, flow attribution, netprobe discovery, workload identity): a
-    renewable production capability per (agent, contract) with no source
-    authorization, fenced by an authority epoch.
+    leases. Sweep metric batches on `serviceradar.metrics.scheduled` v1 keep
+    `SCHEDULED_SWEEP` under the existing sweep lease. SNMP, ICMP, and MTR metrics
+    and rperf on that contract carry `SCHEDULED_CHECK`.
+  - **Standing output grants** for passive producers (sysmon on
+    `serviceradar.metrics.batch` v1, add-on telemetry, OTLP relay, flow
+    attribution, netprobe discovery, workload identity): a renewable production
+    capability per (agent, contract) with no source authorization, fenced by an
+    authority epoch.
 - Add one agent-side producer sink that every migrated producer appends to,
   replacing drain-before-send buffers. Admission is acknowledged only after the
   record is fsynced to the spool.
-- Add one EventWriter projector per contract. Each projector writes the same
-  destination the legacy path writes today (`timeseries_metrics`, `mtr_traces`,
+- Add one EventWriter projector per contract. The two metrics contracts share
+  one projector. Each projector writes the same destination the legacy path
+  writes today (`timeseries_metrics`, `mtr_traces`,
   OTel/log processors, flow attribution in StarRocks, inventory ingestors), inside
   the existing ledger transaction so redelivery changes nothing.
 - Soak producers one family at a time behind a per-agent opt-in, with one path
@@ -57,7 +65,9 @@ were deferred to prove the transport on one producer first. That proof is done.
 - Move sweep groups that use a `target_query` in a final phase, before that
   cutover. The signed plan is `SweepCompiler`'s target resolution for that group,
   the same function the compiler uses today: `normalize_target_query` partition
-  scoping, the alias filters (strict IP, `alias_type` ip, confirmed, updated, or
+  scoping (`SRQLQuery.ensure_target/2` prepends `in:devices` only when the trimmed
+  query does not already start with `in:`), the alias filters (strict IP,
+  `alias_type` ip, confirmed, updated, or
   detected, AliasRecency window, not already a primary, capped at
   `sweep_max_alias_targets_per_device`), per-row drops of non-address values (a
   CIDR in the ip column is not planned as a prefix), plus the group's static
@@ -76,11 +86,12 @@ were deferred to prove the transport on one producer first. That proof is done.
   are `MtrTraceBatchV1` under the MTR check lease when MTR checks move, with no
   dependency on that group's sweep lease. Banner results are a new typed output
   contract under that same sweep lease and `SCHEDULED_SWEEP`;
-  `EdgeRecordV1` and the frozen payloads stay unchanged. Anything still
-  unrepresentable, such as an IPv6 prefix wider than /65 (`:target_too_wide`),
-  is refused at sweep group configuration with an operator-visible validation
-  error. An existing group of that kind is reported as not runnable and does not
-  run on the legacy path.
+  `EdgeRecordV1` and the frozen payloads stay unchanged. A CIDR in a query ip
+  column is dropped for that row. A static target the plan builder cannot
+  represent, such as an IPv6 prefix wider than /65 (`:target_too_wide`), is
+  refused at sweep group configuration with an operator-visible validation error.
+  An existing group of that kind is reported as not runnable and does not run on
+  the legacy path.
 
 ## Out of Scope
 

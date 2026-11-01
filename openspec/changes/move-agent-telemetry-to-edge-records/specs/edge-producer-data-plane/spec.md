@@ -18,16 +18,37 @@ on the agent-gateway status and control interfaces.
 - **WHEN** an agent relays an RTSP camera stream
 - **THEN** the stream does not enter the agent spool
 
-### Requirement: Each data family has one typed output contract
-Each migrated data family SHALL have exactly one output contract in the signed
-contract registry, whose payload is a typed protobuf message. A producer that
-emits JSON today SHALL be given a typed batch message before it migrates. The
-registry SHALL NOT admit a contract whose payload is an untyped status envelope.
+### Requirement: Each data family has one typed output contract per authorization rule
+Each migrated data family SHALL have one output contract in the signed contract
+registry for each source-authorization rule it uses. The payload SHALL be a typed
+protobuf message. A producer that emits JSON today SHALL be given a typed batch
+message before it migrates. The registry SHALL NOT admit a contract whose payload
+is an untyped status envelope. Each contract's payload rules SHALL state that
+contract's source-authorization rule.
 
-#### Scenario: Metric producers share one contract
-- **WHEN** sysmon, SNMP and ICMP producers on one agent emit metrics
-- **THEN** each emits `metric.v1.MetricBatch` records under the same metrics batch
-  contract, distinguished by the batch's producer kind
+Metrics SHALL use two contracts that share the `metric.v1.MetricBatch` payload,
+one projector, and the existing metrics destination.
+`serviceradar.metrics.batch` v1 SHALL be the passive metrics contract: a standing
+grant, and its payload rules SHALL state that records carry no source
+authorization. Sysmon, and any other passive metric producer, SHALL use it.
+`serviceradar.metrics.scheduled` v1 SHALL be the lease-run metrics contract. Its
+payload rules SHALL require a source authorization: `SCHEDULED_CHECK` for SNMP,
+ICMP, and MTR metrics and for rperf, and `SCHEDULED_SWEEP` for a sweep metric
+batch under the sweep lease.
+
+#### Scenario: Passive and lease-run metrics use different contracts
+- **WHEN** sysmon and an SNMP poll on one agent emit metrics
+- **THEN** sysmon emits `metric.v1.MetricBatch` under `serviceradar.metrics.batch`
+  v1 with no source authorization
+- **AND** the SNMP metrics emit `metric.v1.MetricBatch` under
+  `serviceradar.metrics.scheduled` v1 with
+  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`
+
+#### Scenario: A sweep metric batch uses the lease-run contract
+- **WHEN** a leased sweep emits its metric batch
+- **THEN** the batch is `metric.v1.MetricBatch` under
+  `serviceradar.metrics.scheduled` v1
+- **AND** it carries `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
 
 #### Scenario: An untyped envelope is refused
 - **WHEN** a record names a contract whose payload is a raw status chunk
@@ -65,9 +86,11 @@ The signed plan for a sweep execution SHALL be the targets returned by
 `SweepCompiler`'s target resolution for that group, the same function the
 compiler uses today, not a second resolver, and SHALL be signed under the
 existing sweep lease and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`.
-That function scopes the query with `normalize_target_query`: it forces
-`in:devices`, and it appends `partition:<group partition>` unless the query
-already names partition. It keeps an alias only when the value is a strict IP,
+That function scopes the query with `normalize_target_query`.
+`SRQLQuery.ensure_target/2` prepends `in:devices` only when the trimmed query
+does not already start with `in:`. An existing `in:` target is left unchanged.
+It appends `partition:<group partition>` unless the query already names
+partition. It keeps an alias only when the value is a strict IP,
 `alias_type` is ip, the state is confirmed, updated, or detected, `last_seen`
 is inside the AliasRecency window, the address is not already a primary, and
 the count for that device is within `sweep_max_alias_targets_per_device`. A
@@ -98,6 +121,11 @@ last plan, and the group's static targets SHALL still run.
 - **WHEN** core freezes the plan
 - **THEN** the resolution query is scoped to partition tenant-a
 - **AND** the signed plan does not contain the tenant-b device
+
+#### Scenario: An existing in: target is left unchanged
+- **GIVEN** a sweep group whose `target_query` is `in:services ip = '10.0.0.5'`
+- **WHEN** core resolves that query
+- **THEN** the query keeps the `in:services` target
 
 #### Scenario: Alias targets stay inside the compiler cap
 - **GIVEN** a device whose alias rows pass the compiler's alias filters and
@@ -195,13 +223,13 @@ tcp_connect, and mtr are dropped, and the remaining modes still run. A CIDR
 dropped from a query row SHALL NOT refuse the group.
 
 #### Scenario: A prefix wider than /65 is refused
-- **WHEN** an operator saves a sweep group whose target is an IPv6 prefix wider
-  than /65
+- **WHEN** an operator saves a sweep group whose static target is an IPv6 prefix
+  wider than /65
 - **THEN** configuration returns an operator-visible validation error
 - **AND** the group does not run on the legacy status path
 
 #### Scenario: An existing unrepresentable group does not run
-- **GIVEN** a sweep group already stored with an IPv6 prefix wider than /65
+- **GIVEN** a sweep group already stored with a static IPv6 prefix wider than /65
 - **WHEN** core evaluates that group
 - **THEN** the group is reported as not runnable
 - **AND** it emits neither legacy status nor edge records

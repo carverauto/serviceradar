@@ -29,14 +29,18 @@ Today's producers, their payloads, and their sinks (from a full inventory of
 A contract is identified by `contract_id` and version in the signed registry the
 gateway already loads. Where a typed protobuf exists it becomes the record
 payload unchanged, so producers and projectors reuse their encoders and decoders.
-`metric.v1.MetricBatch` covers sysmon, SNMP, ICMP, MTR metrics, sweep metrics and
-rperf as ONE contract, `serviceradar.metrics.batch`, because they share one sink
-and one schema; `ProducerKind` inside the batch already distinguishes them. Sweep
-metric batches on that contract are a byproduct of the sweep lease. They keep
-`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. They are not a standing grant
-and they are not `SCHEDULED_CHECK`. A `target_query` group emits that batch only
-together with its sweep results, once its sweep lease exists. Banner results are
-not part of this contract.
+`metric.v1.MetricBatch` is the payload of two contracts, because one payload rule
+cannot both forbid source authorization and require it. They share one projector
+and the existing metrics destination.
+`serviceradar.metrics.batch` v1 is the passive contract: a standing grant, and
+records carry no source authorization. Sysmon uses it, and so does any other
+passive metric producer.
+`serviceradar.metrics.scheduled` v1 is the lease-run contract. Records carry a
+source authorization: `SCHEDULED_CHECK` for SNMP, ICMP, and MTR metrics and for
+rperf, and `SCHEDULED_SWEEP` for a sweep metric batch under the sweep lease.
+A sweep group with no lease yet emits that batch only together with its sweep
+results, once its sweep lease exists. Banner results are not part of either
+metrics contract.
 
 JSON producers do not get a "JSON blob" contract. Each gets a typed batch message
 first, because the pipeline's semantic digest, idempotency key and projector
@@ -58,17 +62,20 @@ contract smuggle arbitrary future data past registry review.
   control stream the sweep lease carrier already uses. Missed-run marking, epoch
   fencing and lease-pass scheduling reuse the M2.0 machinery. Generalizing that
   scheduler does not retarget sweep slots.
-- Sweep executions, including the metric batches and banner results a sweep
-  lease produces, keep `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under the
-  existing sweep lease. Generalizing the scheduler leaves those sweep slots on
-  that kind. Traces from a sweep whose modes include mtr are the MTR check-lease
-  family (`MtrTraceBatchV1`, `SCHEDULED_CHECK`). They move when MTR checks move,
-  with no dependency on that group's sweep lease.
-- **Standing output grants** cover passive producers. Core signs one production
-  capability per (agent, contract, authority epoch) with a bounded validity window
-  and renews it while the agent is enrolled and the contract is enabled. Records
-  carry no source authorization; the record layer already allows that, and each
-  passive contract's payload rules state it explicitly. Revocation bumps the
+- Sweep executions, including banner results and the sweep metric batches on
+  `serviceradar.metrics.scheduled` v1, keep
+  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under the existing sweep
+  lease. SNMP, ICMP, and MTR metrics and rperf on that same contract carry
+  `SCHEDULED_CHECK`. Generalizing the scheduler leaves sweep slots on
+  `SCHEDULED_SWEEP`. Traces from a sweep whose modes include mtr are the MTR
+  check-lease family (`MtrTraceBatchV1`, `SCHEDULED_CHECK`). They move when MTR
+  checks move, with no dependency on that group's sweep lease.
+- **Standing output grants** cover passive producers, including
+  `serviceradar.metrics.batch` v1. Core signs one production capability per
+  (agent, contract, authority epoch) with a bounded validity window and renews
+  it while the agent is enrolled and the contract is enabled. Records carry no
+  source authorization; the record layer already allows that, and each passive
+  contract's payload rules state it explicitly. Revocation bumps the
   epoch; the gateway refuses stale epochs without a delivery grant exactly as it
   does for sweeps.
 
@@ -86,7 +93,8 @@ never silently.
 
 Each contract gets an EventWriter projector that decodes the payload and calls the
 same domain logic the legacy path calls, inside the `EdgeRecord` ledger
-transaction, so a redelivered record is a no-op. Telemetry destinations follow the
+transaction, so a redelivered record is a no-op. The two metrics contracts share
+that one metrics projector and destination. Telemetry destinations follow the
 repository rule: StarRocks when enabled, CNPG otherwise, never both. Flow and
 exposure data stay StarRocks-only.
 
@@ -100,22 +108,23 @@ runnable sweep group has a signed sweep lease. There is no long-lived per-family
 legacy. Order of the soaks, by loss exposure and payload
 readiness:
 
-1. `serviceradar.metrics.batch` (sysmon, SNMP, ICMP, MTR metrics, sweep metrics,
-   rperf): highest volume, typed, lossy today. Passive producers and check-leased
-   producers share this contract. Sweep metric batches for a leased sweep keep
-   `SCHEDULED_SWEEP` under that sweep lease. A group with no lease yet keeps its
-   sweep metric batch with its sweep results until that lease exists (Decision 6
-   and Decision 7), not when the metrics contract is opted in.
-2. MTR traces (`MtrTraceBatchV1`, already frozen) under check leases (USP-01 M4.3).
-3. Flow attribution and OTLP relay: typed, already ack-shaped.
-4. Plugin signals and native add-on telemetry (`TelemetryBatch`), then Wasm plugin
+1. Passive metrics, `serviceradar.metrics.batch` v1 (sysmon and any other passive
+   metric producer): standing grant, no source authorization.
+2. Lease-run metrics, `serviceradar.metrics.scheduled` v1 (SNMP, ICMP, and MTR
+   metrics and rperf under `SCHEDULED_CHECK`; sweep metric batches under
+   `SCHEDULED_SWEEP`). Same `MetricBatch` payload, projector, and destination as
+   item 1. A group with no lease yet keeps its sweep metric batch with its sweep
+   results until that lease exists (Decision 6 and Decision 7).
+3. MTR traces (`MtrTraceBatchV1`, already frozen) under check leases (USP-01 M4.3).
+4. Flow attribution and OTLP relay: typed, already ack-shaped.
+5. Plugin signals and native add-on telemetry (`TelemetryBatch`), then Wasm plugin
    results via a typed result batch (USP-01 tasks 2.11, 2.12, 2.14).
-5. Inventory producers (mapper, netprobe discovery, sync pages, workload identity,
+6. Inventory producers (mapper, netprobe discovery, sync pages, workload identity,
    endpoint inventory, bumblebee, k8s endpoints) after their typed batch contracts.
-6. Query-resolved sweeps, still before the cutover release: sign
+7. Query-resolved sweeps, still before the cutover release: sign
    `SweepCompiler` target resolution under the existing sweep lease
    (Decision 6).
-7. Lease homes for the groups the sweep lease skips today (Decision 7), before
+8. Lease homes for the groups the sweep lease skips today (Decision 7), before
    the same cutover.
 
 ### Decision 6: Query-resolved sweeps freeze the compiler scan set
@@ -123,9 +132,11 @@ readiness:
 Sweep groups with a `target_query` are in scope as the final phase before the
 cutover release. The signed plan is the targets returned by `SweepCompiler`'s
 target resolution, the same function the compiler uses today, not a second
-resolver. That function scopes the query with `normalize_target_query` (forces
-`in:devices`, and appends `partition:<group partition>` unless the query already
-names partition), keeps aliases that are strict IPs of `alias_type` ip in state
+resolver. That function scopes the query with `normalize_target_query`.
+`SRQLQuery.ensure_target/2` prepends `in:devices` only when the trimmed query
+does not already start with `in:`; an existing `in:` target is left unchanged.
+It appends `partition:<group partition>` unless the query already names
+partition. It keeps aliases that are strict IPs of `alias_type` ip in state
 confirmed, updated, or detected, inside the AliasRecency window, not already a
 primary, and capped at `sweep_max_alias_targets_per_device`, drops a non-address
 value for that row (a CIDR in the ip column is not planned as a prefix), and
@@ -142,10 +153,11 @@ waits for a successful read. An unparseable query, and a query that parses but
 cannot be translated or cast, contributes no hosts and does not keep the last
 plan. The group's static targets still run.
 
-A target the plan builder cannot represent, including a static or resolved IPv6
-prefix wider than /65 (refused today as `:target_too_wide`), is refused when the
-sweep group is configured. The error is visible to the operator. An existing
-group of that kind is reported as not runnable. It does not run on the legacy
+A static target the plan builder cannot represent, including an IPv6 prefix wider
+than /65 (refused today as `:target_too_wide`), is refused when the sweep group
+is configured. A CIDR in a query ip column is dropped for that row and does not
+refuse the group. The error is visible to the operator. An existing group with
+such a static target is reported as not runnable. It does not run on the legacy
 path, and it does not emit edge records.
 
 ### Decision 7: Groups the sweep lease skips today get a home before cutover
