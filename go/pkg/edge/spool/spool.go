@@ -691,7 +691,9 @@ func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 		}
 	}
 	err := s.persistResolution(through, evidence)
-	if s.alloc != nil && charged > 0 {
+	if s.alloc != nil {
+		// Settle even when the prepaid credit covered the evidence: a failed
+		// write must still stop admission for every lane sharing the allocator.
 		s.alloc.settle(charged, err)
 	}
 	if err != nil {

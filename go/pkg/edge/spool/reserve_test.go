@@ -1366,3 +1366,34 @@ func TestTerminalEvidenceCannotExceedSpoolBudget(t *testing.T) {
 		t.Fatalf("refused terminal evidence created a file: %v", err)
 	}
 }
+
+// A terminal evidence write that fails must stop admission for every lane on the
+// allocator, even when the record's prepaid allowance covered the evidence and
+// no new bytes were admitted for it.
+func TestPrepaidEvidenceWriteFailureStopsEveryLane(t *testing.T) {
+	body := syntheticBody
+	a := newTestAllocator(t, 10*laneChargeLen(body), 1)
+	dirA := t.TempDir()
+	laneA, err := Open(dirA, WithAllocator(a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = laneA.Close() }()
+	laneB, err := Open(t.TempDir(), WithAllocator(a))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = laneB.Close() }()
+	mustAppend(t, laneA, 1, body)
+
+	// A directory where the evidence file belongs makes its write fail.
+	if err := os.Mkdir(filepath.Join(dirA, "terminal-00000000000000000001.pb"), dirPerm); err != nil {
+		t.Fatal(err)
+	}
+	if err := laneA.ResolveWithEvidence(1, []byte("synthetic ack")); err == nil {
+		t.Fatal("evidence write into a directory succeeded, want an error")
+	}
+	if _, err := laneB.Append(evid(1), []byte(body)); err == nil {
+		t.Fatal("another lane kept admitting after a terminal evidence write failed")
+	}
+}

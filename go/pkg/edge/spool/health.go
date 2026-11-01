@@ -41,6 +41,12 @@ func (s *Spool) UnresolvedHealth(now time.Time) (bytes uint64, oldest time.Durat
 		s.mu.Unlock()
 		return 0, 0, false, fmt.Errorf("spool: health: %w", os.ErrClosed)
 	}
+	// Like ScanFrom, adopt a layout another handle reclaimed into, and below
+	// discover records another handle appended, before trusting the index.
+	if err := s.refreshLayout(); err != nil {
+		s.mu.Unlock()
+		return 0, 0, false, err
+	}
 	seq := s.resolved
 	s.mu.Unlock()
 
@@ -48,12 +54,20 @@ func (s *Spool) UnresolvedHealth(now time.Time) (bytes uint64, oldest time.Durat
 	var oldestMs int64
 	var found bool
 	header := make([]byte, headerLen+headerCRC)
+	refreshed := false
 	for {
 		seq++
 		s.mu.Lock()
 		if s.seg == nil {
 			s.mu.Unlock()
 			return 0, 0, false, fmt.Errorf("spool: health: %w", os.ErrClosed)
+		}
+		if seq >= s.nextSeq && !refreshed {
+			refreshed = true
+			if err := s.refreshLocked(); err != nil {
+				s.mu.Unlock()
+				return 0, 0, false, err
+			}
 		}
 		seq = max(seq, s.resolved+1, s.baseSeq+1)
 		if seq >= s.nextSeq {

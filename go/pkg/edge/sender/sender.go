@@ -393,7 +393,7 @@ func (s *Sender) persistAcknowledgement(ack *edgev1.EdgeDeliveryAckV1, previous 
 	if !s.cfg.PersistAcknowledgements || ack.GetResolvedThroughSequence() <= previous {
 		return nil
 	}
-	evidence, err := proto.MarshalOptions{Deterministic: true}.Marshal(ack)
+	evidence, err := proto.MarshalOptions{Deterministic: true}.Marshal(resolvingPrefix(ack))
 	if err != nil {
 		return err
 	}
@@ -401,6 +401,34 @@ func (s *Sender) persistAcknowledgement(ack *edgev1.EdgeDeliveryAckV1, previous 
 		return fmt.Errorf("sender: persist terminal acknowledgement: %w", err)
 	}
 	return nil
+}
+
+// resolvingPrefix is the acknowledgement this lane persists: everything at or
+// below resolved_through_sequence. ValidateAck also accepts retryable
+// dispositions past the watermark; they resolve nothing, their records stay
+// unresolved and are re-sent, and persisting them would spend terminal evidence
+// credit the resolved records did not prepay and keep reclaim from proving the
+// prefix accepted.
+func resolvingPrefix(ack *edgev1.EdgeDeliveryAckV1) *edgev1.EdgeDeliveryAckV1 {
+	through := ack.GetResolvedThroughSequence()
+	trimmed := false
+	for _, d := range ack.GetDispositions() {
+		if d.GetSequence() > through {
+			trimmed = true
+			break
+		}
+	}
+	if !trimmed {
+		return ack
+	}
+	prefix := proto.Clone(ack).(*edgev1.EdgeDeliveryAckV1)
+	prefix.Dispositions = prefix.Dispositions[:0]
+	for _, d := range ack.GetDispositions() {
+		if d.GetSequence() <= through {
+			prefix.Dispositions = append(prefix.Dispositions, proto.Clone(d).(*edgev1.EdgeRecordDisposition))
+		}
+	}
+	return prefix
 }
 
 func randomNonce() ([]byte, error) {

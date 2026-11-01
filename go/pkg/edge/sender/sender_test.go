@@ -22,7 +22,10 @@ import (
 	"errors"
 	"io"
 	"net"
+	"os"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -51,6 +54,9 @@ type fakeIngestServer struct {
 	grantedByteCredits  uint64
 	grantedFrameCredits uint32
 	dispositionKind     edgev1.EdgeRecordDispositionKind
+	// retryLast, when set, reports the last received frame REJECTED_RETRYABLE
+	// past the resolved watermark, a tail ValidateAck accepts.
+	retryLast atomic.Bool
 
 	mu             sync.Mutex
 	receivedFrames []*edgev1.EdgeDeliveryFrameV1
@@ -106,6 +112,11 @@ func (f *fakeIngestServer) Stream(stream grpc.BidiStreamingServer[edgev1.EdgeRec
 			Kind:     f.dispositionKind,
 		})
 		resolvedThrough = frame.GetSequence()
+	}
+	if f.retryLast.Load() && len(disps) > 0 {
+		disps[len(disps)-1].Kind = edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE
+		disps[len(disps)-1].RejectionCode = "WOULD_BLOCK"
+		resolvedThrough--
 	}
 
 	finalAck := &edgev1.EdgeDeliveryAckV1{
@@ -697,4 +708,61 @@ func TestTerminalAcknowledgementSurvivesReopenBeforeSuppressingReplay(t *testing
 	if frames := srv.framesReceived(); len(frames) != 1 || !bytes.Equal(frames[0].GetRecordBytes(), id) {
 		t.Fatalf("terminal record replayed after restart: %v", frames)
 	}
+}
+
+// A gateway may resolve a prefix and report the next record retryable. The lane
+// persists only the resolving prefix, so once the retried record is accepted
+// the fully accepted segment reclaims. Persisting the retryable tail would keep
+// reclaim from proving the prefix accepted, and the lane would never reclaim.
+func TestRetryableTailDoesNotBlockReclaimOfTheAcceptedPrefix(t *testing.T) {
+	dir := t.TempDir()
+	sp, err := spool.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = sp.Close() })
+	for range 2 {
+		id := mustEventID(t)
+		if _, err := sp.Append(id, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	srv := &fakeIngestServer{grantedByteCredits: 1 << 20, grantedFrameCredits: 100, dispositionKind: edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE}
+	srv.retryLast.Store(true)
+	cfg := testConfig(t)
+	cfg.PersistAcknowledgements = true
+	sender, err := New(sp, dialFakeIngest(t, srv), cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The retried record is never acknowledged in this session, so the run ends
+	// at its deadline after persisting the resolving prefix.
+	first, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	_, _ = sender.RunOnce(first)
+	cancel()
+	if sp.Resolved() != 1 {
+		t.Fatalf("resolved after the retryable tail = %d, want 1", sp.Resolved())
+	}
+
+	srv.retryLast.Store(false)
+	second, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if _, err := sender.RunOnce(second); err != nil {
+		t.Fatalf("retry run: %v", err)
+	}
+	if sp.Resolved() != 2 {
+		t.Fatalf("resolved after the retry = %d, want 2", sp.Resolved())
+	}
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".spool-data-") {
+			return
+		}
+	}
+	t.Fatal("the fully accepted lane was not reclaimed")
 }

@@ -140,3 +140,28 @@ func uuidV7At(ms uint64) []byte {
 	id[8] = 0x80
 	return id
 }
+
+// A sampler holding its own handle sees records another handle appended, as
+// ScanFrom does, instead of reporting an empty backlog from a stale index.
+func TestUnresolvedHealthSeesRecordsAppendedThroughAnotherHandle(t *testing.T) {
+	dir := t.TempDir()
+	writer, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = writer.Close() })
+	reader, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reader.Close() })
+
+	now := time.UnixMilli(1_700_000_000_000)
+	if _, err := writer.Append(uuidV7At(uint64(now.Add(-time.Minute).UnixMilli())), []byte("abc")); err != nil {
+		t.Fatal(err)
+	}
+	bytes, age, reportAge, err := reader.UnresolvedHealth(now)
+	if err != nil || bytes != 3 || !reportAge || age != time.Minute {
+		t.Fatalf("health through another handle = (%d, %s, %v, %v), want (3, 1m0s, true, nil)", bytes, age, reportAge, err)
+	}
+}
