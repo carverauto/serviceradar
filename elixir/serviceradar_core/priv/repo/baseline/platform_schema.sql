@@ -2,10 +2,10 @@
 -- PostgreSQL database dump
 --
 
-\restrict DBT8UkIoS4go88RNdTooplqShUD4pfoyplEDAbRNgGQ6LbN2GSobDtdB91Cnhm0
+\restrict DSLddQFyWZxa0dwNnQ0Th9rBtbt2SNbMxBzxhrBKE9jF6OvKPpDDvzmN7cdG4Ka
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg12+1)
--- Dumped by pg_dump version 18.4 (Homebrew)
+-- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg12+1)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
@@ -20,17 +20,10 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
--- Name: platform; Type: SCHEMA; Schema: -; Owner: -
---
-
-CREATE SCHEMA IF NOT EXISTS platform;
-
-
---
 -- Name: timescaledb; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA platform;
+CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;
 
 
 --
@@ -45,6 +38,13 @@ COMMENT ON EXTENSION timescaledb IS 'Enables scalable inserts and complex querie
 --
 
 CREATE SCHEMA IF NOT EXISTS ag_catalog;
+
+
+--
+-- Name: platform; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA IF NOT EXISTS platform;
 
 
 --
@@ -86,7 +86,7 @@ COMMENT ON EXTENSION age IS 'AGE database extension';
 -- Name: citext; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA platform;
+CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
 
 
 --
@@ -114,7 +114,7 @@ COMMENT ON EXTENSION pg_stat_statements IS 'track planning and execution statist
 -- Name: pg_trgm; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA platform;
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
 
 
 --
@@ -128,7 +128,7 @@ COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA platform;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
 
 
 --
@@ -279,6 +279,23 @@ $$;
 
 
 --
+-- Name: ash_required(anycompatible, jsonb); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.ash_required(value anycompatible, payload jsonb) RETURNS anycompatible
+    LANGUAGE plpgsql STABLE
+    SET search_path TO ''
+    AS $$
+BEGIN
+IF value IS NULL THEN
+RAISE EXCEPTION 'ash_error: %', payload::text;
+END IF;
+RETURN value;
+END;
+$$;
+
+
+--
 -- Name: ash_trim_whitespace(text[]); Type: FUNCTION; Schema: platform; Owner: -
 --
 
@@ -304,6 +321,45 @@ BEGIN
         RETURN arr[start_index : end_index];
     END IF;
 END; $$;
+
+
+--
+-- Name: availability_ledger_ttl(uuid); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.availability_ledger_ttl(group_id uuid) RETURNS interval
+    LANGUAGE sql STABLE
+    AS $_$
+  SELECT COALESCE(
+    (
+      SELECT 2 * (substring(g."interval" FROM '^([0-9]{1,9})')::bigint *
+                 CASE lower(right(g."interval", 1))
+                   WHEN 's' THEN interval '1 second'
+                   WHEN 'm' THEN interval '1 minute'
+                   WHEN 'h' THEN interval '1 hour'
+                   ELSE interval '1 day'
+                 END) + interval '5 minutes'
+      FROM platform.sweep_groups AS g
+      WHERE g.id = group_id AND g."interval" ~* '^[0-9]{1,9}[smhd]$'
+    ),
+    interval '2 hours'
+  )
+$_$;
+
+
+--
+-- Name: availability_projection(boolean); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.availability_projection(available boolean) RETURNS text
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $$
+  SELECT CASE available
+    WHEN true THEN 'available'
+    WHEN false THEN 'unavailable'
+    ELSE 'unknown'
+  END
+$$;
 
 
 --
@@ -334,6 +390,231 @@ CREATE FUNCTION platform.build_timeseries_series_key(p_metric_type text, p_metri
       '|'
     )
   )
+$$;
+
+
+--
+-- Name: cancel_alert_inputs_before_rule_replay(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.cancel_alert_inputs_before_rule_replay() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('alert-evaluation:admission:v1', 0));
+  UPDATE platform.alert_evaluation_lanes
+  SET cancelled_through = greatest(cancelled_through, next_position),
+      updated_at = timezone('utc', now());
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: clear_restored_identity_purge(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.clear_restored_identity_purge() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  NEW.identity_purged_at := NULL;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: device_held_for_review(text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.device_held_for_review(device_uid text) RETURNS boolean
+    LANGUAGE sql STABLE PARALLEL SAFE
+    AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM platform.identity_deduplication_tasks AS t
+    WHERE t.status = 'open' AND t.device_uids @> ARRAY[device_uid]
+  )
+$$;
+
+
+--
+-- Name: device_holds_strong_identifier(text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.device_holds_strong_identifier(device_uid text) RETURNS boolean
+    LANGUAGE sql STABLE PARALLEL SAFE
+    AS $$
+  SELECT EXISTS (
+  SELECT 1 FROM platform.device_identifiers di
+  WHERE di.device_id = device_uid
+    AND (di.identifier_type IN ('agent_id', 'armis_device_id', 'integration_id',
+                                'netbox_device_id', 'hardware_serial')
+         OR (di.identifier_type = 'mac'
+             AND NOT platform.mac_is_locally_administered(di.identifier_value)))
+)
+OR EXISTS (
+  SELECT 1 FROM platform.device_interface_macs dim
+  WHERE dim.device_id = device_uid
+    AND NOT platform.mac_is_locally_administered(dim.mac)
+)
+OR EXISTS (
+  SELECT 1
+  FROM platform.ocsf_devices d
+  CROSS JOIN (VALUES ('agent_id'), ('armis_device_id'), ('integration_id'),
+                     ('netbox_device_id')) AS k(key)
+  WHERE d.uid = device_uid
+    AND CASE jsonb_typeof(d.metadata -> k.key)
+          WHEN 'number' THEN true
+          WHEN 'string' THEN (d.metadata ->> k.key) ~ '[^[:space:]]'
+          ELSE false
+        END
+)
+
+$$;
+
+
+--
+-- Name: endpoint_vulnerability_advisory_changed(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.endpoint_vulnerability_advisory_changed() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  ignored text[] := ARRAY['inserted_at', 'updated_at', 'generation', 'ordinal', 'snapshot_ref'];
+BEGIN
+  IF TG_TABLE_NAME = 'vulnerability_advisories' THEN
+    IF TG_OP = 'INSERT' THEN
+      PERFORM platform.endpoint_vulnerability_record_advisory_changes(
+        ARRAY(SELECT id FROM new_rows), ARRAY(SELECT cve_id FROM new_rows));
+    ELSIF TG_OP = 'DELETE' THEN
+      PERFORM platform.endpoint_vulnerability_record_advisory_changes(
+        ARRAY(SELECT id FROM old_rows), ARRAY(SELECT cve_id FROM old_rows));
+    ELSE
+      PERFORM platform.endpoint_vulnerability_record_advisory_changes(
+        ARRAY(SELECT n.id FROM old_rows o JOIN new_rows n ON n.id = o.id
+              WHERE (to_jsonb(o) - ignored) IS DISTINCT FROM (to_jsonb(n) - ignored)
+              ORDER BY n.id),
+        ARRAY(SELECT n.cve_id FROM old_rows o JOIN new_rows n ON n.id = o.id
+              WHERE (to_jsonb(o) - ignored) IS DISTINCT FROM (to_jsonb(n) - ignored)
+              ORDER BY n.id));
+    END IF;
+  ELSE
+    -- advisory_coordinates and advisory_package_assertions: the parent
+    -- advisory's CVE is resolved when the change is processed.
+    IF TG_OP = 'INSERT' THEN
+      PERFORM platform.endpoint_vulnerability_record_advisory_changes(
+        ARRAY(SELECT DISTINCT advisory_ref FROM new_rows), NULL::text[]);
+    ELSIF TG_OP = 'DELETE' THEN
+      PERFORM platform.endpoint_vulnerability_record_advisory_changes(
+        ARRAY(SELECT DISTINCT advisory_ref FROM old_rows), NULL::text[]);
+    ELSE
+      PERFORM platform.endpoint_vulnerability_record_advisory_changes(
+        ARRAY(SELECT DISTINCT changed.advisory_ref
+              FROM old_rows o
+              JOIN new_rows n ON n.id = o.id
+              CROSS JOIN LATERAL (VALUES (o.advisory_ref), (n.advisory_ref))
+                AS changed(advisory_ref)
+              WHERE (to_jsonb(o) - ignored) IS DISTINCT FROM (to_jsonb(n) - ignored)),
+        NULL::text[]);
+    END IF;
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: endpoint_vulnerability_enqueue_devices(text[], text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.endpoint_vulnerability_enqueue_devices(p_device_uids text[], p_reason text) RETURNS void
+    LANGUAGE sql
+    AS $$
+  INSERT INTO platform.endpoint_vulnerability_match_queue (device_uid, reason)
+  SELECT DISTINCT device_uid, p_reason
+  FROM unnest(p_device_uids) AS device_uid
+  WHERE device_uid IS NOT NULL
+  ORDER BY device_uid
+  ON CONFLICT (device_uid) DO UPDATE
+    SET ticket = nextval('platform.endpoint_vulnerability_match_ticket_seq'),
+        reason = EXCLUDED.reason,
+        enqueued_at = EXCLUDED.enqueued_at
+$$;
+
+
+--
+-- Name: endpoint_vulnerability_inventory_changed(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.endpoint_vulnerability_inventory_changed() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    PERFORM platform.endpoint_vulnerability_enqueue_devices(
+      ARRAY(SELECT DISTINCT device_uid FROM new_rows WHERE current),
+      'inventory_changed');
+  ELSIF TG_OP = 'DELETE' THEN
+    PERFORM platform.endpoint_vulnerability_enqueue_devices(
+      ARRAY(SELECT DISTINCT device_uid FROM old_rows WHERE current),
+      'inventory_changed');
+  ELSE
+    PERFORM platform.endpoint_vulnerability_enqueue_devices(
+      ARRAY(
+        SELECT DISTINCT changed.device_uid
+        FROM old_rows o
+        JOIN new_rows n ON n.id = o.id
+        CROSS JOIN LATERAL (VALUES (o.device_uid), (n.device_uid)) AS changed(device_uid)
+        WHERE (o.current OR n.current)
+          AND (to_jsonb(o) - 'updated_at') IS DISTINCT FROM (to_jsonb(n) - 'updated_at')
+      ),
+      'inventory_changed');
+  END IF;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: endpoint_vulnerability_record_advisory_changes(uuid[], text[]); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.endpoint_vulnerability_record_advisory_changes(p_advisory_refs uuid[], p_cve_ids text[]) RETURNS void
+    LANGUAGE sql
+    AS $$
+  INSERT INTO platform.endpoint_vulnerability_advisory_changes (advisory_ref, cve_id)
+  SELECT DISTINCT ON (change.advisory_ref) change.advisory_ref, change.cve_id
+  FROM unnest(p_advisory_refs, p_cve_ids) AS change(advisory_ref, cve_id)
+  WHERE change.advisory_ref IS NOT NULL
+  ORDER BY change.advisory_ref, change.cve_id NULLS LAST
+  ON CONFLICT (advisory_ref) DO UPDATE
+    SET ticket = nextval('platform.endpoint_vulnerability_match_ticket_seq'),
+        cve_id = COALESCE(EXCLUDED.cve_id, platform.endpoint_vulnerability_advisory_changes.cve_id),
+        changed_at = EXCLUDED.changed_at
+$$;
+
+
+--
+-- Name: endpoint_vulnerability_scan_advanced(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.endpoint_vulnerability_scan_advanced() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM platform.endpoint_vulnerability_assessments a
+    WHERE a.device_uid = NEW.device_uid
+      AND a.status = 'active'
+      AND a.metadata ? 'unconfirmed_since'
+  ) THEN
+    PERFORM platform.endpoint_vulnerability_enqueue_devices(
+      ARRAY[NEW.device_uid], 'unconfirmed_scan_advanced');
+  END IF;
+  RETURN NULL;
+END;
 $$;
 
 
@@ -408,6 +689,837 @@ BEGIN
   END IF;
 
   RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: ensure_device_fleet_ordinal(text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.ensure_device_fleet_ordinal(p_uid text) RETURNS bigint
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  live boolean;
+  assigned bigint;
+BEGIN
+  IF p_uid LIKE 'serviceradar:%' THEN RETURN NULL; END IF;
+  -- Serialize allocation with all canonical writes, including raw bulk upserts.
+  SELECT deleted_at IS NULL AND COALESCE(is_active, true)
+    AND COALESCE(deleted_reason, '') <> 'merged'
+  INTO live FROM platform.ocsf_devices WHERE uid = p_uid FOR NO KEY UPDATE;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+
+  SELECT ordinal INTO assigned FROM platform.device_fleet_ordinals WHERE uid = p_uid;
+  IF assigned IS NOT NULL THEN
+    UPDATE platform.device_fleet_ordinals SET tombstoned = NOT live
+      WHERE uid = p_uid AND tombstoned IS DISTINCT FROM NOT live;
+  ELSIF live THEN
+    INSERT INTO platform.device_fleet_ordinals(uid) VALUES (p_uid)
+      RETURNING ordinal INTO assigned;
+  END IF;
+  IF live THEN RETURN assigned; END IF;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: exposure_assessment_actionable(text, text, text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_assessment_actionable(p_status text, p_assessment text, p_disposition text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE
+    AS $$
+  SELECT COALESCE(p_status = 'active' AND p_assessment = 'confirmed'
+    AND p_disposition = 'affected', false)
+$$;
+
+
+--
+-- Name: exposure_assessment_delete_lock(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_assessment_delete_lock() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  PERFORM platform.exposure_lock_fact(OLD.device_uid, OLD.package_identity_key, OLD.cve_id);
+  RETURN OLD;
+END;
+$$;
+
+
+--
+-- Name: exposure_assessment_publish(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_assessment_publish() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    PERFORM platform.exposure_retire_assessment_key(OLD, 'assessment_deleted');
+    RETURN OLD;
+  END IF;
+  IF TG_OP = 'UPDATE' AND (OLD.device_uid, OLD.package_identity_key, OLD.cve_id)
+    IS DISTINCT FROM (NEW.device_uid, NEW.package_identity_key, NEW.cve_id)
+    AND (OLD.last_transition_seq IS NOT NULL OR
+      platform.exposure_assessment_actionable(OLD.status, OLD.assessment, OLD.disposition)) THEN
+    PERFORM platform.exposure_retire_assessment_key(OLD, 'assessment_key_changed');
+  END IF;
+  IF NEW.last_exposure_publication IS NOT NULL AND (TG_OP = 'INSERT'
+    OR NEW.last_transition_seq IS DISTINCT FROM OLD.last_transition_seq) THEN
+    DELETE FROM platform.exposure_fact_watermarks WHERE device_uid = NEW.device_uid
+      AND package_identity_key = NEW.package_identity_key AND cve_id = NEW.cve_id;
+    PERFORM platform.exposure_enqueue_publication(NEW.last_exposure_publication);
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: exposure_assessment_sequence(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_assessment_sequence() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  actionable boolean := platform.exposure_assessment_actionable(NEW.status, NEW.assessment, NEW.disposition);
+  was_actionable boolean := false;
+  fresh_key boolean := TG_OP = 'INSERT';
+  refresh boolean := TG_OP = 'UPDATE' AND COALESCE(NEW.last_exposure_publication = '{}'::jsonb, false);
+  lifecycle bigint; retired boolean; floor bigint;
+  changed text[] := ARRAY[]::text[];
+  field text; reason text;
+BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    fresh_key := (OLD.device_uid, OLD.package_identity_key, OLD.cve_id)
+      IS DISTINCT FROM (NEW.device_uid, NEW.package_identity_key, NEW.cve_id);
+    -- Stable order when a single write changes keys. Advisory collisions
+    -- merely serialize additional keys; every source lookup uses the full key.
+    FOR field IN SELECT DISTINCT value FROM unnest(ARRAY[
+      jsonb_build_array(OLD.device_uid, OLD.package_identity_key, OLD.cve_id)::text,
+      jsonb_build_array(NEW.device_uid, NEW.package_identity_key, NEW.cve_id)::text
+    ]) value ORDER BY value LOOP
+      PERFORM pg_advisory_xact_lock(hashtextextended(field, 74524));
+    END LOOP;
+  ELSE
+    PERFORM platform.exposure_lock_fact(NEW.device_uid, NEW.package_identity_key, NEW.cve_id);
+  END IF;
+  SELECT lifecycle_seq, tombstoned INTO lifecycle, retired
+    FROM platform.device_fleet_ordinals WHERE uid = NEW.device_uid FOR SHARE;
+  lifecycle := COALESCE(lifecycle, 0);
+  IF fresh_key THEN
+    NEW.last_transition_seq := NULL;
+    NEW.last_exposure_publication := NULL;
+    NEW.last_device_lifecycle_seq := NULL;
+    NEW.exposed_at := NULL;
+  ELSE
+    NEW.last_transition_seq := OLD.last_transition_seq;
+    NEW.last_exposure_publication := OLD.last_exposure_publication;
+    NEW.last_device_lifecycle_seq := OLD.last_device_lifecycle_seq;
+    NEW.exposed_at := OLD.exposed_at;
+    was_actionable := platform.exposure_assessment_actionable(OLD.status, OLD.assessment, OLD.disposition);
+  END IF;
+  IF COALESCE(retired, false) THEN RETURN NEW; END IF;
+  IF fresh_key THEN
+    IF NOT actionable AND NOT refresh THEN RETURN NEW; END IF;
+    changed := ARRAY['state', 'installed_version', 'severity', 'cvss_score', 'kev',
+      'exploit_available', 'fixed_version', 'source_scope'];
+    reason := 'entered_actionable';
+  ELSE
+    IF actionable IS DISTINCT FROM was_actionable THEN changed := changed || 'state'::text; END IF;
+    FOREACH field IN ARRAY ARRAY['installed_version', 'severity', 'cvss_score', 'kev',
+      'exploit_available', 'fixed_version', 'source_scope'] LOOP
+      IF to_jsonb(OLD)->field IS DISTINCT FROM to_jsonb(NEW)->field THEN
+        changed := changed || field;
+      END IF;
+    END LOOP;
+    IF NOT refresh AND actionable IS NOT DISTINCT FROM was_actionable
+      AND NOT (actionable AND (cardinality(changed) > 0
+        OR OLD.last_device_lifecycle_seq IS DISTINCT FROM lifecycle)) THEN
+      RETURN NEW;
+    END IF;
+    reason := CASE WHEN refresh THEN 'snapshot_repair'
+      WHEN actionable AND NOT was_actionable THEN 'entered_actionable'
+      WHEN was_actionable AND NOT actionable THEN 'left_actionable'
+      ELSE 'actionable_attributes_changed' END;
+  END IF;
+  SELECT transition_seq INTO floor FROM platform.exposure_fact_watermarks
+    WHERE device_uid = NEW.device_uid AND package_identity_key = NEW.package_identity_key
+      AND cve_id = NEW.cve_id;
+  NEW.last_transition_seq := platform.exposure_next_sequence(GREATEST(COALESCE(floor, 0),
+    COALESCE(NEW.last_transition_seq, 0), lifecycle));
+  NEW.last_device_lifecycle_seq := lifecycle;
+  IF actionable AND (fresh_key OR NOT was_actionable OR NEW.exposed_at IS NULL) THEN
+    NEW.exposed_at := now() AT TIME ZONE 'utc';
+  END IF;
+  NEW.last_exposure_publication := platform.exposure_transition_payload(
+    NEW, actionable, NEW.last_transition_seq, reason, changed);
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: exposure_cve_ordinal(text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_cve_ordinal(p_cve_id text) RETURNS bigint
+    LANGUAGE plpgsql
+    AS $_$
+DECLARE
+  parts text[];
+  assigned bigint;
+BEGIN
+  IF p_cve_id IS NULL THEN
+    RETURN NULL;
+  END IF;
+
+  parts := regexp_match(p_cve_id, '^CVE-([0-9]{4})-([0-9]{4}|[1-9][0-9]{4,6})$');
+  IF parts IS NOT NULL THEN
+    RETURN parts[1]::bigint * 10000000 + parts[2]::bigint;
+  END IF;
+
+  SELECT ordinal INTO assigned FROM platform.exposure_advisory_ordinals
+    WHERE advisory_id = p_cve_id;
+  IF assigned IS NULL THEN
+    INSERT INTO platform.exposure_advisory_ordinals (advisory_id) VALUES (p_cve_id)
+      ON CONFLICT (advisory_id) DO NOTHING
+      RETURNING ordinal INTO assigned;
+  END IF;
+  IF assigned IS NULL THEN
+    SELECT ordinal INTO assigned FROM platform.exposure_advisory_ordinals
+      WHERE advisory_id = p_cve_id;
+  END IF;
+  RETURN assigned;
+END;
+$_$;
+
+
+--
+-- Name: exposure_device_lifecycle_publish(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_device_lifecycle_publish() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.lifecycle_seq = 0 THEN RETURN NEW; END IF;
+  IF TG_OP = 'UPDATE' AND OLD.lifecycle_seq = NEW.lifecycle_seq THEN RETURN NEW; END IF;
+  INSERT INTO platform.exposure_transition_outbox
+    (device_uid, transition_seq, transition_xid, payload)
+  VALUES (NEW.uid, NEW.lifecycle_seq, NEW.lifecycle_xid, jsonb_build_object(
+    'schema_version', 1,
+    'event_type', CASE WHEN NEW.tombstoned THEN 'device_retired' ELSE 'device_restored' END,
+    'state', CASE WHEN NEW.tombstoned THEN 'retired' ELSE 'live' END,
+    'device_uid', NEW.uid, 'device_ord', NEW.ordinal,
+    'transition_seq', NEW.lifecycle_seq, 'device_lifecycle_seq', NEW.lifecycle_seq,
+    'transition_xid', NEW.lifecycle_xid::text::numeric,
+    'changed_at', NEW.lifecycle_at, 'retired_seq', COALESCE(NEW.retired_seq, 0),
+    'retired_xid', NEW.retired_xid::text::numeric, 'retired_at', NEW.retired_at));
+  IF NOT NEW.tombstoned THEN
+    INSERT INTO platform.exposure_device_refreshes(device_uid, lifecycle_seq)
+      VALUES (NEW.uid, NEW.lifecycle_seq)
+      ON CONFLICT (device_uid) DO UPDATE SET lifecycle_seq = EXCLUDED.lifecycle_seq,
+        inserted_at = now() AT TIME ZONE 'utc';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: exposure_device_lifecycle_sequence(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_device_lifecycle_sequence() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'INSERT' AND NOT NEW.tombstoned THEN RETURN NEW; END IF;
+  IF TG_OP = 'UPDATE' AND OLD.tombstoned = NEW.tombstoned
+     AND NOT (NEW.tombstoned AND NEW.lifecycle_seq = 0) THEN RETURN NEW; END IF;
+  IF TG_OP = 'UPDATE' AND OLD.tombstoned AND NOT NEW.tombstoned
+     AND NEW.retired_seq IS NULL THEN
+    -- An ordinal tombstoned before lifecycle publication still needs a fence.
+    NEW.retired_seq := platform.exposure_next_sequence();
+    NEW.retired_xid := pg_current_xact_id();
+    NEW.retired_at := clock_timestamp() AT TIME ZONE 'utc';
+  END IF;
+  NEW.lifecycle_seq := platform.exposure_next_sequence();
+  NEW.lifecycle_xid := pg_current_xact_id();
+  NEW.lifecycle_at := clock_timestamp() AT TIME ZONE 'utc';
+  IF NEW.tombstoned THEN
+    NEW.retired_seq := NEW.lifecycle_seq;
+    NEW.retired_xid := NEW.lifecycle_xid;
+    NEW.retired_at := NEW.lifecycle_at;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: exposure_enqueue_publication(jsonb); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_enqueue_publication(p_body jsonb) RETURNS void
+    LANGUAGE sql
+    AS $$
+  INSERT INTO platform.exposure_transition_outbox
+    (device_uid, transition_seq, transition_xid, payload)
+  VALUES (p_body->>'device_uid', (p_body->>'transition_seq')::bigint,
+    (p_body->>'transition_xid')::xid8, p_body);
+$$;
+
+
+--
+-- Name: exposure_lifecycle_publication(bigint); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_lifecycle_publication(p_ordinal bigint) RETURNS jsonb
+    LANGUAGE sql STABLE
+    AS $$
+  SELECT jsonb_build_object(
+    'schema_version', 1, 'device_uid', uid, 'device_ord', ordinal,
+    'event_type', CASE WHEN tombstoned THEN 'device_retired' ELSE 'device_restored' END,
+    'state', CASE WHEN tombstoned THEN 'retired' ELSE 'live' END,
+    'transition_seq', lifecycle_seq, 'device_lifecycle_seq', lifecycle_seq,
+    'transition_xid', lifecycle_xid::text::numeric, 'changed_at', lifecycle_at,
+    'retired_seq', retired_seq, 'retired_xid', retired_xid::text::numeric, 'retired_at', retired_at)
+  FROM platform.device_fleet_ordinals WHERE ordinal = p_ordinal AND lifecycle_seq > 0;
+$$;
+
+
+--
+-- Name: exposure_lock_fact(text, text, text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_lock_fact(p_uid text, p_package text, p_cve text) RETURNS void
+    LANGUAGE sql
+    AS $$
+  SELECT pg_advisory_xact_lock(hashtextextended(
+    jsonb_build_array(p_uid, p_package, p_cve)::text, 74524));
+$$;
+
+
+--
+-- Name: exposure_next_sequence(bigint); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_next_sequence(p_floor bigint DEFAULT 0) RETURNS bigint
+    LANGUAGE plpgsql
+    AS $$
+DECLARE assigned bigint;
+BEGIN
+  IF p_floor < 0 OR p_floor = 9223372036854775807 THEN
+    RAISE EXCEPTION 'invalid exposure sequence floor';
+  END IF;
+  -- A short session lock protects sequence advancement, not the surrounding
+  -- transaction. All exposure allocators use it; no unbounded nextval loop.
+  BEGIN
+    PERFORM pg_advisory_lock(74524, 0);
+    assigned := nextval('platform.exposure_transition_seq');
+    IF assigned <= p_floor THEN
+      assigned := setval('platform.exposure_transition_seq', p_floor + 1, true);
+    END IF;
+  EXCEPTION WHEN query_canceled OR assert_failure OR OTHERS THEN
+    PERFORM pg_advisory_unlock(74524, 0);
+    RAISE;
+  END;
+  PERFORM pg_advisory_unlock(74524, 0);
+  RETURN assigned;
+END;
+$$;
+
+
+--
+-- Name: exposure_package_ordinal(text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_package_ordinal(p_key text) RETURNS bigint
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  assigned bigint;
+BEGIN
+  SELECT ordinal INTO assigned FROM platform.exposure_package_ordinals
+    WHERE package_identity_key = p_key;
+  IF assigned IS NULL THEN
+    INSERT INTO platform.exposure_package_ordinals (package_identity_key) VALUES (p_key)
+      ON CONFLICT (package_identity_key) DO NOTHING
+      RETURNING ordinal INTO assigned;
+  END IF;
+  IF assigned IS NULL THEN
+    SELECT ordinal INTO assigned FROM platform.exposure_package_ordinals
+      WHERE package_identity_key = p_key;
+  END IF;
+  RETURN assigned;
+END;
+$$;
+
+
+--
+-- Name: exposure_package_version_ordinal(text, text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_package_version_ordinal(p_key text, p_version text) RETURNS bigint
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_version text := COALESCE(p_version, '');
+  v_assigned bigint;
+BEGIN
+  SELECT ordinal INTO v_assigned FROM platform.exposure_package_version_ordinals
+    WHERE package_identity_key = p_key AND installed_version = v_version;
+  IF v_assigned IS NULL THEN
+    INSERT INTO platform.exposure_package_version_ordinals (package_identity_key, installed_version)
+      VALUES (p_key, v_version)
+      ON CONFLICT (package_identity_key, installed_version) DO NOTHING
+      RETURNING ordinal INTO v_assigned;
+  END IF;
+  IF v_assigned IS NULL THEN
+    SELECT ordinal INTO v_assigned FROM platform.exposure_package_version_ordinals
+      WHERE package_identity_key = p_key AND installed_version = v_version;
+  END IF;
+  RETURN v_assigned;
+END;
+$$;
+
+
+--
+-- Name: exposure_prepare_snapshot_publication(text, text, text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_prepare_snapshot_publication(p_uid text, p_package text, p_cve text) RETURNS jsonb
+    LANGUAGE plpgsql
+    AS $$
+DECLARE body jsonb; package_name text; source_ordinal bigint;
+BEGIN
+  body := platform.exposure_repair_publication(p_uid, p_package, p_cve, 0, true);
+  IF body IS NULL THEN RETURN NULL; END IF;
+  SELECT ordinal INTO source_ordinal FROM platform.device_fleet_ordinals WHERE uid = p_uid;
+  IF source_ordinal IS NULL THEN RETURN NULL; END IF;
+  IF (body->>'device_ord')::bigint IS DISTINCT FROM source_ordinal THEN
+    body := platform.exposure_repair_publication(
+      p_uid, p_package, p_cve, (body->>'transition_seq')::bigint, false);
+    IF body IS NULL THEN RETURN NULL; END IF;
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM platform.device_fleet_ordinals
+    WHERE uid = p_uid AND ordinal = (body->>'device_ord')::bigint) THEN
+    RAISE EXCEPTION 'Exposure publication ordinal dictionary is missing';
+  END IF;
+  PERFORM platform.exposure_publish_dimension('cve', (body->>'cve_ord')::bigint,
+    jsonb_build_object('cve_ord', body->'cve_ord', 'cve_id', p_cve, 'epss_score', NULL), true);
+  SELECT COALESCE(NULLIF(btrim(a.package_name), ''), NULLIF(btrim(a.binary_package), ''))
+    INTO package_name FROM platform.endpoint_vulnerability_assessments a
+    WHERE a.device_uid = p_uid AND a.package_identity_key = p_package AND a.cve_id = p_cve;
+  PERFORM platform.exposure_publish_dimension('package', (body->>'pkgver_ord')::bigint,
+    jsonb_build_object('pkgver_ord', body->'pkgver_ord', 'pkg_ord', body->'pkg_ord',
+      'package_identity_key', p_package, 'installed_version', body->>'installed_version',
+      'package_name', COALESCE(package_name, p_package)), true);
+  RETURN body;
+END;
+$$;
+
+
+--
+-- Name: exposure_publish_dimension(text, bigint, jsonb, boolean); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_publish_dimension(p_kind text, p_ordinal bigint, p_content jsonb, p_insert_only boolean DEFAULT false) RETURNS bigint
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  existing platform.exposure_dimension_state;
+  seq bigint;
+  body jsonb;
+BEGIN
+  SELECT * INTO existing FROM platform.exposure_dimension_state
+    WHERE kind = p_kind AND ordinal = p_ordinal;
+  -- Registering an existing CVE never overwrites its enrichment or takes
+  -- its write lock on every device update. Mutable content compares below
+  -- only after locking, so it cannot skip a concurrent content change.
+  IF FOUND AND p_insert_only THEN
+    RETURN existing.transition_seq;
+  END IF;
+
+  -- The unique key also serializes creation while no row exists. Both the
+  -- placeholder and its replacement are invisible until this transaction commits.
+  INSERT INTO platform.exposure_dimension_state
+    (kind, ordinal, content, payload, transition_seq)
+    VALUES (p_kind, p_ordinal, '{}'::jsonb, '{}'::jsonb, 0)
+    ON CONFLICT (kind, ordinal) DO NOTHING;
+  SELECT * INTO existing FROM platform.exposure_dimension_state
+    WHERE kind = p_kind AND ordinal = p_ordinal FOR UPDATE;
+
+  IF existing.transition_seq > 0 AND
+     (p_insert_only OR existing.content = p_content) THEN
+    RETURN existing.transition_seq;
+  END IF;
+
+  seq := platform.exposure_next_sequence();
+  body := p_content || jsonb_build_object(
+    'schema_version', 1, 'dimension', p_kind, 'transition_seq', seq,
+    'updated_at', clock_timestamp() AT TIME ZONE 'utc');
+  UPDATE platform.exposure_dimension_state
+    SET content = p_content, payload = body, transition_seq = seq
+    WHERE kind = p_kind AND ordinal = p_ordinal;
+  INSERT INTO platform.exposure_dimension_outbox (kind, ordinal, transition_seq, payload)
+    VALUES (p_kind, p_ordinal, seq, body);
+  RETURN seq;
+END;
+$$;
+
+
+--
+-- Name: exposure_register_assessment_dimensions(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_register_assessment_dimensions() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  cve bigint;
+  pkg bigint;
+  pkgver bigint;
+BEGIN
+  -- Candidates which have never produced a fact do not grow exposure dictionaries.
+  IF NEW.last_transition_seq IS NULL AND NOT platform.exposure_assessment_actionable(
+    NEW.status, NEW.assessment, NEW.disposition
+  ) THEN
+    RETURN NEW;
+  END IF;
+
+  cve := platform.exposure_cve_ordinal(NEW.cve_id);
+  pkg := platform.exposure_package_ordinal(NEW.package_identity_key);
+  pkgver := platform.exposure_package_version_ordinal(
+    NEW.package_identity_key, NEW.installed_version);
+  PERFORM platform.exposure_publish_dimension('cve', cve, jsonb_build_object(
+    'cve_ord', cve, 'cve_id', NEW.cve_id, 'epss_score', NULL), true);
+  PERFORM platform.exposure_publish_dimension('package', pkgver, jsonb_build_object(
+    'pkgver_ord', pkgver, 'pkg_ord', pkg,
+    'package_identity_key', NEW.package_identity_key,
+    'installed_version', COALESCE(NEW.installed_version, ''),
+    'package_name', COALESCE(NULLIF(btrim(NEW.package_name), ''),
+      NULLIF(btrim(NEW.binary_package), ''), NEW.package_identity_key)));
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: exposure_repair_dimension(text, bigint, bigint); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_repair_dimension(p_kind text, p_ordinal bigint, p_floor bigint) RETURNS jsonb
+    LANGUAGE plpgsql
+    AS $$
+DECLARE source platform.exposure_dimension_state; seq bigint; body jsonb;
+BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' OR p_floor IS NULL OR p_floor < 0 THEN
+    RAISE EXCEPTION 'Exposure dimension repair requires READ COMMITTED and a nonnegative floor';
+  END IF;
+  SELECT * INTO source FROM platform.exposure_dimension_state
+    WHERE kind = p_kind AND ordinal = p_ordinal FOR UPDATE;
+  IF NOT FOUND THEN RETURN NULL; END IF;
+  IF source.transition_seq > p_floor THEN
+    body := source.payload;
+  ELSE
+    seq := platform.exposure_next_sequence(p_floor);
+    body := source.content || jsonb_build_object(
+      'schema_version', 1, 'dimension', p_kind, 'transition_seq', seq,
+      'updated_at', clock_timestamp() AT TIME ZONE 'utc');
+    UPDATE platform.exposure_dimension_state SET transition_seq = seq, payload = body
+      WHERE kind = p_kind AND ordinal = p_ordinal;
+  END IF;
+  INSERT INTO platform.exposure_dimension_outbox(kind, ordinal, transition_seq, payload)
+    VALUES (p_kind, p_ordinal, (body->>'transition_seq')::bigint, body);
+  RETURN body;
+END;
+$$;
+
+
+--
+-- Name: exposure_repair_lifecycle(bigint, bigint); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_repair_lifecycle(p_ordinal bigint, p_floor bigint) RETURNS jsonb
+    LANGUAGE plpgsql
+    AS $$
+DECLARE source platform.device_fleet_ordinals; seq bigint; body jsonb;
+BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' OR p_floor IS NULL OR p_floor < 0 THEN
+    RAISE EXCEPTION 'Exposure lifecycle repair requires READ COMMITTED and a nonnegative floor';
+  END IF;
+  SELECT * INTO source FROM platform.device_fleet_ordinals WHERE ordinal = p_ordinal FOR UPDATE;
+  IF NOT FOUND OR source.lifecycle_seq = 0 THEN RETURN NULL; END IF;
+  IF source.lifecycle_seq > p_floor THEN
+    body := platform.exposure_lifecycle_publication(p_ordinal);
+    PERFORM platform.exposure_enqueue_publication(body);
+    RETURN body;
+  END IF;
+  seq := platform.exposure_next_sequence(p_floor);
+  -- The state is unchanged. The existing trigger publishes the new marker
+  -- and schedules bounded fact republication for a live lifecycle.
+  UPDATE platform.device_fleet_ordinals SET tombstoned = tombstoned,
+    lifecycle_seq = seq, lifecycle_xid = pg_current_xact_id(),
+    lifecycle_at = clock_timestamp() AT TIME ZONE 'utc',
+    retired_seq = CASE WHEN tombstoned THEN seq ELSE retired_seq END,
+    retired_xid = CASE WHEN tombstoned THEN pg_current_xact_id() ELSE retired_xid END,
+    retired_at = CASE WHEN tombstoned THEN clock_timestamp() AT TIME ZONE 'utc' ELSE retired_at END
+    WHERE ordinal = p_ordinal;
+  RETURN platform.exposure_lifecycle_publication(p_ordinal);
+END;
+$$;
+
+
+--
+-- Name: exposure_repair_publication(text, text, text, bigint, boolean); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_repair_publication(p_uid text, p_package text, p_cve text, p_observed_seq bigint DEFAULT 0, p_missing_only boolean DEFAULT false) RETURNS jsonb
+    LANGUAGE plpgsql
+    AS $$
+DECLARE source platform.endpoint_vulnerability_assessments;
+  watermark platform.exposure_fact_watermarks; retired boolean;
+BEGIN
+  IF current_setting('transaction_isolation') <> 'read committed' THEN
+    RAISE EXCEPTION 'exposure repair requires a fresh READ COMMITTED transaction';
+  END IF;
+  IF p_uid IS NULL OR p_package IS NULL OR p_cve IS NULL OR p_observed_seq IS NULL OR p_observed_seq < 0 THEN
+    RAISE EXCEPTION 'invalid exposure repair key or sequence';
+  END IF;
+  PERFORM platform.exposure_lock_fact(p_uid, p_package, p_cve);
+  -- Writers may already own a row lock before their trigger takes the key
+  -- lock. Never wait for that row while holding the key: retry the transaction.
+  SELECT * INTO source FROM platform.endpoint_vulnerability_assessments
+    WHERE device_uid = p_uid AND package_identity_key = p_package AND cve_id = p_cve
+    FOR UPDATE NOWAIT;
+  IF FOUND THEN
+    IF p_missing_only AND source.last_exposure_publication IS NOT NULL THEN
+      RETURN source.last_exposure_publication;
+    END IF;
+    SELECT tombstoned INTO retired FROM platform.device_fleet_ordinals
+      WHERE uid = p_uid FOR SHARE;
+    IF COALESCE(retired, false) THEN RETURN NULL; END IF;
+    PERFORM platform.exposure_next_sequence(p_observed_seq);
+    -- An empty publication requests regeneration; the BEFORE trigger always
+    -- replaces it with a complete record, including for an unsequenced row.
+    UPDATE platform.endpoint_vulnerability_assessments SET last_exposure_publication = '{}'::jsonb
+      WHERE id = source.id RETURNING last_exposure_publication INTO source.last_exposure_publication;
+    RETURN source.last_exposure_publication;
+  END IF;
+  SELECT * INTO watermark FROM platform.exposure_fact_watermarks
+    WHERE device_uid = p_uid AND package_identity_key = p_package AND cve_id = p_cve;
+  IF p_missing_only AND watermark.payload IS NOT NULL THEN RETURN watermark.payload; END IF;
+  SELECT tombstoned INTO retired FROM platform.device_fleet_ordinals
+    WHERE uid = p_uid FOR SHARE;
+  IF watermark.payload IS NOT NULL AND COALESCE(retired, false) THEN RETURN NULL; END IF;
+  IF watermark.payload IS NOT NULL
+     AND p_observed_seq < COALESCE(watermark.transition_seq, 0) THEN
+    RETURN watermark.payload;
+  END IF;
+  source.device_uid := p_uid;
+  source.package_identity_key := p_package;
+  source.cve_id := p_cve;
+  source.installed_version := COALESCE(watermark.payload->>'installed_version', '');
+  IF watermark.payload IS NOT NULL THEN
+    source.source_scope := watermark.payload->>'source_scope';
+    source.severity := watermark.payload->>'severity';
+    source.cvss_score := (watermark.payload->>'cvss_score')::double precision;
+    source.kev := (watermark.payload->>'kev')::boolean;
+    source.exploit_available := (watermark.payload->>'exploit_available')::boolean;
+    source.fixed_version := watermark.payload->>'fixed_version';
+    source.exposed_at := (watermark.payload->>'first_exposed_at')::timestamp without time zone;
+    source.status := watermark.payload->>'assessment_status';
+    source.assessment := watermark.payload->>'assessment';
+    source.disposition := watermark.payload->>'disposition';
+    source.transition_reason := watermark.payload->>'assessment_transition_reason';
+  END IF;
+  source.last_transition_seq := GREATEST(p_observed_seq, COALESCE(watermark.transition_seq, 0));
+  PERFORM platform.exposure_retire_assessment_key(source, 'snapshot_repair');
+  SELECT payload INTO watermark.payload FROM platform.exposure_fact_watermarks
+    WHERE device_uid = p_uid AND package_identity_key = p_package AND cve_id = p_cve;
+  RETURN watermark.payload;
+END;
+$$;
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: endpoint_vulnerability_assessments; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.endpoint_vulnerability_assessments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    device_uid text NOT NULL,
+    agent_id text,
+    scan_ref uuid,
+    inventory_package_ref uuid,
+    endpoint_package_ref uuid CONSTRAINT endpoint_vulnerability_assessment_endpoint_package_ref_not_null NOT NULL,
+    cve_id text NOT NULL,
+    status text DEFAULT 'active'::text NOT NULL,
+    assessment text DEFAULT 'candidate'::text NOT NULL,
+    disposition text DEFAULT 'unknown'::text NOT NULL,
+    authority text,
+    applicability_reason text CONSTRAINT endpoint_vulnerability_assessment_applicability_reason_not_null NOT NULL,
+    authority_generation bigint,
+    authority_as_of timestamp without time zone,
+    freshness text DEFAULT 'unknown'::text NOT NULL,
+    provider text,
+    feed_key text,
+    advisory_id text,
+    package_type text,
+    package_namespace text,
+    package_release text,
+    package_name text,
+    package_purl text,
+    installed_version text,
+    source_package text,
+    source_version text,
+    binary_package text,
+    architecture text,
+    version_scheme text,
+    fixed_version text,
+    severity text,
+    cvss_score double precision,
+    cvss_vector text,
+    kev boolean DEFAULT false NOT NULL,
+    exploit_available boolean DEFAULT false NOT NULL,
+    supporting_match_ids uuid[] DEFAULT ARRAY[]::uuid[] CONSTRAINT endpoint_vulnerability_assessment_supporting_match_ids_not_null NOT NULL,
+    supporting_assertion_ids uuid[] DEFAULT ARRAY[]::uuid[] CONSTRAINT endpoint_vulnerability_assess_supporting_assertion_ids_not_null NOT NULL,
+    evidence jsonb DEFAULT '{}'::jsonb NOT NULL,
+    transition_reason text,
+    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    first_seen_at timestamp without time zone NOT NULL,
+    last_seen_at timestamp without time zone NOT NULL,
+    resolved_at timestamp without time zone,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    package_identity_key text CONSTRAINT endpoint_vulnerability_assessment_package_identity_key_not_null NOT NULL,
+    source_scope text DEFAULT 'host'::text NOT NULL,
+    package_manager text,
+    ecosystem text,
+    last_transition_seq bigint,
+    exposed_at timestamp without time zone,
+    last_device_lifecycle_seq bigint,
+    last_exposure_publication jsonb,
+    CONSTRAINT endpoint_vulnerability_assessments_assessment_check CHECK ((assessment = ANY (ARRAY['confirmed'::text, 'candidate'::text]))),
+    CONSTRAINT endpoint_vulnerability_assessments_disposition_check CHECK ((disposition = ANY (ARRAY['affected'::text, 'fixed'::text, 'not_affected'::text, 'under_investigation'::text, 'unknown'::text]))),
+    CONSTRAINT endpoint_vulnerability_assessments_freshness_check CHECK ((freshness = ANY (ARRAY['fresh'::text, 'stale'::text, 'unknown'::text]))),
+    CONSTRAINT endpoint_vulnerability_assessments_status_check CHECK ((status = ANY (ARRAY['active'::text, 'resolved'::text])))
+);
+
+
+--
+-- Name: exposure_retire_assessment_key(platform.endpoint_vulnerability_assessments, text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_retire_assessment_key(p_row platform.endpoint_vulnerability_assessments, p_reason text) RETURNS void
+    LANGUAGE plpgsql
+    AS $$
+DECLARE seq bigint; body jsonb; retired boolean; floor bigint;
+BEGIN
+  PERFORM platform.exposure_lock_fact(p_row.device_uid, p_row.package_identity_key, p_row.cve_id);
+  SELECT tombstoned INTO retired FROM platform.device_fleet_ordinals
+    WHERE uid = p_row.device_uid FOR SHARE;
+  SELECT transition_seq INTO floor FROM platform.exposure_fact_watermarks
+    WHERE device_uid = p_row.device_uid AND package_identity_key = p_row.package_identity_key
+      AND cve_id = p_row.cve_id;
+  seq := platform.exposure_next_sequence(GREATEST(COALESCE(floor, 0),
+    COALESCE(p_row.last_transition_seq, 0)));
+  body := platform.exposure_transition_payload(p_row, false, seq, p_reason, ARRAY['state']);
+  INSERT INTO platform.exposure_fact_watermarks
+    (device_uid, package_identity_key, cve_id, state, transition_seq, transition_xid, updated_at, payload)
+  VALUES (p_row.device_uid, p_row.package_identity_key, p_row.cve_id, 'resolved', seq,
+    (body->>'transition_xid')::xid8, (body->>'changed_at')::timestamp, body)
+  ON CONFLICT (device_uid, package_identity_key, cve_id) DO UPDATE
+    SET transition_seq = EXCLUDED.transition_seq, transition_xid = EXCLUDED.transition_xid,
+      updated_at = EXCLUDED.updated_at, payload = EXCLUDED.payload;
+  IF NOT COALESCE(retired, false) THEN
+    PERFORM platform.exposure_enqueue_publication(body);
+  END IF;
+END;
+$$;
+
+
+--
+-- Name: exposure_transition_payload(platform.endpoint_vulnerability_assessments, boolean, bigint, text, text[]); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.exposure_transition_payload(p_row platform.endpoint_vulnerability_assessments, p_actionable boolean, p_seq bigint, p_reason text, p_changed_fields text[]) RETURNS jsonb
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  v_xid xid8 := pg_current_xact_id();
+  v_changed_at timestamp without time zone := now() AT TIME ZONE 'utc';
+  v_device_ord bigint;
+  v_lifecycle bigint;
+BEGIN
+  SELECT ordinal, lifecycle_seq INTO v_device_ord, v_lifecycle
+    FROM platform.device_fleet_ordinals WHERE uid = p_row.device_uid FOR SHARE;
+  RETURN jsonb_build_object(
+      'schema_version', 1,
+      'transition_seq', p_seq,
+      'transition_xid', v_xid::text::numeric,
+      'device_uid', p_row.device_uid,
+      'package_identity_key', p_row.package_identity_key,
+      'cve_id', p_row.cve_id,
+      'installed_version', p_row.installed_version,
+      'device_ord', v_device_ord,
+      'device_lifecycle_seq', COALESCE(v_lifecycle, 0),
+      'cve_ord', platform.exposure_cve_ordinal(p_row.cve_id),
+      'pkg_ord', platform.exposure_package_ordinal(p_row.package_identity_key),
+      'pkgver_ord', platform.exposure_package_version_ordinal(
+        p_row.package_identity_key, p_row.installed_version),
+      'state', CASE WHEN p_actionable THEN 'active' ELSE 'resolved' END,
+      'source_scope', p_row.source_scope,
+      'severity', p_row.severity,
+      'cvss_score', p_row.cvss_score,
+      'kev', p_row.kev,
+      'exploit_available', p_row.exploit_available,
+      'fixed_version', p_row.fixed_version,
+      'fix_available', COALESCE(btrim(p_row.fixed_version), '') <> '',
+      'first_exposed_at', p_row.exposed_at,
+      'resolved_at', CASE WHEN p_actionable THEN NULL ELSE v_changed_at END,
+      'changed_at', v_changed_at,
+      'changed_fields', to_jsonb(p_changed_fields),
+      'reason', p_reason,
+      'assessment_status', p_row.status,
+      'assessment', p_row.assessment,
+      'disposition', p_row.disposition,
+      'assessment_transition_reason', p_row.transition_reason
+    );
+END;
+$$;
+
+
+--
+-- Name: fence_alert_rule_admission(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.fence_alert_rule_admission() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtextextended('alert-evaluation:admission:v1', 0));
+  IF TG_OP = 'DELETE' OR
+     (TG_OP = 'UPDATE' AND OLD.enabled IS TRUE AND NEW.enabled IS DISTINCT FROM TRUE) THEN
+    UPDATE platform.alert_evaluation_lanes
+    SET cancelled_through = greatest(cancelled_through, next_position),
+        updated_at = timezone('utc', now())
+    WHERE rule_id = OLD.id;
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; ELSE RETURN NEW; END IF;
 END;
 $$;
 
@@ -621,13 +1733,13 @@ DECLARE
   second_device_id text;
 BEGIN
   IF TG_OP IN ('UPDATE', 'DELETE') THEN
-    IF OLD.identifier_type = 'armis_device_id' THEN
+    IF OLD.identifier_type IN ('armis_device_id', 'netbox_device_id') THEN
       old_device_id := OLD.device_id;
     END IF;
   END IF;
 
   IF TG_OP IN ('INSERT', 'UPDATE') THEN
-    IF NEW.identifier_type = 'armis_device_id' THEN
+    IF NEW.identifier_type IN ('armis_device_id', 'netbox_device_id') THEN
       new_device_id := NEW.device_id;
     END IF;
   END IF;
@@ -662,6 +1774,21 @@ BEGIN
   RETURN NEW;
 END;
 $$;
+
+
+--
+-- Name: mac_is_locally_administered(text); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.mac_is_locally_administered(mac text) RETURNS boolean
+    LANGUAGE sql IMMUTABLE PARALLEL SAFE
+    AS $_$
+  SELECT CASE
+    WHEN upper(regexp_replace(coalesce(mac, ''), '[^0-9A-Fa-f]', '', 'g')) ~ '^[0-9A-F]{12}$'
+    THEN (get_byte(decode(substr(upper(regexp_replace(mac, '[^0-9A-Fa-f]', '', 'g')), 1, 2), 'hex'), 0) & 2) <> 0
+    ELSE false
+  END
+$_$;
 
 
 --
@@ -813,6 +1940,19 @@ $$;
 
 
 --
+-- Name: protect_fleet_identity(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.protect_fleet_identity() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RAISE check_violation USING MESSAGE = 'Persistent fleet identities cannot be deleted';
+END;
+$$;
+
+
+--
 -- Name: refresh_device_inventory_rollups(); Type: FUNCTION; Schema: platform; Owner: -
 --
 
@@ -827,26 +1967,30 @@ BEGIN
   INSERT INTO platform.device_inventory_counts (key, value, updated_at)
   SELECT 'total', COUNT(*)::bigint, now()
   FROM platform.ocsf_devices
-  WHERE deleted_at IS NULL;
+  WHERE deleted_at IS NULL AND source_retired_at IS NULL;
 
   INSERT INTO platform.device_inventory_counts (key, value, updated_at)
-  SELECT 'available', COUNT(*)::bigint, now()
-  FROM platform.ocsf_devices
-  WHERE deleted_at IS NULL
-    AND COALESCE(is_available, false) = true;
+SELECT 'available', COUNT(*)::bigint, now()
+FROM platform.ocsf_devices
+WHERE deleted_at IS NULL AND source_retired_at IS NULL AND CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END = 'available';
 
-  INSERT INTO platform.device_inventory_counts (key, value, updated_at)
-  SELECT 'unavailable', COUNT(*)::bigint, now()
-  FROM platform.ocsf_devices
-  WHERE deleted_at IS NULL
-    AND COALESCE(is_available, false) = false;
+INSERT INTO platform.device_inventory_counts (key, value, updated_at)
+SELECT 'unavailable', COUNT(*)::bigint, now()
+FROM platform.ocsf_devices
+WHERE deleted_at IS NULL AND source_retired_at IS NULL AND CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END = 'unavailable';
+
+INSERT INTO platform.device_inventory_counts (key, value, updated_at)
+SELECT 'unknown', COUNT(*)::bigint, now()
+FROM platform.ocsf_devices
+WHERE deleted_at IS NULL AND source_retired_at IS NULL AND CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END = 'unknown';
+
 
   INSERT INTO platform.device_inventory_type_counts (type, count, updated_at)
   SELECT COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type,
          COUNT(*)::bigint AS count,
          now()
   FROM platform.ocsf_devices
-  WHERE deleted_at IS NULL
+  WHERE deleted_at IS NULL AND source_retired_at IS NULL
   GROUP BY COALESCE(NULLIF(trim(type), ''), 'Unknown');
 
   INSERT INTO platform.device_inventory_vendor_counts (vendor_name, count, updated_at)
@@ -854,8 +1998,24 @@ BEGIN
          COUNT(*)::bigint AS count,
          now()
   FROM platform.ocsf_devices
-  WHERE deleted_at IS NULL
+  WHERE deleted_at IS NULL AND source_retired_at IS NULL
   GROUP BY COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown');
+END;
+$$;
+
+
+--
+-- Name: reject_legacy_seasonal_disposition_writes(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.reject_legacy_seasonal_disposition_writes() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  RAISE EXCEPTION USING
+    ERRCODE = '55000',
+    MESSAGE = 'Legacy seasonal confirmation writes are disabled; upgrade the seasonal disposition worker',
+    HINT = 'Retry this job on an upgraded worker using seasonal_disposition_chronological_states.';
 END;
 $$;
 
@@ -1212,7 +2372,8 @@ BEGIN
       NEW.agent_ids := ARRAY[btrim(NEW.agent_id)];
     END IF;
   ELSIF NEW.agent_id IS DISTINCT FROM OLD.agent_id
-        AND NEW.agent_ids IS NOT DISTINCT FROM OLD.agent_ids THEN
+        AND NEW.agent_ids IS NOT DISTINCT FROM OLD.agent_ids
+        AND cardinality(COALESCE(OLD.agent_ids, ARRAY[]::text[])) <= 1 THEN
     NEW.agent_ids := CASE
       WHEN NULLIF(btrim(COALESCE(NEW.agent_id, '')), '') IS NULL THEN ARRAY[]::text[]
       ELSE ARRAY[btrim(NEW.agent_id)]
@@ -1233,6 +2394,54 @@ BEGIN
     WHEN cardinality(NEW.agent_ids) = 0 THEN NULL
     ELSE NEW.agent_ids[1]
   END;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: sync_device_fleet_identity(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.sync_device_fleet_identity() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  PERFORM platform.ensure_device_fleet_ordinal(NEW.uid);
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: sync_device_location(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.sync_device_location() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  lat double precision := NULL;
+  lon double precision := NULL;
+BEGIN
+  BEGIN
+    lat := CAST(NEW.metadata->>'latitude' AS double precision);
+    lon := CAST(NEW.metadata->>'longitude' AS double precision);
+  EXCEPTION WHEN others THEN
+    lat := NULL;
+    lon := NULL;
+  END;
+
+  IF lat IS NOT NULL AND lon IS NOT NULL
+    AND lat != 0 AND lon != 0
+    AND lat BETWEEN -90 AND 90
+    AND lon BETWEEN -180 AND 180
+  THEN
+    NEW.location := CAST(ST_SetSRID(ST_MakePoint(lon, lat), 4326) AS geography);
+  ELSE
+    NEW.location := NULL;
+  END IF;
 
   RETURN NEW;
 END;
@@ -1376,6 +2585,202 @@ $$;
 
 
 --
+-- Name: trg_ansible_awx_membership_device_deleted(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_ansible_awx_membership_device_deleted() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM platform.ocsf_devices
+    WHERE uid = OLD.canonical_device_uid AND identity_purged_at IS NULL
+  ) THEN
+    NEW.link_disposition := 'quarantined';
+    NEW.link_evidence := NEW.link_evidence || jsonb_build_object(
+      'canonical_device_deleted', jsonb_build_object(
+        'device_uid', OLD.canonical_device_uid,
+        'deleted_at', now() AT TIME ZONE 'utc'
+      )
+    );
+    NEW.updated_at := now() AT TIME ZONE 'utc';
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: trg_composite_checks_clear_vantage_expectations(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_composite_checks_clear_vantage_expectations() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  DELETE FROM platform.device_vantage_expectations WHERE check_id = NEW.id;
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_device_agent_availability_consecutive_down(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_device_agent_availability_consecutive_down() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    NEW.consecutive_down := CASE WHEN NEW.is_available THEN 0 ELSE 1 END;
+  ELSIF NEW.checked_at > OLD.checked_at
+             OR NEW.is_available IS DISTINCT FROM OLD.is_available THEN
+    NEW.consecutive_down := CASE
+      WHEN NEW.is_available THEN 0
+      WHEN OLD.is_available THEN 1
+      ELSE LEAST(OLD.consecutive_down + 1, 2)
+    END;
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: trg_device_agent_availability_invalidate(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_device_agent_availability_invalidate() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  now_utc timestamp without time zone := (now() AT TIME ZONE 'utc');
+BEGIN
+  IF TG_OP = 'INSERT'
+     OR NEW.device_uid IS DISTINCT FROM OLD.device_uid
+     OR NEW.is_available IS DISTINCT FROM OLD.is_available
+     OR NEW.consecutive_down IS DISTINCT FROM OLD.consecutive_down
+     OR NEW.sweep_group_id IS DISTINCT FROM OLD.sweep_group_id
+     OR (NEW.metadata ->> 'sweep_reporter_expectation')
+          IS DISTINCT FROM (OLD.metadata ->> 'sweep_reporter_expectation')
+     OR (OLD.checked_at < now_utc - interval '150 seconds'
+         AND OLD.checked_at <
+             now_utc - platform.availability_ledger_ttl(NEW.sweep_group_id) / 2)
+  THEN
+    INSERT INTO platform.availability_invalidations (device_uid)
+    VALUES (NEW.device_uid);
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_device_identifiers_clear_source_retired(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_device_identifiers_clear_source_retired() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM platform.ocsf_devices
+    WHERE source_retired_at IS NOT NULL AND deleted_at IS NULL
+  ) THEN
+    UPDATE platform.ocsf_devices AS d
+    SET source_retired_at = NULL
+    WHERE d.source_retired_at IS NOT NULL
+      AND d.deleted_at IS NULL
+      AND EXISTS (
+        SELECT 1 FROM registered AS r
+        WHERE r.device_id = d.uid
+          AND r.identifier_type IN ('agent_id', 'armis_device_id', 'netbox_device_id')
+      );
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_device_vantage_expectations_invalidate(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_device_vantage_expectations_invalidate() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF TG_OP = 'INSERT' THEN
+    INSERT INTO platform.availability_invalidations (device_uid) VALUES (NEW.device_uid);
+  ELSIF TG_OP = 'DELETE' THEN
+    INSERT INTO platform.availability_invalidations (device_uid) VALUES (OLD.device_uid);
+  ELSE
+    INSERT INTO platform.availability_invalidations (device_uid) VALUES (OLD.device_uid);
+
+    IF NEW.device_uid IS DISTINCT FROM OLD.device_uid THEN
+      INSERT INTO platform.availability_invalidations (device_uid) VALUES (NEW.device_uid);
+    END IF;
+  END IF;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_ocsf_devices_availability_legacy(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_ocsf_devices_availability_legacy() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO platform.device_availability_legacy AS legacy
+    (device_uid, is_available, updated_at)
+  VALUES (NEW.uid, NEW.is_available, (now() AT TIME ZONE 'utc'))
+  ON CONFLICT (device_uid) DO UPDATE
+    SET is_available = EXCLUDED.is_available,
+        updated_at = EXCLUDED.updated_at
+    WHERE legacy.is_available IS DISTINCT FROM EXCLUDED.is_available;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_ocsf_devices_availability_lifecycle_invalidate(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_ocsf_devices_availability_lifecycle_invalidate() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO platform.availability_invalidations (device_uid) VALUES (NEW.uid);
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_ocsf_devices_availability_pin_invalidate(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_ocsf_devices_availability_pin_invalidate() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO platform.availability_invalidations (device_uid) VALUES (NEW.uid);
+  RETURN NULL;
+END;
+$$;
+
+
+--
 -- Name: trg_ocsf_devices_inventory_rollup(); Type: FUNCTION; Schema: platform; Owner: -
 --
 
@@ -1401,14 +2806,14 @@ BEGIN
   END IF;
 
   IF TG_OP <> 'INSERT' THEN
-    old_active := OLD.deleted_at IS NULL;
+    old_active := OLD.deleted_at IS NULL AND OLD.source_retired_at IS NULL;
     old_available := COALESCE(OLD.is_available, false);
     old_type_key := COALESCE(NULLIF(trim(OLD.type), ''), 'Unknown');
     old_vendor_key := COALESCE(NULLIF(trim(OLD.vendor_name), ''), 'Unknown');
   END IF;
 
   IF TG_OP <> 'DELETE' THEN
-    new_active := NEW.deleted_at IS NULL;
+    new_active := NEW.deleted_at IS NULL AND NEW.source_retired_at IS NULL;
     new_available := COALESCE(NEW.is_available, false);
     new_type_key := COALESCE(NULLIF(trim(NEW.type), ''), 'Unknown');
     new_vendor_key := COALESCE(NULLIF(trim(NEW.vendor_name), ''), 'Unknown');
@@ -1472,6 +2877,339 @@ $$;
 
 
 --
+-- Name: trg_ocsf_devices_inventory_rollup_delete(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_ocsf_devices_inventory_rollup_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  change record;
+  serialized boolean := false;
+BEGIN
+  IF current_setting('platform.skip_inventory_rollup', true) = 'on' THEN
+    RETURN NULL;
+  END IF;
+
+  -- Only the statement's changed rows are read. An upsert fires its UPDATE and
+  -- INSERT triggers separately, so sorting keys within one trigger cannot order
+  -- locks across them. Every trigger takes one transaction lock before its first
+  -- counter write; a statement with no net change takes none.
+  FOR change IN
+    WITH changes AS (SELECT -1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_old
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+    SELECT key, SUM(delta)::bigint AS delta
+    FROM changes
+    CROSS JOIN LATERAL (VALUES ('total'), (availability_key)) AS counters(key)
+    GROUP BY key HAVING SUM(delta) <> 0 ORDER BY key
+  LOOP
+    IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+    INSERT INTO platform.device_inventory_counts (key, value, updated_at)
+    VALUES (change.key, change.delta, now())
+    ON CONFLICT (key) DO UPDATE
+      SET value = platform.device_inventory_counts.value + EXCLUDED.value,
+          updated_at = now();
+  END LOOP;
+
+  FOR change IN
+  WITH changes AS (SELECT -1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_old
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+  SELECT type_key AS key, SUM(delta)::bigint AS delta
+  FROM changes
+  GROUP BY type_key HAVING SUM(delta) <> 0 ORDER BY type_key
+LOOP
+  IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+  INSERT INTO platform.device_inventory_type_counts (type, count, updated_at)
+  VALUES (change.key, change.delta, now())
+  ON CONFLICT (type) DO UPDATE
+    SET count = platform.device_inventory_type_counts.count + EXCLUDED.count,
+        updated_at = now();
+
+  IF change.delta < 0 THEN
+    DELETE FROM platform.device_inventory_type_counts
+    WHERE type = change.key AND count <= 0;
+  END IF;
+END LOOP;
+
+  FOR change IN
+  WITH changes AS (SELECT -1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_old
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+  SELECT vendor_key AS key, SUM(delta)::bigint AS delta
+  FROM changes
+  GROUP BY vendor_key HAVING SUM(delta) <> 0 ORDER BY vendor_key
+LOOP
+  IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+  INSERT INTO platform.device_inventory_vendor_counts (vendor_name, count, updated_at)
+  VALUES (change.key, change.delta, now())
+  ON CONFLICT (vendor_name) DO UPDATE
+    SET count = platform.device_inventory_vendor_counts.count + EXCLUDED.count,
+        updated_at = now();
+
+  IF change.delta < 0 THEN
+    DELETE FROM platform.device_inventory_vendor_counts
+    WHERE vendor_name = change.key AND count <= 0;
+  END IF;
+END LOOP;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_ocsf_devices_inventory_rollup_insert(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_ocsf_devices_inventory_rollup_insert() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  change record;
+  serialized boolean := false;
+BEGIN
+  IF current_setting('platform.skip_inventory_rollup', true) = 'on' THEN
+    RETURN NULL;
+  END IF;
+
+  -- Only the statement's changed rows are read. An upsert fires its UPDATE and
+  -- INSERT triggers separately, so sorting keys within one trigger cannot order
+  -- locks across them. Every trigger takes one transaction lock before its first
+  -- counter write; a statement with no net change takes none.
+  FOR change IN
+    WITH changes AS (SELECT 1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_new
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+    SELECT key, SUM(delta)::bigint AS delta
+    FROM changes
+    CROSS JOIN LATERAL (VALUES ('total'), (availability_key)) AS counters(key)
+    GROUP BY key HAVING SUM(delta) <> 0 ORDER BY key
+  LOOP
+    IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+    INSERT INTO platform.device_inventory_counts (key, value, updated_at)
+    VALUES (change.key, change.delta, now())
+    ON CONFLICT (key) DO UPDATE
+      SET value = platform.device_inventory_counts.value + EXCLUDED.value,
+          updated_at = now();
+  END LOOP;
+
+  FOR change IN
+  WITH changes AS (SELECT 1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_new
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+  SELECT type_key AS key, SUM(delta)::bigint AS delta
+  FROM changes
+  GROUP BY type_key HAVING SUM(delta) <> 0 ORDER BY type_key
+LOOP
+  IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+  INSERT INTO platform.device_inventory_type_counts (type, count, updated_at)
+  VALUES (change.key, change.delta, now())
+  ON CONFLICT (type) DO UPDATE
+    SET count = platform.device_inventory_type_counts.count + EXCLUDED.count,
+        updated_at = now();
+
+  IF change.delta < 0 THEN
+    DELETE FROM platform.device_inventory_type_counts
+    WHERE type = change.key AND count <= 0;
+  END IF;
+END LOOP;
+
+  FOR change IN
+  WITH changes AS (SELECT 1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_new
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+  SELECT vendor_key AS key, SUM(delta)::bigint AS delta
+  FROM changes
+  GROUP BY vendor_key HAVING SUM(delta) <> 0 ORDER BY vendor_key
+LOOP
+  IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+  INSERT INTO platform.device_inventory_vendor_counts (vendor_name, count, updated_at)
+  VALUES (change.key, change.delta, now())
+  ON CONFLICT (vendor_name) DO UPDATE
+    SET count = platform.device_inventory_vendor_counts.count + EXCLUDED.count,
+        updated_at = now();
+
+  IF change.delta < 0 THEN
+    DELETE FROM platform.device_inventory_vendor_counts
+    WHERE vendor_name = change.key AND count <= 0;
+  END IF;
+END LOOP;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_ocsf_devices_inventory_rollup_update(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_ocsf_devices_inventory_rollup_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+  change record;
+  serialized boolean := false;
+BEGIN
+  IF current_setting('platform.skip_inventory_rollup', true) = 'on' THEN
+    RETURN NULL;
+  END IF;
+
+  -- Only the statement's changed rows are read. An upsert fires its UPDATE and
+  -- INSERT triggers separately, so sorting keys within one trigger cannot order
+  -- locks across them. Every trigger takes one transaction lock before its first
+  -- counter write; a statement with no net change takes none.
+  FOR change IN
+    WITH changes AS (SELECT -1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_old
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+
+UNION ALL
+SELECT 1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_new
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+    SELECT key, SUM(delta)::bigint AS delta
+    FROM changes
+    CROSS JOIN LATERAL (VALUES ('total'), (availability_key)) AS counters(key)
+    GROUP BY key HAVING SUM(delta) <> 0 ORDER BY key
+  LOOP
+    IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+    INSERT INTO platform.device_inventory_counts (key, value, updated_at)
+    VALUES (change.key, change.delta, now())
+    ON CONFLICT (key) DO UPDATE
+      SET value = platform.device_inventory_counts.value + EXCLUDED.value,
+          updated_at = now();
+  END LOOP;
+
+  FOR change IN
+  WITH changes AS (SELECT -1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_old
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+
+UNION ALL
+SELECT 1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_new
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+  SELECT type_key AS key, SUM(delta)::bigint AS delta
+  FROM changes
+  GROUP BY type_key HAVING SUM(delta) <> 0 ORDER BY type_key
+LOOP
+  IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+  INSERT INTO platform.device_inventory_type_counts (type, count, updated_at)
+  VALUES (change.key, change.delta, now())
+  ON CONFLICT (type) DO UPDATE
+    SET count = platform.device_inventory_type_counts.count + EXCLUDED.count,
+        updated_at = now();
+
+  IF change.delta < 0 THEN
+    DELETE FROM platform.device_inventory_type_counts
+    WHERE type = change.key AND count <= 0;
+  END IF;
+END LOOP;
+
+  FOR change IN
+  WITH changes AS (SELECT -1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_old
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+
+UNION ALL
+SELECT 1::bigint AS delta, CASE availability_state WHEN 'available' THEN 'available' WHEN 'unavailable' THEN 'unavailable' ELSE 'unknown' END AS availability_key,
+       COALESCE(NULLIF(trim(type), ''), 'Unknown') AS type_key,
+       COALESCE(NULLIF(trim(vendor_name), ''), 'Unknown') AS vendor_key
+FROM inventory_new
+WHERE deleted_at IS NULL AND source_retired_at IS NULL
+)
+  SELECT vendor_key AS key, SUM(delta)::bigint AS delta
+  FROM changes
+  GROUP BY vendor_key HAVING SUM(delta) <> 0 ORDER BY vendor_key
+LOOP
+  IF NOT serialized THEN
+  PERFORM pg_advisory_xact_lock(hashtextextended('serviceradar:device-inventory-rollup', 0));
+  serialized := true;
+END IF;
+
+  INSERT INTO platform.device_inventory_vendor_counts (vendor_name, count, updated_at)
+  VALUES (change.key, change.delta, now())
+  ON CONFLICT (vendor_name) DO UPDATE
+    SET count = platform.device_inventory_vendor_counts.count + EXCLUDED.count,
+        updated_at = now();
+
+  IF change.delta < 0 THEN
+    DELETE FROM platform.device_inventory_vendor_counts
+    WHERE vendor_name = change.key AND count <= 0;
+  END IF;
+END LOOP;
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
 -- Name: trg_ocsf_devices_revival_audit(); Type: FUNCTION; Schema: platform; Owner: -
 --
 
@@ -1494,6 +3232,47 @@ BEGIN
     now(),
     current_setting('application_name', true)
   );
+
+  RETURN NULL;
+END;
+$$;
+
+
+--
+-- Name: trg_ocsf_devices_source_retired_mirror(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_ocsf_devices_source_retired_mirror() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  IF NEW.deleted_at IS NOT NULL THEN
+    NEW.source_retired_at := NULL;
+  END IF;
+
+  IF NEW.source_retired_at IS NOT NULL THEN
+    NEW.metadata := COALESCE(NEW.metadata, '{}'::jsonb) ||
+      jsonb_build_object('identity_state', 'source_retired');
+  ELSIF NEW.metadata ->> 'identity_state' = 'source_retired' THEN
+    NEW.metadata := NEW.metadata - 'identity_state';
+  END IF;
+
+  RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: trg_sweep_groups_availability_invalidate(); Type: FUNCTION; Schema: platform; Owner: -
+--
+
+CREATE FUNCTION platform.trg_sweep_groups_availability_invalidate() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+  INSERT INTO platform.availability_invalidations (device_uid)
+  SELECT DISTINCT device_uid FROM platform.device_agent_availability
+  WHERE sweep_group_id = CASE TG_OP WHEN 'DELETE' THEN OLD.id ELSE NEW.id END;
 
   RETURN NULL;
 END;
@@ -1857,10 +3636,6 @@ END;
 $_$;
 
 
-SET default_tablespace = '';
-
-SET default_table_access_method = heap;
-
 --
 -- Name: cpu_metrics; Type: TABLE; Schema: platform; Owner: -
 --
@@ -1886,14 +3661,14 @@ CREATE TABLE platform.cpu_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_23 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     avg(usage_percent) AS avg_usage_percent,
     max(usage_percent) AS max_usage_percent,
     count(*) AS sample_count
    FROM platform.cpu_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
 
 
 --
@@ -1920,7 +3695,7 @@ CREATE TABLE platform.memory_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_24 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     avg(usage_percent) AS avg_usage_percent,
@@ -1929,7 +3704,7 @@ CREATE VIEW _timescaledb_internal._direct_view_24 AS
     (avg(available_bytes))::double precision AS avg_available_bytes,
     count(*) AS sample_count
    FROM platform.memory_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
 
 
 --
@@ -1958,7 +3733,7 @@ CREATE TABLE platform.disk_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_25 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     mount_point,
@@ -1968,7 +3743,7 @@ CREATE VIEW _timescaledb_internal._direct_view_25 AS
     (avg(available_bytes))::double precision AS avg_available_bytes,
     count(*) AS sample_count
    FROM platform.disk_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point;
 
 
 --
@@ -1997,7 +3772,7 @@ CREATE TABLE platform.process_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_26 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     name,
@@ -2007,7 +3782,7 @@ CREATE VIEW _timescaledb_internal._direct_view_26 AS
     (max(memory_usage))::double precision AS max_memory_usage,
     count(*) AS sample_count
    FROM platform.process_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name;
 
 
 --
@@ -2041,7 +3816,7 @@ CREATE TABLE platform.timeseries_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_27 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     metric_type,
     metric_name,
@@ -2050,7 +3825,7 @@ CREATE VIEW _timescaledb_internal._direct_view_27 AS
     max(value) AS max_value,
     count(*) AS sample_count
    FROM platform.timeseries_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name;
 
 
 --
@@ -2089,7 +3864,7 @@ CREATE TABLE platform.otel_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_37 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE ((COALESCE(level, ''::text) = ANY (ARRAY['error'::text, 'ERROR'::text])) OR (COALESCE(http_status_code, ''::text) ~~ '4%'::text) OR (COALESCE(http_status_code, ''::text) ~~ '5%'::text) OR ((COALESCE(grpc_status_code, ''::text) <> ''::text) AND (COALESCE(grpc_status_code, ''::text) <> '0'::text)))) AS error_count,
@@ -2101,7 +3876,7 @@ CREATE VIEW _timescaledb_internal._direct_view_37 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE (duration_ms IS NOT NULL)) AS p95_duration_ms,
     max(duration_ms) AS max_duration_ms
    FROM platform.otel_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text);
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text);
 
 
 --
@@ -2153,11 +3928,11 @@ COMMENT ON TABLE platform.ocsf_events IS 'OCSF Event Log Activity entries from l
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_38 AS
- SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "time") AS bucket,
     COALESCE(severity_id, 0) AS severity_id,
     count(*) AS total_count
    FROM platform.ocsf_events
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
+  GROUP BY (public.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
 
 
 --
@@ -2192,7 +3967,7 @@ CREATE TABLE platform.endpoint_inventory_package_count_history (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_52 AS
- SELECT platform.time_bucket('01:00:00'::interval, scan_time) AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, scan_time) AS bucket,
     coordinate_hash,
     package_manager,
     COALESCE(ecosystem, ''::text) AS ecosystem,
@@ -2205,7 +3980,7 @@ CREATE VIEW _timescaledb_internal._direct_view_52 AS
     (sum(count_delta))::integer AS net_count_delta,
     count(*) AS sample_count
    FROM platform.endpoint_inventory_package_count_history
-  GROUP BY (platform.time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text);
+  GROUP BY (public.time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text);
 
 
 --
@@ -2233,14 +4008,14 @@ CREATE TABLE platform.endpoint_inventory_cpe_count_history (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_53 AS
- SELECT platform.time_bucket('01:00:00'::interval, scan_time) AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, scan_time) AS bucket,
     cpe,
     max(host_count) AS max_host_count,
     min(host_count) AS min_host_count,
     (sum(count_delta))::integer AS net_count_delta,
     count(*) AS sample_count
    FROM platform.endpoint_inventory_cpe_count_history
-  GROUP BY (platform.time_bucket('01:00:00'::interval, scan_time)), cpe;
+  GROUP BY (public.time_bucket('01:00:00'::interval, scan_time)), cpe;
 
 
 --
@@ -2289,7 +4064,7 @@ CREATE TABLE platform.otel_traces (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_54 AS
- SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE (status_code = 2)) AS error_count,
@@ -2297,7 +4072,7 @@ CREATE VIEW _timescaledb_internal._direct_view_54 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS p95_duration_ms
    FROM platform.otel_traces
   WHERE (parent_span_id IS NULL)
-  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), service_name;
 
 
 --
@@ -2305,7 +4080,7 @@ CREATE VIEW _timescaledb_internal._direct_view_54 AS
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_57 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     COALESCE(service_namespace, ''::text) AS service_namespace,
     COALESCE(deployment_environment, ''::text) AS deployment_environment,
@@ -2317,7 +4092,7 @@ CREATE VIEW _timescaledb_internal._direct_view_57 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) FILTER (WHERE ((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision) IS NOT NULL)) AS p95_duration_ms,
     max((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS max_duration_ms
    FROM platform.otel_traces
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text);
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text);
 
 
 --
@@ -2325,7 +4100,7 @@ CREATE VIEW _timescaledb_internal._direct_view_57 AS
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_62 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     partition,
     device_id,
     target_device_ip,
@@ -2345,7 +4120,7 @@ CREATE VIEW _timescaledb_internal._direct_view_62 AS
     count(*) AS sample_count
    FROM platform.timeseries_metrics
   WHERE ((if_index IS NOT NULL) AND (COALESCE((metadata ->> 'kind'::text), (metadata ->> 'metric_type'::text)) = ANY (ARRAY['sum'::text, 'counter'::text])) AND ((metadata ->> 'temporality'::text) = 'cumulative'::text) AND (lower(COALESCE((metadata ->> 'is_monotonic'::text), 'false'::text)) = ANY (ARRAY['true'::text, '1'::text])) AND (metadata ? 'raw_value'::text))
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key;
 
 
 --
@@ -2387,7 +4162,7 @@ CREATE TABLE platform.logs (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_72 AS
- SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'fatal'::text)) AS fatal_count,
@@ -2396,7 +4171,71 @@ CREATE VIEW _timescaledb_internal._direct_view_72 AS
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'info'::text)) AS info_count,
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'debug'::text)) AS debug_count
    FROM platform.logs
-  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+
+
+--
+-- Name: _direct_view_73; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_73 AS
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    device_id,
+    metric_type,
+    metric_name,
+    series_key,
+    (tags ->> 'mount_point'::text) AS mount_point,
+    avg(value) AS avg_value,
+    min(value) AS min_value,
+    max(value) AS max_value,
+    count(*) AS sample_count
+   FROM platform.timeseries_metrics
+  WHERE ((metric_type = 'sysmon.disk'::text) AND (device_id IS NOT NULL) AND ((tags ->> 'mount_point'::text) IS NOT NULL))
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name, series_key, (tags ->> 'mount_point'::text);
+
+
+--
+-- Name: service_status; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.service_status (
+    "timestamp" timestamp with time zone NOT NULL,
+    gateway_id text NOT NULL,
+    agent_id text,
+    service_name text NOT NULL,
+    service_type text,
+    available boolean NOT NULL,
+    message text,
+    details text,
+    partition text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    service_id uuid
+);
+
+
+--
+-- Name: _direct_view_76; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._direct_view_76 AS
+ SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+    gateway_id,
+    agent_id,
+    service_name,
+    service_type,
+    (1)::bigint AS total_count,
+    (
+        CASE
+            WHEN bool_or((available IS TRUE)) THEN 1
+            ELSE 0
+        END)::bigint AS available_count,
+    (
+        CASE
+            WHEN bool_or((available IS FALSE)) THEN 1
+            ELSE 0
+        END)::bigint AS unavailable_count
+   FROM platform.service_status
+  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), gateway_id, agent_id, service_name, service_type;
 
 
 --
@@ -2616,18 +4455,52 @@ CREATE TABLE _timescaledb_internal._materialized_hypertable_72 (
 
 
 --
+-- Name: _materialized_hypertable_73; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_73 (
+    bucket timestamp with time zone,
+    device_id text,
+    metric_type text,
+    metric_name text,
+    series_key text,
+    mount_point text,
+    avg_value double precision,
+    min_value double precision,
+    max_value double precision,
+    sample_count bigint
+);
+
+
+--
+-- Name: _materialized_hypertable_76; Type: TABLE; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE TABLE _timescaledb_internal._materialized_hypertable_76 (
+    bucket timestamp with time zone,
+    gateway_id text,
+    agent_id text,
+    service_name text,
+    service_type text,
+    total_count bigint,
+    available_count bigint,
+    unavailable_count bigint
+);
+
+
+--
 -- Name: _partial_view_23; Type: VIEW; Schema: _timescaledb_internal; Owner: -
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_23 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     avg(usage_percent) AS avg_usage_percent,
     max(usage_percent) AS max_usage_percent,
     count(*) AS sample_count
    FROM platform.cpu_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
 
 
 --
@@ -2635,7 +4508,7 @@ CREATE VIEW _timescaledb_internal._partial_view_23 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_24 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     avg(usage_percent) AS avg_usage_percent,
@@ -2644,7 +4517,7 @@ CREATE VIEW _timescaledb_internal._partial_view_24 AS
     (avg(available_bytes))::double precision AS avg_available_bytes,
     count(*) AS sample_count
    FROM platform.memory_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
 
 
 --
@@ -2652,7 +4525,7 @@ CREATE VIEW _timescaledb_internal._partial_view_24 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_25 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     mount_point,
@@ -2662,7 +4535,7 @@ CREATE VIEW _timescaledb_internal._partial_view_25 AS
     (avg(available_bytes))::double precision AS avg_available_bytes,
     count(*) AS sample_count
    FROM platform.disk_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point;
 
 
 --
@@ -2670,7 +4543,7 @@ CREATE VIEW _timescaledb_internal._partial_view_25 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_26 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     name,
@@ -2680,7 +4553,7 @@ CREATE VIEW _timescaledb_internal._partial_view_26 AS
     (max(memory_usage))::double precision AS max_memory_usage,
     count(*) AS sample_count
    FROM platform.process_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name;
 
 
 --
@@ -2688,7 +4561,7 @@ CREATE VIEW _timescaledb_internal._partial_view_26 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_27 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     metric_type,
     metric_name,
@@ -2697,7 +4570,7 @@ CREATE VIEW _timescaledb_internal._partial_view_27 AS
     max(value) AS max_value,
     count(*) AS sample_count
    FROM platform.timeseries_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name;
 
 
 --
@@ -2705,7 +4578,7 @@ CREATE VIEW _timescaledb_internal._partial_view_27 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_37 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE ((COALESCE(level, ''::text) = ANY (ARRAY['error'::text, 'ERROR'::text])) OR (COALESCE(http_status_code, ''::text) ~~ '4%'::text) OR (COALESCE(http_status_code, ''::text) ~~ '5%'::text) OR ((COALESCE(grpc_status_code, ''::text) <> ''::text) AND (COALESCE(grpc_status_code, ''::text) <> '0'::text)))) AS error_count,
@@ -2717,7 +4590,7 @@ CREATE VIEW _timescaledb_internal._partial_view_37 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE (duration_ms IS NOT NULL)) AS p95_duration_ms,
     max(duration_ms) AS max_duration_ms
    FROM platform.otel_metrics
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text);
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text);
 
 
 --
@@ -2725,11 +4598,11 @@ CREATE VIEW _timescaledb_internal._partial_view_37 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_38 AS
- SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "time") AS bucket,
     COALESCE(severity_id, 0) AS severity_id,
     count(*) AS total_count
    FROM platform.ocsf_events
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
+  GROUP BY (public.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
 
 
 --
@@ -2737,7 +4610,7 @@ CREATE VIEW _timescaledb_internal._partial_view_38 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_52 AS
- SELECT platform.time_bucket('01:00:00'::interval, scan_time) AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, scan_time) AS bucket,
     coordinate_hash,
     package_manager,
     COALESCE(ecosystem, ''::text) AS ecosystem,
@@ -2750,7 +4623,7 @@ CREATE VIEW _timescaledb_internal._partial_view_52 AS
     (sum(count_delta))::integer AS net_count_delta,
     count(*) AS sample_count
    FROM platform.endpoint_inventory_package_count_history
-  GROUP BY (platform.time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text);
+  GROUP BY (public.time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text);
 
 
 --
@@ -2758,14 +4631,14 @@ CREATE VIEW _timescaledb_internal._partial_view_52 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_53 AS
- SELECT platform.time_bucket('01:00:00'::interval, scan_time) AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, scan_time) AS bucket,
     cpe,
     max(host_count) AS max_host_count,
     min(host_count) AS min_host_count,
     (sum(count_delta))::integer AS net_count_delta,
     count(*) AS sample_count
    FROM platform.endpoint_inventory_cpe_count_history
-  GROUP BY (platform.time_bucket('01:00:00'::interval, scan_time)), cpe;
+  GROUP BY (public.time_bucket('01:00:00'::interval, scan_time)), cpe;
 
 
 --
@@ -2773,7 +4646,7 @@ CREATE VIEW _timescaledb_internal._partial_view_53 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_54 AS
- SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE (status_code = 2)) AS error_count,
@@ -2781,7 +4654,7 @@ CREATE VIEW _timescaledb_internal._partial_view_54 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS p95_duration_ms
    FROM platform.otel_traces
   WHERE (parent_span_id IS NULL)
-  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), service_name;
 
 
 --
@@ -2789,7 +4662,7 @@ CREATE VIEW _timescaledb_internal._partial_view_54 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_57 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     COALESCE(service_namespace, ''::text) AS service_namespace,
     COALESCE(deployment_environment, ''::text) AS deployment_environment,
@@ -2801,7 +4674,7 @@ CREATE VIEW _timescaledb_internal._partial_view_57 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) FILTER (WHERE ((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision) IS NOT NULL)) AS p95_duration_ms,
     max((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS max_duration_ms
    FROM platform.otel_traces
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text);
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text);
 
 
 --
@@ -2809,7 +4682,7 @@ CREATE VIEW _timescaledb_internal._partial_view_57 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_62 AS
- SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     partition,
     device_id,
     target_device_ip,
@@ -2829,7 +4702,7 @@ CREATE VIEW _timescaledb_internal._partial_view_62 AS
     count(*) AS sample_count
    FROM platform.timeseries_metrics
   WHERE ((if_index IS NOT NULL) AND (COALESCE((metadata ->> 'kind'::text), (metadata ->> 'metric_type'::text)) = ANY (ARRAY['sum'::text, 'counter'::text])) AND ((metadata ->> 'temporality'::text) = 'cumulative'::text) AND (lower(COALESCE((metadata ->> 'is_monotonic'::text), 'false'::text)) = ANY (ARRAY['true'::text, '1'::text])) AND (metadata ? 'raw_value'::text))
-  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key;
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key;
 
 
 --
@@ -2837,7 +4710,7 @@ CREATE VIEW _timescaledb_internal._partial_view_62 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_72 AS
- SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'fatal'::text)) AS fatal_count,
@@ -2846,7 +4719,52 @@ CREATE VIEW _timescaledb_internal._partial_view_72 AS
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'info'::text)) AS info_count,
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'debug'::text)) AS debug_count
    FROM platform.logs
-  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+
+
+--
+-- Name: _partial_view_73; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_73 AS
+ SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    device_id,
+    metric_type,
+    metric_name,
+    series_key,
+    (tags ->> 'mount_point'::text) AS mount_point,
+    avg(value) AS avg_value,
+    min(value) AS min_value,
+    max(value) AS max_value,
+    count(*) AS sample_count
+   FROM platform.timeseries_metrics
+  WHERE ((metric_type = 'sysmon.disk'::text) AND (device_id IS NOT NULL) AND ((tags ->> 'mount_point'::text) IS NOT NULL))
+  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name, series_key, (tags ->> 'mount_point'::text);
+
+
+--
+-- Name: _partial_view_76; Type: VIEW; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE VIEW _timescaledb_internal._partial_view_76 AS
+ SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+    gateway_id,
+    agent_id,
+    service_name,
+    service_type,
+    (1)::bigint AS total_count,
+    (
+        CASE
+            WHEN bool_or((available IS TRUE)) THEN 1
+            ELSE 0
+        END)::bigint AS available_count,
+    (
+        CASE
+            WHEN bool_or((available IS FALSE)) THEN 1
+            ELSE 0
+        END)::bigint AS unavailable_count
+   FROM platform.service_status
+  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), gateway_id, agent_id, service_name, service_type;
 
 
 --
@@ -2943,13 +4861,13 @@ CREATE TABLE platform.addon_packages (
 CREATE TABLE platform.addon_rollout_targets (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     rollout_id uuid NOT NULL,
-    assignment_id uuid NOT NULL,
+    assignment_id uuid,
     agent_uid text NOT NULL,
     addon_id text NOT NULL,
     source_type text NOT NULL,
     source_id uuid NOT NULL,
-    previous_package_id uuid NOT NULL,
-    candidate_package_id uuid NOT NULL,
+    previous_package_id uuid,
+    candidate_package_id uuid,
     previous_params jsonb DEFAULT '{}'::jsonb NOT NULL,
     previous_args text[] DEFAULT ARRAY[]::text[] NOT NULL,
     batch_index bigint NOT NULL,
@@ -2965,7 +4883,13 @@ CREATE TABLE platform.addon_rollout_targets (
     completed_at timestamp without time zone,
     rolled_back_at timestamp without time zone,
     inserted_at timestamp without time zone NOT NULL,
-    updated_at timestamp without time zone NOT NULL
+    updated_at timestamp without time zone NOT NULL,
+    artifact_kind text DEFAULT 'native_addon'::text NOT NULL,
+    source_key text,
+    plugin_assignment_id uuid,
+    partition_id text,
+    previous_plugin_package_id uuid,
+    candidate_plugin_package_id uuid
 );
 
 
@@ -2978,8 +4902,8 @@ CREATE TABLE platform.addon_rollouts (
     addon_id text NOT NULL,
     source_type text NOT NULL,
     source_id uuid NOT NULL,
-    previous_package_id uuid NOT NULL,
-    candidate_package_id uuid NOT NULL,
+    previous_package_id uuid,
+    candidate_package_id uuid,
     trigger text DEFAULT 'track_latest'::text NOT NULL,
     state text DEFAULT 'pending'::text NOT NULL,
     policy jsonb DEFAULT '{"batch_size": 10, "canary_size": 1, "max_parallel": 10, "soak_seconds": 300, "tolerated_failures": 0, "health_timeout_seconds": 900}'::jsonb NOT NULL,
@@ -2991,7 +4915,11 @@ CREATE TABLE platform.addon_rollouts (
     completed_at timestamp without time zone,
     canceled_at timestamp without time zone,
     inserted_at timestamp without time zone NOT NULL,
-    updated_at timestamp without time zone NOT NULL
+    updated_at timestamp without time zone NOT NULL,
+    artifact_kind text DEFAULT 'native_addon'::text NOT NULL,
+    source_key text,
+    previous_plugin_package_id uuid,
+    candidate_plugin_package_id uuid
 );
 
 
@@ -3058,7 +4986,16 @@ CREATE TABLE platform.ocsf_agents (
     config_section_statuses jsonb[] DEFAULT ARRAY[]::jsonb[],
     pushed_config_version text,
     config_pushed_at timestamp(0) without time zone,
-    config_health text DEFAULT 'unknown'::text
+    config_health text DEFAULT 'unknown'::text,
+    superseded_by text,
+    superseded_at timestamp(0) without time zone,
+    display_name text,
+    description text,
+    cert_not_before timestamp without time zone,
+    cert_expires_at timestamp without time zone,
+    cert_serial text,
+    cert_fingerprint_sha256 text,
+    cert_renewed_at timestamp without time zone
 );
 
 
@@ -3072,27 +5009,11 @@ CREATE VIEW platform.addon_fleet AS
             assignment.agent_uid,
             assignment.addon_id,
             assignment.addon_package_id,
-            assignment.source,
-            assignment.source_key,
-            assignment.enabled,
-            assignment.params,
-            assignment.args,
-            assignment.inserted_at,
-            assignment.updated_at,
-            assignment.addon_profile_id,
-            assignment.profile_reconcile_status,
-            assignment.profile_reconcile_error,
-            assignment.profile_last_reconciled_at,
-            assignment.profile_metadata,
-            assignment.update_policy,
-            assignment.explicit_version_pin,
-            assignment.release_channel,
-            assignment.capability_ceiling,
-            assignment.rollout_policy,
-            assignment.update_policy_backfill_pending,
             assignment.rollout_package_id,
-            assignment.rollout_id,
-            assignment.rollout_started_at
+            assignment.rollout_started_at,
+            assignment.update_policy,
+            assignment.updated_at,
+            assignment.inserted_at
            FROM platform.addon_assignments assignment
           WHERE (assignment.enabled = true)
           ORDER BY assignment.agent_uid, assignment.addon_id,
@@ -3123,6 +5044,7 @@ CREATE VIEW platform.addon_fleet AS
             target.updated_at
            FROM (platform.addon_rollout_targets target
              LEFT JOIN platform.addon_rollouts rollout ON ((rollout.id = target.rollout_id)))
+          WHERE (target.artifact_kind = 'native_addon'::text)
           ORDER BY target.assignment_id, target.updated_at DESC, target.id DESC
         ), base AS (
          SELECT keys.agent_uid,
@@ -3359,6 +5281,18 @@ CREATE TABLE platform.adhoc_scan_runs (
     finished_at timestamp without time zone,
     inserted_at timestamp without time zone DEFAULT now() NOT NULL,
     updated_at timestamp without time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: admin_secret_markers; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.admin_secret_markers (
+    admin_email public.citext NOT NULL,
+    secret_digest text NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
 );
 
 
@@ -3695,6 +5629,55 @@ CREATE TABLE platform.agent_releases (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL
+);
+
+
+--
+-- Name: alert_evaluation_lanes; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.alert_evaluation_lanes (
+    rule_id uuid NOT NULL,
+    next_position bigint DEFAULT 0 NOT NULL,
+    cancelled_through bigint DEFAULT 0 NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: alert_evaluation_receipts; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.alert_evaluation_receipts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    rule_id uuid NOT NULL,
+    source_key text NOT NULL,
+    "position" bigint NOT NULL,
+    disposition text NOT NULL,
+    details jsonb DEFAULT '{}'::jsonb NOT NULL,
+    resolved_count bigint DEFAULT 0 NOT NULL,
+    completed_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: alert_evaluation_work; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.alert_evaluation_work (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    rule_id uuid NOT NULL,
+    source_key text NOT NULL,
+    "position" bigint NOT NULL,
+    signal text NOT NULL,
+    rule_revision jsonb NOT NULL,
+    payload jsonb NOT NULL,
+    payload_bytes bigint NOT NULL,
+    attempts bigint DEFAULT 0 NOT NULL,
+    available_at timestamp without time zone NOT NULL,
+    last_error text,
+    accepted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
 );
 
 
@@ -4670,7 +6653,16 @@ CREATE TABLE platform.authored_dashboards (
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     dashboard_ref integer NOT NULL,
-    CONSTRAINT authored_dashboards_dashboard_ref_range CHECK (((dashboard_ref >= 1000000) AND (dashboard_ref <= 9999999)))
+    source_type text,
+    source_repo_url text,
+    source_ref text,
+    source_release_tag text,
+    source_commit text,
+    source_path text,
+    content_hash text,
+    signature jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT authored_dashboards_dashboard_ref_range CHECK (((dashboard_ref >= 1000000) AND (dashboard_ref <= 9999999))),
+    CONSTRAINT authored_dashboards_source_type_check CHECK (((source_type IS NULL) OR (source_type = ANY (ARRAY['upload'::text, 'github'::text, 'first_party'::text]))))
 );
 
 
@@ -4686,7 +6678,9 @@ CREATE TABLE platform.authorization_settings (
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     cli_auth_enabled boolean DEFAULT true NOT NULL,
     cli_session_ttl_days integer DEFAULT 30 NOT NULL,
-    cli_allowed_scopes text[] DEFAULT ARRAY['dashboard.publish'::text, 'plugin.publish'::text, 'plugins.manage'::text] NOT NULL
+    cli_allowed_scopes text[] DEFAULT ARRAY['dashboard.publish'::text, 'plugin.publish'::text, 'plugins.manage'::text, 'edge.manage'::text] NOT NULL,
+    default_homepage jsonb,
+    CONSTRAINT authorization_settings_default_homepage_kind_check CHECK (((default_homepage IS NULL) OR ((jsonb_typeof(default_homepage) = 'object'::text) AND ((default_homepage ->> 'kind'::text) = ANY (ARRAY['overview'::text, 'dashboards_index'::text, 'dashboard'::text])))))
 );
 
 
@@ -5024,6 +7018,50 @@ CREATE TABLE platform.automation_secure_execution_command_attempts (
 
 
 --
+-- Name: availability_invalidations; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.availability_invalidations (
+    id bigint NOT NULL,
+    device_uid text NOT NULL,
+    enqueued_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: availability_invalidations_id_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.availability_invalidations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: availability_invalidations_id_seq; Type: SEQUENCE OWNED BY; Schema: platform; Owner: -
+--
+
+ALTER SEQUENCE platform.availability_invalidations_id_seq OWNED BY platform.availability_invalidations.id;
+
+
+--
+-- Name: availability_settings; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.availability_settings (
+    singleton boolean DEFAULT true NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    expiry_watermark timestamp without time zone,
+    transition_events boolean DEFAULT false NOT NULL,
+    converged_at timestamp without time zone,
+    CONSTRAINT availability_settings_singleton_check CHECK (singleton)
+);
+
+
+--
 -- Name: availability_source_profiles; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -5321,6 +7359,343 @@ CREATE TABLE platform.camera_analysis_workers (
 
 
 --
+-- Name: camera_archive_bindings; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_archive_bindings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    schema_version bigint NOT NULL,
+    provisioning_ref text NOT NULL,
+    generation bigint NOT NULL,
+    purpose text NOT NULL,
+    provider text NOT NULL,
+    endpoint text NOT NULL,
+    region text NOT NULL,
+    bucket text NOT NULL,
+    namespace text NOT NULL,
+    archive_format_version bigint NOT NULL,
+    required_encryption text NOT NULL,
+    destination_sha256 text NOT NULL,
+    capability_state text DEFAULT 'unqualified'::text NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT camera_archive_binding_generation_positive CHECK ((generation > 0)),
+    CONSTRAINT camera_archive_binding_v1 CHECK (((schema_version = 1) AND (purpose = 'recording'::text) AND (provider = 's3_compatible'::text) AND (namespace = 'recordings/v1'::text) AND (archive_format_version = 1) AND (required_encryption = 'sse_s3_aes256'::text) AND (capability_state = 'unqualified'::text) AND (length(destination_sha256) = 64)))
+);
+
+
+--
+-- Name: camera_archive_init_authorities; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_archive_init_authorities (
+    archive_binding_id uuid NOT NULL,
+    deployment_ref uuid NOT NULL,
+    generation bigint NOT NULL,
+    revision bigint NOT NULL,
+    desired_sha256 text NOT NULL,
+    state text NOT NULL,
+    desired_document jsonb,
+    report_sha256 text,
+    storage_service_id text,
+    credential_reference text,
+    credential_generation bigint,
+    principal_sha256 text,
+    storage_boot_id uuid,
+    nonce text,
+    issued_at timestamp without time zone,
+    expires_at timestamp without time zone,
+    applied_at timestamp without time zone,
+    CONSTRAINT camera_init_authority_identity CHECK (((generation > 0) AND (revision > 0) AND (desired_sha256 ~ '^[0-9a-f]{64}$'::text))),
+    CONSTRAINT camera_init_authority_state CHECK ((((state = 'revoked'::text) AND (desired_document IS NULL) AND (report_sha256 IS NULL) AND (applied_at IS NULL) AND (issued_at IS NULL) AND (expires_at IS NULL) AND (storage_service_id IS NULL) AND (credential_reference IS NULL) AND (credential_generation IS NULL) AND (principal_sha256 IS NULL) AND (storage_boot_id IS NULL) AND (nonce IS NULL)) OR ((state = ANY (ARRAY['pending'::text, 'applied'::text])) AND (storage_service_id IS NOT NULL) AND ((char_length(storage_service_id) >= 1) AND (char_length(storage_service_id) <= 256)) AND (credential_reference IS NOT NULL) AND ((char_length(credential_reference) >= 1) AND (char_length(credential_reference) <= 256)) AND (credential_generation IS NOT NULL) AND (credential_generation > 0) AND (principal_sha256 IS NOT NULL) AND (principal_sha256 ~ '^[0-9a-f]{64}$'::text) AND (storage_boot_id IS NOT NULL) AND (nonce IS NOT NULL) AND (nonce ~ '^[0-9a-f]{64}$'::text) AND (issued_at IS NOT NULL) AND (expires_at IS NOT NULL) AND (expires_at > issued_at) AND (expires_at <= (issued_at + '00:00:30'::interval)) AND (((state = 'pending'::text) AND (desired_document IS NULL) AND (report_sha256 IS NULL) AND (applied_at IS NULL)) OR ((state = 'applied'::text) AND (desired_document IS NOT NULL) AND (jsonb_typeof(desired_document) = 'object'::text) AND (octet_length((desired_document)::text) <= 16384) AND (report_sha256 IS NOT NULL) AND (report_sha256 ~ '^[0-9a-f]{64}$'::text) AND (applied_at IS NOT NULL) AND (applied_at >= issued_at) AND (applied_at < expires_at))))))
+);
+
+
+--
+-- Name: camera_archive_manifest_authorities; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_archive_manifest_authorities (
+    archive_binding_id uuid NOT NULL,
+    deployment_ref uuid NOT NULL,
+    generation bigint NOT NULL,
+    revision bigint NOT NULL,
+    desired_sha256 text NOT NULL,
+    state text NOT NULL,
+    desired_document jsonb,
+    report_sha256 text,
+    storage_service_id text,
+    credential_reference text,
+    credential_generation bigint,
+    principal_sha256 text,
+    storage_boot_id uuid,
+    nonce text,
+    issued_at timestamp without time zone,
+    expires_at timestamp without time zone,
+    applied_at timestamp without time zone,
+    CONSTRAINT camera_manifest_authority_identity CHECK (((generation > 0) AND (revision > 0) AND (desired_sha256 ~ '^[0-9a-f]{64}$'::text))),
+    CONSTRAINT camera_manifest_authority_state CHECK ((((state = 'revoked'::text) AND (desired_document IS NULL) AND (report_sha256 IS NULL) AND (applied_at IS NULL) AND (issued_at IS NULL) AND (expires_at IS NULL) AND (storage_service_id IS NULL) AND (credential_reference IS NULL) AND (credential_generation IS NULL) AND (principal_sha256 IS NULL) AND (storage_boot_id IS NULL) AND (nonce IS NULL)) OR ((state = ANY (ARRAY['pending'::text, 'applied'::text])) AND (storage_service_id IS NOT NULL) AND ((char_length(storage_service_id) >= 1) AND (char_length(storage_service_id) <= 256)) AND (credential_reference IS NOT NULL) AND ((char_length(credential_reference) >= 1) AND (char_length(credential_reference) <= 256)) AND (credential_generation IS NOT NULL) AND (credential_generation > 0) AND (principal_sha256 IS NOT NULL) AND (principal_sha256 ~ '^[0-9a-f]{64}$'::text) AND (storage_boot_id IS NOT NULL) AND (nonce IS NOT NULL) AND (nonce ~ '^[0-9a-f]{64}$'::text) AND (issued_at IS NOT NULL) AND (expires_at IS NOT NULL) AND (expires_at > issued_at) AND (expires_at <= (issued_at + '00:00:30'::interval)) AND (((state = 'pending'::text) AND (desired_document IS NULL) AND (report_sha256 IS NULL) AND (applied_at IS NULL)) OR ((state = 'applied'::text) AND (desired_document IS NOT NULL) AND (jsonb_typeof(desired_document) = 'object'::text) AND (octet_length((desired_document)::text) <= 16384) AND (report_sha256 IS NOT NULL) AND (report_sha256 ~ '^[0-9a-f]{64}$'::text) AND (applied_at IS NOT NULL) AND (applied_at >= issued_at) AND (applied_at < expires_at))))))
+);
+
+
+--
+-- Name: camera_archive_media_authorities; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_archive_media_authorities (
+    archive_binding_id uuid NOT NULL,
+    deployment_ref uuid NOT NULL,
+    generation bigint NOT NULL,
+    revision bigint NOT NULL,
+    desired_sha256 text NOT NULL,
+    state text NOT NULL,
+    desired_document jsonb,
+    report_sha256 text,
+    storage_service_id text,
+    credential_reference text,
+    credential_generation bigint,
+    principal_sha256 text,
+    storage_boot_id uuid,
+    nonce text,
+    issued_at timestamp without time zone,
+    expires_at timestamp without time zone,
+    applied_at timestamp without time zone,
+    CONSTRAINT camera_media_authority_identity CHECK (((generation > 0) AND (revision > 0) AND (desired_sha256 ~ '^[0-9a-f]{64}$'::text))),
+    CONSTRAINT camera_media_authority_state CHECK ((((state = 'revoked'::text) AND (desired_document IS NULL) AND (report_sha256 IS NULL) AND (applied_at IS NULL) AND (issued_at IS NULL) AND (expires_at IS NULL) AND (storage_service_id IS NULL) AND (credential_reference IS NULL) AND (credential_generation IS NULL) AND (principal_sha256 IS NULL) AND (storage_boot_id IS NULL) AND (nonce IS NULL)) OR ((state = ANY (ARRAY['pending'::text, 'applied'::text])) AND (storage_service_id IS NOT NULL) AND ((char_length(storage_service_id) >= 1) AND (char_length(storage_service_id) <= 256)) AND (credential_reference IS NOT NULL) AND ((char_length(credential_reference) >= 1) AND (char_length(credential_reference) <= 256)) AND (credential_generation IS NOT NULL) AND (credential_generation > 0) AND (principal_sha256 IS NOT NULL) AND (principal_sha256 ~ '^[0-9a-f]{64}$'::text) AND (storage_boot_id IS NOT NULL) AND (nonce IS NOT NULL) AND (nonce ~ '^[0-9a-f]{64}$'::text) AND (issued_at IS NOT NULL) AND (expires_at IS NOT NULL) AND (expires_at > issued_at) AND (expires_at <= (issued_at + '00:00:30'::interval)) AND (((state = 'pending'::text) AND (desired_document IS NULL) AND (report_sha256 IS NULL) AND (applied_at IS NULL)) OR ((state = 'applied'::text) AND (desired_document IS NOT NULL) AND (jsonb_typeof(desired_document) = 'object'::text) AND (octet_length((desired_document)::text) <= 16384) AND (report_sha256 IS NOT NULL) AND (report_sha256 ~ '^[0-9a-f]{64}$'::text) AND (applied_at IS NOT NULL) AND (applied_at >= issued_at) AND (applied_at < expires_at))))))
+);
+
+
+--
+-- Name: camera_archive_qualification_receipts; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_archive_qualification_receipts (
+    archive_binding_id uuid CONSTRAINT camera_archive_qualification_receip_archive_binding_id_not_null NOT NULL,
+    revision bigint NOT NULL,
+    state text NOT NULL,
+    report jsonb,
+    report_sha256 text,
+    receipt_sha256 text NOT NULL,
+    received_at timestamp without time zone NOT NULL,
+    CONSTRAINT camera_qualification_receipt_bounds CHECK (((revision > 0) AND (receipt_sha256 ~ '^[0-9a-f]{64}$'::text))),
+    CONSTRAINT camera_qualification_receipt_state CHECK ((((state = 'withdrawn'::text) AND (report IS NULL) AND (report_sha256 IS NULL)) OR ((state = 'submitted'::text) AND (report IS NOT NULL) AND (report_sha256 IS NOT NULL) AND (report_sha256 ~ '^[0-9a-f]{64}$'::text) AND (jsonb_typeof(report) = 'object'::text) AND (octet_length((report)::text) <= 16384))))
+);
+
+
+--
+-- Name: camera_archive_upload_dispatches; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_archive_upload_dispatches (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    schema_version bigint DEFAULT 1 NOT NULL,
+    archive_upload_intent_id uuid CONSTRAINT camera_archive_upload_dispatc_archive_upload_intent_id_not_null NOT NULL,
+    upload_epoch bigint NOT NULL,
+    upload_token_sha256 text NOT NULL,
+    dispatcher_actor_id text NOT NULL,
+    operation text NOT NULL,
+    request_sha256 text NOT NULL,
+    prepared_at timestamp without time zone NOT NULL,
+    deadline_at timestamp without time zone NOT NULL,
+    marked_at timestamp without time zone,
+    unknown_at timestamp without time zone,
+    response_at timestamp without time zone,
+    response jsonb,
+    response_sha256 text,
+    conflict_at timestamp without time zone,
+    first_conflict_sha256 text,
+    init_authority_revision bigint,
+    init_authority_sha256 text,
+    init_storage_boot_id uuid,
+    init_nonce_sha256 text,
+    init_principal_sha256 text,
+    init_deadline_at timestamp without time zone,
+    init_verification jsonb,
+    init_verification_sha256 text,
+    init_verified_at timestamp without time zone,
+    init_verification_conflict_at timestamp without time zone,
+    init_verification_conflict_sha256 text,
+    media_authority_revision bigint,
+    media_authority_sha256 text,
+    media_storage_boot_id uuid,
+    media_nonce_sha256 text,
+    media_principal_sha256 text,
+    media_deadline_at timestamp without time zone,
+    media_verification jsonb,
+    media_verification_sha256 text,
+    media_verified_at timestamp without time zone,
+    media_verification_conflict_at timestamp without time zone,
+    media_verification_conflict_sha256 text,
+    manifest_authority_revision bigint,
+    manifest_authority_sha256 text,
+    manifest_storage_boot_id uuid,
+    manifest_nonce_sha256 text,
+    manifest_principal_sha256 text,
+    manifest_deadline_at timestamp without time zone,
+    manifest_verification jsonb,
+    manifest_verification_sha256 text,
+    manifest_verified_at timestamp without time zone,
+    manifest_verification_conflict_at timestamp without time zone,
+    manifest_verification_conflict_sha256 text,
+    CONSTRAINT camera_upload_dispatch_conflict_requires_response CHECK ((((conflict_at IS NULL) AND (first_conflict_sha256 IS NULL)) OR ((conflict_at IS NOT NULL) AND (first_conflict_sha256 IS NOT NULL) AND (response_at IS NOT NULL) AND (first_conflict_sha256 ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT camera_upload_dispatch_identity_bounds CHECK (((schema_version = 1) AND (upload_epoch > 0) AND (upload_token_sha256 ~ '^[0-9a-f]{64}$'::text) AND (request_sha256 ~ '^[0-9a-f]{64}$'::text) AND ((char_length(dispatcher_actor_id) >= 1) AND (char_length(dispatcher_actor_id) <= 128)) AND (operation = ANY (ARRAY['put_object'::text, 'create_multipart_upload'::text])))),
+    CONSTRAINT camera_upload_dispatch_marker_required CHECK ((((unknown_at IS NULL) OR (marked_at IS NOT NULL)) AND ((response_at IS NULL) OR (marked_at IS NOT NULL)))),
+    CONSTRAINT camera_upload_dispatch_response_bounds CHECK ((((response IS NULL) AND (response_sha256 IS NULL) AND (response_at IS NULL)) OR ((response IS NOT NULL) AND (response_sha256 IS NOT NULL) AND (response_at IS NOT NULL) AND (response_sha256 ~ '^[0-9a-f]{64}$'::text) AND (jsonb_typeof(response) = 'object'::text) AND (octet_length((response)::text) <= 8192)))),
+    CONSTRAINT camera_upload_dispatch_window_bounds CHECK (((deadline_at > prepared_at) AND (deadline_at <= (prepared_at + '00:05:00'::interval)) AND ((marked_at IS NULL) OR ((marked_at >= prepared_at) AND (marked_at < deadline_at))))),
+    CONSTRAINT camera_upload_grant_purpose CHECK ((num_nonnulls(init_authority_revision, media_authority_revision, manifest_authority_revision) <= 1)),
+    CONSTRAINT camera_upload_init_grant_bounds CHECK ((((init_authority_revision IS NULL) AND (init_authority_sha256 IS NULL) AND (init_storage_boot_id IS NULL) AND (init_nonce_sha256 IS NULL) AND (init_principal_sha256 IS NULL) AND (init_deadline_at IS NULL)) OR ((init_authority_revision IS NOT NULL) AND (init_authority_revision > 0) AND (init_authority_sha256 IS NOT NULL) AND (init_authority_sha256 ~ '^[0-9a-f]{64}$'::text) AND (init_storage_boot_id IS NOT NULL) AND (init_nonce_sha256 IS NOT NULL) AND (init_nonce_sha256 ~ '^[0-9a-f]{64}$'::text) AND (init_principal_sha256 IS NOT NULL) AND (init_principal_sha256 ~ '^[0-9a-f]{64}$'::text) AND (init_deadline_at IS NOT NULL) AND (marked_at IS NOT NULL) AND (operation = 'put_object'::text) AND (init_deadline_at > marked_at) AND (init_deadline_at <= (marked_at + '00:00:05'::interval)) AND (init_deadline_at <= deadline_at)))),
+    CONSTRAINT camera_upload_init_verification_bounds CHECK ((((init_verification IS NULL) AND (init_verification_sha256 IS NULL) AND (init_verified_at IS NULL)) OR ((init_verification IS NOT NULL) AND (init_verification_sha256 IS NOT NULL) AND (init_verified_at IS NOT NULL) AND (init_authority_revision IS NOT NULL) AND (jsonb_typeof(init_verification) = 'object'::text) AND (octet_length((init_verification)::text) <= 4096) AND (init_verification_sha256 ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT camera_upload_init_verification_conflict CHECK ((((init_verification_conflict_at IS NULL) AND (init_verification_conflict_sha256 IS NULL)) OR ((init_verification_conflict_at IS NOT NULL) AND (init_verification_conflict_sha256 IS NOT NULL) AND (init_verified_at IS NOT NULL) AND (init_verification_conflict_sha256 ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT camera_upload_manifest_grant_bounds CHECK ((((manifest_authority_revision IS NULL) AND (manifest_authority_sha256 IS NULL) AND (manifest_storage_boot_id IS NULL) AND (manifest_nonce_sha256 IS NULL) AND (manifest_principal_sha256 IS NULL) AND (manifest_deadline_at IS NULL)) OR ((manifest_authority_revision IS NOT NULL) AND (manifest_authority_revision > 0) AND (manifest_authority_sha256 IS NOT NULL) AND (manifest_authority_sha256 ~ '^[0-9a-f]{64}$'::text) AND (manifest_storage_boot_id IS NOT NULL) AND (manifest_nonce_sha256 IS NOT NULL) AND (manifest_nonce_sha256 ~ '^[0-9a-f]{64}$'::text) AND (manifest_principal_sha256 IS NOT NULL) AND (manifest_principal_sha256 ~ '^[0-9a-f]{64}$'::text) AND (manifest_deadline_at IS NOT NULL) AND (marked_at IS NOT NULL) AND (operation = 'put_object'::text) AND (manifest_deadline_at > marked_at) AND (manifest_deadline_at <= (marked_at + '00:00:30'::interval)) AND (manifest_deadline_at <= deadline_at)))),
+    CONSTRAINT camera_upload_manifest_verification_bounds CHECK ((((manifest_verification IS NULL) AND (manifest_verification_sha256 IS NULL) AND (manifest_verified_at IS NULL)) OR ((manifest_verification IS NOT NULL) AND (manifest_verification_sha256 IS NOT NULL) AND (manifest_verified_at IS NOT NULL) AND (manifest_authority_revision IS NOT NULL) AND (jsonb_typeof(manifest_verification) = 'object'::text) AND (octet_length((manifest_verification)::text) <= 4096) AND (manifest_verification_sha256 ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT camera_upload_manifest_verification_conflict CHECK ((((manifest_verification_conflict_at IS NULL) AND (manifest_verification_conflict_sha256 IS NULL)) OR ((manifest_verification_conflict_at IS NOT NULL) AND (manifest_verification_conflict_sha256 IS NOT NULL) AND (manifest_verified_at IS NOT NULL) AND (manifest_verification_conflict_sha256 ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT camera_upload_media_grant_bounds CHECK ((((media_authority_revision IS NULL) AND (media_authority_sha256 IS NULL) AND (media_storage_boot_id IS NULL) AND (media_nonce_sha256 IS NULL) AND (media_principal_sha256 IS NULL) AND (media_deadline_at IS NULL)) OR ((media_authority_revision IS NOT NULL) AND (media_authority_revision > 0) AND (media_authority_sha256 IS NOT NULL) AND (media_authority_sha256 ~ '^[0-9a-f]{64}$'::text) AND (media_storage_boot_id IS NOT NULL) AND (media_nonce_sha256 IS NOT NULL) AND (media_nonce_sha256 ~ '^[0-9a-f]{64}$'::text) AND (media_principal_sha256 IS NOT NULL) AND (media_principal_sha256 ~ '^[0-9a-f]{64}$'::text) AND (media_deadline_at IS NOT NULL) AND (marked_at IS NOT NULL) AND (operation = 'put_object'::text) AND (media_deadline_at > marked_at) AND (media_deadline_at <= (marked_at + '00:00:30'::interval)) AND (media_deadline_at <= deadline_at)))),
+    CONSTRAINT camera_upload_media_verification_bounds CHECK ((((media_verification IS NULL) AND (media_verification_sha256 IS NULL) AND (media_verified_at IS NULL)) OR ((media_verification IS NOT NULL) AND (media_verification_sha256 IS NOT NULL) AND (media_verified_at IS NOT NULL) AND (media_authority_revision IS NOT NULL) AND (jsonb_typeof(media_verification) = 'object'::text) AND (octet_length((media_verification)::text) <= 4096) AND (media_verification_sha256 ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT camera_upload_media_verification_conflict CHECK ((((media_verification_conflict_at IS NULL) AND (media_verification_conflict_sha256 IS NULL)) OR ((media_verification_conflict_at IS NOT NULL) AND (media_verification_conflict_sha256 IS NOT NULL) AND (media_verified_at IS NOT NULL) AND (media_verification_conflict_sha256 ~ '^[0-9a-f]{64}$'::text))))
+);
+
+
+--
+-- Name: camera_archive_upload_intents; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_archive_upload_intents (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    schema_version bigint DEFAULT 1 NOT NULL,
+    recording_block_id uuid NOT NULL,
+    archive_binding_id uuid NOT NULL,
+    descriptor_sha256 text NOT NULL,
+    destination_sha256 text NOT NULL,
+    object_role text NOT NULL,
+    object_key text NOT NULL,
+    byte_length bigint NOT NULL,
+    object_sha256 text NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    init_dispatch_id uuid,
+    media_dispatch_id uuid,
+    init_verification_sha256 text,
+    media_verification_sha256 text,
+    CONSTRAINT camera_manifest_dependencies CHECK ((((object_role <> 'manifest'::text) AND (init_dispatch_id IS NULL) AND (media_dispatch_id IS NULL) AND (init_verification_sha256 IS NULL) AND (media_verification_sha256 IS NULL)) OR ((object_role = 'manifest'::text) AND (init_dispatch_id IS NOT NULL) AND (media_dispatch_id IS NOT NULL) AND (init_dispatch_id <> media_dispatch_id) AND (init_verification_sha256 IS NOT NULL) AND (init_verification_sha256 ~ '^[0-9a-f]{64}$'::text) AND (media_verification_sha256 IS NOT NULL) AND (media_verification_sha256 ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT camera_upload_intent_object_bounds CHECK (((schema_version = 1) AND (((object_role = 'init'::text) AND ((byte_length >= 1) AND (byte_length <= 1048576))) OR ((object_role = 'media'::text) AND ((byte_length >= 1) AND (byte_length <= 536870912))) OR ((object_role = 'manifest'::text) AND ((byte_length >= 1) AND (byte_length <= 2097152)))) AND (object_sha256 ~ '^[0-9a-f]{64}$'::text) AND (descriptor_sha256 ~ '^[0-9a-f]{64}$'::text) AND (destination_sha256 ~ '^[0-9a-f]{64}$'::text)))
+);
+
+
+--
+-- Name: camera_consumer_leases; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_consumer_leases (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    ingest_owner_id uuid NOT NULL,
+    owner_epoch bigint NOT NULL,
+    kind text NOT NULL,
+    consumer_key uuid NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT camera_consumer_epoch_positive CHECK ((owner_epoch > 0))
+);
+
+
+--
+-- Name: camera_ingest_owners; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_ingest_owners (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    camera_source_id uuid NOT NULL,
+    stream_profile_id uuid NOT NULL,
+    owner_token uuid,
+    epoch bigint DEFAULT 0 NOT NULL,
+    state text DEFAULT 'released'::text NOT NULL,
+    lease_expires_at timestamp without time zone,
+    relay_session_id uuid,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT camera_ingest_owner_epoch_nonnegative CHECK ((epoch >= 0)),
+    CONSTRAINT camera_ingest_owner_lease_present CHECK (((state = 'released'::text) OR ((owner_token IS NOT NULL) AND (lease_expires_at IS NOT NULL))))
+);
+
+
+--
+-- Name: camera_recorder_claims; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_recorder_claims (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    ingest_owner_id uuid NOT NULL,
+    claim_token uuid,
+    ingest_epoch bigint DEFAULT 0 NOT NULL,
+    recorder_epoch bigint DEFAULT 0 NOT NULL,
+    next_block_sequence bigint DEFAULT 0 NOT NULL,
+    relay_session_id uuid,
+    media_ingest_id text,
+    storage_id uuid,
+    consumer_id uuid,
+    lease_expires_at timestamp without time zone,
+    state text DEFAULT 'released'::text NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT camera_recorder_active_claim_present CHECK (((state = 'released'::text) OR ((claim_token IS NOT NULL) AND (ingest_epoch > 0) AND (recorder_epoch > 0) AND (relay_session_id IS NOT NULL) AND (media_ingest_id IS NOT NULL) AND (storage_id IS NOT NULL) AND (lease_expires_at IS NOT NULL)))),
+    CONSTRAINT camera_recorder_epoch_nonnegative CHECK ((recorder_epoch >= 0)),
+    CONSTRAINT camera_recorder_sequence_nonnegative CHECK ((next_block_sequence >= 0))
+);
+
+
+--
+-- Name: camera_recording_blocks; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_recording_blocks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    block_key text NOT NULL,
+    camera_source_id uuid NOT NULL,
+    stream_profile_id uuid NOT NULL,
+    ingest_owner_id uuid NOT NULL,
+    ingest_epoch bigint NOT NULL,
+    recorder_claim_id uuid NOT NULL,
+    recorder_epoch bigint NOT NULL,
+    block_sequence bigint NOT NULL,
+    relay_session_id uuid NOT NULL,
+    media_ingest_id text NOT NULL,
+    storage_id uuid NOT NULL,
+    clock jsonb NOT NULL,
+    descriptor jsonb,
+    descriptor_sha256 text,
+    state text DEFAULT 'open_local'::text NOT NULL,
+    upload_epoch bigint DEFAULT 0 NOT NULL,
+    upload_token uuid,
+    upload_expires_at timestamp without time zone,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    archive_binding_id uuid,
+    archive_manifest_dispatch_id uuid,
+    archive_manifest_verification_sha256 text,
+    archive_published_at timestamp without time zone,
+    CONSTRAINT camera_block_counters_valid CHECK (((ingest_epoch > 0) AND (recorder_epoch > 0) AND (block_sequence >= 0) AND (upload_epoch >= 0))),
+    CONSTRAINT camera_block_descriptor_present CHECK ((((state = 'open_local'::text) AND (descriptor IS NULL) AND (descriptor_sha256 IS NULL)) OR ((state = ANY (ARRAY['sealed'::text, 'uploading'::text])) AND (descriptor IS NOT NULL) AND (descriptor_sha256 IS NOT NULL) AND (length(descriptor_sha256) = 64)))),
+    CONSTRAINT camera_block_publication_identity CHECK ((((archive_manifest_dispatch_id IS NULL) AND (archive_manifest_verification_sha256 IS NULL) AND (archive_published_at IS NULL)) OR ((archive_manifest_dispatch_id IS NOT NULL) AND (archive_manifest_verification_sha256 IS NOT NULL) AND (archive_manifest_verification_sha256 ~ '^[0-9a-f]{64}$'::text) AND (archive_published_at IS NOT NULL) AND (archive_binding_id IS NOT NULL) AND (state = ANY (ARRAY['sealed'::text, 'uploading'::text]))))),
+    CONSTRAINT camera_block_upload_lease_present CHECK (((state <> 'uploading'::text) OR ((upload_token IS NOT NULL) AND (upload_epoch > 0) AND (upload_expires_at IS NOT NULL))))
+);
+
+
+--
+-- Name: camera_recording_control; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.camera_recording_control (
+    id text DEFAULT 'deployment'::text NOT NULL,
+    stopped boolean DEFAULT false NOT NULL,
+    deployment_ref uuid,
+    generation bigint,
+    revision bigint,
+    desired_digest text,
+    received_at timestamp without time zone,
+    CONSTRAINT camera_recording_control_singleton CHECK ((id = 'deployment'::text)),
+    CONSTRAINT camera_recording_control_state CHECK ((((NOT stopped) AND (deployment_ref IS NULL) AND (generation IS NULL) AND (revision IS NULL) AND (desired_digest IS NULL) AND (received_at IS NULL)) OR (stopped AND (deployment_ref IS NOT NULL) AND (generation IS NOT NULL) AND (generation > 0) AND (revision IS NOT NULL) AND (revision > 0) AND (desired_digest IS NOT NULL) AND (desired_digest ~ '^[0-9a-f]{64}$'::text) AND (received_at IS NOT NULL))))
+);
+
+
+--
 -- Name: camera_relay_sessions; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -5344,7 +7719,8 @@ CREATE TABLE platform.camera_relay_sessions (
     closed_at timestamp without time zone,
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL,
-    viewer_count integer DEFAULT 0 NOT NULL
+    viewer_count integer DEFAULT 0 NOT NULL,
+    source_incarnation_id uuid
 );
 
 
@@ -5485,6 +7861,25 @@ CREATE TABLE platform.checkers (
 
 
 --
+-- Name: cli_authorization_codes; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.cli_authorization_codes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    user_id uuid NOT NULL,
+    client_id text NOT NULL,
+    code_hash text NOT NULL,
+    redirect_uri text NOT NULL,
+    code_challenge text NOT NULL,
+    scope text NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    consumed_at timestamp without time zone,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
 -- Name: cli_sessions; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -5594,6 +7989,23 @@ CREATE TABLE platform.collector_packages (
 
 
 --
+-- Name: component_certificates; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.component_certificates (
+    fingerprint text NOT NULL,
+    issuer_fingerprint text NOT NULL,
+    serial_number text NOT NULL,
+    generation bigint NOT NULL,
+    role text NOT NULL,
+    not_before timestamp without time zone NOT NULL,
+    not_after timestamp without time zone NOT NULL,
+    issued_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    component_id text NOT NULL
+);
+
+
+--
 -- Name: composite_check_inputs; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -5646,7 +8058,8 @@ CREATE TABLE platform.composite_checks (
     last_evaluated_at timestamp without time zone,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    write_canonical_availability boolean DEFAULT false NOT NULL
+    write_canonical_availability boolean DEFAULT false NOT NULL,
+    last_incremental_at timestamp without time zone
 );
 
 
@@ -6043,7 +8456,8 @@ CREATE TABLE platform.device_agent_availability (
     execution_id uuid,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     inserted_at timestamp without time zone NOT NULL,
-    updated_at timestamp without time zone NOT NULL
+    updated_at timestamp without time zone NOT NULL,
+    consecutive_down smallint DEFAULT 0 NOT NULL
 );
 
 
@@ -6091,6 +8505,44 @@ CREATE TABLE platform.device_authorizations (
 
 
 --
+-- Name: device_availability_evidence; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.device_availability_evidence (
+    device_uid text NOT NULL,
+    source_kind text NOT NULL,
+    source_instance text DEFAULT ''::text NOT NULL,
+    reporter_agent_id text DEFAULT ''::text NOT NULL,
+    authority_class text NOT NULL,
+    state text NOT NULL,
+    observed_at timestamp without time zone NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    state_since timestamp without time zone NOT NULL,
+    confirmations smallint DEFAULT 1 NOT NULL,
+    reporter_eligible boolean DEFAULT true NOT NULL,
+    detail jsonb DEFAULT '{}'::jsonb NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT device_availability_evidence_authority_class_check CHECK ((authority_class = ANY (ARRAY['operator_policy'::text, 'self_report'::text, 'managing_controller'::text, 'active_probe'::text, 'passive_observation'::text, 'inventory_declared'::text]))),
+    CONSTRAINT device_availability_evidence_confirmations_check CHECK ((confirmations >= 1)),
+    CONSTRAINT device_availability_evidence_detail_check CHECK ((octet_length((detail)::text) <= 2048)),
+    CONSTRAINT device_availability_evidence_lease CHECK ((expires_at > observed_at)),
+    CONSTRAINT device_availability_evidence_state_check CHECK ((state = ANY (ARRAY['up'::text, 'down'::text]))),
+    CONSTRAINT device_availability_evidence_up_only_classes CHECK (((state = 'up'::text) OR (authority_class <> ALL (ARRAY['self_report'::text, 'passive_observation'::text]))))
+);
+
+
+--
+-- Name: device_availability_legacy; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.device_availability_legacy (
+    device_uid text NOT NULL,
+    is_available boolean,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
 -- Name: device_cleanup_settings; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -6101,7 +8553,19 @@ CREATE TABLE platform.device_cleanup_settings (
     batch_size integer DEFAULT 1000 NOT NULL,
     enabled boolean DEFAULT true NOT NULL,
     inserted_at timestamp without time zone DEFAULT now() NOT NULL,
-    updated_at timestamp without time zone DEFAULT now() NOT NULL
+    updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    ephemeral_expiry_enabled boolean DEFAULT false NOT NULL,
+    ephemeral_expiry_days integer DEFAULT 30 NOT NULL,
+    ephemeral_expiry_exclusion_query text,
+    ephemeral_expiry_max_fraction double precision DEFAULT 0.5 NOT NULL,
+    ephemeral_expiry_guard_override boolean DEFAULT false CONSTRAINT device_cleanup_settings_ephemeral_expiry_guard_overrid_not_null NOT NULL,
+    source_retirement_enabled boolean DEFAULT true NOT NULL,
+    source_retirement_absent_collections integer DEFAULT 3 CONSTRAINT device_cleanup_settings_source_retirement_absent_colle_not_null NOT NULL,
+    source_retirement_min_absence_hours integer DEFAULT 24 CONSTRAINT device_cleanup_settings_source_retirement_min_absence__not_null NOT NULL,
+    source_retirement_max_fraction double precision DEFAULT 0.5 NOT NULL,
+    source_retirement_guard_override boolean DEFAULT false CONSTRAINT device_cleanup_settings_source_retirement_guard_overri_not_null NOT NULL,
+    source_retired_grace_days integer DEFAULT 7 NOT NULL,
+    max_successions_per_run integer DEFAULT 200 NOT NULL
 );
 
 
@@ -6129,11 +8593,10 @@ CREATE TABLE platform.device_composite_check_results (
 --
 
 CREATE SEQUENCE platform.device_fleet_ordinals_ordinal_seq
-    AS integer
     START WITH 1
     INCREMENT BY 1
     NO MINVALUE
-    NO MAXVALUE
+    MAXVALUE 4294967295
     CACHE 1;
 
 
@@ -6143,9 +8606,16 @@ CREATE SEQUENCE platform.device_fleet_ordinals_ordinal_seq
 
 CREATE TABLE platform.device_fleet_ordinals (
     uid text NOT NULL,
-    ordinal integer DEFAULT nextval('platform.device_fleet_ordinals_ordinal_seq'::regclass) NOT NULL,
+    ordinal bigint DEFAULT nextval('platform.device_fleet_ordinals_ordinal_seq'::regclass) NOT NULL,
     tombstoned boolean DEFAULT false NOT NULL,
-    allocated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+    allocated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    lifecycle_seq bigint DEFAULT 0 NOT NULL,
+    lifecycle_xid xid8,
+    lifecycle_at timestamp without time zone,
+    retired_seq bigint,
+    retired_xid xid8,
+    retired_at timestamp without time zone,
+    CONSTRAINT device_fleet_ordinals_u32 CHECK (((ordinal >= 1) AND (ordinal <= '4294967295'::bigint)))
 );
 
 
@@ -6254,6 +8724,52 @@ ALTER SEQUENCE platform.device_identifiers_id_seq OWNED BY platform.device_ident
 
 
 --
+-- Name: discovered_interfaces; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.discovered_interfaces (
+    "timestamp" timestamp with time zone NOT NULL,
+    device_id text NOT NULL,
+    if_index bigint,
+    agent_id text,
+    gateway_id text,
+    device_ip text,
+    if_name text,
+    if_descr text,
+    if_alias text,
+    if_speed bigint,
+    if_phys_address text,
+    ip_addresses text[] DEFAULT ARRAY[]::text[],
+    if_admin_status bigint,
+    if_oper_status bigint,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    created_at timestamp with time zone,
+    interface_uid text NOT NULL,
+    if_type integer,
+    if_type_name text,
+    interface_kind text,
+    mtu integer,
+    duplex text,
+    speed_bps bigint,
+    classifications text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    classification_meta jsonb DEFAULT '{}'::jsonb NOT NULL,
+    classification_source text DEFAULT 'rules'::text NOT NULL,
+    available_metrics jsonb[],
+    partition text DEFAULT 'default'::text
+);
+
+
+--
+-- Name: device_interface_addresses_catalog; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.device_interface_addresses_catalog AS
+ SELECT device_id,
+    unnest(ip_addresses) AS ip
+   FROM platform.discovered_interfaces;
+
+
+--
 -- Name: device_interface_macs; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -6271,6 +8787,85 @@ CREATE TABLE platform.device_interface_macs (
 --
 
 COMMENT ON TABLE platform.device_interface_macs IS 'MACs a device reports on its own interfaces. Corroboration for identity only -- never an identifier, never resolves an update. Keyed per device so two rows of one chassis can each claim the same MAC.';
+
+
+--
+-- Name: ocsf_devices; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.ocsf_devices (
+    uid text NOT NULL,
+    type_id bigint DEFAULT 0,
+    type text,
+    name text,
+    hostname text,
+    ip text,
+    mac text,
+    uid_alt text,
+    vendor_name text,
+    model text,
+    domain text,
+    zone text,
+    subnet_uid text,
+    vlan_uid text,
+    region text,
+    first_seen_time timestamp(0) without time zone,
+    last_seen_time timestamp(0) without time zone,
+    created_time timestamp(0) without time zone,
+    modified_time timestamp(0) without time zone,
+    risk_level_id bigint,
+    risk_level text,
+    risk_score bigint,
+    is_managed boolean DEFAULT false,
+    is_compliant boolean,
+    is_trusted boolean DEFAULT false,
+    is_active boolean DEFAULT true NOT NULL,
+    os jsonb DEFAULT '{}'::jsonb,
+    hw_info jsonb DEFAULT '{}'::jsonb,
+    network_interfaces jsonb[] DEFAULT ARRAY[]::jsonb[],
+    owner jsonb DEFAULT '{}'::jsonb,
+    org jsonb DEFAULT '{}'::jsonb,
+    groups jsonb[] DEFAULT ARRAY[]::jsonb[],
+    agent_list jsonb[] DEFAULT ARRAY[]::jsonb[],
+    gateway_id text,
+    agent_id text,
+    discovery_sources text[] DEFAULT ARRAY[]::text[],
+    tags jsonb DEFAULT '{}'::jsonb,
+    is_available boolean DEFAULT true,
+    metadata jsonb DEFAULT '{}'::jsonb,
+    group_id uuid,
+    deleted_at timestamp without time zone,
+    deleted_by text,
+    deleted_reason text,
+    management_device_id text,
+    availability_source_agent_id text,
+    availability_source_profile_id uuid,
+    identity_revision bigint DEFAULT 1 NOT NULL,
+    partition text DEFAULT 'default'::text NOT NULL,
+    switch_port_attachment jsonb,
+    source_retired_at timestamp without time zone,
+    identity_observed_at timestamp without time zone,
+    location platform.geography,
+    identity_purged_at timestamp without time zone,
+    availability_state text DEFAULT 'unknown'::text NOT NULL,
+    availability_decided_by jsonb,
+    availability_changed_at timestamp without time zone,
+    availability_conflict boolean DEFAULT false NOT NULL,
+    availability_agents jsonb
+);
+
+
+--
+-- Name: device_inventory_aliases_catalog; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.device_inventory_aliases_catalog AS
+ SELECT DISTINCT d.uid,
+    d.uid_alt,
+    NULLIF(btrim(aliases.alias), ''::text) AS alias
+   FROM (platform.ocsf_devices d
+     CROSS JOIN LATERAL ( VALUES (d.uid), (d.uid_alt), (d.hostname), (d.name), (d.ip), (d.agent_id), ((d.metadata ->> 'sys_name'::text)), ((d.metadata ->> 'snmp_name'::text)), ((d.metadata ->> 'controller_name'::text)), ((d.metadata ->> 'unifi_device_id'::text)), ((d.metadata ->> 'device_id'::text))) aliases(alias))
+  WHERE (NULLIF(btrim(aliases.alias), ''::text) IS NOT NULL);
 
 
 --
@@ -6416,7 +9011,8 @@ CREATE TABLE platform.device_snmp_facts (
     collected_at timestamp without time zone NOT NULL,
     inserted_at timestamp without time zone DEFAULT now() NOT NULL,
     updated_at timestamp without time zone DEFAULT now() NOT NULL
-);
+)
+WITH (fillfactor='80');
 
 
 --
@@ -6496,63 +9092,6 @@ CREATE TABLE platform.device_source_snapshots (
 
 
 --
--- Name: ocsf_devices; Type: TABLE; Schema: platform; Owner: -
---
-
-CREATE TABLE platform.ocsf_devices (
-    uid text NOT NULL,
-    type_id bigint DEFAULT 0,
-    type text,
-    name text,
-    hostname text,
-    ip text,
-    mac text,
-    uid_alt text,
-    vendor_name text,
-    model text,
-    domain text,
-    zone text,
-    subnet_uid text,
-    vlan_uid text,
-    region text,
-    first_seen_time timestamp(0) without time zone,
-    last_seen_time timestamp(0) without time zone,
-    created_time timestamp(0) without time zone,
-    modified_time timestamp(0) without time zone,
-    risk_level_id bigint,
-    risk_level text,
-    risk_score bigint,
-    is_managed boolean DEFAULT false,
-    is_compliant boolean,
-    is_trusted boolean DEFAULT false,
-    is_active boolean DEFAULT true NOT NULL,
-    os jsonb DEFAULT '{}'::jsonb,
-    hw_info jsonb DEFAULT '{}'::jsonb,
-    network_interfaces jsonb[] DEFAULT ARRAY[]::jsonb[],
-    owner jsonb DEFAULT '{}'::jsonb,
-    org jsonb DEFAULT '{}'::jsonb,
-    groups jsonb[] DEFAULT ARRAY[]::jsonb[],
-    agent_list jsonb[] DEFAULT ARRAY[]::jsonb[],
-    gateway_id text,
-    agent_id text,
-    discovery_sources text[] DEFAULT ARRAY[]::text[],
-    tags jsonb DEFAULT '{}'::jsonb,
-    is_available boolean DEFAULT true,
-    metadata jsonb DEFAULT '{}'::jsonb,
-    group_id uuid,
-    deleted_at timestamp without time zone,
-    deleted_by text,
-    deleted_reason text,
-    management_device_id text,
-    availability_source_agent_id text,
-    availability_source_profile_id uuid,
-    identity_revision bigint DEFAULT 1 NOT NULL,
-    partition text DEFAULT 'default'::text NOT NULL,
-    switch_port_attachment jsonb
-);
-
-
---
 -- Name: sweep_coverage_daily; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -6581,6 +9120,21 @@ CREATE TABLE platform.sweep_coverage_daily (
 
 
 --
+-- Name: sweep_group_declared_targets; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.sweep_group_declared_targets (
+    sweep_group_id uuid NOT NULL,
+    target text NOT NULL,
+    device_uid text,
+    source text DEFAULT 'static'::text NOT NULL,
+    declared_at timestamp(0) without time zone NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
 -- Name: sweep_groups; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -6604,7 +9158,8 @@ CREATE TABLE platform.sweep_groups (
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     target_query text,
     emit_availability_events boolean DEFAULT false NOT NULL,
-    agent_ids text[] DEFAULT ARRAY[]::text[] NOT NULL
+    agent_ids text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    discover_new_devices boolean DEFAULT true NOT NULL
 );
 
 
@@ -6626,7 +9181,8 @@ CREATE TABLE platform.sweep_profiles (
     enabled boolean DEFAULT true NOT NULL,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    banner_grab jsonb DEFAULT '{"ports": {}, "enabled": false, "protocols": [], "read_timeout_ms": 2000, "match_batch_size": 256, "max_banner_bytes": 1024, "connect_timeout_ms": 2000, "max_candidate_queue": 8192, "match_batch_max_bytes": 1048576, "max_global_concurrency": 256, "min_reprobe_interval_s": 86400, "per_host_rate_limit_ms": 100, "max_concurrency_per_host": 4, "max_probe_rate_per_second": 0}'::jsonb NOT NULL
+    banner_grab jsonb DEFAULT '{"ports": {}, "enabled": false, "protocols": [], "read_timeout_ms": 2000, "match_batch_size": 256, "max_banner_bytes": 1024, "connect_timeout_ms": 2000, "max_candidate_queue": 8192, "match_batch_max_bytes": 1048576, "max_global_concurrency": 256, "min_reprobe_interval_s": 86400, "per_host_rate_limit_ms": 100, "max_concurrency_per_host": 4, "max_probe_rate_per_second": 0}'::jsonb NOT NULL,
+    scan_timeout character varying(255)
 );
 
 
@@ -6636,33 +9192,26 @@ CREATE TABLE platform.sweep_profiles (
 
 CREATE VIEW platform.device_sweep_overlap AS
  WITH declared_raw AS (
-         SELECT i.agent_id,
-            ((g.value ->> 'sweep_group_id'::text))::uuid AS sweep_group_id,
-            (dt.value ->> 'network'::text) AS target,
-            NULLIF((dt.value #>> '{metadata,device_uid}'::text[]), ''::text) AS declared_device_uid,
-            i.last_delivered_at
-           FROM ((platform.agent_config_instances i
-             CROSS JOIN LATERAL jsonb_array_elements((i.compiled_config -> 'groups'::text)) g(value))
-             CROSS JOIN LATERAL jsonb_array_elements((g.value -> 'device_targets'::text)) dt(value))
-          WHERE ((i.config_type = 'sweep'::text) AND (jsonb_typeof((i.compiled_config -> 'groups'::text)) = 'array'::text) AND (jsonb_typeof((g.value -> 'device_targets'::text)) = 'array'::text))
-        UNION ALL
-         SELECT i.agent_id,
-            ((g.value ->> 'sweep_group_id'::text))::uuid AS sweep_group_id,
-            t.value AS target,
-            NULL::text AS declared_device_uid,
-            i.last_delivered_at
-           FROM ((platform.agent_config_instances i
-             CROSS JOIN LATERAL jsonb_array_elements((i.compiled_config -> 'groups'::text)) g(value))
-             CROSS JOIN LATERAL jsonb_array_elements_text((g.value -> 'targets'::text)) t(value))
-          WHERE ((i.config_type = 'sweep'::text) AND (jsonb_typeof((i.compiled_config -> 'groups'::text)) = 'array'::text) AND (jsonb_typeof((g.value -> 'targets'::text)) = 'array'::text))
+         SELECT ag.agent_id,
+            dt.sweep_group_id,
+            dt.target,
+            NULLIF(dt.device_uid, ''::text) AS declared_device_uid,
+            dt.declared_at
+           FROM ((platform.sweep_group_declared_targets dt
+             JOIN platform.sweep_groups sg_1 ON ((sg_1.id = dt.sweep_group_id)))
+             CROSS JOIN LATERAL unnest(
+                CASE
+                    WHEN (cardinality(sg_1.agent_ids) = 0) THEN ARRAY[NULL::text]
+                    ELSE sg_1.agent_ids
+                END) ag(agent_id))
+          WHERE (sg_1.enabled AND (dt.target IS NOT NULL) AND (dt.target <> ''::text))
         ), declared_dedup AS MATERIALIZED (
          SELECT declared_raw.agent_id,
             declared_raw.sweep_group_id,
             declared_raw.target,
             max(declared_raw.declared_device_uid) AS declared_device_uid,
-            max(declared_raw.last_delivered_at) AS last_delivered_at
+            max(declared_raw.declared_at) AS declared_at
            FROM declared_raw
-          WHERE ((declared_raw.target IS NOT NULL) AND (declared_raw.target <> ''::text))
           GROUP BY declared_raw.agent_id, declared_raw.sweep_group_id, declared_raw.target
         ), declared AS MATERIALIZED (
          SELECT row_number() OVER () AS d_id,
@@ -6670,7 +9219,7 @@ CREATE VIEW platform.device_sweep_overlap AS
             d.sweep_group_id,
             d.target,
             d.declared_device_uid,
-            d.last_delivered_at,
+            d.declared_at,
             x.target_inet,
             ((x.target_inet IS NOT NULL) AND (masklen(x.target_inet) < x.maxlen)) AS is_network,
                 CASE
@@ -6742,7 +9291,7 @@ CREATE VIEW platform.device_sweep_overlap AS
             d.sweep_group_id AS d_group,
             d.target AS declared_target,
             d.declared_device_uid,
-            d.last_delivered_at,
+            d.declared_at,
             o.device_uid,
             o.ip,
             o.agent_id AS o_agent,
@@ -6761,7 +9310,7 @@ CREATE VIEW platform.device_sweep_overlap AS
             d.sweep_group_id,
             d.target,
             d.declared_device_uid,
-            d.last_delivered_at,
+            d.declared_at,
             o.device_uid,
             o.ip,
             o.agent_id,
@@ -6783,7 +9332,7 @@ CREATE VIEW platform.device_sweep_overlap AS
             c.specificity,
             c.match_via,
             c.declared_device_uid,
-            c.last_delivered_at,
+            c.declared_at,
             c.last_seen_at,
             c.available_count,
             c.execution_count,
@@ -6799,7 +9348,7 @@ CREATE VIEW platform.device_sweep_overlap AS
             (array_agg(covers_keyed.declared_target ORDER BY covers_keyed.specificity DESC, covers_keyed.declared_target))[1] AS declared_target,
             array_agg(DISTINCT covers_keyed.declared_target) AS covering_declarations,
             max(covers_keyed.declared_device_uid) AS declared_device_uid,
-            max(covers_keyed.last_delivered_at) AS last_delivered_at,
+            max(covers_keyed.declared_at) AS declared_at,
             bool_and(covers_keyed.group_inferred) AS group_inferred,
             bool_and(covers_keyed.agent_inferred) AS agent_inferred,
                 CASE
@@ -6832,7 +9381,7 @@ CREATE VIEW platform.device_sweep_overlap AS
             c.last_seen_at,
             c.available_count,
             c.execution_count,
-            c.last_delivered_at
+            c.declared_at
            FROM covers c
         UNION ALL
          SELECT d.sweep_group_id,
@@ -6850,7 +9399,7 @@ CREATE VIEW platform.device_sweep_overlap AS
             NULL::timestamp without time zone AS "timestamp",
             NULL::numeric AS "numeric",
             NULL::numeric AS "numeric",
-            d.last_delivered_at
+            d.declared_at
            FROM declared d
           WHERE (NOT (EXISTS ( SELECT 1
                    FROM covers_raw c
@@ -6903,7 +9452,7 @@ CREATE VIEW platform.device_sweep_overlap AS
     r.last_seen_at,
     r.available_count,
     r.execution_count,
-    r.last_delivered_at AS config_delivered_at,
+    r.declared_at,
     (daa.device_uid IS NOT NULL) AS has_availability_row,
     daa.agent_id AS availability_agent_id,
     daa.sweep_group_id AS availability_group_id,
@@ -6932,38 +9481,29 @@ CREATE VIEW platform.device_sweep_overlap AS
 
 
 --
--- Name: discovered_interfaces; Type: TABLE; Schema: platform; Owner: -
+-- Name: device_vantage_expectations; Type: TABLE; Schema: platform; Owner: -
 --
 
-CREATE TABLE platform.discovered_interfaces (
-    "timestamp" timestamp with time zone NOT NULL,
-    device_id text NOT NULL,
-    if_index bigint,
-    agent_id text,
-    gateway_id text,
-    device_ip text,
-    if_name text,
-    if_descr text,
-    if_alias text,
-    if_speed bigint,
-    if_phys_address text,
-    ip_addresses text[] DEFAULT ARRAY[]::text[],
-    if_admin_status bigint,
-    if_oper_status bigint,
-    metadata jsonb DEFAULT '{}'::jsonb,
-    created_at timestamp with time zone,
-    interface_uid text NOT NULL,
-    if_type integer,
-    if_type_name text,
-    interface_kind text,
-    mtu integer,
-    duplex text,
-    speed_bps bigint,
-    classifications text[] DEFAULT ARRAY[]::text[] NOT NULL,
-    classification_meta jsonb DEFAULT '{}'::jsonb NOT NULL,
-    classification_source text DEFAULT 'rules'::text NOT NULL,
-    available_metrics jsonb[],
-    partition text DEFAULT 'default'::text
+CREATE TABLE platform.device_vantage_expectations (
+    device_uid text NOT NULL,
+    agent_id text NOT NULL,
+    check_id uuid NOT NULL,
+    expectation text NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT device_vantage_expectations_expectation_check CHECK ((expectation = ANY (ARRAY['reachable'::text, 'blocked'::text])))
+);
+
+
+--
+-- Name: dgraph_canonical_rebuild_cursors; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.dgraph_canonical_rebuild_cursors (
+    name text NOT NULL,
+    fingerprint text NOT NULL,
+    phase text NOT NULL,
+    next_chunk integer DEFAULT 0 NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
 );
 
 
@@ -7004,6 +9544,25 @@ CREATE TABLE platform.dusk_profiles (
 
 
 --
+-- Name: edge_delivery_slots; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.edge_delivery_slots (
+    network_scope_id uuid NOT NULL,
+    authenticated_agent_id bytea NOT NULL,
+    spool_id uuid NOT NULL,
+    sequence bigint NOT NULL,
+    record_sha256 bytea NOT NULL,
+    event_id uuid NOT NULL,
+    semantic_envelope_sha256 bytea NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    CONSTRAINT edge_delivery_slots_record_digest_length CHECK ((octet_length(record_sha256) = 32)),
+    CONSTRAINT edge_delivery_slots_semantic_digest_length CHECK ((octet_length(semantic_envelope_sha256) = 32)),
+    CONSTRAINT edge_delivery_slots_sequence_positive CHECK ((sequence >= 1))
+);
+
+
+--
 -- Name: edge_onboarding_events; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -7031,7 +9590,7 @@ CREATE TABLE platform.edge_onboarding_packages (
     gateway_id text,
     site text,
     status text DEFAULT 'issued'::text NOT NULL,
-    security_mode text DEFAULT 'spire'::text,
+    security_mode text DEFAULT 'mtls'::text,
     downstream_entry_id text,
     downstream_spiffe_id text,
     selectors text[] DEFAULT ARRAY[]::text[],
@@ -7078,6 +9637,41 @@ CREATE TABLE platform.edge_sites (
     last_seen_at timestamp without time zone,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: edge_sweep_batch_slots; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.edge_sweep_batch_slots (
+    network_scope_id uuid NOT NULL,
+    execution_id uuid NOT NULL,
+    execution_shard bigint NOT NULL,
+    assignment_epoch bigint NOT NULL,
+    batch_sequence bigint NOT NULL,
+    event_id uuid NOT NULL,
+    semantic_envelope_sha256 bytea NOT NULL,
+    projected_row_count integer NOT NULL,
+    committed_row_count integer NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    CONSTRAINT edge_sweep_batch_slots_semantic_digest_length CHECK ((octet_length(semantic_envelope_sha256) = 32))
+);
+
+
+--
+-- Name: edge_sweep_projected_rows; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.edge_sweep_projected_rows (
+    network_scope_id uuid NOT NULL,
+    row_key bytea NOT NULL,
+    event_id uuid NOT NULL,
+    kind text NOT NULL,
+    batch_index integer NOT NULL,
+    element_index integer NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    CONSTRAINT edge_sweep_projected_rows_row_key_length CHECK ((octet_length(row_key) = 32))
 );
 
 
@@ -7377,63 +9971,62 @@ CREATE TABLE platform.endpoint_packages (
 
 
 --
--- Name: endpoint_vulnerability_assessments; Type: TABLE; Schema: platform; Owner: -
+-- Name: endpoint_vulnerability_match_ticket_seq; Type: SEQUENCE; Schema: platform; Owner: -
 --
 
-CREATE TABLE platform.endpoint_vulnerability_assessments (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
+CREATE SEQUENCE platform.endpoint_vulnerability_match_ticket_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: endpoint_vulnerability_advisory_changes; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.endpoint_vulnerability_advisory_changes (
+    advisory_ref uuid NOT NULL,
+    cve_id text,
+    ticket bigint DEFAULT nextval('platform.endpoint_vulnerability_match_ticket_seq'::regclass) NOT NULL,
+    changed_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: endpoint_vulnerability_device_evaluations; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.endpoint_vulnerability_device_evaluations (
     device_uid text NOT NULL,
-    agent_id text,
-    scan_ref uuid,
-    inventory_package_ref uuid,
-    endpoint_package_ref uuid CONSTRAINT endpoint_vulnerability_assessment_endpoint_package_ref_not_null NOT NULL,
-    cve_id text NOT NULL,
-    status text DEFAULT 'active'::text NOT NULL,
-    assessment text DEFAULT 'candidate'::text NOT NULL,
-    disposition text DEFAULT 'unknown'::text NOT NULL,
-    authority text,
-    applicability_reason text CONSTRAINT endpoint_vulnerability_assessment_applicability_reason_not_null NOT NULL,
-    authority_generation bigint,
-    authority_as_of timestamp without time zone,
-    freshness text DEFAULT 'unknown'::text NOT NULL,
-    provider text,
-    feed_key text,
-    advisory_id text,
-    package_type text,
-    package_namespace text,
-    package_release text,
-    package_name text,
-    package_purl text,
-    installed_version text,
-    source_package text,
-    source_version text,
-    binary_package text,
-    architecture text,
-    version_scheme text,
-    fixed_version text,
-    severity text,
-    cvss_score double precision,
-    cvss_vector text,
-    kev boolean DEFAULT false NOT NULL,
-    exploit_available boolean DEFAULT false NOT NULL,
-    supporting_match_ids uuid[] DEFAULT ARRAY[]::uuid[] CONSTRAINT endpoint_vulnerability_assessment_supporting_match_ids_not_null NOT NULL,
-    supporting_assertion_ids uuid[] DEFAULT ARRAY[]::uuid[] CONSTRAINT endpoint_vulnerability_assess_supporting_assertion_ids_not_null NOT NULL,
-    evidence jsonb DEFAULT '{}'::jsonb NOT NULL,
-    transition_reason text,
-    metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
-    first_seen_at timestamp without time zone NOT NULL,
-    last_seen_at timestamp without time zone NOT NULL,
-    resolved_at timestamp without time zone,
-    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    evaluated_at timestamp without time zone NOT NULL
+);
+
+
+--
+-- Name: endpoint_vulnerability_match_queue; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.endpoint_vulnerability_match_queue (
+    device_uid text NOT NULL,
+    ticket bigint DEFAULT nextval('platform.endpoint_vulnerability_match_ticket_seq'::regclass) NOT NULL,
+    reason text NOT NULL,
+    enqueued_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: endpoint_vulnerability_match_state; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.endpoint_vulnerability_match_state (
+    name text NOT NULL,
+    last_full_pass_at timestamp without time zone,
+    feed_fingerprint text,
+    feed_generations jsonb DEFAULT '{}'::jsonb NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    package_identity_key text CONSTRAINT endpoint_vulnerability_assessment_package_identity_key_not_null NOT NULL,
-    source_scope text DEFAULT 'host'::text NOT NULL,
-    package_manager text,
-    ecosystem text,
-    CONSTRAINT endpoint_vulnerability_assessments_assessment_check CHECK ((assessment = ANY (ARRAY['confirmed'::text, 'candidate'::text]))),
-    CONSTRAINT endpoint_vulnerability_assessments_disposition_check CHECK ((disposition = ANY (ARRAY['affected'::text, 'fixed'::text, 'not_affected'::text, 'under_investigation'::text, 'unknown'::text]))),
-    CONSTRAINT endpoint_vulnerability_assessments_freshness_check CHECK ((freshness = ANY (ARRAY['fresh'::text, 'stale'::text, 'unknown'::text]))),
-    CONSTRAINT endpoint_vulnerability_assessments_status_check CHECK ((status = ANY (ARRAY['active'::text, 'resolved'::text])))
+    CONSTRAINT endpoint_vulnerability_match_state_name_check CHECK ((name = 'matcher'::text))
 );
 
 
@@ -7470,6 +10063,31 @@ CREATE TABLE platform.endpoint_vulnerability_matches (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: endpoint_vulnerability_package_keys; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.endpoint_vulnerability_package_keys (
+    lookup_key uuid NOT NULL,
+    endpoint_package_ref uuid CONSTRAINT endpoint_vulnerability_package_ke_endpoint_package_ref_not_null NOT NULL
+);
+
+
+--
+-- Name: event_ledger; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.event_ledger (
+    network_scope_id uuid NOT NULL,
+    event_id uuid NOT NULL,
+    semantic_envelope_sha256 bytea NOT NULL,
+    record_sha256 bytea NOT NULL,
+    inserted_at timestamp without time zone DEFAULT now() NOT NULL,
+    CONSTRAINT event_ledger_record_digest_length CHECK ((octet_length(record_sha256) = 32)),
+    CONSTRAINT event_ledger_semantic_digest_length CHECK ((octet_length(semantic_envelope_sha256) = 32))
 );
 
 
@@ -7515,6 +10133,300 @@ CREATE TABLE platform.events (
 
 
 --
+-- Name: TABLE events; Type: COMMENT; Schema: platform; Owner: -
+--
+
+COMMENT ON TABLE platform.events IS 'Deprecated unused CloudEvents-style table retained for schema compatibility. No shipped writer or SRQL reader. JetStream events.> requires OCSF class_uid and writes the active OCSF event backend; discrete OTel events use OTLP logs with event_name.';
+
+
+--
+-- Name: exposure_advisory_ordinal_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.exposure_advisory_ordinal_seq
+    START WITH 1000000000000
+    INCREMENT BY 1
+    MINVALUE 1000000000000
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: exposure_advisory_ordinals; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_advisory_ordinals (
+    advisory_id text NOT NULL,
+    ordinal bigint DEFAULT nextval('platform.exposure_advisory_ordinal_seq'::regclass) NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: exposure_delivery_batches; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_delivery_batches (
+    bucket integer NOT NULL,
+    stream_sequences bigint[] NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    phase text DEFAULT 'legacy'::text NOT NULL,
+    operation_id uuid,
+    payload_hash text,
+    recovery_position bigint,
+    CONSTRAINT exposure_delivery_batches_bucket_check CHECK (((bucket >= 0) AND (bucket <= 15))),
+    CONSTRAINT exposure_delivery_identity CHECK ((((operation_id IS NULL) AND (payload_hash IS NULL) AND (phase = 'legacy'::text)) OR ((operation_id IS NOT NULL) AND (payload_hash IS NOT NULL) AND (payload_hash ~ '^[0-9a-f]{64}$'::text)))),
+    CONSTRAINT exposure_delivery_phase CHECK ((phase = ANY (ARRAY['legacy'::text, 'capturing'::text, 'applying'::text, 'complete'::text, 'snapshot_required'::text]))),
+    CONSTRAINT exposure_delivery_position CHECK ((((phase = ANY (ARRAY['applying'::text, 'complete'::text])) AND (recovery_position IS NOT NULL) AND (recovery_position > 0)) OR ((phase = ANY (ARRAY['legacy'::text, 'capturing'::text, 'snapshot_required'::text])) AND (recovery_position IS NULL))))
+);
+
+
+--
+-- Name: exposure_device_catalog; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.exposure_device_catalog AS
+ SELECT o.ordinal AS device_ord,
+    d.uid AS device_uid,
+    d.hostname,
+    d.type AS device_type,
+    d.vendor_name,
+    d.partition,
+    d.vlan_uid,
+    (d.owner ->> 'name'::text) AS owner_name,
+    (d.tags ->> 'site'::text) AS tag_site,
+    d.is_available,
+    (EXISTS ( SELECT 1
+           FROM platform.ocsf_agents a
+          WHERE (a.device_uid = d.uid))) AS agent_managed
+   FROM (platform.ocsf_devices d
+     JOIN platform.device_fleet_ordinals o ON ((o.uid = d.uid)))
+  WHERE ((d.deleted_at IS NULL) AND (NOT o.tombstoned));
+
+
+--
+-- Name: exposure_device_refreshes; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_device_refreshes (
+    device_uid text NOT NULL,
+    lifecycle_seq bigint NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: exposure_device_tags_catalog; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.exposure_device_tags_catalog AS
+ SELECT o.ordinal AS device_ord,
+    tag.key AS tag_key,
+    tag.value AS tag_value
+   FROM ((platform.ocsf_devices d
+     JOIN platform.device_fleet_ordinals o ON ((o.uid = d.uid)))
+     CROSS JOIN LATERAL jsonb_each_text(d.tags) tag(key, value))
+  WHERE ((d.deleted_at IS NULL) AND (NOT o.tombstoned));
+
+
+--
+-- Name: exposure_dimension_outbox; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_dimension_outbox (
+    id bigint NOT NULL,
+    kind text NOT NULL,
+    ordinal bigint NOT NULL,
+    transition_seq bigint NOT NULL,
+    payload jsonb NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT exposure_dimension_outbox_kind_check CHECK ((kind = ANY (ARRAY['cve'::text, 'package'::text])))
+);
+
+
+--
+-- Name: exposure_dimension_outbox_id_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+ALTER TABLE platform.exposure_dimension_outbox ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME platform.exposure_dimension_outbox_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: exposure_dimension_state; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_dimension_state (
+    kind text NOT NULL,
+    ordinal bigint NOT NULL,
+    content jsonb NOT NULL,
+    payload jsonb NOT NULL,
+    transition_seq bigint NOT NULL,
+    CONSTRAINT exposure_dimension_state_kind_check CHECK ((kind = ANY (ARRAY['cve'::text, 'package'::text]))),
+    CONSTRAINT exposure_dimension_state_ordinal_check CHECK ((ordinal > 0))
+);
+
+
+--
+-- Name: exposure_fact_watermarks; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_fact_watermarks (
+    device_uid text NOT NULL,
+    package_identity_key text NOT NULL,
+    cve_id text NOT NULL,
+    state text NOT NULL,
+    transition_seq bigint NOT NULL,
+    transition_xid xid8 NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    payload jsonb,
+    CONSTRAINT exposure_fact_watermarks_state_check CHECK ((state = 'resolved'::text))
+);
+
+
+--
+-- Name: exposure_package_ordinal_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.exposure_package_ordinal_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: exposure_package_ordinals; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_package_ordinals (
+    package_identity_key text NOT NULL,
+    ordinal bigint DEFAULT nextval('platform.exposure_package_ordinal_seq'::regclass) NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: exposure_package_version_ordinal_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.exposure_package_version_ordinal_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: exposure_package_version_ordinals; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_package_version_ordinals (
+    package_identity_key text NOT NULL,
+    installed_version text NOT NULL,
+    ordinal bigint DEFAULT nextval('platform.exposure_package_version_ordinal_seq'::regclass) NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: exposure_reconciliation_checks; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_reconciliation_checks (
+    device_ord bigint NOT NULL,
+    status text DEFAULT 'deferred'::text NOT NULL,
+    control jsonb DEFAULT '{}'::jsonb NOT NULL,
+    checked_at timestamp without time zone,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL,
+    CONSTRAINT exposure_reconciliation_ordinal CHECK (((device_ord >= 0) AND (device_ord <= '4294967295'::bigint))),
+    CONSTRAINT exposure_reconciliation_status CHECK ((status = ANY (ARRAY['scanning'::text, 'matched'::text, 'mismatch'::text, 'deferred'::text])))
+);
+
+
+--
+-- Name: exposure_snapshot_generations; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_snapshot_generations (
+    id bigint NOT NULL,
+    status text NOT NULL,
+    control jsonb NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL,
+    CONSTRAINT exposure_snapshot_status CHECK ((status = ANY (ARRAY['publishing'::text, 'published'::text, 'finalizing'::text, 'complete'::text, 'aborted'::text])))
+);
+
+
+--
+-- Name: exposure_snapshot_generations_id_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.exposure_snapshot_generations_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: exposure_snapshot_generations_id_seq; Type: SEQUENCE OWNED BY; Schema: platform; Owner: -
+--
+
+ALTER SEQUENCE platform.exposure_snapshot_generations_id_seq OWNED BY platform.exposure_snapshot_generations.id;
+
+
+--
+-- Name: exposure_transition_outbox; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.exposure_transition_outbox (
+    id bigint NOT NULL,
+    transition_seq bigint NOT NULL,
+    transition_xid xid8 DEFAULT pg_current_xact_id() NOT NULL,
+    device_uid text NOT NULL,
+    payload jsonb NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: exposure_transition_outbox_id_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+ALTER TABLE platform.exposure_transition_outbox ALTER COLUMN id ADD GENERATED ALWAYS AS IDENTITY (
+    SEQUENCE NAME platform.exposure_transition_outbox_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1
+);
+
+
+--
+-- Name: exposure_transition_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.exposure_transition_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
 -- Name: fieldsurvey_dashboard_playlist_entries; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -7555,29 +10467,26 @@ CREATE TABLE platform.fieldsurvey_review_preferences (
 
 
 --
--- Name: flow_process_attribution_current; Type: TABLE; Schema: platform; Owner: -
+-- Name: fleet_dictionary_epochs; Type: TABLE; Schema: platform; Owner: -
 --
 
-CREATE TABLE platform.flow_process_attribution_current (
-    observed_at timestamp with time zone DEFAULT now() NOT NULL,
-    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL,
-    partition text DEFAULT 'default'::text NOT NULL,
-    attribution_key text NOT NULL,
-    agent_id text,
-    proto integer NOT NULL,
-    local_ip text NOT NULL,
-    local_port integer DEFAULT 0 NOT NULL,
-    remote_ip text NOT NULL,
-    remote_port integer DEFAULT 0 NOT NULL,
-    pid integer,
-    comm text,
-    cmdline text,
-    uid integer,
-    container_id text,
-    workload_identity jsonb
-)
-WITH (autovacuum_vacuum_scale_factor='0.02', autovacuum_analyze_scale_factor='0.02');
+CREATE TABLE platform.fleet_dictionary_epochs (
+    name text NOT NULL,
+    epoch uuid DEFAULT gen_random_uuid() NOT NULL,
+    CONSTRAINT fleet_dictionary_epochs_name_check CHECK ((name = 'inventory'::text))
+);
+
+
+--
+-- Name: flow_attribution_update_version; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.flow_attribution_update_version
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
 
 
 --
@@ -7643,6 +10552,69 @@ ALTER SEQUENCE platform.health_events_event_sequence_seq OWNED BY platform.healt
 
 
 --
+-- Name: identity_decisions; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.identity_decisions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    decision_kind text NOT NULL,
+    reason text NOT NULL,
+    device_uids text[] NOT NULL,
+    subject text,
+    decision_key text NOT NULL,
+    source text,
+    evidence jsonb DEFAULT '{}'::jsonb NOT NULL,
+    occurrence_count bigint DEFAULT 1 NOT NULL,
+    first_decided_at timestamp without time zone NOT NULL,
+    last_decided_at timestamp without time zone NOT NULL,
+    inserted_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
+-- Name: identity_deduplication_tasks; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.identity_deduplication_tasks (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    candidate_key text NOT NULL,
+    device_uids text[] NOT NULL,
+    category text NOT NULL,
+    last_decision_kind text NOT NULL,
+    last_reason text NOT NULL,
+    evidence jsonb DEFAULT '{}'::jsonb NOT NULL,
+    status text DEFAULT 'open'::text NOT NULL,
+    occurrence_count bigint DEFAULT 1 NOT NULL,
+    opened_at timestamp without time zone NOT NULL,
+    last_decided_at timestamp without time zone NOT NULL,
+    resolved_at timestamp without time zone,
+    resolved_by text,
+    merged_into text,
+    resolution_note text,
+    inserted_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
+-- Name: identity_distinct_assertions; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.identity_distinct_assertions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    device_a text NOT NULL,
+    device_b text NOT NULL,
+    task_id uuid,
+    asserted_by text,
+    note text,
+    inserted_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT identity_distinct_assertions_sorted_pair CHECK ((device_a < device_b))
+);
+
+
+--
 -- Name: identity_reconciliation_runs; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -7665,8 +10637,48 @@ CREATE TABLE platform.identity_reconciliation_runs (
     merge_cap_reached boolean DEFAULT false NOT NULL,
     blocked_component_devices jsonb DEFAULT '[]'::jsonb NOT NULL,
     trigger text DEFAULT 'scheduled'::text NOT NULL,
-    job_schedule_id bigint
+    job_schedule_id bigint,
+    blocked_merges integer DEFAULT 0 NOT NULL,
+    blocked_unchanged integer DEFAULT 0 NOT NULL,
+    succession_merges integer DEFAULT 0 NOT NULL,
+    succession_reviews integer DEFAULT 0 NOT NULL,
+    successions_skipped integer DEFAULT 0 NOT NULL,
+    successions_deferred integer DEFAULT 0 NOT NULL,
+    max_successions_configured integer
 );
+
+
+--
+-- Name: integration_source_availability_semantics_changes; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.integration_source_availability_semantics_changes (
+    id bigint NOT NULL,
+    integration_source_id uuid CONSTRAINT integration_source_availability__integration_source_id_not_null NOT NULL,
+    from_semantics text CONSTRAINT integration_source_availability_semanti_from_semantics_not_null NOT NULL,
+    to_semantics text CONSTRAINT integration_source_availability_semantics_to_semantics_not_null NOT NULL,
+    reason text CONSTRAINT integration_source_availability_semantics_chang_reason_not_null NOT NULL,
+    changed_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) CONSTRAINT integration_source_availability_semantics_c_changed_at_not_null NOT NULL
+);
+
+
+--
+-- Name: integration_source_availability_semantics_changes_id_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.integration_source_availability_semantics_changes_id_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: integration_source_availability_semantics_changes_id_seq; Type: SEQUENCE OWNED BY; Schema: platform; Owner: -
+--
+
+ALTER SEQUENCE platform.integration_source_availability_semantics_changes_id_seq OWNED BY platform.integration_source_availability_semantics_changes.id;
 
 
 --
@@ -7711,7 +10723,9 @@ CREATE TABLE platform.integration_sources (
     northbound_status text DEFAULT 'idle'::text NOT NULL,
     northbound_consecutive_failures bigint DEFAULT 0 NOT NULL,
     northbound_availability_source_agent_id text,
-    credential_secret_id uuid
+    credential_secret_id uuid,
+    northbound_availability_semantics text DEFAULT 'legacy'::text NOT NULL,
+    CONSTRAINT integration_sources_northbound_availability_semantics_check CHECK ((northbound_availability_semantics = ANY (ARRAY['legacy'::text, 'merged'::text])))
 );
 
 
@@ -7834,6 +10848,19 @@ CREATE TABLE platform.interface_settings (
 
 
 --
+-- Name: interface_threshold_states; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.interface_threshold_states (
+    interface_settings_id uuid NOT NULL,
+    metric_name text NOT NULL,
+    violation_started_at timestamp with time zone,
+    last_alert_at timestamp with time zone,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
 -- Name: ip_geo_enrichment_cache; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -7923,6 +10950,34 @@ CREATE TABLE platform.ip_threat_intel_cache (
 
 
 --
+-- Name: ip_threat_intel_sources_catalog; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.ip_threat_intel_sources_catalog AS
+ SELECT c.ip,
+    c.matched,
+    c.expires_at,
+    s.source
+   FROM (platform.ip_threat_intel_cache c
+     CROSS JOIN LATERAL unnest(c.sources) s(source))
+  WHERE (c.matched AND (c.expires_at > (now() AT TIME ZONE 'utc'::text)));
+
+
+--
+-- Name: k8s_inventory_cluster_bindings; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.k8s_inventory_cluster_bindings (
+    cluster_id text NOT NULL,
+    agent_id text NOT NULL,
+    partition_id text NOT NULL,
+    changed_by text DEFAULT 'system'::text NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+
+
+--
 -- Name: k8s_node_snapshots; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -7955,6 +11010,20 @@ CREATE TABLE platform.k8s_nodes_current (
     deleted_at timestamp with time zone,
     inserted_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: k8s_public_endpoint_snapshots; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.k8s_public_endpoint_snapshots (
+    cluster_id text NOT NULL,
+    snapshot_at timestamp without time zone NOT NULL,
+    source_mode text NOT NULL,
+    agent_id text,
+    partition_id text,
+    updated_at timestamp without time zone NOT NULL
 );
 
 
@@ -8005,6 +11074,86 @@ CREATE VIEW platform.logs_severity_stats_5m AS
     info_count,
     debug_count
    FROM _timescaledb_internal._materialized_hypertable_72;
+
+
+--
+-- Name: managed_certificate_nats_config; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.managed_certificate_nats_config (
+    id text DEFAULT 'default'::text NOT NULL,
+    auth_mode text DEFAULT 'static_mtls'::text NOT NULL,
+    account_name text NOT NULL,
+    issuer_nkey text NOT NULL,
+    auth_nkey text NOT NULL,
+    system_nkey text NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    encrypted_issuer_seed bytea NOT NULL,
+    encrypted_auth_seed bytea NOT NULL,
+    encrypted_system_seed bytea NOT NULL,
+    CONSTRAINT managed_certificate_nats_config_singleton CHECK ((id = 'default'::text))
+);
+
+
+--
+-- Name: managed_certificate_operations; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.managed_certificate_operations (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    install_command_id uuid DEFAULT gen_random_uuid() NOT NULL,
+    generation bigint NOT NULL,
+    host_agent_id text NOT NULL,
+    partition_id text NOT NULL,
+    service text NOT NULL,
+    server_hosts text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    status text DEFAULT 'preparing'::text NOT NULL,
+    csrs jsonb DEFAULT '{}'::jsonb NOT NULL,
+    certificates jsonb DEFAULT '{}'::jsonb NOT NULL,
+    fingerprints jsonb DEFAULT '{}'::jsonb NOT NULL,
+    receipt jsonb DEFAULT '{}'::jsonb NOT NULL,
+    observed_roles jsonb DEFAULT '{}'::jsonb NOT NULL,
+    renew_after timestamp without time zone,
+    error text,
+    requested_by text NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    component_id text NOT NULL
+);
+
+
+--
+-- Name: managed_certificate_policy_key; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.managed_certificate_policy_key (
+    id text DEFAULT 'default'::text NOT NULL,
+    public_key text NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    encrypted_seed bytea NOT NULL,
+    CONSTRAINT managed_certificate_policy_key_singleton CHECK ((id = 'default'::text))
+);
+
+
+--
+-- Name: managed_components; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.managed_components (
+    component_id text NOT NULL,
+    component_type text NOT NULL,
+    partition_id text NOT NULL,
+    generation_started_by text NOT NULL,
+    server_hosts text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    generation bigint DEFAULT 1 NOT NULL,
+    blocked boolean DEFAULT false NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    host_agent_id text,
+    edge_site_id uuid,
+    collector_id uuid,
+    nats_permissions jsonb
+);
 
 
 --
@@ -8230,7 +11379,8 @@ CREATE TABLE platform.mtr_bulk_job_targets (
     started_at timestamp(0) without time zone,
     completed_at timestamp(0) without time zone,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    protocol text DEFAULT 'icmp'::text NOT NULL
 );
 
 
@@ -8281,7 +11431,14 @@ CREATE TABLE platform.mtr_hops (
     jitter_us bigint,
     jitter_worst_us bigint,
     jitter_interarrival_us bigint,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    target_ip text,
+    device_id text,
+    unreachable_code integer,
+    reply_time_exceeded integer,
+    reply_unreachable integer,
+    reply_synack integer,
+    reply_rst integer
 );
 
 
@@ -8314,6 +11471,8 @@ CREATE TABLE platform.mtr_policies (
     consensus_min_agents integer DEFAULT 2 NOT NULL,
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL,
+    baseline_protocols text[] DEFAULT ARRAY['icmp'::text] NOT NULL,
+    tcp_port integer DEFAULT 443 NOT NULL,
     CONSTRAINT mtr_policies_baseline_protocol_check CHECK ((baseline_protocol = ANY (ARRAY['icmp'::text, 'udp'::text, 'tcp'::text]))),
     CONSTRAINT mtr_policies_consensus_mode_check CHECK ((consensus_mode = ANY (ARRAY['majority'::text, 'unanimous'::text, 'threshold'::text])))
 );
@@ -8356,7 +11515,25 @@ CREATE TABLE platform.mtr_traces (
     packet_size integer,
     partition text,
     error text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    probed_hops integer,
+    last_responding_hop integer,
+    tcp_port integer,
+    tcp_handshake_ttl integer,
+    tcp_handshake_attempts integer,
+    tcp_syn_sent integer,
+    tcp_synack_received integer,
+    tcp_rst_received integer,
+    tcp_syn_unanswered integer,
+    tcp_syn_drop_pct double precision,
+    tcp_syn_retransmits integer,
+    tcp_answered_after_retx integer,
+    tcp_ack_mismatch integer,
+    tcp_synack_duplicates integer,
+    tcp_handshake_rtt_min_us bigint,
+    tcp_handshake_rtt_avg_us bigint,
+    tcp_handshake_rtt_max_us bigint,
+    tcp_server_response_us bigint
 );
 
 
@@ -8459,7 +11636,7 @@ CREATE TABLE platform.netflow_interface_cache (
     device_uid text,
     if_name text,
     if_description text,
-    if_speed_bps integer,
+    if_speed_bps bigint,
     boundary text,
     refreshed_at timestamp without time zone NOT NULL,
     inserted_at timestamp without time zone NOT NULL,
@@ -8486,6 +11663,18 @@ CREATE TABLE platform.netflow_local_cidrs (
     CONSTRAINT netflow_local_cidrs_latitude_range CHECK (((latitude IS NULL) OR ((latitude >= ('-90'::integer)::double precision) AND (latitude <= (90)::double precision)))),
     CONSTRAINT netflow_local_cidrs_longitude_range CHECK (((longitude IS NULL) OR ((longitude >= ('-180'::integer)::double precision) AND (longitude <= (180)::double precision))))
 );
+
+
+--
+-- Name: netflow_local_cidrs_catalog; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.netflow_local_cidrs_catalog AS
+ SELECT partition,
+    enabled,
+    SUBSTRING(encode(inet_send((network((cidr)::inet))::inet), 'hex'::text) FROM 9) AS first_ip_hex,
+    SUBSTRING(encode(inet_send(broadcast((cidr)::inet)), 'hex'::text) FROM 9) AS last_ip_hex
+   FROM platform.netflow_local_cidrs;
 
 
 --
@@ -8623,7 +11812,68 @@ CREATE TABLE platform.netflow_settings (
     otx_modified_since text,
     otx_raw_payload_archive_enabled boolean DEFAULT false NOT NULL,
     otx_retrohunt_window_seconds integer DEFAULT 7776000 NOT NULL,
-    threat_intel_match_window_seconds integer DEFAULT 3600 NOT NULL
+    threat_intel_match_window_seconds integer DEFAULT 3600 NOT NULL,
+    otx_credential_secret_id uuid,
+    otx_retrohunt_interval_seconds integer
+);
+
+
+--
+-- Name: network_changes; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.network_changes (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    external_id text NOT NULL,
+    source text NOT NULL,
+    kind text NOT NULL,
+    window_start timestamp with time zone NOT NULL,
+    window_end timestamp with time zone,
+    status text NOT NULL,
+    selector jsonb DEFAULT '{}'::jsonb NOT NULL,
+    comments text,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT network_changes_kind_chk CHECK ((kind = ANY (ARRAY['upgrade'::text, 'config'::text, 'other'::text])))
+);
+
+
+--
+-- Name: network_config_interface_facts; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.network_config_interface_facts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    revision_id uuid NOT NULL,
+    device_uid text NOT NULL,
+    if_name text NOT NULL,
+    ipv4_prefix text,
+    ipv6_prefix text,
+    vlan integer,
+    description text,
+    shutdown boolean DEFAULT false NOT NULL,
+    vrf text,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: network_config_revisions; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.network_config_revisions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    device_uid text NOT NULL,
+    source text NOT NULL,
+    config_kind text NOT NULL,
+    retrieved_at timestamp with time zone NOT NULL,
+    content_hash text NOT NULL,
+    body text NOT NULL,
+    parser_version text DEFAULT 'network_config_v1'::text NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT network_config_revisions_kind_chk CHECK ((config_kind = ANY (ARRAY['running'::text, 'startup'::text])))
 );
 
 
@@ -8808,7 +12058,7 @@ ALTER SEQUENCE platform.ng_job_schedules_id_seq OWNED BY platform.ng_job_schedul
 
 CREATE TABLE platform.ng_users (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    email platform.citext NOT NULL,
+    email public.citext NOT NULL,
     hashed_password text,
     display_name text,
     role text DEFAULT 'viewer'::text NOT NULL,
@@ -8824,6 +12074,8 @@ CREATE TABLE platform.ng_users (
     local_login_enabled boolean DEFAULT false NOT NULL,
     role_profile_source text DEFAULT 'manual'::text NOT NULL,
     timezone text DEFAULT 'Etc/UTC'::text NOT NULL,
+    homepage jsonb,
+    CONSTRAINT ng_users_homepage_kind_check CHECK (((homepage IS NULL) OR ((jsonb_typeof(homepage) = 'object'::text) AND ((homepage ->> 'kind'::text) = ANY (ARRAY['overview'::text, 'dashboards_index'::text, 'dashboard'::text]))))),
     CONSTRAINT ng_users_idp_profile_requires_profile_check CHECK (((role_profile_source <> 'idp'::text) OR (role_profile_id IS NOT NULL))),
     CONSTRAINT ng_users_role_profile_source_check CHECK ((role_profile_source = ANY (ARRAY['manual'::text, 'idp'::text])))
 );
@@ -8872,6 +12124,7 @@ CREATE TABLE platform.northbound_action_descriptors (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     inserted_at timestamp without time zone DEFAULT now() NOT NULL,
     updated_at timestamp without time zone DEFAULT now() NOT NULL,
+    max_override_duration_seconds integer,
     CONSTRAINT northbound_action_descriptors_scopes_nonempty CHECK ((cardinality(scopes) > 0))
 );
 
@@ -9670,6 +12923,20 @@ CREATE VIEW platform.otel_metrics_hourly_stats AS
 
 
 --
+-- Name: otel_service_catalog; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.otel_service_catalog (
+    service_name text NOT NULL,
+    logs_last_seen_at timestamp with time zone,
+    traces_last_seen_at timestamp with time zone,
+    metrics_last_seen_at timestamp with time zone,
+    last_seen_at timestamp with time zone NOT NULL,
+    CONSTRAINT otel_service_catalog_service_name_length CHECK (((char_length(service_name) >= 1) AND (char_length(service_name) <= 255)))
+);
+
+
+--
 -- Name: otel_trace_summaries; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -9837,6 +13104,14 @@ CREATE TABLE platform.plugin_assignments (
     policy_id text,
     plugin_id text NOT NULL,
     partition_id text,
+    update_policy text DEFAULT 'pinned'::text NOT NULL,
+    update_policy_source text DEFAULT 'operator'::text NOT NULL,
+    disabled_reason text,
+    disabled_by text,
+    disabled_at timestamp with time zone,
+    rollout_plugin_package_id uuid,
+    rollout_id uuid,
+    rollout_started_at timestamp without time zone,
     CONSTRAINT plugin_assignments_enabled_partition_required CHECK (((enabled = false) OR ((partition_id IS NOT NULL) AND (btrim(partition_id) <> ''::text))))
 );
 
@@ -9942,7 +13217,58 @@ CREATE TABLE platform.plugin_repositories (
     last_sync_error text,
     created_by_id uuid,
     inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL,
+    last_sync_summary jsonb
+);
+
+
+--
+-- Name: plugin_result_ingestion_attempts; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.plugin_result_ingestion_attempts (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    agent_id text NOT NULL,
+    result_key text NOT NULL,
+    gateway_id text,
+    partition text DEFAULT 'default'::text NOT NULL,
+    service_type text DEFAULT 'plugin'::text NOT NULL,
+    service_name text DEFAULT 'unknown'::text NOT NULL,
+    observation_timestamp timestamp without time zone NOT NULL,
+    payload_digest text NOT NULL,
+    payload_bytes integer DEFAULT 0 NOT NULL,
+    attempt_count integer DEFAULT 0 NOT NULL,
+    consecutive_timeout_count integer DEFAULT 0 CONSTRAINT plugin_result_ingestion_atte_consecutive_timeout_count_not_null NOT NULL,
+    state text DEFAULT 'active'::text NOT NULL,
+    last_outcome text,
+    last_error text,
+    quarantine_reason text,
+    quarantined_at timestamp without time zone,
+    last_attempt_at timestamp without time zone NOT NULL,
+    retained_status jsonb DEFAULT '{}'::jsonb NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL
+);
+
+
+--
+-- Name: plugin_run_overrides; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.plugin_run_overrides (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    plugin_assignment_id uuid NOT NULL,
+    override_id text NOT NULL,
+    kind text NOT NULL,
+    target text,
+    params jsonb DEFAULT '{}'::jsonb NOT NULL,
+    starts_at timestamp without time zone NOT NULL,
+    expires_at timestamp without time zone NOT NULL,
+    ended_at timestamp without time zone,
+    acknowledged_at timestamp without time zone,
+    invocation_id uuid,
+    inserted_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 
@@ -9965,7 +13291,9 @@ CREATE TABLE platform.plugin_target_policies (
     last_reconciled_at timestamp without time zone,
     last_reconcile_summary jsonb DEFAULT '{}'::jsonb NOT NULL,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    update_policy text DEFAULT 'pinned'::text NOT NULL,
+    update_policy_source text DEFAULT 'operator'::text NOT NULL
 );
 
 
@@ -10092,6 +13420,21 @@ CREATE TABLE platform.prefix_tags (
     inserted_at timestamp with time zone DEFAULT now() NOT NULL,
     updated_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: prefix_tags_catalog; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.prefix_tags_catalog AS
+ SELECT (prefix)::text AS prefix,
+    vrf,
+    site,
+    role,
+    tenant,
+    status,
+    partition
+   FROM platform.prefix_tags;
 
 
 --
@@ -10233,7 +13576,8 @@ CREATE TABLE platform.public_endpoints_current (
     snapshot_at timestamp with time zone NOT NULL,
     deleted_at timestamp with time zone,
     inserted_at timestamp with time zone DEFAULT now() NOT NULL,
-    updated_at timestamp with time zone DEFAULT now() NOT NULL
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    deleted_by text
 );
 
 
@@ -10627,6 +13971,21 @@ CREATE TABLE platform.remote_access_tcp_targets (
 
 
 --
+-- Name: revoked_component_certificates; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.revoked_component_certificates (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    generation bigint NOT NULL,
+    fingerprint text,
+    reason text NOT NULL,
+    revoked_by text NOT NULL,
+    revoked_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    component_id text NOT NULL
+);
+
+
+--
 -- Name: role_profiles; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -10676,6 +14035,33 @@ CREATE TABLE platform.runtime_topology_projection_meta (
 
 
 --
+-- Name: saml_consumed_assertions; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.saml_consumed_assertions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    issuer text NOT NULL,
+    assertion_id text NOT NULL,
+    not_on_or_after timestamp without time zone NOT NULL,
+    inserted_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
+-- Name: saml_pending_requests; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.saml_pending_requests (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    relay_state_hash text NOT NULL,
+    request_id text NOT NULL,
+    return_to text,
+    expires_at timestamp without time zone NOT NULL,
+    issued_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+
+--
 -- Name: scan_policy_settings; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -10694,6 +14080,31 @@ CREATE TABLE platform.scan_policy_settings (
 CREATE TABLE platform.schema_migrations (
     version bigint NOT NULL,
     inserted_at timestamp(0) without time zone
+);
+
+
+--
+-- Name: seasonal_disposition_chronological_states; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.seasonal_disposition_chronological_states (
+    source text NOT NULL,
+    series_key text NOT NULL,
+    dow integer NOT NULL,
+    hod integer NOT NULL,
+    consecutive_anomalous integer DEFAULT 0 CONSTRAINT seasonal_disposition_chronologic_consecutive_anomalous_not_null NOT NULL,
+    last_disposition text,
+    last_status text,
+    last_score double precision,
+    last_evaluated_at timestamp(6) without time zone,
+    last_bucket_started_at timestamp(6) without time zone,
+    last_bucket_ended_at timestamp(6) without time zone,
+    expires_at timestamp(6) without time zone NOT NULL,
+    inserted_at timestamp(6) without time zone NOT NULL,
+    updated_at timestamp(6) without time zone NOT NULL,
+    CONSTRAINT seasonal_disposition_chronological__consecutive_anomalous_check CHECK ((consecutive_anomalous >= 0)),
+    CONSTRAINT seasonal_disposition_chronological_states_dow_check CHECK (((dow >= 0) AND (dow <= 6))),
+    CONSTRAINT seasonal_disposition_chronological_states_hod_check CHECK (((hod >= 0) AND (hod <= 23)))
 );
 
 
@@ -10795,22 +14206,40 @@ CREATE TABLE platform.service_state (
 
 
 --
--- Name: service_status; Type: TABLE; Schema: platform; Owner: -
+-- Name: services_availability_5m; Type: VIEW; Schema: platform; Owner: -
 --
 
-CREATE TABLE platform.service_status (
-    "timestamp" timestamp with time zone NOT NULL,
-    gateway_id text NOT NULL,
-    agent_id text,
-    service_name text NOT NULL,
-    service_type text,
-    available boolean NOT NULL,
-    message text,
-    details text,
-    partition text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL,
-    service_id uuid
-);
+CREATE VIEW platform.services_availability_5m AS
+ SELECT _materialized_hypertable_76.bucket,
+    _materialized_hypertable_76.gateway_id,
+    _materialized_hypertable_76.agent_id,
+    _materialized_hypertable_76.service_name,
+    _materialized_hypertable_76.service_type,
+    _materialized_hypertable_76.total_count,
+    _materialized_hypertable_76.available_count,
+    _materialized_hypertable_76.unavailable_count
+   FROM _timescaledb_internal._materialized_hypertable_76
+  WHERE (_materialized_hypertable_76.bucket < COALESCE(_timescaledb_functions.to_timestamp(_timescaledb_functions.cagg_watermark(76)), '-infinity'::timestamp with time zone))
+UNION ALL
+ SELECT public.time_bucket('00:05:00'::interval, service_status."timestamp") AS bucket,
+    service_status.gateway_id,
+    service_status.agent_id,
+    service_status.service_name,
+    service_status.service_type,
+    (1)::bigint AS total_count,
+    (
+        CASE
+            WHEN bool_or((service_status.available IS TRUE)) THEN 1
+            ELSE 0
+        END)::bigint AS available_count,
+    (
+        CASE
+            WHEN bool_or((service_status.available IS FALSE)) THEN 1
+            ELSE 0
+        END)::bigint AS unavailable_count
+   FROM platform.service_status
+  WHERE (service_status."timestamp" >= COALESCE(_timescaledb_functions.to_timestamp(_timescaledb_functions.cagg_watermark(76)), '-infinity'::timestamp with time zone))
+  GROUP BY (public.time_bucket('00:05:00'::interval, service_status."timestamp")), service_status.gateway_id, service_status.agent_id, service_status.service_name, service_status.service_type;
 
 
 --
@@ -10951,6 +14380,26 @@ CREATE TABLE platform.source_fact_disagreements (
 
 
 --
+-- Name: source_identifier_absences; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.source_identifier_absences (
+    partition text NOT NULL,
+    source text NOT NULL,
+    source_instance text NOT NULL,
+    source_object_id text NOT NULL,
+    identifier_type text NOT NULL,
+    absent_count integer NOT NULL,
+    query_hash text,
+    collection_ids text[] DEFAULT ARRAY[]::text[] NOT NULL,
+    first_absent_at timestamp without time zone NOT NULL,
+    last_absent_at timestamp without time zone NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
+);
+
+
+--
 -- Name: source_identity_conflicts; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -11034,7 +14483,9 @@ CREATE TABLE platform.stateful_alert_rule_states (
     cooldown_until timestamp without time zone,
     alert_id uuid,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    first_seen_at timestamp without time zone,
+    diagnostics jsonb DEFAULT '{}'::jsonb
 );
 
 
@@ -11089,6 +14540,16 @@ CREATE TABLE platform.stateful_alert_rules (
     template_version integer,
     template_fingerprint text,
     plugin_package_id uuid
+);
+
+
+--
+-- Name: stateful_evaluation_ledger; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.stateful_evaluation_ledger (
+    event_id uuid NOT NULL,
+    evaluated_at timestamp without time zone DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 
@@ -11378,6 +14839,36 @@ CREATE TABLE platform.survey_spectrum_observations (
 
 
 --
+-- Name: sweep_execution_slots; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.sweep_execution_slots (
+    id uuid NOT NULL,
+    sweep_group_id uuid NOT NULL,
+    agent_id text NOT NULL,
+    producer_assignment_id uuid NOT NULL,
+    network_scope_id uuid NOT NULL,
+    authority_epoch bigint NOT NULL,
+    lease_id uuid NOT NULL,
+    slot_start timestamp with time zone NOT NULL,
+    collection_expires timestamp with time zone NOT NULL,
+    state text DEFAULT 'scheduled'::text NOT NULL,
+    plan_id uuid NOT NULL,
+    plan_sha256 bytea NOT NULL,
+    check_set_sha256 bytea NOT NULL,
+    plan_header bytea NOT NULL,
+    plan_pages bytea[] NOT NULL,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    delivered_at timestamp with time zone,
+    CONSTRAINT sweep_execution_slots_epoch_chk CHECK ((authority_epoch >= 1)),
+    CONSTRAINT sweep_execution_slots_plan_chk CHECK (((octet_length(plan_sha256) = 32) AND (octet_length(check_set_sha256) = 32))),
+    CONSTRAINT sweep_execution_slots_state_chk CHECK ((state = ANY (ARRAY['scheduled'::text, 'dropped'::text, 'missed_offline'::text, 'missed_exhausted'::text]))),
+    CONSTRAINT sweep_execution_slots_window_chk CHECK ((collection_expires > slot_start))
+);
+
+
+--
 -- Name: sweep_group_execution_versions; Type: TABLE; Schema: platform; Owner: -
 --
 
@@ -11417,7 +14908,27 @@ CREATE TABLE platform.sweep_group_executions (
     scanner_metrics jsonb DEFAULT '{}'::jsonb,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    banner_grab_summary jsonb DEFAULT '{}'::jsonb NOT NULL
+    banner_grab_summary jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT sweep_group_executions_status_check CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'cancelled'::text])))
+);
+
+
+--
+-- Name: sweep_group_versions; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.sweep_group_versions (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    version_action_type text NOT NULL,
+    version_action_name text NOT NULL,
+    version_action_inputs jsonb DEFAULT '{}'::jsonb NOT NULL,
+    version_source_id uuid NOT NULL,
+    changes jsonb,
+    actor jsonb,
+    actor_id text,
+    request_id text,
+    version_inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    version_updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
 );
 
 
@@ -11440,6 +14951,93 @@ CREATE TABLE platform.sweep_host_results (
     scanned_ports bigint[] DEFAULT ARRAY[]::bigint[] NOT NULL,
     agent_id text,
     sweep_group_id uuid
+);
+
+
+--
+-- Name: sweep_lease_deliveries; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.sweep_lease_deliveries (
+    producer_assignment_id uuid NOT NULL,
+    sweep_group_id uuid NOT NULL,
+    agent_id text NOT NULL,
+    lease_id uuid NOT NULL,
+    lease_issued_at timestamp with time zone NOT NULL,
+    delivered_window_end timestamp with time zone NOT NULL,
+    delivered_high_water timestamp with time zone NOT NULL,
+    delivered_payload_sha256 text NOT NULL,
+    delivered_at timestamp with time zone NOT NULL,
+    acked_payload_sha256 text,
+    ack_installed boolean,
+    ack_error text,
+    acked_through timestamp with time zone,
+    acked_slot_count integer,
+    acked_at timestamp with time zone,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    ack_pending_since timestamp without time zone,
+    revoked_at timestamp without time zone,
+    CONSTRAINT sweep_lease_deliveries_digest_chk CHECK ((delivered_payload_sha256 ~ '^[0-9a-f]{64}$'::text))
+);
+
+
+--
+-- Name: sweep_lease_settings; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.sweep_lease_settings (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    scope text NOT NULL,
+    scope_key text DEFAULT ''::text NOT NULL,
+    leasing_enabled boolean,
+    horizon_seconds integer,
+    max_horizon_seconds integer,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sweep_lease_settings_global_key_chk CHECK (((scope = 'global'::text) = (scope_key = ''::text))),
+    CONSTRAINT sweep_lease_settings_horizon_chk CHECK (((horizon_seconds IS NULL) OR (horizon_seconds > 0))),
+    CONSTRAINT sweep_lease_settings_max_chk CHECK (((max_horizon_seconds IS NULL) OR ((scope = 'global'::text) AND (max_horizon_seconds > 0)))),
+    CONSTRAINT sweep_lease_settings_scope_chk CHECK ((scope = ANY (ARRAY['global'::text, 'partition'::text, 'agent'::text])))
+);
+
+
+--
+-- Name: sweep_producer_assignments; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.sweep_producer_assignments (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    sweep_group_id uuid NOT NULL,
+    agent_id text NOT NULL,
+    network_scope_id uuid NOT NULL,
+    run_shard bigint DEFAULT 0 NOT NULL,
+    authority_epoch bigint DEFAULT 1 NOT NULL,
+    state text DEFAULT 'active'::text NOT NULL,
+    epoch_reason text DEFAULT 'created'::text NOT NULL,
+    epoch_changed_at timestamp with time zone DEFAULT now() NOT NULL,
+    revoked_at timestamp with time zone,
+    inserted_at timestamp with time zone DEFAULT now() NOT NULL,
+    updated_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT sweep_producer_assignments_epoch_chk CHECK ((authority_epoch >= 1)),
+    CONSTRAINT sweep_producer_assignments_revoked_chk CHECK (((state = 'revoked'::text) = (revoked_at IS NOT NULL))),
+    CONSTRAINT sweep_producer_assignments_shard_chk CHECK (((run_shard >= 0) AND (run_shard <= '4294967295'::bigint))),
+    CONSTRAINT sweep_producer_assignments_state_chk CHECK ((state = ANY (ARRAY['active'::text, 'revoked'::text])))
+);
+
+
+--
+-- Name: sync_ingest_runs; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.sync_ingest_runs (
+    sync_service_id uuid NOT NULL,
+    sync_run_id text NOT NULL,
+    received_chunks integer[] DEFAULT ARRAY[]::integer[] NOT NULL,
+    total_chunks integer DEFAULT 0 NOT NULL,
+    incomplete boolean DEFAULT false NOT NULL,
+    inserted_at timestamp without time zone NOT NULL,
+    updated_at timestamp without time zone NOT NULL
 );
 
 
@@ -11487,6 +15085,24 @@ CREATE TABLE platform.threat_intel_indicators (
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL
 );
+
+
+--
+-- Name: threat_intel_indicator_members_catalog; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.threat_intel_indicator_members_catalog AS
+ SELECT c.ip,
+    c.matched,
+    c.expires_at,
+    (i.indicator)::text AS indicator,
+    family((i.indicator)::inet) AS indicator_family,
+    SUBSTRING(encode(inet_send((network((i.indicator)::inet))::inet), 'hex'::text) FROM 9) AS first_ip_hex,
+    SUBSTRING(encode(inet_send(broadcast((i.indicator)::inet)), 'hex'::text) FROM 9) AS last_ip_hex,
+    i.expires_at AS indicator_expires_at
+   FROM (platform.ip_threat_intel_cache c
+     JOIN platform.threat_intel_indicators i ON (((c.ip)::inet <<= (i.indicator)::inet)))
+  WHERE (c.matched AND (c.expires_at > (now() AT TIME ZONE 'utc'::text)) AND ((i.expires_at IS NULL) OR (i.expires_at > (now() AT TIME ZONE 'utc'::text))));
 
 
 --
@@ -11542,6 +15158,24 @@ CREATE TABLE platform.threat_intel_sync_statuses (
 
 
 --
+-- Name: timeseries_metrics_disk_hourly; Type: VIEW; Schema: platform; Owner: -
+--
+
+CREATE VIEW platform.timeseries_metrics_disk_hourly AS
+ SELECT bucket,
+    device_id,
+    metric_type,
+    metric_name,
+    series_key,
+    mount_point,
+    avg_value,
+    min_value,
+    max_value,
+    sample_count
+   FROM _timescaledb_internal._materialized_hypertable_73;
+
+
+--
 -- Name: timeseries_metrics_hourly; Type: VIEW; Schema: platform; Owner: -
 --
 
@@ -11593,6 +15227,92 @@ CREATE TABLE platform.token_revocations (
     expires_at timestamp without time zone NOT NULL,
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL
+);
+
+
+--
+-- Name: topology_world_head; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.topology_world_head (
+    id text DEFAULT 'global'::text NOT NULL,
+    active_layout_version uuid,
+    generation bigint DEFAULT 0 NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT topology_world_head_singleton CHECK (((id = 'global'::text) AND (generation >= 0)))
+);
+
+
+--
+-- Name: topology_world_layouts; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.topology_world_layouts (
+    layout_version uuid DEFAULT gen_random_uuid() NOT NULL,
+    extent bigint DEFAULT 16777216 NOT NULL,
+    algorithm_version text DEFAULT 'hierarchical-morton-v1'::text NOT NULL,
+    zmax bigint DEFAULT 16 NOT NULL,
+    status text DEFAULT 'building'::text NOT NULL,
+    source_digest text NOT NULL,
+    node_count bigint NOT NULL,
+    relation_count bigint NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    pipeline_stats jsonb DEFAULT '{}'::jsonb NOT NULL,
+    CONSTRAINT topology_world_layout_bounds CHECK (((extent = 16777216) AND ((zmax >= 0) AND (zmax <= 24)) AND (node_count >= 0) AND (relation_count >= 0))),
+    CONSTRAINT topology_world_layout_status CHECK ((status = ANY (ARRAY['building'::text, 'active'::text, 'retired'::text])))
+);
+
+
+--
+-- Name: topology_world_positions; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.topology_world_positions (
+    layout_version uuid NOT NULL,
+    device_id text NOT NULL,
+    label text NOT NULL,
+    x bigint NOT NULL,
+    y bigint NOT NULL,
+    min_zoom bigint NOT NULL,
+    parent_id text,
+    component_id text NOT NULL,
+    component_z bigint NOT NULL,
+    component_x bigint NOT NULL,
+    component_y bigint NOT NULL,
+    placement_depth bigint NOT NULL,
+    active boolean DEFAULT true NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT topology_world_positions_component CHECK ((((component_z >= 0) AND (component_z <= 24)) AND (component_x >= 0) AND (component_y >= 0) AND (component_x < ((1)::bigint << (component_z)::integer)) AND (component_y < ((1)::bigint << (component_z)::integer)))),
+    CONSTRAINT topology_world_positions_grid CHECK ((((x >= 0) AND (x <= 16777215)) AND ((y >= 0) AND (y <= 16777215)) AND ((min_zoom >= 0) AND (min_zoom <= 24)) AND ((placement_depth >= 0) AND (placement_depth <= 24)))),
+    CONSTRAINT topology_world_positions_label CHECK ((octet_length(label) <= 256))
+);
+
+
+--
+-- Name: topology_world_relations; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.topology_world_relations (
+    layout_version uuid NOT NULL,
+    relation_id text NOT NULL,
+    source_id text NOT NULL,
+    target_id text NOT NULL,
+    evidence_class text NOT NULL,
+    role text,
+    source_if_index bigint,
+    source_if_name text,
+    target_if_index bigint,
+    target_if_name text,
+    active boolean DEFAULT true NOT NULL,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    telemetry_eligible boolean DEFAULT false NOT NULL,
+    kind text DEFAULT 'CANONICAL_TOPOLOGY'::text NOT NULL,
+    stale boolean DEFAULT false NOT NULL,
+    last_seen text,
+    CONSTRAINT topology_world_relations_interface_indices CHECK ((((source_if_index IS NULL) OR (source_if_index > 0)) AND ((target_if_index IS NULL) OR (target_if_index > 0))))
 );
 
 
@@ -11748,7 +15468,11 @@ CREATE TABLE platform.user_groups (
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
     updated_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
-    role_profile_id uuid
+    role_profile_id uuid,
+    homepage jsonb,
+    homepage_priority integer DEFAULT 100 NOT NULL,
+    CONSTRAINT user_groups_homepage_kind_check CHECK (((homepage IS NULL) OR ((jsonb_typeof(homepage) = 'object'::text) AND ((homepage ->> 'kind'::text) = ANY (ARRAY['overview'::text, 'dashboards_index'::text, 'dashboard'::text]))))),
+    CONSTRAINT user_groups_homepage_priority_range_check CHECK (((homepage_priority >= 0) AND (homepage_priority <= 10000)))
 );
 
 
@@ -12114,8 +15838,29 @@ CREATE TABLE platform.vulnerability_advisories (
     raw jsonb DEFAULT '{}'::jsonb NOT NULL,
     generation bigint DEFAULT 0 NOT NULL,
     current boolean DEFAULT true NOT NULL,
-    content_hash text
+    content_hash text,
+    nvd_configurations jsonb,
+    ordinal bigint
 );
+
+
+--
+-- Name: vulnerability_advisories_ordinal_seq; Type: SEQUENCE; Schema: platform; Owner: -
+--
+
+CREATE SEQUENCE platform.vulnerability_advisories_ordinal_seq
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+
+--
+-- Name: vulnerability_advisories_ordinal_seq; Type: SEQUENCE OWNED BY; Schema: platform; Owner: -
+--
+
+ALTER SEQUENCE platform.vulnerability_advisories_ordinal_seq OWNED BY platform.vulnerability_advisories.ordinal;
 
 
 --
@@ -12171,6 +15916,27 @@ CREATE TABLE platform.vulnerability_feed_snapshots (
     accepted_at timestamp without time zone,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL
+);
+
+
+--
+-- Name: warehouse_retention_settings; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.warehouse_retention_settings (
+    id uuid NOT NULL,
+    dataset text NOT NULL,
+    days integer NOT NULL,
+    seed_days integer,
+    updated_by text,
+    updated_at timestamp without time zone,
+    last_applied_days integer,
+    last_applied_status text DEFAULT 'pending'::text NOT NULL,
+    last_applied_error text,
+    last_applied_at timestamp without time zone,
+    inserted_at timestamp without time zone DEFAULT (now() AT TIME ZONE 'utc'::text) NOT NULL,
+    CONSTRAINT warehouse_retention_settings_days_floor CHECK (((days >= 1) AND (days <= 3650))),
+    CONSTRAINT warehouse_retention_settings_status CHECK ((last_applied_status = ANY (ARRAY['applied'::text, 'pending'::text, 'failed'::text])))
 );
 
 
@@ -12698,6 +16464,13 @@ CREATE SEQUENCE serviceradar_topology._label_id_seq
 
 
 --
+-- Name: availability_invalidations id; Type: DEFAULT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.availability_invalidations ALTER COLUMN id SET DEFAULT nextval('platform.availability_invalidations_id_seq'::regclass);
+
+
+--
 -- Name: bmp_settings id; Type: DEFAULT; Schema: platform; Owner: -
 --
 
@@ -12719,10 +16492,24 @@ ALTER TABLE ONLY platform.device_revival_audit ALTER COLUMN event_id SET DEFAULT
 
 
 --
+-- Name: exposure_snapshot_generations id; Type: DEFAULT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_snapshot_generations ALTER COLUMN id SET DEFAULT nextval('platform.exposure_snapshot_generations_id_seq'::regclass);
+
+
+--
 -- Name: health_events event_sequence; Type: DEFAULT; Schema: platform; Owner: -
 --
 
 ALTER TABLE ONLY platform.health_events ALTER COLUMN event_sequence SET DEFAULT nextval('platform.health_events_event_sequence_seq'::regclass);
+
+
+--
+-- Name: integration_source_availability_semantics_changes id; Type: DEFAULT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.integration_source_availability_semantics_changes ALTER COLUMN id SET DEFAULT nextval('platform.integration_source_availability_semantics_changes_id_seq'::regclass);
 
 
 --
@@ -12737,6 +16524,13 @@ ALTER TABLE ONLY platform.ng_job_schedules ALTER COLUMN id SET DEFAULT nextval('
 --
 
 ALTER TABLE ONLY platform.oban_jobs ALTER COLUMN id SET DEFAULT nextval('platform.oban_jobs_id_seq'::regclass);
+
+
+--
+-- Name: vulnerability_advisories ordinal; Type: DEFAULT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.vulnerability_advisories ALTER COLUMN ordinal SET DEFAULT nextval('platform.vulnerability_advisories_ordinal_seq'::regclass);
 
 
 --
@@ -12806,11 +16600,27 @@ ALTER TABLE ONLY platform.addon_profiles
 
 
 --
+-- Name: addon_rollout_targets addon_rollout_targets_artifact_kind_check; Type: CHECK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE platform.addon_rollout_targets
+    ADD CONSTRAINT addon_rollout_targets_artifact_kind_check CHECK ((((artifact_kind = 'native_addon'::text) AND (source_type = ANY (ARRAY['assignment'::text, 'profile'::text])) AND (source_key IS NULL) AND (plugin_assignment_id IS NULL) AND (previous_package_id IS NOT NULL) AND (candidate_package_id IS NOT NULL) AND (previous_plugin_package_id IS NULL) AND (candidate_plugin_package_id IS NULL)) OR ((artifact_kind = 'wasm_plugin'::text) AND (source_type = ANY (ARRAY['assignment'::text, 'target_policy'::text, 'credential_rule'::text])) AND (assignment_id IS NULL) AND (partition_id IS NOT NULL) AND (previous_plugin_package_id IS NOT NULL) AND (candidate_plugin_package_id IS NOT NULL) AND (previous_package_id IS NULL) AND (candidate_package_id IS NULL)))) NOT VALID;
+
+
+--
 -- Name: addon_rollout_targets addon_rollout_targets_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
 ALTER TABLE ONLY platform.addon_rollout_targets
     ADD CONSTRAINT addon_rollout_targets_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: addon_rollouts addon_rollouts_artifact_kind_check; Type: CHECK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE platform.addon_rollouts
+    ADD CONSTRAINT addon_rollouts_artifact_kind_check CHECK ((((artifact_kind = 'native_addon'::text) AND (source_type = ANY (ARRAY['assignment'::text, 'profile'::text])) AND (source_key IS NULL) AND (previous_package_id IS NOT NULL) AND (candidate_package_id IS NOT NULL) AND (previous_plugin_package_id IS NULL) AND (candidate_plugin_package_id IS NULL)) OR ((artifact_kind = 'wasm_plugin'::text) AND (source_type = ANY (ARRAY['assignment'::text, 'target_policy'::text, 'credential_rule'::text])) AND (previous_plugin_package_id IS NOT NULL) AND (candidate_plugin_package_id IS NOT NULL) AND (previous_package_id IS NULL) AND (candidate_package_id IS NULL)))) NOT VALID;
 
 
 --
@@ -12843,6 +16653,14 @@ ALTER TABLE ONLY platform.adhoc_scan_results
 
 ALTER TABLE ONLY platform.adhoc_scan_runs
     ADD CONSTRAINT adhoc_scan_runs_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: admin_secret_markers admin_secret_markers_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.admin_secret_markers
+    ADD CONSTRAINT admin_secret_markers_pkey PRIMARY KEY (admin_email);
 
 
 --
@@ -12947,6 +16765,30 @@ ALTER TABLE ONLY platform.agent_release_targets
 
 ALTER TABLE ONLY platform.agent_releases
     ADD CONSTRAINT agent_releases_pkey PRIMARY KEY (release_id);
+
+
+--
+-- Name: alert_evaluation_lanes alert_evaluation_lanes_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.alert_evaluation_lanes
+    ADD CONSTRAINT alert_evaluation_lanes_pkey PRIMARY KEY (rule_id);
+
+
+--
+-- Name: alert_evaluation_receipts alert_evaluation_receipts_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.alert_evaluation_receipts
+    ADD CONSTRAINT alert_evaluation_receipts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: alert_evaluation_work alert_evaluation_work_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.alert_evaluation_work
+    ADD CONSTRAINT alert_evaluation_work_pkey PRIMARY KEY (id);
 
 
 --
@@ -13334,6 +17176,22 @@ ALTER TABLE ONLY platform.automation_secure_execution_command_attempts
 
 
 --
+-- Name: availability_invalidations availability_invalidations_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.availability_invalidations
+    ADD CONSTRAINT availability_invalidations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: availability_settings availability_settings_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.availability_settings
+    ADD CONSTRAINT availability_settings_pkey PRIMARY KEY (singleton);
+
+
+--
 -- Name: availability_source_profiles availability_source_profiles_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -13422,6 +17280,102 @@ ALTER TABLE ONLY platform.camera_analysis_workers
 
 
 --
+-- Name: camera_archive_bindings camera_archive_bindings_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_bindings
+    ADD CONSTRAINT camera_archive_bindings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: camera_archive_init_authorities camera_archive_init_authorities_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_init_authorities
+    ADD CONSTRAINT camera_archive_init_authorities_pkey PRIMARY KEY (archive_binding_id);
+
+
+--
+-- Name: camera_archive_manifest_authorities camera_archive_manifest_authorities_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_manifest_authorities
+    ADD CONSTRAINT camera_archive_manifest_authorities_pkey PRIMARY KEY (archive_binding_id);
+
+
+--
+-- Name: camera_archive_media_authorities camera_archive_media_authorities_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_media_authorities
+    ADD CONSTRAINT camera_archive_media_authorities_pkey PRIMARY KEY (archive_binding_id);
+
+
+--
+-- Name: camera_archive_qualification_receipts camera_archive_qualification_receipts_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_qualification_receipts
+    ADD CONSTRAINT camera_archive_qualification_receipts_pkey PRIMARY KEY (archive_binding_id);
+
+
+--
+-- Name: camera_archive_upload_dispatches camera_archive_upload_dispatches_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_upload_dispatches
+    ADD CONSTRAINT camera_archive_upload_dispatches_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: camera_archive_upload_intents camera_archive_upload_intents_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_upload_intents
+    ADD CONSTRAINT camera_archive_upload_intents_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: camera_consumer_leases camera_consumer_leases_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_consumer_leases
+    ADD CONSTRAINT camera_consumer_leases_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: camera_ingest_owners camera_ingest_owners_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_ingest_owners
+    ADD CONSTRAINT camera_ingest_owners_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: camera_recorder_claims camera_recorder_claims_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recorder_claims
+    ADD CONSTRAINT camera_recorder_claims_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: camera_recording_blocks camera_recording_blocks_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_blocks
+    ADD CONSTRAINT camera_recording_blocks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: camera_recording_control camera_recording_control_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_control
+    ADD CONSTRAINT camera_recording_control_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: camera_relay_sessions camera_relay_sessions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -13470,6 +17424,14 @@ ALTER TABLE ONLY platform.checkers
 
 
 --
+-- Name: cli_authorization_codes cli_authorization_codes_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.cli_authorization_codes
+    ADD CONSTRAINT cli_authorization_codes_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: cli_sessions cli_sessions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -13507,6 +17469,14 @@ ALTER TABLE ONLY platform.cold_tier_boundaries
 
 ALTER TABLE ONLY platform.collector_packages
     ADD CONSTRAINT collector_packages_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: component_certificates component_certificates_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.component_certificates
+    ADD CONSTRAINT component_certificates_pkey PRIMARY KEY (fingerprint);
 
 
 --
@@ -13702,6 +17672,22 @@ ALTER TABLE ONLY platform.device_authorizations
 
 
 --
+-- Name: device_availability_evidence device_availability_evidence_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.device_availability_evidence
+    ADD CONSTRAINT device_availability_evidence_pkey PRIMARY KEY (device_uid, source_kind, source_instance, reporter_agent_id);
+
+
+--
+-- Name: device_availability_legacy device_availability_legacy_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.device_availability_legacy
+    ADD CONSTRAINT device_availability_legacy_pkey PRIMARY KEY (device_uid);
+
+
+--
 -- Name: device_cleanup_settings device_cleanup_settings_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -13854,6 +17840,22 @@ ALTER TABLE ONLY platform.device_source_snapshots
 
 
 --
+-- Name: device_vantage_expectations device_vantage_expectations_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.device_vantage_expectations
+    ADD CONSTRAINT device_vantage_expectations_pkey PRIMARY KEY (device_uid, agent_id, check_id);
+
+
+--
+-- Name: dgraph_canonical_rebuild_cursors dgraph_canonical_rebuild_cursors_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.dgraph_canonical_rebuild_cursors
+    ADD CONSTRAINT dgraph_canonical_rebuild_cursors_pkey PRIMARY KEY (name);
+
+
+--
 -- Name: discovered_interfaces discovered_interfaces_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -13878,6 +17880,14 @@ ALTER TABLE ONLY platform.dusk_profiles
 
 
 --
+-- Name: edge_delivery_slots edge_delivery_slots_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.edge_delivery_slots
+    ADD CONSTRAINT edge_delivery_slots_pkey PRIMARY KEY (network_scope_id, authenticated_agent_id, spool_id, sequence);
+
+
+--
 -- Name: edge_onboarding_events edge_onboarding_events_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -13899,6 +17909,22 @@ ALTER TABLE ONLY platform.edge_onboarding_packages
 
 ALTER TABLE ONLY platform.edge_sites
     ADD CONSTRAINT edge_sites_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: edge_sweep_batch_slots edge_sweep_batch_slots_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.edge_sweep_batch_slots
+    ADD CONSTRAINT edge_sweep_batch_slots_pkey PRIMARY KEY (network_scope_id, execution_id, execution_shard, assignment_epoch, batch_sequence);
+
+
+--
+-- Name: edge_sweep_projected_rows edge_sweep_projected_rows_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.edge_sweep_projected_rows
+    ADD CONSTRAINT edge_sweep_projected_rows_pkey PRIMARY KEY (network_scope_id, row_key);
 
 
 --
@@ -13998,6 +18024,14 @@ ALTER TABLE ONLY platform.endpoint_packages
 
 
 --
+-- Name: endpoint_vulnerability_advisory_changes endpoint_vulnerability_advisory_changes_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.endpoint_vulnerability_advisory_changes
+    ADD CONSTRAINT endpoint_vulnerability_advisory_changes_pkey PRIMARY KEY (advisory_ref);
+
+
+--
 -- Name: endpoint_vulnerability_assessments endpoint_vulnerability_assessments_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -14006,11 +18040,51 @@ ALTER TABLE ONLY platform.endpoint_vulnerability_assessments
 
 
 --
+-- Name: endpoint_vulnerability_device_evaluations endpoint_vulnerability_device_evaluations_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.endpoint_vulnerability_device_evaluations
+    ADD CONSTRAINT endpoint_vulnerability_device_evaluations_pkey PRIMARY KEY (device_uid);
+
+
+--
+-- Name: endpoint_vulnerability_match_queue endpoint_vulnerability_match_queue_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.endpoint_vulnerability_match_queue
+    ADD CONSTRAINT endpoint_vulnerability_match_queue_pkey PRIMARY KEY (device_uid);
+
+
+--
+-- Name: endpoint_vulnerability_match_state endpoint_vulnerability_match_state_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.endpoint_vulnerability_match_state
+    ADD CONSTRAINT endpoint_vulnerability_match_state_pkey PRIMARY KEY (name);
+
+
+--
 -- Name: endpoint_vulnerability_matches endpoint_vulnerability_matches_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
 ALTER TABLE ONLY platform.endpoint_vulnerability_matches
     ADD CONSTRAINT endpoint_vulnerability_matches_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: endpoint_vulnerability_package_keys endpoint_vulnerability_package_keys_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.endpoint_vulnerability_package_keys
+    ADD CONSTRAINT endpoint_vulnerability_package_keys_pkey PRIMARY KEY (lookup_key, endpoint_package_ref);
+
+
+--
+-- Name: event_ledger event_ledger_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.event_ledger
+    ADD CONSTRAINT event_ledger_pkey PRIMARY KEY (network_scope_id, event_id);
 
 
 --
@@ -14030,6 +18104,118 @@ ALTER TABLE ONLY platform.events
 
 
 --
+-- Name: exposure_advisory_ordinals exposure_advisory_ordinals_ordinal_key; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_advisory_ordinals
+    ADD CONSTRAINT exposure_advisory_ordinals_ordinal_key UNIQUE (ordinal);
+
+
+--
+-- Name: exposure_advisory_ordinals exposure_advisory_ordinals_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_advisory_ordinals
+    ADD CONSTRAINT exposure_advisory_ordinals_pkey PRIMARY KEY (advisory_id);
+
+
+--
+-- Name: exposure_delivery_batches exposure_delivery_batches_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_delivery_batches
+    ADD CONSTRAINT exposure_delivery_batches_pkey PRIMARY KEY (bucket);
+
+
+--
+-- Name: exposure_device_refreshes exposure_device_refreshes_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_device_refreshes
+    ADD CONSTRAINT exposure_device_refreshes_pkey PRIMARY KEY (device_uid);
+
+
+--
+-- Name: exposure_dimension_outbox exposure_dimension_outbox_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_dimension_outbox
+    ADD CONSTRAINT exposure_dimension_outbox_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: exposure_dimension_state exposure_dimension_state_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_dimension_state
+    ADD CONSTRAINT exposure_dimension_state_pkey PRIMARY KEY (kind, ordinal);
+
+
+--
+-- Name: exposure_fact_watermarks exposure_fact_watermarks_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_fact_watermarks
+    ADD CONSTRAINT exposure_fact_watermarks_pkey PRIMARY KEY (device_uid, package_identity_key, cve_id);
+
+
+--
+-- Name: exposure_package_ordinals exposure_package_ordinals_ordinal_key; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_package_ordinals
+    ADD CONSTRAINT exposure_package_ordinals_ordinal_key UNIQUE (ordinal);
+
+
+--
+-- Name: exposure_package_ordinals exposure_package_ordinals_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_package_ordinals
+    ADD CONSTRAINT exposure_package_ordinals_pkey PRIMARY KEY (package_identity_key);
+
+
+--
+-- Name: exposure_package_version_ordinals exposure_package_version_ordinals_ordinal_key; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_package_version_ordinals
+    ADD CONSTRAINT exposure_package_version_ordinals_ordinal_key UNIQUE (ordinal);
+
+
+--
+-- Name: exposure_package_version_ordinals exposure_package_version_ordinals_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_package_version_ordinals
+    ADD CONSTRAINT exposure_package_version_ordinals_pkey PRIMARY KEY (package_identity_key, installed_version);
+
+
+--
+-- Name: exposure_reconciliation_checks exposure_reconciliation_checks_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_reconciliation_checks
+    ADD CONSTRAINT exposure_reconciliation_checks_pkey PRIMARY KEY (device_ord);
+
+
+--
+-- Name: exposure_snapshot_generations exposure_snapshot_generations_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_snapshot_generations
+    ADD CONSTRAINT exposure_snapshot_generations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: exposure_transition_outbox exposure_transition_outbox_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.exposure_transition_outbox
+    ADD CONSTRAINT exposure_transition_outbox_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: fieldsurvey_dashboard_playlist_entries fieldsurvey_dashboard_playlist_entries_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -14046,11 +18232,11 @@ ALTER TABLE ONLY platform.fieldsurvey_review_preferences
 
 
 --
--- Name: flow_process_attribution_current flow_process_attribution_current_unique; Type: CONSTRAINT; Schema: platform; Owner: -
+-- Name: fleet_dictionary_epochs fleet_dictionary_epochs_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
-ALTER TABLE ONLY platform.flow_process_attribution_current
-    ADD CONSTRAINT flow_process_attribution_current_unique UNIQUE (partition, attribution_key);
+ALTER TABLE ONLY platform.fleet_dictionary_epochs
+    ADD CONSTRAINT fleet_dictionary_epochs_pkey PRIMARY KEY (name);
 
 
 --
@@ -14070,11 +18256,43 @@ ALTER TABLE ONLY platform.health_events
 
 
 --
+-- Name: identity_decisions identity_decisions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.identity_decisions
+    ADD CONSTRAINT identity_decisions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: identity_deduplication_tasks identity_deduplication_tasks_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.identity_deduplication_tasks
+    ADD CONSTRAINT identity_deduplication_tasks_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: identity_distinct_assertions identity_distinct_assertions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.identity_distinct_assertions
+    ADD CONSTRAINT identity_distinct_assertions_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: identity_reconciliation_runs identity_reconciliation_runs_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
 ALTER TABLE ONLY platform.identity_reconciliation_runs
     ADD CONSTRAINT identity_reconciliation_runs_pkey PRIMARY KEY (run_id);
+
+
+--
+-- Name: integration_source_availability_semantics_changes integration_source_availability_semantics_changes_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.integration_source_availability_semantics_changes
+    ADD CONSTRAINT integration_source_availability_semantics_changes_pkey PRIMARY KEY (id);
 
 
 --
@@ -14118,6 +18336,14 @@ ALTER TABLE ONLY platform.interface_settings
 
 
 --
+-- Name: interface_threshold_states interface_threshold_states_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.interface_threshold_states
+    ADD CONSTRAINT interface_threshold_states_pkey PRIMARY KEY (interface_settings_id, metric_name);
+
+
+--
 -- Name: ip_geo_enrichment_cache ip_geo_enrichment_cache_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -14150,6 +18376,14 @@ ALTER TABLE ONLY platform.ip_threat_intel_cache
 
 
 --
+-- Name: k8s_inventory_cluster_bindings k8s_inventory_cluster_bindings_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.k8s_inventory_cluster_bindings
+    ADD CONSTRAINT k8s_inventory_cluster_bindings_pkey PRIMARY KEY (cluster_id);
+
+
+--
 -- Name: k8s_node_snapshots k8s_node_snapshots_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -14163,6 +18397,14 @@ ALTER TABLE ONLY platform.k8s_node_snapshots
 
 ALTER TABLE ONLY platform.k8s_nodes_current
     ADD CONSTRAINT k8s_nodes_current_pkey PRIMARY KEY (node_key);
+
+
+--
+-- Name: k8s_public_endpoint_snapshots k8s_public_endpoint_snapshots_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.k8s_public_endpoint_snapshots
+    ADD CONSTRAINT k8s_public_endpoint_snapshots_pkey PRIMARY KEY (cluster_id);
 
 
 --
@@ -14187,6 +18429,38 @@ ALTER TABLE ONLY platform.log_promotion_rules
 
 ALTER TABLE ONLY platform.logs
     ADD CONSTRAINT logs_pkey PRIMARY KEY ("timestamp", id);
+
+
+--
+-- Name: managed_certificate_nats_config managed_certificate_nats_config_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.managed_certificate_nats_config
+    ADD CONSTRAINT managed_certificate_nats_config_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: managed_certificate_operations managed_certificate_operations_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.managed_certificate_operations
+    ADD CONSTRAINT managed_certificate_operations_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: managed_certificate_policy_key managed_certificate_policy_key_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.managed_certificate_policy_key
+    ADD CONSTRAINT managed_certificate_policy_key_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: managed_components managed_components_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.managed_components
+    ADD CONSTRAINT managed_components_pkey PRIMARY KEY (component_id);
 
 
 --
@@ -14427,6 +18701,30 @@ ALTER TABLE ONLY platform.netflow_provider_dataset_snapshots
 
 ALTER TABLE ONLY platform.netflow_settings
     ADD CONSTRAINT netflow_settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: network_changes network_changes_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.network_changes
+    ADD CONSTRAINT network_changes_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: network_config_interface_facts network_config_interface_facts_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.network_config_interface_facts
+    ADD CONSTRAINT network_config_interface_facts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: network_config_revisions network_config_revisions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.network_config_revisions
+    ADD CONSTRAINT network_config_revisions_pkey PRIMARY KEY (id);
 
 
 --
@@ -14798,6 +19096,14 @@ ALTER TABLE ONLY platform.ocsf_agents
 
 
 --
+-- Name: ocsf_devices ocsf_devices_availability_state_check; Type: CHECK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE platform.ocsf_devices
+    ADD CONSTRAINT ocsf_devices_availability_state_check CHECK ((availability_state = ANY (ARRAY['available'::text, 'unavailable'::text, 'unknown'::text]))) NOT VALID;
+
+
+--
 -- Name: ocsf_devices ocsf_devices_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -14827,6 +19133,14 @@ ALTER TABLE ONLY platform.otel_metric_points
 
 ALTER TABLE ONLY platform.otel_metrics
     ADD CONSTRAINT otel_metrics_pkey PRIMARY KEY ("timestamp", span_name, service_name, span_id);
+
+
+--
+-- Name: otel_service_catalog otel_service_catalog_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.otel_service_catalog
+    ADD CONSTRAINT otel_service_catalog_pkey PRIMARY KEY (service_name);
 
 
 --
@@ -14894,6 +19208,14 @@ ALTER TABLE ONLY platform.plugin_assignments
 
 
 --
+-- Name: plugin_assignments plugin_assignments_rollout_override_check; Type: CHECK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE platform.plugin_assignments
+    ADD CONSTRAINT plugin_assignments_rollout_override_check CHECK ((((rollout_plugin_package_id IS NULL) AND (rollout_id IS NULL) AND (rollout_started_at IS NULL)) OR ((rollout_plugin_package_id IS NOT NULL) AND (rollout_id IS NOT NULL) AND (rollout_started_at IS NOT NULL)))) NOT VALID;
+
+
+--
 -- Name: plugin_packages plugin_packages_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -14915,6 +19237,22 @@ ALTER TABLE ONLY platform.plugin_policy_assignment_recovery_requests
 
 ALTER TABLE ONLY platform.plugin_repositories
     ADD CONSTRAINT plugin_repositories_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: plugin_result_ingestion_attempts plugin_result_ingestion_attempts_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.plugin_result_ingestion_attempts
+    ADD CONSTRAINT plugin_result_ingestion_attempts_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: plugin_run_overrides plugin_run_overrides_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.plugin_run_overrides
+    ADD CONSTRAINT plugin_run_overrides_pkey PRIMARY KEY (id);
 
 
 --
@@ -15110,6 +19448,14 @@ ALTER TABLE ONLY platform.remote_access_tcp_targets
 
 
 --
+-- Name: revoked_component_certificates revoked_component_certificates_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.revoked_component_certificates
+    ADD CONSTRAINT revoked_component_certificates_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: role_profiles role_profiles_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -15134,6 +19480,22 @@ ALTER TABLE ONLY platform.runtime_topology_projection_meta
 
 
 --
+-- Name: saml_consumed_assertions saml_consumed_assertions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.saml_consumed_assertions
+    ADD CONSTRAINT saml_consumed_assertions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: saml_pending_requests saml_pending_requests_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.saml_pending_requests
+    ADD CONSTRAINT saml_pending_requests_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: scan_policy_settings scan_policy_settings_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -15147,6 +19509,14 @@ ALTER TABLE ONLY platform.scan_policy_settings
 
 ALTER TABLE ONLY platform.schema_migrations
     ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
+-- Name: seasonal_disposition_chronological_states seasonal_disposition_chronological_states_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.seasonal_disposition_chronological_states
+    ADD CONSTRAINT seasonal_disposition_chronological_states_pkey PRIMARY KEY (source, series_key, dow, hod);
 
 
 --
@@ -15238,6 +19608,14 @@ ALTER TABLE ONLY platform.source_fact_disagreements
 
 
 --
+-- Name: source_identifier_absences source_identifier_absences_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.source_identifier_absences
+    ADD CONSTRAINT source_identifier_absences_pkey PRIMARY KEY (partition, source, source_instance, source_object_id);
+
+
+--
 -- Name: source_identity_conflicts source_identity_conflicts_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -15275,6 +19653,14 @@ ALTER TABLE ONLY platform.stateful_alert_rule_templates
 
 ALTER TABLE ONLY platform.stateful_alert_rules
     ADD CONSTRAINT stateful_alert_rules_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: stateful_evaluation_ledger stateful_evaluation_ledger_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.stateful_evaluation_ledger
+    ADD CONSTRAINT stateful_evaluation_ledger_pkey PRIMARY KEY (event_id);
 
 
 --
@@ -15358,6 +19744,22 @@ ALTER TABLE ONLY platform.sweep_coverage_daily
 
 
 --
+-- Name: sweep_execution_slots sweep_execution_slots_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_execution_slots
+    ADD CONSTRAINT sweep_execution_slots_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sweep_group_declared_targets sweep_group_declared_targets_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_group_declared_targets
+    ADD CONSTRAINT sweep_group_declared_targets_pkey PRIMARY KEY (sweep_group_id, target);
+
+
+--
 -- Name: sweep_group_execution_versions sweep_group_execution_versions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -15371,6 +19773,14 @@ ALTER TABLE ONLY platform.sweep_group_execution_versions
 
 ALTER TABLE ONLY platform.sweep_group_executions
     ADD CONSTRAINT sweep_group_executions_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sweep_group_versions sweep_group_versions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_group_versions
+    ADD CONSTRAINT sweep_group_versions_pkey PRIMARY KEY (id);
 
 
 --
@@ -15390,11 +19800,43 @@ ALTER TABLE ONLY platform.sweep_host_results
 
 
 --
+-- Name: sweep_lease_deliveries sweep_lease_deliveries_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_lease_deliveries
+    ADD CONSTRAINT sweep_lease_deliveries_pkey PRIMARY KEY (producer_assignment_id);
+
+
+--
+-- Name: sweep_lease_settings sweep_lease_settings_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_lease_settings
+    ADD CONSTRAINT sweep_lease_settings_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sweep_producer_assignments sweep_producer_assignments_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_producer_assignments
+    ADD CONSTRAINT sweep_producer_assignments_pkey PRIMARY KEY (id);
+
+
+--
 -- Name: sweep_profiles sweep_profiles_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
 ALTER TABLE ONLY platform.sweep_profiles
     ADD CONSTRAINT sweep_profiles_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: sync_ingest_runs sync_ingest_runs_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sync_ingest_runs
+    ADD CONSTRAINT sync_ingest_runs_pkey PRIMARY KEY (sync_service_id, sync_run_id);
 
 
 --
@@ -15443,6 +19885,38 @@ ALTER TABLE ONLY platform.timeseries_metrics
 
 ALTER TABLE ONLY platform.token_revocations
     ADD CONSTRAINT token_revocations_pkey PRIMARY KEY (jti);
+
+
+--
+-- Name: topology_world_head topology_world_head_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_head
+    ADD CONSTRAINT topology_world_head_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: topology_world_layouts topology_world_layouts_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_layouts
+    ADD CONSTRAINT topology_world_layouts_pkey PRIMARY KEY (layout_version);
+
+
+--
+-- Name: topology_world_positions topology_world_positions_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_positions
+    ADD CONSTRAINT topology_world_positions_pkey PRIMARY KEY (layout_version, device_id);
+
+
+--
+-- Name: topology_world_relations topology_world_relations_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_relations
+    ADD CONSTRAINT topology_world_relations_pkey PRIMARY KEY (layout_version, relation_id);
 
 
 --
@@ -15619,6 +20093,14 @@ ALTER TABLE ONLY platform.vulnerability_feed_definitions
 
 ALTER TABLE ONLY platform.vulnerability_feed_snapshots
     ADD CONSTRAINT vulnerability_feed_snapshots_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: warehouse_retention_settings warehouse_retention_settings_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.warehouse_retention_settings
+    ADD CONSTRAINT warehouse_retention_settings_pkey PRIMARY KEY (id);
 
 
 --
@@ -16103,6 +20585,55 @@ CREATE INDEX _materialized_hypertable_72_bucket_idx ON _timescaledb_internal._ma
 
 
 --
+-- Name: _materialized_hypertable_73_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_73_bucket_idx ON _timescaledb_internal._materialized_hypertable_73 USING btree (bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_73_device_id_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_73_device_id_bucket_idx ON _timescaledb_internal._materialized_hypertable_73 USING btree (device_id, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_73_metric_name_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_73_metric_name_bucket_idx ON _timescaledb_internal._materialized_hypertable_73 USING btree (metric_name, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_73_metric_type_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_73_metric_type_bucket_idx ON _timescaledb_internal._materialized_hypertable_73 USING btree (metric_type, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_73_mount_point_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_73_mount_point_bucket_idx ON _timescaledb_internal._materialized_hypertable_73 USING btree (mount_point, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_73_series_key_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_73_series_key_bucket_idx ON _timescaledb_internal._materialized_hypertable_73 USING btree (series_key, bucket DESC);
+
+
+--
+-- Name: _materialized_hypertable_76_bucket_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX _materialized_hypertable_76_bucket_idx ON _timescaledb_internal._materialized_hypertable_76 USING btree (bucket DESC);
+
+
+--
 -- Name: endpoint_inventory_cpe_counts_hourly_cpe_idx; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
@@ -16187,6 +20718,20 @@ CREATE INDEX idx_process_metrics_hourly_bucket_device_host_name ON _timescaledb_
 
 
 --
+-- Name: idx_services_availability_5m_v2_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX idx_services_availability_5m_v2_bucket ON _timescaledb_internal._materialized_hypertable_76 USING btree (bucket DESC);
+
+
+--
+-- Name: idx_services_availability_5m_v2_service_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX idx_services_availability_5m_v2_service_bucket ON _timescaledb_internal._materialized_hypertable_76 USING btree (service_name, bucket DESC);
+
+
+--
 -- Name: idx_spans_red_1h_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
 --
 
@@ -16198,6 +20743,20 @@ CREATE INDEX idx_spans_red_1h_bucket ON _timescaledb_internal._materialized_hype
 --
 
 CREATE INDEX idx_spans_red_1h_bucket_service ON _timescaledb_internal._materialized_hypertable_57 USING btree (bucket DESC, service_name, service_namespace, deployment_environment);
+
+
+--
+-- Name: idx_timeseries_metrics_disk_hourly_bucket_device_mount; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX idx_timeseries_metrics_disk_hourly_bucket_device_mount ON _timescaledb_internal._materialized_hypertable_73 USING btree (bucket DESC, device_id, metric_name, mount_point);
+
+
+--
+-- Name: idx_timeseries_metrics_disk_hourly_device_mount_bucket; Type: INDEX; Schema: _timescaledb_internal; Owner: -
+--
+
+CREATE INDEX idx_timeseries_metrics_disk_hourly_device_mount_bucket ON _timescaledb_internal._materialized_hypertable_73 USING btree (device_id, metric_name, mount_point, bucket DESC);
 
 
 --
@@ -16240,6 +20799,13 @@ CREATE INDEX addon_assignments_direct_access_status_index ON platform.addon_assi
 --
 
 CREATE INDEX addon_assignments_edge_site_id_index ON platform.addon_assignments USING btree (edge_site_id);
+
+
+--
+-- Name: addon_assignments_one_enabled_per_agent_addon_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX addon_assignments_one_enabled_per_agent_addon_index ON platform.addon_assignments USING btree (agent_uid, addon_id) WHERE (enabled = true);
 
 
 --
@@ -16306,10 +20872,24 @@ CREATE INDEX addon_rollout_targets_agent_uid_addon_id_index ON platform.addon_ro
 
 
 --
+-- Name: addon_rollout_targets_one_active_plugin_target_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX addon_rollout_targets_one_active_plugin_target_index ON platform.addon_rollout_targets USING btree (plugin_assignment_id) WHERE ((artifact_kind = 'wasm_plugin'::text) AND (state = ANY (ARRAY['pending'::text, 'waiting_health'::text, 'healthy_soak'::text, 'succeeded'::text, 'rollback_pending'::text])));
+
+
+--
 -- Name: addon_rollout_targets_one_active_target_index; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE UNIQUE INDEX addon_rollout_targets_one_active_target_index ON platform.addon_rollout_targets USING btree (agent_uid, addon_id) WHERE (state = ANY (ARRAY['pending'::text, 'waiting_health'::text, 'healthy_soak'::text, 'succeeded'::text, 'rollback_pending'::text]));
+CREATE UNIQUE INDEX addon_rollout_targets_one_active_target_index ON platform.addon_rollout_targets USING btree (agent_uid, addon_id) WHERE ((artifact_kind = 'native_addon'::text) AND (state = ANY (ARRAY['pending'::text, 'waiting_health'::text, 'healthy_soak'::text, 'succeeded'::text, 'rollback_pending'::text])));
+
+
+--
+-- Name: addon_rollout_targets_plugin_assignment_id_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX addon_rollout_targets_plugin_assignment_id_index ON platform.addon_rollout_targets USING btree (plugin_assignment_id) WHERE (plugin_assignment_id IS NOT NULL);
 
 
 --
@@ -16323,7 +20903,7 @@ CREATE INDEX addon_rollout_targets_rollout_id_batch_index_index ON platform.addo
 -- Name: addon_rollouts_one_active_source_index; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE UNIQUE INDEX addon_rollouts_one_active_source_index ON platform.addon_rollouts USING btree (source_type, source_id) WHERE (state = ANY (ARRAY['pending'::text, 'running'::text, 'paused'::text, 'rolling_back'::text]));
+CREATE UNIQUE INDEX addon_rollouts_one_active_source_index ON platform.addon_rollouts USING btree (artifact_kind, source_type, source_id, source_key) NULLS NOT DISTINCT WHERE (state = ANY (ARRAY['pending'::text, 'running'::text, 'paused'::text, 'rolling_back'::text]));
 
 
 --
@@ -16393,7 +20973,7 @@ CREATE INDEX advisory_coordinates_type_value_idx ON platform.advisory_coordinate
 -- Name: advisory_coordinates_value_trgm_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX advisory_coordinates_value_trgm_idx ON platform.advisory_coordinates USING gin (value platform.gin_trgm_ops);
+CREATE INDEX advisory_coordinates_value_trgm_idx ON platform.advisory_coordinates USING gin (value public.gin_trgm_ops);
 
 
 --
@@ -16593,10 +21173,66 @@ CREATE UNIQUE INDEX agent_releases_version_index ON platform.agent_releases USIN
 
 
 --
+-- Name: alert_evaluation_lanes_rule_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX alert_evaluation_lanes_rule_index ON platform.alert_evaluation_lanes USING btree (rule_id);
+
+
+--
+-- Name: alert_evaluation_receipts_completed_at_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX alert_evaluation_receipts_completed_at_index ON platform.alert_evaluation_receipts USING btree (completed_at);
+
+
+--
+-- Name: alert_evaluation_receipts_rule_source_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX alert_evaluation_receipts_rule_source_index ON platform.alert_evaluation_receipts USING btree (rule_id, source_key);
+
+
+--
+-- Name: alert_evaluation_work_rule_position_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX alert_evaluation_work_rule_position_index ON platform.alert_evaluation_work USING btree (rule_id, "position");
+
+
+--
+-- Name: alert_evaluation_work_rule_source_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX alert_evaluation_work_rule_source_index ON platform.alert_evaluation_work USING btree (rule_id, source_key);
+
+
+--
 -- Name: alerts_acknowledged_by_user_id_index; Type: INDEX; Schema: platform; Owner: -
 --
 
 CREATE INDEX alerts_acknowledged_by_user_id_index ON platform.alerts USING btree (acknowledged_by_user_id) WHERE (acknowledged_by_user_id IS NOT NULL);
+
+
+--
+-- Name: alerts_agent_uid_fk_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX alerts_agent_uid_fk_idx ON platform.alerts USING btree (agent_uid) WHERE (agent_uid IS NOT NULL);
+
+
+--
+-- Name: alerts_device_uid_fk_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX alerts_device_uid_fk_idx ON platform.alerts USING btree (device_uid) WHERE (device_uid IS NOT NULL);
+
+
+--
+-- Name: alerts_service_check_id_fk_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX alerts_service_check_id_fk_idx ON platform.alerts USING btree (service_check_id) WHERE (service_check_id IS NOT NULL);
 
 
 --
@@ -17419,6 +22055,104 @@ CREATE UNIQUE INDEX camera_analysis_workers_worker_id_uidx ON platform.camera_an
 
 
 --
+-- Name: camera_archive_bindings_provisioned_generation_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_archive_bindings_provisioned_generation_index ON platform.camera_archive_bindings USING btree (provisioning_ref, generation);
+
+
+--
+-- Name: camera_archive_upload_dispatches_init_request_nonce_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_archive_upload_dispatches_init_request_nonce_index ON platform.camera_archive_upload_dispatches USING btree (init_storage_boot_id, init_nonce_sha256);
+
+
+--
+-- Name: camera_archive_upload_dispatches_intent_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_archive_upload_dispatches_intent_index ON platform.camera_archive_upload_dispatches USING btree (archive_upload_intent_id);
+
+
+--
+-- Name: camera_archive_upload_dispatches_manifest_request_nonce_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_archive_upload_dispatches_manifest_request_nonce_index ON platform.camera_archive_upload_dispatches USING btree (manifest_storage_boot_id, manifest_nonce_sha256);
+
+
+--
+-- Name: camera_archive_upload_dispatches_media_request_nonce_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_archive_upload_dispatches_media_request_nonce_index ON platform.camera_archive_upload_dispatches USING btree (media_storage_boot_id, media_nonce_sha256);
+
+
+--
+-- Name: camera_archive_upload_intents_block_role_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_archive_upload_intents_block_role_index ON platform.camera_archive_upload_intents USING btree (recording_block_id, object_role);
+
+
+--
+-- Name: camera_consumer_leases_consumer_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_consumer_leases_consumer_index ON platform.camera_consumer_leases USING btree (ingest_owner_id, owner_epoch, kind, consumer_key);
+
+
+--
+-- Name: camera_consumer_leases_expires_at_id_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX camera_consumer_leases_expires_at_id_index ON platform.camera_consumer_leases USING btree (expires_at, id);
+
+
+--
+-- Name: camera_consumer_leases_ingest_owner_id_owner_epoch_expires_at_i; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX camera_consumer_leases_ingest_owner_id_owner_epoch_expires_at_i ON platform.camera_consumer_leases USING btree (ingest_owner_id, owner_epoch, expires_at);
+
+
+--
+-- Name: camera_ingest_owners_source_profile_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_ingest_owners_source_profile_index ON platform.camera_ingest_owners USING btree (camera_source_id, stream_profile_id);
+
+
+--
+-- Name: camera_recorder_claims_owner_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_recorder_claims_owner_index ON platform.camera_recorder_claims USING btree (ingest_owner_id);
+
+
+--
+-- Name: camera_recording_blocks_block_key_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_recording_blocks_block_key_index ON platform.camera_recording_blocks USING btree (block_key);
+
+
+--
+-- Name: camera_recording_blocks_capture_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX camera_recording_blocks_capture_index ON platform.camera_recording_blocks USING btree (camera_source_id, stream_profile_id, recorder_epoch, block_sequence);
+
+
+--
+-- Name: camera_recording_blocks_publication_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX camera_recording_blocks_publication_index ON platform.camera_recording_blocks USING btree (camera_source_id, archive_published_at, id) WHERE (archive_published_at IS NOT NULL);
+
+
+--
 -- Name: camera_relay_sessions_agent_id_status_index; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -17503,6 +22237,20 @@ CREATE INDEX capacity_forecasts_forecasted_at_idx ON platform.capacity_forecasts
 
 
 --
+-- Name: checkers_agent_uid_fk_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX checkers_agent_uid_fk_idx ON platform.checkers USING btree (agent_uid) WHERE (agent_uid IS NOT NULL);
+
+
+--
+-- Name: cli_authorization_codes_unique_code_hash_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX cli_authorization_codes_unique_code_hash_idx ON platform.cli_authorization_codes USING btree (code_hash);
+
+
+--
 -- Name: cli_sessions_status_expires_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -17535,6 +22283,13 @@ CREATE INDEX cold_chunk_exports_table_status_idx ON platform.cold_chunk_exports 
 --
 
 CREATE UNIQUE INDEX collector_packages_unique_user_name_index ON platform.collector_packages USING btree (user_name);
+
+
+--
+-- Name: component_certificates_component_id_generation_not_after_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX component_certificates_component_id_generation_not_after_index ON platform.component_certificates USING btree (component_id, generation, not_after);
 
 
 --
@@ -17881,6 +22636,20 @@ CREATE INDEX device_agent_availability_agent_id_idx ON platform.device_agent_ava
 
 
 --
+-- Name: device_agent_availability_agent_updated_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX device_agent_availability_agent_updated_idx ON platform.device_agent_availability USING btree (agent_id, updated_at);
+
+
+--
+-- Name: device_agent_availability_checked_at_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX device_agent_availability_checked_at_idx ON platform.device_agent_availability USING btree (checked_at);
+
+
+--
 -- Name: device_agent_availability_device_agent_uidx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -17944,6 +22713,13 @@ CREATE INDEX device_authorizations_user_idx ON platform.device_authorizations US
 
 
 --
+-- Name: device_availability_evidence_expires_at_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX device_availability_evidence_expires_at_idx ON platform.device_availability_evidence USING btree (expires_at);
+
+
+--
 -- Name: device_composite_check_results_check_eval_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -17997,6 +22773,20 @@ CREATE INDEX device_fleet_ordinals_tombstoned_idx ON platform.device_fleet_ordin
 --
 
 CREATE UNIQUE INDEX device_groups_unique_name_index ON platform.device_groups USING btree (name);
+
+
+--
+-- Name: device_identifier_archive_device_type_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX device_identifier_archive_device_type_idx ON platform.device_identifier_archive USING btree (device_id, identifier_type);
+
+
+--
+-- Name: device_identifier_archive_type_value_partition_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX device_identifier_archive_type_value_partition_idx ON platform.device_identifier_archive USING btree (identifier_type, identifier_value, partition);
 
 
 --
@@ -18119,13 +22909,6 @@ CREATE UNIQUE INDEX device_snmp_credentials_unique_device_index ON platform.devi
 
 
 --
--- Name: device_snmp_facts_collected_at_index; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX device_snmp_facts_collected_at_index ON platform.device_snmp_facts USING btree (collected_at);
-
-
---
 -- Name: device_snmp_facts_plugin_package_id_index; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18154,6 +22937,13 @@ CREATE UNIQUE INDEX device_source_facts_device_source_key_uidx ON platform.devic
 
 
 --
+-- Name: device_source_observations_armis_mac_tokens_gin_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX device_source_observations_armis_mac_tokens_gin_idx ON platform.device_source_observations USING gin (regexp_split_to_array(upper(translate(mac, ':-.'::text, ''::text)), '[,;[:space:]]+'::text)) WHERE ((source = 'armis'::text) AND (mac IS NOT NULL));
+
+
+--
 -- Name: device_source_observations_collection_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18178,7 +22968,7 @@ CREATE INDEX device_source_observations_device_source_idx ON platform.device_sou
 -- Name: device_source_observations_hostname_trgm_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX device_source_observations_hostname_trgm_idx ON platform.device_source_observations USING gin (hostname platform.gin_trgm_ops) WHERE (present = true);
+CREATE INDEX device_source_observations_hostname_trgm_idx ON platform.device_source_observations USING gin (hostname public.gin_trgm_ops) WHERE (present = true);
 
 
 --
@@ -18192,7 +22982,7 @@ CREATE INDEX device_source_observations_object_lookup_idx ON platform.device_sou
 -- Name: device_source_observations_serial_trgm_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX device_source_observations_serial_trgm_idx ON platform.device_source_observations USING gin (serial_number platform.gin_trgm_ops) WHERE (present = true);
+CREATE INDEX device_source_observations_serial_trgm_idx ON platform.device_source_observations USING gin (serial_number public.gin_trgm_ops) WHERE (present = true);
 
 
 --
@@ -18214,6 +23004,13 @@ CREATE UNIQUE INDEX device_source_snapshots_source_instance_uidx ON platform.dev
 --
 
 CREATE INDEX device_source_snapshots_source_observed_idx ON platform.device_source_snapshots USING btree (source, observed_at);
+
+
+--
+-- Name: device_vantage_expectations_check_id_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX device_vantage_expectations_check_id_idx ON platform.device_vantage_expectations USING btree (check_id);
 
 
 --
@@ -18259,6 +23056,13 @@ CREATE INDEX dusk_profiles_priority_index ON platform.dusk_profiles USING btree 
 
 
 --
+-- Name: edge_delivery_slots_event_id_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX edge_delivery_slots_event_id_idx ON platform.edge_delivery_slots USING btree (event_id);
+
+
+--
 -- Name: edge_onboarding_packages_nats_credential_id_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18280,6 +23084,27 @@ CREATE UNIQUE INDEX edge_sites_unique_slug_index ON platform.edge_sites USING bt
 
 
 --
+-- Name: edge_sweep_batch_slots_event_id_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX edge_sweep_batch_slots_event_id_idx ON platform.edge_sweep_batch_slots USING btree (event_id);
+
+
+--
+-- Name: edge_sweep_batch_slots_execution_id_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX edge_sweep_batch_slots_execution_id_idx ON platform.edge_sweep_batch_slots USING btree (execution_id);
+
+
+--
+-- Name: edge_sweep_projected_rows_event_id_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX edge_sweep_projected_rows_event_id_idx ON platform.edge_sweep_projected_rows USING btree (event_id);
+
+
+--
 -- Name: endpoint_inventory_artifact_contents_hash_uidx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18298,6 +23123,13 @@ CREATE UNIQUE INDEX endpoint_inventory_artifact_contents_object_key_uidx ON plat
 --
 
 CREATE INDEX endpoint_inventory_artifact_contents_sha256_idx ON platform.endpoint_inventory_artifact_contents USING btree (sha256);
+
+
+--
+-- Name: endpoint_inventory_artifacts_agent_null_device_uid_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_inventory_artifacts_agent_null_device_uid_idx ON platform.endpoint_inventory_artifacts USING btree (agent_id) WHERE (device_uid IS NULL);
 
 
 --
@@ -18455,6 +23287,13 @@ CREATE INDEX endpoint_inventory_packages_agent_current_name_idx ON platform.endp
 
 
 --
+-- Name: endpoint_inventory_packages_agent_null_device_uid_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_inventory_packages_agent_null_device_uid_idx ON platform.endpoint_inventory_packages USING btree (agent_id) WHERE (device_uid IS NULL);
+
+
+--
 -- Name: endpoint_inventory_packages_cpes_gin_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18539,6 +23378,13 @@ CREATE INDEX endpoint_inventory_scans_agent_latest_device_idx ON platform.endpoi
 
 
 --
+-- Name: endpoint_inventory_scans_agent_null_device_uid_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_inventory_scans_agent_null_device_uid_idx ON platform.endpoint_inventory_scans USING btree (agent_id) WHERE (device_uid IS NULL);
+
+
+--
 -- Name: endpoint_inventory_scans_agent_package_hash_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18602,10 +23448,24 @@ CREATE INDEX endpoint_vuln_assessments_cve_device_idx ON platform.endpoint_vulne
 
 
 --
+-- Name: endpoint_vuln_assessments_finding_sync_pending_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vuln_assessments_finding_sync_pending_idx ON platform.endpoint_vulnerability_assessments USING btree (id) WHERE ((metadata ->> 'finding_sync_pending'::text) = 'true'::text);
+
+
+--
 -- Name: endpoint_vuln_assessments_identity_uidx; Type: INDEX; Schema: platform; Owner: -
 --
 
 CREATE UNIQUE INDEX endpoint_vuln_assessments_identity_uidx ON platform.endpoint_vulnerability_assessments USING btree (device_uid, package_identity_key, cve_id);
+
+
+--
+-- Name: endpoint_vuln_assessments_last_confirmed_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vuln_assessments_last_confirmed_idx ON platform.endpoint_vulnerability_assessments USING btree (((metadata ->> 'last_confirmed_at'::text)));
 
 
 --
@@ -18623,6 +23483,20 @@ CREATE INDEX endpoint_vuln_assessments_package_cve_actionable_idx ON platform.en
 
 
 --
+-- Name: endpoint_vuln_device_evaluations_evaluated_at_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vuln_device_evaluations_evaluated_at_idx ON platform.endpoint_vulnerability_device_evaluations USING btree (evaluated_at DESC, device_uid);
+
+
+--
+-- Name: endpoint_vulnerability_advisory_changes_ticket_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vulnerability_advisory_changes_ticket_idx ON platform.endpoint_vulnerability_advisory_changes USING btree (ticket);
+
+
+--
 -- Name: endpoint_vulnerability_assessments_actionable_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18634,6 +23508,27 @@ CREATE INDEX endpoint_vulnerability_assessments_actionable_idx ON platform.endpo
 --
 
 CREATE INDEX endpoint_vulnerability_assessments_endpoint_package_ref_idx ON platform.endpoint_vulnerability_assessments USING btree (endpoint_package_ref);
+
+
+--
+-- Name: endpoint_vulnerability_assessments_inventory_package_ref_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vulnerability_assessments_inventory_package_ref_idx ON platform.endpoint_vulnerability_assessments USING btree (inventory_package_ref) WHERE (inventory_package_ref IS NOT NULL);
+
+
+--
+-- Name: endpoint_vulnerability_assessments_scan_ref_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vulnerability_assessments_scan_ref_idx ON platform.endpoint_vulnerability_assessments USING btree (scan_ref) WHERE (scan_ref IS NOT NULL);
+
+
+--
+-- Name: endpoint_vulnerability_match_queue_ticket_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vulnerability_match_queue_ticket_idx ON platform.endpoint_vulnerability_match_queue USING btree (ticket);
 
 
 --
@@ -18665,6 +23560,13 @@ CREATE UNIQUE INDEX endpoint_vulnerability_matches_identity_uidx ON platform.end
 
 
 --
+-- Name: endpoint_vulnerability_matches_inventory_package_ref_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vulnerability_matches_inventory_package_ref_idx ON platform.endpoint_vulnerability_matches USING btree (inventory_package_ref) WHERE (inventory_package_ref IS NOT NULL);
+
+
+--
 -- Name: endpoint_vulnerability_matches_last_seen_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18679,6 +23581,13 @@ CREATE INDEX endpoint_vulnerability_matches_priority_idx ON platform.endpoint_vu
 
 
 --
+-- Name: endpoint_vulnerability_matches_scan_ref_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX endpoint_vulnerability_matches_scan_ref_idx ON platform.endpoint_vulnerability_matches USING btree (scan_ref) WHERE (scan_ref IS NOT NULL);
+
+
+--
 -- Name: event_rules_unique_name_index; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -18690,6 +23599,27 @@ CREATE UNIQUE INDEX event_rules_unique_name_index ON platform.event_rules USING 
 --
 
 CREATE INDEX events_event_timestamp_idx ON platform.events USING btree (event_timestamp DESC);
+
+
+--
+-- Name: exposure_device_refreshes_oldest_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX exposure_device_refreshes_oldest_idx ON platform.exposure_device_refreshes USING btree (inserted_at, device_uid);
+
+
+--
+-- Name: exposure_reconciliation_checks_status_device_ord_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX exposure_reconciliation_checks_status_device_ord_index ON platform.exposure_reconciliation_checks USING btree (status, device_ord);
+
+
+--
+-- Name: exposure_snapshot_one_active; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX exposure_snapshot_one_active ON platform.exposure_snapshot_generations USING btree ((true)) WHERE (status <> ALL (ARRAY['complete'::text, 'aborted'::text]));
 
 
 --
@@ -18767,6 +23697,55 @@ CREATE INDEX health_events_state_sequence_idx ON platform.health_events USING bt
 --
 
 CREATE UNIQUE INDEX health_events_unique_event_index ON platform.health_events USING btree (id);
+
+
+--
+-- Name: identity_decisions_decision_kind_last_decided_at_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX identity_decisions_decision_kind_last_decided_at_index ON platform.identity_decisions USING btree (decision_kind, last_decided_at);
+
+
+--
+-- Name: identity_decisions_device_uids_gin_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX identity_decisions_device_uids_gin_idx ON platform.identity_decisions USING gin (device_uids);
+
+
+--
+-- Name: identity_decisions_unique_decision_key_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX identity_decisions_unique_decision_key_index ON platform.identity_decisions USING btree (decision_key);
+
+
+--
+-- Name: identity_deduplication_tasks_device_uids_gin_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX identity_deduplication_tasks_device_uids_gin_idx ON platform.identity_deduplication_tasks USING gin (device_uids);
+
+
+--
+-- Name: identity_deduplication_tasks_status_last_decided_at_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX identity_deduplication_tasks_status_last_decided_at_index ON platform.identity_deduplication_tasks USING btree (status, last_decided_at);
+
+
+--
+-- Name: identity_deduplication_tasks_unique_candidate_key_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX identity_deduplication_tasks_unique_candidate_key_index ON platform.identity_deduplication_tasks USING btree (candidate_key);
+
+
+--
+-- Name: identity_distinct_assertions_unique_pair_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX identity_distinct_assertions_unique_pair_index ON platform.identity_distinct_assertions USING btree (device_a, device_b);
 
 
 --
@@ -19050,69 +24029,6 @@ CREATE INDEX idx_events_timestamp ON platform.events USING btree (event_timestam
 
 
 --
--- Name: idx_flow_process_attr_current_exact_no_ports; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_exact_no_ports ON platform.flow_process_attribution_current USING btree (partition, proto, local_ip, remote_ip, observed_at DESC) WHERE (proto = ANY (ARRAY[1, 58]));
-
-
---
--- Name: idx_flow_process_attr_current_exact_ports; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_exact_ports ON platform.flow_process_attribution_current USING btree (partition, proto, local_ip, remote_ip, local_port, remote_port, observed_at DESC) WHERE (proto <> ALL (ARRAY[1, 58]));
-
-
---
--- Name: idx_flow_process_attr_current_observed_at; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_observed_at ON platform.flow_process_attribution_current USING btree (observed_at);
-
-
---
--- Name: idx_flow_process_attr_current_partial_workload_backfill; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_partial_workload_backfill ON platform.flow_process_attribution_current USING btree (partition, agent_id, container_id, observed_at DESC) WHERE ((container_id IS NOT NULL) AND ((workload_identity IS NULL) OR (NOT (workload_identity ? 'context_name'::text))));
-
-
---
--- Name: idx_flow_process_attr_current_remote_no_ports; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_remote_no_ports ON platform.flow_process_attribution_current USING btree (partition, proto, remote_ip, observed_at DESC, agent_id, local_ip) WHERE (proto = ANY (ARRAY[1, 58]));
-
-
---
--- Name: idx_flow_process_attr_current_remote_ports; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_remote_ports ON platform.flow_process_attribution_current USING btree (partition, proto, remote_ip, remote_port, observed_at DESC, agent_id, local_ip) WHERE (proto <> ALL (ARRAY[1, 58]));
-
-
---
--- Name: idx_flow_process_attr_current_service_wildcard; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_service_wildcard ON platform.flow_process_attribution_current USING btree (partition, proto, local_ip, local_port, observed_at DESC) WHERE (remote_port = 0);
-
-
---
--- Name: idx_flow_process_attr_current_udp_service; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_udp_service ON platform.flow_process_attribution_current USING btree (partition, proto, local_ip, remote_ip, remote_port, observed_at DESC) WHERE ((proto = 17) AND (remote_port > 0));
-
-
---
--- Name: idx_flow_process_attr_current_workload_backfill; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_flow_process_attr_current_workload_backfill ON platform.flow_process_attribution_current USING btree (partition, agent_id, container_id, observed_at DESC) WHERE ((container_id IS NOT NULL) AND (workload_identity IS NULL));
-
-
---
 -- Name: idx_k8s_nodes_current_cluster_name; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -19162,10 +24078,24 @@ CREATE INDEX idx_logs_severity_lower_effective_ts ON platform.logs USING btree (
 
 
 --
+-- Name: idx_logs_severity_lower_timestamp; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_logs_severity_lower_timestamp ON platform.logs USING btree (lower(severity_text), "timestamp" DESC);
+
+
+--
 -- Name: idx_logs_severity_number_effective_ts; Type: INDEX; Schema: platform; Owner: -
 --
 
 CREATE INDEX idx_logs_severity_number_effective_ts ON platform.logs USING btree (severity_number, COALESCE(observed_timestamp, "timestamp") DESC);
+
+
+--
+-- Name: idx_logs_severity_number_timestamp; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_logs_severity_number_timestamp ON platform.logs USING btree (severity_number, "timestamp" DESC);
 
 
 --
@@ -19187,6 +24117,20 @@ CREATE INDEX idx_logs_source_effective_ts ON platform.logs USING btree (source, 
 --
 
 CREATE INDEX idx_logs_source_ip_effective_ts ON platform.logs USING btree (source_ip, COALESCE(observed_timestamp, "timestamp") DESC);
+
+
+--
+-- Name: idx_logs_source_ip_timestamp; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_logs_source_ip_timestamp ON platform.logs USING btree (source_ip, "timestamp" DESC);
+
+
+--
+-- Name: idx_logs_source_timestamp; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_logs_source_timestamp ON platform.logs USING btree (source, "timestamp" DESC);
 
 
 --
@@ -19215,6 +24159,20 @@ CREATE INDEX idx_mtr_hops_addr ON platform.mtr_hops USING btree (addr, "time" DE
 --
 
 CREATE INDEX idx_mtr_hops_asn ON platform.mtr_hops USING btree (asn, "time" DESC) WHERE (asn IS NOT NULL);
+
+
+--
+-- Name: idx_mtr_hops_device_id; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_mtr_hops_device_id ON platform.mtr_hops USING btree (device_id, "time" DESC) WHERE (device_id IS NOT NULL);
+
+
+--
+-- Name: idx_mtr_hops_target_ip; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_mtr_hops_target_ip ON platform.mtr_hops USING btree (target_ip, "time" DESC) WHERE (target_ip IS NOT NULL);
 
 
 --
@@ -19547,6 +24505,13 @@ CREATE INDEX idx_timeseries_metrics_timestamp ON platform.timeseries_metrics USI
 
 
 --
+-- Name: idx_trace_summaries_service_set_gin; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_trace_summaries_service_set_gin ON platform.otel_trace_summaries USING gin (service_set);
+
+
+--
 -- Name: idx_trace_summaries_service_timestamp; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -19641,14 +24606,14 @@ CREATE INDEX idx_trivy_findings_severity ON platform.trivy_findings USING btree 
 -- Name: idx_trivy_findings_title_trgm; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX idx_trivy_findings_title_trgm ON platform.trivy_findings USING gin (title platform.gin_trgm_ops);
+CREATE INDEX idx_trivy_findings_title_trgm ON platform.trivy_findings USING gin (title public.gin_trgm_ops);
 
 
 --
 -- Name: idx_trivy_reports_name_trgm; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX idx_trivy_reports_name_trgm ON platform.trivy_reports USING gin (name platform.gin_trgm_ops);
+CREATE INDEX idx_trivy_reports_name_trgm ON platform.trivy_reports USING gin (name public.gin_trgm_ops);
 
 
 --
@@ -19953,6 +24918,13 @@ CREATE INDEX ip_threat_intel_cache_matched_index ON platform.ip_threat_intel_cac
 
 
 --
+-- Name: k8s_inventory_cluster_bindings_agent_id_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX k8s_inventory_cluster_bindings_agent_id_index ON platform.k8s_inventory_cluster_bindings USING btree (agent_id);
+
+
+--
 -- Name: log_promotion_rule_templates_unique_name_index; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -19971,6 +24943,41 @@ CREATE UNIQUE INDEX log_promotion_rules_unique_name_index ON platform.log_promot
 --
 
 CREATE INDEX logs_timestamp_idx ON platform.logs USING btree ("timestamp" DESC);
+
+
+--
+-- Name: managed_certificate_operations_current_component_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX managed_certificate_operations_current_component_index ON platform.managed_certificate_operations USING btree (component_id) WHERE (status <> 'superseded'::text);
+
+
+--
+-- Name: managed_certificate_operations_status_renew_after_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX managed_certificate_operations_status_renew_after_index ON platform.managed_certificate_operations USING btree (status, renew_after);
+
+
+--
+-- Name: managed_components_collector_source_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX managed_components_collector_source_index ON platform.managed_components USING btree (collector_id);
+
+
+--
+-- Name: managed_components_host_service_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX managed_components_host_service_index ON platform.managed_components USING btree (host_agent_id, component_type);
+
+
+--
+-- Name: managed_components_leaf_site_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX managed_components_leaf_site_index ON platform.managed_components USING btree (edge_site_id) WHERE (component_type = 'nats-leaf'::text);
 
 
 --
@@ -20142,10 +25149,10 @@ CREATE INDEX mtr_bulk_job_targets_command_id_status_index ON platform.mtr_bulk_j
 
 
 --
--- Name: mtr_bulk_job_targets_command_id_target_index; Type: INDEX; Schema: platform; Owner: -
+-- Name: mtr_bulk_job_targets_command_target_protocol_index; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE UNIQUE INDEX mtr_bulk_job_targets_command_id_target_index ON platform.mtr_bulk_job_targets USING btree (command_id, target);
+CREATE UNIQUE INDEX mtr_bulk_job_targets_command_target_protocol_index ON platform.mtr_bulk_job_targets USING btree (command_id, target, protocol);
 
 
 --
@@ -20363,6 +25370,48 @@ CREATE UNIQUE INDEX netflow_provider_dataset_single_active_idx ON platform.netfl
 --
 
 CREATE UNIQUE INDEX netflow_settings_singleton ON platform.netflow_settings USING btree ((1));
+
+
+--
+-- Name: network_changes_source_external_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX network_changes_source_external_uidx ON platform.network_changes USING btree (source, external_id);
+
+
+--
+-- Name: network_changes_window_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX network_changes_window_idx ON platform.network_changes USING btree (window_start, window_end);
+
+
+--
+-- Name: network_config_interface_facts_device_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX network_config_interface_facts_device_idx ON platform.network_config_interface_facts USING btree (device_uid);
+
+
+--
+-- Name: network_config_interface_facts_revision_if_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX network_config_interface_facts_revision_if_uidx ON platform.network_config_interface_facts USING btree (revision_id, if_name);
+
+
+--
+-- Name: network_config_revisions_device_hash_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX network_config_revisions_device_hash_uidx ON platform.network_config_revisions USING btree (device_uid, content_hash);
+
+
+--
+-- Name: network_config_revisions_device_retrieved_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX network_config_revisions_device_retrieved_idx ON platform.network_config_revisions USING btree (device_uid, retrieved_at DESC);
 
 
 --
@@ -20982,10 +26031,24 @@ CREATE INDEX oban_jobs_state_queue_priority_scheduled_at_id_index ON platform.ob
 
 
 --
+-- Name: ocsf_agents_cert_expires_at_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX ocsf_agents_cert_expires_at_idx ON platform.ocsf_agents USING btree (cert_expires_at);
+
+
+--
 -- Name: ocsf_agents_unique_uid_index; Type: INDEX; Schema: platform; Owner: -
 --
 
 CREATE UNIQUE INDEX ocsf_agents_unique_uid_index ON platform.ocsf_agents USING btree (uid);
+
+
+--
+-- Name: ocsf_agents_unsuperseded_device_uid_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX ocsf_agents_unsuperseded_device_uid_index ON platform.ocsf_agents USING btree (device_uid) WHERE ((superseded_at IS NULL) AND (device_uid IS NOT NULL));
 
 
 --
@@ -21038,6 +26101,20 @@ CREATE INDEX ocsf_devices_is_active_idx ON platform.ocsf_devices USING btree (is
 
 
 --
+-- Name: ocsf_devices_live_awx_records_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX ocsf_devices_live_awx_records_idx ON platform.ocsf_devices USING btree (uid) WHERE ((deleted_at IS NULL) AND (('awx'::text = ANY (COALESCE(discovery_sources, ARRAY[]::text[]))) OR (COALESCE((metadata ->> 'integration_type'::text), ''::text) = 'awx'::text) OR (COALESCE(metadata, '{}'::jsonb) ? 'awx'::text)));
+
+
+--
+-- Name: ocsf_devices_location_gist_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX ocsf_devices_location_gist_idx ON platform.ocsf_devices USING gist (location) WHERE (location IS NOT NULL);
+
+
+--
 -- Name: ocsf_devices_managed_active_live_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -21049,6 +26126,13 @@ CREATE INDEX ocsf_devices_managed_active_live_idx ON platform.ocsf_devices USING
 --
 
 CREATE INDEX ocsf_devices_partition_idx ON platform.ocsf_devices USING btree (partition) WHERE (deleted_at IS NULL);
+
+
+--
+-- Name: ocsf_devices_source_retired_at_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX ocsf_devices_source_retired_at_idx ON platform.ocsf_devices USING btree (source_retired_at) WHERE ((source_retired_at IS NOT NULL) AND (deleted_at IS NULL));
 
 
 --
@@ -21066,6 +26150,13 @@ CREATE INDEX ocsf_devices_switch_port_port_idx ON platform.ocsf_devices USING bt
 
 
 --
+-- Name: ocsf_devices_type_active_hostname_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX ocsf_devices_type_active_hostname_idx ON platform.ocsf_devices USING btree (COALESCE(NULLIF(TRIM(BOTH FROM type), ''::text), 'Unknown'::text), hostname, uid) WHERE ((COALESCE(is_active, true) = true) AND (deleted_at IS NULL));
+
+
+--
 -- Name: ocsf_devices_unique_active_ip_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -21077,6 +26168,13 @@ CREATE UNIQUE INDEX ocsf_devices_unique_active_ip_idx ON platform.ocsf_devices U
 --
 
 CREATE UNIQUE INDEX ocsf_devices_unique_uid_index ON platform.ocsf_devices USING btree (uid);
+
+
+--
+-- Name: ocsf_devices_unpurged_identity_tombstones_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX ocsf_devices_unpurged_identity_tombstones_idx ON platform.ocsf_devices USING btree (uid) WHERE ((deleted_at IS NOT NULL) AND (identity_purged_at IS NULL));
 
 
 --
@@ -21098,6 +26196,20 @@ CREATE INDEX otel_metric_points_timestamp_idx ON platform.otel_metric_points USI
 --
 
 CREATE INDEX otel_metrics_timestamp_idx ON platform.otel_metrics USING btree ("timestamp" DESC);
+
+
+--
+-- Name: otel_service_catalog_last_seen_at_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX otel_service_catalog_last_seen_at_idx ON platform.otel_service_catalog USING btree (last_seen_at DESC);
+
+
+--
+-- Name: otel_service_catalog_service_name_trgm_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX otel_service_catalog_service_name_trgm_idx ON platform.otel_service_catalog USING gin (service_name public.gin_trgm_ops);
 
 
 --
@@ -21220,10 +26332,10 @@ CREATE UNIQUE INDEX plugin_assignment_recovery_audits_one_recovered_idx ON platf
 
 
 --
--- Name: plugin_assignments_one_enabled_per_edge_plugin_index; Type: INDEX; Schema: platform; Owner: -
+-- Name: plugin_assignments_one_enabled_per_edge_plugin_owner_index; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE UNIQUE INDEX plugin_assignments_one_enabled_per_edge_plugin_index ON platform.plugin_assignments USING btree (partition_id, agent_uid, plugin_id) WHERE (enabled = true);
+CREATE UNIQUE INDEX plugin_assignments_one_enabled_per_edge_plugin_owner_index ON platform.plugin_assignments USING btree (partition_id, agent_uid, plugin_id, COALESCE("substring"(regexp_replace(policy_id, '^[[:space:]]+|[[:space:]]+$'::text, ''::text, 'g'::text), '^network-credential-rule:([^:]+)'::text), ''::text)) WHERE (enabled = true);
 
 
 --
@@ -21318,6 +26430,41 @@ CREATE UNIQUE INDEX plugin_repositories_single_default_index ON platform.plugin_
 
 
 --
+-- Name: plugin_result_ingestion_attempts_agent_result_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX plugin_result_ingestion_attempts_agent_result_uidx ON platform.plugin_result_ingestion_attempts USING btree (agent_id, result_key);
+
+
+--
+-- Name: plugin_result_ingestion_attempts_agent_state_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX plugin_result_ingestion_attempts_agent_state_idx ON platform.plugin_result_ingestion_attempts USING btree (agent_id, state);
+
+
+--
+-- Name: plugin_result_ingestion_attempts_quarantined_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX plugin_result_ingestion_attempts_quarantined_idx ON platform.plugin_result_ingestion_attempts USING btree (state, quarantined_at);
+
+
+--
+-- Name: plugin_run_overrides_deliverable_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX plugin_run_overrides_deliverable_index ON platform.plugin_run_overrides USING btree (plugin_assignment_id) WHERE ((ended_at IS NULL) AND (acknowledged_at IS NULL));
+
+
+--
+-- Name: plugin_run_overrides_unique_assignment_override_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX plugin_run_overrides_unique_assignment_override_index ON platform.plugin_run_overrides USING btree (plugin_assignment_id, override_id);
+
+
+--
 -- Name: plugin_target_policies_enabled_index; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -21409,10 +26556,17 @@ CREATE INDEX producer_schedules_kind_schedule_idx ON platform.producer_schedules
 
 
 --
+-- Name: producer_schedules_plugin_assignment_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX producer_schedules_plugin_assignment_uidx ON platform.producer_schedules USING btree (plugin_package_id, plugin_assignment_id, schedule_id) WHERE ((plugin_package_id IS NOT NULL) AND (plugin_assignment_id IS NOT NULL));
+
+
+--
 -- Name: producer_schedules_plugin_package_uidx; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE UNIQUE INDEX producer_schedules_plugin_package_uidx ON platform.producer_schedules USING btree (plugin_package_id, schedule_id) WHERE (plugin_package_id IS NOT NULL);
+CREATE UNIQUE INDEX producer_schedules_plugin_package_uidx ON platform.producer_schedules USING btree (plugin_package_id, schedule_id) WHERE ((plugin_package_id IS NOT NULL) AND (plugin_assignment_id IS NULL));
 
 
 --
@@ -21724,6 +26878,20 @@ CREATE INDEX remote_access_tcp_targets_device_enabled_idx ON platform.remote_acc
 
 
 --
+-- Name: revoked_component_certificates_component_id_generation_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX revoked_component_certificates_component_id_generation_index ON platform.revoked_component_certificates USING btree (component_id, generation);
+
+
+--
+-- Name: revoked_component_certificates_decision_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX revoked_component_certificates_decision_index ON platform.revoked_component_certificates USING btree (component_id, generation, fingerprint) NULLS NOT DISTINCT;
+
+
+--
 -- Name: role_profiles_unique_name_index; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -21759,6 +26927,48 @@ CREATE INDEX runtime_topology_links_plane_observed_idx ON platform.runtime_topol
 
 
 --
+-- Name: saml_consumed_assertions_not_on_or_after_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX saml_consumed_assertions_not_on_or_after_index ON platform.saml_consumed_assertions USING btree (not_on_or_after);
+
+
+--
+-- Name: saml_consumed_assertions_unique_assertion_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX saml_consumed_assertions_unique_assertion_index ON platform.saml_consumed_assertions USING btree (issuer, assertion_id);
+
+
+--
+-- Name: saml_pending_requests_expires_at_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX saml_pending_requests_expires_at_index ON platform.saml_pending_requests USING btree (expires_at);
+
+
+--
+-- Name: saml_pending_requests_unique_relay_state_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX saml_pending_requests_unique_relay_state_index ON platform.saml_pending_requests USING btree (relay_state_hash);
+
+
+--
+-- Name: seasonal_chronological_states_expires_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX seasonal_chronological_states_expires_idx ON platform.seasonal_disposition_chronological_states USING btree (expires_at);
+
+
+--
+-- Name: seasonal_chronological_states_series_window_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX seasonal_chronological_states_series_window_idx ON platform.seasonal_disposition_chronological_states USING btree (source, series_key, last_bucket_started_at);
+
+
+--
 -- Name: seasonal_disposition_states_expires_at_index; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -21773,6 +26983,13 @@ CREATE INDEX seasonal_disposition_states_source_expires_idx ON platform.seasonal
 
 
 --
+-- Name: security_events_browse_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX security_events_browse_index ON platform.security_events USING btree (occurred_at DESC, id DESC);
+
+
+--
 -- Name: security_events_kind_occurred_at_index; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -21784,6 +27001,20 @@ CREATE INDEX security_events_kind_occurred_at_index ON platform.security_events 
 --
 
 CREATE INDEX security_events_occurred_at_brin_index ON platform.security_events USING brin (occurred_at);
+
+
+--
+-- Name: service_checks_agent_uid_fk_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX service_checks_agent_uid_fk_idx ON platform.service_checks USING btree (agent_uid) WHERE (agent_uid IS NOT NULL);
+
+
+--
+-- Name: service_checks_device_uid_fk_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX service_checks_device_uid_fk_idx ON platform.service_checks USING btree (device_uid) WHERE (device_uid IS NOT NULL);
 
 
 --
@@ -21987,6 +27218,13 @@ CREATE INDEX stateful_alert_rules_plugin_package_id_index ON platform.stateful_a
 --
 
 CREATE UNIQUE INDEX stateful_alert_rules_unique_name_index ON platform.stateful_alert_rules USING btree (name);
+
+
+--
+-- Name: stateful_evaluation_ledger_evaluated_at_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX stateful_evaluation_ledger_evaluated_at_index ON platform.stateful_evaluation_ledger USING btree (evaluated_at);
 
 
 --
@@ -22235,6 +27473,41 @@ CREATE INDEX sweep_coverage_daily_group_day_idx ON platform.sweep_coverage_daily
 
 
 --
+-- Name: sweep_execution_slots_assignment_start_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX sweep_execution_slots_assignment_start_uidx ON platform.sweep_execution_slots USING btree (producer_assignment_id, slot_start) WHERE (state = 'scheduled'::text);
+
+
+--
+-- Name: sweep_execution_slots_collection_due_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX sweep_execution_slots_collection_due_idx ON platform.sweep_execution_slots USING btree (collection_expires) WHERE (state = 'scheduled'::text);
+
+
+--
+-- Name: sweep_execution_slots_group_unrun_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX sweep_execution_slots_group_unrun_idx ON platform.sweep_execution_slots USING btree (sweep_group_id, slot_start) WHERE (state = 'scheduled'::text);
+
+
+--
+-- Name: sweep_group_declared_targets_group_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX sweep_group_declared_targets_group_idx ON platform.sweep_group_declared_targets USING btree (sweep_group_id);
+
+
+--
+-- Name: sweep_group_declared_targets_unique_group_target_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX sweep_group_declared_targets_unique_group_target_index ON platform.sweep_group_declared_targets USING btree (sweep_group_id, target);
+
+
+--
 -- Name: sweep_group_execution_versions_group_inserted_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -22260,6 +27533,13 @@ CREATE INDEX sweep_group_executions_group_started_idx ON platform.sweep_group_ex
 --
 
 CREATE INDEX sweep_group_executions_status_idx ON platform.sweep_group_executions USING btree (status);
+
+
+--
+-- Name: sweep_group_versions_source_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX sweep_group_versions_source_idx ON platform.sweep_group_versions USING btree (version_source_id);
 
 
 --
@@ -22333,10 +27613,45 @@ CREATE INDEX sweep_host_results_status_idx ON platform.sweep_host_results USING 
 
 
 --
+-- Name: sweep_lease_deliveries_group_agent_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX sweep_lease_deliveries_group_agent_uidx ON platform.sweep_lease_deliveries USING btree (sweep_group_id, agent_id);
+
+
+--
+-- Name: sweep_lease_settings_scope_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX sweep_lease_settings_scope_uidx ON platform.sweep_lease_settings USING btree (scope, scope_key);
+
+
+--
+-- Name: sweep_producer_assignments_agent_active_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX sweep_producer_assignments_agent_active_idx ON platform.sweep_producer_assignments USING btree (agent_id) WHERE (state = 'active'::text);
+
+
+--
+-- Name: sweep_producer_assignments_group_agent_uidx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX sweep_producer_assignments_group_agent_uidx ON platform.sweep_producer_assignments USING btree (sweep_group_id, agent_id);
+
+
+--
 -- Name: sweep_profiles_unique_name_index; Type: INDEX; Schema: platform; Owner: -
 --
 
 CREATE UNIQUE INDEX sweep_profiles_unique_name_index ON platform.sweep_profiles USING btree (name);
+
+
+--
+-- Name: sync_ingest_runs_updated_at_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX sync_ingest_runs_updated_at_index ON platform.sync_ingest_runs USING btree (updated_at);
 
 
 --
@@ -22477,6 +27792,34 @@ CREATE INDEX token_revocations_user_id_expires_at_index ON platform.token_revoca
 --
 
 CREATE INDEX token_revocations_user_id_index ON platform.token_revocations USING btree (user_id);
+
+
+--
+-- Name: topology_world_positions_active_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX topology_world_positions_active_idx ON platform.topology_world_positions USING btree (layout_version, device_id) WHERE active;
+
+
+--
+-- Name: topology_world_relations_active_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX topology_world_relations_active_idx ON platform.topology_world_relations USING btree (layout_version, relation_id) WHERE active;
+
+
+--
+-- Name: topology_world_relations_source_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX topology_world_relations_source_idx ON platform.topology_world_relations USING btree (layout_version, source_id) WHERE active;
+
+
+--
+-- Name: topology_world_relations_target_idx; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX topology_world_relations_target_idx ON platform.topology_world_relations USING btree (layout_version, target_id) WHERE active;
 
 
 --
@@ -22823,13 +28166,6 @@ CREATE UNIQUE INDEX visibility_profiles_unique_partition_name_index ON platform.
 
 
 --
--- Name: vulnerability_advisories_coordinates_gin_idx; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX vulnerability_advisories_coordinates_gin_idx ON platform.vulnerability_advisories USING gin (affected_coordinates);
-
-
---
 -- Name: vulnerability_advisories_cve_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -22841,13 +28177,6 @@ CREATE INDEX vulnerability_advisories_cve_idx ON platform.vulnerability_advisori
 --
 
 CREATE INDEX vulnerability_advisories_generation_idx ON platform.vulnerability_advisories USING btree (provider, feed_key, generation, current);
-
-
---
--- Name: vulnerability_advisories_raw_gin_idx; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX vulnerability_advisories_raw_gin_idx ON platform.vulnerability_advisories USING gin (raw jsonb_path_ops);
 
 
 --
@@ -22883,6 +28212,13 @@ CREATE UNIQUE INDEX vulnerability_feed_snapshots_object_key_uidx ON platform.vul
 --
 
 CREATE INDEX vulnerability_feed_snapshots_provider_accepted_idx ON platform.vulnerability_feed_snapshots USING btree (provider, feed_key, accepted, fetched_at);
+
+
+--
+-- Name: warehouse_retention_settings_unique_dataset_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE UNIQUE INDEX warehouse_retention_settings_unique_dataset_index ON platform.warehouse_retention_settings USING btree (dataset);
 
 
 --
@@ -23131,10 +28467,31 @@ CREATE TRIGGER advisory_package_assertion_history_hash BEFORE INSERT ON platform
 
 
 --
+-- Name: stateful_alert_rules cancel_alert_inputs_before_rule_replay; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER cancel_alert_inputs_before_rule_replay BEFORE TRUNCATE ON platform.stateful_alert_rules FOR EACH STATEMENT EXECUTE FUNCTION platform.cancel_alert_inputs_before_rule_replay();
+
+
+--
 -- Name: device_identifiers device_identifiers_armis_ownership_lock; Type: TRIGGER; Schema: platform; Owner: -
 --
 
 CREATE TRIGGER device_identifiers_armis_ownership_lock BEFORE INSERT OR DELETE OR UPDATE ON platform.device_identifiers FOR EACH ROW EXECUTE FUNCTION platform.lock_armis_identifier_ownership();
+
+
+--
+-- Name: ocsf_devices device_location_sync; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER device_location_sync BEFORE INSERT OR UPDATE OF metadata ON platform.ocsf_devices FOR EACH ROW EXECUTE FUNCTION platform.sync_device_location();
+
+
+--
+-- Name: stateful_alert_rules fence_alert_rule_admission; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER fence_alert_rule_admission BEFORE INSERT OR DELETE OR UPDATE ON platform.stateful_alert_rules FOR EACH ROW EXECUTE FUNCTION platform.fence_alert_rule_admission();
 
 
 --
@@ -23177,6 +28534,13 @@ CREATE TRIGGER prepare_survey_rf_observation_insert BEFORE INSERT ON platform.su
 --
 
 CREATE TRIGGER prepare_survey_spectrum_observation_insert BEFORE INSERT ON platform.survey_spectrum_observations FOR EACH ROW EXECUTE FUNCTION platform.prepare_survey_spectrum_observation();
+
+
+--
+-- Name: seasonal_disposition_states reject_legacy_seasonal_disposition_writes; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER reject_legacy_seasonal_disposition_writes BEFORE INSERT OR UPDATE ON platform.seasonal_disposition_states FOR EACH ROW EXECUTE FUNCTION platform.reject_legacy_seasonal_disposition_writes();
 
 
 --
@@ -23229,10 +28593,283 @@ CREATE TRIGGER sync_network_credential_secret_bindings AFTER INSERT OR DELETE OR
 
 
 --
--- Name: ocsf_devices trg_ocsf_devices_inventory_rollup; Type: TRIGGER; Schema: platform; Owner: -
+-- Name: ansible_awx_host_memberships trg_ansible_awx_membership_device_deleted; Type: TRIGGER; Schema: platform; Owner: -
 --
 
-CREATE TRIGGER trg_ocsf_devices_inventory_rollup AFTER INSERT OR DELETE OR UPDATE ON platform.ocsf_devices FOR EACH ROW EXECUTE FUNCTION platform.trg_ocsf_devices_inventory_rollup();
+CREATE TRIGGER trg_ansible_awx_membership_device_deleted BEFORE UPDATE OF canonical_device_uid ON platform.ansible_awx_host_memberships FOR EACH ROW WHEN (((old.link_disposition = 'approved'::text) AND (new.link_disposition = 'approved'::text) AND (old.canonical_device_uid IS NOT NULL) AND (new.canonical_device_uid IS NULL))) EXECUTE FUNCTION platform.trg_ansible_awx_membership_device_deleted();
+
+
+--
+-- Name: ocsf_devices trg_clear_restored_identity_purge; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_clear_restored_identity_purge BEFORE UPDATE OF deleted_at ON platform.ocsf_devices FOR EACH ROW WHEN (((old.deleted_at IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION platform.clear_restored_identity_purge();
+
+
+--
+-- Name: composite_checks trg_composite_checks_clear_vantage_expectations; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_composite_checks_clear_vantage_expectations AFTER UPDATE OF state ON platform.composite_checks FOR EACH ROW WHEN (((new.state <> 'enabled'::text) AND (old.state IS DISTINCT FROM new.state))) EXECUTE FUNCTION platform.trg_composite_checks_clear_vantage_expectations();
+
+
+--
+-- Name: device_agent_availability trg_device_agent_availability_consecutive_down; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_device_agent_availability_consecutive_down BEFORE INSERT OR UPDATE ON platform.device_agent_availability FOR EACH ROW EXECUTE FUNCTION platform.trg_device_agent_availability_consecutive_down();
+
+
+--
+-- Name: device_agent_availability trg_device_agent_availability_invalidate; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_device_agent_availability_invalidate AFTER INSERT OR UPDATE ON platform.device_agent_availability FOR EACH ROW EXECUTE FUNCTION platform.trg_device_agent_availability_invalidate();
+
+
+--
+-- Name: ocsf_devices trg_device_fleet_identity_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_device_fleet_identity_insert AFTER INSERT ON platform.ocsf_devices FOR EACH ROW EXECUTE FUNCTION platform.sync_device_fleet_identity();
+
+
+--
+-- Name: ocsf_devices trg_device_fleet_identity_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_device_fleet_identity_update AFTER UPDATE OF deleted_at, deleted_reason, is_active ON platform.ocsf_devices FOR EACH ROW WHEN (((old.deleted_at IS DISTINCT FROM new.deleted_at) OR (old.deleted_reason IS DISTINCT FROM new.deleted_reason) OR (old.is_active IS DISTINCT FROM new.is_active))) EXECUTE FUNCTION platform.sync_device_fleet_identity();
+
+
+--
+-- Name: device_identifiers trg_device_identifiers_clear_source_retired_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_device_identifiers_clear_source_retired_insert AFTER INSERT ON platform.device_identifiers REFERENCING NEW TABLE AS registered FOR EACH STATEMENT EXECUTE FUNCTION platform.trg_device_identifiers_clear_source_retired();
+
+
+--
+-- Name: device_identifiers trg_device_identifiers_clear_source_retired_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_device_identifiers_clear_source_retired_update AFTER UPDATE ON platform.device_identifiers REFERENCING NEW TABLE AS registered FOR EACH STATEMENT EXECUTE FUNCTION platform.trg_device_identifiers_clear_source_retired();
+
+
+--
+-- Name: device_vantage_expectations trg_device_vantage_expectations_invalidate_insert_delete; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_device_vantage_expectations_invalidate_insert_delete AFTER INSERT OR DELETE ON platform.device_vantage_expectations FOR EACH ROW EXECUTE FUNCTION platform.trg_device_vantage_expectations_invalidate();
+
+
+--
+-- Name: device_vantage_expectations trg_device_vantage_expectations_invalidate_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_device_vantage_expectations_invalidate_update AFTER UPDATE ON platform.device_vantage_expectations FOR EACH ROW WHEN (((old.expectation IS DISTINCT FROM new.expectation) OR (old.device_uid IS DISTINCT FROM new.device_uid))) EXECUTE FUNCTION platform.trg_device_vantage_expectations_invalidate();
+
+
+--
+-- Name: advisory_coordinates trg_endpoint_vulnerability_advisory_coordinates_delete; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_advisory_coordinates_delete AFTER DELETE ON platform.advisory_coordinates REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: advisory_coordinates trg_endpoint_vulnerability_advisory_coordinates_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_advisory_coordinates_insert AFTER INSERT ON platform.advisory_coordinates REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: advisory_coordinates trg_endpoint_vulnerability_advisory_coordinates_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_advisory_coordinates_update AFTER UPDATE ON platform.advisory_coordinates REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: advisory_package_assertions trg_endpoint_vulnerability_advisory_package_assertions_delete; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_advisory_package_assertions_delete AFTER DELETE ON platform.advisory_package_assertions REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: advisory_package_assertions trg_endpoint_vulnerability_advisory_package_assertions_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_advisory_package_assertions_insert AFTER INSERT ON platform.advisory_package_assertions REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: advisory_package_assertions trg_endpoint_vulnerability_advisory_package_assertions_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_advisory_package_assertions_update AFTER UPDATE ON platform.advisory_package_assertions REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: endpoint_inventory_packages trg_endpoint_vulnerability_inventory_delete; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_inventory_delete AFTER DELETE ON platform.endpoint_inventory_packages REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_inventory_changed();
+
+
+--
+-- Name: endpoint_inventory_packages trg_endpoint_vulnerability_inventory_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_inventory_insert AFTER INSERT ON platform.endpoint_inventory_packages REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_inventory_changed();
+
+
+--
+-- Name: endpoint_inventory_packages trg_endpoint_vulnerability_inventory_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_inventory_update AFTER UPDATE ON platform.endpoint_inventory_packages REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_inventory_changed();
+
+
+--
+-- Name: endpoint_inventory_scans trg_endpoint_vulnerability_scan_advanced; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_scan_advanced AFTER UPDATE ON platform.endpoint_inventory_scans FOR EACH ROW WHEN ((new.current AND (new.device_uid IS NOT NULL) AND (new.coverage_state = 'complete'::text) AND ((old.last_scan_at IS DISTINCT FROM new.last_scan_at) OR (old.coverage_state IS DISTINCT FROM new.coverage_state) OR (NOT old.current)))) EXECUTE FUNCTION platform.endpoint_vulnerability_scan_advanced();
+
+
+--
+-- Name: vulnerability_advisories trg_endpoint_vulnerability_vulnerability_advisories_delete; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_vulnerability_advisories_delete AFTER DELETE ON platform.vulnerability_advisories REFERENCING OLD TABLE AS old_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: vulnerability_advisories trg_endpoint_vulnerability_vulnerability_advisories_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_vulnerability_advisories_insert AFTER INSERT ON platform.vulnerability_advisories REFERENCING NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: vulnerability_advisories trg_endpoint_vulnerability_vulnerability_advisories_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_endpoint_vulnerability_vulnerability_advisories_update AFTER UPDATE ON platform.vulnerability_advisories REFERENCING OLD TABLE AS old_rows NEW TABLE AS new_rows FOR EACH STATEMENT EXECUTE FUNCTION platform.endpoint_vulnerability_advisory_changed();
+
+
+--
+-- Name: endpoint_vulnerability_assessments trg_exposure_assessment_delete_lock; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_assessment_delete_lock BEFORE DELETE ON platform.endpoint_vulnerability_assessments FOR EACH ROW EXECUTE FUNCTION platform.exposure_assessment_delete_lock();
+
+
+--
+-- Name: endpoint_vulnerability_assessments trg_exposure_assessment_publish_delete; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_assessment_publish_delete AFTER DELETE ON platform.endpoint_vulnerability_assessments FOR EACH ROW WHEN (((old.last_transition_seq IS NOT NULL) OR platform.exposure_assessment_actionable(old.status, old.assessment, old.disposition))) EXECUTE FUNCTION platform.exposure_assessment_publish();
+
+
+--
+-- Name: endpoint_vulnerability_assessments trg_exposure_assessment_publish_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_assessment_publish_insert AFTER INSERT ON platform.endpoint_vulnerability_assessments FOR EACH ROW WHEN ((new.last_transition_seq IS NOT NULL)) EXECUTE FUNCTION platform.exposure_assessment_publish();
+
+
+--
+-- Name: endpoint_vulnerability_assessments trg_exposure_assessment_publish_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_assessment_publish_update AFTER UPDATE ON platform.endpoint_vulnerability_assessments FOR EACH ROW WHEN (((old.last_transition_seq IS DISTINCT FROM new.last_transition_seq) OR (((old.device_uid IS DISTINCT FROM new.device_uid) OR (old.package_identity_key IS DISTINCT FROM new.package_identity_key)) OR (old.cve_id IS DISTINCT FROM new.cve_id)))) EXECUTE FUNCTION platform.exposure_assessment_publish();
+
+
+--
+-- Name: endpoint_vulnerability_assessments trg_exposure_assessment_sequence; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_assessment_sequence BEFORE INSERT OR UPDATE ON platform.endpoint_vulnerability_assessments FOR EACH ROW EXECUTE FUNCTION platform.exposure_assessment_sequence();
+
+
+--
+-- Name: device_fleet_ordinals trg_exposure_device_lifecycle_publish; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_device_lifecycle_publish AFTER INSERT OR UPDATE OF tombstoned ON platform.device_fleet_ordinals FOR EACH ROW EXECUTE FUNCTION platform.exposure_device_lifecycle_publish();
+
+
+--
+-- Name: device_fleet_ordinals trg_exposure_device_lifecycle_sequence; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_device_lifecycle_sequence BEFORE INSERT OR UPDATE OF tombstoned ON platform.device_fleet_ordinals FOR EACH ROW EXECUTE FUNCTION platform.exposure_device_lifecycle_sequence();
+
+
+--
+-- Name: endpoint_vulnerability_assessments trg_exposure_dimensions_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_dimensions_insert AFTER INSERT ON platform.endpoint_vulnerability_assessments FOR EACH ROW EXECUTE FUNCTION platform.exposure_register_assessment_dimensions();
+
+
+--
+-- Name: endpoint_vulnerability_assessments trg_exposure_dimensions_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_exposure_dimensions_update AFTER UPDATE ON platform.endpoint_vulnerability_assessments FOR EACH ROW WHEN (((old.last_transition_seq IS DISTINCT FROM new.last_transition_seq) OR (old.package_name IS DISTINCT FROM new.package_name) OR (old.binary_package IS DISTINCT FROM new.binary_package))) EXECUTE FUNCTION platform.exposure_register_assessment_dimensions();
+
+
+--
+-- Name: ocsf_devices trg_ocsf_devices_availability_insert_invalidate; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_ocsf_devices_availability_insert_invalidate AFTER INSERT ON platform.ocsf_devices FOR EACH ROW WHEN ((new.deleted_at IS NULL)) EXECUTE FUNCTION platform.trg_ocsf_devices_availability_lifecycle_invalidate();
+
+
+--
+-- Name: ocsf_devices trg_ocsf_devices_availability_legacy_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_ocsf_devices_availability_legacy_insert AFTER INSERT ON platform.ocsf_devices FOR EACH ROW EXECUTE FUNCTION platform.trg_ocsf_devices_availability_legacy();
+
+
+--
+-- Name: ocsf_devices trg_ocsf_devices_availability_pin_invalidate; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_ocsf_devices_availability_pin_invalidate AFTER UPDATE OF availability_source_agent_id ON platform.ocsf_devices FOR EACH ROW WHEN ((old.availability_source_agent_id IS DISTINCT FROM new.availability_source_agent_id)) EXECUTE FUNCTION platform.trg_ocsf_devices_availability_pin_invalidate();
+
+
+--
+-- Name: ocsf_devices trg_ocsf_devices_availability_restore_invalidate; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_ocsf_devices_availability_restore_invalidate AFTER UPDATE OF deleted_at ON platform.ocsf_devices FOR EACH ROW WHEN (((old.deleted_at IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION platform.trg_ocsf_devices_availability_lifecycle_invalidate();
+
+
+--
+-- Name: ocsf_devices trg_ocsf_devices_inventory_rollup_delete; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_ocsf_devices_inventory_rollup_delete AFTER DELETE ON platform.ocsf_devices REFERENCING OLD TABLE AS inventory_old FOR EACH STATEMENT EXECUTE FUNCTION platform.trg_ocsf_devices_inventory_rollup_delete();
+
+
+--
+-- Name: ocsf_devices trg_ocsf_devices_inventory_rollup_insert; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_ocsf_devices_inventory_rollup_insert AFTER INSERT ON platform.ocsf_devices REFERENCING NEW TABLE AS inventory_new FOR EACH STATEMENT EXECUTE FUNCTION platform.trg_ocsf_devices_inventory_rollup_insert();
+
+
+--
+-- Name: ocsf_devices trg_ocsf_devices_inventory_rollup_update; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_ocsf_devices_inventory_rollup_update AFTER UPDATE ON platform.ocsf_devices REFERENCING OLD TABLE AS inventory_old NEW TABLE AS inventory_new FOR EACH STATEMENT EXECUTE FUNCTION platform.trg_ocsf_devices_inventory_rollup_update();
 
 
 --
@@ -23240,6 +28877,41 @@ CREATE TRIGGER trg_ocsf_devices_inventory_rollup AFTER INSERT OR DELETE OR UPDAT
 --
 
 CREATE TRIGGER trg_ocsf_devices_revival_audit AFTER UPDATE ON platform.ocsf_devices FOR EACH ROW WHEN (((old.deleted_at IS NOT NULL) AND (new.deleted_at IS NULL))) EXECUTE FUNCTION platform.trg_ocsf_devices_revival_audit();
+
+
+--
+-- Name: ocsf_devices trg_ocsf_devices_source_retired_mirror; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_ocsf_devices_source_retired_mirror BEFORE INSERT OR UPDATE ON platform.ocsf_devices FOR EACH ROW WHEN (((new.source_retired_at IS NOT NULL) OR ((new.metadata ->> 'identity_state'::text) = 'source_retired'::text))) EXECUTE FUNCTION platform.trg_ocsf_devices_source_retired_mirror();
+
+
+--
+-- Name: device_fleet_ordinals trg_protect_fleet_identity_delete; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_protect_fleet_identity_delete BEFORE DELETE ON platform.device_fleet_ordinals FOR EACH ROW EXECUTE FUNCTION platform.protect_fleet_identity();
+
+
+--
+-- Name: device_fleet_ordinals trg_protect_fleet_identity_truncate; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_protect_fleet_identity_truncate BEFORE TRUNCATE ON platform.device_fleet_ordinals FOR EACH STATEMENT EXECUTE FUNCTION platform.protect_fleet_identity();
+
+
+--
+-- Name: sweep_groups trg_sweep_groups_availability_delete_invalidate; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_sweep_groups_availability_delete_invalidate AFTER DELETE ON platform.sweep_groups FOR EACH ROW EXECUTE FUNCTION platform.trg_sweep_groups_availability_invalidate();
+
+
+--
+-- Name: sweep_groups trg_sweep_groups_availability_interval_invalidate; Type: TRIGGER; Schema: platform; Owner: -
+--
+
+CREATE TRIGGER trg_sweep_groups_availability_interval_invalidate AFTER UPDATE OF "interval" ON platform.sweep_groups FOR EACH ROW WHEN ((old."interval" IS DISTINCT FROM new."interval")) EXECUTE FUNCTION platform.trg_sweep_groups_availability_invalidate();
 
 
 --
@@ -23330,7 +29002,7 @@ ALTER TABLE ONLY platform.addon_profiles
 --
 
 ALTER TABLE ONLY platform.addon_rollout_targets
-    ADD CONSTRAINT addon_rollout_targets_assignment_id_fkey FOREIGN KEY (assignment_id) REFERENCES platform.addon_assignments(id) ON DELETE RESTRICT;
+    ADD CONSTRAINT addon_rollout_targets_assignment_id_fkey FOREIGN KEY (assignment_id) REFERENCES platform.addon_assignments(id) ON DELETE SET NULL;
 
 
 --
@@ -23342,11 +29014,35 @@ ALTER TABLE ONLY platform.addon_rollout_targets
 
 
 --
+-- Name: addon_rollout_targets addon_rollout_targets_candidate_plugin_package_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.addon_rollout_targets
+    ADD CONSTRAINT addon_rollout_targets_candidate_plugin_package_id_fkey FOREIGN KEY (candidate_plugin_package_id) REFERENCES platform.plugin_packages(id) ON DELETE RESTRICT NOT VALID;
+
+
+--
+-- Name: addon_rollout_targets addon_rollout_targets_plugin_assignment_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.addon_rollout_targets
+    ADD CONSTRAINT addon_rollout_targets_plugin_assignment_id_fkey FOREIGN KEY (plugin_assignment_id) REFERENCES platform.plugin_assignments(id) ON DELETE SET NULL NOT VALID;
+
+
+--
 -- Name: addon_rollout_targets addon_rollout_targets_previous_package_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
 ALTER TABLE ONLY platform.addon_rollout_targets
     ADD CONSTRAINT addon_rollout_targets_previous_package_id_fkey FOREIGN KEY (previous_package_id) REFERENCES platform.addon_packages(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: addon_rollout_targets addon_rollout_targets_previous_plugin_package_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.addon_rollout_targets
+    ADD CONSTRAINT addon_rollout_targets_previous_plugin_package_id_fkey FOREIGN KEY (previous_plugin_package_id) REFERENCES platform.plugin_packages(id) ON DELETE RESTRICT NOT VALID;
 
 
 --
@@ -23366,11 +29062,27 @@ ALTER TABLE ONLY platform.addon_rollouts
 
 
 --
+-- Name: addon_rollouts addon_rollouts_candidate_plugin_package_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.addon_rollouts
+    ADD CONSTRAINT addon_rollouts_candidate_plugin_package_id_fkey FOREIGN KEY (candidate_plugin_package_id) REFERENCES platform.plugin_packages(id) ON DELETE RESTRICT NOT VALID;
+
+
+--
 -- Name: addon_rollouts addon_rollouts_previous_package_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
 ALTER TABLE ONLY platform.addon_rollouts
     ADD CONSTRAINT addon_rollouts_previous_package_id_fkey FOREIGN KEY (previous_package_id) REFERENCES platform.addon_packages(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: addon_rollouts addon_rollouts_previous_plugin_package_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.addon_rollouts
+    ADD CONSTRAINT addon_rollouts_previous_plugin_package_id_fkey FOREIGN KEY (previous_plugin_package_id) REFERENCES platform.plugin_packages(id) ON DELETE RESTRICT NOT VALID;
 
 
 --
@@ -23806,14 +29518,6 @@ ALTER TABLE ONLY platform.authored_dashboard_panels
 
 
 --
--- Name: authored_dashboard_versions authored_dashboard_versions_source_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
---
-
-ALTER TABLE ONLY platform.authored_dashboard_versions
-    ADD CONSTRAINT authored_dashboard_versions_source_fkey FOREIGN KEY (version_source_id) REFERENCES platform.authored_dashboards(id) ON DELETE CASCADE;
-
-
---
 -- Name: authored_dashboards authored_dashboards_owner_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -23990,6 +29694,190 @@ ALTER TABLE ONLY platform.bumblebee_catalog_snapshots
 
 
 --
+-- Name: camera_archive_init_authorities camera_archive_init_authorities_archive_binding_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_init_authorities
+    ADD CONSTRAINT camera_archive_init_authorities_archive_binding_id_fkey FOREIGN KEY (archive_binding_id) REFERENCES platform.camera_archive_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_archive_manifest_authorities camera_archive_manifest_authorities_archive_binding_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_manifest_authorities
+    ADD CONSTRAINT camera_archive_manifest_authorities_archive_binding_id_fkey FOREIGN KEY (archive_binding_id) REFERENCES platform.camera_archive_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_archive_media_authorities camera_archive_media_authorities_archive_binding_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_media_authorities
+    ADD CONSTRAINT camera_archive_media_authorities_archive_binding_id_fkey FOREIGN KEY (archive_binding_id) REFERENCES platform.camera_archive_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_archive_qualification_receipts camera_archive_qualification_receipts_archive_binding_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_qualification_receipts
+    ADD CONSTRAINT camera_archive_qualification_receipts_archive_binding_id_fkey FOREIGN KEY (archive_binding_id) REFERENCES platform.camera_archive_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_archive_upload_dispatches camera_archive_upload_dispatches_archive_upload_intent_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_upload_dispatches
+    ADD CONSTRAINT camera_archive_upload_dispatches_archive_upload_intent_id_fkey FOREIGN KEY (archive_upload_intent_id) REFERENCES platform.camera_archive_upload_intents(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_archive_upload_intents camera_archive_upload_intents_archive_binding_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_upload_intents
+    ADD CONSTRAINT camera_archive_upload_intents_archive_binding_id_fkey FOREIGN KEY (archive_binding_id) REFERENCES platform.camera_archive_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_archive_upload_intents camera_archive_upload_intents_recording_block_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_upload_intents
+    ADD CONSTRAINT camera_archive_upload_intents_recording_block_id_fkey FOREIGN KEY (recording_block_id) REFERENCES platform.camera_recording_blocks(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_recording_blocks camera_block_manifest_dispatch_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_blocks
+    ADD CONSTRAINT camera_block_manifest_dispatch_fkey FOREIGN KEY (archive_manifest_dispatch_id) REFERENCES platform.camera_archive_upload_dispatches(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_consumer_leases camera_consumer_leases_ingest_owner_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_consumer_leases
+    ADD CONSTRAINT camera_consumer_leases_ingest_owner_id_fkey FOREIGN KEY (ingest_owner_id) REFERENCES platform.camera_ingest_owners(id);
+
+
+--
+-- Name: camera_ingest_owners camera_ingest_owners_camera_source_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_ingest_owners
+    ADD CONSTRAINT camera_ingest_owners_camera_source_id_fkey FOREIGN KEY (camera_source_id) REFERENCES platform.camera_sources(id);
+
+
+--
+-- Name: camera_ingest_owners camera_ingest_owners_relay_session_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_ingest_owners
+    ADD CONSTRAINT camera_ingest_owners_relay_session_id_fkey FOREIGN KEY (relay_session_id) REFERENCES platform.camera_relay_sessions(id);
+
+
+--
+-- Name: camera_ingest_owners camera_ingest_owners_stream_profile_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_ingest_owners
+    ADD CONSTRAINT camera_ingest_owners_stream_profile_id_fkey FOREIGN KEY (stream_profile_id) REFERENCES platform.camera_stream_profiles(id);
+
+
+--
+-- Name: camera_archive_upload_intents camera_intent_init_dispatch_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_upload_intents
+    ADD CONSTRAINT camera_intent_init_dispatch_fkey FOREIGN KEY (init_dispatch_id) REFERENCES platform.camera_archive_upload_dispatches(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_archive_upload_intents camera_intent_media_dispatch_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_archive_upload_intents
+    ADD CONSTRAINT camera_intent_media_dispatch_fkey FOREIGN KEY (media_dispatch_id) REFERENCES platform.camera_archive_upload_dispatches(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_recorder_claims camera_recorder_claims_consumer_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recorder_claims
+    ADD CONSTRAINT camera_recorder_claims_consumer_id_fkey FOREIGN KEY (consumer_id) REFERENCES platform.camera_consumer_leases(id) ON DELETE SET NULL;
+
+
+--
+-- Name: camera_recorder_claims camera_recorder_claims_ingest_owner_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recorder_claims
+    ADD CONSTRAINT camera_recorder_claims_ingest_owner_id_fkey FOREIGN KEY (ingest_owner_id) REFERENCES platform.camera_ingest_owners(id);
+
+
+--
+-- Name: camera_recorder_claims camera_recorder_claims_relay_session_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recorder_claims
+    ADD CONSTRAINT camera_recorder_claims_relay_session_id_fkey FOREIGN KEY (relay_session_id) REFERENCES platform.camera_relay_sessions(id);
+
+
+--
+-- Name: camera_recording_blocks camera_recording_blocks_archive_binding_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_blocks
+    ADD CONSTRAINT camera_recording_blocks_archive_binding_id_fkey FOREIGN KEY (archive_binding_id) REFERENCES platform.camera_archive_bindings(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: camera_recording_blocks camera_recording_blocks_camera_source_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_blocks
+    ADD CONSTRAINT camera_recording_blocks_camera_source_id_fkey FOREIGN KEY (camera_source_id) REFERENCES platform.camera_sources(id);
+
+
+--
+-- Name: camera_recording_blocks camera_recording_blocks_ingest_owner_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_blocks
+    ADD CONSTRAINT camera_recording_blocks_ingest_owner_id_fkey FOREIGN KEY (ingest_owner_id) REFERENCES platform.camera_ingest_owners(id);
+
+
+--
+-- Name: camera_recording_blocks camera_recording_blocks_recorder_claim_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_blocks
+    ADD CONSTRAINT camera_recording_blocks_recorder_claim_id_fkey FOREIGN KEY (recorder_claim_id) REFERENCES platform.camera_recorder_claims(id);
+
+
+--
+-- Name: camera_recording_blocks camera_recording_blocks_relay_session_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_blocks
+    ADD CONSTRAINT camera_recording_blocks_relay_session_id_fkey FOREIGN KEY (relay_session_id) REFERENCES platform.camera_relay_sessions(id);
+
+
+--
+-- Name: camera_recording_blocks camera_recording_blocks_stream_profile_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.camera_recording_blocks
+    ADD CONSTRAINT camera_recording_blocks_stream_profile_id_fkey FOREIGN KEY (stream_profile_id) REFERENCES platform.camera_stream_profiles(id);
+
+
+--
 -- Name: camera_relay_sessions camera_relay_sessions_camera_source_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -24022,6 +29910,14 @@ ALTER TABLE ONLY platform.checkers
 
 
 --
+-- Name: cli_authorization_codes cli_authorization_codes_user_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.cli_authorization_codes
+    ADD CONSTRAINT cli_authorization_codes_user_id_fkey FOREIGN KEY (user_id) REFERENCES platform.ng_users(id) ON DELETE CASCADE;
+
+
+--
 -- Name: cli_sessions cli_sessions_device_authorization_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -24051,6 +29947,14 @@ ALTER TABLE ONLY platform.collector_packages
 
 ALTER TABLE ONLY platform.collector_packages
     ADD CONSTRAINT collector_packages_nats_credential_id_fkey FOREIGN KEY (nats_credential_id) REFERENCES platform.nats_credentials(id);
+
+
+--
+-- Name: component_certificates component_certificates_component_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.component_certificates
+    ADD CONSTRAINT component_certificates_component_id_fkey FOREIGN KEY (component_id) REFERENCES platform.managed_components(component_id);
 
 
 --
@@ -24214,14 +30118,6 @@ ALTER TABLE ONLY platform.dashboard_report_deliveries
 
 
 --
--- Name: dashboard_report_schedule_versions dashboard_report_schedule_versions_source_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
---
-
-ALTER TABLE ONLY platform.dashboard_report_schedule_versions
-    ADD CONSTRAINT dashboard_report_schedule_versions_source_fkey FOREIGN KEY (version_source_id) REFERENCES platform.dashboard_report_schedules(id) ON DELETE CASCADE;
-
-
---
 -- Name: dashboard_report_schedules dashboard_report_schedules_dashboard_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -24259,6 +30155,22 @@ ALTER TABLE ONLY platform.device_alias_states
 
 ALTER TABLE ONLY platform.device_authorizations
     ADD CONSTRAINT device_authorizations_user_id_fkey FOREIGN KEY (user_id) REFERENCES platform.ng_users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: device_availability_evidence device_availability_evidence_device_uid_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.device_availability_evidence
+    ADD CONSTRAINT device_availability_evidence_device_uid_fkey FOREIGN KEY (device_uid) REFERENCES platform.ocsf_devices(uid) ON DELETE CASCADE;
+
+
+--
+-- Name: device_availability_legacy device_availability_legacy_device_uid_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.device_availability_legacy
+    ADD CONSTRAINT device_availability_legacy_device_uid_fkey FOREIGN KEY (device_uid) REFERENCES platform.ocsf_devices(uid) ON DELETE CASCADE;
 
 
 --
@@ -24331,6 +30243,22 @@ ALTER TABLE ONLY platform.device_snmp_facts
 
 ALTER TABLE ONLY platform.device_source_observations
     ADD CONSTRAINT device_source_observations_device_id_fkey FOREIGN KEY (device_id) REFERENCES platform.ocsf_devices(uid) ON DELETE RESTRICT;
+
+
+--
+-- Name: device_vantage_expectations device_vantage_expectations_check_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.device_vantage_expectations
+    ADD CONSTRAINT device_vantage_expectations_check_id_fkey FOREIGN KEY (check_id) REFERENCES platform.composite_checks(id) ON DELETE CASCADE;
+
+
+--
+-- Name: device_vantage_expectations device_vantage_expectations_device_uid_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.device_vantage_expectations
+    ADD CONSTRAINT device_vantage_expectations_device_uid_fkey FOREIGN KEY (device_uid) REFERENCES platform.ocsf_devices(uid) ON DELETE CASCADE;
 
 
 --
@@ -24478,6 +30406,54 @@ ALTER TABLE ONLY platform.integration_update_runs
 
 
 --
+-- Name: interface_threshold_states interface_threshold_states_interface_settings_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.interface_threshold_states
+    ADD CONSTRAINT interface_threshold_states_interface_settings_id_fkey FOREIGN KEY (interface_settings_id) REFERENCES platform.interface_settings(id) ON DELETE CASCADE;
+
+
+--
+-- Name: k8s_inventory_cluster_bindings k8s_inventory_cluster_bindings_agent_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.k8s_inventory_cluster_bindings
+    ADD CONSTRAINT k8s_inventory_cluster_bindings_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES platform.ocsf_agents(uid) ON DELETE RESTRICT;
+
+
+--
+-- Name: managed_certificate_operations managed_certificate_operations_component_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.managed_certificate_operations
+    ADD CONSTRAINT managed_certificate_operations_component_id_fkey FOREIGN KEY (component_id) REFERENCES platform.managed_components(component_id);
+
+
+--
+-- Name: managed_components managed_components_collector_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.managed_components
+    ADD CONSTRAINT managed_components_collector_id_fkey FOREIGN KEY (collector_id) REFERENCES platform.collector_packages(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: managed_components managed_components_edge_site_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.managed_components
+    ADD CONSTRAINT managed_components_edge_site_id_fkey FOREIGN KEY (edge_site_id) REFERENCES platform.edge_sites(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: managed_components managed_components_host_agent_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.managed_components
+    ADD CONSTRAINT managed_components_host_agent_id_fkey FOREIGN KEY (host_agent_id) REFERENCES platform.ocsf_agents(uid);
+
+
+--
 -- Name: mapper_job_seeds mapper_job_seeds_mapper_job_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -24587,6 +30563,22 @@ ALTER TABLE ONLY platform.netflow_oui_prefixes
 
 ALTER TABLE ONLY platform.netflow_provider_cidrs
     ADD CONSTRAINT netflow_provider_cidrs_snapshot_id_fkey FOREIGN KEY (snapshot_id) REFERENCES platform.netflow_provider_dataset_snapshots(id) ON DELETE CASCADE;
+
+
+--
+-- Name: netflow_settings netflow_settings_otx_credential_secret_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.netflow_settings
+    ADD CONSTRAINT netflow_settings_otx_credential_secret_id_fkey FOREIGN KEY (otx_credential_secret_id) REFERENCES platform.network_credential_secrets(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: network_config_interface_facts network_config_interface_facts_revision_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.network_config_interface_facts
+    ADD CONSTRAINT network_config_interface_facts_revision_id_fkey FOREIGN KEY (revision_id) REFERENCES platform.network_config_revisions(id) ON DELETE CASCADE;
 
 
 --
@@ -25030,6 +31022,22 @@ ALTER TABLE ONLY platform.plugin_assignments
 
 
 --
+-- Name: plugin_assignments plugin_assignments_rollout_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.plugin_assignments
+    ADD CONSTRAINT plugin_assignments_rollout_id_fkey FOREIGN KEY (rollout_id) REFERENCES platform.addon_rollouts(id) ON DELETE RESTRICT NOT VALID;
+
+
+--
+-- Name: plugin_assignments plugin_assignments_rollout_plugin_package_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.plugin_assignments
+    ADD CONSTRAINT plugin_assignments_rollout_plugin_package_id_fkey FOREIGN KEY (rollout_plugin_package_id) REFERENCES platform.plugin_packages(id) ON DELETE RESTRICT NOT VALID;
+
+
+--
 -- Name: plugin_packages plugin_packages_plugin_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -25051,6 +31059,14 @@ ALTER TABLE ONLY platform.plugin_repositories
 
 ALTER TABLE ONLY platform.plugin_repositories
     ADD CONSTRAINT plugin_repositories_credential_secret_id_fkey FOREIGN KEY (credential_secret_id) REFERENCES platform.network_credential_secrets(id) ON DELETE RESTRICT;
+
+
+--
+-- Name: plugin_run_overrides plugin_run_overrides_plugin_assignment_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.plugin_run_overrides
+    ADD CONSTRAINT plugin_run_overrides_plugin_assignment_id_fkey FOREIGN KEY (plugin_assignment_id) REFERENCES platform.plugin_assignments(id) ON DELETE CASCADE;
 
 
 --
@@ -25286,6 +31302,14 @@ ALTER TABLE ONLY platform.remote_access_sessions
 
 
 --
+-- Name: revoked_component_certificates revoked_component_certificates_component_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.revoked_component_certificates
+    ADD CONSTRAINT revoked_component_certificates_component_id_fkey FOREIGN KEY (component_id) REFERENCES platform.managed_components(component_id);
+
+
+--
 -- Name: service_checks service_checks_agent_uid_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -25366,6 +31390,30 @@ ALTER TABLE ONLY platform.stateful_alert_rules
 
 
 --
+-- Name: sweep_execution_slots sweep_execution_slots_producer_assignment_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_execution_slots
+    ADD CONSTRAINT sweep_execution_slots_producer_assignment_id_fkey FOREIGN KEY (producer_assignment_id) REFERENCES platform.sweep_producer_assignments(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sweep_execution_slots sweep_execution_slots_sweep_group_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_execution_slots
+    ADD CONSTRAINT sweep_execution_slots_sweep_group_id_fkey FOREIGN KEY (sweep_group_id) REFERENCES platform.sweep_groups(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sweep_group_declared_targets sweep_group_declared_targets_sweep_group_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_group_declared_targets
+    ADD CONSTRAINT sweep_group_declared_targets_sweep_group_id_fkey FOREIGN KEY (sweep_group_id) REFERENCES platform.sweep_groups(id) ON DELETE CASCADE;
+
+
+--
 -- Name: sweep_group_executions sweep_group_executions_sweep_group_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -25390,11 +31438,67 @@ ALTER TABLE ONLY platform.sweep_host_results
 
 
 --
+-- Name: sweep_producer_assignments sweep_producer_assignments_sweep_group_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sweep_producer_assignments
+    ADD CONSTRAINT sweep_producer_assignments_sweep_group_id_fkey FOREIGN KEY (sweep_group_id) REFERENCES platform.sweep_groups(id) ON DELETE CASCADE;
+
+
+--
+-- Name: sync_ingest_runs sync_ingest_runs_sync_service_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.sync_ingest_runs
+    ADD CONSTRAINT sync_ingest_runs_sync_service_id_fkey FOREIGN KEY (sync_service_id) REFERENCES platform.integration_sources(id) ON DELETE CASCADE;
+
+
+--
 -- Name: token_revocations token_revocations_user_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
 --
 
 ALTER TABLE ONLY platform.token_revocations
     ADD CONSTRAINT token_revocations_user_id_fkey FOREIGN KEY (user_id) REFERENCES platform.ng_users(id) ON DELETE SET NULL;
+
+
+--
+-- Name: topology_world_head topology_world_head_active_layout_version_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_head
+    ADD CONSTRAINT topology_world_head_active_layout_version_fkey FOREIGN KEY (active_layout_version) REFERENCES platform.topology_world_layouts(layout_version);
+
+
+--
+-- Name: topology_world_positions topology_world_positions_layout_version_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_positions
+    ADD CONSTRAINT topology_world_positions_layout_version_fkey FOREIGN KEY (layout_version) REFERENCES platform.topology_world_layouts(layout_version);
+
+
+--
+-- Name: topology_world_relations topology_world_relations_layout_version_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_relations
+    ADD CONSTRAINT topology_world_relations_layout_version_fkey FOREIGN KEY (layout_version) REFERENCES platform.topology_world_layouts(layout_version);
+
+
+--
+-- Name: topology_world_relations topology_world_relations_source_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_relations
+    ADD CONSTRAINT topology_world_relations_source_id_fkey FOREIGN KEY (source_id, layout_version) REFERENCES platform.topology_world_positions(device_id, layout_version);
+
+
+--
+-- Name: topology_world_relations topology_world_relations_target_id_fkey; Type: FK CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.topology_world_relations
+    ADD CONSTRAINT topology_world_relations_target_id_fkey FOREIGN KEY (target_id, layout_version) REFERENCES platform.topology_world_positions(device_id, layout_version);
 
 
 --
@@ -25697,7 +31801,7 @@ ALTER TABLE ONLY platform.wifi_sites
 -- PostgreSQL database dump complete
 --
 
-\unrestrict DBT8UkIoS4go88RNdTooplqShUD4pfoyplEDAbRNgGQ6LbN2GSobDtdB91Cnhm0
+\unrestrict DSLddQFyWZxa0dwNnQ0Th9rBtbt2SNbMxBzxhrBKE9jF6OvKPpDDvzmN7cdG4Ka
 
 --
 -- ServiceRadar: restore TimescaleDB hypertable registration.
@@ -25707,35 +31811,35 @@ ALTER TABLE ONLY platform.wifi_sites
 -- this baseline has the same hypertables, on the same time column and
 -- chunk interval, as the database this baseline was generated from.
 --
-SELECT platform.create_hypertable('platform.adhoc_scan_results', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.bgp_routing_info', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.bmp_routing_events', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.capacity_forecasts', 'forecasted_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.cpu_cluster_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.cpu_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.disk_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.endpoint_inventory_cpe_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.endpoint_inventory_package_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.endpoint_inventory_package_events', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.endpoint_inventory_scan_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.events', 'event_timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.logs', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.memory_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.mtr_hops', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.mtr_traces', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.ocsf_events', 'time', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.otel_metric_points', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.otel_metrics', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.otel_traces', 'timestamp', chunk_time_interval => '01:00:00'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.process_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.service_status', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.stateful_alert_rule_histories', 'event_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.survey_arrow_ipc_frames', 'received_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.survey_pose_samples', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.survey_rf_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.survey_samples', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.survey_spectrum_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT platform.create_hypertable('platform.timeseries_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.adhoc_scan_results', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.bgp_routing_info', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.bmp_routing_events', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.capacity_forecasts', 'forecasted_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.cpu_cluster_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.cpu_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.disk_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.endpoint_inventory_cpe_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.endpoint_inventory_package_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.endpoint_inventory_package_events', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.endpoint_inventory_scan_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.events', 'event_timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.logs', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.memory_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.mtr_hops', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.mtr_traces', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.ocsf_events', 'time', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.otel_metric_points', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.otel_metrics', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.otel_traces', 'timestamp', chunk_time_interval => '01:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.process_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.service_status', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.stateful_alert_rule_histories', 'event_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.survey_arrow_ipc_frames', 'received_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.survey_pose_samples', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.survey_rf_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.survey_samples', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.survey_spectrum_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT public.create_hypertable('platform.timeseries_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
 
 --
 -- ServiceRadar: restore TimescaleDB continuous aggregates.
@@ -25760,7 +31864,9 @@ DROP VIEW IF EXISTS platform.memory_metrics_hourly CASCADE; DROP VIEW IF EXISTS 
 DROP VIEW IF EXISTS platform.ocsf_events_hourly_stats CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_38 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_38 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_38 CASCADE;
 DROP VIEW IF EXISTS platform.otel_metrics_hourly_stats CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_37 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_37 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_37 CASCADE;
 DROP VIEW IF EXISTS platform.process_metrics_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_26 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_26 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_26 CASCADE;
+DROP VIEW IF EXISTS platform.services_availability_5m CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_76 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_76 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_76 CASCADE;
 DROP VIEW IF EXISTS platform.spans_red_1h CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_57 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_57 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_57 CASCADE;
+DROP VIEW IF EXISTS platform.timeseries_metrics_disk_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_73 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_73 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_73 CASCADE;
 DROP VIEW IF EXISTS platform.timeseries_metrics_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_27 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_27 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_27 CASCADE;
 DROP VIEW IF EXISTS platform.timeseries_metrics_interface_hourly CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_62 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_62 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_62 CASCADE;
 DROP VIEW IF EXISTS platform.traces_stats_5m CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._direct_view_54 CASCADE; DROP VIEW IF EXISTS _timescaledb_internal._partial_view_54 CASCADE; DROP TABLE IF EXISTS _timescaledb_internal._materialized_hypertable_54 CASCADE;
@@ -25854,6 +31960,24 @@ CREATE MATERIALIZED VIEW platform.process_metrics_hourly WITH (timescaledb.conti
     count(*) AS sample_count
    FROM process_metrics
   GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.services_availability_5m WITH (timescaledb.continuous) AS  SELECT time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+    gateway_id,
+    agent_id,
+    service_name,
+    service_type,
+    (1)::bigint AS total_count,
+    (
+        CASE
+            WHEN bool_or((available IS TRUE)) THEN 1
+            ELSE 0
+        END)::bigint AS available_count,
+    (
+        CASE
+            WHEN bool_or((available IS FALSE)) THEN 1
+            ELSE 0
+        END)::bigint AS unavailable_count
+   FROM service_status
+  GROUP BY (time_bucket('00:05:00'::interval, "timestamp")), gateway_id, agent_id, service_name, service_type WITH NO DATA;
 CREATE MATERIALIZED VIEW platform.spans_red_1h WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     COALESCE(service_namespace, ''::text) AS service_namespace,
@@ -25867,6 +31991,19 @@ CREATE MATERIALIZED VIEW platform.spans_red_1h WITH (timescaledb.continuous) AS 
     max((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS max_duration_ms
    FROM otel_traces
   GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text) WITH NO DATA;
+CREATE MATERIALIZED VIEW platform.timeseries_metrics_disk_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+    device_id,
+    metric_type,
+    metric_name,
+    series_key,
+    (tags ->> 'mount_point'::text) AS mount_point,
+    avg(value) AS avg_value,
+    min(value) AS min_value,
+    max(value) AS max_value,
+    count(*) AS sample_count
+   FROM timeseries_metrics
+  WHERE ((metric_type = 'sysmon.disk'::text) AND (device_id IS NOT NULL) AND ((tags ->> 'mount_point'::text) IS NOT NULL))
+  GROUP BY (time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name, series_key, (tags ->> 'mount_point'::text) WITH NO DATA;
 CREATE MATERIALIZED VIEW platform.timeseries_metrics_hourly WITH (timescaledb.continuous) AS  SELECT time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     metric_type,
@@ -25917,7 +32054,9 @@ SELECT add_continuous_aggregate_policy('platform.memory_metrics_hourly', start_o
 SELECT add_continuous_aggregate_policy('platform.ocsf_events_hourly_stats', start_offset => '26:00:00'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
 SELECT add_continuous_aggregate_policy('platform.otel_metrics_hourly_stats', start_offset => '28 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
 SELECT add_continuous_aggregate_policy('platform.process_metrics_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.services_availability_5m', start_offset => '1 day'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
 SELECT add_continuous_aggregate_policy('platform.spans_red_1h', start_offset => '1 day'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
+SELECT add_continuous_aggregate_policy('platform.timeseries_metrics_disk_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
 SELECT add_continuous_aggregate_policy('platform.timeseries_metrics_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
 SELECT add_continuous_aggregate_policy('platform.timeseries_metrics_interface_hourly', start_offset => '5 days'::interval, end_offset => '00:10:00'::interval, schedule_interval => '00:10:00'::interval, if_not_exists => true);
 SELECT add_continuous_aggregate_policy('platform.traces_stats_5m', start_offset => '1 day'::interval, end_offset => '00:05:00'::interval, schedule_interval => '00:05:00'::interval, if_not_exists => true);
