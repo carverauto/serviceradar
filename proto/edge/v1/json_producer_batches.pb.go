@@ -172,9 +172,9 @@ type MapperDeviceRecordV1 struct {
 	BridgeBaseMac string `protobuf:"bytes,25,opt,name=bridge_base_mac,json=bridgeBaseMac,proto3" json:"bridge_base_mac,omitempty"`
 	// Raw `device.Uptime` integer (`metadata["uptime"]`). SNMP sysUpTime TimeTicks are stored unchanged (centiseconds). MikroTik API uptime is stored in seconds.
 	Uptime int64 `protobuf:"varint,26,opt,name=uptime,proto3" json:"uptime,omitempty"`
-	// First seen timestamp in Unix epoch nanoseconds (`metadata["first_seen"]`, RFC3339 in JSON).
+	// Mapper metadata does not write `first_seen`. Sync device updates publish `first_seen_time` as RFC3339 UTC truncated to one second.
 	FirstSeenUnixNano int64 `protobuf:"varint,27,opt,name=first_seen_unix_nano,json=firstSeenUnixNano,proto3" json:"first_seen_unix_nano,omitempty"`
-	// Last seen timestamp in Unix epoch nanoseconds (`metadata["last_seen"]`, RFC3339 in JSON).
+	// Mapper metadata does not write `last_seen`. Sync device updates publish `last_seen_time` as RFC3339 UTC truncated to one second.
 	LastSeenUnixNano int64 `protobuf:"varint,28,opt,name=last_seen_unix_nano,json=lastSeenUnixNano,proto3" json:"last_seen_unix_nano,omitempty"`
 	// Additional device metadata key-value pairs (`metadata` map).
 	Metadata      map[string]string `protobuf:"bytes,29,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
@@ -4519,7 +4519,7 @@ func (x *NetprobeExecutableOwnershipV1) GetExecutableInode() uint64 {
 // completion control marker for a sync run.
 type SyncPageBatchV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Chunk and run tracking metadata (`_sync_meta`).
+	// Chunk and run tracking metadata (`sync_meta`).
 	SyncMeta *SyncMetaV1 `protobuf:"bytes,1,opt,name=sync_meta,json=syncMeta,proto3" json:"sync_meta,omitempty"`
 	// Optional completion control marker (replaces single-item `[{"_sync_control": "collection_final", ...}]` chunk).
 	ControlMarker *SyncControlMarkerV1 `protobuf:"bytes,2,opt,name=control_marker,json=controlMarker,proto3,oneof" json:"control_marker,omitempty"`
@@ -4580,8 +4580,8 @@ func (x *SyncPageBatchV1) GetDevices() []*SyncDeviceRecordV1 {
 	return nil
 }
 
-// SyncMetaV1 maps `syncChunkMeta` (`_sync_meta`) in `go/pkg/agent/sync_runtime.go`
-// and `extract_chunk_metadata/1` in `ServiceRadar.Inventory.SyncIngestorQueue`.
+// SyncMetaV1 maps `syncChunkMeta` (`sync_meta`) in `go/pkg/agent/sync_runtime.go`
+// and `extract_sync_meta/1` in `ServiceRadar.Inventory.SyncIngestorQueue`.
 type SyncMetaV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Sync service configuration UUID (`sync_service_id`).
@@ -4681,9 +4681,9 @@ func (x *SyncMetaV1) GetPopulation() *SyncPopulationReportV1 {
 	return nil
 }
 
-// SyncPopulationReportV1 maps `syncsources.PopulationReport` (`_sync_meta.population`)
-// in `go/pkg/agent/syncsources/syncsources.go` and `normalize_population/1` in
-// `ServiceRadar.Inventory.SyncIngestorQueue`.
+// SyncPopulationReportV1 maps `syncsources.PopulationStats` (`sync_meta.population`)
+// in `go/pkg/agent/syncsources/syncsources.go`. `extract_sync_meta/1` in
+// `ServiceRadar.Inventory.SyncIngestorQueue` reads the enclosing `sync_meta` object.
 type SyncPopulationReportV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Raw rows fetched from the upstream integration (`raw_rows`).
@@ -4698,13 +4698,13 @@ type SyncPopulationReportV1 struct {
 	DistinctSourceIds int64 `protobuf:"varint,5,opt,name=distinct_source_ids,json=distinctSourceIds,proto3" json:"distinct_source_ids,omitempty"`
 	// Duplicate occurrences of the same source ID (`duplicate_occurrences`).
 	DuplicateOccurrences int64 `protobuf:"varint,6,opt,name=duplicate_occurrences,json=duplicateOccurrences,proto3" json:"duplicate_occurrences,omitempty"`
-	// Source IDs with conflicting identity attributes (`conflicting_duplicate_ids`).
+	// Count of source IDs with conflicting identity attributes (`conflicting_duplicate_ids`, `len` of the ID list).
 	ConflictingDuplicateIds int64 `protobuf:"varint,7,opt,name=conflicting_duplicate_ids,json=conflictingDuplicateIds,proto3" json:"conflicting_duplicate_ids,omitempty"`
-	// Bounded sample of duplicate source IDs (`duplicate_source_id_examples`).
+	// Bounded sample of duplicate source IDs (`duplicate_source_id_examples`). Armis writes device IDs such as `"102"`.
 	DuplicateSourceIdExamples []string `protobuf:"bytes,8,rep,name=duplicate_source_id_examples,json=duplicateSourceIdExamples,proto3" json:"duplicate_source_id_examples,omitempty"`
-	// Bounded sample of invalid row descriptions (`invalid_row_examples`).
+	// Bounded sample of invalid-row locators (`invalid_row_examples`, `query=%s page=%d row=%d`).
 	InvalidRowExamples []string `protobuf:"bytes,9,rep,name=invalid_row_examples,json=invalidRowExamples,proto3" json:"invalid_row_examples,omitempty"`
-	// Bounded sample of conflicting duplicate descriptions (`conflicting_duplicate_examples`).
+	// Bounded sample of conflicting source IDs (`conflicting_duplicate_examples`). Armis writes device IDs such as `"102"`.
 	ConflictingDuplicateExamples []string `protobuf:"bytes,10,rep,name=conflicting_duplicate_examples,json=conflictingDuplicateExamples,proto3" json:"conflicting_duplicate_examples,omitempty"`
 	unknownFields                protoimpl.UnknownFields
 	sizeCache                    protoimpl.SizeCache
@@ -4810,13 +4810,13 @@ func (x *SyncPopulationReportV1) GetConflictingDuplicateExamples() []string {
 	return nil
 }
 
-// SyncControlMarkerV1 maps the control-only finalization record emitted by
-// `buildSyncCompletionEnvelope` (`go/pkg/agent/sync_runtime.go`).
+// SyncControlMarkerV1 maps the control-only finalization record written by
+// `syncRunEmitter.flush` (`go/pkg/agent/sync_runtime.go`).
 type SyncControlMarkerV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Control marker type (`_sync_control`, e.g. `"collection_final"`).
 	ControlType string `protobuf:"bytes,1,opt,name=control_type,json=controlType,proto3" json:"control_type,omitempty"`
-	// Control marker emission timestamp in Unix epoch nanoseconds (`timestamp`).
+	// Control marker emission time (`timestamp`). JSON is RFC3339 UTC truncated to one second.
 	TimestampUnixNano int64 `protobuf:"varint,2,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
@@ -4946,15 +4946,15 @@ type SyncDeviceRecordV1 struct {
 	ServiceStatus string `protobuf:"bytes,36,opt,name=service_status,json=serviceStatus,proto3" json:"service_status,omitempty"`
 	// Last heartbeat timestamp in Unix epoch nanoseconds (`last_heartbeat`).
 	LastHeartbeatUnixNano int64 `protobuf:"varint,37,opt,name=last_heartbeat_unix_nano,json=lastHeartbeatUnixNano,proto3" json:"last_heartbeat_unix_nano,omitempty"`
-	// Record emission timestamp in Unix epoch nanoseconds (`timestamp`).
+	// Record emission time (`timestamp`). JSON is RFC3339 UTC truncated to one second.
 	TimestampUnixNano int64 `protobuf:"varint,38,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
-	// First seen timestamp in Unix epoch nanoseconds (`first_seen_time` / `first_seen`).
+	// First seen time (`first_seen_time`). JSON is RFC3339 UTC truncated to one second.
 	FirstSeenUnixNano int64 `protobuf:"varint,39,opt,name=first_seen_unix_nano,json=firstSeenUnixNano,proto3" json:"first_seen_unix_nano,omitempty"`
-	// Last seen timestamp in Unix epoch nanoseconds (`last_seen_time` / `last_seen`).
+	// Last seen time (`last_seen_time`). JSON is RFC3339 UTC truncated to one second.
 	LastSeenUnixNano int64 `protobuf:"varint,40,opt,name=last_seen_unix_nano,json=lastSeenUnixNano,proto3" json:"last_seen_unix_nano,omitempty"`
-	// Record creation timestamp in Unix epoch nanoseconds (`created_time`).
+	// Record creation time (`created_time`). OCSF JSON is RFC3339.
 	CreatedTimeUnixNano int64 `protobuf:"varint,41,opt,name=created_time_unix_nano,json=createdTimeUnixNano,proto3" json:"created_time_unix_nano,omitempty"`
-	// Record modification timestamp in Unix epoch nanoseconds (`modified_time`).
+	// Record modification time (`modified_time`). OCSF JSON is RFC3339.
 	ModifiedTimeUnixNano int64 `protobuf:"varint,42,opt,name=modified_time_unix_nano,json=modifiedTimeUnixNano,proto3" json:"modified_time_unix_nano,omitempty"`
 	// Network interfaces attached to the device (`network_interfaces` / `interfaces`).
 	NetworkInterfaces []*SyncNetworkInterfaceV1 `protobuf:"bytes,43,rep,name=network_interfaces,json=networkInterfaces,proto3" json:"network_interfaces,omitempty"`
@@ -4968,20 +4968,21 @@ type SyncDeviceRecordV1 struct {
 	AgentList []*SyncDeviceAgentV1 `protobuf:"bytes,47,rep,name=agent_list,json=agentList,proto3" json:"agent_list,omitempty"`
 	// Switch port attachment attributes (`switch_port_attachment`).
 	SwitchPortAttachment map[string]string `protobuf:"bytes,48,rep,name=switch_port_attachment,json=switchPortAttachment,proto3" json:"switch_port_attachment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// String metadata key-value pairs (`metadata`, including Armis/NetBox/UniFi
-	// enrichment keys such as `armis_device_id`, `integration_id`, `integration_type`,
-	// `sync_service_id`, `collector_agent_id`, `boundaries`,
-	// `custom_properties`, `tags`, `site`, `all_macs`, `primary_mac`,
-	// `ip_addresses`, `all_ips`, `primary_ip`, `brand`, `manufacturer`, `model`,
-	// `category`, `type`, `os`, `os_version`, `operating_system`,
-	// `purdue_level`, `risk_level`, `visibility`,
-	// `access_switch`, `data_sources`, `user`, `business_impact`, `serial_number`).
+	// String metadata key-value pairs (`metadata`). Armis `buildMetadata` writes
+	// `armis_device_id`, `integration_id`, `integration_type`, `source_device_id`,
+	// `boundaries`, `boundary_names`, `site`, `brand`, `manufacturer`, `model`,
+	// `category`, `type`, `device_type`, `os_name`, `os_version`, `operating_system`,
+	// `purdue_level`, `visibility`, `serial_number`, `serial_numbers`, `source_tags`,
+	// `mac_addresses`, `ipv4_addresses`, `ipv6_addresses`, `risk_score`, `query_label`,
+	// and `network_interfaces`. Raw attachment fields use an `armis_` prefix
+	// (`armis_access_switch`). `sync_service_id` is stamped on `sync_meta` and on
+	// mapper device metadata when that key is missing.
 	Metadata map[string]string `protobuf:"bytes,49,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Device tags (`tags`).
 	Tags map[string]string `protobuf:"bytes,50,rep,name=tags,proto3" json:"tags,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Additional structured facts flattened as string key-values (`facts`).
 	Facts map[string]string `protobuf:"bytes,51,rep,name=facts,proto3" json:"facts,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// Optional per-record sync chunk metadata (`_sync_meta` when stamped per record).
+	// Optional per-record sync chunk metadata (`sync_meta`).
 	SyncMeta      *SyncMetaV1 `protobuf:"bytes,52,opt,name=sync_meta,json=syncMeta,proto3" json:"sync_meta,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache

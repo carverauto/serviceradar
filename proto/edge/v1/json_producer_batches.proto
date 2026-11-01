@@ -109,9 +109,9 @@ message MapperDeviceRecordV1 {
   string bridge_base_mac = 25;
   // Raw `device.Uptime` integer (`metadata["uptime"]`). SNMP sysUpTime TimeTicks are stored unchanged (centiseconds). MikroTik API uptime is stored in seconds.
   int64 uptime = 26;
-  // First seen timestamp in Unix epoch nanoseconds (`metadata["first_seen"]`, RFC3339 in JSON).
+  // Mapper metadata does not write `first_seen`. Sync device updates publish `first_seen_time` as RFC3339 UTC truncated to one second.
   int64 first_seen_unix_nano = 27;
-  // Last seen timestamp in Unix epoch nanoseconds (`metadata["last_seen"]`, RFC3339 in JSON).
+  // Mapper metadata does not write `last_seen`. Sync device updates publish `last_seen_time` as RFC3339 UTC truncated to one second.
   int64 last_seen_unix_nano = 28;
 
   // Additional device metadata key-value pairs (`metadata` map).
@@ -913,7 +913,7 @@ message NetprobeExecutableOwnershipV1 {
 // SyncPageBatchV1 carries a single page/chunk of sync device records or a
 // completion control marker for a sync run.
 message SyncPageBatchV1 {
-  // Chunk and run tracking metadata (`_sync_meta`).
+  // Chunk and run tracking metadata (`sync_meta`).
   SyncMetaV1 sync_meta = 1;
   // Optional completion control marker (replaces single-item `[{"_sync_control": "collection_final", ...}]` chunk).
   optional SyncControlMarkerV1 control_marker = 2;
@@ -921,8 +921,8 @@ message SyncPageBatchV1 {
   repeated SyncDeviceRecordV1 devices = 3;
 }
 
-// SyncMetaV1 maps `syncChunkMeta` (`_sync_meta`) in `go/pkg/agent/sync_runtime.go`
-// and `extract_chunk_metadata/1` in `ServiceRadar.Inventory.SyncIngestorQueue`.
+// SyncMetaV1 maps `syncChunkMeta` (`sync_meta`) in `go/pkg/agent/sync_runtime.go`
+// and `extract_sync_meta/1` in `ServiceRadar.Inventory.SyncIngestorQueue`.
 message SyncMetaV1 {
   // Sync service configuration UUID (`sync_service_id`).
   string sync_service_id = 1;
@@ -940,9 +940,9 @@ message SyncMetaV1 {
   SyncPopulationReportV1 population = 7;
 }
 
-// SyncPopulationReportV1 maps `syncsources.PopulationReport` (`_sync_meta.population`)
-// in `go/pkg/agent/syncsources/syncsources.go` and `normalize_population/1` in
-// `ServiceRadar.Inventory.SyncIngestorQueue`.
+// SyncPopulationReportV1 maps `syncsources.PopulationStats` (`sync_meta.population`)
+// in `go/pkg/agent/syncsources/syncsources.go`. `extract_sync_meta/1` in
+// `ServiceRadar.Inventory.SyncIngestorQueue` reads the enclosing `sync_meta` object.
 message SyncPopulationReportV1 {
   // Raw rows fetched from the upstream integration (`raw_rows`).
   int64 raw_rows = 1;
@@ -956,22 +956,22 @@ message SyncPopulationReportV1 {
   int64 distinct_source_ids = 5;
   // Duplicate occurrences of the same source ID (`duplicate_occurrences`).
   int64 duplicate_occurrences = 6;
-  // Source IDs with conflicting identity attributes (`conflicting_duplicate_ids`).
+  // Count of source IDs with conflicting identity attributes (`conflicting_duplicate_ids`, `len` of the ID list).
   int64 conflicting_duplicate_ids = 7;
-  // Bounded sample of duplicate source IDs (`duplicate_source_id_examples`).
+  // Bounded sample of duplicate source IDs (`duplicate_source_id_examples`). Armis writes device IDs such as `"102"`.
   repeated string duplicate_source_id_examples = 8;
-  // Bounded sample of invalid row descriptions (`invalid_row_examples`).
+  // Bounded sample of invalid-row locators (`invalid_row_examples`, `query=%s page=%d row=%d`).
   repeated string invalid_row_examples = 9;
-  // Bounded sample of conflicting duplicate descriptions (`conflicting_duplicate_examples`).
+  // Bounded sample of conflicting source IDs (`conflicting_duplicate_examples`). Armis writes device IDs such as `"102"`.
   repeated string conflicting_duplicate_examples = 10;
 }
 
-// SyncControlMarkerV1 maps the control-only finalization record emitted by
-// `buildSyncCompletionEnvelope` (`go/pkg/agent/sync_runtime.go`).
+// SyncControlMarkerV1 maps the control-only finalization record written by
+// `syncRunEmitter.flush` (`go/pkg/agent/sync_runtime.go`).
 message SyncControlMarkerV1 {
   // Control marker type (`_sync_control`, e.g. `"collection_final"`).
   string control_type = 1;
-  // Control marker emission timestamp in Unix epoch nanoseconds (`timestamp`).
+  // Control marker emission time (`timestamp`). JSON is RFC3339 UTC truncated to one second.
   int64 timestamp_unix_nano = 2;
 }
 
@@ -1059,15 +1059,15 @@ message SyncDeviceRecordV1 {
   // Last heartbeat timestamp in Unix epoch nanoseconds (`last_heartbeat`).
   int64 last_heartbeat_unix_nano = 37;
 
-  // Record emission timestamp in Unix epoch nanoseconds (`timestamp`).
+  // Record emission time (`timestamp`). JSON is RFC3339 UTC truncated to one second.
   int64 timestamp_unix_nano = 38;
-  // First seen timestamp in Unix epoch nanoseconds (`first_seen_time` / `first_seen`).
+  // First seen time (`first_seen_time`). JSON is RFC3339 UTC truncated to one second.
   int64 first_seen_unix_nano = 39;
-  // Last seen timestamp in Unix epoch nanoseconds (`last_seen_time` / `last_seen`).
+  // Last seen time (`last_seen_time`). JSON is RFC3339 UTC truncated to one second.
   int64 last_seen_unix_nano = 40;
-  // Record creation timestamp in Unix epoch nanoseconds (`created_time`).
+  // Record creation time (`created_time`). OCSF JSON is RFC3339.
   int64 created_time_unix_nano = 41;
-  // Record modification timestamp in Unix epoch nanoseconds (`modified_time`).
+  // Record modification time (`modified_time`). OCSF JSON is RFC3339.
   int64 modified_time_unix_nano = 42;
 
   // Network interfaces attached to the device (`network_interfaces` / `interfaces`).
@@ -1083,20 +1083,21 @@ message SyncDeviceRecordV1 {
   // Switch port attachment attributes (`switch_port_attachment`).
   map<string, string> switch_port_attachment = 48;
 
-  // String metadata key-value pairs (`metadata`, including Armis/NetBox/UniFi
-  // enrichment keys such as `armis_device_id`, `integration_id`, `integration_type`,
-  // `sync_service_id`, `collector_agent_id`, `boundaries`,
-  // `custom_properties`, `tags`, `site`, `all_macs`, `primary_mac`,
-  // `ip_addresses`, `all_ips`, `primary_ip`, `brand`, `manufacturer`, `model`,
-  // `category`, `type`, `os`, `os_version`, `operating_system`,
-  // `purdue_level`, `risk_level`, `visibility`,
-  // `access_switch`, `data_sources`, `user`, `business_impact`, `serial_number`).
+  // String metadata key-value pairs (`metadata`). Armis `buildMetadata` writes
+  // `armis_device_id`, `integration_id`, `integration_type`, `source_device_id`,
+  // `boundaries`, `boundary_names`, `site`, `brand`, `manufacturer`, `model`,
+  // `category`, `type`, `device_type`, `os_name`, `os_version`, `operating_system`,
+  // `purdue_level`, `visibility`, `serial_number`, `serial_numbers`, `source_tags`,
+  // `mac_addresses`, `ipv4_addresses`, `ipv6_addresses`, `risk_score`, `query_label`,
+  // and `network_interfaces`. Raw attachment fields use an `armis_` prefix
+  // (`armis_access_switch`). `sync_service_id` is stamped on `sync_meta` and on
+  // mapper device metadata when that key is missing.
   map<string, string> metadata = 49;
   // Device tags (`tags`).
   map<string, string> tags = 50;
   // Additional structured facts flattened as string key-values (`facts`).
   map<string, string> facts = 51;
-  // Optional per-record sync chunk metadata (`_sync_meta` when stamped per record).
+  // Optional per-record sync chunk metadata (`sync_meta`).
   SyncMetaV1 sync_meta = 52;
 }
 
