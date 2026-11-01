@@ -280,15 +280,18 @@ func pruneReleaseVersions(root, previousTarget string) error {
 		return err
 	}
 
-	keep := map[string]bool{
-		releaseSeedVersionDir:        true,
-		filepath.Base(currentTarget): true,
-	}
+	versionsDir := filepath.Join(root, releaseVersionsDirName)
+	keep := map[string]bool{releaseSeedVersionDir: true}
+	targets := []string{currentTarget}
 	if previous, err := normalizeExistingReleaseSymlinkTarget(root, previousTarget); err == nil {
-		keep[filepath.Base(previous)] = true
+		targets = append(targets, previous)
+	}
+	for _, target := range targets {
+		if err := keepReleaseTarget(keep, versionsDir, filepath.Base(target)); err != nil {
+			return err
+		}
 	}
 
-	versionsDir := filepath.Join(root, releaseVersionsDirName)
 	entries, err := os.ReadDir(versionsDir)
 	if err != nil {
 		return fmt.Errorf("read release versions dir: %w", err)
@@ -305,6 +308,31 @@ func pruneReleaseVersions(root, previousTarget string) error {
 	}
 
 	return errors.Join(errs...)
+}
+
+// keepReleaseTarget keeps the version entry name and, when that entry is an
+// alias, the version directory it finally resolves to, so a retained alias never
+// outlives its release. An entry that cannot be resolved stops pruning: without
+// knowing what it needs, nothing is safe to remove.
+func keepReleaseTarget(keep map[string]bool, versionsDir, name string) error {
+	keep[name] = true
+
+	realVersions, err := filepath.EvalSymlinks(versionsDir)
+	if err != nil {
+		return fmt.Errorf("resolve release versions dir: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(versionsDir, name))
+	if err != nil {
+		return fmt.Errorf("resolve retained release %q: %w", name, err)
+	}
+	rel, err := filepath.Rel(realVersions, resolved)
+	if err != nil {
+		return fmt.Errorf("resolve retained release %q: %w", name, err)
+	}
+	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		keep[strings.SplitN(rel, string(filepath.Separator), 2)[0]] = true
+	}
+	return nil
 }
 
 func RollbackReleaseActivation(runtimeRoot, reason string) (bool, error) {

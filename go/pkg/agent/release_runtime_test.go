@@ -140,6 +140,47 @@ func releaseVersionNames(t *testing.T, versionsDir string) []string {
 	return names
 }
 
+// The release an activation replaced may be reached through an alias in
+// versions/. Pruning keeps the alias and the release it resolves to, so the
+// rollback target never dangles; an unrelated release is still removed.
+func TestCompleteReleaseActivationKeepsTheReleaseBehindARollbackAlias(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	versionsDir := filepath.Join(runtimeRoot, releaseVersionsDirName)
+	for _, name := range []string{releaseSeedVersionDir, "1.2.1", "1.2.2", "1.2.3"} {
+		if err := os.MkdirAll(filepath.Join(versionsDir, name), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", name, err)
+		}
+	}
+	if err := os.Symlink("1.2.2", filepath.Join(versionsDir, "rollback-alias")); err != nil {
+		t.Fatalf("Symlink(rollback-alias) error = %v", err)
+	}
+	if err := os.Symlink(filepath.Join(releaseVersionsDirName, "rollback-alias"), filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
+		t.Fatalf("Symlink(current) error = %v", err)
+	}
+
+	if err := activateStagedRelease(ReleaseActivationConfig{
+		RuntimeRoot:      runtimeRoot,
+		Version:          "1.2.3",
+		CommandID:        "7c1b9a0e-4f2d-4d8a-9b6e-2a1f0c3d5e7b",
+		CommandType:      commandTypeAgentUpdate,
+		RollbackDeadline: time.Minute,
+	}, nil); err != nil {
+		t.Fatalf("activateStagedRelease() error = %v", err)
+	}
+	completed, err := CompleteReleaseActivation(runtimeRoot, "1.2.3")
+	if err != nil || !completed {
+		t.Fatalf("CompleteReleaseActivation() = %v, %v; want true, nil", completed, err)
+	}
+
+	want := []string{"1.2.2", "1.2.3", "rollback-alias", releaseSeedVersionDir}
+	if got := releaseVersionNames(t, versionsDir); !reflect.DeepEqual(got, want) {
+		t.Fatalf("versions after completion = %v, want %v", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(versionsDir, "rollback-alias")); err != nil {
+		t.Fatalf("rollback alias no longer resolves: %v", err)
+	}
+}
+
 func TestActivateStagedReleaseRunsHostMigrationBeforeSwitch(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	seedTarget := filepath.Join(releaseVersionsDirName, releaseSeedVersionDir)
