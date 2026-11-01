@@ -377,7 +377,14 @@ func (s *Spool) terminalProof() ([32]byte, []permanentSlot, bool, error) {
 			if err != nil {
 				return proof, nil, false, err
 			}
-			if rec.Sequence != seq || !bytes.Equal(rec.EventID, d.GetEventId()) {
+			if rec.Sequence != seq {
+				return proof, nil, false, nil
+			}
+			if id := d.GetEventId(); len(id) == 0 {
+				if !rejected {
+					return proof, nil, false, nil
+				}
+			} else if !bytes.Equal(rec.EventID, id) {
 				return proof, nil, false, nil
 			}
 			if rejected {

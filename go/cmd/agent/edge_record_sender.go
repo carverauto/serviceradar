@@ -184,6 +184,7 @@ func runEdgeRecordSenderOnce(ctx context.Context, s *edgesender.Sender, log logg
 			Uint64("highest_sent", highestSentSequence(result)).
 			Uint64("remote_resolved_through", result.RemoteResolvedThrough).
 			Msg("Edge record sender run failed")
+		logPermanentRejections(result.Dispositions, log)
 		return
 	}
 

@@ -145,6 +145,49 @@ func TestPermanentRejectionIsQuarantinedAndTheSegmentReclaims(t *testing.T) {
 	}
 }
 
+// A pre-trust permanent rejection omits the event id. The drained segment must
+// still reclaim, and the one quarantine entry must be named with the stored
+// record's event id.
+func TestPermanentRejectionOmittingEventIDReclaimsUnderStoredEventID(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	const seq = uint64(1)
+	body := []byte("synthetic undecodable rejected record")
+	if _, err := s.Append(evid(byte(seq)), body); err != nil {
+		t.Fatal(err)
+	}
+	ack := &edgev1.EdgeDeliveryAckV1{
+		SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: seq,
+		Dispositions: []*edgev1.EdgeRecordDisposition{{
+			Sequence: seq, Kind: permanentKind, RejectionCode: "synthetic_undecodable",
+		}},
+	}
+	evidence, err := proto.Marshal(ack)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResolveWithEvidence(seq, evidence); err != nil {
+		t.Fatal(err)
+	}
+	if name, err := os.Readlink(filepath.Join(dir, segmentFile)); err != nil || name != dataName(seq) {
+		t.Fatalf("segment not reclaimed past a permanent rejection that omitted its event id: pointer %q, %v", name, err)
+	}
+	want := quarantineName(seq, evid(byte(seq)))
+	quarantined := quarantinedFiles(t, dir)
+	got, ok := quarantined[want]
+	if !ok || len(quarantined) != 1 || !bytes.Contains(got, body) {
+		names := make([]string, 0, len(quarantined))
+		for name := range quarantined {
+			names = append(names, name)
+		}
+		t.Fatalf("quarantine = %v, want exactly %s holding the stored record", names, want)
+	}
+}
+
 // rejectOne appends one record and resolves it as permanently rejected.
 func rejectOne(t *testing.T, s *Spool, seq uint64, body []byte) {
 	t.Helper()
