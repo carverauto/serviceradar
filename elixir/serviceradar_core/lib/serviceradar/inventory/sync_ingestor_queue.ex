@@ -178,36 +178,34 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     Process.cancel_timer(active.timer)
     state = %{state | active: nil}
 
-    cond do
-      reason == :normal and active.result != nil ->
-        accepted = Enum.all?(active.result, &(&1 == :ok or match?({:ok, _}, &1)))
-        outcome = if(accepted, do: :accepted, else: :not_accepted)
-        result = if(accepted, do: :committed, else: :execution_failed)
-        duration_ms = System.monotonic_time(:millisecond) - active.started_at
+    if reason == :normal and active.result != nil do
+      accepted = Enum.all?(active.result, &(&1 == :ok or match?({:ok, _}, &1)))
+      outcome = if(accepted, do: :accepted, else: :not_accepted)
+      result = if(accepted, do: :committed, else: :execution_failed)
+      duration_ms = System.monotonic_time(:millisecond) - active.started_at
 
-        emit(
-          :completion,
-          %{
-            count: length(active.ids),
-            outcome: outcome,
-            duration_ms: duration_ms
-          },
-          %{result: result, outcome: outcome}
+      emit(
+        :completion,
+        %{
+          count: length(active.ids),
+          outcome: outcome,
+          duration_ms: duration_ms
+        },
+        %{result: result, outcome: outcome}
+      )
+
+      {:noreply, state |> release(active.ids) |> maybe_flush()}
+    else
+      if Map.get(active, :timed_out) != true do
+        emit(:crash, %{count: 1}, %{reason: :worker_crash, exit_reason: bounded_reason(reason)})
+
+        Logger.warning("Sync ingestion worker exited; retrying retained bounded batch",
+          reason: inspect(reason)
         )
+      end
 
-        {:noreply, state |> release(active.ids) |> maybe_flush()}
-
-      true ->
-        if Map.get(active, :timed_out) != true do
-          emit(:crash, %{count: 1}, %{reason: :worker_crash, exit_reason: bounded_reason(reason)})
-
-          Logger.warning("Sync ingestion worker exited; retrying retained bounded batch",
-            reason: inspect(reason)
-          )
-        end
-
-        pending = :queue.join(:queue.from_list(active.ids), state.pending)
-        {:noreply, arm(%{state | pending: pending})}
+      pending = :queue.join(:queue.from_list(active.ids), state.pending)
+      {:noreply, arm(%{state | pending: pending})}
     end
   end
 

@@ -39,9 +39,7 @@ defmodule ServiceRadarCoreElx.TelemetryTest do
     _pid =
       start_supervised!(
         {TelemetryMetricsPrometheus.Core,
-         metrics: ServiceRadar.Telemetry.identity_reconciliation_metrics(),
-         name: name,
-         start_async: false},
+         metrics: ServiceRadar.Telemetry.identity_reconciliation_metrics(), name: name, start_async: false},
         id: name
       )
 

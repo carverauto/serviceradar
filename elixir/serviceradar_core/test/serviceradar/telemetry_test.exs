@@ -1,6 +1,8 @@
 defmodule ServiceRadar.TelemetryTest do
   use ExUnit.Case, async: true
 
+  alias Elixir.Telemetry.Metrics.Counter
+  alias Elixir.Telemetry.Metrics.LastValue
   alias ServiceRadar.Telemetry
 
   @ingestion_dashboard_path Path.expand(
@@ -696,7 +698,7 @@ defmodule ServiceRadar.TelemetryTest do
         end)
 
       assert published["serviceradar_admission_lane_pending_count"] ==
-               Elixir.Telemetry.Metrics.LastValue
+               LastValue
 
       parsed =
         @ingestion_dashboard_path
@@ -711,7 +713,7 @@ defmodule ServiceRadar.TelemetryTest do
       charted = MapSet.new(parsed, & &1.metric)
 
       for {name, kind} <- published,
-          kind in [Elixir.Telemetry.Metrics.LastValue, Elixir.Telemetry.Metrics.Counter] do
+          kind in [LastValue, Counter] do
         assert name in charted, "ingestion dashboard does not chart #{name}"
       end
 
@@ -720,11 +722,11 @@ defmodule ServiceRadar.TelemetryTest do
         assert sample.labels["namespace"] == "$namespace"
 
         case published[sample.metric] do
-          Elixir.Telemetry.Metrics.LastValue ->
+          LastValue ->
             assert sample.agg == "max"
             assert sample.window == nil
 
-          Elixir.Telemetry.Metrics.Counter ->
+          Counter ->
             assert sample.agg == "sum"
             assert sample.window == "5m"
 

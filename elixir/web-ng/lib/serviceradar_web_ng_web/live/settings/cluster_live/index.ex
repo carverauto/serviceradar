@@ -854,8 +854,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     Map.get(gateway, atom_key) || Map.get(gateway, string_key) || default
   end
 
-  defp gateway_instance_key(%{gateway_id: gateway_id, node: node}),
-    do: gateway_instance_key(gateway_id, node)
+  defp gateway_instance_key(%{gateway_id: gateway_id, node: node}), do: gateway_instance_key(gateway_id, node)
 
   defp gateway_instance_key(gateway_id, node) when is_binary(gateway_id) do
     "#{gateway_id}@#{node}"

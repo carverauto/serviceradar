@@ -17,9 +17,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
   end
 
   test "disconnected mount returns unavailable ingestion stats without reading RuntimeMetrics" do
-    start_supervised!(
-      {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
-    )
+    start_supervised!({RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]})
 
     RuntimeMetrics.record(:retained_plugin_result, :state, %{
       pending_count: 4,
@@ -61,9 +59,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
   end
 
   test "connected mount renders populated lane stats including retained_plugin_result queued work" do
-    start_supervised!(
-      {RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]}
-    )
+    start_supervised!({RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]})
 
     RuntimeMetrics.record(:retained_plugin_result, :state, %{
       pending_count: 3,
