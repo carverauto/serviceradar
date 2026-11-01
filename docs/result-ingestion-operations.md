@@ -220,9 +220,9 @@ recovery is logged once. Log fields carry only the
 subject, a reason class, and a count.
 
 Interval non-accepted counts are the
-`result_ingestion_terminals_not_accepted` completion outcomes: worker errors,
-timeouts, sweep cancellations, and persistence failures recorded as
-not-accepted completions. Admission
+`result_ingestion_terminals_not_accepted` completion outcomes: queue-wait
+timeouts, sweep cancellations, worker failures, and persistence failures.
+Admission
 refusals (`result_ingestion_rejections_*`) are caller-side rejections, never
 agent NACKs. `result_ingestion_events_incomplete_run` (lane `sync`) counts
 final validation attempts that found the ledger incomplete: one per activation
