@@ -466,9 +466,10 @@ contract and that agent's leasing switch is on.
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
 and agent network scope fixed while records remain in the spool: historical
-key/scope trust and audit publication are later milestones. The sweep sender
-persists terminal resolutions. It reclaims a fully drained segment when durable
-dispositions cover every retained sequence. Permanently rejected records are
+key/scope trust and audit publication are later milestones. A sender with
+sweep or metrics producers enabled persists terminal resolutions. It reclaims
+a fully drained segment when durable dispositions cover every retained
+sequence. Permanently rejected records are
 copied into a bounded local quarantine in the lane directory before that
 reclaim; the policy, including eviction when the quarantine is full, is the
 interim local quarantine in
