@@ -152,8 +152,9 @@ func (s *Spool) refreshLayout() error {
 }
 
 // ReclaimResolved retries reclamation after a restart or a busy recovery reserve.
-// Only a fully drained segment whose every record has durable accepted evidence
-// is eligible. Permanent rejections stay on disk until local quarantine exists.
+// Only a fully drained segment whose every record has durable terminal evidence,
+// accepted or permanently rejected, is eligible. A permanently rejected record
+// leaves through local quarantine (see quarantine.go) before the segment goes.
 func (s *Spool) ReclaimResolved() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -185,8 +186,11 @@ func (s *Spool) reclaimLocked() error {
 	if s.resolved <= s.baseSeq || s.resolved != s.nextSeq-1 {
 		return nil
 	}
-	proof, eligible, err := s.acceptedProof()
+	proof, permanent, eligible, err := s.terminalProof()
 	if err != nil || !eligible {
+		return err
+	}
+	if err := s.removeQuarantineTemps(); err != nil {
 		return err
 	}
 	before, err := s.laneBytes()
@@ -202,6 +206,13 @@ func (s *Spool) reclaimLocked() error {
 		if err != nil {
 			return err
 		}
+	}
+	quarantined, err := s.quarantine(grant, permanent)
+	if err != nil {
+		return s.stopReclaim(grant, err)
+	}
+	if err := s.cross(barrierQuarantined); err != nil {
+		return s.stopReclaim(grant, err)
 	}
 	base := s.resolved
 	name := dataName(base)
@@ -234,7 +245,7 @@ func (s *Spool) reclaimLocked() error {
 		return s.stopReclaim(grant, err)
 	}
 	if grant != nil {
-		return s.settleReclaim(grant, before)
+		return s.settleReclaim(grant, before, quarantined)
 	}
 	return nil
 }
@@ -282,7 +293,7 @@ func (s *Spool) publishReclaimed(name string) error {
 	return s.cleanupReclaimed()
 }
 
-func (s *Spool) settleReclaim(grant *RecoveryGrant, before uint64) error {
+func (s *Spool) settleReclaim(grant *RecoveryGrant, before, quarantined uint64) error {
 	after, err := s.laneBytes()
 	if err != nil {
 		return s.stopReclaim(grant, err)
@@ -290,8 +301,9 @@ func (s *Spool) settleReclaim(grant *RecoveryGrant, before uint64) error {
 	if err := grant.Finish(); err != nil {
 		return s.stopReclaim(grant, err)
 	}
-	// The new checkpoint is charged to the grant, not to the old lane.
-	removed := before - (after - checkpointSize)
+	// The new checkpoint and the entries this reclaim quarantined are charged to the
+	// grant, not to the old lane.
+	removed := before - (after - checkpointSize - quarantined)
 	if err := grant.ReleaseSource(s.dir, removed); err != nil {
 		return s.stopReclaim(grant, err)
 	}
@@ -311,11 +323,15 @@ func (s *Spool) stopReclaim(grant *RecoveryGrant, err error) error {
 	return s.failErr
 }
 
-func (s *Spool) acceptedProof() ([32]byte, bool, error) {
+// terminalProof reports whether durable terminal evidence covers every retained
+// record with an accepted or permanently rejected disposition, the digest of that
+// evidence, and the permanently rejected records reclaim must quarantine first.
+func (s *Spool) terminalProof() ([32]byte, []permanentSlot, bool, error) {
 	var proof [32]byte
+	var permanent []permanentSlot
 	entries, err := os.ReadDir(s.dir)
 	if err != nil {
-		return proof, false, err
+		return proof, nil, false, err
 	}
 	next := s.baseSeq + 1
 	hash := sha256.New()
@@ -326,11 +342,11 @@ func (s *Spool) acceptedProof() ([32]byte, bool, error) {
 		}
 		b, err := os.ReadFile(filepath.Join(s.dir, entry.Name()))
 		if err != nil {
-			return proof, false, err
+			return proof, nil, false, err
 		}
 		var ack edgev1.EdgeDeliveryAckV1
 		if proto.Unmarshal(b, &ack) != nil || ack.GetResolvedThroughSequence() != through {
-			return proof, false, nil
+			return proof, nil, false, nil
 		}
 		for _, d := range ack.GetDispositions() {
 			seq := d.GetSequence()
@@ -338,39 +354,48 @@ func (s *Spool) acceptedProof() ([32]byte, bool, error) {
 				continue
 			}
 			if seq != next || seq > through {
-				return proof, false, nil
+				return proof, nil, false, nil
 			}
+			rejected := false
 			switch d.GetKind() {
 			case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUTHORITATIVE,
 				edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_AUDIT_ONLY,
 				edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_ACCEPTED_QUARANTINE:
+			case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT:
+				rejected = true
 			case edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED,
-				edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT,
 				edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE:
-				return proof, false, nil
+				return proof, nil, false, nil
 			default:
-				return proof, false, nil
+				return proof, nil, false, nil
 			}
 			loc := s.slots[seq-s.baseSeq-1]
 			if !loc.committed {
-				return proof, false, nil
+				return proof, nil, false, nil
 			}
 			rec, err := readRecordAt(s.seg, loc)
 			if err != nil {
-				return proof, false, err
+				return proof, nil, false, err
 			}
 			if rec.Sequence != seq || !bytes.Equal(rec.EventID, d.GetEventId()) {
-				return proof, false, nil
+				return proof, nil, false, nil
+			}
+			if rejected {
+				disposition, err := proto.MarshalOptions{Deterministic: true}.Marshal(d)
+				if err != nil {
+					return proof, nil, false, err
+				}
+				permanent = append(permanent, permanentSlot{seq: seq, eventID: rec.EventID, loc: loc, disposition: disposition})
 			}
 			next++
 		}
 		if next != through+1 {
-			return proof, false, nil
+			return proof, nil, false, nil
 		}
 		_, _ = hash.Write(b)
 	}
 	copy(proof[:], hash.Sum(nil))
-	return proof, next == s.nextSeq, nil
+	return proof, permanent, next == s.nextSeq, nil
 }
 
 func terminalSequence(name string) (uint64, bool) {

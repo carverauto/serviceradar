@@ -22,8 +22,10 @@
 // bounded lane-open/send/drain-acks cycle sufficient to carry a committed
 // spool record through the real composed path end to end. Reconnect/replay,
 // credit renewal and recovery/rollover remain outside this sender. Optional local
-// disposition persistence advances the resolved prefix and reclaims a fully
-// accepted drained segment. Unresolved and rejected records stay on disk.
+// disposition persistence advances the resolved prefix and reclaims a drained
+// segment once every record is accepted or permanently rejected; the spool keeps
+// permanently rejected records in its bounded local quarantine. Unresolved
+// records stay on disk.
 //
 // # The negative reclaim rule
 //
@@ -119,7 +121,8 @@ type Config struct {
 	RequestedFrameCredits uint32
 	// PersistAcknowledgements fsyncs the resolving prefix of a validated
 	// acknowledgement before suppressing that prefix's replay, and reclaims a
-	// fully accepted drained segment. Unresolved and rejected records stay on disk.
+	// drained segment, quarantining its permanently rejected records first.
+	// Unresolved records stay on disk.
 	PersistAcknowledgements bool
 }
 

@@ -959,8 +959,11 @@ change together with the requirements they implement.
   PARTIALLY LANDED: commit `2c816c114e` added
   `go/pkg/edge/sender`, a minimum single-lane sender over the spool with
   credit-based flow control, wired into `go/cmd/agent`. Per-lane RPCs and pools,
-  reconnect/replay, capability renewal, and quarantine are not implemented, so
-  this task stays unchecked.
+  reconnect/replay and capability renewal are not implemented, so this task
+  stays unchecked. Permanent-rejection quarantine landed in its interim form
+  (see design "Interim local quarantine"): reclaim copies each permanently
+  rejected record into a bounded lane quarantine before it checkpoints past the
+  segment, so one rejection no longer stops the spool from reclaiming.
 - [ ] 2.6 Connect scanner admission to spool and network pressure: pause/defer
   lower-priority or overlapping work at high-water, reserve worst-case bytes per
   target window, cap active result state by bytes, use high/low-water hysteresis,
@@ -968,7 +971,9 @@ change together with the requirements they implement.
   completed durably while required frames remain unresolved. Give raw rejection
   quarantine separate bulk/interactive accounting with an unborrowable
   interactive floor, high-water admission stop, crash-safe move, explicit
-  retention/export/operator-deletion workflow, and no silent overwrite.
+  retention/export/operator-deletion workflow, and no silent overwrite. The
+  interim quarantine (task 2.5) evicts its oldest entries instead and counts
+  every eviction and drop; this task replaces that policy.
 - [ ] 2.7 Add byte-based fair interleaving across network/site scopes, agents,
   producer assignments, runs/executions, and control-plane-attested traffic classes
   at the agent and site scheduler. Use a finite platform-owned set of bulk,

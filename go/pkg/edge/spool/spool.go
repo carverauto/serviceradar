@@ -162,6 +162,9 @@ const (
 	barrierReclaimPrepared
 	barrierReclaimPublished
 	barrierReclaimCleaned
+	// barrierQuarantined is crossed once every permanently rejected record a
+	// reclaim drops is durable in local quarantine, before the reclaim checkpoint.
+	barrierQuarantined
 )
 
 func dirBarrier(c int) barrier     { return barrierEvidenceDirA + barrier(c) }
@@ -213,6 +216,11 @@ type Spool struct {
 	// with it: the interrupted slot's durable state is unknown until restart
 	// resolution classifies it, so the spool does not append past it.
 	failErr error
+	// quarantined, quarantineEvicted and quarantineDropped count what this handle's
+	// reclaims did with permanently rejected records (see QuarantineHealth).
+	quarantined       uint64
+	quarantineEvicted uint64
+	quarantineDropped uint64
 
 	// copyOrder is the order evidence copies are written in, and beforeBarrier is
 	// crossed immediately before each durability barrier. Both exist so tests can

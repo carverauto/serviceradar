@@ -193,6 +193,30 @@ func runEdgeRecordSenderOnce(ctx context.Context, s *edgesender.Sender, log logg
 		Int("dispositions", len(result.Dispositions)).
 		Uint64("remote_resolved_through", result.RemoteResolvedThrough).
 		Msg("Edge record sender drained spool lane")
+	logPermanentRejections(result.Dispositions, log)
+}
+
+// logPermanentRejections reports, once per gateway rejection code, the records
+// a run saw rejected permanently. The spool quarantines them on reclaim; this
+// is the operator's record of why.
+func logPermanentRejections(dispositions []*edgev1.EdgeRecordDisposition, log logger.Logger) {
+	counts := map[string]int{}
+	var codes []string
+	for _, d := range dispositions {
+		if d.GetKind() != edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT {
+			continue
+		}
+		if counts[d.GetRejectionCode()] == 0 {
+			codes = append(codes, d.GetRejectionCode())
+		}
+		counts[d.GetRejectionCode()]++
+	}
+	for _, code := range codes {
+		log.Warn().
+			Str("rejection_code", code).
+			Int("records", counts[code]).
+			Msg("Edge record gateway rejected records permanently; they move to local spool quarantine")
+	}
 }
 
 // highestSentSequence is the last sequence a run sent, or 0 when it sent
@@ -204,19 +228,33 @@ func highestSentSequence(result edgesender.Result) uint64 {
 	return 0
 }
 
-// attachEdgeSpoolMetrics publishes unresolved spool bytes and oldest record
-// age through the agent's Prometheus exporter. The sampler only reads record
-// headers, so a scrape of a large backlog never loads its bodies.
+// attachEdgeSpoolMetrics publishes unresolved spool bytes, oldest record age
+// and the quarantine of permanently rejected records through the agent's
+// Prometheus exporter. The sampler only reads record headers and quarantine
+// entry sizes, so a scrape of a large backlog never loads a body.
 func attachEdgeSpoolMetrics(server *agent.Server, sp *spool.Spool) {
 	if server == nil || sp == nil {
 		return
 	}
-	server.SetEdgeSpoolSampler(func(now time.Time) (uint64, time.Duration, bool, bool) {
+	server.SetEdgeSpoolSampler(func(now time.Time) (agent.EdgeSpoolHealth, bool) {
 		unresolvedBytes, age, reportAge, err := sp.UnresolvedHealth(now)
 		if err != nil {
-			return 0, 0, false, false
+			return agent.EdgeSpoolHealth{}, false
 		}
-		return unresolvedBytes, age, reportAge, true
+		q, err := sp.QuarantineHealth()
+		if err != nil {
+			return agent.EdgeSpoolHealth{}, false
+		}
+		return agent.EdgeSpoolHealth{
+			UnresolvedBytes:     unresolvedBytes,
+			OldestUnresolvedAge: age,
+			ReportAge:           reportAge,
+			QuarantinedRecords:  q.Records,
+			QuarantinedBytes:    q.Bytes,
+			PermanentRejections: q.Quarantined + q.Dropped,
+			QuarantineEvicted:   q.Evicted,
+			QuarantineDropped:   q.Dropped,
+		}, true
 	})
 }
 

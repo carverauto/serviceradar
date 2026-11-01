@@ -73,8 +73,11 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 
 func TestServerWritePrometheusMetricsIncludesEdgeSpoolSample(t *testing.T) {
 	server := &Server{}
-	server.SetEdgeSpoolSampler(func(time.Time) (uint64, time.Duration, bool, bool) {
-		return 4096, 125 * time.Second, true, true
+	server.SetEdgeSpoolSampler(func(time.Time) (EdgeSpoolHealth, bool) {
+		return EdgeSpoolHealth{
+			UnresolvedBytes: 4096, OldestUnresolvedAge: 125 * time.Second, ReportAge: true,
+			QuarantinedRecords: 3, QuarantinedBytes: 2048, PermanentRejections: 5, QuarantineEvicted: 1, QuarantineDropped: 2,
+		}, true
 	})
 
 	var out bytes.Buffer
@@ -85,14 +88,19 @@ func TestServerWritePrometheusMetricsIncludesEdgeSpoolSample(t *testing.T) {
 	for _, want := range []string{
 		"# TYPE agent_edge_spool_unresolved_bytes gauge\nagent_edge_spool_unresolved_bytes 4096\n",
 		"# TYPE agent_edge_spool_oldest_unresolved_age_seconds gauge\nagent_edge_spool_oldest_unresolved_age_seconds 125\n",
+		"agent_edge_spool_quarantined_records 3\n",
+		"agent_edge_spool_quarantined_bytes 2048\n",
+		"# TYPE agent_edge_spool_permanent_rejections_total counter\nagent_edge_spool_permanent_rejections_total 5\n",
+		"agent_edge_spool_dropped_records_total{reason=\"quarantine_evicted\"} 1\n",
+		"agent_edge_spool_dropped_records_total{reason=\"quarantine_full\"} 2\n",
 	} {
 		if !strings.Contains(metrics, want) {
 			t.Fatalf("metrics missing %q in:\n%s", want, metrics)
 		}
 	}
 
-	server.SetEdgeSpoolSampler(func(time.Time) (uint64, time.Duration, bool, bool) {
-		return 12, 0, false, true
+	server.SetEdgeSpoolSampler(func(time.Time) (EdgeSpoolHealth, bool) {
+		return EdgeSpoolHealth{UnresolvedBytes: 12}, true
 	})
 	out.Reset()
 	if err := server.WritePrometheusMetrics(&out); err != nil {
@@ -106,8 +114,8 @@ func TestServerWritePrometheusMetricsIncludesEdgeSpoolSample(t *testing.T) {
 		t.Fatalf("age rendered without a UUIDv7 timestamp:\n%s", metrics)
 	}
 
-	server.SetEdgeSpoolSampler(func(time.Time) (uint64, time.Duration, bool, bool) {
-		return 99, 10 * time.Second, true, false
+	server.SetEdgeSpoolSampler(func(time.Time) (EdgeSpoolHealth, bool) {
+		return EdgeSpoolHealth{UnresolvedBytes: 99, OldestUnresolvedAge: 10 * time.Second, ReportAge: true}, false
 	})
 	out.Reset()
 	if err := server.WritePrometheusMetrics(&out); err != nil {

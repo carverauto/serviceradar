@@ -534,7 +534,6 @@ func TestReclaimRetainsRecordsWithoutAcceptedCoverage(t *testing.T) {
 		bare    bool
 	}{
 		{"unresolved tail", 1, accepted, []uint64{1}, false},
-		{"permanent rejection", 2, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_PERMANENT, []uint64{1, 2}, false},
 		{"retryable rejection", 2, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE, []uint64{1, 2}, false},
 		{"missing disposition", 2, accepted, []uint64{2}, false},
 		{"watermark only", 2, accepted, nil, true},

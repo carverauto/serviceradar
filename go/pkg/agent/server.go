@@ -571,30 +571,41 @@ func (s *Server) writeEdgeSpoolMetrics(w io.Writer) error {
 	if !ok || sample == nil {
 		return nil
 	}
-	unresolvedBytes, age, reportAge, ok := sample(time.Now())
+	h, ok := sample(time.Now())
 	if !ok {
 		return nil
 	}
 	if _, err := fmt.Fprintf(
 		w,
 		"# TYPE agent_edge_spool_unresolved_bytes gauge\nagent_edge_spool_unresolved_bytes %d\n",
-		unresolvedBytes,
+		h.UnresolvedBytes,
 	); err != nil {
 		return fmt.Errorf("write agent edge spool bytes: %w", err)
 	}
-	if !reportAge {
-		return nil
-	}
-	seconds := uint64(0)
-	if age > 0 {
-		seconds = uint64(age / time.Second)
+	if h.ReportAge {
+		seconds := uint64(0)
+		if h.OldestUnresolvedAge > 0 {
+			seconds = uint64(h.OldestUnresolvedAge / time.Second)
+		}
+		if _, err := fmt.Fprintf(
+			w,
+			"# TYPE agent_edge_spool_oldest_unresolved_age_seconds gauge\nagent_edge_spool_oldest_unresolved_age_seconds %d\n",
+			seconds,
+		); err != nil {
+			return fmt.Errorf("write agent edge spool age: %w", err)
+		}
 	}
 	if _, err := fmt.Fprintf(
 		w,
-		"# TYPE agent_edge_spool_oldest_unresolved_age_seconds gauge\nagent_edge_spool_oldest_unresolved_age_seconds %d\n",
-		seconds,
+		"# TYPE agent_edge_spool_quarantined_records gauge\nagent_edge_spool_quarantined_records %d\n"+
+			"# TYPE agent_edge_spool_quarantined_bytes gauge\nagent_edge_spool_quarantined_bytes %d\n"+
+			"# TYPE agent_edge_spool_permanent_rejections_total counter\nagent_edge_spool_permanent_rejections_total %d\n"+
+			"# TYPE agent_edge_spool_dropped_records_total counter\n"+
+			"agent_edge_spool_dropped_records_total{reason=\"quarantine_evicted\"} %d\n"+
+			"agent_edge_spool_dropped_records_total{reason=\"quarantine_full\"} %d\n",
+		h.QuarantinedRecords, h.QuarantinedBytes, h.PermanentRejections, h.QuarantineEvicted, h.QuarantineDropped,
 	); err != nil {
-		return fmt.Errorf("write agent edge spool age: %w", err)
+		return fmt.Errorf("write agent edge spool quarantine: %w", err)
 	}
 	return nil
 }
