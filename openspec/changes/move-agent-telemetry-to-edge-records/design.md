@@ -62,7 +62,8 @@ contract smuggle arbitrary future data past registry review.
   lease produces, keep `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under the
   existing sweep lease. Generalizing the scheduler leaves those sweep slots on
   that kind. Traces from a sweep whose modes include mtr are the MTR check-lease
-  family (`MtrTraceBatchV1`, `SCHEDULED_CHECK`), not sweep results.
+  family (`MtrTraceBatchV1`, `SCHEDULED_CHECK`). They move when MTR checks move,
+  with no dependency on that group's sweep lease.
 - **Standing output grants** cover passive producers. Core signs one production
   capability per (agent, contract, authority epoch) with a bounded validity window
   and renews it while the agent is enrolled and the contract is enabled. Records
@@ -111,28 +112,35 @@ readiness:
    results via a typed result batch (USP-01 tasks 2.11, 2.12, 2.14).
 5. Inventory producers (mapper, netprobe discovery, sync pages, workload identity,
    endpoint inventory, bumblebee, k8s endpoints) after their typed batch contracts.
-6. Query-resolved sweeps, still before the cutover release: freeze the
-   compiler's full scan set into a signed scheduled plan under the existing
-   sweep lease (Decision 6).
+6. Query-resolved sweeps, still before the cutover release: sign
+   `SweepCompiler` target resolution under the existing sweep lease
+   (Decision 6).
 7. Lease homes for the groups the sweep lease skips today (Decision 7), before
    the same cutover.
 
 ### Decision 6: Query-resolved sweeps freeze the compiler scan set
 
 Sweep groups with a `target_query` are in scope as the final phase before the
-cutover release. At lease time core freezes the scan set the sweep compiler
-scans today: the query's hosts, the alias addresses of those devices, and the
-group's static targets. That set is the signed scheduled plan for the execution.
-The plan uses the existing sweep lease machinery and
-`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. When the set changes, core
-re-plans. A set that exceeds plan limits is split across executions or ranges so
-every member is in a signed plan. The group's sweep results and sweep metric
-batch move together once that lease exists.
+cutover release. The signed plan is the targets returned by `SweepCompiler`'s
+target resolution, the same function the compiler uses today, not a second
+resolver. That function scopes the query with `normalize_target_query` (forces
+`in:devices`, and appends `partition:<group partition>` unless the query already
+names partition), keeps aliases that are strict IPs of `alias_type` ip in state
+confirmed, updated, or detected, inside the AliasRecency window, not already a
+primary, and capped at `sweep_max_alias_targets_per_device`, drops a non-address
+value for that row (a CIDR in the ip column is not planned as a prefix), and
+includes the group's static targets. The plan uses the existing sweep lease and
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. A successful read whose targets
+differ re-plans. A set that exceeds plan limits is split across executions or
+ranges so every returned member is in a signed plan. The group's sweep results
+and sweep metric batch move together once that lease exists.
 
-A failed device read keeps the last signed plan. Core does not sign an empty
-plan. When no signed plan exists yet, the group waits for a successful read.
-An unparseable query contributes no hosts, and the group's static targets still
-run, which is what the compiler does today.
+A failed device read, including a later page error or an alias-table error,
+keeps the last signed plan. Core does not sign the pages already fetched, a plan
+that omits aliases, or an empty plan. When no signed plan exists yet, the group
+waits for a successful read. An unparseable query, and a query that parses but
+cannot be translated or cast, contributes no hosts and does not keep the last
+plan. The group's static targets still run.
 
 A target the plan builder cannot represent, including a static or resolved IPv6
 prefix wider than /65 (refused today as `:target_too_wide`), is refused when the
@@ -154,8 +162,10 @@ or any frozen payload.
   target. A schedule denser than one second is refused at configuration.
 - **MTR mode.** A sweep group whose modes include mtr is leased. Reachability and
   port results stay on that sweep lease under `SCHEDULED_SWEEP`. Traces are
-  `MtrTraceBatchV1` under the MTR check lease (`SCHEDULED_CHECK`). SweepPlan no
-  longer refuses the group for mtr mode.
+  `MtrTraceBatchV1` under the MTR check lease (`SCHEDULED_CHECK`) when MTR checks
+  move, with no dependency on that group's sweep lease. SweepPlan no longer
+  refuses the group for mtr mode. TCP modes with no ports, and modes outside
+  icmp, tcp, tcp_connect, and mtr, are dropped and the remaining modes still run.
 - **Banner grab.** Banner results are a new typed batch on their own registry
   contract. The contract is additive. Banner results for an execution carry that
   execution's sweep lease and `SCHEDULED_SWEEP`.

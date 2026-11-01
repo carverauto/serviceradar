@@ -33,8 +33,9 @@
 ## 3. MTR traces
 
 - [ ] 3.1 Check leases for MTR checks, including traces from a sweep group whose
-  modes include mtr; the agent emits `MtrTraceBatchV1`. Reachability and port
-  results of that sweep stay on the sweep lease.
+  modes include mtr. The agent emits `MtrTraceBatchV1` when MTR checks move, with
+  no dependency on that group's sweep lease. Reachability and port results of
+  that sweep stay on the sweep lease.
 - [ ] 3.2 Projector into `mtr_traces` and hops; parity soak.
 
 ## 4. Flow attribution and OTLP relay
@@ -57,15 +58,18 @@
 
 ## 7. Query-resolved sweeps
 
-- [ ] 7.1 Approve the resolution model: at lease time core freezes the compiler's
-  full scan set (the query's hosts, their alias addresses, and the group's
-  static targets) into a signed scheduled plan per execution under the existing
-  sweep lease and `SCHEDULED_SWEEP`, and re-plans when that set changes. A set
-  that exceeds plan limits is split across executions or ranges.
-- [ ] 7.2 Build that signed plan from the full scan set, splitting across
-  executions or ranges when the set exceeds plan limits. A failed device read
-  keeps the last signed plan and does not sign an empty one. An unparseable
-  query contributes no hosts, and the group's static targets still run.
+- [ ] 7.1 Approve the resolution model: the signed plan is `SweepCompiler`'s target
+  resolution, the same function the compiler uses today (`normalize_target_query`
+  partition scoping, alias filters, per-row non-address drops, static targets),
+  signed under the existing sweep lease and `SCHEDULED_SWEEP`. A successful read
+  whose targets differ re-plans. A set that exceeds plan limits is split across
+  executions or ranges.
+- [ ] 7.2 Build that plan by calling `SweepCompiler` target resolution, not a
+  second resolver. A failed device read, including a later page error or an
+  alias-table error, keeps the last signed plan and does not sign a partial page
+  set or a plan that omits aliases. An unparseable query, and a query that parses
+  but cannot be translated or cast, contributes no hosts and does not keep the
+  last plan; static targets still run.
 - [ ] 7.3 Issue the frozen plan through the existing sweep lease scheduler. The
   group's sweep results and sweep metric batch move together once the lease
   exists, both under `SCHEDULED_SWEEP`.
@@ -82,9 +86,10 @@
   least one second apart. State the cost: a one-second group over seven days is
   about 604800 slots, 300 times the five-minute floor.
 - [ ] 8.2 A sweep group whose modes include mtr: the sweep lease covers
-  reachability and port results under `SCHEDULED_SWEEP`, and the traces are
-  `MtrTraceBatchV1` under the MTR check lease. SweepPlan no longer refuses the
-  group for mtr mode.
+  reachability and port results under `SCHEDULED_SWEEP`. Traces are
+  `MtrTraceBatchV1` under the MTR check lease when MTR checks move (task 3.1),
+  with no dependency on that group's sweep lease. SweepPlan no longer refuses
+  the group for mtr mode.
 - [ ] 8.3 Add an additive banner-results output contract: a new typed payload
   message and a contract registry entry. `EdgeRecordV1` and the frozen payloads
   stay unchanged. Banner results ride under the same sweep lease and

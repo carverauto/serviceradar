@@ -44,7 +44,8 @@ sweep lease epoch fence and missed-run marking. Sweep executions, including the
 metric batches and banner results a sweep lease produces, SHALL keep
 `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under the existing sweep lease.
 Traces from a sweep whose modes include mtr SHALL be `MtrTraceBatchV1` under
-`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`.
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK` when MTR checks move, with no
+dependency on that group's sweep lease.
 
 #### Scenario: A scheduled MTR check is authorized per execution
 - **WHEN** core schedules an MTR check for an agent
@@ -60,36 +61,69 @@ Traces from a sweep whose modes include mtr SHALL be `MtrTraceBatchV1` under
 - **AND** neither carries `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`
 
 ### Requirement: Query-resolved sweeps freeze the compiler scan set
-At lease time core SHALL freeze the scan set the sweep compiler scans today and
-SHALL sign that set as the scheduled plan for the execution, under the existing
-sweep lease and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. The scan set is
-the query's hosts, the alias addresses of those devices, and the group's static
-targets. A set that exceeds the plan builder's limits SHALL be split across
-executions or ranges so every member is in a signed plan. The group's sweep
-results and sweep metric batch SHALL be emitted together under that lease. A
-failed device read SHALL keep the last signed plan and SHALL NOT sign an empty
-plan. When no signed plan exists yet, the group waits for a successful read. An
-unparseable query SHALL contribute no hosts, and the group's static targets
-SHALL still run.
+The signed plan for a sweep execution SHALL be the targets returned by
+`SweepCompiler`'s target resolution for that group, the same function the
+compiler uses today, not a second resolver, and SHALL be signed under the
+existing sweep lease and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`.
+That function scopes the query with `normalize_target_query`: it forces
+`in:devices`, and it appends `partition:<group partition>` unless the query
+already names partition. It keeps an alias only when the value is a strict IP,
+`alias_type` is ip, the state is confirmed, updated, or detected, `last_seen`
+is inside the AliasRecency window, the address is not already a primary, and
+the count for that device is within `sweep_max_alias_targets_per_device`. A
+non-address value, including a CIDR in the ip column, is dropped for that row
+and SHALL NOT be planned as a prefix. The group's static targets are included.
+A set that exceeds the plan builder's limits SHALL be split across executions
+or ranges so every member is in a signed plan. The group's sweep results and
+sweep metric batch SHALL be emitted together under that lease. A successful
+read whose targets differ from the last signed plan SHALL cause a re-plan. A
+failed device read, including a later page error or an alias-table error, SHALL
+keep the last signed plan, SHALL NOT sign the pages already fetched, and SHALL
+NOT sign a plan that omits aliases. When no signed plan exists yet, the group
+waits for a successful read. An unparseable query, and a query that parses but
+cannot be translated or cast, SHALL contribute no hosts and SHALL NOT keep the
+last plan, and the group's static targets SHALL still run.
 
 #### Scenario: The signed plan is the compiler scan set
 - **GIVEN** a sweep group whose `target_query` matches 10.0.0.5, whose matched
   device has alias 10.0.0.9, and whose static targets include 10.1.1.1
 - **WHEN** core freezes the plan for an execution
 - **THEN** the signed plan contains 10.0.0.5, 10.0.0.9, and 10.1.1.1
+- **AND** it contains no other address
+
+#### Scenario: Resolution is scoped to the group partition
+- **GIVEN** a sweep group in partition tenant-a whose `target_query` is
+  `ip = '10.0.0.5'` and does not name a partition
+- **AND** a device 10.0.0.5 exists in partition tenant-b
+- **WHEN** core freezes the plan
+- **THEN** the resolution query is scoped to partition tenant-a
+- **AND** the signed plan does not contain the tenant-b device
+
+#### Scenario: Alias targets stay inside the compiler cap
+- **GIVEN** a device whose alias rows pass the compiler's alias filters and
+  exceed `sweep_max_alias_targets_per_device`
+- **WHEN** core freezes the plan
+- **THEN** the plan includes at most that cap of the device's alias addresses
+
+#### Scenario: A CIDR in the ip column is dropped for that row
+- **GIVEN** a query row whose ip is `10.0.0.0/24` and a static target 10.1.1.1
+- **WHEN** core freezes the plan
+- **THEN** the plan does not contain `10.0.0.0/24`
+- **AND** the plan contains 10.1.1.1
 
 #### Scenario: A large scan set is split
 - **WHEN** the scan set exceeds the plan builder's limits
 - **THEN** core splits it across executions or ranges
-- **AND** every member is included in a signed sweep plan under
-  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
+- **AND** every member returned by `SweepCompiler` target resolution is included
+  in a signed sweep plan under `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
 - **AND** the group's sweep results and sweep metric batch are both edge records
 
 #### Scenario: A failed device read keeps the last plan
 - **GIVEN** a sweep group with a signed plan from the previous resolution
-- **WHEN** the device read for its `target_query` fails
+- **WHEN** a later page of the device read fails, or the alias-table read fails
 - **THEN** core keeps that signed plan
-- **AND** it does not sign an empty plan
+- **AND** it does not sign the pages already fetched
+- **AND** it does not sign a plan that omits aliases
 
 #### Scenario: An unparseable query leaves static targets
 - **GIVEN** a sweep group with static target 10.1.1.1 and a `target_query` that
@@ -97,6 +131,18 @@ SHALL still run.
 - **WHEN** core resolves the group
 - **THEN** the query contributes no hosts
 - **AND** the signed plan contains 10.1.1.1
+
+#### Scenario: A query that cannot be translated drops query hosts
+- **GIVEN** the last signed plan contains 10.0.0.5 and static target 10.1.1.1
+- **WHEN** the group's query parses but cannot be translated or cast
+- **THEN** the signed plan contains 10.1.1.1
+- **AND** it does not contain 10.0.0.5
+
+#### Scenario: A changed read replaces the signed set
+- **GIVEN** the last signed plan contains 10.0.0.5
+- **WHEN** a successful read matches only 10.0.0.6
+- **THEN** the next signed plan contains 10.0.0.6
+- **AND** it does not contain 10.0.0.5
 
 ### Requirement: Sweep groups the lease skipped get a home before cutover
 Before legacy status-path emission is removed, core SHALL lease every runnable
@@ -139,11 +185,14 @@ sweep lease and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`.
 ### Requirement: Unrepresentable sweep targets are refused at configuration
 After short intervals, mtr mode, and banner results have a home, the plan
 builder SHALL refuse a sweep group it still cannot represent, including a static
-or resolved IPv6 prefix wider than /65 (`:target_too_wide`) and a schedule
+target that is an IPv6 prefix wider than /65 (`:target_too_wide`) and a schedule
 denser than one second, when the sweep group is configured. The refusal SHALL be
 an operator-visible validation error. An existing group of that kind SHALL be
 reported as not runnable. That group SHALL NOT emit on the legacy status path
-and SHALL NOT emit edge records.
+and SHALL NOT emit edge records. `SweepCompiler` mode handling SHALL NOT refuse
+the group: TCP modes with no ports are dropped, modes outside icmp, tcp,
+tcp_connect, and mtr are dropped, and the remaining modes still run. A CIDR
+dropped from a query row SHALL NOT refuse the group.
 
 #### Scenario: A prefix wider than /65 is refused
 - **WHEN** an operator saves a sweep group whose target is an IPv6 prefix wider
@@ -156,6 +205,11 @@ and SHALL NOT emit edge records.
 - **WHEN** core evaluates that group
 - **THEN** the group is reported as not runnable
 - **AND** it emits neither legacy status nor edge records
+
+#### Scenario: A dropped mode does not refuse the group
+- **WHEN** a sweep group's modes include arp and icmp
+- **THEN** arp is dropped
+- **AND** the icmp targets are still signed into the sweep plan
 
 ### Requirement: Passive producers run under standing output grants
 A producer that core does not schedule SHALL emit records only under a standing
@@ -188,9 +242,9 @@ legacy status path or the edge-record path. A sweep group's results, its sweep
 metric batch, and its banner results are one producer for this rule until that
 group has a signed sweep lease: they SHALL stay on the legacy path together,
 and SHALL move to edge records together under that lease. Traces from a group
-whose modes include mtr SHALL move with that lease onto the MTR check lease.
-Per-family parity soaks
-SHALL finish before cutover. The next release SHALL remove legacy agent
+whose modes include mtr SHALL move as `MtrTraceBatchV1` under MTR check leases
+when MTR checks move, with no dependency on that group's sweep lease.
+Per-family parity soaks SHALL finish before cutover. The next release SHALL remove legacy agent
 status-path emission and the gateway's matching publishers together, and only
 after every runnable sweep group has a signed sweep lease. After that release,
 no durable agent data remains on `StreamStatus` or `PushStatus`.

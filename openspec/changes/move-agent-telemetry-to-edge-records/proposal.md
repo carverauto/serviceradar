@@ -55,21 +55,27 @@ were deferred to prove the transport on one producer first. That proof is done.
   every runnable sweep group has a signed sweep lease. There is no long-lived
   per-family legacy.
 - Move sweep groups that use a `target_query` in a final phase, before that
-  cutover. At lease time core freezes the compiler's full scan set for that
-  execution: the query's hosts, their alias addresses, and the group's static
-  targets, under the existing sweep lease and `SCHEDULED_SWEEP`. When that set
-  changes, core re-plans. A set that exceeds plan limits is split across
-  executions or ranges so every member is in a signed plan. A failed device read
-  keeps the last signed plan and does not sign an empty one. An unparseable
-  query contributes no hosts, and the group's static targets still run. The
-  group's sweep results and sweep metric batch move together once that lease
-  exists.
+  cutover. The signed plan is `SweepCompiler`'s target resolution for that group,
+  the same function the compiler uses today: `normalize_target_query` partition
+  scoping, the alias filters (strict IP, `alias_type` ip, confirmed, updated, or
+  detected, AliasRecency window, not already a primary, capped at
+  `sweep_max_alias_targets_per_device`), per-row drops of non-address values (a
+  CIDR in the ip column is not planned as a prefix), plus the group's static
+  targets, under the existing sweep lease and `SCHEDULED_SWEEP`. A successful
+  read whose targets differ re-plans. A set that exceeds plan limits is split
+  across executions or ranges. A failed device read, including a later page error
+  or an alias-table error, keeps the last signed plan and does not sign a partial
+  page set or a plan that omits aliases. An unparseable query, and a query that
+  parses but cannot be translated or cast, contributes no hosts and does not keep
+  the last plan; static targets still run. Sweep results and the sweep metric
+  batch move together once that lease exists.
 - Give every other runnable sweep group a lease before that same cutover. Lower
   the lease schedule minimum from 300 seconds to 1 second, so a whole-second
   interval leases; the cost is more slots per horizon. A group whose modes
-  include mtr keeps reachability and port results on the sweep lease, and its
-  traces are `MtrTraceBatchV1` under the MTR check lease. Banner results are a
-  new typed output contract under that same sweep lease and `SCHEDULED_SWEEP`;
+  include mtr keeps reachability and port results on the sweep lease. Its traces
+  are `MtrTraceBatchV1` under the MTR check lease when MTR checks move, with no
+  dependency on that group's sweep lease. Banner results are a new typed output
+  contract under that same sweep lease and `SCHEDULED_SWEEP`;
   `EdgeRecordV1` and the frozen payloads stay unchanged. Anything still
   unrepresentable, such as an IPv6 prefix wider than /65 (`:target_too_wide`),
   is refused at sweep group configuration with an operator-visible validation
