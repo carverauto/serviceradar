@@ -45,8 +45,10 @@ data family therefore moves in this change; nothing stays on a legacy fallback.
 - **One agent-side producer sink** that every migrated producer appends to, replacing
   drain-before-send buffers. Admission is acknowledged only after the record is durable in the
   spool; a refusal is retryable backpressure and a drop is counted with its reason.
-- **One EventWriter projector per contract**, writing the destination the legacy path writes
-  today, so storage, alerting and real-time consumers are unchanged.
+- **Projectors register by contract.** One generic republish projector serves destinations that
+  are JetStream subjects. A projector module is added only when the destination is genuinely
+  new. Each projector writes the destination the legacy path writes today, so storage, alerting
+  and real-time consumers are unchanged.
 - **Durable streams.** The edge-record stream and the streams projectors publish to are
   replicated, because the agent reclaims its spool on PubAck.
 - **One cutover release.** A producer leaves the status path only in the release where that

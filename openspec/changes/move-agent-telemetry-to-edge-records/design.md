@@ -86,12 +86,13 @@ for retry within a bound; a drop is counted with its reason, never silent.
 
 ### Decision 5: Projectors write today's destinations
 
-Each contract's projector writes what the legacy path writes. Where the legacy destination is a
-JetStream subject (the `metrics.>` stream), the projector republishes the attested batch there
-with PubAck and the record's event id as `Nats-Msg-Id`, before its ledger transaction, so every
-existing consumer is unchanged and no network call runs inside a database transaction. A replay
-or late-fenced delivery is not republished. Telemetry storage follows the repository rule:
-StarRocks when enabled, CNPG otherwise; flows and exposure stay StarRocks-only.
+A registered projector writes what the legacy path writes for its contract. Where the legacy
+destination is a JetStream subject (the `metrics.>` stream, logs, OTel), the one generic
+republish projector republishes the attested batch there with PubAck and the record's event id
+as `Nats-Msg-Id`, before its ledger transaction, so every existing consumer is unchanged and no
+network call runs inside a database transaction. A replay or late-fenced delivery is not
+republished. Telemetry storage follows the repository rule: StarRocks when enabled, CNPG
+otherwise; flows and exposure stay StarRocks-only.
 
 ### Decision 6: Durable streams
 
@@ -123,6 +124,33 @@ Order, by loss exposure and readiness:
    results chunks, onto `serviceradar.metrics.batch`.
 6. Inventory producers: mapper, netprobe discovery, sync pages, workload identity, endpoint
    inventory, bumblebee, k8s endpoints.
+
+### Decision 8: Adding a payload never touches the generic pipeline
+
+The spool, sender, gateway authorization, JetStream route and EventWriter ledger are payload
+agnostic and SHALL stay that way: the gateway never decodes a payload. The per-payload pieces are
+kept to data plus, only where a destination is genuinely new, one projector module:
+
+- **Projectors register by contract.** EventWriter selects a projector from a registry keyed by
+  `{contract_id, contract_version}`; each projector implements one behaviour (decode and
+  validate, authority re-check, project). There is no per-contract clause in the processor.
+- **Republish projectors are configuration.** Metrics, logs and OTel all follow one pattern:
+  re-check authority, attest from the authenticated record, republish to the subject the gateway
+  uses today with PubAck. One generic republish projector, configured per contract (subject
+  rule, attestation fields, accepted sources), serves them.
+- **Grants follow the registry.** Core issues standing grants for every registry entry marked as
+  agent-scheduled, rather than naming contracts in code.
+- **Plugins and add-ons never get their own contract.** Native add-ons and Wasm plugins emit
+  through the plugin telemetry contract (`TelemetryBatch`) and the plugin result contract.
+  Routing keys off the SDK's closed TelemetryBatch payload kinds (`serviceradar_metrics`,
+  `ocsf_event`, `otel_log`). Manifest `signal_schemas` only describe event and log schemas
+  (`ocsf_event`, `otel_log`) and do not admit `serviceradar_metrics`. One projector routes each
+  closed payload kind to its existing destination. A plugin author emits a closed payload kind
+  and touches no core, gateway, registry, or manifest code. A new payload kind is an SDK and
+  core change reviewed like any other contract.
+
+So a new built-in family is a typed protobuf message, a registry entry and an agent producer,
+plus a projector module only when its destination is new.
 
 ## Risks
 

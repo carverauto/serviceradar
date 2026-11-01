@@ -118,6 +118,39 @@ existing stream to the configured value.
 - **WHEN** the node holding a stream leader fails after the agent reclaimed an acknowledged record
 - **THEN** the record is still delivered to its projector
 
+### Requirement: New payloads extend the pipeline by registration
+Adding an output contract SHALL NOT require changes to the agent spool, the sender, the gateway
+authorization or routing, or the EventWriter ledger. EventWriter SHALL select a contract's
+projector from a registry keyed by contract id and version. One generic republish projector,
+configured per contract, SHALL serve destinations that are JetStream subjects. A projector
+module SHALL be added only when the destination is genuinely new. Core SHALL issue standing
+grants for every registry entry marked as agent-scheduled. Native add-ons and Wasm plugins
+SHALL emit through the shared plugin telemetry and plugin result contracts and SHALL NOT be
+given contracts of their own. Routing SHALL key off the SDK's closed TelemetryBatch payload
+kinds (`serviceradar_metrics`, `ocsf_event`, `otel_log`). Manifest `signal_schemas` SHALL
+describe only event and log schemas (`ocsf_event`, `otel_log`). A new payload kind SHALL be
+an SDK and core change.
+
+#### Scenario: A plugin emits metrics on a closed payload kind
+- **GIVEN** a Wasm plugin that emits a TelemetryBatch with payload kind serviceradar_metrics
+- **WHEN** the batch is delivered
+- **THEN** its records use the plugin telemetry contract
+- **AND** they reach the existing metrics destination with no new contract, projector, gateway
+  or manifest change
+
+#### Scenario: A JetStream destination reuses the generic republish projector
+- **WHEN** a new built-in contract's destination is a JetStream subject
+- **THEN** the generic republish projector, configured for that contract, serves it
+- **AND** no new projector module is added
+- **AND** the processor gains no clause naming that contract
+
+#### Scenario: A genuinely new destination adds one projector module
+- **WHEN** a new built-in family is added whose destination is not a JetStream subject
+- **THEN** it adds a typed protobuf, a registry entry, an agent producer, and one projector
+  module
+- **AND** EventWriter dispatches its records through the projector registry
+- **AND** the processor gains no clause naming that contract
+
 ### Requirement: Each producer emits on one path and legacy is removed at cutover
 A producer SHALL emit on exactly one of the legacy status path or the edge-record path. It SHALL
 stop its status-path emission only in the release where that producer emits as edge records and
