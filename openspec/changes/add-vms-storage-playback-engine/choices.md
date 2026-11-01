@@ -679,7 +679,7 @@ the lease expires during that work. Those local bytes stay on disk and grant no
 upload authority; an unfrozen tail is not recovered here. See
 [Historical recording block authority](block-authority.md).
 
-Consumer release and captured-relay idle close are a separate best-effort step.
+Consumer release and captured-relay idle close are a distinct best-effort step.
 They run on the stopping worker before it exits.
 `ServiceRadarCoreElx.CameraRecording.Worker` owns that step. An error or forced
 termination falls back to lease expiry/reaping and never changes the media seal
