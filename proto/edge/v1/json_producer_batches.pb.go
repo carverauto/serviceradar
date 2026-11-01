@@ -1771,16 +1771,16 @@ func (x *MapperNeighborIdentityV1) GetSystemName() string {
 	return ""
 }
 
-// MapperTopologyObservationV2 maps `mapper.DiscoveryTopologyObservationV2` (`observation`).
+// MapperTopologyObservationV2 maps `mapper.TopologyObservationV2` (`observation`).
 type MapperTopologyObservationV2 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Schema contract version (`contract_version`, e.g. `"topology_observation.v2"`).
+	// Schema contract version (`contract_version`, `"mapper.topology_observation.v2"`).
 	ContractVersion string `protobuf:"bytes,1,opt,name=contract_version,json=contractVersion,proto3" json:"contract_version,omitempty"`
-	// Observation type (`observation_type`, e.g. `"neighbor_link"`).
+	// Observation type (`observation_type`, `"topology_link"`).
 	ObservationType string `protobuf:"bytes,2,opt,name=observation_type,json=observationType,proto3" json:"observation_type,omitempty"`
 	// Source protocol (`source_protocol`, e.g. `"lldp"`, `"cdp"`, `"unifi-api"`).
 	SourceProtocol string `protobuf:"bytes,3,opt,name=source_protocol,json=sourceProtocol,proto3" json:"source_protocol,omitempty"`
-	// Source adapter identifier (`source_adapter`, e.g. `"snmp_lldp"`, `"unifi_uplink"`).
+	// Source adapter identifier (`source_adapter`: `"lldp.v1"`, `"cdp.v1"`, `"snmp.v1"`, `"unifi.v1"`, `"mikrotik.v1"`).
 	SourceAdapter string `protobuf:"bytes,4,opt,name=source_adapter,json=sourceAdapter,proto3" json:"source_adapter,omitempty"`
 	// Evidence classification (`evidence_class`, e.g. `"direct-physical"`, `"inferred-segment"`).
 	EvidenceClass string `protobuf:"bytes,5,opt,name=evidence_class,json=evidenceClass,proto3" json:"evidence_class,omitempty"`
@@ -1934,7 +1934,7 @@ func (x *MapperTopologyObservationV2) GetRelationFamily() string {
 	return ""
 }
 
-// MapperTopologyEndpointV1 maps `mapper.DiscoveryTopologyEndpointV2`
+// MapperTopologyEndpointV1 maps `mapper.TopologyObservationEndpointV2`
 // (`source_endpoint` and `target_endpoint`).
 type MapperTopologyEndpointV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -2275,7 +2275,7 @@ type NetprobeDiscoveryRecordV1 struct {
 	GatewayId string `protobuf:"bytes,3,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
 	// Network partition identifier (`partition`).
 	Partition string `protobuf:"bytes,4,opt,name=partition,proto3" json:"partition,omitempty"`
-	// Top-level source tag (`source`, e.g. `"netprobe-passive"`, `"netprobe-active"`, `"netprobe-dpi"`, `"netprobe-process"`).
+	// Top-level source tag (`source`: `"passive-netprobe"` or `"sweep_active"`).
 	Source string `protobuf:"bytes,5,opt,name=source,proto3" json:"source,omitempty"`
 	// Discovery source metadata value (`metadata["discovery_source"]`).
 	DiscoverySource string `protobuf:"bytes,6,opt,name=discovery_source,json=discoverySource,proto3" json:"discovery_source,omitempty"`
@@ -2291,8 +2291,8 @@ type NetprobeDiscoveryRecordV1 struct {
 	// Additional string metadata key-value pairs (`metadata`).
 	Metadata map[string]string `protobuf:"bytes,11,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Typed discovery observation payload (`metadata["passive_fingerprint"]`,
-	// `metadata["active_fingerprint"]`, `metadata["dpi_observation"]`, or
-	// `metadata["process_snapshot"]`).
+	// `metadata["active_fingerprint"]`, `metadata["dpi"]`, or
+	// `metadata["local_processes"]`).
 	//
 	// Types that are valid to be assigned to Observation:
 	//
@@ -2455,12 +2455,12 @@ type NetprobeDiscoveryRecordV1_Fingerprint struct {
 }
 
 type NetprobeDiscoveryRecordV1_Dpi struct {
-	// Deep packet inspection application-protocol observation (`dpi_observation`).
+	// Deep packet inspection application-protocol observation (`dpi`).
 	Dpi *NetprobeDpiObservationV1 `protobuf:"bytes,13,opt,name=dpi,proto3,oneof"`
 }
 
 type NetprobeDiscoveryRecordV1_ProcessSnapshot struct {
-	// Host listening-socket / process / container / package ownership snapshot (`process_snapshot`).
+	// Host listening-socket / process / container / package ownership snapshot (`local_processes`).
 	ProcessSnapshot *NetprobeProcessSnapshotObservationV1 `protobuf:"bytes,14,opt,name=process_snapshot,json=processSnapshot,proto3,oneof"`
 }
 
@@ -2476,13 +2476,13 @@ func (*NetprobeDiscoveryRecordV1_ProcessSnapshot) isNetprobeDiscoveryRecordV1_Ob
 // `ServiceRadar.Inventory.ActiveFingerprintPayload`.
 type NetprobeFingerprintObservationV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Fingerprint source (`source`: `"netprobe-passive"` or `"netprobe-active"`).
+	// Fingerprint source (`source`: `"passive-netprobe"` or `"sweep_active"`).
 	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	// Netprobe profile UUID (`profile_id`).
 	ProfileId string `protobuf:"bytes,2,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
 	// Netprobe profile name (`profile_name`).
 	ProfileName string `protobuf:"bytes,3,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`
-	// Capture network interface name (`interface_name`).
+	// Capture network interface name (`passive_fingerprint.interface` / `active_fingerprint.interface`).
 	InterfaceName string `protobuf:"bytes,4,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
 	// Observation timestamp in Unix epoch nanoseconds (`observed_at`, RFC3339Nano in JSON).
 	ObservedAtUnixNano int64 `protobuf:"varint,5,opt,name=observed_at_unix_nano,json=observedAtUnixNano,proto3" json:"observed_at_unix_nano,omitempty"`
@@ -3711,13 +3711,13 @@ func (x *NetprobeFingerprintDisagreementV1) GetVersionRange() string {
 // `go/pkg/agent/netprobe/translator.go` and `ServiceRadar.Inventory.DpiPayload`.
 type NetprobeDpiObservationV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// DPI source tag (`source`, `"netprobe-dpi"`).
+	// DPI source tag (`source`, `"passive-netprobe"`).
 	Source string `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
 	// Netprobe profile UUID (`profile_id`).
 	ProfileId string `protobuf:"bytes,2,opt,name=profile_id,json=profileId,proto3" json:"profile_id,omitempty"`
 	// Netprobe profile name (`profile_name`).
 	ProfileName string `protobuf:"bytes,3,opt,name=profile_name,json=profileName,proto3" json:"profile_name,omitempty"`
-	// Capture interface name (`interface_name`).
+	// Capture interface name (`dpi.interface`).
 	InterfaceName string `protobuf:"bytes,4,opt,name=interface_name,json=interfaceName,proto3" json:"interface_name,omitempty"`
 	// Detected application protocol (`protocol`).
 	Protocol string `protobuf:"bytes,5,opt,name=protocol,proto3" json:"protocol,omitempty"`
@@ -4970,11 +4970,11 @@ type SyncDeviceRecordV1 struct {
 	SwitchPortAttachment map[string]string `protobuf:"bytes,48,rep,name=switch_port_attachment,json=switchPortAttachment,proto3" json:"switch_port_attachment,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// String metadata key-value pairs (`metadata`, including Armis/NetBox/UniFi
 	// enrichment keys such as `armis_device_id`, `integration_id`, `integration_type`,
-	// `sync_service_id`, `canonical_SourceID`, `collector_agent_id`, `boundaries`,
-	// `custom_properties`, `tags`, `site`, `mac_Count`, `all_macs`, `primary_mac`,
+	// `sync_service_id`, `collector_agent_id`, `boundaries`,
+	// `custom_properties`, `tags`, `site`, `all_macs`, `primary_mac`,
 	// `ip_addresses`, `all_ips`, `primary_ip`, `brand`, `manufacturer`, `model`,
 	// `category`, `type`, `os`, `os_version`, `operating_system`,
-	// ` operating_system_version`, `purdue_level`, `risk_level`, `visibility`,
+	// `purdue_level`, `risk_level`, `visibility`,
 	// `access_switch`, `data_sources`, `user`, `business_impact`, `serial_number`).
 	Metadata map[string]string `protobuf:"bytes,49,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// Device tags (`tags`).

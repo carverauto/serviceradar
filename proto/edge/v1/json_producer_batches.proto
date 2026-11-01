@@ -368,15 +368,15 @@ message MapperNeighborIdentityV1 {
   string system_name = 6;
 }
 
-// MapperTopologyObservationV2 maps `mapper.DiscoveryTopologyObservationV2` (`observation`).
+// MapperTopologyObservationV2 maps `mapper.TopologyObservationV2` (`observation`).
 message MapperTopologyObservationV2 {
-  // Schema contract version (`contract_version`, e.g. `"topology_observation.v2"`).
+  // Schema contract version (`contract_version`, `"mapper.topology_observation.v2"`).
   string contract_version = 1;
-  // Observation type (`observation_type`, e.g. `"neighbor_link"`).
+  // Observation type (`observation_type`, `"topology_link"`).
   string observation_type = 2;
   // Source protocol (`source_protocol`, e.g. `"lldp"`, `"cdp"`, `"unifi-api"`).
   string source_protocol = 3;
-  // Source adapter identifier (`source_adapter`, e.g. `"snmp_lldp"`, `"unifi_uplink"`).
+  // Source adapter identifier (`source_adapter`: `"lldp.v1"`, `"cdp.v1"`, `"snmp.v1"`, `"unifi.v1"`, `"mikrotik.v1"`).
   string source_adapter = 4;
   // Evidence classification (`evidence_class`, e.g. `"direct-physical"`, `"inferred-segment"`).
   string evidence_class = 5;
@@ -400,7 +400,7 @@ message MapperTopologyObservationV2 {
   string relation_family = 14;
 }
 
-// MapperTopologyEndpointV1 maps `mapper.DiscoveryTopologyEndpointV2`
+// MapperTopologyEndpointV1 maps `mapper.TopologyObservationEndpointV2`
 // (`source_endpoint` and `target_endpoint`).
 message MapperTopologyEndpointV1 {
   // Endpoint unique identifier (`uid`).
@@ -488,7 +488,7 @@ message NetprobeDiscoveryRecordV1 {
   string gateway_id = 3;
   // Network partition identifier (`partition`).
   string partition = 4;
-  // Top-level source tag (`source`, e.g. `"netprobe-passive"`, `"netprobe-active"`, `"netprobe-dpi"`, `"netprobe-process"`).
+  // Top-level source tag (`source`: `"passive-netprobe"` or `"sweep_active"`).
   string source = 5;
   // Discovery source metadata value (`metadata["discovery_source"]`).
   string discovery_source = 6;
@@ -505,14 +505,14 @@ message NetprobeDiscoveryRecordV1 {
   map<string, string> metadata = 11;
 
   // Typed discovery observation payload (`metadata["passive_fingerprint"]`,
-  // `metadata["active_fingerprint"]`, `metadata["dpi_observation"]`, or
-  // `metadata["process_snapshot"]`).
+  // `metadata["active_fingerprint"]`, `metadata["dpi"]`, or
+  // `metadata["local_processes"]`).
   oneof observation {
     // Passive or active fingerprint observation (`passive_fingerprint` / `active_fingerprint`).
     NetprobeFingerprintObservationV1 fingerprint = 12;
-    // Deep packet inspection application-protocol observation (`dpi_observation`).
+    // Deep packet inspection application-protocol observation (`dpi`).
     NetprobeDpiObservationV1 dpi = 13;
-    // Host listening-socket / process / container / package ownership snapshot (`process_snapshot`).
+    // Host listening-socket / process / container / package ownership snapshot (`local_processes`).
     NetprobeProcessSnapshotObservationV1 process_snapshot = 14;
   }
 }
@@ -522,13 +522,13 @@ message NetprobeDiscoveryRecordV1 {
 // `ServiceRadar.Inventory.PassiveFingerprintPayload` and
 // `ServiceRadar.Inventory.ActiveFingerprintPayload`.
 message NetprobeFingerprintObservationV1 {
-  // Fingerprint source (`source`: `"netprobe-passive"` or `"netprobe-active"`).
+  // Fingerprint source (`source`: `"passive-netprobe"` or `"sweep_active"`).
   string source = 1;
   // Netprobe profile UUID (`profile_id`).
   string profile_id = 2;
   // Netprobe profile name (`profile_name`).
   string profile_name = 3;
-  // Capture network interface name (`interface_name`).
+  // Capture network interface name (`passive_fingerprint.interface` / `active_fingerprint.interface`).
   string interface_name = 4;
   // Observation timestamp in Unix epoch nanoseconds (`observed_at`, RFC3339Nano in JSON).
   int64 observed_at_unix_nano = 5;
@@ -738,13 +738,13 @@ message NetprobeFingerprintDisagreementV1 {
 // NetprobeDpiObservationV1 maps `dpiObservationMetadata` in
 // `go/pkg/agent/netprobe/translator.go` and `ServiceRadar.Inventory.DpiPayload`.
 message NetprobeDpiObservationV1 {
-  // DPI source tag (`source`, `"netprobe-dpi"`).
+  // DPI source tag (`source`, `"passive-netprobe"`).
   string source = 1;
   // Netprobe profile UUID (`profile_id`).
   string profile_id = 2;
   // Netprobe profile name (`profile_name`).
   string profile_name = 3;
-  // Capture interface name (`interface_name`).
+  // Capture interface name (`dpi.interface`).
   string interface_name = 4;
   // Detected application protocol (`protocol`).
   string protocol = 5;
@@ -1085,11 +1085,11 @@ message SyncDeviceRecordV1 {
 
   // String metadata key-value pairs (`metadata`, including Armis/NetBox/UniFi
   // enrichment keys such as `armis_device_id`, `integration_id`, `integration_type`,
-  // `sync_service_id`, `canonical_SourceID`, `collector_agent_id`, `boundaries`,
-  // `custom_properties`, `tags`, `site`, `mac_Count`, `all_macs`, `primary_mac`,
+  // `sync_service_id`, `collector_agent_id`, `boundaries`,
+  // `custom_properties`, `tags`, `site`, `all_macs`, `primary_mac`,
   // `ip_addresses`, `all_ips`, `primary_ip`, `brand`, `manufacturer`, `model`,
   // `category`, `type`, `os`, `os_version`, `operating_system`,
-  // ` operating_system_version`, `purdue_level`, `risk_level`, `visibility`,
+  // `purdue_level`, `risk_level`, `visibility`,
   // `access_switch`, `data_sources`, `user`, `business_impact`, `serial_number`).
   map<string, string> metadata = 49;
   // Device tags (`tags`).
