@@ -5,7 +5,7 @@ templates:
 release:
   namespace: sr-test
 tests:
-  - it: renders admission lane NACK and incomplete sync run alerts when observability is enabled
+  - it: renders non-accepted admission lane and incomplete sync run alerts when observability is enabled
     template: templates/serviceradar-prometheus-rules.yaml
     set:
       observability.enabled: true
@@ -20,7 +20,7 @@ tests:
             labels:
               severity: warning
             annotations:
-              summary: "ServiceRadar admission lane is returning non-accepted NACKs"
+              summary: "ServiceRadar admission lane recorded non-accepted completions"
               description: "One or more core admission lanes recorded non-accepted completion outcomes in namespace sr-test."
       - contains:
           path: spec.groups[0].rules

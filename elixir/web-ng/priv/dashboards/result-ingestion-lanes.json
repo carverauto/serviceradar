@@ -2,7 +2,7 @@
   "version": 1,
   "slug": "result-ingestion-lanes",
   "title": "Result ingestion lanes",
-  "description": "Bounded admission lane queue depth, throughput, rejections, NACKs, crashes, and incomplete sync runs across serviceradar-core nodes. Each chart is one metric split by the lane tag.",
+  "description": "Bounded admission lane queue depth, throughput, rejections, non-accepted completions, crashes, and incomplete sync runs across serviceradar-core nodes. Each chart is one metric split by the lane tag.",
   "default_time_range": "last_1h",
   "metadata": {
     "system_report": true,

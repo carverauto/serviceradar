@@ -219,7 +219,7 @@ minute of consecutive failure (scaled with the publish interval), and
 recovery is logged once. Log fields carry only the
 subject, a reason class, and a count.
 
-Interval negatively-acknowledged counts are the
+Interval non-accepted counts are the
 `result_ingestion_terminals_not_accepted` completion outcomes: worker errors,
 timeouts, and persistence failures surfaced as not-accepted replies. Admission
 refusals (`result_ingestion_rejections_*`) are caller-side rejections, never
@@ -247,7 +247,8 @@ in-memory coordinator state:
   `serviceradar_admission_lane_timeout_count`, and
   `serviceradar_admission_lane_crash_count` with bounded lane/class tags only.
   `helm/serviceradar/dashboards/serviceradar-ingestion-edge.json` charts lane
-  queue depth, admissions vs rejections, and NACK / incomplete-run counters with
+  queue depth, admissions vs rejections, and non-accepted completion /
+  incomplete-run counters with
   `max by (lane)` for gauges and `sum by (lane)` for counter increases, and
   `helm/serviceradar/templates/serviceradar-prometheus-rules.yaml` defines
   `ServiceRadarAdmissionLaneNotAccepted` and `ServiceRadarSyncIncompleteRun`.
@@ -259,7 +260,8 @@ in-memory coordinator state:
   (`result_ingestion_duration_ms`), and acknowledgement gauges use `agg:avg`.
   Admission, rejection, terminal, crash, and incomplete-run counters use
   `agg:sum`, so a one-minute bucket does not average away the 30-second deltas.
-  Lane, sweep, and sync all publish execution as `duration_ms`. A
+  Lane, sweep, and sync all publish execution as `duration_ms`. Acknowledgement
+  is enqueue-to-done from lane and sweep only. A
   `result_ingestion_terminals_not_accepted` delta is any non-accepted
   completion: queue-wait timeouts, sweep cancellations, worker failures, and
   persistence failures.
@@ -268,9 +270,11 @@ in-memory coordinator state:
   refresh (never in disconnected mount) to render the **Ingestion** summary card
   and the **Ingestion Lanes** table directly from ETS without calling any lane
   GenServer or touching the database. The card follows current queued depth and
-  shows unavailable when no core coordinator is reachable. The table keeps each
-  node's cumulative admitted, rejected, accepted, not-accepted, timeout, crash,
-  and incomplete-run totals.
+  shows unavailable when no core coordinator is reachable. The table shows one
+  row per lane. Pending depth, in-flight work, byte occupancy, and both caps are
+  summed across connected cores, so pending / max is cluster occupancy over
+  cluster capacity. Admitted, rejected, accepted, not-accepted, timeout, crash,
+  and incomplete-run totals are summed the same way.
 
 Two synthetic harnesses are selected by ordinary PR BazelCI:
 

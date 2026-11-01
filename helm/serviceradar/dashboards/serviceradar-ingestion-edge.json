@@ -215,7 +215,7 @@
     {
       "id": 16,
       "type": "timeseries",
-      "title": "Core Admission Lane NACKs & Incomplete Sync Runs (5m)",
+      "title": "Core Admission Lane Non-Accepted Completions & Incomplete Sync Runs (5m)",
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 45},
       "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
       "targets": [

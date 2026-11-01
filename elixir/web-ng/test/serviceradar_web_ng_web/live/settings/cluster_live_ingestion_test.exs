@@ -121,4 +121,65 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveIngestionTest do
     assert ClusterLive.ingestion_card_variant(backlog) == "warning"
     assert ClusterLive.ingestion_card_value(backlog) == "3 queued / 0 active"
   end
+
+  test "merged lane rows compare cluster occupancy with summed capacity" do
+    lane = fn pending, max_items, pending_bytes, max_bytes ->
+      %{
+        lane: :sync,
+        pending_count: pending,
+        pending_bytes: pending_bytes,
+        in_flight_count: 1,
+        in_flight_bytes: 1_024,
+        max_items: max_items,
+        max_bytes: max_bytes,
+        admitted_total: 1,
+        rejected_total: 0,
+        accepted_total: 1,
+        not_accepted_total: 0,
+        timeout_total: 0,
+        crash_total: 0,
+        incomplete_run_total: 0,
+        queue_wait_ms: 5,
+        execution_ms: 50,
+        acknowledgement_ms: 80
+      }
+    end
+
+    one = lane.(20, 32, 1_024, 65_536)
+
+    assert [^one] =
+             ClusterLive.merge_ingestion_lane_snapshots([%{node: "core-a", lanes: [one]}])
+
+    snapshots =
+      for node <- ["core-a", "core-b", "core-c"] do
+        %{node: node, lanes: [lane.(20, 32, 1_024, 65_536)]}
+      end
+
+    [merged] = ClusterLive.merge_ingestion_lane_snapshots(snapshots)
+    assert merged.pending_count == 60
+    assert merged.in_flight_count == 3
+    assert merged.in_flight_bytes == 3_072
+    assert merged.max_items == 96
+    assert merged.pending_bytes == 3_072
+    assert merged.max_bytes == 196_608
+    assert merged.admitted_total == 3
+    assert merged.queue_wait_ms == 5
+    assert merged.execution_ms == 50
+    assert merged.acknowledgement_ms == 80
+
+    html =
+      render_component(&ClusterLive.ingestion_lanes_panel/1,
+        ingestion_stats: %{
+          available: true,
+          nodes: ["core-a", "core-b", "core-c"],
+          lanes: [merged],
+          totals: %{pending_count: 60, in_flight_count: 3}
+        }
+      )
+
+    assert html =~ "cluster-ingestion-lane-sync"
+    assert html =~ "60 / 96"
+    assert html =~ "6.0 KiB / 192.0 KiB"
+    refute html =~ "60 / 32"
+  end
 end

@@ -98,7 +98,7 @@ spec:
           labels:
             severity: warning
           annotations:
-            summary: "ServiceRadar admission lane is returning non-accepted NACKs"
+            summary: "ServiceRadar admission lane recorded non-accepted completions"
             description: "One or more core admission lanes recorded non-accepted completion outcomes in namespace {{ .Release.Namespace }}."
         - alert: ServiceRadarSyncIncompleteRun
           expr: sum by (lane) (increase(serviceradar_admission_lane_incomplete_run_count{namespace="{{ .Release.Namespace }}"}[{{ default "15m" $core.syncIncompleteRunWindow }}])) > {{ default 0 $core.syncIncompleteRunMax }}

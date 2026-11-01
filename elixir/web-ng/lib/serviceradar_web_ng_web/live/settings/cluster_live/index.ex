@@ -1325,9 +1325,10 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
     end
   end
 
-  defp merge_ingestion_lane_snapshots([%{lanes: lanes}]), do: lanes
+  @doc false
+  def merge_ingestion_lane_snapshots([%{lanes: lanes}]), do: lanes
 
-  defp merge_ingestion_lane_snapshots(snapshots) do
+  def merge_ingestion_lane_snapshots(snapshots) do
     ordered_names =
       snapshots
       |> hd()
@@ -1350,8 +1351,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             pending_bytes: acc.pending_bytes + entry.pending_bytes,
             in_flight_count: acc.in_flight_count + entry.in_flight_count,
             in_flight_bytes: acc.in_flight_bytes + entry.in_flight_bytes,
-            max_items: max(acc.max_items, entry.max_items),
-            max_bytes: max(acc.max_bytes, entry.max_bytes),
+            max_items: acc.max_items + entry.max_items,
+            max_bytes: acc.max_bytes + entry.max_bytes,
             admitted_total: acc.admitted_total + entry.admitted_total,
             rejected_total: acc.rejected_total + entry.rejected_total,
             accepted_total: acc.accepted_total + entry.accepted_total,

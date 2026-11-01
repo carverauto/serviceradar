@@ -190,8 +190,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
           %{
             count: length(active.ids),
             outcome: outcome,
-            duration_ms: duration_ms,
-            acknowledgement_ms: duration_ms
+            duration_ms: duration_ms
           },
           %{result: result, outcome: outcome}
         )

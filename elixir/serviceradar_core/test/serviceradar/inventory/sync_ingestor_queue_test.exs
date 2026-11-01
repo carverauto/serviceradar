@@ -130,6 +130,33 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueueTest do
            "batch sizes: #{inspect(Enum.map(batches, &length/1))}"
   end
 
+  test "a completed batch records worker duration without an end-to-end acknowledgement" do
+    Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 20)
+    parent = self()
+
+    :ok =
+      :telemetry.attach(
+        "sync-completion-measurements",
+        [:serviceradar, :admission_lane, :completion],
+        fn _event, measurements, metadata, _config ->
+          send(parent, {:completion, measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn -> :telemetry.detach("sync-completion-measurements") end)
+
+    assert :ok = SyncIngestorQueue.enqueue(Jason.encode!([%{"device_id" => "dev-ack"}]))
+
+    assert_receive {:completion, measurements, metadata}, 1_000
+    assert metadata.outcome == :accepted
+    assert metadata.result == :committed
+    assert is_integer(measurements.duration_ms)
+    assert measurements.duration_ms >= 0
+    assert measurements.outcome == :accepted
+    refute Map.has_key?(measurements, :acknowledgement_ms)
+  end
+
   test "a timed-out batch is retried with its own chunks, not with later arrivals" do
     Application.put_env(:serviceradar_core, :sync_ingestor_coalesce_ms, 50)
     Application.put_env(:serviceradar_core, :sync_ingestor_queue_max_chunks, 2)
