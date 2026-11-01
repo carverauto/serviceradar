@@ -140,7 +140,7 @@ Every result ingestion queue and admission lane SHALL report pending and in-flig
 - **THEN** its pending and in-flight count and byte gauges SHALL report zero
 
 ### Requirement: Ingestion lane metrics are published on JetStream
-Core SHALL publish ingestion lane metrics (per lane or class: queue depth and bytes, and for the interval the admitted, rejected by reason, negatively acknowledged, and timed-out counts, plus incomplete sync runs) as one `serviceradar.metric.v1` MetricBatch per publish interval on the `metrics.ingestion_lanes` JetStream subject, persisted by the EventWriter `Metrics` processor to the active telemetry backend. Core MUST NOT write these metrics to the database directly, MUST NOT publish them per ingested message, and a failed publish SHALL be logged without affecting ingestion. The metrics SHALL be queryable through `timeseries_metrics`; no alert or dashboard is required to consume them by this requirement.
+Core SHALL publish ingestion lane metrics (per lane or class: queue depth and bytes, and for the interval the admitted, rejected by reason, not-accepted, and timed-out counts, plus incomplete sync runs) as one `serviceradar.metric.v1` MetricBatch per publish interval on the `metrics.ingestion_lanes` JetStream subject, persisted by the EventWriter `Metrics` processor to the active telemetry backend. Core MUST NOT write these metrics to the database directly, MUST NOT publish them per ingested message, and a failed publish SHALL be logged without affecting ingestion. The metrics SHALL be queryable through `timeseries_metrics`; no alert or dashboard is required to consume them by this requirement.
 
 #### Scenario: Published lane metrics are persisted by the Metrics processor
 - **GIVEN** a lane admitted and rejected results during a publish interval
@@ -159,12 +159,12 @@ Core SHALL publish ingestion lane metrics (per lane or class: queue depth and by
 - **THEN** core SHALL publish one MetricBatch for that interval
 
 ### Requirement: Ingestion lane metrics are visible to operators
-Ingestion lane metrics SHALL be available on three surfaces: Prometheus metrics in the core-elx scrape with panels in the chart's Grafana ingestion dashboards; a seeded ServiceRadar dashboard charting the persisted lane metrics from `timeseries_metrics`; and an Ingestion card on Settings -> Cluster Status showing current per-lane depth and capacity and recent rejections and negative acknowledgements. The Cluster Status card SHALL read live values from a lane-stats call rather than a database query and SHALL show an unavailable state when lane stats cannot be read.
+Ingestion lane metrics SHALL be available on three surfaces: Prometheus metrics in the core-elx scrape with panels in the chart's Grafana ingestion dashboards; a seeded ServiceRadar dashboard charting the persisted lane metrics from `timeseries_metrics`; and Settings -> Cluster Status, which shows current queued and in-flight depth on the Ingestion summary and per-lane pending depth against capacity on the Ingestion Lanes table. Outcome columns on that table are cumulative totals summed across connected cores, including each lane's capacity. Cluster Status SHALL read live values from a lane-stats call rather than a database query and SHALL show an unavailable state when lane stats cannot be read.
 
 #### Scenario: Cluster Status shows lane depth
 - **GIVEN** the retained-plugin lane holds queued work
 - **WHEN** an operator opens Settings -> Cluster Status
-- **THEN** the Ingestion card SHALL show that lane's depth against its capacity
+- **THEN** the Ingestion Lanes table SHALL show that lane's pending depth against its capacity
 
 #### Scenario: Lane stats unavailable
 - **GIVEN** core cannot return lane stats

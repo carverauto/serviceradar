@@ -247,9 +247,11 @@ in-memory coordinator state:
   `serviceradar_admission_lane_timeout_count`, and
   `serviceradar_admission_lane_crash_count` with bounded lane/class tags only.
   `helm/serviceradar/dashboards/serviceradar-ingestion-edge.json` charts lane
-  queue depth, admissions vs rejections, and non-accepted completion /
-  incomplete-run counters with
-  `max by (lane)` for gauges and `sum by (lane)` for counter increases, and
+  queue depth, admissions vs rejections, non-accepted completions, incomplete
+  runs, timeouts, and crashes. Gauges use `max by (lane)`. Admitted and
+  incomplete-run increases use `sum by (lane)`. Rejections, timeouts, and
+  crashes use `sum by (lane, reason)`. Non-accepted completions use
+  `sum by (lane, result)`.
   `helm/serviceradar/templates/serviceradar-prometheus-rules.yaml` defines
   `ServiceRadarAdmissionLaneNotAccepted` and `ServiceRadarSyncIncompleteRun`.
 - **ServiceRadar Dashboard (`result-ingestion-lanes`)**: Seeded by
@@ -278,7 +280,9 @@ in-memory coordinator state:
   row per lane. Pending depth, in-flight work, byte occupancy, and both caps are
   summed across connected cores, so pending / max is cluster occupancy over
   cluster capacity. Admitted, rejected, accepted, not-accepted, timeout, crash,
-  and incomplete-run totals are summed the same way.
+  and incomplete-run totals are summed the same way. Those outcome columns are
+  cumulative for the life of each core process; the summary card does not use
+  them.
 
 Two synthetic harnesses are selected by ordinary PR BazelCI:
 
