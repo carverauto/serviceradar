@@ -215,6 +215,8 @@ Runtime behavior:
 - The service restarts against the new runtime.
 - If the updated agent does not report healthy before the reconnect deadline, the updater restores the previous target and restarts again.
 
+After the agent enrolls with the gateway and the activation is confirmed healthy, it removes every other directory under `<runtime root>/versions` (by default `/var/lib/serviceradar/agent/versions`). It keeps the directory `current` points at, the release that activation replaced, and `versions/seed-installed`. Cleanup waits for that healthy confirmation, so the reconnect deadline still has the previous release on disk. A rollback does not remove version directories. Files and symlinks inside `versions/` stay; only real directories are removed. A directory that cannot be removed is logged, the rest are still removed, and the activation still completes. The next successful update removes directories that older agents left behind. Native add-on version trees are separate and are not part of this cleanup.
+
 The control plane records terminal per-agent states such as:
 
 - `healthy`
