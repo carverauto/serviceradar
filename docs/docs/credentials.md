@@ -62,8 +62,7 @@ rule.
 This external-reference foundation does not imply Delinea support or public
 provider/reference CRUD. The broker includes OpenBao and a Vault alias; Delinea
 remains an unimplemented adapter placeholder. The current Terraform and public
-credential creation surface accepts internal encrypted material only. Consumer
-migration and UI/API coverage remain partial. See
+credential creation surface accepts internal encrypted material only. See
 [Declarative environments](./declarative-environments.md#future-delinea-secret-server-integration)
 for the proposed runtime integration and the separate runner credential handoff.
 
