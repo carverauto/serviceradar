@@ -32,9 +32,10 @@
 // (spool.Spool.Resolve) may only advance after the agent's own local
 // durability for that sequence commits -- never directly from the wire ack.
 // Without PersistAcknowledgements the remote watermark remains in memory only.
-// With it, the validated acknowledgement is fsynced before the local watermark
-// advances. Only that local durability can reclaim a fully accepted drained
-// segment. A remote watermark alone never does.
+// With it, the resolving prefix of the validated acknowledgement is fsynced
+// before the local watermark advances. resolvingPrefix states which dispositions
+// that prefix keeps. Only that local durability can reclaim a fully accepted
+// drained segment. A remote watermark alone never does.
 //
 // # Ambiguous sequence gaps
 //
@@ -116,9 +117,9 @@ type Config struct {
 	TrafficClass          edgev1.EdgeRecordTrafficClass
 	RequestedByteCredits  uint64
 	RequestedFrameCredits uint32
-	// PersistAcknowledgements saves validated terminal dispositions locally before
-	// suppressing their replay, and reclaims a fully accepted drained segment.
-	// Unresolved and rejected records stay on disk.
+	// PersistAcknowledgements fsyncs the resolving prefix of a validated
+	// acknowledgement before suppressing that prefix's replay, and reclaims a
+	// fully accepted drained segment. Unresolved and rejected records stay on disk.
 	PersistAcknowledgements bool
 }
 
@@ -168,7 +169,8 @@ func New(sp *spool.Spool, client StreamClient, cfg Config) (*Sender, error) {
 // RunOnce opens one lane session, sends every currently-unresolved spool
 // record up to the gateway-granted credit window, and drains dispositions
 // until every sent sequence is resolved, the stream ends, or ctx is done. It
-// persists validated dispositions only when configured to do so.
+// persists the resolving prefix of a validated acknowledgement only when
+// configured to do so.
 func (s *Sender) RunOnce(ctx context.Context) (Result, error) {
 	if s.cfg.PersistAcknowledgements {
 		if err := s.spool.ReclaimResolved(); err != nil {
