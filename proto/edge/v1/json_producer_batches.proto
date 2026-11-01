@@ -81,8 +81,7 @@ message MapperDeviceRecordV1 {
   //
   // Originating sync/discovery job identifier (`metadata["sync_service_id"]`).
   string sync_service_id = 12;
-  // MAC provenance classification (`metadata["identity_mac_kind"]`, e.g.
-  // `"management_interface"`, `"chassis_base"`).
+  // MAC provenance (`metadata["identity_mac_kind"]`: `"primary"`, `"management"`, `"chassis"`).
   string identity_mac_kind = 13;
   // SNMPv2-MIB::sysDescr.0 (`metadata["sys_descr"]`).
   string sys_descr = 14;
@@ -108,7 +107,7 @@ message MapperDeviceRecordV1 {
   int32 ip_forwarding = 24;
   // BRIDGE-MIB::dot1dBaseBridgeAddress (`metadata["bridge_base_mac"]`).
   string bridge_base_mac = 25;
-  // System uptime in seconds (`metadata["uptime"]` from `device.Uptime` Duration).
+  // Raw `device.Uptime` integer (`metadata["uptime"]`). SNMP sysUpTime TimeTicks are stored unchanged (centiseconds). MikroTik API uptime is stored in seconds.
   int64 uptime = 26;
   // First seen timestamp in Unix epoch nanoseconds (`metadata["first_seen"]`, RFC3339 in JSON).
   int64 first_seen_unix_nano = 27;
@@ -862,11 +861,11 @@ message NetprobeWorkloadIdentityV1 {
 
 // NetprobeExecutableOwnershipV1 maps `executableOwnershipMetadata` (`executable_ownership`).
 message NetprobeExecutableOwnershipV1 {
-  // Ownership resolution state (`resolution_state`, e.g. `"owned"`, `"unowned"`, `"degraded"`).
+  // Ownership resolution state (`resolution_state`: `"unspecified"`, `"resolved"`, `"unknown"`, `"not_permitted"`, `"not_found"`, `"unsupported_db"`).
   string resolution_state = 1;
   // Resolution detail or error code (`detail`).
   string detail = 2;
-  // Filesystem scope (`source_scope`, e.g. `"host"`, `"container_rootfs"`).
+  // Filesystem scope (`source_scope`: `"host"` or `"container"`).
   string source_scope = 3;
   // Package type (`package_type`, e.g. `"deb"`, `"rpm"`, `"apk"`).
   string package_type = 4;
@@ -1143,7 +1142,7 @@ message SyncDeviceHwInfoV1 {
   optional int32 cpu_speed_mhz = 5;
   // CPU model/type (`cpu_type`).
   string cpu_type = 6;
-  // Total RAM size in bytes or MB (`ram_size`).
+  // Total RAM size in bytes (`ram_size`).
   optional int64 ram_size = 7;
   // Hardware serial number (`serial_number`).
   string serial_number = 8;

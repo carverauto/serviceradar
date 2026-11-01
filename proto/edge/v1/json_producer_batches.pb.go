@@ -144,8 +144,7 @@ type MapperDeviceRecordV1 struct {
 	//
 	// Originating sync/discovery job identifier (`metadata["sync_service_id"]`).
 	SyncServiceId string `protobuf:"bytes,12,opt,name=sync_service_id,json=syncServiceId,proto3" json:"sync_service_id,omitempty"`
-	// MAC provenance classification (`metadata["identity_mac_kind"]`, e.g.
-	// `"management_interface"`, `"chassis_base"`).
+	// MAC provenance (`metadata["identity_mac_kind"]`: `"primary"`, `"management"`, `"chassis"`).
 	IdentityMacKind string `protobuf:"bytes,13,opt,name=identity_mac_kind,json=identityMacKind,proto3" json:"identity_mac_kind,omitempty"`
 	// SNMPv2-MIB::sysDescr.0 (`metadata["sys_descr"]`).
 	SysDescr string `protobuf:"bytes,14,opt,name=sys_descr,json=sysDescr,proto3" json:"sys_descr,omitempty"`
@@ -171,7 +170,7 @@ type MapperDeviceRecordV1 struct {
 	IpForwarding int32 `protobuf:"varint,24,opt,name=ip_forwarding,json=ipForwarding,proto3" json:"ip_forwarding,omitempty"`
 	// BRIDGE-MIB::dot1dBaseBridgeAddress (`metadata["bridge_base_mac"]`).
 	BridgeBaseMac string `protobuf:"bytes,25,opt,name=bridge_base_mac,json=bridgeBaseMac,proto3" json:"bridge_base_mac,omitempty"`
-	// System uptime in seconds (`metadata["uptime"]` from `device.Uptime` Duration).
+	// Raw `device.Uptime` integer (`metadata["uptime"]`). SNMP sysUpTime TimeTicks are stored unchanged (centiseconds). MikroTik API uptime is stored in seconds.
 	Uptime int64 `protobuf:"varint,26,opt,name=uptime,proto3" json:"uptime,omitempty"`
 	// First seen timestamp in Unix epoch nanoseconds (`metadata["first_seen"]`, RFC3339 in JSON).
 	FirstSeenUnixNano int64 `protobuf:"varint,27,opt,name=first_seen_unix_nano,json=firstSeenUnixNano,proto3" json:"first_seen_unix_nano,omitempty"`
@@ -4338,11 +4337,11 @@ func (x *NetprobeWorkloadIdentityV1) GetAnnotations() map[string]string {
 // NetprobeExecutableOwnershipV1 maps `executableOwnershipMetadata` (`executable_ownership`).
 type NetprobeExecutableOwnershipV1 struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// Ownership resolution state (`resolution_state`, e.g. `"owned"`, `"unowned"`, `"degraded"`).
+	// Ownership resolution state (`resolution_state`: `"unspecified"`, `"resolved"`, `"unknown"`, `"not_permitted"`, `"not_found"`, `"unsupported_db"`).
 	ResolutionState string `protobuf:"bytes,1,opt,name=resolution_state,json=resolutionState,proto3" json:"resolution_state,omitempty"`
 	// Resolution detail or error code (`detail`).
 	Detail string `protobuf:"bytes,2,opt,name=detail,proto3" json:"detail,omitempty"`
-	// Filesystem scope (`source_scope`, e.g. `"host"`, `"container_rootfs"`).
+	// Filesystem scope (`source_scope`: `"host"` or `"container"`).
 	SourceScope string `protobuf:"bytes,3,opt,name=source_scope,json=sourceScope,proto3" json:"source_scope,omitempty"`
 	// Package type (`package_type`, e.g. `"deb"`, `"rpm"`, `"apk"`).
 	PackageType string `protobuf:"bytes,4,opt,name=package_type,json=packageType,proto3" json:"package_type,omitempty"`
@@ -5535,7 +5534,7 @@ type SyncDeviceHwInfoV1 struct {
 	CpuSpeedMhz *int32 `protobuf:"varint,5,opt,name=cpu_speed_mhz,json=cpuSpeedMhz,proto3,oneof" json:"cpu_speed_mhz,omitempty"`
 	// CPU model/type (`cpu_type`).
 	CpuType string `protobuf:"bytes,6,opt,name=cpu_type,json=cpuType,proto3" json:"cpu_type,omitempty"`
-	// Total RAM size in bytes or MB (`ram_size`).
+	// Total RAM size in bytes (`ram_size`).
 	RamSize *int64 `protobuf:"varint,7,opt,name=ram_size,json=ramSize,proto3,oneof" json:"ram_size,omitempty"`
 	// Hardware serial number (`serial_number`).
 	SerialNumber string `protobuf:"bytes,8,opt,name=serial_number,json=serialNumber,proto3" json:"serial_number,omitempty"`
