@@ -17,13 +17,14 @@
 - [ ] 2.1 Sysmon on `serviceradar.metrics.batch`: grant, agent producer, projector that
   republishes to the existing `metrics.>` subject, core NATS publish permission. Sysmon stops
   its status-path emission in this release while the agent holds the grant. SNMP, ICMP, rperf,
-  MTR, and unleased-sweep metrics keep the status path.
+  MTR, the periodic sweep summary, and unleased per-host sweep gauges keep the status path.
 - [ ] 2.2 SNMP, ICMP, rperf and MTR metrics on the same contract. Each stops its own status-path
   emission only in the release that moves it, and only while the agent holds the grant.
-- [ ] 2.3 Leased-sweep metric batches on `serviceradar.metrics.scheduled`. The sweep lease
-  delivery signs and carries a second production capability naming that contract, alongside the
-  sweep observation capability. The metric record uses that capability and the execution's
-  `SCHEDULED_SWEEP` source authorization.
+- [ ] 2.3 Periodic sweep summary `MetricBatch` on `serviceradar.metrics.batch` for every group,
+  leased or not, with no source authorization. The batch is the status-interval sample:
+  `sweep.total_hosts`, `sweep.available_hosts`, sequence, port counts, and banner stats. This
+  producer stops its status-path emission only in this release, and only while the agent holds
+  the grant. A leased execution still emits no metric batch of its own.
 - [ ] 2.4 farm01 parity soak against a control agent.
 
 ## 3. MTR traces
@@ -45,9 +46,9 @@
 ## 6. Unleased sweep results
 
 - [ ] 6.1 Sweep results contract for unleased groups, reusing the frozen host observation
-  messages without a plan join; projector into today's sweep and inventory tables. The
-  `MetricBatch` envelopes that ride the sweep-results status push move in this same task onto
-  `serviceradar.metrics.batch` with no source authorization. Parity soak.
+  messages without a plan join; projector into today's sweep and inventory tables. The per-host
+  gauge `MetricBatch` envelopes appended to those unleased results chunks move in this same task
+  onto `serviceradar.metrics.batch` with no source authorization. Parity soak.
 
 ## 7. Inventory producers
 

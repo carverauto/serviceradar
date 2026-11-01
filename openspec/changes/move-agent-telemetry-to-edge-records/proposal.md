@@ -33,10 +33,10 @@ data family therefore moves in this change; nothing stays on a legacy fallback.
     source authorization.
 - **One typed output contract per (data family, scheduling model)**, carrying an existing
   protobuf where one exists. JSON producers get a typed batch message first; the registry never
-  admits an untyped status envelope. Every agent-scheduled `MetricBatch`, including metrics of
-  unleased sweeps, uses `serviceradar.metrics.batch` with no source authorization. A leased
-  sweep's metric batch uses `serviceradar.metrics.scheduled` under its own production capability
-  on the sweep lease, with `SCHEDULED_SWEEP`.
+  admits an untyped status envelope. Every agent `MetricBatch` uses `serviceradar.metrics.batch`
+  with no source authorization: sysmon, SNMP, ICMP, rperf, MTR, the periodic sweep summary for
+  every group, and the per-host gauges of an unleased sweep. A leased sweep execution emits no
+  separate metric batch. The sweep lease and its frozen ABI are unchanged.
 - **One agent-side producer sink** that every migrated producer appends to, replacing
   drain-before-send buffers. Admission is acknowledged only after the record is durable in the
   spool; a refusal is retryable backpressure and a drop is counted with its reason.
@@ -56,7 +56,9 @@ data family therefore moves in this change; nothing stays on a legacy fallback.
   certificate renewal, credential grants, KV, artifact transfer.
 - Ephemeral latest-wins status summaries (agent health, service status heartbeats, plugin-engine
   counters). Per USP-01 task 2.14 these stay on `GatewayServiceStatus`.
-- Changing leased static sweeps, their plans or the frozen record ABI.
+- Changing leased static sweeps, their plans, `SweepLeaseV1`, or the frozen record ABI.
+- Deriving per-host gauges for a leased sweep from its projected results. Core already stores
+  the execution; that derivation is a possible follow-up, not this change.
 
 ## Impact
 

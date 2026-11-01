@@ -11,7 +11,8 @@ wire ABI frozen by `freeze-edge-record-v1-abi`.
 | Family | Payload today | Sink today |
 | --- | --- | --- |
 | Sysmon, SNMP, ICMP, rperf, MTR metrics | `MetricBatch` | `metrics.>` -> `Processors.Metrics` |
-| Sweep metrics | `MetricBatch` | `metrics.>` -> `Processors.Metrics` |
+| Periodic sweep summary | `MetricBatch` | status interval -> `metrics.>` |
+| Unleased per-host sweep gauges | `MetricBatch` | sweep-results push -> `metrics.>` |
 | MTR traces | JSON results | core -> `mtr.results.ingest` -> `Processors.Mtr` |
 | Unleased sweep results | JSON results | `SweepResultsIngestor` |
 | Plugin signals, add-on telemetry | `TelemetryBatch` | metrics, OCSF, OTel logs, discovery |
@@ -27,8 +28,8 @@ wire ABI frozen by `freeze-edge-record-v1-abi`.
 
 A **sweep lease** exists where core decides each run ahead of time and can sign what the run may
 do: a leased static sweep's plan binds its target ranges and checks, and each execution carries a
-`SCHEDULED_SWEEP` source authorization. That model is unchanged. The lease delivery also carries
-the metrics capability in Decision 3; the plan and the source authorization stay as they are.
+`SCHEDULED_SWEEP` source authorization. That model is unchanged, including the single production
+capability on `SweepLeaseV1`. A leased execution emits no metric batch of its own.
 
 Everything else runs on the agent's own schedule from the config core delivered. Signing each of
 those runs would mean a core-planned slot and a database row per poll for work the config already
@@ -55,14 +56,15 @@ Each (data family, scheduling model) has exactly one typed output contract. A co
 the family's existing protobuf where one exists; a JSON producer gets a typed batch message
 before it moves. The registry never admits an untyped status envelope.
 
-- `serviceradar.metrics.batch`: every agent-scheduled `MetricBatch` (sysmon, SNMP, ICMP, rperf,
-  MTR metrics, and metrics of unleased sweeps), no source authorization. Unleased-sweep metrics
-  move with the unleased sweep results, not with the earlier metrics producers.
-- `serviceradar.metrics.scheduled`: a leased sweep's metric batch only. The sweep lease delivery
-  signs and carries a second production capability naming this contract, alongside the capability
-  that names `serviceradar.sweep.observation`. The metric record uses the second capability and
-  shares the execution's `SCHEDULED_SWEEP` source authorization. It does not reuse the
-  observation capability, whose contract id would not match the record.
+- `serviceradar.metrics.batch`: every agent-scheduled `MetricBatch`, with no source
+  authorization. That is sysmon, SNMP, ICMP, rperf, and MTR metrics; the periodic sweep summary
+  (`sweep.total_hosts`, `sweep.available_hosts`, sequence, port counts, banner stats) for every
+  group, leased or not; and the per-host gauges appended to unleased sweep-results chunks.
+  The summary moves with the other metrics producers. The per-host gauges move with the unleased
+  sweep results. A leased execution emits no metric batch of its own; the summary above is the
+  agent's status-interval sample, not an execution batch. Core already stores that execution
+  through the sweep projection. If per-host gauges for a leased sweep are needed later, core
+  derives them from those projected results. That derivation is a follow-up, not this change.
 - The frozen `SweepObservationBatchV1` and `MtrTraceBatchV1` bind each body to a per-run source
   authorization, so unleased sweep results and agent-scheduled MTR traces get their own contracts
   that reuse the frozen host and trace sub-messages without that join.
@@ -94,18 +96,18 @@ Each producer moves behind the operator switch on exactly one path. It stops its
 emission only in the release where that producer emits as edge records, and only while the agent
 holds that contract's grant. A producer that has not migrated keeps the status path even when the
 agent already holds the grant, which is how the in-flight sysmon slice behaves. Holding
-`serviceradar.metrics.batch` for sysmon does not take SNMP, ICMP, rperf, MTR, or unleased-sweep
-metrics off the status path. After each family's farm01 parity soak, the next release removes
-every legacy agent emission and the gateway's matching publishers. Order, by loss exposure and
-readiness:
+`serviceradar.metrics.batch` for sysmon does not take SNMP, ICMP, rperf, MTR, the periodic sweep
+summary, or unleased per-host sweep gauges off the status path. After each family's farm01 parity
+soak, the next release removes every legacy agent emission and the gateway's matching publishers.
+Order, by loss exposure and readiness:
 
-1. Metrics: sysmon, then SNMP, ICMP, rperf and MTR metrics; leased-sweep metrics on their own
-   capability.
+1. Metrics: sysmon, then SNMP, ICMP, rperf and MTR metrics, then the periodic sweep summary for
+   every group.
 2. MTR traces.
 3. Flow attribution and OTLP relay.
 4. Plugin signals, native add-on telemetry, Wasm plugin results.
-5. Unleased sweep results, together with the `MetricBatch` envelopes that ride that status push,
-   onto `serviceradar.metrics.batch`.
+5. Unleased sweep results, together with the per-host gauge batches appended to that results
+   push, onto `serviceradar.metrics.batch`.
 6. Inventory producers: mapper, netprobe discovery, sync pages, workload identity, endpoint
    inventory, bumblebee, k8s endpoints.
 

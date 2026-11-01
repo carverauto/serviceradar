@@ -20,14 +20,21 @@ interfaces.
 Each pair of data family and scheduling model SHALL have exactly one typed output contract in the
 signed contract registry. A producer that emits JSON today SHALL be given a typed batch message
 before it migrates. The registry SHALL NOT admit a contract whose payload is an untyped status
-envelope. Every agent-scheduled `MetricBatch`, including metrics of an unleased sweep, uses
-`serviceradar.metrics.batch` and carries no source authorization. Only a leased sweep's metric
-batch uses `serviceradar.metrics.scheduled`.
+envelope. Every agent-scheduled `MetricBatch` SHALL use `serviceradar.metrics.batch` and SHALL
+carry no source authorization. That includes sysmon, SNMP, ICMP, rperf, MTR metrics, the periodic
+sweep summary for every group, and the per-host gauges of an unleased sweep.
 
 #### Scenario: Agent-scheduled metrics share one contract
-- **WHEN** sysmon, SNMP, ICMP, rperf, MTR, or an unleased sweep emits a `MetricBatch` edge record
+- **WHEN** sysmon, SNMP, ICMP, rperf, or MTR emits a `MetricBatch` edge record
 - **THEN** the record names `serviceradar.metrics.batch`
 - **AND** the record carries no source authorization
+
+#### Scenario: The sweep summary is agent-scheduled for every group
+- **WHEN** the agent emits its periodic sweep summary for a leased or unleased group
+- **THEN** the record names `serviceradar.metrics.batch`
+- **AND** the record carries no source authorization
+- **AND** the summary is the status-interval batch of total hosts, available hosts, sequence,
+  port counts, and banner stats
 
 #### Scenario: An untyped envelope is refused
 - **WHEN** a record names a contract whose payload is a raw status chunk
@@ -52,35 +59,31 @@ switch is turned off.
 - **WHEN** the agent runs it from its config
 - **THEN** its results are delivered as edge records under the agent's sweep results grant
 - **AND** they are projected into the same sweep and inventory tables as today
-- **AND** the metric batch that rides that same status push is delivered with those results,
+- **AND** the per-host gauge batch appended to that results push is delivered with those results,
   under `serviceradar.metrics.batch` with no source authorization
 
 ### Requirement: Core-scheduled sweeps keep their sweep leases
 A sweep execution that core leases SHALL keep its signed plan and its
 `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` source authorization. The sweep lease delivery
-SHALL sign and carry a production capability naming `serviceradar.sweep.observation` and a second
-production capability naming `serviceradar.metrics.scheduled`. The metric batch of that execution
-SHALL name `serviceradar.metrics.scheduled`, SHALL be authorized by that second capability, and
-SHALL carry the same `SCHEDULED_SWEEP` source authorization.
+SHALL keep its single production capability naming `serviceradar.sweep.observation` and SHALL NOT
+gain a second capability. That execution SHALL NOT emit a separate metric batch. Core already
+stores the execution through the sweep projection.
 
-#### Scenario: A leased sweep's metrics carry its authorization
-- **WHEN** a leased static sweep execution emits its metric batch
-- **THEN** the record names `serviceradar.metrics.scheduled`
-- **AND** its production capability names `serviceradar.metrics.scheduled`
-- **AND** it carries the execution's `SCHEDULED_SWEEP` source authorization
+#### Scenario: A leased execution emits no metric batch
+- **WHEN** a leased static sweep execution completes
+- **THEN** the agent emits no `MetricBatch` for that execution
+- **AND** the group's periodic sweep summary still uses `serviceradar.metrics.batch`
+- **AND** the execution's results remain available from the sweep projection
 
-#### Scenario: The lease delivery carries both production capabilities
+#### Scenario: The lease delivery keeps one production capability
 - **WHEN** core delivers a sweep lease for a leased static sweep
-- **THEN** the delivery carries a signed capability for `serviceradar.sweep.observation`
-- **AND** a second signed capability for `serviceradar.metrics.scheduled`
+- **THEN** the delivery carries one signed capability, for `serviceradar.sweep.observation`
 
 ### Requirement: Migrated producers append through one durable sink
 Every migrated producer SHALL append through the agent producer sink, which validates the
-capability that authorizes that record (its standing grant, or the leased sweep's metrics
-production capability), assigns event identity, commits the record to the spool, and acknowledges
-the producer only after the commit is durable. A refused admission SHALL be returned to the
-producer as retryable backpressure, and a producer that drops a batch SHALL count the drop with
-its reason.
+producer's grant, assigns event identity, commits the record to the spool, and acknowledges the
+producer only after the commit is durable. A refused admission SHALL be returned to the producer
+as retryable backpressure, and a producer that drops a batch SHALL count the drop with its reason.
 
 #### Scenario: A full spool pushes back instead of dropping silently
 - **WHEN** the spool is at its admission ceiling and a producer appends
@@ -114,12 +117,13 @@ a parity soak against a control agent. No durable agent data SHALL remain on `St
 
 #### Scenario: A producer not yet migrated keeps the status path
 - **GIVEN** an agent holding the `serviceradar.metrics.batch` grant because sysmon has migrated
-- **AND** SNMP, ICMP, rperf and MTR metrics have not yet moved to edge records
+- **AND** SNMP, ICMP, rperf, MTR, and the periodic sweep summary have not yet moved
 - **WHEN** the agent collects one of those metrics
 - **THEN** it still emits that producer's batch through `StreamStatus`
 
-#### Scenario: Unleased sweep metrics leave the status push with the results
-- **GIVEN** an unleased sweep whose `MetricBatch` rides the sweep-results status push
+#### Scenario: Unleased per-host gauges leave the results push with the results
+- **GIVEN** an unleased sweep whose per-host gauge `MetricBatch` rides the sweep-results push
 - **WHEN** that sweep's results move onto the unleased sweep results contract
-- **THEN** its metric batch moves in the same release onto `serviceradar.metrics.batch`
-- **AND** until that release the metric batch stays on the status push
+- **THEN** that gauge batch moves in the same release onto `serviceradar.metrics.batch`
+- **AND** until that release the gauge batch stays on the results push
+- **AND** the periodic sweep summary is not this batch
