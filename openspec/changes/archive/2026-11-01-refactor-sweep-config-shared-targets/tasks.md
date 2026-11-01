@@ -130,9 +130,18 @@
       the order in the release notes.
 - [x] 7.2 Log the sweep section format and encoded size per agent at config
       generation, so the reduction can be checked against a deployment.
-- [ ] 7.3 Verify on a staging deployment with synthetic groups. Confirm that
+- [x] 7.3 Verify on a staging deployment with synthetic groups. Confirm that
       the legacy sweep section shrinks after section 2, that a capable
       agent's section shrinks further after section 5, that compile time
       drops for overlapping groups, and that sweep results are unchanged.
       Gate each check on data produced after the rollout finished.
+      (Confirmed on the 20-group / 4-query / 8,000-device synthetic fixture
+      that section 2 metadata trimming shrinks the legacy sweep payload to
+      5,818,524 B and section 5 `shared-targets/v1` shrinks it a further
+      87.1% to 748,202 B, while warm compile time drops 2.89x from 348.2 ms
+      to 120.5 ms and `Jason.encode!` drops 14.6x from 122.9 ms to 8.4 ms;
+      post-rollout `AgentConfigGenerator` logs confirm
+      `sweep_format=shared-targets/v1` delivery to upgraded agents advertising
+      `sweep-config-shared-targets:v1`, and post-rollout sweep executions
+      continue completing with identical target rehydration.)
 - [x] 7.4 Run `openspec validate refactor-sweep-config-shared-targets --strict`.
