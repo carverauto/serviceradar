@@ -86,12 +86,13 @@ for retry within a bound; a drop is counted with its reason, never silent.
 
 ### Decision 5: Projectors write today's destinations
 
-Each contract's projector writes what the legacy path writes. Where the legacy destination is a
-JetStream subject (the `metrics.>` stream), the projector republishes the attested batch there
-with PubAck and the record's event id as `Nats-Msg-Id`, before its ledger transaction, so every
-existing consumer is unchanged and no network call runs inside a database transaction. A replay
-or late-fenced delivery is not republished. Telemetry storage follows the repository rule:
-StarRocks when enabled, CNPG otherwise; flows and exposure stay StarRocks-only.
+A registered projector writes what the legacy path writes for its contract. Where the legacy
+destination is a JetStream subject (the `metrics.>` stream, logs, OTel), the one generic
+republish projector republishes the attested batch there with PubAck and the record's event id
+as `Nats-Msg-Id`, before its ledger transaction, so every existing consumer is unchanged and no
+network call runs inside a database transaction. A replay or late-fenced delivery is not
+republished. Telemetry storage follows the repository rule: StarRocks when enabled, CNPG
+otherwise; flows and exposure stay StarRocks-only.
 
 ### Decision 6: Durable streams
 
@@ -140,11 +141,13 @@ kept to data plus, only where a destination is genuinely new, one projector modu
 - **Grants follow the registry.** Core issues standing grants for every registry entry marked as
   agent-scheduled, rather than naming contracts in code.
 - **Plugins and add-ons never get their own contract.** Native add-ons and Wasm plugins emit
-  through the plugin telemetry contract (`TelemetryBatch`) and the plugin result contract, using
-  the signal kinds the SDK manifest already closes (`signal_schemas`). One projector routes each
-  declared signal kind to its existing destination. A plugin author declares signals in the
-  manifest and touches no core, gateway or registry code; a new signal kind is an SDK and core
-  change reviewed like any other contract.
+  through the plugin telemetry contract (`TelemetryBatch`) and the plugin result contract.
+  Routing keys off the SDK's closed TelemetryBatch payload kinds (`serviceradar_metrics`,
+  `ocsf_event`, `otel_log`). Manifest `signal_schemas` only describe event and log schemas
+  (`ocsf_event`, `otel_log`) and do not admit `serviceradar_metrics`. One projector routes each
+  closed payload kind to its existing destination. A plugin author emits a closed payload kind
+  and touches no core, gateway, registry, or manifest code. A new payload kind is an SDK and
+  core change reviewed like any other contract.
 
 So a new built-in family is a typed protobuf message, a registry entry and an agent producer,
 plus a projector module only when its destination is new.

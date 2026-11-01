@@ -49,9 +49,12 @@
 
 ## 5. Plugin and add-on telemetry
 
-- [ ] 5.1 `TelemetryBatch` contract for plugin signals and native add-on telemetry; one projector
-  routes each manifest-declared signal kind to its existing destination. Plugins and add-ons
-  never get contracts of their own.
+- [ ] 5.1 `TelemetryBatch` contract for plugin signals and native add-on telemetry. Routing keys
+  off the SDK's closed TelemetryBatch payload kinds (`serviceradar_metrics`, `ocsf_event`,
+  `otel_log`). Manifest `signal_schemas` describe only event and log schemas (`ocsf_event`,
+  `otel_log`). One projector routes each closed payload kind to its existing destination.
+  Plugins and add-ons never get contracts of their own. A new payload kind is an SDK and core
+  change.
 - [ ] 5.2 Typed Wasm plugin result batch; producer and projector.
 - [ ] 5.3 Parity soak.
 
