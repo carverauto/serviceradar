@@ -49,11 +49,12 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
   end
 
   describe "dashboard_specs/0" do
-    test "ships the new-devices definition unchanged alongside MTR path analytics" do
+    test "ships the new-devices definition unchanged alongside MTR path analytics and result ingestion lanes" do
       slugs = Enum.map(SystemReports.dashboard_specs(), & &1.slug)
 
       assert SystemReports.new_devices_slug() in slugs
       assert SystemReports.mtr_path_analytics_slug() in slugs
+      assert SystemReports.result_ingestion_lanes_slug() in slugs
       assert length(Enum.uniq(slugs)) == length(slugs), "slugs must be unique"
     end
 
@@ -204,6 +205,26 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
 
       refute asn_panel,
              "the MTR dashboard must not ship a GeoLite2-dependent AS panel: #{inspect(asn_panel && asn_panel.title)}"
+    end
+
+    test "the result-ingestion-lanes dashboard charts depth, admissions, rejections, NACKs, and incomplete sync runs" do
+      ingestion =
+        Enum.find(
+          SystemReports.dashboard_specs(),
+          &(&1.slug == SystemReports.result_ingestion_lanes_slug())
+        )
+
+      assert ingestion.enabled_by_default
+      queries = Enum.map(ingestion.panels, & &1.srql_query)
+
+      assert Enum.all?(queries, &String.contains?(&1, "in:timeseries_metrics"))
+      assert Enum.all?(queries, &String.contains?(&1, "metric_type:core.result_ingestion"))
+      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_pending_count"))
+      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_pending_bytes"))
+      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_events_admitted"))
+      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_events_rejected"))
+      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_terminals_not_accepted"))
+      assert Enum.any?(queries, &String.contains?(&1, "result_ingestion_events_incomplete_run"))
     end
   end
 

@@ -1,0 +1,66 @@
+suite: result ingestion prometheus rules and grafana dashboard
+templates:
+  - templates/serviceradar-prometheus-rules.yaml
+  - templates/grafana-dashboards.yaml
+release:
+  namespace: sr-test
+tests:
+  - it: renders admission lane NACK and incomplete sync run alerts when observability is enabled
+    template: templates/serviceradar-prometheus-rules.yaml
+    set:
+      observability.enabled: true
+      observability.prometheus.rules.enabled: true
+    asserts:
+      - contains:
+          path: spec.groups[0].rules
+          content:
+            alert: ServiceRadarAdmissionLaneNotAccepted
+            expr: sum by (lane) (increase(serviceradar_admission_lane_completion_count{namespace="sr-test", outcome="not_accepted"}[5m])) > 0
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ServiceRadar admission lane is returning non-accepted NACKs"
+              description: "One or more core admission lanes recorded non-accepted completion outcomes in namespace sr-test."
+      - contains:
+          path: spec.groups[0].rules
+          content:
+            alert: ServiceRadarSyncIncompleteRun
+            expr: sum by (lane) (increase(serviceradar_admission_lane_incomplete_run_count{namespace="sr-test"}[15m])) > 0
+            for: 1m
+            labels:
+              severity: warning
+            annotations:
+              summary: "ServiceRadar sync ingestion detected an incomplete sync run"
+              description: "Sync ingestion recorded an incomplete sync run and skipped snapshot finalization in namespace sr-test."
+
+  - it: ships admission lane depth, rejection, NACK, and incomplete sync run panels in the ingestion dashboard configmap
+    template: templates/grafana-dashboards.yaml
+    set:
+      observability.enabled: true
+      observability.grafana.dashboards.enabled: true
+    asserts:
+      - matchRegex:
+          path: data["serviceradar-ingestion-edge.json"]
+          pattern: serviceradar_admission_lane_pending_count
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-dashboard-serviceradar-ingestion-edge
+      - matchRegex:
+          path: data["serviceradar-ingestion-edge.json"]
+          pattern: serviceradar_admission_lane_rejected_count
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-dashboard-serviceradar-ingestion-edge
+      - matchRegex:
+          path: data["serviceradar-ingestion-edge.json"]
+          pattern: serviceradar_admission_lane_completion_count
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-dashboard-serviceradar-ingestion-edge
+      - matchRegex:
+          path: data["serviceradar-ingestion-edge.json"]
+          pattern: serviceradar_admission_lane_incomplete_run_count
+        documentSelector:
+          path: metadata.name
+          value: serviceradar-dashboard-serviceradar-ingestion-edge

@@ -12,7 +12,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
   use ServiceRadarWebNGWeb, :live_view
 
   alias ServiceRadar.Cluster.ClusterStatus
+  alias ServiceRadar.Ingestion.RuntimeMetrics, as: IngestionRuntimeMetrics
   alias ServiceRadarWebNG.Accounts.Scope
+  alias ServiceRadarWebNG.Dashboards.SystemReports
   alias ServiceRadarWebNG.Jobs.JobCatalog
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Settings.Shell
@@ -61,6 +63,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         |> assign(:is_admin, is_admin)
         |> assign(:job_counts, if(connected?, do: load_job_counts(scope), else: %{total: 0}))
         |> assign(:oban_stats, if(connected?, do: load_oban_stats(), else: %{queues: %{}, total_executing: 0}))
+        |> assign(:ingestion_stats, ingestion_stats_for_mount(connected?))
         |> assign(:events, [])
 
       {:ok, socket}
@@ -99,7 +102,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:gateways, gateways)
      |> assign_agents(refreshed_agents_cache)
      |> assign(:job_counts, job_counts)
-     |> assign(:oban_stats, load_oban_stats())}
+     |> assign(:oban_stats, load_oban_stats())
+     |> assign(:ingestion_stats, load_ingestion_stats())}
   end
 
   def handle_info({:node_up, node}, socket) do
@@ -246,7 +250,8 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
      |> assign(:gateways, gateways)
      |> assign_agents(refreshed_agents_cache)
      |> assign(:job_counts, job_counts)
-     |> assign(:oban_stats, load_oban_stats())}
+     |> assign(:oban_stats, load_oban_stats())
+     |> assign(:ingestion_stats, load_ingestion_stats())}
   end
 
   @impl true
@@ -276,7 +281,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
         </div>
 
         <!-- Health Metrics Cards -->
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4">
           <.health_card
             title="Cluster"
             value={if @cluster_status.enabled, do: "Active", else: "Standalone"}
@@ -302,6 +307,12 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             value={@agent_count}
             variant="info"
             icon="hero-cube"
+          />
+          <.health_card
+            title="Ingestion"
+            value={ingestion_card_value(@ingestion_stats)}
+            variant={ingestion_card_variant(@ingestion_stats)}
+            icon="hero-funnel"
           />
           <.health_card
             title="Jobs"
@@ -401,6 +412,9 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
             />
           </.ui_panel>
         </div>
+
+        <!-- Ingestion Lanes -->
+        <.ingestion_lanes_panel ingestion_stats={@ingestion_stats} />
 
         <!-- Oban Queue Status -->
         <.ui_panel>
@@ -1154,6 +1168,239 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLive.Index do
 
   defp oban_variant(%{total_executing: n}) when n > 0, do: "success"
   defp oban_variant(_), do: "info"
+
+  @doc false
+  attr(:ingestion_stats, :map, required: true)
+
+  def ingestion_lanes_panel(assigns) do
+    ~H"""
+    <.ui_panel>
+      <:header>
+        <div>
+          <div class="text-sm font-semibold">Ingestion Lanes</div>
+          <p class="text-xs text-sr-muted">
+            Bounded core admission lane depth, byte credit, and completion outcomes
+          </p>
+        </div>
+        <.link
+          navigate={~p"/dashboard/#{SystemReports.result_ingestion_lanes_slug()}"}
+          class="inline-flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+        >
+          View dashboard <.icon name="hero-arrow-top-right-on-square" class="size-3.5" />
+        </.link>
+      </:header>
+
+      <div
+        :if={not @ingestion_stats.available}
+        id="cluster-ingestion-lanes-unavailable"
+        class="py-6 text-center text-sm text-sr-muted"
+      >
+        No core ingestion coordinator is reachable to report runtime lane metrics.
+      </div>
+
+      <div
+        :if={@ingestion_stats.available}
+        id="cluster-ingestion-lanes-table"
+        class="sr-ui-table-shell"
+      >
+        <table class={ui_table_class(size: "sm")}>
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-sr-muted">
+              <th>Lane</th>
+              <th>Pending / Max</th>
+              <th>In Flight</th>
+              <th>Bytes / Max</th>
+              <th>Admitted</th>
+              <th>Rejected</th>
+              <th>Accepted</th>
+              <th>Not Accepted</th>
+              <th>Timeouts / Crashes</th>
+              <th>Incomplete Runs</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={lane <- @ingestion_stats.lanes} id={"cluster-ingestion-lane-#{lane.lane}"}>
+              <td class="font-mono text-xs font-medium">{lane.lane}</td>
+              <td class="font-mono text-xs">{lane.pending_count} / {lane.max_items}</td>
+              <td class="font-mono text-xs">{lane.in_flight_count}</td>
+              <td class="font-mono text-xs">
+                {format_ingestion_bytes(lane.pending_bytes + lane.in_flight_bytes)} / {format_ingestion_bytes(
+                  lane.max_bytes
+                )}
+              </td>
+              <td class="font-mono text-xs">{lane.admitted_total}</td>
+              <td class={"font-mono text-xs #{if lane.rejected_total > 0, do: "text-warning font-semibold", else: "text-sr-muted"}"}>
+                {lane.rejected_total}
+              </td>
+              <td class="font-mono text-xs text-success">{lane.accepted_total}</td>
+              <td class={"font-mono text-xs #{if lane.not_accepted_total > 0, do: "text-error font-semibold", else: "text-sr-muted"}"}>
+                {lane.not_accepted_total}
+              </td>
+              <td class={"font-mono text-xs #{if lane.timeout_total + lane.crash_total > 0, do: "text-warning", else: "text-sr-muted"}"}>
+                {lane.timeout_total} / {lane.crash_total}
+              </td>
+              <td class={"font-mono text-xs #{if lane.incomplete_run_total > 0, do: "text-error font-semibold", else: "text-sr-muted"}"}>
+                {lane.incomplete_run_total}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </.ui_panel>
+    """
+  end
+
+  @doc false
+  def ingestion_stats_for_mount(true), do: load_ingestion_stats()
+  def ingestion_stats_for_mount(false), do: unavailable_ingestion_stats()
+
+  @doc false
+  def unavailable_ingestion_stats do
+    %{
+      available: false,
+      nodes: [],
+      lanes: [],
+      totals: default_ingestion_totals()
+    }
+  end
+
+  defp default_ingestion_totals do
+    %{
+      pending_count: 0,
+      pending_bytes: 0,
+      in_flight_count: 0,
+      in_flight_bytes: 0,
+      admitted_total: 0,
+      rejected_total: 0,
+      accepted_total: 0,
+      not_accepted_total: 0,
+      timeout_total: 0,
+      crash_total: 0,
+      incomplete_run_total: 0
+    }
+  end
+
+  defp load_ingestion_stats do
+    snapshots =
+      [Node.self() | Node.list()]
+      |> Enum.uniq()
+      |> Enum.flat_map(fn node ->
+        case :rpc.call(node, IngestionRuntimeMetrics, :lane_stats, [], 1_500) do
+          {:ok, %{lanes: lanes} = snapshot} when is_list(lanes) -> [snapshot]
+          _ -> []
+        end
+      end)
+
+    case snapshots do
+      [] ->
+        unavailable_ingestion_stats()
+
+      snapshots ->
+        lanes = merge_ingestion_lane_snapshots(snapshots)
+        totals = sum_ingestion_lanes(lanes)
+
+        %{
+          available: true,
+          nodes: Enum.map(snapshots, & &1.node),
+          lanes: lanes,
+          totals: totals
+        }
+    end
+  end
+
+  defp merge_ingestion_lane_snapshots([%{lanes: lanes}]), do: lanes
+
+  defp merge_ingestion_lane_snapshots(snapshots) do
+    ordered_names =
+      snapshots
+      |> hd()
+      |> Map.get(:lanes, [])
+      |> Enum.map(& &1.lane)
+
+    by_lane =
+      snapshots
+      |> Enum.flat_map(&Map.get(&1, :lanes, []))
+      |> Enum.group_by(& &1.lane)
+
+    Enum.map(ordered_names, fn lane_name ->
+      entries = Map.get(by_lane, lane_name, [])
+      first = hd(entries)
+
+      Enum.reduce(tl(entries), first, fn entry, acc ->
+        %{
+          acc
+          | pending_count: acc.pending_count + entry.pending_count,
+            pending_bytes: acc.pending_bytes + entry.pending_bytes,
+            in_flight_count: acc.in_flight_count + entry.in_flight_count,
+            in_flight_bytes: acc.in_flight_bytes + entry.in_flight_bytes,
+            max_items: max(acc.max_items, entry.max_items),
+            max_bytes: max(acc.max_bytes, entry.max_bytes),
+            admitted_total: acc.admitted_total + entry.admitted_total,
+            rejected_total: acc.rejected_total + entry.rejected_total,
+            accepted_total: acc.accepted_total + entry.accepted_total,
+            not_accepted_total: acc.not_accepted_total + entry.not_accepted_total,
+            timeout_total: acc.timeout_total + entry.timeout_total,
+            crash_total: acc.crash_total + entry.crash_total,
+            incomplete_run_total: acc.incomplete_run_total + entry.incomplete_run_total,
+            queue_wait_ms: max(acc.queue_wait_ms, entry.queue_wait_ms),
+            execution_ms: max(acc.execution_ms, entry.execution_ms),
+            acknowledgement_ms: max(acc.acknowledgement_ms, entry.acknowledgement_ms)
+        }
+      end)
+    end)
+  end
+
+  defp sum_ingestion_lanes(lanes) do
+    Enum.reduce(lanes, default_ingestion_totals(), fn lane, acc ->
+      %{
+        pending_count: acc.pending_count + lane.pending_count,
+        pending_bytes: acc.pending_bytes + lane.pending_bytes,
+        in_flight_count: acc.in_flight_count + lane.in_flight_count,
+        in_flight_bytes: acc.in_flight_bytes + lane.in_flight_bytes,
+        admitted_total: acc.admitted_total + lane.admitted_total,
+        rejected_total: acc.rejected_total + lane.rejected_total,
+        accepted_total: acc.accepted_total + lane.accepted_total,
+        not_accepted_total: acc.not_accepted_total + lane.not_accepted_total,
+        timeout_total: acc.timeout_total + lane.timeout_total,
+        crash_total: acc.crash_total + lane.crash_total,
+        incomplete_run_total: acc.incomplete_run_total + lane.incomplete_run_total
+      }
+    end)
+  end
+
+  @doc false
+  def ingestion_card_value(%{available: false}), do: "Unavailable"
+
+  def ingestion_card_value(%{totals: totals}) do
+    "#{totals.pending_count} queued / #{totals.in_flight_count} active"
+  end
+
+  @doc false
+  def ingestion_card_variant(%{available: false}), do: "warning"
+
+  def ingestion_card_variant(%{totals: totals}) do
+    cond do
+      totals.not_accepted_total > 0 or totals.incomplete_run_total > 0 or totals.crash_total > 0 ->
+        "error"
+
+      totals.rejected_total > 0 or totals.timeout_total > 0 or totals.pending_count > 0 ->
+        "warning"
+
+      true ->
+        "success"
+    end
+  end
+
+  defp format_ingestion_bytes(bytes) when is_integer(bytes) and bytes >= 1_048_576 do
+    "#{Float.round(bytes / 1_048_576, 1)} MiB"
+  end
+
+  defp format_ingestion_bytes(bytes) when is_integer(bytes) and bytes >= 1_024 do
+    "#{Float.round(bytes / 1_024, 1)} KiB"
+  end
+
+  defp format_ingestion_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
+  defp format_ingestion_bytes(_), do: "0 B"
 
   defp schedule_refresh do
     Process.send_after(self(), :refresh, @refresh_interval)

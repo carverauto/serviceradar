@@ -92,6 +92,22 @@ spec:
           annotations:
             summary: "ServiceRadar agent edge spool unresolved bytes are high"
             description: "An agent edge spool is holding more than 1 GiB of unresolved records."
+        - alert: ServiceRadarAdmissionLaneNotAccepted
+          expr: sum by (lane) (increase(serviceradar_admission_lane_completion_count{namespace="{{ .Release.Namespace }}", outcome="not_accepted"}[{{ default "5m" $core.admissionLaneNotAcceptedWindow }}])) > {{ default 0 $core.admissionLaneNotAcceptedMax }}
+          for: {{ default "1m" $core.admissionLaneNotAcceptedFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar admission lane is returning non-accepted NACKs"
+            description: "One or more core admission lanes recorded non-accepted completion outcomes in namespace {{ .Release.Namespace }}."
+        - alert: ServiceRadarSyncIncompleteRun
+          expr: sum by (lane) (increase(serviceradar_admission_lane_incomplete_run_count{namespace="{{ .Release.Namespace }}"}[{{ default "15m" $core.syncIncompleteRunWindow }}])) > {{ default 0 $core.syncIncompleteRunMax }}
+          for: {{ default "1m" $core.syncIncompleteRunFor }}
+          labels:
+            severity: warning
+          annotations:
+            summary: "ServiceRadar sync ingestion detected an incomplete sync run"
+            description: "Sync ingestion recorded an incomplete sync run and skipped snapshot finalization in namespace {{ .Release.Namespace }}."
         - alert: ServiceRadarCNPGMetricsTargetDown
           expr: up{namespace="{{ .Release.Namespace }}", job=~".*/cnpg"} == 0
           for: 5m

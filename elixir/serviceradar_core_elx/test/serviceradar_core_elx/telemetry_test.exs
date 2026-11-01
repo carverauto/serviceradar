@@ -109,6 +109,73 @@ defmodule ServiceRadarCoreElx.TelemetryTest do
     refute scrape =~ "telemetry-test-a"
   end
 
+  test "prometheus reporter exports admission lane gauges and counters with lane/class tags only" do
+    name = :"admission_lane_metrics_#{System.unique_integer([:positive])}"
+
+    _pid =
+      start_supervised!(
+        {TelemetryMetricsPrometheus.Core,
+         metrics: ServiceRadar.Telemetry.admission_lane_metrics(), name: name, start_async: false},
+        id: name
+      )
+
+    :telemetry.execute(
+      [:serviceradar, :admission_lane, :state],
+      %{pending_count: 3, pending_bytes: 1_536, in_flight_count: 1, in_flight_bytes: 512},
+      %{lane: :retained_plugin_result, agent_id: "agent-synthetic-hidden"}
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :admission_lane, :admitted],
+      %{count: 1},
+      %{lane: :retained_plugin_result, agent_id: "agent-synthetic-hidden"}
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :admission_lane, :rejected],
+      %{count: 1},
+      %{lane: :retained_plugin_result, reason: :count_full, agent_id: "agent-synthetic-hidden"}
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :admission_lane, :completion],
+      %{count: 1, acknowledgement_ms: 42, payload_bytes: 512},
+      %{
+        lane: :retained_plugin_result,
+        result: :execution_failed,
+        outcome: :not_accepted,
+        agent_id: "agent-synthetic-hidden",
+        execution_id: "exec-synthetic-hidden"
+      }
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :admission_lane, :incomplete_run],
+      %{count: 1},
+      %{lane: :sync, sync_run_id: "run-synthetic-hidden"}
+    )
+
+    scrape = TelemetryMetricsPrometheus.Core.scrape(name)
+    lines = String.split(scrape, "\n")
+
+    for line <- [
+          ~s(serviceradar_admission_lane_pending_count{lane="retained_plugin_result"} 3),
+          ~s(serviceradar_admission_lane_pending_bytes{lane="retained_plugin_result"} 1536),
+          ~s(serviceradar_admission_lane_in_flight_count{lane="retained_plugin_result"} 1),
+          ~s(serviceradar_admission_lane_in_flight_bytes{lane="retained_plugin_result"} 512),
+          ~s(serviceradar_admission_lane_admitted_count{lane="retained_plugin_result"} 1),
+          ~s(serviceradar_admission_lane_rejected_count{lane="retained_plugin_result",reason="count_full"} 1),
+          ~s(serviceradar_admission_lane_completion_count{lane="retained_plugin_result",outcome="not_accepted",result="execution_failed"} 1),
+          ~s(serviceradar_admission_lane_incomplete_run_count{lane="sync"} 1)
+        ] do
+      assert line in lines, "#{line} is not in the scrape:\n#{scrape}"
+    end
+
+    refute scrape =~ "agent-synthetic-hidden"
+    refute scrape =~ "exec-synthetic-hidden"
+    refute scrape =~ "run-synthetic-hidden"
+  end
+
   test "starts :opentelemetry_exporter before :opentelemetry in the compiled application spec" do
     assert ServiceRadarCoreElx.Telemetry.prometheus_reporter() ==
              :serviceradar_core_elx_prometheus_metrics

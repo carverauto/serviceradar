@@ -68,7 +68,7 @@ defmodule ServiceRadar.ResultsRouter do
       when is_map(headers) and is_integer(bytes) and bytes > 0 do
     if :erlang.external_size(descriptor) > 4_096 or
          map_size(state.reservations) >= max_items() or state.bytes + bytes > max_bytes() do
-      RuntimeMetrics.record(:service_state, :rejected, %{reason: :service_state_queue_full})
+      emit(:rejected, %{count: 1, payload_bytes: bytes}, %{reason: :service_state_queue_full})
       {:reply, {:error, :service_state_queue_full}, state}
     else
       id = make_ref()
@@ -83,7 +83,7 @@ defmodule ServiceRadar.ResultsRouter do
         observation: validated_observation(descriptor[:observation])
       }
 
-      RuntimeMetrics.record(:service_state, :admitted, %{})
+      emit(:admitted, %{count: 1, payload_bytes: bytes})
 
       {:reply, {:ok, id},
        record_state(%{
@@ -311,7 +311,7 @@ defmodule ServiceRadar.ResultsRouter do
         acc + (state.reservations[id] || %{bytes: 0}).bytes
       end)
 
-    RuntimeMetrics.record(:service_state, :state, %{
+    emit(:state, %{
       pending_count: map_size(state.reservations) - length(active_ids),
       pending_bytes: state.bytes - active_bytes,
       in_flight_count: length(active_ids),
@@ -319,6 +319,20 @@ defmodule ServiceRadar.ResultsRouter do
     })
 
     state
+  end
+
+  defp emit(event, measurements, metadata \\ %{}) do
+    RuntimeMetrics.record(
+      :service_state,
+      event,
+      Map.put(measurements, :reason, metadata[:reason])
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :admission_lane, event],
+      measurements,
+      Map.put(metadata, :lane, :service_state)
+    )
   end
 
   defp validated_observation({key, %DateTime{} = observed_at})

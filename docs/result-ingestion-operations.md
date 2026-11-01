@@ -232,6 +232,37 @@ Core has an exact publish permission for this subject, and the METRICS stream
 covers `metrics.>`. EventWriter owns persistence, selecting StarRocks exclusively
 when enabled and CNPG when disabled. Local telemetry remains supplementary.
 
+Operator visibility surfaces expose both the JetStream-persisted metrics and live
+in-memory coordinator state:
+
+- **Prometheus & Grafana**: `ServiceRadar.Telemetry.admission_lane_metrics/0`
+  exports `serviceradar_admission_lane_pending_count`,
+  `serviceradar_admission_lane_pending_bytes`,
+  `serviceradar_admission_lane_in_flight_count`,
+  `serviceradar_admission_lane_in_flight_bytes`,
+  `serviceradar_admission_lane_admitted_count`,
+  `serviceradar_admission_lane_rejected_count`,
+  `serviceradar_admission_lane_completion_count` (tagged by `lane`, `result`, and
+  `outcome`), `serviceradar_admission_lane_incomplete_run_count`,
+  `serviceradar_admission_lane_timeout_count`, and
+  `serviceradar_admission_lane_crash_count` with bounded lane/class tags only.
+  `helm/serviceradar/dashboards/serviceradar-ingestion-edge.json` charts lane
+  queue depth, admissions vs rejections, and NACK / incomplete-run counters, and
+  `helm/serviceradar/templates/serviceradar-prometheus-rules.yaml` defines
+  `ServiceRadarAdmissionLaneNotAccepted` and `ServiceRadarSyncIncompleteRun`.
+- **ServiceRadar Dashboard (`result-ingestion-lanes`)**: Seeded by
+  `ServiceRadarWebNG.Dashboards.SystemReports` from
+  `elixir/web-ng/priv/dashboards/result-ingestion-lanes.json`, charting
+  `in:timeseries_metrics metric_type:core.result_ingestion` series for item and
+  byte depth, admissions vs rejections, terminal completions / NACKs / crashes /
+  incomplete sync runs, and queue/execution/ack latency.
+- **Cluster Status (`Settings -> Cluster Status`)**: Queries
+  `ServiceRadar.Ingestion.RuntimeMetrics.lane_stats/0` on connected mount and
+  refresh (never in disconnected mount) to render the **Ingestion** summary card
+  and the **Ingestion Lanes** table directly from ETS without calling any lane
+  GenServer or touching the database. When no core coordinator is reachable, the
+  panel renders an explicit unavailable state rather than zeroed counters.
+
 Two synthetic harnesses are selected by ordinary PR BazelCI:
 
 - `StatusHandlerTest` prints `RESULT_INGESTION_DISPATCH_LOAD`. Identical invented

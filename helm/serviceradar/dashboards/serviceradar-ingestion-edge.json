@@ -151,6 +151,96 @@
         "legendFormat": "{{instance}}"
       }],
       "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []}
+    },
+    {
+      "id": 13,
+      "type": "timeseries",
+      "title": "Core Admission Lane Queue Depth (Items)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 37},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (lane) (serviceradar_admission_lane_pending_count{namespace=\"$namespace\"})",
+          "legendFormat": "{{lane}} pending"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (lane) (serviceradar_admission_lane_in_flight_count{namespace=\"$namespace\"})",
+          "legendFormat": "{{lane}} in_flight"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "Core Admission Lane Queue Depth (Bytes)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 37},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "max by (lane) (serviceradar_admission_lane_pending_bytes{namespace=\"$namespace\"})",
+          "legendFormat": "{{lane}} pending"
+        },
+        {
+          "refId": "B",
+          "expr": "max by (lane) (serviceradar_admission_lane_in_flight_bytes{namespace=\"$namespace\"})",
+          "legendFormat": "{{lane}} in_flight"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []}
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Core Admission Lane Admitted vs Rejected (5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 45},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (lane) (increase(serviceradar_admission_lane_admitted_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{lane}} admitted"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (lane, reason) (increase(serviceradar_admission_lane_rejected_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{lane}} rejected ({{reason}})"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
+    },
+    {
+      "id": 16,
+      "type": "timeseries",
+      "title": "Core Admission Lane NACKs & Incomplete Sync Runs (5m)",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 45},
+      "datasource": {"type": "prometheus", "uid": "${DS_PROMETHEUS}"},
+      "targets": [
+        {
+          "refId": "A",
+          "expr": "sum by (lane, result) (increase(serviceradar_admission_lane_completion_count{namespace=\"$namespace\", outcome=\"not_accepted\"}[5m]))",
+          "legendFormat": "{{lane}} not_accepted ({{result}})"
+        },
+        {
+          "refId": "B",
+          "expr": "sum by (lane) (increase(serviceradar_admission_lane_incomplete_run_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{lane}} incomplete_run"
+        },
+        {
+          "refId": "C",
+          "expr": "sum by (lane, reason) (increase(serviceradar_admission_lane_timeout_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{lane}} timeout ({{reason}})"
+        },
+        {
+          "refId": "D",
+          "expr": "sum by (lane, reason) (increase(serviceradar_admission_lane_crash_count{namespace=\"$namespace\"}[5m]))",
+          "legendFormat": "{{lane}} crash ({{reason}})"
+        }
+      ],
+      "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []}
     }
   ]
 }
