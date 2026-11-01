@@ -535,6 +535,7 @@ func TestReclaimRetainsRecordsWithoutAcceptedCoverage(t *testing.T) {
 	}{
 		{"unresolved tail", 1, accepted, []uint64{1}, false},
 		{"retryable rejection", 2, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_REJECTED_RETRYABLE, []uint64{1, 2}, false},
+		{"unspecified disposition", 2, edgev1.EdgeRecordDispositionKind_EDGE_RECORD_DISPOSITION_KIND_UNSPECIFIED, []uint64{1, 2}, false},
 		{"missing disposition", 2, accepted, []uint64{2}, false},
 		{"watermark only", 2, accepted, nil, true},
 	} {
@@ -590,9 +591,11 @@ func TestReclaimRetainsAcceptedCoverageWithMismatchedEventID(t *testing.T) {
 		name    string
 		records byte
 		ids     []byte
+		empty   bool
 	}{
-		{"fully resolved sole record", 1, []byte{9}},
-		{"second of two accepted records", 2, []byte{1, 9}},
+		{"fully resolved sole record", 1, []byte{9}, false},
+		{"second of two accepted records", 2, []byte{1, 9}, false},
+		{"accepted record with an empty event id", 1, []byte{0}, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -610,8 +613,12 @@ func TestReclaimRetainsAcceptedCoverageWithMismatchedEventID(t *testing.T) {
 			through := uint64(tc.records)
 			ack := &edgev1.EdgeDeliveryAckV1{SpoolId: evid(91), SessionNonce: evid(92), ResolvedThroughSequence: through}
 			for i := byte(0); i < tc.records; i++ {
+				eventID := evid(tc.ids[i])
+				if tc.empty {
+					eventID = nil
+				}
 				ack.Dispositions = append(ack.Dispositions, &edgev1.EdgeRecordDisposition{
-					Sequence: uint64(i + 1), EventId: evid(tc.ids[i]), Kind: accepted,
+					Sequence: uint64(i + 1), EventId: eventID, Kind: accepted,
 				})
 			}
 			evidence, err := proto.Marshal(ack)

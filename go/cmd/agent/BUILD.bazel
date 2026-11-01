@@ -59,12 +59,19 @@ go_test(
     },
     deps = [
         "//go/pkg/agent",
+        "//go/pkg/edge/edgerecord",
+        "//go/pkg/edge/sender",
         "//go/pkg/edge/spool",
         "//go/pkg/logger",
-        "//proto:proto",
         "//go/pkg/models",
+        "//proto:proto",
+        "//proto/edge/v1:edgev1",
         "@com_github_rs_zerolog//:zerolog",
         "@org_golang_google_grpc//:grpc",
+        "@org_golang_google_grpc//codes",
+        "@org_golang_google_grpc//credentials/insecure",
+        "@org_golang_google_grpc//status",
+        "@org_golang_google_grpc//test/bufconn",
     ] + select({
         "@io_bazel_rules_go//go/platform:windows": [
             "@org_golang_x_sys//windows/svc",

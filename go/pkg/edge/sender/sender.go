@@ -36,8 +36,9 @@
 // Without PersistAcknowledgements the remote watermark remains in memory only.
 // With it, the resolving prefix of the validated acknowledgement is fsynced
 // before the local watermark advances. resolvingPrefix states which dispositions
-// that prefix keeps. Only that local durability can reclaim a fully accepted
-// drained segment. A remote watermark alone never does.
+// that prefix keeps. Only that local durability can reclaim a drained segment,
+// and only once every record is accepted or permanently rejected. A remote
+// watermark alone never does.
 //
 // # Ambiguous sequence gaps
 //

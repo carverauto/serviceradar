@@ -28,7 +28,10 @@
 // sender; every other allocated sequence is reported for rollover coverage and is
 // never reused.
 //
-// This slice reclaims fully drained segments after durable accepted dispositions.
+// This slice reclaims a fully drained segment after durable dispositions that
+// accept every record or permanently reject it. Permanently rejected records
+// are copied into the lane's bounded quarantine before the checkpoint
+// (quarantine.go). Retryable and unspecified dispositions keep the segment.
 // Partial-tail compaction, corrupt-segment quarantine, and loss-manifest/recovery
 // generation rollover remain follow-on slices within task 2.4. Per-segment bounds on distinct
 // attribution keys, same-key runs, and projected manifest size live in
@@ -667,7 +670,8 @@ func (s *Spool) Resolve(through uint64) error {
 // ResolveWithEvidence persists the caller's validated terminal acknowledgement
 // before advancing the local resolved prefix. Evidence is retained for every
 // advancement; a remote watermark alone is not durable local disposition proof.
-// A fully accepted drain checkpoints its sequence base and reclaims segment bytes.
+// A drain whose every record is accepted or permanently rejected checkpoints its
+// sequence base and reclaims segment bytes, quarantining permanent rejections first.
 func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
