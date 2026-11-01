@@ -667,7 +667,7 @@ it, while unsupported or incomplete input cannot wait or grow state indefinitely
 Strict standalone packaging remains the default for callers that already own
 an independently decodable start.
 
-### Conservative lease time and bounded teardown
+### Conservative lease time and worker teardown
 
 When: recorder worker pass.
 
@@ -680,13 +680,11 @@ upload authority; an unfrozen tail is not recovered here. See
 [Historical recording block authority](block-authority.md).
 
 Consumer release and captured-relay idle close are a separate best-effort step.
-One linked task belongs only to its stopping worker, which traps exits, waits
-up to one second and then forcibly shuts the task down. The worker cap bounds
-these tasks. Elixir 1.19.1 Task.Supervisor task admission itself waits without a
-timeout, so introducing a shared task supervisor would not establish the stop
-bound. Failure to start or finish cleanup falls back to lease expiry/reaping and
-never changes the media seal result. This is sound because cleanup cannot hold
-live media delivery or reopen a stale ownership epoch.
+They run on the stopping worker before it exits.
+`ServiceRadarCoreElx.CameraRecording.Worker` owns that step. An error or forced
+termination falls back to lease expiry/reaping and never changes the media seal
+result. This is sound because cleanup cannot hold live media delivery or reopen
+a stale ownership epoch.
 
 ### Baseline-only admission without fabricated decode timestamps
 
