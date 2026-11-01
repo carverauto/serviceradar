@@ -293,7 +293,6 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
             :otel ->
               [
-                {"domain", opts[:jetstream_domain]},
                 {"cert_file", tls.cert_file},
                 {"key_file", tls.key_file},
                 {"ca_file", tls.ca_file},
@@ -363,6 +362,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
     # Apply any config overrides
     grpc_port = normalize_port(get_in(package.config_overrides, ["server", "port"]), 4317)
+    domain = opts[:jetstream_domain]
 
     """
     # ServiceRadar OpenTelemetry Collector Configuration
@@ -380,6 +380,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     logs_subject = "logs.otel"
     stream = "events"
     timeout_secs = 30
+    #{if domain, do: "domain = #{encode_toml_value(domain)}"}
     #{if opts[:managed_tls], do: "", else: "creds_file = \"/etc/serviceradar/creds/nats.creds\""}
 
     [nats.tls]

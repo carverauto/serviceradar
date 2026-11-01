@@ -168,6 +168,112 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycleIntegrationTest do
     assert {:ok, _} = Lifecycle.confirm_use(new, "example-receiver", ctx.opts)
   end
 
+  test "local receiver observation retires a collector and waits for every leaf role", ctx do
+    host = ctx.component.host_agent_id
+    old = Base.encode16(:crypto.hash(:sha256, "invented collector predecessor"), case: :lower)
+    new = Base.encode16(:crypto.hash(:sha256, "invented collector successor"), case: :lower)
+    issue_pair(ctx, old, new, "client")
+    activate(ctx, %{"client" => new})
+
+    assert :ok = Lifecycle.accept_local_receiver("other-host", [new])
+    assert {:ok, untouched} = Lifecycle.current(ctx.component.component_id, ctx.opts)
+    assert untouched.observed_roles == %{}
+
+    assert :ok = Lifecycle.accept_local_receiver(host, [old])
+    assert {:ok, still} = Lifecycle.current(ctx.component.component_id, ctx.opts)
+    assert still.observed_roles == %{}
+
+    assert :ok = Lifecycle.accept_local_receiver(host, [new])
+    assert {:ok, observed} = Lifecycle.current(ctx.component.component_id, ctx.opts)
+    assert observed.observed_roles["client"]["receiver_id"] == "local-nats:" <> host
+    assert {:ok, policy} = Authority.snapshot()
+    assert new in policy.allowed_fingerprints
+    refute old in policy.allowed_fingerprints
+
+    {:ok, leaf} =
+      Authority.enroll_component(
+        %{
+          component_id: "example-leaf-#{Ecto.UUID.generate()}",
+          component_type: "nats-leaf",
+          partition_id: "example-partition",
+          host_agent_id: host
+        },
+        ctx.opts
+      )
+
+    leaf_ctx = %{ctx | component: leaf}
+    server_old = Base.encode16(:crypto.hash(:sha256, "invented server predecessor"), case: :lower)
+    server_new = Base.encode16(:crypto.hash(:sha256, "invented server successor"), case: :lower)
+
+    upstream_old =
+      Base.encode16(:crypto.hash(:sha256, "invented upstream predecessor"), case: :lower)
+
+    upstream_new =
+      Base.encode16(:crypto.hash(:sha256, "invented upstream successor"), case: :lower)
+
+    issue_pair(leaf_ctx, server_old, server_new, "local_server")
+    issue_pair(leaf_ctx, upstream_old, upstream_new, "upstream_client")
+    activate(leaf_ctx, %{"local_server" => server_new, "upstream_client" => upstream_new})
+
+    assert :ok = Lifecycle.accept_local_receiver(host, [server_new])
+    assert {:ok, partial} = Lifecycle.current(leaf.component_id, ctx.opts)
+    assert Map.keys(partial.observed_roles) == ["local_server"]
+    assert {:ok, waiting} = Authority.snapshot()
+    assert upstream_old in waiting.allowed_fingerprints
+    assert server_old in waiting.allowed_fingerprints
+
+    assert {:ok, _} =
+             Lifecycle.confirm_use(upstream_new, "nats:hub-synthetic",
+               actor: SystemActor.system(:managed_certificate_nats)
+             )
+
+    assert {:ok, retired} = Authority.snapshot()
+    refute upstream_old in retired.allowed_fingerprints
+    refute server_old in retired.allowed_fingerprints
+    assert upstream_new in retired.allowed_fingerprints
+    assert server_new in retired.allowed_fingerprints
+  end
+
+  defp issue_pair(ctx, old, new, role) do
+    now = DateTime.utc_now()
+
+    for fingerprint <- [old, new] do
+      assert {:ok, _} =
+               Authority.record_issuance(
+                 ctx.component.component_id,
+                 %{
+                   fingerprint: fingerprint,
+                   issuer_fingerprint: String.duplicate("c", 64),
+                   serial_number: "29",
+                   not_before: DateTime.shift(now, minute: -1),
+                   not_after: DateTime.shift(now, hour: 2),
+                   role: role,
+                   host_agent_id: ctx.component.host_agent_id,
+                   expected_generation: 1
+                 },
+                 ctx.opts
+               )
+    end
+  end
+
+  defp activate(ctx, fingerprints) do
+    {:ok, operation} = Lifecycle.rotate(ctx.component.component_id, ctx.opts)
+
+    operation
+    |> Ash.Changeset.for_update(
+      :progress,
+      %{
+        status: :installing,
+        fingerprints: fingerprints,
+        renew_after: DateTime.shift(DateTime.utc_now(), hour: 1)
+      },
+      ctx.opts
+    )
+    |> Ash.update!(ctx.opts)
+    |> Ash.Changeset.for_update(:progress, %{status: :activated}, ctx.opts)
+    |> Ash.update!(ctx.opts)
+  end
+
   defp completed_command(operation, id, type, receipt, opts) do
     {:ok, command} =
       AgentCommand.create_command_with_id(

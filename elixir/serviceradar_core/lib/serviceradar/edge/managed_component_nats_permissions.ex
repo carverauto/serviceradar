@@ -48,7 +48,10 @@ defmodule ServiceRadar.Edge.ManagedComponentNatsPermissions do
     do: %{subjects: ["flows.raw.netflow", "flows.raw.sflow"], stream: "flows"}
 
   def transport("trapd"), do: %{subjects: ["logs.snmp"], stream: "events"}
-  def transport("bmp-collector"), do: %{subjects: ["arancini.updates.>"], stream: "ARANCINI_CAUSAL"}
+
+  def transport("bmp-collector"),
+    do: %{subjects: ["arancini.updates.>"], stream: "ARANCINI_CAUSAL"}
+
   def transport(_), do: nil
 
   def snapshot(components, certificates, allowed) do

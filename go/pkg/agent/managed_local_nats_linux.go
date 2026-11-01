@@ -10,6 +10,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/natsutil"
@@ -267,6 +270,7 @@ func localNATSTLS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*tl
 		fingerprint := fmt.Sprintf("%x", sha256.Sum256(server.Raw))
 		for _, allowed := range policy.AllowedFingerprints {
 			if allowed == fingerprint {
+				rememberLocalReceiverFingerprint(fingerprint)
 				return nil
 			}
 		}
@@ -410,7 +414,9 @@ func (p *PushLoop) serveManagedLocalNATS(ctx context.Context) error {
 			}
 			if err := message.Respond([]byte(response.Token)); err != nil {
 				p.logger.Warn().Err(err).Msg("Local NATS certificate authorization response failed")
+				return
 			}
+			noteLocalCertificateUse("", response.CertificateAuthorization)
 		}()
 	})
 	if err != nil {
@@ -431,4 +437,74 @@ func (p *PushLoop) serveManagedLocalNATS(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+var localReceiverObserved struct {
+	sync.Mutex
+	seen map[string]struct{}
+}
+
+func noteLocalCertificateUse(serverFingerprint string, authorization *natsutil.CertificateAuthorization) {
+	rememberLocalReceiverFingerprint(serverFingerprint)
+	if authorization != nil && authorization.Allowed {
+		rememberLocalReceiverFingerprint(authorization.Fingerprint)
+	}
+}
+
+func rememberLocalReceiverFingerprint(fingerprint string) {
+	if !localReceiverFingerprint(fingerprint) {
+		return
+	}
+	localReceiverObserved.Lock()
+	defer localReceiverObserved.Unlock()
+	if localReceiverObserved.seen == nil {
+		localReceiverObserved.seen = map[string]struct{}{}
+	}
+	localReceiverObserved.seen[fingerprint] = struct{}{}
+}
+
+func localReceiverFingerprintHeader() string {
+	localReceiverObserved.Lock()
+	defer localReceiverObserved.Unlock()
+	if len(localReceiverObserved.seen) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(localReceiverObserved.seen))
+	for fingerprint := range localReceiverObserved.seen {
+		out = append(out, fingerprint)
+	}
+	slices.Sort(out)
+	if len(out) > 32 {
+		out = out[:32]
+	}
+	return strings.Join(out, ",")
+}
+
+func ackLocalReceiverFingerprints(header string) {
+	if header == "" {
+		return
+	}
+	localReceiverObserved.Lock()
+	defer localReceiverObserved.Unlock()
+	for _, fingerprint := range strings.Split(header, ",") {
+		delete(localReceiverObserved.seen, fingerprint)
+	}
+}
+
+func clearLocalReceiverFingerprints() {
+	localReceiverObserved.Lock()
+	localReceiverObserved.seen = nil
+	localReceiverObserved.Unlock()
+}
+
+func localReceiverFingerprint(fingerprint string) bool {
+	if len(fingerprint) != 64 {
+		return false
+	}
+	for _, r := range fingerprint {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
+			return false
+		}
+	}
+	return true
 }

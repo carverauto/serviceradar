@@ -21,6 +21,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/carverauto/serviceradar/go/pkg/natsutil"
 )
 
 type managedCertificateFixture struct {
@@ -376,8 +378,29 @@ func TestManagedCertificatesAcceptExactIssuerSANs(t *testing.T) {
 		t.Fatalf("upstream certificate is not the gateway extfile set: uris=%v dns=%v", certificateURIStrings(upstream.URIs), upstream.DNSNames)
 	}
 	server := installedManagedLeaf(t, result.Files["local_server"])
-	if !sameSorted(certificateURIStrings(server.URIs), []string{"spiffe://serviceradar.local/nats_leaf_server/default/component-synthetic-server"}) || !sameSorted(server.DNSNames, []string{"component-synthetic-server.default.serviceradar", "leaf.example.test", "localhost"}) {
-		t.Fatalf("server certificate is not the gateway extfile set: uris=%v dns=%v", certificateURIStrings(server.URIs), server.DNSNames)
+	if !sameSorted(certificateURIStrings(server.URIs), []string{"spiffe://serviceradar.local/nats_leaf_server/default/component-synthetic-server"}) || !sameSorted(server.DNSNames, []string{"component-synthetic-server.default.serviceradar", "leaf.example.test", "localhost"}) || !sameCertificateIPs(server.IPAddresses, []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.10")}) {
+		t.Fatalf("server certificate is not the gateway extfile set: uris=%v dns=%v ips=%v", certificateURIStrings(server.URIs), server.DNSNames, server.IPAddresses)
+	}
+}
+
+func TestLocalReceiverReportsGrantedCertificateAndVerifiedServerOnly(t *testing.T) {
+	clearLocalReceiverFingerprints()
+	t.Cleanup(clearLocalReceiverFingerprints)
+	denied := strings.Repeat("ab", 32)
+	noteLocalCertificateUse("", &natsutil.CertificateAuthorization{Allowed: false, Fingerprint: denied})
+	if localReceiverFingerprintHeader() != "" {
+		t.Fatal("a refused client certificate was reported as observed")
+	}
+	server := strings.Repeat("12", 32)
+	client := strings.Repeat("34", 32)
+	noteLocalCertificateUse(server, &natsutil.CertificateAuthorization{Allowed: true, Fingerprint: client})
+	noteLocalCertificateUse(server, &natsutil.CertificateAuthorization{Allowed: true, Fingerprint: "not-a-fingerprint"})
+	if localReceiverFingerprintHeader() != server+","+client {
+		t.Fatalf("receiver report = %s", localReceiverFingerprintHeader())
+	}
+	ackLocalReceiverFingerprints(client)
+	if localReceiverFingerprintHeader() != server {
+		t.Fatalf("acknowledged client still pending: %s", localReceiverFingerprintHeader())
 	}
 }
 

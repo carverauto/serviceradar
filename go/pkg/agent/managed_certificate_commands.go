@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/carverauto/serviceradar/proto"
+	"google.golang.org/grpc/metadata"
 )
 
 const (
@@ -89,10 +90,17 @@ func (p *PushLoop) refreshManagedCertificatePolicy(ctx context.Context) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
+	observed := localReceiverFingerprintHeader()
+	if observed != "" {
+		ctx = metadata.AppendToOutgoingContext(ctx, "x-serviceradar-observed-certs", observed)
+	}
 	response, err := p.gateway.GetCertificatePolicy(ctx, &proto.CertificatePolicyRequest{})
 	if err != nil {
 		return err
 	}
-	_, err = InstallManagedCertificatePolicy(ctx, ManagedCertificatePolicyEnvelope{Payload: response.GetPayload(), Signature: response.GetSignature()})
-	return err
+	if _, err = InstallManagedCertificatePolicy(ctx, ManagedCertificatePolicyEnvelope{Payload: response.GetPayload(), Signature: response.GetSignature()}); err != nil {
+		return err
+	}
+	ackLocalReceiverFingerprints(observed)
+	return nil
 }

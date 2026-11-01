@@ -43,6 +43,23 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
     end
   end
 
+  test "managed otel domain is on the nats table the collector deserializes" do
+    component = %{
+      component_id: "example-collector",
+      component_type: "log-collector",
+      partition_id: "example-partition",
+      edge_site_id: "11111111-2222-3333-4444-555555555555"
+    }
+
+    package = %CollectorPackage{id: "3a000000-0000-4000-8000-000000000004", collector_type: :otel, config_overrides: %{}}
+    otel = package |> CollectorBundleGenerator.managed_configuration(component, %{}) |> Map.fetch!("otel.toml")
+    sections = toml_sections(otel)
+    assert ~s(domain = "edge_11111111222233334444555555555555") in sections["nats"]
+    refute Enum.any?(sections["nats.tls"], &String.starts_with?(&1, "domain "))
+    assert Enum.any?(sections["nats.tls"], &String.starts_with?(&1, "cert_file "))
+    assert Enum.any?(sections["nats.tls"], &String.starts_with?(&1, "cert_policy_file "))
+  end
+
   test "every managed collector selects its site's JetStream domain" do
     component = %{
       component_id: "example-component",
@@ -280,6 +297,24 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       end
     end
   end
+
+  defp toml_sections(content) do
+    {sections, name, lines} =
+      Enum.reduce(String.split(content, "\n"), {%{}, nil, []}, fn line, {sections, name, lines} ->
+        case Regex.run(~r/^\[([^\]]+)\]$/, line) do
+          [_, section] ->
+            {put_section(sections, name, lines), section, []}
+
+          _ ->
+            {sections, name, lines ++ [line]}
+        end
+      end)
+
+    put_section(sections, name, lines)
+  end
+
+  defp put_section(sections, nil, _lines), do: sections
+  defp put_section(sections, name, lines), do: Map.put(sections, name, lines)
 
   describe "get_nats_url/2" do
     @tag :db_free

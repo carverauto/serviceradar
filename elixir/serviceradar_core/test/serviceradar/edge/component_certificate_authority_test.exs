@@ -2,6 +2,8 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
   use ExUnit.Case, async: true
 
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
+  alias ServiceRadar.Edge.ManagedComponentNatsPermissions
+  alias ServiceRadar.NATS.CertificateAuthorizationToken
 
   @now ~U[2026-01-01 00:00:00Z]
   @first String.duplicate("a", 64)
@@ -96,7 +98,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
     ]
 
     grants =
-      ServiceRadar.Edge.ManagedComponentNatsPermissions.snapshot(components, certificates, [
+      ManagedComponentNatsPermissions.snapshot(components, certificates, [
         @first,
         @second
       ])
@@ -131,7 +133,7 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
     flow = String.duplicate("e", 64)
 
     grants =
-      ServiceRadar.Edge.ManagedComponentNatsPermissions.snapshot(
+      ManagedComponentNatsPermissions.snapshot(
         components,
         [
           %{component_id: "example-bmp", fingerprint: bmp, role: "client"},
@@ -181,12 +183,12 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
   end
 
   defp signed_publish_allow(permissions) do
-    account = ServiceRadar.NATS.CertificateAuthorizationToken.new_key(:account)
-    user = ServiceRadar.NATS.CertificateAuthorizationToken.new_key(:user)
+    account = CertificateAuthorizationToken.new_key(:account)
+    user = CertificateAuthorizationToken.new_key(:user)
     {:ok, signer} = NKEYS.Keypair.from_seed(account.seed)
 
     token =
-      ServiceRadar.NATS.CertificateAuthorizationToken.encode_response(
+      CertificateAuthorizationToken.encode_response(
         %{user_nkey: user.public_key, server_id: account.public_key, fingerprint: "subject"},
         {:allow, Map.put(permissions, :expires_at, 1_800_000_000)},
         signer,
@@ -208,8 +210,13 @@ defmodule ServiceRadar.Edge.ComponentCertificateAuthorityTest do
   end
 
   defp match_subject_tokens([">"], [_ | _]), do: true
-  defp match_subject_tokens(["*" | pattern], [_ | subject]), do: match_subject_tokens(pattern, subject)
-  defp match_subject_tokens([token | pattern], [token | subject]), do: match_subject_tokens(pattern, subject)
+
+  defp match_subject_tokens(["*" | pattern], [_ | subject]),
+    do: match_subject_tokens(pattern, subject)
+
+  defp match_subject_tokens([token | pattern], [token | subject]),
+    do: match_subject_tokens(pattern, subject)
+
   defp match_subject_tokens([], []), do: true
   defp match_subject_tokens(_pattern, _subject), do: false
 end

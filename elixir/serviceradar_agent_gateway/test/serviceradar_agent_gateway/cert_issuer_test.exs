@@ -444,7 +444,14 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
 
       assert {:ok, issued} = CertIssuer.issue_from_csr(csr, "example-collector", "example", type, options)
       assert issued.issuer_fingerprint == Base.encode16(:crypto.hash(:sha256, issuer_der), case: :lower)
-      assert {:dNSName, ~c"collector.example.test"} in subject_alt_names(issued.certificate_pem)
+
+      assert normalized_sans(issued.certificate_pem) ==
+               Enum.sort([
+                 {:dns, "collector.example.test"},
+                 {:dns, "example-collector.example.serviceradar"},
+                 {:uri, "spiffe://serviceradar.local/#{type}/example/example-collector"}
+               ])
+
       refute Map.has_key?(issued, :private_key_pem)
 
       assert {:error, :csr_identity_mismatch} =
@@ -456,6 +463,64 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                  Keyword.put(options, :server_hosts, ["different.example.test"])
                )
     end
+  end
+
+  test "managed leaf certificates contain only the issuer extfile names" do
+    parent_dir = unique_tmp_dir!("managed-leaf-csr")
+    on_exit(fn -> File.rm_rf(parent_dir) end)
+    ca_cert = Path.join(parent_dir, "root.pem")
+    ca_key = Path.join(parent_dir, "root-key.pem")
+    assert :ok = generate_ca_bundle(ca_cert, ca_key)
+
+    upstream =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=example-leaf.example.serviceradar",
+        "URI:spiffe://serviceradar.local/nats_leaf/example/example-leaf,DNS:example-leaf.example.serviceradar,URI:spiffe://serviceradar.local/nats-leaf/example"
+      )
+
+    assert {:ok, client} =
+             CertIssuer.issue_from_csr(upstream, "example-leaf", "example", :nats_leaf,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               authorized_component_id: "example-leaf",
+               authorized_partition_id: "example"
+             )
+
+    assert normalized_sans(client.certificate_pem) ==
+             Enum.sort([
+               {:dns, "example-leaf.example.serviceradar"},
+               {:uri, "spiffe://serviceradar.local/nats-leaf/example"},
+               {:uri, "spiffe://serviceradar.local/nats_leaf/example/example-leaf"}
+             ])
+
+    server =
+      generate_csr_der!(
+        ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+        "/CN=example-leaf-server.example.serviceradar",
+        "URI:spiffe://serviceradar.local/nats_leaf_server/example/example-leaf-server,DNS:example-leaf-server.example.serviceradar,DNS:leaf.example.test,IP:192.0.2.10"
+      )
+
+    assert {:ok, listening} =
+             CertIssuer.issue_from_csr(server, "example-leaf-server", "example", :nats_leaf_server,
+               ca_cert_file: ca_cert,
+               ca_key_file: ca_key,
+               temp_parent_dir: parent_dir,
+               server_hosts: ["leaf.example.test", "192.0.2.10"],
+               authorized_component_id: "example-leaf-server",
+               authorized_partition_id: "example"
+             )
+
+    assert normalized_sans(listening.certificate_pem) ==
+             Enum.sort([
+               {:dns, "example-leaf-server.example.serviceradar"},
+               {:dns, "leaf.example.test"},
+               {:dns, "localhost"},
+               {:ip, "127.0.0.1"},
+               {:ip, "192.0.2.10"},
+               {:uri, "spiffe://serviceradar.local/nats_leaf_server/example/example-leaf-server"}
+             ])
   end
 
   test "rejects CSR with forged signature or weak key or mismatched CN/SAN" do
@@ -566,6 +631,22 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
         flunk("openssl CSR generation failed (#{status}): #{output}")
     end
   end
+
+  defp normalized_sans(cert_pem) do
+    cert_pem
+    |> subject_alt_names()
+    |> Enum.map(&normalize_san/1)
+    |> Enum.sort()
+  end
+
+  defp normalize_san({:dNSName, name}), do: {:dns, to_string(name)}
+  defp normalize_san({:uniformResourceIdentifier, uri}), do: {:uri, to_string(uri)}
+
+  defp normalize_san({:iPAddress, <<a, b, c, d>>}), do: {:ip, ip_string({a, b, c, d})}
+  defp normalize_san({:iPAddress, {_, _, _, _} = address}), do: {:ip, ip_string(address)}
+  defp normalize_san({:iPAddress, {_, _, _, _, _, _, _, _} = address}), do: {:ip, ip_string(address)}
+
+  defp ip_string(address), do: address |> :inet.ntoa() |> to_string()
 
   defp subject_alt_names(cert_pem) do
     [{:Certificate, der, _}] = :public_key.pem_decode(cert_pem)

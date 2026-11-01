@@ -80,13 +80,53 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycle do
     end
   end
 
+  @doc """
+  Records fingerprints the host's local NATS receiver accepted.
+
+  The caller is the authenticated agent channel. Installation and activation
+  receipts must not call this. Every role in the successor operation still has
+  to be observed before a predecessor is retired.
+  """
+  def accept_local_receiver(agent_id, fingerprints)
+      when is_binary(agent_id) and agent_id != "" and is_list(fingerprints) do
+    receiver = "local-nats:" <> agent_id
+    opts = [actor: SystemActor.system(:managed_certificate_local_nats), host_agent_id: agent_id]
+
+    fingerprints
+    |> Enum.filter(&is_binary/1)
+    |> Enum.take(32)
+    |> Enum.reduce_while(:ok, fn fingerprint, :ok ->
+      case confirm_use(fingerprint, receiver, opts) do
+        {:ok, _} ->
+          {:cont, :ok}
+
+        {:error, reason}
+        when reason in [
+               :activation_unconfirmed,
+               :successor_not_current,
+               :not_found,
+               :host_mismatch,
+               :invalid_receiver,
+               :forbidden
+             ] ->
+          {:cont, :ok}
+
+        error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  def accept_local_receiver(_, _), do: {:error, :invalid_receiver}
+
   @doc "Records independently observed receiver use; all successor roles must be observed before retirement."
   def confirm_use(fingerprint, receiver_id, opts)
       when is_binary(receiver_id) and byte_size(receiver_id) in 1..256 do
     if SystemActor.system_actor?(opts[:actor]) do
       with {:ok, %ComponentCertificate{} = certificate} <-
              Ash.get(ComponentCertificate, fingerprint, opts),
-           {:ok, %Operation{} = operation} <- current(certificate.component_id, opts) do
+           {:ok, %Operation{} = operation} <- current(certificate.component_id, opts),
+           :ok <- receiver_host(operation, opts[:host_agent_id]) do
         transaction(fn ->
           with {:ok, current} <- locked_current(operation),
                true <- current.status == :activated,
@@ -102,8 +142,14 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycle do
           end
         end)
       else
-        {:ok, nil} -> {:error, :not_found}
-        error -> error
+        {:ok, nil} ->
+          {:error, :not_found}
+
+        {:error, reason} = error ->
+          if certificate_missing?(reason), do: {:error, :not_found}, else: error
+
+        error ->
+          error
       end
     else
       {:error, :forbidden}
@@ -111,6 +157,18 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycle do
   end
 
   def confirm_use(_, _, _), do: {:error, :invalid_receiver}
+
+  defp receiver_host(_operation, nil), do: :ok
+  defp receiver_host(%{host_agent_id: host}, host) when is_binary(host), do: :ok
+  defp receiver_host(_, _), do: {:error, :host_mismatch}
+
+  defp certificate_missing?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp certificate_missing?(%{errors: errors}) when is_list(errors) and errors != [] do
+    Enum.all?(errors, &certificate_missing?/1)
+  end
+
+  defp certificate_missing?(_), do: false
 
   defp observe_role(operation, role, receiver) do
     if Map.has_key?(operation.observed_roles, role),

@@ -654,6 +654,61 @@ timeout_secs = 60
     }
 
     #[test]
+    fn managed_edge_domain_is_read_from_the_nats_table() {
+        let placed = r#"
+[server]
+bind_address = "0.0.0.0"
+port = 4317
+
+[nats]
+url = "tls://127.0.0.1:4222"
+domain = "edge_11111111222233334444555555555555"
+subject = "otel"
+logs_subject = "logs.otel"
+stream = "events"
+timeout_secs = 30
+
+[nats.tls]
+cert_file = "/etc/serviceradar/managed-components/example-collector/current/client/component.pem"
+key_file = "/etc/serviceradar/managed-components/example-collector/current/client/component-key.pem"
+ca_file = "/etc/serviceradar/managed-components/example-collector/current/client/root.pem"
+cert_policy_file = "/etc/serviceradar/managed-components/policy.json"
+cert_policy_local_leaf_file = "/etc/serviceradar/managed-components/example-collector/local-leaf.json"
+"#;
+        let config: Config = toml::from_str(placed).unwrap();
+        let nats = config.nats.unwrap();
+        assert_eq!(
+            nats.domain.as_deref(),
+            Some("edge_11111111222233334444555555555555")
+        );
+        let tls = nats.tls.unwrap();
+        assert_eq!(
+            tls.cert_file,
+            "/etc/serviceradar/managed-components/example-collector/current/client/component.pem"
+        );
+        assert_eq!(
+            tls.cert_policy_file.as_deref(),
+            Some("/etc/serviceradar/managed-components/policy.json")
+        );
+
+        let misplaced = r#"
+[server]
+port = 4317
+
+[nats]
+url = "tls://127.0.0.1:4222"
+
+[nats.tls]
+domain = "edge_11111111222233334444555555555555"
+cert_file = "/tmp/component.pem"
+key_file = "/tmp/component-key.pem"
+ca_file = "/tmp/root.pem"
+"#;
+        let config: Config = toml::from_str(misplaced).unwrap();
+        assert_eq!(config.nats.unwrap().domain, None);
+    }
+
+    #[test]
     fn test_config_from_file() {
         let toml_content = r#"
 [server]
