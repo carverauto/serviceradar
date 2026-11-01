@@ -400,9 +400,11 @@ func (s *Spool) Append(eventID, body []byte) (uint64, error) {
 // shared allocator it also stops ordinary admission for every lane, but leaves
 // recovery running: recovery is how a failed lane is repaired.
 //
-// With an allocator, a commit is first admitted for every byte it adds on disk: its
-// record and the growth of both evidence copies. A refused admission returns an
-// error matching ErrAdmissionRefused, writes nothing, and allocates no sequence.
+// With an allocator, a commit is first admitted for every byte it adds on disk
+// (its record and the growth of both evidence copies) plus one
+// terminalEvidenceAllowance for the acknowledgement that will resolve it. A
+// refused admission returns an error matching ErrAdmissionRefused, writes
+// nothing, and allocates no sequence.
 func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) {
 	if len(eventID) != 16 {
 		return CommitReceipt{}, fmt.Errorf("%w: got %d", ErrEventIDLength, len(eventID))

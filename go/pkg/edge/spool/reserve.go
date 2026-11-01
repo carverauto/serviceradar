@@ -221,13 +221,14 @@ type Usage struct {
 // Ordinary bytes are charged to an owner: the directory holding them. A lane's
 // owner is its spool directory. Owners are compared as cleaned paths, so one
 // directory spelled two ways is one owner. A charge lasts until the bytes are
-// physically deleted, not until the lane closes.
+// physically deleted, not until the lane closes. The prepaid terminal evidence
+// allowance is the exception WithAllocator describes: it is held only while the
+// record is unresolved.
 //
-// Its ledger is in memory by design. The durable truth is the files on disk:
-// after a restart, the opener re-measures them (Open charges every file in each
-// lane directory and its commit evidence directories through ChargeMeasured, even
-// for a lane it then fails to open), so there is no second on-disk ledger that
-// could disagree with them.
+// Its ledger is in memory by design. After a restart the opener replaces each
+// lane's charge through ChargeMeasured, including a lane whose Open then fails.
+// WithAllocator states what that charge includes. There is no second on-disk
+// ledger.
 type Allocator struct {
 	fs              fileSystem
 	freeBytes       func() (uint64, error)
@@ -335,10 +336,10 @@ func (a *Allocator) settle(n uint64, err error) {
 	}
 }
 
-// ChargeMeasured records that owner holds n bytes measured on disk -- a lane
-// directory measured at open, or a recovery's output re-measured after a
-// restart. It REPLACES whatever owner was charged before, so re-measuring the
-// same directory never counts its bytes twice. The destination segment and
+// ChargeMeasured replaces owner's ordinary charge with n, so repeating it never
+// counts the same bytes twice. n is the caller's charge, not necessarily the
+// directory's file sizes; WithAllocator states what Open passes, and a recovery
+// passes output re-measured after a restart. The destination segment and
 // sidecar bytes an active recovery still holds in owner are excluded, because
 // the grant is charged for them until ReleaseSource moves them in. It cannot
 // refuse: those bytes exist whether or not they fit. If they push usage past the
