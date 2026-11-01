@@ -355,9 +355,12 @@ no `sweep_group_executions` row has committed under that slot id. A ledger-only
 delivery (late-fenced or replay) writes `platform.edge_sweep_batch_slots` and
 is not a commit, so it does not keep the slot scheduled. While the assignment
 is still active and a later slot is scheduled, the closed slot is
-`missed_offline`. Every other closed slot is `missed_exhausted`. An assignment
-whose refill failed this pass is left unmarked; the next pass that refills it
-marks normally. A later projecting batch reopens a missed slot and projects.
+`missed_offline`. Every other closed slot is `missed_exhausted`. A group whose
+planning hit any error this pass is left unmarked; the next clean pass marks
+it. Only a slot that closed within the last 24 hours is judged: a completed
+slot stays scheduled, and execution retention deletes its execution row after
+30 days by default, so an older slot can no longer show its commit and is
+never relabelled. A later projecting batch reopens a missed slot and projects.
 A dropped slot stays refused. `ServiceRadar.SweepJobs.LeaseMisses` owns the
 mark.
 

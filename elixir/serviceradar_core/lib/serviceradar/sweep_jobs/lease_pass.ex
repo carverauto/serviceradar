@@ -32,8 +32,9 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   a pass with one still revokes it.
 
   After the horizon is refilled, `LeaseMisses.mark/2` closes scheduled slots that
-  are past grace with no sweep execution. Assignments whose refill failed in this
-  pass are left unmarked until a later pass refills them. The mark runs even when
+  are past grace with no sweep execution. A group that hit any error in this pass
+  (its profile, candidates, assignments, slot listing, drop, refill or delivery)
+  is left unmarked until a later pass plans it cleanly. The mark runs even when
   the pass is otherwise idle, so a slot that expires after its lease was withdrawn
   is still closed. `LeaseMisses` owns what counts as committed and which missed
   state applies.
@@ -102,23 +103,33 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   """
   @spec reconcile_group(SweepGroup.t(), DateTime.t(), delivery() | nil) :: summary()
   def reconcile_group(%SweepGroup{} = group, now \\ DateTime.utc_now(), delivery \\ nil) do
-    Map.delete(plan_group(group, now, delivery), :refill_failed)
+    Map.delete(plan_group(group, now, delivery), :failed_groups)
   end
 
+  # A group whose planning hit any error keeps its closed slots unmarked this pass:
+  # a horizon that was not refilled would make an offline slot look exhausted.
   defp plan_group(%SweepGroup{} = group, now, delivery) do
-    case load_profile(group.profile_id) do
-      {:ok, profile} ->
-        lease_or_revoke(group, profile, now, delivery)
+    summary =
+      case load_profile(group.profile_id) do
+        {:ok, profile} ->
+          lease_or_revoke(group, profile, now, delivery)
 
-      {:error, reason} ->
-        Logger.warning("Sweep lease pass: profile of group #{group.id}: #{inspect(reason)}")
-        %{empty() | groups: 1, errors: 1}
-    end
+        {:error, reason} ->
+          Logger.warning("Sweep lease pass: profile of group #{group.id}: #{inspect(reason)}")
+          %{empty() | groups: 1, errors: 1}
+      end
+
+    mark_failed(summary, group)
   rescue
     error ->
       Logger.error("Sweep lease pass failed for group #{group.id}: #{Exception.message(error)}")
-      %{empty() | groups: 1, errors: 1}
+      mark_failed(%{empty() | groups: 1, errors: 1}, group)
   end
+
+  defp mark_failed(%{errors: 0} = summary, _group), do: summary
+
+  defp mark_failed(summary, group),
+    do: %{summary | failed_groups: MapSet.put(summary.failed_groups, group.id)}
 
   @doc """
   The delivery context of a pass: the issuer authority (`LeaseDelivery.authority/0`) and the
@@ -224,15 +235,15 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   defp finish({:error, reason}, _now), do: {:error, reason}
 
   defp finish({:ok, planned}, now) do
-    {skipped, planned} = refill_failures(planned)
-    log_refill_failures(skipped)
+    {skipped, planned} = failed_groups(planned)
+    log_failed_groups(skipped)
 
     case LeaseMisses.mark(now, skipped) do
       {:ok, %{missed_offline: 0, missed_exhausted: 0}} when planned == :idle ->
         {:ok, :idle}
 
       {:ok, misses} when planned == :idle ->
-        {:ok, add(Map.delete(empty(), :refill_failed), misses)}
+        {:ok, add(Map.delete(empty(), :failed_groups), misses)}
 
       {:ok, misses} ->
         {:ok, add(planned, misses)}
@@ -448,25 +459,18 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       lease_id: lease_id
     ]
 
-    {scheduled, errors, failed_ids} =
+    {scheduled, errors} =
       desired
       |> Enum.reject(&MapSet.member?(present, key(&1.start)))
       |> Enum.take(@max_new_slots_per_assignment)
-      |> Enum.reduce({0, 0, MapSet.new()}, fn slot, {ok, failed, ids} ->
+      |> Enum.reduce({0, 0}, fn slot, {ok, failed} ->
         case ExecutionSlots.schedule(assignment, slot.start, slot.expires, opts) do
-          {:ok, _slot} -> {ok + 1, failed, ids}
-          {:error, _reason} -> {ok, failed + 1, MapSet.put(ids, assignment.id)}
+          {:ok, _slot} -> {ok + 1, failed}
+          {:error, _reason} -> {ok, failed + 1}
         end
       end)
 
-    %{
-      empty()
-      | leases: 1,
-        scheduled: scheduled,
-        dropped: dropped,
-        errors: errors,
-        refill_failed: failed_ids
-    }
+    %{empty() | leases: 1, scheduled: scheduled, dropped: dropped, errors: errors}
   end
 
   # The slots that start after `now` and before the end of the horizon.
@@ -525,26 +529,26 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       missed_offline: 0,
       missed_exhausted: 0,
       errors: 0,
-      refill_failed: MapSet.new()
+      failed_groups: MapSet.new()
     }
 
-  defp refill_failures(:idle), do: {MapSet.new(), :idle}
+  defp failed_groups(:idle), do: {MapSet.new(), :idle}
 
-  defp refill_failures(summary), do: Map.pop(summary, :refill_failed, MapSet.new())
+  defp failed_groups(summary), do: Map.pop(summary, :failed_groups, MapSet.new())
 
-  defp log_refill_failures(skipped) do
+  defp log_failed_groups(skipped) do
     if MapSet.size(skipped) > 0 do
       ids = skipped |> Enum.sort() |> Enum.join(", ")
 
       Logger.warning(
-        "Sweep lease pass: refill failed for #{ids}; their closed slots stay unmarked this pass"
+        "Sweep lease pass: planning failed for groups #{ids}; their closed slots stay unmarked this pass"
       )
     end
   end
 
   defp add(a, b) do
     Map.merge(a, b, fn
-      :refill_failed, left, right -> MapSet.union(left, right)
+      :failed_groups, left, right -> MapSet.union(left, right)
       _key, left, right -> left + right
     end)
   end

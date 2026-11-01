@@ -199,6 +199,25 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     assert state(group, closed.id) == :missed_exhausted
   end
 
+  test "a slot that closed before the lookback stays scheduled", ctx do
+    group = create_group!(ctx)
+    assignment = assign!(group, "agent-a")
+    now = DateTime.utc_now()
+    lookback = LeaseMisses.lookback_seconds()
+
+    # A completed slot stays scheduled, and execution retention later deletes its
+    # execution row. Without the lookback, this slot would be relabelled missed.
+    old =
+      schedule_window!(
+        assignment,
+        DateTime.shift(now, second: -(lookback + 3600)),
+        DateTime.shift(now, second: -(lookback + 1))
+      )
+
+    assert {:ok, _} = LeaseMisses.mark(now)
+    assert state(group, old.id) == :scheduled
+  end
+
   test "a slot still inside the grace stays scheduled", ctx do
     group = create_group!(ctx)
     assignment = assign!(group, "agent-a")

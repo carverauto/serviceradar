@@ -277,7 +277,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
         assert slot_state(group, closed.id) == :scheduled
       end)
 
-    assert log =~ "refill failed for #{assignment.id}"
+    assert log =~ "planning failed for groups #{group.id}"
 
     blocker
     |> Ash.Changeset.for_update(:drop, %{}, actor: SystemActor.system(:sweep_execution_slots))
