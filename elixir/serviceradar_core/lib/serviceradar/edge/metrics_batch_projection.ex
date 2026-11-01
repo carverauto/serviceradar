@@ -18,8 +18,8 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
   a late-fenced delivery.
 
   This contract accepts one ingest identity source, `sysmon-metrics`, and publishes it on
-  `metrics.sysmon.*`. Any other source is refused. Lease-run families belong on the scheduled
-  metrics contract.
+  `metrics.sysmon.<type>.<name>`. Any other source is refused. Lease-run families belong on
+  the scheduled metrics contract.
   """
 
   alias ServiceRadar.Edge.Compression

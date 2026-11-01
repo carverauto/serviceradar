@@ -451,12 +451,17 @@ upgrade. Only core mounts this Ed25519 seed. If `secrets.autoGenerate=false`,
 the operator must supply the key in the configured existing Secret as a
 base64-encoded 32-byte seed (the Secret's data encoding wraps that text).
 
-`edgeRecords.agentSweepEnabled` also enables the bundled agent's sweep producer.
-It requires `agent.runtimeStorage.enabled=true`; the spool lives under that
-volume's base path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scoped
+`edgeRecords.agentSweepEnabled` enables the bundled agent's sweep producer.
+`edgeRecords.agentMetricsEnabled` enables its sysmon metrics producer on the
+same spool. Either flag requires `edgeRecords.enabled` and
+`agent.runtimeStorage.enabled=true`. The spool lives under that volume's base
+path and `edgeRecords.maxSpoolBytes` bounds it. Core's agent-scoped
 sweep lease settings select which agent receives signed slots. Enable leasing
 only for the canary, and use an enabled static-target group without a target
-query. Other agents continue using the legacy results path.
+query. Other agents continue using the legacy results path. With
+`agentMetricsEnabled` set, sysmon stays on the status path until
+`contractRegistry` includes an active `serviceradar.metrics.batch` version 1
+contract and that agent's leasing switch is on.
 
 Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key

@@ -449,9 +449,9 @@ message AgentConfigResponse {
 
   // Standing edge-record output grants: the core-signed authority under which the
   // agent may emit records of a passive output contract (one entry per contract).
-  // An agent that holds a current grant for a contract emits that family only as
-  // edge records; without one it keeps the legacy status path. An empty list
-  // withdraws every grant.
+  // The agent emits that family only as edge records when its local metrics sender
+  // is enabled and it holds a current grant. Without a grant it keeps the legacy
+  // status path. An empty list withdraws every grant.
   repeated EdgeOutputGrant edge_output_grants = 15;
 }
 

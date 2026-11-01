@@ -2940,9 +2940,9 @@ type AgentConfigResponse struct {
 	EndpointInventoryConfig *EndpointInventoryConfig `protobuf:"bytes,14,opt,name=endpoint_inventory_config,json=endpointInventoryConfig,proto3" json:"endpoint_inventory_config,omitempty"`
 	// Standing edge-record output grants: the core-signed authority under which the
 	// agent may emit records of a passive output contract (one entry per contract).
-	// An agent that holds a current grant for a contract emits that family only as
-	// edge records; without one it keeps the legacy status path. An empty list
-	// withdraws every grant.
+	// The agent emits that family only as edge records when its local metrics sender
+	// is enabled and it holds a current grant. Without a grant it keeps the legacy
+	// status path. An empty list withdraws every grant.
 	EdgeOutputGrants []*EdgeOutputGrant `protobuf:"bytes,15,rep,name=edge_output_grants,json=edgeOutputGrants,proto3" json:"edge_output_grants,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
