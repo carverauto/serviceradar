@@ -122,7 +122,7 @@ func TestLeasedSweepEnumeratesSignedCIDREndpoints(t *testing.T) {
 	legacy, err := s.generateTargets()
 	require.NoError(t, err)
 	require.Len(t, legacy, 2)
-	s.resultObserver = func(*models.Result) error { return nil }
+	s.resultObserver = func(context.Context, *models.Result) error { return nil }
 	targets, err := s.generateTargets()
 	require.NoError(t, err)
 	require.Len(t, targets, 4)

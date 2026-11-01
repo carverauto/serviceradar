@@ -149,7 +149,7 @@ func (s *NetworkSweeper) runSweepWithExecution(ctx context.Context, executionID 
 	return s.runSweepWithObserver(ctx, executionID, nil)
 }
 
-func (s *NetworkSweeper) runSweepWithObserver(ctx context.Context, executionID string, observer func(*models.Result) error) error {
+func (s *NetworkSweeper) runSweepWithObserver(ctx context.Context, executionID string, observer func(context.Context, *models.Result) error) error {
 	s.runMu.Lock()
 	defer s.runMu.Unlock()
 	if err := CheckExecution(ctx); err != nil {

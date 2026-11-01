@@ -158,9 +158,9 @@ func (s *observingSweep) EffectiveSweepModes(_ string, modes []models.SweepMode)
 	return modes, nil
 }
 
-func (s *observingSweep) RunOnceWithObserver(ctx context.Context, executionID string, observe func(*models.Result) error) error {
+func (s *observingSweep) RunOnceWithObserver(ctx context.Context, executionID string, observe func(context.Context, *models.Result) error) error {
 	for i := range s.results {
-		if err := observe(&s.results[i]); err != nil {
+		if err := observe(ctx, &s.results[i]); err != nil {
 			return err
 		}
 	}
@@ -352,7 +352,7 @@ func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {
 	producer, err := newSweepEdgeProducer(cfg, lease, slot, sp, time.Now())
 	require.NoError(t, err)
 	for _, result := range edgeSweepResults() {
-		require.NoError(t, producer.observe(&result))
+		require.NoError(t, producer.observe(context.Background(), &result))
 	}
 	require.NoError(t, producer.finish())
 	records, err := sp.Unresolved()
@@ -428,6 +428,50 @@ func TestEdgeSweepWaitsForSpoolAdmissionInsteadOfFailing(t *testing.T) {
 	got, err := sp.Unresolved()
 	require.NoError(t, err)
 	require.Len(t, got, len(want))
+}
+
+// A cancelled scan ends the admission wait while the collection window is still open.
+func TestEdgeSweepAdmissionWaitEndsWhenTheScanCancels(t *testing.T) {
+	cfg, lease, slot, _ := edgeSweepFixture(t)
+	sp, _ := fullEdgeSweepSpool(t)
+	scanner := &scanCancelSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	done := make(chan error, 1)
+	go func() {
+		done <- svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { return nil })
+	}()
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, spool.ErrAdmissionRefused)
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("admission wait continued after the scan was cancelled")
+	}
+	records, err := sp.Unresolved()
+	require.NoError(t, err)
+	require.Empty(t, records)
+}
+
+// scanCancelSweep delivers results on a scan context it cancels immediately,
+// leaving the producer's collection-expiry context running.
+type scanCancelSweep struct {
+	*mockSweeper
+	results []models.Result
+}
+
+func (*scanCancelSweep) EffectiveSweepModes(_ string, modes []models.SweepMode) ([]models.SweepMode, error) {
+	return modes, nil
+}
+
+func (s *scanCancelSweep) RunOnceWithObserver(ctx context.Context, _ string, observe func(context.Context, *models.Result) error) error {
+	scanCtx, cancel := context.WithCancel(ctx)
+	cancel()
+	for i := range s.results {
+		if err := observe(scanCtx, &s.results[i]); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // A spool that never frees ends the wait with the run, reporting the refusal.
