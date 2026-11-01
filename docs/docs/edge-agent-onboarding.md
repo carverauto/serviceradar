@@ -120,6 +120,9 @@ Notes:
   Helm deployment. Correct that deployment value and issue a new package if the
   agent is dialing the web hostname on `50052` or another unreachable endpoint.
 - If you need to re-enroll, generate a new agent package to get a fresh token.
+  Re-enrollment is also how an existing packaged Linux host publishes host-trust
+  for managed installation. The layout is in
+  [Managed component certificates](../managed-component-certificates.md).
 
 If enrollment tries to resolve `serviceradar-web-ng`, the token was minted with
 an internal endpoint. Set `webNg.publicUrl` correctly and issue a new package,
