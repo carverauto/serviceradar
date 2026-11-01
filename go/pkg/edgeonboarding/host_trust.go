@@ -23,7 +23,9 @@ type hostTrustIdentity struct {
 }
 
 // installHostTrust publishes the enrolled agent id, partition and CA chain
-// where a privileged helper can trust them. Runtime agent.json and the
+// where a privileged helper can trust them. The trust directory is made
+// private before those bytes are written. Chowning a path afterwards would
+// adopt a file another user swapped in. Runtime agent.json and the
 // certificate directory stay service-owned so renewal can rewrite them.
 func installHostTrust(configDir string, configJSON, caChain []byte) error {
 	var parsed hostTrustIdentity
@@ -33,7 +35,35 @@ func installHostTrust(configDir string, configJSON, caChain []byte) error {
 	if parsed.AgentID == "" || parsed.Partition == "" || len(caChain) == 0 {
 		return nil
 	}
+	if err := prepareHostTrustDir(configDir); err != nil {
+		return err
+	}
 
+	identity, err := json.Marshal(hostTrustIdentity{AgentID: parsed.AgentID, Partition: parsed.Partition})
+	if err != nil {
+		return fmt.Errorf("encode host trust: %w", err)
+	}
+	dir := filepath.Join(configDir, hostTrustDirName)
+	if err := writeFileAtomic(filepath.Join(dir, hostTrustIdentityName), identity, 0o644); err != nil {
+		return fmt.Errorf("write host trust identity: %w", err)
+	}
+	if err := writeFileAtomic(filepath.Join(dir, hostTrustCAName), caChain, 0o644); err != nil {
+		return fmt.Errorf("write host trust CA: %w", err)
+	}
+	return nil
+}
+
+func prepareHostTrustDir(configDir string) error {
+	if os.Geteuid() == 0 {
+		return establishPrivilegedHostTrust(configDir)
+	}
+	return prepareCallerHostTrustDir(configDir)
+}
+
+// prepareCallerHostTrustDir creates a private trust directory for custom
+// enrollment. An existing directory other users can write is left untouched
+// so its contents cannot be published and later treated as host trust.
+func prepareCallerHostTrustDir(configDir string) error {
 	parent, err := os.Lstat(configDir)
 	if err != nil {
 		return fmt.Errorf("stat host trust parent: %w", err)
@@ -43,44 +73,27 @@ func installHostTrust(configDir string, configJSON, caChain []byte) error {
 	}
 
 	dir := filepath.Join(configDir, hostTrustDirName)
-	if info, err := os.Lstat(dir); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-			return fmt.Errorf("host trust path %s is not a directory", dir)
+	info, err := os.Lstat(dir)
+	if os.IsNotExist(err) {
+		if mkErr := os.Mkdir(dir, 0o755); mkErr != nil {
+			if !os.IsExist(mkErr) {
+				return fmt.Errorf("create host trust: %w", mkErr)
+			}
+		} else if chmodErr := os.Chmod(dir, 0o755); chmodErr != nil {
+			return fmt.Errorf("chmod host trust: %w", chmodErr)
+		} else {
+			return nil
 		}
-	} else if !os.IsNotExist(err) {
+		info, err = os.Lstat(dir)
+	}
+	if err != nil {
 		return fmt.Errorf("stat host trust: %w", err)
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fmt.Errorf("create host trust: %w", err)
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("host trust path %s is not a directory", dir)
 	}
-	if err := os.Chmod(dir, 0o755); err != nil {
-		return fmt.Errorf("chmod host trust: %w", err)
-	}
-
-	identity, err := json.Marshal(hostTrustIdentity{AgentID: parsed.AgentID, Partition: parsed.Partition})
-	if err != nil {
-		return fmt.Errorf("encode host trust: %w", err)
-	}
-	identityPath := filepath.Join(dir, hostTrustIdentityName)
-	caPath := filepath.Join(dir, hostTrustCAName)
-	if err := writeFileAtomic(identityPath, identity, 0o644); err != nil {
-		return fmt.Errorf("write host trust identity: %w", err)
-	}
-	if err := writeFileAtomic(caPath, caChain, 0o644); err != nil {
-		return fmt.Errorf("write host trust CA: %w", err)
-	}
-	if os.Geteuid() != 0 {
-		return nil
-	}
-
-	paths := []string{dir, identityPath, caPath}
-	if configDir == canonicalAgentConfig {
-		paths = append([]string{configDir}, paths...)
-	}
-	for _, path := range paths {
-		if err := os.Chown(path, 0, 0); err != nil {
-			return fmt.Errorf("chown %s: %w", path, err)
-		}
+	if info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("host trust path %s is writable by other users", dir)
 	}
 	return nil
 }
