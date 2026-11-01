@@ -192,8 +192,6 @@ func onDisk(t *testing.T, path string) bool {
 // laneCommitLen is what committing body adds on disk to a lane whose evidence
 // covers every earlier sequence: the framed record plus a PREPARED and a
 // COMMITTED entry in each evidence copy.
-//
-//nolint:unparam // body sizes the record the same way the caller's append does
 func laneCommitLen(body string) uint64 {
 	return uint64(minRecordLen+len(body)) + evidenceCopies*2*evidenceEntryLen
 }
