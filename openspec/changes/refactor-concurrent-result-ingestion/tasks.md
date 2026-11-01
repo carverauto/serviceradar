@@ -77,9 +77,9 @@
   transport failures. `ResultsRouterTest` "ingestion metric envelopes persist
   through exactly the configured EventWriter backend" decodes that frame with
   the Metrics processor and reads the rows back from `platform.timeseries_metrics`.
-- [x] 7.3 Register the lane `:telemetry` events as `Telemetry.Metrics` in core-elx's metrics (depth last_value; admitted, rejected, NACK, incomplete-run counters; lane/class tags only) and add Grafana panels to the chart's ingestion dashboards, validated as parsed dashboard JSON. (`ServiceRadar.Telemetry.admission_lane_metrics/0` is registered and tested; Grafana dashboard panels tracked in #6160)
-- [x] 7.4 Seed a ServiceRadar dashboard in web-ng charting the persisted lane metrics from `timeseries_metrics` via SRQL (depth, reject and NACK rates). (Tracked in #6160)
-- [x] 7.5 Add an Ingestion card and table to Settings -> Cluster Status fed by a lane-stats call on the page's existing refresh timer (no query or RPC in the disconnected mount), with LiveView tests for lane values and the unavailable state. (Tracked in #6160)
+- [x] 7.3 Register the lane `:telemetry` events as `Telemetry.Metrics` in core-elx's metrics (depth last_value; admitted, rejected, NACK, incomplete-run counters; lane/class tags only) and add Grafana panels to the chart's ingestion dashboards, validated as parsed dashboard JSON. (`ServiceRadar.Telemetry.admission_lane_metrics/0` is registered and tested; Grafana panels are in `helm/serviceradar/dashboards/serviceradar-ingestion-edge.json`.)
+- [x] 7.4 Seed a ServiceRadar dashboard in web-ng charting the persisted lane metrics from `timeseries_metrics` via SRQL (depth, reject and NACK rates).
+- [x] 7.5 Add an Ingestion card and table to Settings -> Cluster Status fed by a lane-stats call on the page's existing refresh timer (no query or RPC in the disconnected mount), with LiveView tests for lane values and the unavailable state.
 
 ## Evidence status
 

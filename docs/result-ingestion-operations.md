@@ -221,7 +221,8 @@ subject, a reason class, and a count.
 
 Interval non-accepted counts are the
 `result_ingestion_terminals_not_accepted` completion outcomes: worker errors,
-timeouts, and persistence failures surfaced as not-accepted replies. Admission
+timeouts, sweep cancellations, and persistence failures recorded as
+not-accepted completions. Admission
 refusals (`result_ingestion_rejections_*`) are caller-side rejections, never
 agent NACKs. `result_ingestion_events_incomplete_run` (lane `sync`) counts
 final validation attempts that found the ledger incomplete: one per activation
@@ -242,10 +243,13 @@ in-memory coordinator state:
   `serviceradar_admission_lane_in_flight_bytes`,
   `serviceradar_admission_lane_admitted_count`,
   `serviceradar_admission_lane_rejected_count`,
-  `serviceradar_admission_lane_completion_count` (tagged by `lane`, `result`, and
-  `outcome`), `serviceradar_admission_lane_incomplete_run_count`,
-  `serviceradar_admission_lane_timeout_count`, and
-  `serviceradar_admission_lane_crash_count` with bounded lane/class tags only.
+  `serviceradar_admission_lane_completion_count` (tags `lane`, `result`, and
+  `outcome`), `serviceradar_admission_lane_incomplete_run_count` (tag `lane`),
+  `serviceradar_admission_lane_timeout_count` (tags `lane` and `reason`), and
+  `serviceradar_admission_lane_crash_count` (tags `lane`, `reason`, and
+  `exit_reason`). Pending, in-flight, and admitted series use tag `lane`.
+  The rejected counter uses `lane` and `reason`. No agent, device, or run id
+  is a tag.
   `helm/serviceradar/dashboards/serviceradar-ingestion-edge.json` charts lane
   queue depth, admissions vs rejections, non-accepted completions, incomplete
   runs, timeouts, and crashes. Gauges use `max by (lane)`. Admitted and
@@ -275,9 +279,10 @@ in-memory coordinator state:
   `ServiceRadar.Ingestion.RuntimeMetrics.lane_stats/0` on connected mount and
   refresh (never in disconnected mount) to render the **Ingestion** summary card
   and the **Ingestion Lanes** table directly from ETS without calling any lane
-  GenServer or touching the database. The card follows current queued depth and
-  shows unavailable when no core coordinator is reachable. The table shows one
-  row per lane. Pending depth, in-flight work, byte occupancy, and both caps are
+  GenServer or touching the database. The card shows current queued and in-flight
+  depth (`N queued / M active`) and shows Unavailable when no core coordinator
+  is reachable. The table shows one row per lane. Pending depth, in-flight work,
+  byte occupancy, and both caps are
   summed across connected cores, so pending / max is cluster occupancy over
   cluster capacity. Admitted, rejected, accepted, not-accepted, timeout, crash,
   and incomplete-run totals are summed the same way. Those outcome columns are
