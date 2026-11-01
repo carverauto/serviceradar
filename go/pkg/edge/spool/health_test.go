@@ -17,6 +17,7 @@
 package spool
 
 import (
+	"errors"
 	"testing"
 	"time"
 )
@@ -87,6 +88,33 @@ func TestUnresolvedHealthOmitsAgeWhenNoVersion7(t *testing.T) {
 	bytes, age, reportAge, err := s.UnresolvedHealth(time.UnixMilli(1_700_000_090_000))
 	if err != nil || bytes != 4 || age != 0 || reportAge {
 		t.Fatalf("non-v7 health = (%d, %s, %v, %v)", bytes, age, reportAge, err)
+	}
+}
+
+// A metrics read must not need the record body. The oracle that the body is
+// damaged is Unresolved, which checks the body CRC and returns CorruptBodyError.
+// Health still reports the header's length and the UUIDv7 age. A sampler that
+// loaded each body would fail the same way Unresolved does.
+func TestUnresolvedHealthReportsARecordWhoseBodyIsCorrupt(t *testing.T) {
+	now := time.UnixMilli(1_700_000_000_000)
+	event := now.Add(-90 * time.Second)
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if _, err := s.Append(uuidV7At(uint64(event.UnixMilli())), []byte("abcdef")); err != nil {
+		t.Fatal(err)
+	}
+	corruptBody(t, dir, 0)
+
+	if _, err := s.Unresolved(); !errors.As(err, new(*CorruptBodyError)) {
+		t.Fatalf("full read of the damaged record = %v, want CorruptBodyError", err)
+	}
+	bytes, age, reportAge, err := s.UnresolvedHealth(now)
+	if err != nil || bytes != 6 || !reportAge || age != 90*time.Second {
+		t.Fatalf("health of a record with a damaged body = (%d, %s, %v, %v), want (6, 90s, true, nil)", bytes, age, reportAge, err)
 	}
 }
 
