@@ -5,23 +5,19 @@ whole proposal; a completed mechanism test is not beta acceptance.
 
 ## Next agent prompt
 
-Connect the integrated durable authority and signed policy to the remaining
-receivers and host onboarding. The branch contains Go/Rust peer verification,
-Linux installation, authority persistence, NATS authorization codec and Erlang
-active-session enforcement. Independent policy bootstrap, managed CLI lifecycle
-and authority APIs are in parallel implementation.
+The branch contains Go/Rust peer verification, Linux installation, authority
+persistence, NATS authorization codec, and Erlang active-session enforcement.
+Independent policy bootstrap, the managed CLI, and the authority APIs are in
+the tree. Acceptance of the whole proposal is still unchecked.
 
-Priority order:
+The managed CLI install path is `js/cli/README.md`. Certificate lifecycle,
+local leaf policy, collector gRPC policy, and peer policy are the docs named
+from `docs/agent-runbooks.md`. This handoff does not record acceptance.
 
-1. Finish central and local NATS authorization using one signed permissions map;
-   prove local ingestion continues during WAN loss and fresh revocation closes it.
-2. Integrate independent HTTPS policy refresh and TLS distribution boot, then
-   cover remaining inbound Rust gRPC listeners.
-3. Complete lifecycle reconciliation and receiver-observed successor retirement;
-   add operator inventory/actions and CLI enrollment/adoption.
-4. Populate the collector-facing leaf URL during enrollment, expose explicit
-   Helm/Compose upstream advertisement, and bind all names to certificate SANs.
-5. Run the complete host and cluster acceptance matrix in tasks.md.
+Priority order for what this note still leaves open:
+
+1. Run the complete host and cluster acceptance matrix in tasks.md. Live
+   enrollment against a broker is not part of that unchecked acceptance.
 
 Managed component certificates are ordinary PKIX names plus stored
 fingerprints. SPIRE is not used on this path. Hub leaf observation reads the

@@ -1,5 +1,13 @@
 # `@carverauto/serviceradar-cli` Changelog
 
+## Unreleased
+
+- `edge install leaf` and `edge install collector` require an enrolled host
+  agent. They register a managed component and wait for agent certificate
+  installation and service activation. They no longer apply a leaf `setup.sh`
+  or collector `update.sh` bundle, and they do not wait for `serviceradar-nats`
+  before configuring a site-assigned collector.
+
 ## 0.2.2
 
 - Require `vite` `^7.3.7`, the first 7.x release with the fixes for the dev

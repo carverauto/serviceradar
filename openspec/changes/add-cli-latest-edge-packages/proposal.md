@@ -12,6 +12,9 @@ is up.
 
 ## What Changes
 
+Managed component install supersedes the `setup.sh` confirmation and the
+collector wait in this list. Current behavior is `js/cli/README.md`.
+
 - `edge install leaf` and `edge install collector` download the matching
   package from the latest `carverauto/serviceradar` GitHub release when
   `--version` is omitted. `--version` still pins a release. `edge install
