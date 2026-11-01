@@ -2,8 +2,10 @@
 
 package edgeonboarding
 
-import "fmt"
+import "errors"
+
+var errPrivilegedHostTrustRequiresUnix = errors.New("privileged host trust requires a unix host")
 
 func establishPrivilegedHostTrust(string) error {
-	return fmt.Errorf("privileged host trust requires a unix host")
+	return errPrivilegedHostTrustRequiresUnix
 }

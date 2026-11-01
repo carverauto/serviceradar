@@ -122,7 +122,7 @@ Notes:
 - If you need to re-enroll, generate a new agent package to get a fresh token.
   Re-enrollment is also how an existing packaged Linux host publishes host-trust
   for managed installation. The layout is in
-  [Managed component certificates](../managed-component-certificates.md).
+  [Managed component certificates](https://github.com/carverauto/serviceradar/blob/staging/docs/managed-component-certificates.md).
 
 If enrollment tries to resolve `serviceradar-web-ng`, the token was minted with
 an internal endpoint. Set `webNg.publicUrl` correctly and issue a new package,

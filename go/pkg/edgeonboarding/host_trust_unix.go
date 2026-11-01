@@ -3,11 +3,14 @@
 package edgeonboarding
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"syscall"
 )
+
+var errHostTrustNotRootControlled = errors.New("host trust directory is not root-controlled")
 
 // establishPrivilegedHostTrust makes the trust directory root-owned and not
 // writable by any other user before enrollment publishes identity or CA bytes.
@@ -45,27 +48,34 @@ func makeRootControlled(fd int, establish bool) error {
 		return fmt.Errorf("stat host trust: %w", err)
 	}
 	if st.Mode&syscall.S_IFMT != syscall.S_IFDIR {
-		return fmt.Errorf("host trust path is not a directory")
+		return errHostTrustPathNotDirectory
 	}
 	if rootControlled(st) {
 		return nil
 	}
 	if !establish {
-		return fmt.Errorf("host trust directory is not root-controlled")
+		return errHostTrustNotRootControlled
 	}
 	if err := syscall.Fchown(fd, 0, 0); err != nil {
 		return fmt.Errorf("chown host trust: %w", err)
 	}
-	if err := syscall.Fchmod(fd, exclusiveDirMode(uint32(st.Mode))); err != nil {
+	if err := syscall.Fchmod(fd, exclusiveDirMode(statMode(st))); err != nil {
 		return fmt.Errorf("chmod host trust: %w", err)
 	}
 	if err := syscall.Fstat(fd, &st); err != nil {
 		return fmt.Errorf("stat host trust: %w", err)
 	}
 	if !rootControlled(st) {
-		return fmt.Errorf("host trust directory is not root-controlled")
+		return errHostTrustNotRootControlled
 	}
 	return nil
+}
+
+// statMode widens Stat_t.Mode. Darwin, Dragonfly, and FreeBSD store it as
+// uint16; Linux and the other unix targets store it as uint32. Widening
+// through uint64 keeps one conversion that compiles on both widths.
+func statMode(st syscall.Stat_t) uint32 {
+	return uint32(uint64(st.Mode))
 }
 
 func rootControlled(st syscall.Stat_t) bool {

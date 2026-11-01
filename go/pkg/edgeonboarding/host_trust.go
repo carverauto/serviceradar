@@ -2,9 +2,16 @@ package edgeonboarding
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+)
+
+var (
+	errHostTrustParentNotDirectory = errors.New("host trust parent is not a directory")
+	errHostTrustPathNotDirectory   = errors.New("host trust path is not a directory")
+	errHostTrustWritableByOthers   = errors.New("host trust path is writable by other users")
 )
 
 const (
@@ -69,7 +76,7 @@ func prepareCallerHostTrustDir(configDir string) error {
 		return fmt.Errorf("stat host trust parent: %w", err)
 	}
 	if parent.Mode()&os.ModeSymlink != 0 || !parent.IsDir() {
-		return fmt.Errorf("host trust parent %s is not a directory", configDir)
+		return fmt.Errorf("%w: %s", errHostTrustParentNotDirectory, configDir)
 	}
 
 	dir := filepath.Join(configDir, hostTrustDirName)
@@ -90,10 +97,10 @@ func prepareCallerHostTrustDir(configDir string) error {
 		return fmt.Errorf("stat host trust: %w", err)
 	}
 	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
-		return fmt.Errorf("host trust path %s is not a directory", dir)
+		return fmt.Errorf("%w: %s", errHostTrustPathNotDirectory, dir)
 	}
 	if info.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("host trust path %s is writable by other users", dir)
+		return fmt.Errorf("%w: %s", errHostTrustWritableByOthers, dir)
 	}
 	return nil
 }
