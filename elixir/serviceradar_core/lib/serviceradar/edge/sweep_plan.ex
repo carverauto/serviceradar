@@ -146,10 +146,11 @@ defmodule ServiceRadar.Edge.SweepPlan do
   end
 
   @doc """
-  Merges contained or overlapping static targets into deterministic `(address family, network
-  address, prefix length)` order, preserving bare-address spelling when a single IP is not
-  contained in a wider CIDR. Returns `{:error, {:unmergeable_targets, left, right}}` when two
-  targets overlap in a way that cannot merge into a CIDR range, or `{:error, reason()}` when a
+  Merges contained static targets into deterministic `(address family, network
+  address, prefix length)` order. A target fully inside another target of the same
+  family is dropped and the outer target's text is kept. A bare address that no wider
+  target covers keeps its own spelling. Returns `{:error, {:unmergeable_targets, left, right}}`
+  when two targets overlap without one containing the other, or `{:error, reason()}` when a
   target is invalid or too wide.
   """
   @spec merge_static_targets([String.t()]) :: {:ok, [String.t()]} | {:error, reason()}
@@ -437,11 +438,7 @@ defmodule ServiceRadar.Edge.SweepPlan do
             curr.family != prev.family or curr.first > prev.last ->
               {:cont, {:ok, [curr | acc]}}
 
-            prev.kind == :cidr and curr.last <= prev.last ->
-              {:cont, {:ok, acc}}
-
-            prev.kind == :range and curr.kind == :range and curr.first == prev.first and
-                curr.last == prev.last ->
+            curr.last <= prev.last ->
               {:cont, {:ok, acc}}
 
             true ->

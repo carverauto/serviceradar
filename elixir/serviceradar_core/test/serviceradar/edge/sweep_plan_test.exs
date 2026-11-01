@@ -251,6 +251,25 @@ defmodule ServiceRadar.Edge.SweepPlanTest do
                ])
     end
 
+    test "drops a target contained in a first-last range and keeps the outer text" do
+      contained = [
+        {["10.0.0.10-10.0.0.50", "10.0.0.20"], ["10.0.0.10-10.0.0.50"]},
+        {["10.0.0.10-10.0.0.50", "10.0.0.50"], ["10.0.0.10-10.0.0.50"]},
+        {["10.0.0.0-10.0.0.200", "10.0.0.0/25"], ["10.0.0.0-10.0.0.200"]},
+        {["10.0.0.0-10.0.0.200", "10.0.0.10-10.0.0.50"], ["10.0.0.0-10.0.0.200"]},
+        {["10.0.0.0-10.0.0.50", "10.0.0.0-10.0.0.10"], ["10.0.0.0-10.0.0.50"]},
+        {["10.0.0.0-10.0.0.255", "10.0.0.128/25"], ["10.0.0.0-10.0.0.255"]},
+        {["10.0.0.10-10.0.0.50", "10.0.0.10-10.0.0.50"], ["10.0.0.10-10.0.0.50"]},
+        {["2001:db8::10-2001:db8::50", "2001:db8::20"], ["2001:db8::10-2001:db8::50"]},
+        {["10.0.0.10-10.0.0.50", "10.0.0.20", "192.0.2.9"], ["10.0.0.10-10.0.0.50", "192.0.2.9"]}
+      ]
+
+      for {targets, expected} <- contained do
+        assert {:ok, expected} == SweepPlan.merge_static_targets(targets)
+        assert {:ok, expected} == SweepPlan.merge_static_targets(Enum.reverse(targets))
+      end
+    end
+
     test "refuses overlapping ranges that cannot merge into a CIDR" do
       assert {:error,
               {:unmergeable_targets, "198.51.100.10-198.51.100.50", "198.51.100.30-198.51.100.80"}} =
@@ -264,6 +283,12 @@ defmodule ServiceRadar.Edge.SweepPlanTest do
                  "198.51.100.0/25",
                  "198.51.100.64-198.51.100.192"
                ])
+
+      assert {:error, {:unmergeable_targets, "10.0.0.0-10.0.0.100", "10.0.0.64/26"}} =
+               SweepPlan.merge_static_targets(["10.0.0.64/26", "10.0.0.0-10.0.0.100"])
+
+      assert {:error, {:unmergeable_targets, "10.0.0.10-10.0.0.50", "10.0.0.50-10.0.0.60"}} =
+               SweepPlan.merge_static_targets(["10.0.0.50-10.0.0.60", "10.0.0.10-10.0.0.50"])
     end
 
     test "refuses invalid or inverted ranges" do
