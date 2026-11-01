@@ -25,6 +25,9 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/natsutil"
 )
 
+// Static test error for err113 compliance.
+var errManagedServiceFailed = errors.New("service failed")
+
 type managedCertificateFixture struct {
 	store      managedCertificateStore
 	ca         *x509.Certificate
@@ -59,7 +62,7 @@ func newManagedCertificateFixture(t *testing.T) *managedCertificateFixture {
 func (f *managedCertificateFixture) prepare(t *testing.T, id, service string) (*ManagedCertificatePreparation, ManagedCertificateAssignment) {
 	t.Helper()
 	a := ManagedCertificateAssignment{RequestID: id, ComponentID: "component-synthetic", HostAgentID: "agent-synthetic", PartitionID: "default", Generation: 1, Service: service}
-	if service == "nats-leaf" {
+	if service == managedServiceNATSLeaf {
 		a.ServerHosts = []string{"leaf.example.test", "192.0.2.10"}
 	}
 	prepared, err := f.store.prepare(a)
@@ -81,7 +84,7 @@ func (f *managedCertificateFixture) issue(t *testing.T, p *ManagedCertificatePre
 			t.Fatal(err)
 		}
 		usage := x509.ExtKeyUsageClientAuth
-		if role == "local_server" {
+		if role == managedRoleLocalServer {
 			usage = x509.ExtKeyUsageServerAuth
 		}
 		cert := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: csr.Subject, NotBefore: f.store.now().Add(-time.Minute), NotAfter: f.store.now().Add(24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage}}
@@ -102,7 +105,7 @@ func TestManagedCertificatesPrepareAndInstallAcrossRestart(t *testing.T) {
 	previousUmask := syscall.Umask(0077)
 	defer syscall.Umask(previousUmask)
 	f := newManagedCertificateFixture(t)
-	p, a := f.prepare(t, "prepare-1", "nats-leaf")
+	p, a := f.prepare(t, "prepare-1", managedServiceNATSLeaf)
 	restarted := f.store
 	again, err := restarted.prepare(a)
 	if err != nil || !reflect.DeepEqual(p, again) {
@@ -116,11 +119,17 @@ func TestManagedCertificatesPrepareAndInstallAcrossRestart(t *testing.T) {
 	if err != nil || info.Mode().Perm() != 0600 {
 		t.Fatalf("private keys not stored privately: %v", err)
 	}
+	assertPreparedManagedLeafIdentities(t, p)
+	assertManagedLeafInstalled(t, f, restarted, p)
+}
+
+func assertPreparedManagedLeafIdentities(t *testing.T, p *ManagedCertificatePreparation) {
+	t.Helper()
 	client, err := x509.ParseCertificateRequest(p.CSRs["upstream_client"].CSRDER)
 	if err != nil {
 		t.Fatal(err)
 	}
-	server, err := x509.ParseCertificateRequest(p.CSRs["local_server"].CSRDER)
+	server, err := x509.ParseCertificateRequest(p.CSRs[managedRoleLocalServer].CSRDER)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -133,8 +142,12 @@ func TestManagedCertificatesPrepareAndInstallAcrossRestart(t *testing.T) {
 	if !reflect.DeepEqual(server.DNSNames, []string{"localhost", "leaf.example.test"}) || !server.IPAddresses[1].Equal(net.ParseIP("192.0.2.10")) {
 		t.Fatal("missing requested server identities")
 	}
+}
+
+func assertManagedLeafInstalled(t *testing.T, f *managedCertificateFixture, store managedCertificateStore, p *ManagedCertificatePreparation) {
+	t.Helper()
 	req := f.issue(t, p, nil)
-	result, err := restarted.install(context.Background(), req)
+	result, err := store.install(context.Background(), req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +179,7 @@ func TestManagedCertificatesPrepareAndInstallAcrossRestart(t *testing.T) {
 	if len(f.operations) != 1 || f.operations[0].unit != "serviceradar-nats.service" || f.operations[0].operation != "reload-or-restart" {
 		t.Fatalf("unexpected service activation: %+v", f.operations)
 	}
-	retry, err := restarted.install(context.Background(), req)
+	retry, err := store.install(context.Background(), req)
 	if err != nil || !reflect.DeepEqual(result, retry) || len(f.operations) != 1 {
 		t.Fatalf("install retry repeated activation: %v", err)
 	}
@@ -252,7 +265,7 @@ func TestManagedCertificatesInterruptedActivationRollsBack(t *testing.T) {
 					t.Fatal("collector must restart")
 				}
 				if calls == 1 || rollbackFails {
-					return errors.New("service failed")
+					return errManagedServiceFailed
 				}
 				return nil
 			}
@@ -368,7 +381,7 @@ func TestManagedCertificatesCollectorServerIdentity(t *testing.T) {
 
 func TestManagedCertificatesAcceptExactIssuerSANs(t *testing.T) {
 	f := newManagedCertificateFixture(t)
-	p, _ := f.prepare(t, "issuer-sans", "nats-leaf")
+	p, _ := f.prepare(t, "issuer-sans", managedServiceNATSLeaf)
 	result, err := f.store.install(context.Background(), f.issue(t, p, nil))
 	if err != nil {
 		t.Fatal(err)
@@ -377,7 +390,7 @@ func TestManagedCertificatesAcceptExactIssuerSANs(t *testing.T) {
 	if len(upstream.URIs) != 0 || !sameSorted(upstream.DNSNames, []string{"component-synthetic.default.serviceradar"}) || len(upstream.IPAddresses) != 0 {
 		t.Fatalf("upstream certificate is not the plain X509 name set: uris=%v dns=%v", certificateURIStrings(upstream.URIs), upstream.DNSNames)
 	}
-	server := installedManagedLeaf(t, result.Files["local_server"])
+	server := installedManagedLeaf(t, result.Files[managedRoleLocalServer])
 	if len(server.URIs) != 0 || !sameSorted(server.DNSNames, []string{"component-synthetic-server.default.serviceradar", "leaf.example.test", "localhost"}) || !sameCertificateIPs(server.IPAddresses, []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.10")}) {
 		t.Fatalf("server certificate is not the plain X509 name set: uris=%v dns=%v ips=%v", certificateURIStrings(server.URIs), server.DNSNames, server.IPAddresses)
 	}
@@ -412,15 +425,15 @@ func TestManagedCertificatesRejectIssuerSANOutsideExtfile(t *testing.T) {
 		role    string
 		edit    func(*x509.Certificate)
 	}{
-		{name: "extra-uri", service: "nats-leaf", role: "upstream_client", edit: func(c *x509.Certificate) {
+		{name: "extra-uri", service: managedServiceNATSLeaf, role: "upstream_client", edit: func(c *x509.Certificate) {
 			extra, _ := url.Parse("spiffe://serviceradar.local/other/default")
 			c.URIs = append(c.URIs, extra)
 		}},
-		{name: "hub-uri-on-server", service: "nats-leaf", role: "local_server", edit: func(c *x509.Certificate) {
+		{name: "hub-uri-on-server", service: managedServiceNATSLeaf, role: managedRoleLocalServer, edit: func(c *x509.Certificate) {
 			extra, _ := url.Parse("spiffe://serviceradar.local/nats-leaf/default")
 			c.URIs = append(c.URIs, extra)
 		}},
-		{name: "missing-cn", service: "nats-leaf", role: "local_server", edit: func(c *x509.Certificate) {
+		{name: "missing-cn", service: managedServiceNATSLeaf, role: managedRoleLocalServer, edit: func(c *x509.Certificate) {
 			c.DNSNames = []string{"localhost", "leaf.example.test"}
 		}},
 		{name: "extra-dns", service: "trapd", hosts: []string{"collector.example.test"}, role: "client", edit: func(c *x509.Certificate) {
@@ -434,7 +447,7 @@ func TestManagedCertificatesRejectIssuerSANOutsideExtfile(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			f := newManagedCertificateFixture(t)
 			hosts := tc.hosts
-			if tc.service == "nats-leaf" {
+			if tc.service == managedServiceNATSLeaf {
 				hosts = []string{"leaf.example.test", "192.0.2.10"}
 			}
 			a := ManagedCertificateAssignment{RequestID: "issuer-san", ComponentID: "component-synthetic", HostAgentID: "agent-synthetic", PartitionID: "default", Generation: 1, Service: tc.service, ServerHosts: hosts}

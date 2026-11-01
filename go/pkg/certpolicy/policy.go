@@ -6,7 +6,6 @@ package certpolicy
 import (
 	"encoding/hex"
 	"errors"
-	"fmt"
 	"maps"
 	"strings"
 	"sync"
@@ -16,10 +15,13 @@ import (
 const MaxValidity = 30 * time.Second
 
 var (
-	ErrUnavailable = errors.New("certificate policy unavailable or expired")
-	ErrDenied      = errors.New("peer certificate is not authorized")
-	ErrRollback    = errors.New("certificate policy snapshot is older than current policy")
-	ErrClosed      = errors.New("certificate policy store closed")
+	ErrUnavailable         = errors.New("certificate policy unavailable or expired")
+	ErrDenied              = errors.New("peer certificate is not authorized")
+	ErrRollback            = errors.New("certificate policy snapshot is older than current policy")
+	ErrClosed              = errors.New("certificate policy store closed")
+	errPolicyValidity      = errors.New("invalid certificate policy validity or version")
+	errPolicyFingerprint   = errors.New("invalid certificate fingerprint")
+	errPolicyWatchCallback = errors.New("certificate policy watch requires invalidation callback")
 )
 
 // Snapshot is the derived transport view of the core authority snapshot. The
@@ -60,13 +62,13 @@ func (s *Store) Apply(snapshot Snapshot) error {
 		!snapshot.ValidUntil.After(snapshot.GeneratedAt) || !snapshot.ValidUntil.After(now) ||
 		snapshot.ValidUntil.Sub(snapshot.GeneratedAt) > MaxValidity ||
 		snapshot.GeneratedAt.After(now.Add(5*time.Second)) {
-		return fmt.Errorf("invalid certificate policy validity or version")
+		return errPolicyValidity
 	}
 	allowed := make(map[string]struct{}, len(snapshot.AllowedFingerprints))
 	for _, fp := range snapshot.AllowedFingerprints {
 		raw, err := hex.DecodeString(fp)
 		if err != nil || len(raw) != 32 || fp != strings.ToLower(fp) {
-			return fmt.Errorf("invalid certificate fingerprint")
+			return errPolicyFingerprint
 		}
 		allowed[fp] = struct{}{}
 	}
@@ -131,7 +133,7 @@ func (s *Store) authorizeLocked(fingerprint string) error {
 // runs outside the store lock. release is idempotent and removes a closed peer.
 func (s *Store) Watch(fingerprint string, onInvalid func()) (release func(), err error) {
 	if onInvalid == nil {
-		return nil, errors.New("certificate policy watch requires invalidation callback")
+		return nil, errPolicyWatchCallback
 	}
 	s.mu.Lock()
 	if err := s.authorizeLocked(fingerprint); err != nil {

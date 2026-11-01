@@ -12,6 +12,11 @@ import (
 	"google.golang.org/grpc/credentials"
 )
 
+var (
+	errVerifiedTLSPeer                  = errors.New("certificate policy requires a verified TLS peer")
+	errManagedCertificatePolicyRequired = errors.New("managed certificate policy is required")
+)
+
 type MTLSOption func(*MTLSProvider)
 
 // WithPeerCertificatePolicy enables managed certificate admission for both
@@ -43,7 +48,7 @@ func (c *policyCredentials) admit(conn net.Conn, info credentials.AuthInfo, err 
 	tlsInfo, ok := info.(credentials.TLSInfo)
 	if !ok || len(tlsInfo.State.VerifiedChains) == 0 || len(tlsInfo.State.PeerCertificates) == 0 {
 		_ = conn.Close()
-		return nil, nil, errors.New("certificate policy requires a verified TLS peer")
+		return nil, nil, errVerifiedTLSPeer
 	}
 	fingerprint := fmt.Sprintf("%x", sha256.Sum256(tlsInfo.State.PeerCertificates[0].Raw))
 	release, err := c.policy.Watch(fingerprint, func() {
@@ -63,7 +68,8 @@ func (c *policyCredentials) Clone() credentials.TransportCredentials {
 	return &policyCredentials{base: c.base.Clone(), policy: c.policy}
 }
 func (c *policyCredentials) OverrideServerName(name string) error {
-	return c.base.OverrideServerName(name)
+	// TransportCredentials still requires this method. Dial authority is a separate option.
+	return c.base.OverrideServerName(name) //nolint:staticcheck // required interface method; gRPC deprecates the call
 }
 
 type policyConn struct {

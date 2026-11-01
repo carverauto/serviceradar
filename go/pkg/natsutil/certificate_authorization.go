@@ -12,6 +12,14 @@ import (
 	"github.com/nats-io/nkeys"
 )
 
+var (
+	errLocalAuthContext        = errors.New("invalid local authorization context or request size")
+	errLocalAuthIssuer         = errors.New("invalid local authorization issuer")
+	errLocalAuthRequest        = errors.New("authorization request is not a current request from the local broker")
+	errBrokerClientCertificate = errors.New("broker did not verify a client certificate")
+	errBrokerCertificateChain  = errors.New("broker sent an invalid certificate chain")
+)
+
 // CertificatePermissions is the authority's signed subject projection for one DER fingerprint.
 type CertificatePermissions struct {
 	Publish       []string `json:"publish"`
@@ -39,18 +47,18 @@ type CertificateAuthorization struct {
 
 func (a LocalCertificateAuthorizer) Authorize(token string, now time.Time) (*CertificateAuthorization, error) {
 	if len(token) > 65536 || a.Roots == nil || a.Signer == nil || !nkeys.IsValidPublicServerKey(a.BrokerID) {
-		return nil, errors.New("invalid local authorization context or request size")
+		return nil, errLocalAuthContext
 	}
 	issuer, err := a.Signer.PublicKey()
 	if err != nil || !nkeys.IsValidPublicAccountKey(issuer) {
-		return nil, errors.New("invalid local authorization issuer")
+		return nil, errLocalAuthIssuer
 	}
 	request, err := jwt.DecodeAuthorizationRequestClaims(token)
 	if err != nil {
 		return nil, fmt.Errorf("verify broker authorization request: %w", err)
 	}
 	if request.Issuer != a.BrokerID || request.Server.ID != a.BrokerID || request.Subject != issuer || request.Audience != "nats-authorization-request" || request.IssuedAt > now.Unix()+1 || request.Expires <= now.Unix() || request.Expires > now.Unix()+60 || request.ClientInformation.ID == 0 || !nkeys.IsValidPublicUserKey(request.UserNkey) {
-		return nil, errors.New("authorization request is not a current request from the local broker")
+		return nil, errLocalAuthRequest
 	}
 	response := jwt.NewAuthorizationResponseClaims(request.UserNkey)
 	response.Audience = a.BrokerID
@@ -69,8 +77,8 @@ func (a LocalCertificateAuthorizer) Authorize(token string, now time.Time) (*Cer
 			user.Audience = "EDGE"
 			user.Name = result.Fingerprint
 			user.Expires = min(response.Expires, certificate.NotAfter.Unix())
-			user.Permissions.Pub = certificateSubjectPermission(permissions.Publish, permissions.PublishDeny)
-			user.Permissions.Sub = certificateSubjectPermission(permissions.Subscribe, permissions.SubscribeDeny)
+			user.Pub = certificateSubjectPermission(permissions.Publish, permissions.PublishDeny)
+			user.Sub = certificateSubjectPermission(permissions.Subscribe, permissions.SubscribeDeny)
 			response.Jwt, err = user.Encode(a.Signer)
 			if err != nil {
 				return nil, fmt.Errorf("sign local certificate grant: %w", err)
@@ -95,14 +103,14 @@ func certificateSubjectPermission(subjects, denied []string) jwt.Permission {
 
 func verifiedAuthorizationCertificate(request *jwt.AuthorizationRequestClaims, roots *x509.CertPool, now time.Time) (*x509.Certificate, error) {
 	if request.TLS == nil || len(request.TLS.VerifiedChains) == 0 || len(request.TLS.VerifiedChains[0]) == 0 {
-		return nil, errors.New("broker did not verify a client certificate")
+		return nil, errBrokerClientCertificate
 	}
 	intermediates := x509.NewCertPool()
 	var leaf *x509.Certificate
 	for index, encoded := range request.TLS.VerifiedChains[0] {
 		block, _ := pem.Decode([]byte(encoded))
 		if block == nil || block.Type != "CERTIFICATE" {
-			return nil, errors.New("broker sent an invalid certificate chain")
+			return nil, errBrokerCertificateChain
 		}
 		certificate, err := x509.ParseCertificate(block.Bytes)
 		if err != nil {

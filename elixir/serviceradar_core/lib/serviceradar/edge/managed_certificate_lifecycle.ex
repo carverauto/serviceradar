@@ -128,11 +128,14 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycle do
   @doc "Records independently observed receiver use; all successor roles must be observed before retirement."
   def confirm_use(fingerprint, receiver_id, opts)
       when is_binary(receiver_id) and byte_size(receiver_id) in 1..256 do
+    # host_agent_id binds this receiver to the component. It is not an Ash option.
+    {host_agent_id, opts} = Keyword.pop(opts, :host_agent_id)
+
     if SystemActor.system_actor?(opts[:actor]) do
       with {:ok, %ComponentCertificate{} = certificate} <-
              Ash.get(ComponentCertificate, fingerprint, opts),
            {:ok, %Operation{} = operation} <- current(certificate.component_id, opts),
-           :ok <- receiver_host(operation, opts[:host_agent_id]) do
+           :ok <- receiver_host(operation, host_agent_id) do
         transaction(fn ->
           with {:ok, current} <- locked_current(operation),
                true <- current.status == :activated,

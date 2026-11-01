@@ -98,7 +98,7 @@ func NewMTLSProvider(config *models.SecurityConfig, log logger.Logger, options .
 		option(provider)
 	}
 	if provider.peerPolicyEnabled && provider.peerPolicy == nil {
-		return nil, fmt.Errorf("managed certificate policy is required")
+		return nil, errManagedCertificatePolicyRequired
 	}
 	if err := provider.setCredentialNeeds(); err != nil {
 		return nil, err

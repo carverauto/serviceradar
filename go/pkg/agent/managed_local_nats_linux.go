@@ -22,6 +22,27 @@ import (
 
 const localNATSEndpoint = "tls://localhost:4222"
 
+var (
+	errLocalNATSHostBinding        = errors.New("local NATS binding does not belong to this enrolled host")
+	errLocalNATSComponentBinding   = errors.New("local NATS component differs from the root service binding")
+	errLocalNATSAuthorityOwner     = errors.New("a different component owns the local NATS authority")
+	errLocalNATSKeyMismatch        = errors.New("local NATS keys differ from the existing authority")
+	errLocalNATSSeedPermissions    = errors.New("unsafe local NATS seed permissions")
+	errLocalNATSKeyKind            = errors.New("wrong local NATS key kind")
+	errLocalNATSAuthorityMetadata  = errors.New("invalid local NATS authority metadata")
+	errLocalNATSPolicyFuture       = errors.New("local NATS policy has a future generation time")
+	errLocalNATSAuthorityHost      = errors.New("local NATS authority does not belong to this host")
+	errLocalNATSMTLSRequired       = errors.New("local NATS authority requires enrolled agent mTLS")
+	errLocalNATSPKIX               = errors.New("local NATS server did not pass PKIX verification")
+	errLocalNATSServerIdentity     = errors.New("local NATS server has the wrong managed identity")
+	errLocalNATSServerRevoked      = errors.New("local NATS server certificate was revoked")
+	errLocalNATSAuthKey            = errors.New("local NATS auth key differs from root metadata")
+	errLocalNATSRequestSize        = errors.New("local NATS authorization request too large")
+	errLocalNATSIssuer             = errors.New("local NATS issuer differs from root metadata")
+	errLocalNATSBrokerDisconnected = errors.New("local NATS broker disconnected")
+	errLocalNATSBootstrapRoot      = errors.New("local NATS authority bootstrap requires the root CLI")
+)
+
 type managedLocalNATSBinding struct {
 	ComponentID string `json:"component_id"`
 	HostAgentID string `json:"host_agent_id"`
@@ -41,7 +62,7 @@ type managedLocalNATSAuthorization struct {
 
 func (s managedCertificateStore) bootstrapLocalNATS(binding managedLocalNATSBinding) (*managedLocalNATSMetadata, error) {
 	if !managedSafeID(binding.ComponentID) || binding.HostAgentID != s.agentID || binding.PartitionID != s.partition {
-		return nil, errors.New("local NATS binding does not belong to this enrolled host")
+		return nil, errLocalNATSHostBinding
 	}
 	// Only the root CLI can select the fixed NATS service instance. The agent's
 	// remote command channel cannot repoint its local authorization authority.
@@ -54,7 +75,7 @@ func (s managedCertificateStore) bootstrapLocalNATS(binding managedLocalNATSBind
 		return nil, err
 	}
 	if installed.ComponentID != binding.ComponentID || installed.HostAgentID != binding.HostAgentID {
-		return nil, errors.New("local NATS component differs from the root service binding")
+		return nil, errLocalNATSComponentBinding
 	}
 	metadataPath := filepath.Join(s.root, "local-nats.json")
 	var previous *managedLocalNATSMetadata
@@ -64,7 +85,7 @@ func (s managedCertificateStore) bootstrapLocalNATS(binding managedLocalNATSBind
 			return nil, err
 		}
 		if previous.managedLocalNATSBinding != binding {
-			return nil, errors.New("a different component owns the local NATS authority")
+			return nil, errLocalNATSAuthorityOwner
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
@@ -101,7 +122,7 @@ func (s managedCertificateStore) bootstrapLocalNATS(binding managedLocalNATSBind
 	authPublic, _ := auth.PublicKey()
 	metadata := &managedLocalNATSMetadata{binding, issuerPublic, authPublic}
 	if previous != nil && *previous != *metadata {
-		return nil, errors.New("local NATS keys differ from the existing authority")
+		return nil, errLocalNATSKeyMismatch
 	}
 	componentDir := filepath.Join(s.root, binding.ComponentID)
 	if err := os.MkdirAll(componentDir, 0755); err != nil {
@@ -165,7 +186,7 @@ func readLocalNATSKey(path string, account bool, mode os.FileMode) (nkeys.KeyPai
 		return nil, err
 	}
 	if info.Mode().Perm() != mode {
-		return nil, errors.New("unsafe local NATS seed permissions")
+		return nil, errLocalNATSSeedPermissions
 	}
 	key, err := nkeys.FromSeed(data)
 	if err != nil {
@@ -173,7 +194,7 @@ func readLocalNATSKey(path string, account bool, mode os.FileMode) (nkeys.KeyPai
 	}
 	public, err := key.PublicKey()
 	if err != nil || (account && !nkeys.IsValidPublicAccountKey(public)) || (!account && !nkeys.IsValidPublicUserKey(public)) {
-		return nil, errors.New("wrong local NATS key kind")
+		return nil, errLocalNATSKeyKind
 	}
 	return key, nil
 }
@@ -216,7 +237,7 @@ func readLocalNATSMetadata() (*managedLocalNATSMetadata, error) {
 		return nil, err
 	}
 	if !managedSafeID(metadata.ComponentID) || !managedSafeID(metadata.PartitionID) || !nkeys.IsValidPublicAccountKey(metadata.IssuerPublicKey) || !nkeys.IsValidPublicUserKey(metadata.AuthUserPublicKey) {
-		return nil, errors.New("invalid local NATS authority metadata")
+		return nil, errLocalNATSAuthorityMetadata
 	}
 	return &metadata, nil
 }
@@ -233,7 +254,7 @@ func readLocalNATSPolicy() (*managedCertificatePolicySnapshot, error) {
 	// Only this fixed local-broker path uses a last verified expired snapshot.
 	// The privileged installer remains responsible for signature and monotonicity.
 	if policy.GeneratedAt.After(time.Now().Add(5 * time.Second)) {
-		return nil, errors.New("local NATS policy has a future generation time")
+		return nil, errLocalNATSPolicyFuture
 	}
 	if err := policy.validate(policy.GeneratedAt); err != nil {
 		return nil, err
@@ -243,10 +264,10 @@ func readLocalNATSPolicy() (*managedCertificatePolicySnapshot, error) {
 
 func localNATSTLS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*tls.Config, error) {
 	if binding.AgentID != metadata.HostAgentID || binding.Partition != metadata.PartitionID {
-		return nil, errors.New("local NATS authority does not belong to this host")
+		return nil, errLocalNATSAuthorityHost
 	}
 	if binding.GatewaySecurity == nil {
-		return nil, errors.New("local NATS authority requires enrolled agent mTLS")
+		return nil, errLocalNATSMTLSRequired
 	}
 	security := *binding.GatewaySecurity
 	security.ServerName = "localhost"
@@ -257,11 +278,11 @@ func localNATSTLS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*tl
 	identity := metadata.ComponentID + "-server." + metadata.PartitionID + ".serviceradar"
 	config.VerifyConnection = func(state tls.ConnectionState) error {
 		if len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
-			return errors.New("local NATS server did not pass PKIX verification")
+			return errLocalNATSPKIX
 		}
 		server := state.PeerCertificates[0]
 		if server.Subject.CommonName != identity || !slices.Contains(server.DNSNames, identity) || len(server.URIs) != 0 {
-			return errors.New("local NATS server has the wrong managed identity")
+			return errLocalNATSServerIdentity
 		}
 		policy, err := readLocalNATSPolicy()
 		if err != nil {
@@ -274,7 +295,7 @@ func localNATSTLS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*tl
 				return nil
 			}
 		}
-		return errors.New("local NATS server certificate was revoked")
+		return errLocalNATSServerRevoked
 	}
 	return config, nil
 }
@@ -294,7 +315,7 @@ func connectLocalNATS(binding ServerConfig, metadata *managedLocalNATSMetadata) 
 	}
 	public, err := key.PublicKey()
 	if err != nil || public != metadata.AuthUserPublicKey {
-		return nil, errors.New("local NATS auth key differs from root metadata")
+		return nil, errLocalNATSAuthKey
 	}
 	return nats.Connect(localNATSEndpoint, nats.Secure(config), nats.Nkey(public, key.Sign), nats.NoReconnect(), nats.Timeout(time.Second), nats.IgnoreDiscoveredServers())
 }
@@ -308,7 +329,7 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 		return err
 	}
 	if len(data) > managedCertificateMaxRequest {
-		return errors.New("local NATS authorization request too large")
+		return errLocalNATSRequestSize
 	}
 	if err := decodeManagedCertificateRequest(data, &request); err != nil {
 		return err
@@ -343,7 +364,7 @@ func runManagedLocalNATSAuthorization(ctx context.Context, input io.Reader, outp
 	}
 	public, err := signer.PublicKey()
 	if err != nil || public != metadata.IssuerPublicKey {
-		return errors.New("local NATS issuer differs from root metadata")
+		return errLocalNATSIssuer
 	}
 	tlsConfig, err := localNATSTLS(binding, metadata)
 	if err != nil {
@@ -433,12 +454,16 @@ func (p *PushLoop) serveManagedLocalNATS(ctx context.Context) error {
 			return ctx.Err()
 		case <-ticker.C:
 			if broker.IsClosed() {
-				return errors.New("local NATS broker disconnected")
+				return errLocalNATSBrokerDisconnected
 			}
 		}
 	}
 }
 
+// The local NATS subscription and the certificate command client share this
+// agent process and have no other owner for fingerprints awaiting acknowledgement.
+//
+//nolint:gochecknoglobals // one agent process owns one local receiver observation set
 var localReceiverObserved struct {
 	sync.Mutex
 	seen map[string]struct{}

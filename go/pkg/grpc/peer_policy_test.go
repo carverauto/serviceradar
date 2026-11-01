@@ -104,7 +104,7 @@ func TestManagedPolicyRetainsTLSIdentityVerification(t *testing.T) {
 			}
 			client := policyTestProvider(t, roots, cert, privateKey, WithPeerCertificatePolicy(policy))
 			if invalid == "hostname" {
-				require.NoError(t, client.clientCreds.OverrideServerName("wrong.example.test"))
+				require.NoError(t, client.clientCreds.OverrideServerName("wrong.example.test")) //nolint:staticcheck // required TransportCredentials method; gRPC deprecates the call
 			}
 			healthClient := policyHealthClient(t, client, address)
 			ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
@@ -136,7 +136,7 @@ func policyTestProvider(t *testing.T, ca, cert, key []byte, options ...MTLSOptio
 
 func policyHealthServer(t *testing.T, provider *MTLSProvider) string {
 	t.Helper()
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	option, err := provider.GetServerCredentials(context.Background())
 	require.NoError(t, err)

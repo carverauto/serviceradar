@@ -17,7 +17,8 @@ from `docs/agent-runbooks.md`. This handoff does not record acceptance.
 Priority order for what this note still leaves open:
 
 1. Run the complete host and cluster acceptance matrix in tasks.md. Live
-   enrollment against a broker is not part of that unchecked acceptance.
+   enrollment and broker acceptance remain required and are unperformed,
+   pending the operator staging rollout.
 
 Managed component certificates are ordinary PKIX names plus stored
 fingerprints. SPIRE is not used on this path. Hub leaf observation reads the

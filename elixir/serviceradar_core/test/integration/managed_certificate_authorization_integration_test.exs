@@ -11,6 +11,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
   alias ServiceRadar.Edge.ManagedCertificateLifecycle, as: Lifecycle
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.NATS.CertificateAuthorizationToken, as: Token
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.ManagedCertificateAuthorization, as: Authorizer
@@ -590,13 +591,19 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
   end
 
   defp enroll_leaf!(name, opts) do
+    host = "host-#{name}-#{System.unique_integer([:positive])}"
+
+    Agent
+    |> Ash.Changeset.for_create(:register_connected, %{uid: host, name: host}, opts)
+    |> Ash.create!(opts)
+
     assert {:ok, component} =
              Authority.enroll_component(
                %{
                  component_id: "#{name}-#{System.unique_integer([:positive])}",
                  component_type: "nats-leaf",
                  partition_id: "example-partition",
-                 host_agent_id: "host-#{name}-#{System.unique_integer([:positive])}"
+                 host_agent_id: host
                },
                opts
              )

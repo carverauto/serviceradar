@@ -25,7 +25,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const managedCertificateMaxRequest = 256 * 1024
+const (
+	managedCertificateMaxRequest = 256 * 1024
+	managedServiceNATSLeaf       = "nats-leaf"
+	managedRoleLocalServer       = "local_server"
+)
 
 type managedCertificateAdapter struct {
 	unit, operation, owner string
@@ -34,8 +38,8 @@ type managedCertificateAdapter struct {
 
 func managedAdapter(service string) (managedCertificateAdapter, error) {
 	switch service {
-	case "nats-leaf":
-		return managedCertificateAdapter{"serviceradar-nats.service", "reload-or-restart", "nats", []string{"upstream_client", "local_server"}}, nil
+	case managedServiceNATSLeaf:
+		return managedCertificateAdapter{"serviceradar-nats.service", "reload-or-restart", "nats", []string{"upstream_client", managedRoleLocalServer}}, nil
 	case "log-collector", "flow-collector", "bmp-collector", "trapd":
 		return managedCertificateAdapter{"serviceradar-" + service + ".service", "restart", "serviceradar", []string{"client"}}, nil
 	default:
@@ -126,7 +130,7 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 	switch action {
 	case "local-nats-bootstrap":
 		if os.Getuid() != 0 {
-			return errors.New("local NATS authority bootstrap requires the root CLI")
+			return errLocalNATSBootstrapRoot
 		}
 		var request managedLocalNATSBinding
 		if err := decodeManagedCertificateRequest(data, &request); err != nil {
@@ -208,7 +212,7 @@ func managedSafeID(value string) bool {
 		return false
 	}
 	for _, r := range value {
-		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-' || r == '_') {
+		if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' && r != '_' {
 			return false
 		}
 	}
@@ -238,7 +242,7 @@ func (s managedCertificateStore) validateAssignment(a ManagedCertificateAssignme
 				return adapter, fmt.Errorf("%w: invalid managed server DNS name", errManagedCertificates)
 			}
 			for _, r := range label {
-				if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-') {
+				if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '-' {
 					return adapter, fmt.Errorf("%w: invalid managed server DNS name", errManagedCertificates)
 				}
 			}
@@ -249,15 +253,15 @@ func (s managedCertificateStore) validateAssignment(a ManagedCertificateAssignme
 
 func managedCertificateIdentity(a ManagedCertificateAssignment, role string) *x509.CertificateRequest {
 	id := a.ComponentID
-	if role == "local_server" {
+	if role == managedRoleLocalServer {
 		id += "-server"
 	}
 	csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: id + "." + a.PartitionID + ".serviceradar"}}
-	if role == "local_server" {
+	if role == managedRoleLocalServer {
 		csr.DNSNames = []string{"localhost"}
 		csr.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
 	}
-	if role == "local_server" || role == "client" {
+	if role == managedRoleLocalServer || role == "client" {
 		for _, host := range a.ServerHosts {
 			if ip := net.ParseIP(host); ip != nil {
 				if !slices.ContainsFunc(csr.IPAddresses, func(existing net.IP) bool { return existing.Equal(ip) }) {
@@ -376,7 +380,7 @@ func (s managedCertificateStore) validateIssued(p *managedPendingCertificate, ro
 		intermediates.AddCert(cert)
 	}
 	usage := x509.ExtKeyUsageClientAuth
-	if role == "local_server" {
+	if role == managedRoleLocalServer {
 		usage = x509.ExtKeyUsageServerAuth
 	}
 	chains, err := leaf.Verify(x509.VerifyOptions{Roots: roots, Intermediates: intermediates, CurrentTime: s.now(), KeyUsages: []x509.ExtKeyUsage{usage}})
