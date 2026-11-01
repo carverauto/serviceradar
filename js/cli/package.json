@@ -44,6 +44,7 @@
     "@vitejs/plugin-react": "^5.0.4",
     "ajv": "^8.17.1",
     "mapbox-gl": "^3.10.0",
+    "smol-toml": "1.9.1",
     "vite": "^7.3.7",
     "yaml": "^2.6.0"
   },

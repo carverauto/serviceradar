@@ -2,6 +2,46 @@
 
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
 load("@aspect_bazel_lib//lib:write_source_files.bzl", "write_source_files")
+load("@io_bazel_rules_go//extras:gomock.bzl", "gomock")
+
+# Same source-relative descriptor names and pinned generators as generate-proto.
+# This target permits hermetic regeneration without reading Bazel's output cache.
+genrule(
+    name = "generate_monitoring_go",
+    srcs = [":monitoring_proto_src"],
+    outs = ["generated/monitoring.pb.go", "generated/monitoring_grpc.pb.go"],
+    cmd = "$(execpath @protoc_34_1_linux_x86_64//:bin/protoc) -Iproto -I. " +
+          "--plugin=protoc-gen-go=$(execpath @org_golang_google_protobuf//cmd/protoc-gen-go) " +
+          "--plugin=protoc-gen-go-grpc=$(execpath @org_golang_google_grpc_cmd_protoc_gen_go_grpc//:protoc-gen-go-grpc) " +
+          "--go_out=$(RULEDIR)/generated --go_opt=paths=source_relative " +
+          "--go-grpc_out=$(RULEDIR)/generated --go-grpc_opt=paths=source_relative " +
+          "proto/monitoring.proto",
+    exec_compatible_with = ["@platforms//os:linux", "@platforms//cpu:x86_64"],
+    tools = [
+        "@protoc_34_1_linux_x86_64//:bin/protoc",
+        "@org_golang_google_protobuf//cmd/protoc-gen-go",
+        "@org_golang_google_grpc_cmd_protoc_gen_go_grpc//:protoc-gen-go-grpc",
+    ],
+)
+
+gomock(
+    name = "generate_monitoring_mock",
+    source = ":generated/monitoring_grpc.pb.go",
+    source_importpath = "github.com/carverauto/serviceradar/proto",
+    self_package = "github.com/carverauto/serviceradar/proto",
+    package = "proto",
+    out = "generated/mock_monitoring.go",
+    mockgen_tool = "@org_uber_go_mock//mockgen",
+)
+
+write_source_files(
+    name = "update_monitoring_bindings",
+    files = {
+        "monitoring.pb.go": ":generated/monitoring.pb.go",
+        "monitoring_grpc.pb.go": ":generated/monitoring_grpc.pb.go",
+        "mock_monitoring.go": ":generated/mock_monitoring.go",
+    },
+)
 
 # NOTE: The checked-in Go protobuf sources are retained for non-Bazel tooling.
 

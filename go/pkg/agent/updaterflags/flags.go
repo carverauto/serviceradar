@@ -47,11 +47,12 @@ const (
 	AddonSystemdRunTimerNow = "addon-systemd-run-timer-now"
 	AddonStateSnapshot      = "addon-state-snapshot"
 
-	AddonVersion   = "addon-version"
-	AddonSHA256    = "addon-sha256"
-	AddonSignature = "addon-signature"
-	AddonArtifact  = "addon-artifact"
-	PrivilegedRoot = "privileged-root"
+	AddonVersion        = "addon-version"
+	AddonSHA256         = "addon-sha256"
+	AddonSignature      = "addon-signature"
+	AddonArtifact       = "addon-artifact"
+	PrivilegedRoot      = "privileged-root"
+	ManagedCertificates = "managed-certificates"
 )
 
 // DefaultCommandType is the activation command type reported when none is passed.
@@ -79,16 +80,18 @@ type Options struct {
 	AddonSystemdRunTimerNow bool
 	AddonStateSnapshot      string
 
-	AddonVersion   string
-	AddonSHA256    string
-	AddonSignature string
-	AddonArtifact  string
-	PrivilegedRoot string
+	AddonVersion        string
+	AddonSHA256         string
+	AddonSignature      string
+	AddonArtifact       string
+	PrivilegedRoot      string
+	ManagedCertificates string
 }
 
 // Register defines every updater flag on fs and returns the options they fill.
 func Register(fs *flag.FlagSet) *Options {
 	o := &Options{}
+	fs.StringVar(&o.ManagedCertificates, ManagedCertificates, "", "Managed certificate operation (prepare, install, policy, local-nats-bootstrap or local-nats-authorize); request JSON on stdin")
 
 	fs.StringVar(&o.RuntimeRoot, RuntimeRoot, "", "ServiceRadar runtime root")
 	fs.StringVar(&o.Version, Version, "", "Target staged release version")

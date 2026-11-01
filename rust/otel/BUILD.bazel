@@ -65,6 +65,7 @@ rust_library(
         normal = True,
         normal_dev = True,
     ) + [
+        "//rust/cert-policy:cert_policy",
         ":build_script",
         "//rust/addon-sdk:addon_sdk",
         "//rust/kvutil",

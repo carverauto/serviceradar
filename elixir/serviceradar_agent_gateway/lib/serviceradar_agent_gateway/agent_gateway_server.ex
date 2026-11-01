@@ -226,6 +226,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     end
   end
 
+  @doc "Return the core-signed certificate policy to an authenticated enrolled agent."
+  def get_certificate_policy(_request, stream) do
+    {cert_der, identity} = extract_renewal_peer_identity!(stream)
+    agent_id = required_agent_id(Map.get(identity, :component_id))
+    {identity, _type} = resolve_component_type!(identity, agent_id)
+    enforce_component_identity!(identity, agent_id, @agent_gateway_component_types)
+    enforce_active_peer_certificate_for_renewal!(identity, cert_der, stream)
+    :ok = record_local_receiver_observations!(agent_id, stream)
+
+    with {:ok, {:ok, envelope}} <-
+           core_call(ServiceRadar.Edge.ComponentCertificateAuthority, :sign_snapshot, []),
+         {:ok, payload} <- Base.decode64(envelope.payload),
+         {:ok, signature} <- Base.decode64(envelope.signature) do
+      %Monitoring.CertificatePolicyResponse{payload: payload, signature: signature}
+    else
+      _ ->
+        raise GRPC.RPCError, status: :unavailable, message: "certificate policy unavailable"
+    end
+  end
+
   @doc """
   Handle an agent config request.
 
@@ -1624,6 +1644,94 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     Logger.warning("Certificate renewal audit forwarding failed: #{inspect(reason)}")
   end
+
+  defp record_local_receiver_observations!(agent_id, stream) do
+    case local_receiver_fingerprints(stream) do
+      [] ->
+        :ok
+
+      fingerprints ->
+        case core_call(ServiceRadar.Edge.ManagedCertificateLifecycle, :accept_local_receiver, [
+               agent_id,
+               fingerprints
+             ]) do
+          {:ok, {:ok, recorded}} when is_list(recorded) ->
+            GRPC.Server.set_trailers(stream, %{"x-serviceradar-recorded-certs" => Enum.join(recorded, ",")})
+            :ok
+
+          other ->
+            Logger.warning("Local certificate receiver observation failed for #{agent_id}: #{inspect(other)}")
+
+            raise GRPC.RPCError, status: :unavailable, message: "certificate observation unavailable"
+        end
+    end
+  end
+
+  defp local_receiver_fingerprints(stream) do
+    stream
+    |> request_headers()
+    |> header_value("x-serviceradar-observed-certs")
+    |> String.split(",", trim: true)
+    |> Enum.map(&String.trim/1)
+    |> Enum.filter(&Regex.match?(~r/\A[0-9a-f]{64}\z/, &1))
+    |> Enum.uniq()
+    |> Enum.take(32)
+  end
+
+  defp header_value(headers, name) when is_map(headers) do
+    headers |> Map.get(name) |> header_text()
+  end
+
+  defp header_value(_, _), do: ""
+
+  defp header_text(nil), do: ""
+  defp header_text(value) when is_binary(value), do: value
+
+  defp header_text(value) when is_list(value) do
+    cond do
+      Enum.all?(value, &is_binary/1) -> Enum.join(value, ",")
+      Enum.all?(value, &is_integer/1) -> to_string(value)
+      true -> ""
+    end
+  end
+
+  defp header_text(value), do: to_string(value)
+
+  defp request_headers(%{http_request_headers: headers}) when is_map(headers) and map_size(headers) > 0,
+    do: normalize_headers(headers)
+
+  defp request_headers(%{adapter: adapter, payload: payload}) when is_atom(adapter) do
+    cond do
+      function_exported?(adapter, :get_headers, 1) ->
+        normalize_headers(adapter.get_headers(payload))
+
+      function_exported?(:cowboy_req, :headers, 1) ->
+        try do
+          normalize_headers(:cowboy_req.headers(payload))
+        rescue
+          _ -> %{}
+        end
+
+      true ->
+        %{}
+    end
+  end
+
+  defp request_headers(_), do: %{}
+
+  defp normalize_headers(headers) when is_map(headers) do
+    Map.new(headers, fn {key, value} -> {header_name(key), value} end)
+  end
+
+  defp normalize_headers(headers) when is_list(headers) do
+    Map.new(headers, fn {key, value} -> {header_name(key), value} end)
+  end
+
+  defp normalize_headers(_), do: %{}
+
+  defp header_name(key) when is_atom(key), do: key |> Atom.to_string() |> String.downcase()
+  defp header_name(key) when is_binary(key), do: String.downcase(key)
+  defp header_name(key), do: key |> to_string() |> String.downcase()
 
   defp core_call(module, function, args, timeout \\ 5_000) do
     nodes = core_nodes()

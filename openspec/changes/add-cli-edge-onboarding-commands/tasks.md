@@ -20,6 +20,8 @@
 
 ## 3. Install helpers
 
+Managed leaf and collector install replaced items 3.2 and 3.3. See `js/cli/README.md`.
+
 - [x] 3.1 `edge install agent`: release package download, dnf/apt install, `srctl enroll`, service restart.
 - [x] 3.2 `edge install leaf`: serviceradar-nats, site bundle (waits for leaf), `setup.sh`.
 - [x] 3.3 `edge install collector`: package for the collector type, bundle, `update.sh`.

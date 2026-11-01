@@ -19,6 +19,81 @@ load("//build:world_snapshots.bzl", ash_schema = "world_snapshots")
 
 package(default_visibility = ["//visibility:public"])
 
+ash_schema(
+    name = "managed_component_permissions_schema",
+    outs = [
+        "generated_managed_component_permissions/component.json",
+        "generated_managed_component_permissions/migration.exs",
+    ],
+    srcs = ["priv/resource_snapshots/repo/platform.managed_components/20261030203000.json"],
+    app = ":erlang_app",
+    generator = "//build:managed_component_permissions_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_managed_component_permissions_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.managed_components/20261030213000.json": ":generated_managed_component_permissions/component.json",
+        "priv/repo/migrations/20261030213000_add_managed_component_permissions.exs": ":generated_managed_component_permissions/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
+    name = "managed_certificate_lifecycle_schema",
+    outs = [
+        "generated_managed_certificate_lifecycle/component.json",
+        "generated_managed_certificate_lifecycle/operation.json",
+        "generated_managed_certificate_lifecycle/migration.exs",
+    ],
+    srcs = ["priv/resource_snapshots/repo/platform.managed_components/20261030193000.json"],
+    app = ":erlang_app",
+    generator = "//build:managed_certificate_lifecycle_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_managed_certificate_lifecycle_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.managed_components/20261030203000.json": ":generated_managed_certificate_lifecycle/component.json",
+        "priv/resource_snapshots/repo/platform.managed_certificate_operations/20261030203000.json": ":generated_managed_certificate_lifecycle/operation.json",
+        "priv/repo/migrations/20261030203000_add_managed_certificate_lifecycle.exs": ":generated_managed_certificate_lifecycle/migration.exs",
+    },
+    tags = ["manual"],
+)
+
+ash_schema(
+    name = "component_certificate_schema",
+    outs = [
+        "generated_component_certificate/component.json",
+        "generated_component_certificate/certificate.json",
+        "generated_component_certificate/revocation.json",
+        "generated_component_certificate/nats.json",
+        "generated_component_certificate/policy_key.json",
+        "generated_component_certificate/migration.exs",
+    ],
+    app = ":erlang_app",
+    generator = "//build:component_certificate_schema.exs",
+    tags = ["manual"],
+)
+
+write_source_files(
+    name = "update_component_certificate_schema",
+    diff_test = False,
+    files = {
+        "priv/resource_snapshots/repo/platform.managed_components/20261030193000.json": ":generated_component_certificate/component.json",
+        "priv/resource_snapshots/repo/platform.component_certificates/20261030193000.json": ":generated_component_certificate/certificate.json",
+        "priv/resource_snapshots/repo/platform.revoked_component_certificates/20261030193000.json": ":generated_component_certificate/revocation.json",
+        "priv/resource_snapshots/repo/platform.managed_certificate_nats_config/20261030193000.json": ":generated_component_certificate/nats.json",
+        "priv/resource_snapshots/repo/platform.managed_certificate_policy_key/20261030193000.json": ":generated_component_certificate/policy_key.json",
+        "priv/repo/migrations/20261030193000_add_component_certificate_authority.exs": ":generated_component_certificate/migration.exs",
+    },
+    tags = ["manual"],
+)
+
 # Owns the initial camera ingest schema and its committed Ash snapshots. Future
 # revisions need new incremental migration targets, never a rewrite of this base.
 ash_schema(
@@ -1347,4 +1422,20 @@ elixir_quality(
 filegroup(
     name = "credo_checks",
     srcs = glob(["credo/**/*.ex"]),
+)
+
+# Real isolated TLS distribution peers; no database or core application boot.
+ex_unit_test(
+    name = "peer_certificate_distribution_test",
+    srcs = [
+        "test/serviceradar/security/peer_certificate_distribution_test.exs",
+        "test/serviceradar/security/peer_certificate_policy_test.exs",
+    ],
+    data = [
+        "//elixir/serviceradar_core_elx:rel/env.sh.eex",
+        "//elixir/serviceradar_agent_gateway:rel/env.sh.eex",
+        "//elixir/web-ng:rel/env.sh.eex",
+    ],
+    elixir_opts = ["-e", "ExUnit.start(include: [:cluster])"],
+    deps = [":erlang_app"],
 )

@@ -13,6 +13,7 @@ name = "flowgger"
 path = "src/lib.rs"
 
 [dependencies]
+serviceradar-cert-policy = { path = "../cert-policy" }
 anyhow = { workspace = true }
 async-nats = { workspace = true, optional = true }
 chrono = { workspace = true }

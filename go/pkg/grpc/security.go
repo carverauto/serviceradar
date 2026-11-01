@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 
+	"github.com/carverauto/serviceradar/go/pkg/certpolicy"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 )
@@ -62,20 +63,22 @@ func (*NoSecurityProvider) Close() error {
 
 // MTLSProvider implements SecurityProvider with mutual TLS.
 type MTLSProvider struct {
-	config      *models.SecurityConfig
-	clientCreds credentials.TransportCredentials
-	serverCreds credentials.TransportCredentials
-	clientCert  atomic.Pointer[tls.Certificate]
-	serverCert  atomic.Pointer[tls.Certificate]
-	nowFunc     func() time.Time
-	closeOnce   sync.Once
-	needsClient bool
-	needsServer bool
-	logger      logger.Logger
+	config            *models.SecurityConfig
+	clientCreds       credentials.TransportCredentials
+	serverCreds       credentials.TransportCredentials
+	clientCert        atomic.Pointer[tls.Certificate]
+	serverCert        atomic.Pointer[tls.Certificate]
+	peerPolicy        *certpolicy.Store
+	peerPolicyEnabled bool
+	nowFunc           func() time.Time
+	closeOnce         sync.Once
+	needsClient       bool
+	needsServer       bool
+	logger            logger.Logger
 }
 
 // NewMTLSProvider creates a new MTLSProvider with the given configuration.
-func NewMTLSProvider(config *models.SecurityConfig, log logger.Logger) (*MTLSProvider, error) {
+func NewMTLSProvider(config *models.SecurityConfig, log logger.Logger, options ...MTLSOption) (*MTLSProvider, error) {
 	if config == nil {
 		return nil, errSecurityConfigRequired
 	}
@@ -90,6 +93,12 @@ func NewMTLSProvider(config *models.SecurityConfig, log logger.Logger) (*MTLSPro
 		config:  config,
 		nowFunc: time.Now,
 		logger:  log,
+	}
+	for _, option := range options {
+		option(provider)
+	}
+	if provider.peerPolicyEnabled && provider.peerPolicy == nil {
+		return nil, errManagedCertificatePolicyRequired
 	}
 	if err := provider.setCredentialNeeds(); err != nil {
 		return nil, err
@@ -338,7 +347,7 @@ func (p *MTLSProvider) loadClientCredentials() (credentials.TransportCredentials
 		MinVersion:           tls.VersionTLS13,
 	}
 
-	return credentials.NewTLS(tlsConfig), nil
+	return p.withPeerPolicy(credentials.NewTLS(tlsConfig)), nil
 }
 
 func (p *MTLSProvider) loadServerCredentials() (credentials.TransportCredentials, error) {
@@ -363,7 +372,14 @@ func (p *MTLSProvider) loadServerCredentials() (credentials.TransportCredentials
 		MinVersion:     tls.VersionTLS13,
 	}
 
-	return credentials.NewTLS(tlsConfig), nil
+	return p.withPeerPolicy(credentials.NewTLS(tlsConfig)), nil
+}
+
+func (p *MTLSProvider) withPeerPolicy(creds credentials.TransportCredentials) credentials.TransportCredentials {
+	if p.peerPolicy == nil {
+		return creds
+	}
+	return &policyCredentials{base: creds, policy: p.peerPolicy}
 }
 
 // normalizePaths resolves certificate paths based on config.

@@ -1,3 +1,4 @@
+use crate::tls::GrpcTlsConfig;
 use http_body_util::Full;
 use hyper::body::Bytes;
 use hyper::service::service_fn;
@@ -11,7 +12,7 @@ use std::sync::Arc;
 use tokio::net::TcpListener;
 use tonic::codec::CompressionEncoding;
 use tonic::service::interceptor::InterceptedService;
-use tonic::transport::{Server, ServerTlsConfig};
+use tonic::transport::Server;
 
 use crate::ServiceRadarCollector;
 use crate::auth::{IngestAuth, grpc_auth_interceptor};
@@ -83,7 +84,7 @@ pub async fn create_collector_from_config(
 /// published messages.
 pub async fn start_server(
     addr: SocketAddr,
-    grpc_tls_config: Option<ServerTlsConfig>,
+    grpc_tls_config: Option<GrpcTlsConfig>,
     collector: ServiceRadarCollector,
     max_request_bytes: usize,
     auth: Arc<IngestAuth>,
@@ -93,11 +94,19 @@ pub async fn start_server(
 
     let mut server_builder = Server::builder().max_concurrent_streams(8);
 
-    // Configure gRPC TLS if enabled
-    if let Some(tls) = grpc_tls_config {
-        debug!("Configuring gRPC server with TLS");
-        server_builder = server_builder.tls_config(tls)?;
-    }
+    let managed_incoming = match grpc_tls_config {
+        Some(GrpcTlsConfig::Standard(tls)) => {
+            server_builder = server_builder.tls_config(tls)?;
+            None
+        }
+        Some(GrpcTlsConfig::Managed(config)) => Some(
+            config
+                .bind(addr)
+                .await
+                .map_err(|error| error as Box<dyn std::error::Error>)?,
+        ),
+        None => None,
+    };
 
     if auth.enabled() {
         info!("OTLP ingestion authentication enforced on gRPC listener");
@@ -137,12 +146,14 @@ pub async fn start_server(
         interceptor,
     );
 
-    let result = server_builder
+    let router = server_builder
         .add_service(trace_service)
         .add_service(logs_service)
-        .add_service(metrics_service)
-        .serve(addr)
-        .await;
+        .add_service(metrics_service);
+    let result = match managed_incoming {
+        Some(incoming) => router.serve_with_incoming(incoming).await,
+        None => router.serve(addr).await,
+    };
 
     match result {
         Ok(_) => {

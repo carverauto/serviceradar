@@ -654,6 +654,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 
 	go func() {
 		switch cmd.CommandType {
+		case commandTypeCertificatePrepare, commandTypeCertificateInstall:
+			p.handleManagedCertificateCommand(ctx, cmd, sender)
 		case commandTypeMapperRun:
 			p.handleMapperRun(ctx, cmd, sender)
 		case commandTypeSweepRun:

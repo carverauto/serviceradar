@@ -208,6 +208,8 @@ pub struct MetricsConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GRPCTLSConfig {
+    #[serde(default)]
+    pub cert_policy_file: Option<String>,
     pub cert_file: String,
     pub key_file: String,
     pub ca_file: Option<String>,
@@ -235,6 +237,10 @@ pub enum ClientAuthMode {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NATSTLSConfig {
+    #[serde(default)]
+    pub cert_policy_file: Option<String>,
+    #[serde(default)]
+    pub cert_policy_local_leaf_file: Option<String>,
     pub cert_file: String,
     pub key_file: String,
     pub ca_file: Option<String>,
@@ -251,6 +257,8 @@ pub struct NATSTLSConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NATSConfigTOML {
     pub url: String,
+    #[serde(default)]
+    pub domain: Option<String>,
     #[serde(default = "default_nats_subject")]
     pub subject: String,
     #[serde(default)]
@@ -390,6 +398,7 @@ impl Config {
 
                 let mut config = NATSConfig {
                     url: nats.url.clone(),
+                    domain: nats.domain.clone(),
                     subject: nats.subject.clone(),
                     stream: nats.stream.clone(),
                     logs_subject: nats.logs_subject.clone(),
@@ -401,6 +410,16 @@ impl Config {
                     tls_cert,
                     tls_key,
                     tls_ca,
+                    cert_policy_local_leaf_file: nats
+                        .tls
+                        .as_ref()
+                        .and_then(|tls| tls.cert_policy_local_leaf_file.as_ref())
+                        .map(PathBuf::from),
+                    cert_policy_file: nats
+                        .tls
+                        .as_ref()
+                        .and_then(|tls| tls.cert_policy_file.as_ref())
+                        .map(PathBuf::from),
                     tls_material_dir,
                     max_inflight_publishes: nats.max_inflight_publishes,
                 };
@@ -471,6 +490,7 @@ impl Config {
                 http: HttpConfig::default(),
             },
             nats: Some(NATSConfigTOML {
+                domain: None,
                 url: "nats://localhost:4222".to_string(),
                 subject: "otel".to_string(),
                 logs_subject: Some("logs.otel".to_string()),
@@ -482,6 +502,8 @@ impl Config {
                 stream_replicas: default_stream_replicas(),
                 max_inflight_publishes: default_max_inflight_publishes(),
                 tls: Some(NATSTLSConfig {
+                    cert_policy_file: None,
+                    cert_policy_local_leaf_file: None,
                     cert_file: "/path/to/nats-client.crt".to_string(),
                     key_file: "/path/to/nats-client.key".to_string(),
                     ca_file: Some("/path/to/nats-ca.crt".to_string()),
@@ -491,6 +513,7 @@ impl Config {
                 }),
             }),
             grpc_tls: Some(GRPCTLSConfig {
+                cert_policy_file: None,
                 cert_file: "/path/to/grpc-server.crt".to_string(),
                 key_file: "/path/to/grpc-server.key".to_string(),
                 ca_file: Some("/path/to/grpc-ca.pem".to_string()),
@@ -631,6 +654,61 @@ timeout_secs = 60
     }
 
     #[test]
+    fn managed_edge_domain_is_read_from_the_nats_table() {
+        let placed = r#"
+[server]
+bind_address = "0.0.0.0"
+port = 4317
+
+[nats]
+url = "tls://127.0.0.1:4222"
+domain = "edge_11111111222233334444555555555555"
+subject = "otel"
+logs_subject = "logs.otel"
+stream = "events"
+timeout_secs = 30
+
+[nats.tls]
+cert_file = "/etc/serviceradar/managed-components/example-collector/current/client/component.pem"
+key_file = "/etc/serviceradar/managed-components/example-collector/current/client/component-key.pem"
+ca_file = "/etc/serviceradar/managed-components/example-collector/current/client/root.pem"
+cert_policy_file = "/etc/serviceradar/managed-components/policy.json"
+cert_policy_local_leaf_file = "/etc/serviceradar/managed-components/example-collector/local-leaf.json"
+"#;
+        let config: Config = toml::from_str(placed).unwrap();
+        let nats = config.nats.unwrap();
+        assert_eq!(
+            nats.domain.as_deref(),
+            Some("edge_11111111222233334444555555555555")
+        );
+        let tls = nats.tls.unwrap();
+        assert_eq!(
+            tls.cert_file,
+            "/etc/serviceradar/managed-components/example-collector/current/client/component.pem"
+        );
+        assert_eq!(
+            tls.cert_policy_file.as_deref(),
+            Some("/etc/serviceradar/managed-components/policy.json")
+        );
+
+        let misplaced = r#"
+[server]
+port = 4317
+
+[nats]
+url = "tls://127.0.0.1:4222"
+
+[nats.tls]
+domain = "edge_11111111222233334444555555555555"
+cert_file = "/tmp/component.pem"
+key_file = "/tmp/component-key.pem"
+ca_file = "/tmp/root.pem"
+"#;
+        let config: Config = toml::from_str(misplaced).unwrap();
+        assert_eq!(config.nats.unwrap().domain, None);
+    }
+
+    #[test]
     fn test_config_from_file() {
         let toml_content = r#"
 [server]
@@ -660,6 +738,7 @@ port = 8888
 
 [nats]
 url = "nats://test:4222"
+domain = "synthetic_edge"
 "#;
 
         let mut temp_file = NamedTempFile::new().unwrap();
@@ -668,6 +747,15 @@ url = "nats://test:4222"
         let config = Config::load(Some(temp_file.path().to_str().unwrap())).unwrap();
         assert_eq!(config.server.port, 8888);
 
+        assert_eq!(
+            config
+                .nats_config_with_env(|_| None)
+                .unwrap()
+                .unwrap()
+                .domain
+                .as_deref(),
+            Some("synthetic_edge")
+        );
         let nats = config.nats.unwrap();
         assert_eq!(nats.url, "nats://test:4222");
     }
@@ -705,6 +793,7 @@ url = "nats://test:4222"
             server: ServerConfig::default(),
             nats: None,
             grpc_tls: Some(GRPCTLSConfig {
+                cert_policy_file: None,
                 cert_file: "/server.crt".to_string(),
                 key_file: "/server.key".to_string(),
                 ca_file: None,
@@ -882,6 +971,7 @@ key_file = "/grpc.key"
         let config = Config {
             server: ServerConfig::default(),
             nats: Some(NATSConfigTOML {
+                domain: None,
                 url: "nats://test:4222".to_string(),
                 subject: "test.subject".to_string(),
                 logs_subject: None,
@@ -893,6 +983,8 @@ key_file = "/grpc.key"
                 stream_replicas: default_stream_replicas(),
                 max_inflight_publishes: 8,
                 tls: Some(NATSTLSConfig {
+                    cert_policy_file: None,
+                    cert_policy_local_leaf_file: None,
                     cert_file: "/cert.pem".to_string(),
                     key_file: "/key.pem".to_string(),
                     ca_file: Some("/ca.pem".to_string()),
@@ -926,6 +1018,7 @@ key_file = "/grpc.key"
     fn test_inline_nats_tls_material_is_ephemeral_and_private() {
         let config = Config {
             nats: Some(NATSConfigTOML {
+                domain: None,
                 url: "tls://leaf.example:4222".to_string(),
                 subject: default_nats_subject(),
                 logs_subject: None,
@@ -937,6 +1030,8 @@ key_file = "/grpc.key"
                 stream_replicas: default_stream_replicas(),
                 max_inflight_publishes: default_max_inflight_publishes(),
                 tls: Some(NATSTLSConfig {
+                    cert_policy_file: None,
+                    cert_policy_local_leaf_file: None,
                     cert_file: "/ignored/cert.pem".to_string(),
                     key_file: "/ignored/key.pem".to_string(),
                     ca_file: Some("/ignored/ca.pem".to_string()),

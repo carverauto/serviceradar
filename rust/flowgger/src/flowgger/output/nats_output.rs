@@ -146,6 +146,7 @@ struct PublishFailure {
 
 #[cfg(feature = "nats-output")]
 struct NATSConnection {
+    cert_policy: Option<serviceradar_cert_policy::nats::Guard>,
     client: Client,
     js: jetstream::Context,
     duplicate_window: Duration,
@@ -188,6 +189,7 @@ pub struct NATSOutput {
 #[derive(Clone)]
 struct NATSConfig {
     url: String,
+    domain: Option<String>,
     subject: String,
     stream: String,
     stream_replicas: usize,
@@ -196,6 +198,8 @@ struct NATSConfig {
     tls_cert: Option<PathBuf>,
     tls_key: Option<PathBuf>,
     tls_ca: Option<PathBuf>,
+    cert_policy_file: Option<PathBuf>,
+    cert_policy_local_leaf_file: Option<PathBuf>,
     creds_file: Option<PathBuf>,
     connect_attempts: u32,
     connect_initial_backoff: Duration,
@@ -212,6 +216,12 @@ impl NATSOutput {
             .as_str()
             .unwrap()
             .to_owned();
+        let domain = cfg.lookup("output.nats_domain").map(|value| {
+            value
+                .as_str()
+                .expect("output.nats_domain must be a string")
+                .to_owned()
+        });
         let subject = cfg
             .lookup("output.nats_subject")
             .unwrap_or_else(|| panic!("output.nats_subject is required"))
@@ -234,6 +244,20 @@ impl NATSOutput {
                 .map_or(30_000, |v| v.as_integer().unwrap() as u64),
         );
 
+        let cert_policy_file = cfg.lookup("output.nats_cert_policy_file").map(|v| {
+            PathBuf::from(
+                v.as_str()
+                    .expect("output.nats_cert_policy_file must be a path"),
+            )
+        });
+        let cert_policy_local_leaf_file = cfg
+            .lookup("output.nats_cert_policy_local_leaf_file")
+            .map(|v| {
+                PathBuf::from(
+                    v.as_str()
+                        .expect("output.nats_cert_policy_local_leaf_file must be a path"),
+                )
+            });
         let tls_cert = cfg
             .lookup("output.nats_tls_cert")
             .map(|v| PathBuf::from(v.as_str().unwrap()));
@@ -276,6 +300,7 @@ impl NATSOutput {
         Self {
             cfg: NATSConfig {
                 url,
+                domain,
                 subject,
                 stream,
                 stream_replicas,
@@ -284,6 +309,8 @@ impl NATSOutput {
                 tls_cert,
                 tls_key,
                 tls_ca,
+                cert_policy_file,
+                cert_policy_local_leaf_file,
                 creds_file,
                 connect_attempts,
                 connect_initial_backoff,
@@ -325,11 +352,23 @@ impl NATSWorker {
         }
 
         // Connect to the server using the constructed options.
-        let client = options.connect(&self.cfg.url).await?;
-        let js = ContextBuilder::new()
+        let (client, cert_policy) = serviceradar_cert_policy::nats::connect(
+            options,
+            &self.cfg.url,
+            self.cfg.cert_policy_file.as_deref(),
+            self.cfg.cert_policy_local_leaf_file.as_deref(),
+            self.cfg.tls_ca.as_deref(),
+            self.cfg.tls_cert.as_deref(),
+            self.cfg.tls_key.as_deref(),
+        )
+        .await?;
+        let builder = ContextBuilder::new()
             .timeout(self.cfg.timeout)
-            .ack_timeout(self.cfg.timeout)
-            .build(client.clone());
+            .ack_timeout(self.cfg.timeout);
+        let js = match &self.cfg.domain {
+            Some(domain) => builder.domain(domain.clone()).build(client.clone()),
+            None => builder.build(client.clone()),
+        };
 
         match js.get_stream(&self.cfg.stream).await {
             Ok(mut stream) => {
@@ -376,6 +415,7 @@ impl NATSWorker {
         let duplicate_window = stream.info().await?.config.duplicate_window;
 
         Ok(NATSConnection {
+            cert_policy,
             client,
             js,
             duplicate_window,
@@ -465,6 +505,18 @@ impl NATSWorker {
                 })?;
             }
 
+            if connection
+                .cert_policy
+                .as_ref()
+                .is_some_and(|guard| guard.ensure_authorized().is_err())
+            {
+                sleep(backoff).await;
+                *connection = self
+                    .connect_with_retry()
+                    .await
+                    .map_err(|error| format!("managed NATS reconnect failed: {error}"))?;
+                continue;
+            }
             match self.publish_once(&connection.js, publish.clone()).await {
                 Ok(()) => return Ok(()),
                 Err(failure) if permanent_publish_error(failure.error.kind()) => {
@@ -693,6 +745,23 @@ impl Output for NATSOutput {
 mod tests {
     use super::*;
     use std::sync::mpsc::sync_channel;
+
+    #[test]
+    fn enrolled_domain_is_retained_in_output_configuration() {
+        let config = Config::from_string(
+            r#"
+[output]
+nats_url = "nats://localhost:4222"
+nats_subject = "logs.syslog"
+nats_domain = "synthetic_edge"
+"#,
+        )
+        .unwrap();
+        assert_eq!(
+            NATSOutput::new(&config).cfg.domain.as_deref(),
+            Some("synthetic_edge")
+        );
+    }
 
     #[test]
     fn idle_queue_does_not_block_current_thread_runtime() {

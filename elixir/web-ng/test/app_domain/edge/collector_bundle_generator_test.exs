@@ -7,6 +7,98 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
   @moduletag :db_free
 
+  test "managed transport uses fixed current certificate paths and signed policy, without private material" do
+    component = %{component_id: "example-collector", component_type: "flow-collector", partition_id: "example-partition"}
+    package = %CollectorPackage{id: "3a000000-0000-4000-8000-000000000001", collector_type: :sflow, config_overrides: %{}}
+
+    config =
+      package
+      |> CollectorBundleGenerator.managed_configuration(component, %{version: 1})
+      |> Map.fetch!("flow-collector.json")
+      |> Jason.decode!()
+
+    assert config["listeners"] == [
+             %{"protocol" => "sflow", "listen_addr" => "0.0.0.0:6343", "subject" => "flows.raw.sflow"}
+           ]
+
+    assert config["security"]["tls"]["cert_file"] ==
+             "/etc/serviceradar/managed-components/example-collector/current/client/component.pem"
+
+    assert config["security"]["cert_policy_local_leaf_file"] ==
+             "/etc/serviceradar/managed-components/example-collector/local-leaf.json"
+
+    assert config["security"]["cert_policy_file"] == "/etc/serviceradar/managed-components/policy.json"
+    refute Map.has_key?(config, "nats_creds_file")
+
+    component = %{component | component_type: "log-collector"}
+    package = %{package | collector_type: :otel}
+    files = CollectorBundleGenerator.managed_configuration(package, component, nil)
+    assert files["log-collector.toml"] =~ "[otel]\nenabled = true"
+
+    for file <- ["flowgger.toml", "otel.toml"] do
+      assert files[file] =~ "/current/client/component.pem"
+      refute files[file] =~ "nats.creds"
+      refute files[file] =~ "local-leaf.json"
+      refute files[file] =~ "PRIVATE KEY"
+    end
+  end
+
+  test "managed otel domain is on the nats table the collector deserializes" do
+    component = %{
+      component_id: "example-collector",
+      component_type: "log-collector",
+      partition_id: "example-partition",
+      edge_site_id: "11111111-2222-3333-4444-555555555555"
+    }
+
+    package = %CollectorPackage{id: "3a000000-0000-4000-8000-000000000004", collector_type: :otel, config_overrides: %{}}
+    otel = package |> CollectorBundleGenerator.managed_configuration(component, %{}) |> Map.fetch!("otel.toml")
+    sections = toml_sections(otel)
+    assert ~s(domain = "edge_11111111222233334444555555555555") in sections["nats"]
+    refute Enum.any?(sections["nats.tls"], &String.starts_with?(&1, "domain "))
+    assert Enum.any?(sections["nats.tls"], &String.starts_with?(&1, "cert_file "))
+    assert Enum.any?(sections["nats.tls"], &String.starts_with?(&1, "cert_policy_file "))
+  end
+
+  test "every managed collector selects its site's JetStream domain" do
+    component = %{
+      component_id: "example-component",
+      component_type: "log-collector",
+      partition_id: "example-partition",
+      edge_site_id: "00000000-0000-4000-8000-000000000123"
+    }
+
+    package = %CollectorPackage{id: "3a000000-0000-4000-8000-000000000003", collector_type: :otel, config_overrides: %{}}
+    files = CollectorBundleGenerator.managed_configuration(package, component, nil)
+    assert files["flowgger.toml"] =~ ~s(nats_domain = "edge_00000000000040008000000000000123")
+    assert files["otel.toml"] =~ ~s(domain = "edge_00000000000040008000000000000123")
+
+    for {service, file} <- [
+          {"flow-collector", "flow-collector.json"},
+          {"trapd", "trapd.json"},
+          {"bmp-collector", "bmp-collector.json"}
+        ] do
+      config =
+        package
+        |> CollectorBundleGenerator.managed_configuration(%{component | component_type: service}, nil)
+        |> Map.fetch!(file)
+        |> Jason.decode!()
+
+      assert config["nats_domain"] == "edge_00000000000040008000000000000123"
+
+      unbound =
+        package
+        |> CollectorBundleGenerator.managed_configuration(
+          %{component | component_type: service, edge_site_id: nil},
+          nil
+        )
+        |> Map.fetch!(file)
+        |> Jason.decode!()
+
+      refute Map.has_key?(unbound, "nats_domain")
+    end
+  end
+
   describe "create_tarball/4 for falcosidekick" do
     test "does not bundle a second certificate set" do
       {:ok, tarball} =
@@ -205,6 +297,24 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
       end
     end
   end
+
+  defp toml_sections(content) do
+    {sections, name, lines} =
+      Enum.reduce(String.split(content, "\n"), {%{}, nil, []}, fn line, {sections, name, lines} ->
+        case Regex.run(~r/^\[([^\]]+)\]$/, line) do
+          [_, section] ->
+            {put_section(sections, name, lines), section, []}
+
+          _ ->
+            {sections, name, lines ++ [line]}
+        end
+      end)
+
+    put_section(sections, name, lines)
+  end
+
+  defp put_section(sections, nil, _lines), do: sections
+  defp put_section(sections, name, lines), do: Map.put(sections, name, lines)
 
   describe "get_nats_url/2" do
     @tag :db_free

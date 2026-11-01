@@ -1,15 +1,18 @@
+load("@aspect_bazel_lib//lib:copy_file.bzl", "copy_file")
 load("@rules_shell//shell:sh_test.bzl", "sh_test")
-load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library")
+load("@aspect_rules_js//js:defs.bzl", "js_binary", "js_library", "js_run_binary", "js_test")
 load("@cli_yaml__links//:defs.bzl", "npm_link_imported_package")
+load("@cli_toml__links//:defs.bzl", link_toml = "npm_link_imported_package")
 
 package(default_visibility = ["//visibility:public"])
 
 npm_link_imported_package(name = "node_modules")
+link_toml(name = "node_modules")
 
 js_library(
     name = "plugin_config_sources",
     srcs = glob(["src/**/*.ts"]),
-    deps = [":node_modules/yaml"],
+    deps = [":node_modules/yaml", ":node_modules/smol-toml"],
 )
 
 # Execute the production entry point for plugin admin acceptance. The bundle
@@ -65,4 +68,39 @@ sh_test(
         "no-remote",
         "no-sandbox",
     ],
+)
+
+# Exercise the real package bin and edge commands on RBE using the existing
+# hermetic CLI bundle; no host npm or generated-output path lookup is needed.
+copy_file(
+    name = "edge_cli_dist",
+    src = "//elixir/web-ng/assets:plugin_config_cli.mjs",
+    out = "dist/cli.js",
+)
+
+js_test(
+    name = "edge_test",
+    size = "medium",
+    entry_point = "tests/edge.test.mjs",
+    data = [
+        ":edge_cli_dist",
+        "bin/serviceradar-cli.js",
+        "package.json",
+    ],
+)
+
+js_run_binary(
+    name = "managed_host_bundle",
+    tool = "//elixir/web-ng/assets:cli_bundler",
+    srcs = [":plugin_config_sources"],
+    chdir = package_name(),
+    args = ["src/edge/managed.ts", "managed-host.mjs"],
+    outs = ["managed-host.mjs"],
+)
+
+js_test(
+    name = "managed_host_test",
+    size = "small",
+    entry_point = "tests/managed-host.test.mjs",
+    data = [":managed_host_bundle", ":node_modules/smol-toml"],
 )

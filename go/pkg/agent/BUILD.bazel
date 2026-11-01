@@ -111,6 +111,14 @@ go_library(
         "camera_relay.go",
         "camera_relay_rtsp.go",
         "cert_renewal.go",
+        "managed_certificates.go",
+        "managed_local_nats_linux.go",
+        "managed_certificate_commands.go",
+        "managed_certificate_commands_other.go",
+        "managed_certificate_policy.go",
+        "managed_certificate_policy_linux.go",
+        "managed_certificates_linux.go",
+        "managed_certificates_unsupported.go",
         "config_section_state.go",
         "control_stream.go",
         "credential_broker_resolver.go",
@@ -215,6 +223,9 @@ go_library(
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent",
     visibility = ["//visibility:public"],
     deps = [
+        "//go/pkg/natsutil",
+        "@com_github_nats_io_nats_go//:nats_go",
+        "@com_github_nats_io_nkeys//:nkeys",
         "//go/pkg/durablefs",
         "//go/pkg/addon",
         "//go/pkg/agent/addon",
@@ -597,4 +608,14 @@ filegroup(
 go_benchmark(
     name = "agent_bench",
     binary = ":agent_test",
+)
+
+go_test(
+    name = "managed_certificates_test",
+    srcs = [
+        "managed_certificates_linux_test.go",
+        "managed_certificate_policy_linux_test.go",
+    ],
+    embed = [":agent"],
+    target_compatible_with = ["@platforms//os:linux"],
 )

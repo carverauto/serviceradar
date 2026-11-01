@@ -344,6 +344,12 @@ spec:
         # partition context.
         - name: SERVICERADAR_OTX_PARTITION
           value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
+        {{- if not (hasKey (default (dict) $coreVals.extraEnv) "SERVICERADAR_NATS_ACCOUNT_NAME") }}
+        # Hub account in templates/nats.yaml. Managed certificate bootstrap signs
+        # only this name. The local leaf account is a different name.
+        - name: SERVICERADAR_NATS_ACCOUNT_NAME
+          value: "SERVICERADAR"
+        {{- end }}
         - name: SERVICERADAR_CORE_OBAN_ENABLED
           value: "true"
         - name: OBAN_SHUTDOWN_GRACE_PERIOD_MS

@@ -320,7 +320,7 @@ defmodule ServiceRadar.Edge.CollectorPackage do
     attribute :collector_type, :atom do
       allow_nil? false
       public? true
-      constraints one_of: [:flowgger, :trapd, :netflow, :sflow, :otel, :falcosidekick]
+      constraints one_of: [:flowgger, :trapd, :netflow, :sflow, :otel, :falcosidekick, :bmp]
       description "Type of collector"
     end
 

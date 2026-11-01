@@ -9,6 +9,7 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
+serviceradar-cert-policy = { path = "../cert-policy" }
 addon-sdk = { path = "../addon-sdk" }
 anyhow = { workspace = true }
 async-nats = { workspace = true }

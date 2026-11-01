@@ -1,13 +1,31 @@
 load("//build/packaging:package_rules.bzl", "serviceradar_package_from_config")
 load("//build/packaging:packages.bzl", "PACKAGES")
+load("@rules_python//python:py_test.bzl", "py_test")
 
 package(default_visibility = ["//visibility:public"])
 
 exports_files([
+    "config/bmp-collector.json",
     "systemd/serviceradar-bmp-collector.service",
 ])
 
 serviceradar_package_from_config(
     name = "bmp-collector",
     config = PACKAGES["bmp-collector"],
+)
+
+py_test(
+    name = "service_launch_test",
+    size = "small",
+    srcs = ["service_launch_test.py"],
+    args = [
+        "$(rootpath //rust/bmp-collector:bmp-collector)",
+        "$(rootpath :systemd/serviceradar-bmp-collector.service)",
+        "$(rootpath :config/bmp-collector.json)",
+    ],
+    data = [
+        "//rust/bmp-collector:bmp-collector",
+        "config/bmp-collector.json",
+        "systemd/serviceradar-bmp-collector.service",
+    ],
 )

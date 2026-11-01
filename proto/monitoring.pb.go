@@ -8753,6 +8753,94 @@ func (x *MtrCheckResult) GetError() string {
 	return ""
 }
 
+type CertificatePolicyRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CertificatePolicyRequest) Reset() {
+	*x = CertificatePolicyRequest{}
+	mi := &file_monitoring_proto_msgTypes[78]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CertificatePolicyRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CertificatePolicyRequest) ProtoMessage() {}
+
+func (x *CertificatePolicyRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[78]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CertificatePolicyRequest.ProtoReflect.Descriptor instead.
+func (*CertificatePolicyRequest) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{78}
+}
+
+type CertificatePolicyResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Payload       []byte                 `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"`     // Exact UTF-8 policy JSON bytes covered by the signature.
+	Signature     []byte                 `protobuf:"bytes,2,opt,name=signature,proto3" json:"signature,omitempty"` // Ed25519 over "serviceradar.certificate-policy.v1\0" + payload.
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *CertificatePolicyResponse) Reset() {
+	*x = CertificatePolicyResponse{}
+	mi := &file_monitoring_proto_msgTypes[79]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *CertificatePolicyResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*CertificatePolicyResponse) ProtoMessage() {}
+
+func (x *CertificatePolicyResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[79]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use CertificatePolicyResponse.ProtoReflect.Descriptor instead.
+func (*CertificatePolicyResponse) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{79}
+}
+
+func (x *CertificatePolicyResponse) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *CertificatePolicyResponse) GetSignature() []byte {
+	if x != nil {
+		return x.Signature
+	}
+	return nil
+}
+
 var File_monitoring_proto protoreflect.FileDescriptor
 
 const file_monitoring_proto_rawDesc = "" +
@@ -9632,7 +9720,11 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tavailable\x18\x05 \x01(\bR\tavailable\x120\n" +
 	"\x05trace\x18\x06 \x01(\v2\x1a.monitoring.MtrTraceResultR\x05trace\x12\x1c\n" +
 	"\ttimestamp\x18\a \x01(\x03R\ttimestamp\x12\x14\n" +
-	"\x05error\x18\b \x01(\tR\x05error*\x99\x02\n" +
+	"\x05error\x18\b \x01(\tR\x05error\"\x1a\n" +
+	"\x18CertificatePolicyRequest\"S\n" +
+	"\x19CertificatePolicyResponse\x12\x18\n" +
+	"\apayload\x18\x01 \x01(\fR\apayload\x12\x1c\n" +
+	"\tsignature\x18\x02 \x01(\fR\tsignature*\x99\x02\n" +
 	"\x11HostInterfaceKind\x12#\n" +
 	"\x1fHOST_INTERFACE_KIND_UNSPECIFIED\x10\x00\x12 \n" +
 	"\x1cHOST_INTERFACE_KIND_PHYSICAL\x10\x01\x12\x1c\n" +
@@ -9687,7 +9779,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tGetStatus\x12\x19.monitoring.StatusRequest\x1a\x1a.monitoring.StatusResponse\"\x00\x12G\n" +
 	"\n" +
 	"GetResults\x12\x1a.monitoring.ResultsRequest\x1a\x1b.monitoring.ResultsResponse\"\x00\x12I\n" +
-	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xf2\x06\n" +
+	"\rStreamResults\x12\x1a.monitoring.ResultsRequest\x1a\x18.monitoring.ResultsChunk\"\x000\x012\xd9\a\n" +
 	"\x13AgentGatewayService\x12H\n" +
 	"\x05Hello\x12\x1d.monitoring.AgentHelloRequest\x1a\x1e.monitoring.AgentHelloResponse\"\x00\x12N\n" +
 	"\tGetConfig\x12\x1e.monitoring.AgentConfigRequest\x1a\x1f.monitoring.AgentConfigResponse\"\x00\x12P\n" +
@@ -9698,7 +9790,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rControlStream\x12 .monitoring.ControlStreamRequest\x1a!.monitoring.ControlStreamResponse\"\x00(\x010\x01\x12s\n" +
 	"\x16ResolveCredentialGrant\x12*.monitoring.CredentialBrokerResolveRequest\x1a+.monitoring.CredentialBrokerResolveResponse\"\x00\x12\x8c\x01\n" +
 	"\x1fResolveAutomationLaunchEnvelope\x122.monitoring.AutomationLaunchEnvelopeResolveRequest\x1a3.monitoring.AutomationLaunchEnvelopeResolveResponse\"\x00\x12c\n" +
-	"\x10RenewCertificate\x12%.monitoring.CertificateRenewalRequest\x1a&.monitoring.CertificateRenewalResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
+	"\x10RenewCertificate\x12%.monitoring.CertificateRenewalRequest\x1a&.monitoring.CertificateRenewalResponse\"\x00\x12e\n" +
+	"\x14GetCertificatePolicy\x12$.monitoring.CertificatePolicyRequest\x1a%.monitoring.CertificatePolicyResponse\"\x00B*Z(github.com/carverauto/serviceradar/protob\x06proto3"
 
 var (
 	file_monitoring_proto_rawDescOnce sync.Once
@@ -9713,7 +9806,7 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 8)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 90)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 92)
 var file_monitoring_proto_goTypes = []any{
 	(HostInterfaceKind)(0),                               // 0: monitoring.HostInterfaceKind
 	(MacProvenance)(0),                                   // 1: monitoring.MacProvenance
@@ -9801,21 +9894,23 @@ var file_monitoring_proto_goTypes = []any{
 	(*MtrHopResult)(nil),                                 // 83: monitoring.MtrHopResult
 	(*MtrTraceResult)(nil),                               // 84: monitoring.MtrTraceResult
 	(*MtrCheckResult)(nil),                               // 85: monitoring.MtrCheckResult
-	nil,                                                  // 86: monitoring.AgentHelloRequest.LabelsEntry
-	nil,                                                  // 87: monitoring.ControlStreamHello.LabelsEntry
-	nil,                                                  // 88: monitoring.CredentialBrokerResolveResponse.FieldsEntry
-	nil,                                                  // 89: monitoring.EndpointInventoryScanMetadata.RedactionEntry
-	nil,                                                  // 90: monitoring.EndpointInventoryArtifactRef.MetadataEntry
-	nil,                                                  // 91: monitoring.EndpointInventoryPackageSummary.EvidenceEntry
-	nil,                                                  // 92: monitoring.EndpointInventoryQueryRequest.MetadataEntry
-	nil,                                                  // 93: monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
-	nil,                                                  // 94: monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
-	nil,                                                  // 95: monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
-	nil,                                                  // 96: monitoring.SysmonConfig.ThresholdsEntry
-	nil,                                                  // 97: monitoring.AgentCheckConfig.SettingsEntry
-	(*v1.EdgeRecordCapabilitiesV1)(nil),                  // 98: serviceradar.edge.v1.EdgeRecordCapabilitiesV1
-	(*AutomationLaunchEnvelopeResolveRequest)(nil),       // 99: monitoring.AutomationLaunchEnvelopeResolveRequest
-	(*AutomationLaunchEnvelopeResolveResponse)(nil),      // 100: monitoring.AutomationLaunchEnvelopeResolveResponse
+	(*CertificatePolicyRequest)(nil),                     // 86: monitoring.CertificatePolicyRequest
+	(*CertificatePolicyResponse)(nil),                    // 87: monitoring.CertificatePolicyResponse
+	nil,                                                  // 88: monitoring.AgentHelloRequest.LabelsEntry
+	nil,                                                  // 89: monitoring.ControlStreamHello.LabelsEntry
+	nil,                                                  // 90: monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	nil,                                                  // 91: monitoring.EndpointInventoryScanMetadata.RedactionEntry
+	nil,                                                  // 92: monitoring.EndpointInventoryArtifactRef.MetadataEntry
+	nil,                                                  // 93: monitoring.EndpointInventoryPackageSummary.EvidenceEntry
+	nil,                                                  // 94: monitoring.EndpointInventoryQueryRequest.MetadataEntry
+	nil,                                                  // 95: monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
+	nil,                                                  // 96: monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
+	nil,                                                  // 97: monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
+	nil,                                                  // 98: monitoring.SysmonConfig.ThresholdsEntry
+	nil,                                                  // 99: monitoring.AgentCheckConfig.SettingsEntry
+	(*v1.EdgeRecordCapabilitiesV1)(nil),                  // 100: serviceradar.edge.v1.EdgeRecordCapabilitiesV1
+	(*AutomationLaunchEnvelopeResolveRequest)(nil),       // 101: monitoring.AutomationLaunchEnvelopeResolveRequest
+	(*AutomationLaunchEnvelopeResolveResponse)(nil),      // 102: monitoring.AutomationLaunchEnvelopeResolveResponse
 }
 var file_monitoring_proto_depIdxs = []int32{
 	17,  // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
@@ -9830,10 +9925,10 @@ var file_monitoring_proto_depIdxs = []int32{
 	23,  // 9: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
 	67,  // 10: monitoring.GatewayStatusChunk.endpoint_inventory_standing_question_counts:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount
 	24,  // 11: monitoring.GatewayServiceStatus.plugin_provenance:type_name -> monitoring.PluginResultProvenance
-	86,  // 12: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
+	88,  // 12: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
 	26,  // 13: monitoring.AgentHelloRequest.host_interfaces:type_name -> monitoring.HostInterface
 	27,  // 14: monitoring.AgentHelloRequest.host_tls_fingerprints:type_name -> monitoring.HostTlsFingerprint
-	98,  // 15: monitoring.AgentHelloRequest.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
+	100, // 15: monitoring.AgentHelloRequest.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
 	0,   // 16: monitoring.HostInterface.kind:type_name -> monitoring.HostInterfaceKind
 	1,   // 17: monitoring.HostInterface.mac_provenance:type_name -> monitoring.MacProvenance
 	70,  // 18: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
@@ -9845,12 +9940,12 @@ var file_monitoring_proto_depIdxs = []int32{
 	33,  // 24: monitoring.AgentConfigResponse.addons:type_name -> monitoring.AddonAssignmentConfig
 	56,  // 25: monitoring.AgentConfigResponse.endpoint_inventory_config:type_name -> monitoring.EndpointInventoryConfig
 	34,  // 26: monitoring.AddonAssignmentConfig.resources:type_name -> monitoring.AddonResources
-	87,  // 27: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
+	89,  // 27: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
 	43,  // 28: monitoring.ControlStreamHello.applied_plugin_assignments:type_name -> monitoring.PluginAssignmentPolicyAck
 	41,  // 29: monitoring.ControlStreamHello.config_section_statuses:type_name -> monitoring.ConfigSectionStatus
 	26,  // 30: monitoring.ControlStreamHello.host_interfaces:type_name -> monitoring.HostInterface
 	27,  // 31: monitoring.ControlStreamHello.host_tls_fingerprints:type_name -> monitoring.HostTlsFingerprint
-	98,  // 32: monitoring.ControlStreamHello.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
+	100, // 32: monitoring.ControlStreamHello.edge_record_capabilities:type_name -> serviceradar.edge.v1.EdgeRecordCapabilitiesV1
 	41,  // 33: monitoring.ConfigAck.section_statuses:type_name -> monitoring.ConfigSectionStatus
 	43,  // 34: monitoring.ConfigAck.applied_plugin_assignments:type_name -> monitoring.PluginAssignmentPolicyAck
 	36,  // 35: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
@@ -9865,7 +9960,7 @@ var file_monitoring_proto_depIdxs = []int32{
 	44,  // 44: monitoring.ControlStreamResponse.console_frame:type_name -> monitoring.ConsoleFrame
 	35,  // 45: monitoring.ControlStreamResponse.config_chunk:type_name -> monitoring.AgentConfigChunk
 	47,  // 46: monitoring.ControlStreamResponse.sweep_lease_chunk:type_name -> monitoring.SweepLeaseChunk
-	88,  // 47: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	90,  // 47: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
 	53,  // 48: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
 	52,  // 49: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
 	55,  // 50: monitoring.BumblebeeConfig.catalog:type_name -> monitoring.BumblebeeCatalogAssignment
@@ -9874,23 +9969,23 @@ var file_monitoring_proto_depIdxs = []int32{
 	63,  // 53: monitoring.EndpointInventoryReport.packages:type_name -> monitoring.EndpointInventoryPackageSummary
 	60,  // 54: monitoring.EndpointInventoryReport.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
 	61,  // 55: monitoring.EndpointInventoryScanMetadata.sources:type_name -> monitoring.EndpointInventorySourceSummary
-	89,  // 56: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
+	91,  // 56: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
 	59,  // 57: monitoring.EndpointInventoryScanMetadata.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	90,  // 58: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
-	91,  // 59: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
+	92,  // 58: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
+	93,  // 59: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
 	66,  // 60: monitoring.EndpointInventoryQueryRequest.predicate:type_name -> monitoring.EndpointInventoryPackagePredicate
-	92,  // 61: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
+	94,  // 61: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
 	64,  // 62: monitoring.EndpointInventoryForceFreshScanRequest.query:type_name -> monitoring.EndpointInventoryQueryRequest
-	93,  // 63: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
+	95,  // 63: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
 	59,  // 64: monitoring.EndpointInventoryStandingQuestionResultCount.freshness:type_name -> monitoring.EndpointInventoryFreshness
-	94,  // 65: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
-	95,  // 66: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
+	96,  // 65: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
+	97,  // 66: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
 	63,  // 67: monitoring.EndpointInventoryQueryResult.packages:type_name -> monitoring.EndpointInventoryPackageSummary
 	61,  // 68: monitoring.EndpointInventoryQueryResult.source_summaries:type_name -> monitoring.EndpointInventorySourceSummary
 	59,  // 69: monitoring.EndpointInventoryQueryResult.freshness:type_name -> monitoring.EndpointInventoryFreshness
 	60,  // 70: monitoring.EndpointInventoryQueryResult.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
-	96,  // 71: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	97,  // 72: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	98,  // 71: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	99,  // 72: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
 	78,  // 73: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
 	72,  // 74: monitoring.SNMPConfig.oid_sets:type_name -> monitoring.SNMPOIDSet
 	80,  // 75: monitoring.SNMPOIDSet.oids:type_name -> monitoring.SNMPOIDConfig
@@ -9920,22 +10015,24 @@ var file_monitoring_proto_depIdxs = []int32{
 	22,  // 99: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
 	45,  // 100: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
 	49,  // 101: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
-	99,  // 102: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
+	101, // 102: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:input_type -> monitoring.AutomationLaunchEnvelopeResolveRequest
 	29,  // 103: monitoring.AgentGatewayService.RenewCertificate:input_type -> monitoring.CertificateRenewalRequest
-	11,  // 104: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	13,  // 105: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	16,  // 106: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	28,  // 107: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	32,  // 108: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	35,  // 109: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
-	20,  // 110: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	20,  // 111: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	46,  // 112: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	50,  // 113: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
-	100, // 114: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
-	30,  // 115: monitoring.AgentGatewayService.RenewCertificate:output_type -> monitoring.CertificateRenewalResponse
-	104, // [104:116] is the sub-list for method output_type
-	92,  // [92:104] is the sub-list for method input_type
+	86,  // 104: monitoring.AgentGatewayService.GetCertificatePolicy:input_type -> monitoring.CertificatePolicyRequest
+	11,  // 105: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	13,  // 106: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	16,  // 107: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	28,  // 108: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	32,  // 109: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	35,  // 110: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
+	20,  // 111: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	20,  // 112: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	46,  // 113: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	50,  // 114: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
+	102, // 115: monitoring.AgentGatewayService.ResolveAutomationLaunchEnvelope:output_type -> monitoring.AutomationLaunchEnvelopeResolveResponse
+	30,  // 116: monitoring.AgentGatewayService.RenewCertificate:output_type -> monitoring.CertificateRenewalResponse
+	87,  // 117: monitoring.AgentGatewayService.GetCertificatePolicy:output_type -> monitoring.CertificatePolicyResponse
+	105, // [105:118] is the sub-list for method output_type
+	92,  // [92:105] is the sub-list for method input_type
 	92,  // [92:92] is the sub-list for extension type_name
 	92,  // [92:92] is the sub-list for extension extendee
 	0,   // [0:92] is the sub-list for field type_name
@@ -9971,7 +10068,7 @@ func file_monitoring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      8,
-			NumMessages:   90,
+			NumMessages:   92,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

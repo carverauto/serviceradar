@@ -1,34 +1,38 @@
 // `serviceradar-cli edge install agent|leaf|collector` — host-side helpers for
 // an edge Linux box. The agent package is pinned to `--version`. The NATS leaf
 // and collector packages come from the latest GitHub release unless `--version`
-// pins one. Each helper then applies what the tenant issued for this host.
+// pins one. Leaf and collector identities are issued to the enrolled host agent.
 //
 // They need root, and print every action before taking it. `--dry-run` prints
 // the same plan without root and without changing the host; it only performs
 // read-only API lookups.
 
-import {spawn} from "node:child_process"
-import {existsSync, mkdtempSync, readdirSync, statSync} from "node:fs"
-import {mkdir, writeFile} from "node:fs/promises"
-import {tmpdir} from "node:os"
+import {execFile, spawn} from "node:child_process"
+import {promisify} from "node:util"
+import {existsSync, mkdtempSync} from "node:fs"
+import {writeFile} from "node:fs/promises"
+import {lookup} from "node:dns/promises"
+import {hostname, networkInterfaces, tmpdir} from "node:os"
 import {join} from "node:path"
 
-import {fetchCollector, fetchCollectorBundle} from "./collectors.js"
-import {encodeId, edgeRequest, rawRequest, requireEdgeSession, requireInstance} from "./http.js"
-import {fetchSiteBundle, positiveNumber} from "./sites.js"
+import {fetchCollector} from "./collectors.js"
+import {encodeId, edgeRequest, rawRequest, requireEdgeSession, requireInstance, type EdgeSession} from "./http.js"
+import {positiveNumber} from "./sites.js"
+import {decodePolicyPublicKey, installManagedConfiguration, installPolicyPublicKey, MANAGED_SERVICES, managedConfigurationFiles, POLICY_KEY_PATH, readEnrolledAgent, readManagedConfiguration, selectLeafAdvertiseURL, waitForManagedActivation, type ManagedComponent} from "./managed.js"
 
 export const DEFAULT_RELEASE_BASE_URL = "https://github.com/carverauto/serviceradar/releases/download"
 export const DEFAULT_RELEASE_API_URL = "https://api.github.com/repos/carverauto/serviceradar/releases/latest"
 
 const VERSION_PATTERN = /^\d+\.\d+\.\d+([-.+][0-9A-Za-z.-]+)?$/
 
-// Collector type → the release package that runs it.
-export const COLLECTOR_PACKAGES: Record<string, {pkg: string; unit: string}> = {
-  flowgger: {pkg: "serviceradar-log-collector", unit: "serviceradar-log-collector"},
-  otel: {pkg: "serviceradar-log-collector", unit: "serviceradar-log-collector"},
-  netflow: {pkg: "serviceradar-flow-collector", unit: "serviceradar-flow-collector"},
-  sflow: {pkg: "serviceradar-flow-collector", unit: "serviceradar-flow-collector"},
-  trapd: {pkg: "serviceradar-trapd", unit: "serviceradar-trapd"},
+// Bundled protocols share the certificate identity of their fixed host service.
+const COLLECTOR_SERVICES: Record<string, string> = {
+  flowgger: "log-collector",
+  otel: "log-collector",
+  netflow: "flow-collector",
+  sflow: "flow-collector",
+  trapd: "trapd",
+  bmp: "bmp-collector",
 }
 
 type PackageFormat = "rpm" | "deb"
@@ -89,9 +93,9 @@ async function installAgent(options: Record<string, any>): Promise<void> {
   await runPlan(ctx, `Installing the ServiceRadar agent ${ctx.version} and enrolling package ${packageId}`, [
     downloadStep({version: ctx.version, file, url: `${ctx.releaseBaseUrl}/v${ctx.version}/${file}`}, local),
     installPackageStep(ctx, local),
-    commandStep(ctx, [srctl, "enroll", "--core-url", instance, "--token", token], {redact: token}),
-    commandStep(ctx, ["systemctl", "enable", "serviceradar-agent.service"]),
-    commandStep(ctx, ["systemctl", "restart", "serviceradar-agent.service"]),
+    commandStep([srctl, "enroll", "--core-url", instance, "--token", token], {redact: token}),
+    commandStep(["systemctl", "enable", "serviceradar-agent.service"]),
+    commandStep(["systemctl", "restart", "serviceradar-agent.service"]),
   ])
   if (!ctx.dryRun) {
     console.log(`✓ Agent installed and enrolled. Check it with: systemctl status serviceradar-agent; serviceradar-cli agent list --instance ${instance}`)
@@ -124,33 +128,52 @@ async function installLeaf(options: Record<string, any>): Promise<void> {
   const site = sitePayload?.data || sitePayload
   console.log(`Edge site ${site?.name || siteId} (${site?.slug || siteId}); leaf status: ${site?.leaf_server?.status || "pending"}`)
 
-  const asset = await resolvePackage(ctx, "serviceradar-nats")
-  const local = join(ctx.workDir, asset.file)
-  const bundleDir = String(options.bundleDir || `/etc/serviceradar/edge-sites/${siteId}`)
-  const bundlePath = join(ctx.workDir, "leaf-bundle.tar.gz")
-  const clientUrl = site?.leaf_server?.client_url ? ` Collectors on this host write to ${site.leaf_server.client_url}.` : ""
+  const host = hostname()
+  const addresses = Object.values(networkInterfaces()).flatMap((addresses) => addresses || []).filter((address) => !address.internal).map((address) => address.address)
+  const resolved = !options.advertiseUrl && host.includes(".") ? await lookup(host, {all: true}).catch(() => []) : []
+  const advertiseUrl = selectLeafAdvertiseURL(options.advertiseUrl, site?.nats_leaf_url, host, addresses, resolved.map((address) => address.address))
+  console.log(`Collector-facing leaf URL: ${advertiseUrl}`)
 
-  await runPlan(ctx, `Installing the NATS leaf ${asset.version} for edge site ${siteId}`, [
-    downloadStep(asset, local),
-    installPackageStep(ctx, local),
-    {
-      describe: `fetch the leaf bundle: POST ${session.instance}/api/admin/edge-sites/${siteId}/bundle (waiting until the leaf is ready) → ${bundlePath}`,
-      run: async () => {
-        const bundle = await fetchSiteBundle(session, siteId, {
-          wait: true,
-          timeoutS: positiveNumber(options.timeout, 600),
-          intervalS: positiveNumber(options.interval, 5),
-          log: (line) => console.log(line),
-        })
-        await writeFile(bundlePath, bundle.body, {mode: 0o600})
-      },
-    },
-    ...applyBundleSteps(ctx, bundlePath, bundleDir, "setup.sh"),
-    confirmLeafStep(),
-  ])
-  if (!ctx.dryRun) {
-    console.log(`✓ Leaf configured and serviceradar-nats is active.${clientUrl}`)
+  await installManaged(ctx, session, options, {
+    service: "nats-leaf", source: {edge_site_id: siteId, advertise_url: advertiseUrl}, packageName: "serviceradar-nats", allowLocalLeaf: false,
+  })
+}
+
+const HUB_AUTHORIZER_DISCONNECTED = new Set([
+  "connecting",
+  "auth_connection_unavailable",
+  "auth_subscription_failed",
+  "policy_unavailable",
+  "not_configured",
+  "authorizer_unavailable",
+  "core_unavailable",
+])
+
+function acceptLocalOnboarding(nats: any): void {
+  const mode = nats?.auth_mode
+  const reason = typeof nats?.reason === "string" ? nats.reason : ""
+  const presented = typeof mode === "string" && mode && mode !== "static_mtls" ? mode : (reason || "no authentication mode")
+  if (reason === "jwt_account_signer_unconfigured" || reason.startsWith("unsupported_auth_mode") || (mode != null && mode !== "static_mtls")) {
+    throw new Error(`NATS managed certificate onboarding requires static mTLS; got ${presented}`)
   }
+  if (reason === "nats_account_mismatch") throw new Error(`NATS managed certificate authorization is not ready: ${reason}`)
+  const disconnected = reason === "" || HUB_AUTHORIZER_DISCONNECTED.has(reason)
+  if (mode === "static_mtls") {
+    const account = nats?.account_name
+    if (typeof account !== "string" || !/^[A-Za-z0-9_-]+$/.test(account)) throw new Error("NATS managed certificate onboarding requires the deployment account name")
+    if (nats?.ready === true) {
+      console.log(`NATS certificate authorization: static mTLS account ${account}`)
+      return
+    }
+    if (disconnected) {
+      console.log(`NATS certificate authorization: hub enforcement is not connected (${reason || "readiness not confirmed"}); local onboarding continues and hub enforcement stays unconfirmed`)
+      return
+    }
+    throw new Error(`NATS managed certificate authorization is not ready: ${reason || "readiness not confirmed"}`)
+  }
+  if (nats?.ready === true) throw new Error("NATS managed certificate onboarding requires static mTLS; got no authentication mode")
+  if (!disconnected) throw new Error(`NATS managed certificate authorization is not ready: ${reason || "readiness not confirmed"}`)
+  console.log("NATS certificate authorization: hub enforcement is not configured; local onboarding continues and hub enforcement stays unconfirmed")
 }
 
 // ---------------------------------------------------------------- collector
@@ -158,58 +181,77 @@ async function installLeaf(options: Record<string, any>): Promise<void> {
 async function installCollector(options: Record<string, any>): Promise<void> {
   const id = String(options.id || "").trim()
   if (!id) throw new Error("--id is required (the collector id from `collector create`)")
-  const token = String(options.token || "").trim()
-  if (!token) throw new Error("--token is required (the collector enrollment token from `collector create`)")
-  const instance = requireInstance(options)
+  const session = requireEdgeSession(options, "apiToken")
   const ctx = installContext(options, false)
+  const payload = await fetchCollector(session, id)
+  const collector = payload?.data || payload
+  const type = String(collector?.collector_type || "")
+  if (options.type && options.type !== type) throw new Error("--type does not match the registered collector type")
+  const service = COLLECTOR_SERVICES[type]
+  if (!service) throw new Error(`collector type ${JSON.stringify(type)} has no edge host package; supported: ${Object.keys(COLLECTOR_SERVICES).join(", ")}`)
+  console.log(`Collector ${id}: type ${type}, status ${collector?.status || "unknown"}`)
+  await installManaged(ctx, session, options, {
+    service, source: {collector_id: id}, packageName: `serviceradar-${service}`,
+    allowLocalLeaf: Boolean(collector?.edge_site_id || collector?.edge_site),
+  })
+}
 
-  let type = String(options.type || "").trim()
-  let boundToLeaf = false
-  let writesTo = ""
-  try {
-    const session = requireEdgeSession(options, "apiToken")
-    const collector = await fetchCollector(session, id)
-    type = type || String(collector?.collector_type || "")
-    boundToLeaf = Boolean(collector?.edge_site_id || collector?.edge_site)
-    writesTo = String(collector?.edge_site?.nats_url || collector?.edge_site?.nats_leaf_url || "")
-    console.log(`Collector ${id}: type ${type || "unknown"}, status ${collector?.status || "unknown"}`)
-  } catch (error) {
-    if (!type || !/no token resolved/.test(error instanceof Error ? error.message : String(error))) throw error
-  }
-  const mapping = COLLECTOR_PACKAGES[type]
-  if (!mapping) {
-    throw new Error(
-      `collector type ${JSON.stringify(type)} has no edge host package; supported: ${Object.keys(COLLECTOR_PACKAGES).join(", ")}`,
-    )
-  }
-
-  const asset = await resolvePackage(ctx, mapping.pkg)
+async function installManaged(
+  ctx: InstallContext, session: EdgeSession, options: Record<string, any>,
+  target: {service: string; source: {edge_site_id?: string; collector_id?: string; advertise_url?: string}; packageName: string; allowLocalLeaf: boolean},
+): Promise<void> {
+  const instanceURL = new URL(session.instance)
+  if (instanceURL.protocol !== "https:" && !["localhost", "127.0.0.1", "[::1]"].includes(instanceURL.hostname)) throw new Error("managed certificate bootstrap requires HTTPS (HTTP is permitted only for a loopback development instance)")
+  const agent = await readEnrolledAgent(ctx.dryRun)
+  const payload = await edgeRequest(session, "GET", "/api/admin/managed-components/bootstrap")
+  const bootstrap = payload?.data || payload
+  const publicKey = decodePolicyPublicKey(bootstrap?.policy_public_key)
+  acceptLocalOnboarding(bootstrap?.nats)
+  const asset = await resolvePackage(ctx, target.packageName)
   const local = join(ctx.workDir, asset.file)
-  const bundleDir = String(options.bundleDir || `/etc/serviceradar/collectors/${id}`)
-  const bundlePath = join(ctx.workDir, "collector-bundle.tar.gz")
-  const steps: Step[] = [downloadStep(asset, local), installPackageStep(ctx, local)]
-  if (boundToLeaf) {
-    const target = writesTo ? ` (writes to ${writesTo})` : ""
-    steps.push({
-      describe: `confirm the local NATS leaf is active before configuring this collector${target}: systemctl is-active --quiet serviceradar-nats`,
-      run: () => confirmLocalLeaf("Run `edge install leaf` and wait until serviceradar-nats is active before installing collectors."),
-    })
-  }
-  steps.push(
+  const previous = ctx.dryRun ? {} : await readManagedConfiguration(target.service)
+  let component: ManagedComponent
+  const steps: Step[] = [
+    {describe: "verify the enrolled host agent is active: systemctl is-active --quiet serviceradar-agent.service", run: () => execute(["systemctl", "is-active", "--quiet", "serviceradar-agent.service"])},
+    downloadStep(asset, local),
+    installPackageStep(ctx, local),
+    {describe: `pin the deployment policy public key at ${POLICY_KEY_PATH} (root-owned, mode 0644)`, run: () => installPolicyPublicKey(publicKey)},
     {
-      describe: `fetch the collector bundle: POST ${instance}/api/collectors/${id}/bundle → ${bundlePath}`,
+      describe: `register ${target.service} for the enrolled host agent: POST ${session.instance}/api/admin/managed-components (one component per host service)`,
       run: async () => {
-        const bundle = await fetchCollectorBundle(instance, id, token)
-        await writeFile(bundlePath, bundle.body, {mode: 0o600})
+        const registered = await edgeRequest(session, "POST", "/api/admin/managed-components", {host_agent_id: agent!.agent_id, service: target.service, ...target.source, ...(options.serverHosts ? {server_hosts: String(options.serverHosts).split(",").map((host) => host.trim()).filter(Boolean)} : {})})
+        component = registered?.data || registered
+        if (component.service !== target.service || component.host_agent_id !== agent!.agent_id || component.partition_id !== agent!.partition) throw new Error("managed component response does not match the enrolled host identity, partition and service")
+        managedConfigurationFiles(component, target.allowLocalLeaf)
       },
     },
-    ...applyBundleSteps(ctx, bundlePath, bundleDir, "update.sh"),
-  )
-
-  await runPlan(ctx, `Installing ${mapping.pkg} ${asset.version} for ${type} collector ${id}`, steps)
-  if (!ctx.dryRun) {
-    console.log(`✓ Collector applied. Check it with: systemctl status ${mapping.unit}`)
-  }
+    {
+      describe: "install managed TLS and certificate policy paths in the service configuration; preserve the host service binding",
+      run: async () => {
+        const {stdout} = await promisify(execFile)("getent", ["group", "serviceradar"])
+        const gid = Number(stdout.trim().split(":")[2])
+        if (!Number.isSafeInteger(gid) || gid < 0) throw new Error("cannot resolve the serviceradar service group")
+        await installManagedConfiguration(component, target.allowLocalLeaf, gid, previous)
+      },
+    },
+    ...(target.service === "nats-leaf" ? [{
+      describe: "bootstrap the local NATS authorization service through the root agent updater (issuer key stays root-only)",
+      run: () => execute(["/usr/local/bin/serviceradar-agent-updater", "--managed-certificates", "local-nats-bootstrap"], undefined, JSON.stringify({component_id: component.component_id, host_agent_id: component.host_agent_id, partition_id: component.partition_id})),
+    }] : []),
+    commandStep(["systemctl", "daemon-reload"]),
+    commandStep(["systemctl", "enable", MANAGED_SERVICES[target.service].unit]),
+    {
+      describe: "request agent-generated keys and certificate installation: POST /api/admin/managed-components/<component-id>/rotate; wait for installation and service activation",
+      run: async () => {
+        const rotated = await edgeRequest(session, "POST", `/api/admin/managed-components/${encodeId(component.component_id)}/rotate`)
+        const operationId = (rotated?.data || rotated)?.lifecycle?.operation_id
+        if (typeof operationId !== "string" || !operationId) throw new Error("rotation response did not identify the certificate operation")
+        await waitForManagedActivation(session, component.component_id, operationId, positiveNumber(options.timeout, 600), positiveNumber(options.interval, 5))
+      },
+    },
+  ]
+  if (ctx.dryRun && !agent) console.log("Host enrollment was not verified on this preview host; an enrolled agent is required before installation.")
+  await runPlan(ctx, `Installing managed ${target.packageName} ${asset.version}`, steps)
 }
 
 // ---------------------------------------------------------------- plumbing
@@ -219,7 +261,7 @@ function installContext(options: Record<string, any>, requireVersion = true): In
   const version = String(options.version || "").trim().replace(/^v/, "")
   if (!version && requireVersion) {
     throw new Error(
-      "--version is required: the ServiceRadar release your tenant runs (e.g. --version 1.4.81).\n" +
+      "--version is required: the ServiceRadar release your instance runs (e.g. --version 1.4.81).\n" +
         "  The agent package stays pinned to that release. Leaf and collector packages default to the latest GitHub release.",
     )
   }
@@ -312,22 +354,6 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
-function confirmLeafStep(): Step {
-  return {
-    describe: "confirm the local NATS leaf is active: systemctl is-active --quiet serviceradar-nats",
-    run: () => confirmLocalLeaf("serviceradar-nats is not active after setup.sh. Collectors were not configured."),
-  }
-}
-
-async function confirmLocalLeaf(failure: string): Promise<void> {
-  try {
-    await execute(["systemctl", "is-active", "--quiet", "serviceradar-nats"])
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error)
-    throw new Error(`${failure}\n${detail}`)
-  }
-}
-
 function resolveFormat(flag: unknown, dryRun: boolean): PackageFormat {
   if (flag === "rpm" || flag === "deb") return flag
   if (flag) throw new Error("--format must be rpm or deb")
@@ -375,41 +401,12 @@ function downloadStep(asset: ReleaseAsset, dest: string): Step {
 }
 
 function installPackageStep(ctx: InstallContext, path: string): Step {
-  if (ctx.format === "deb") return commandStep(ctx, ["apt-get", "install", "-y", path])
+  if (ctx.format === "deb") return commandStep(["apt-get", "install", "-y", path])
   const manager = existsSync("/usr/bin/dnf") || ctx.dryRun ? "dnf" : "yum"
-  return commandStep(ctx, [manager, "install", "-y", path])
+  return commandStep([manager, "install", "-y", path])
 }
 
-function applyBundleSteps(ctx: InstallContext, bundlePath: string, bundleDir: string, script: string): Step[] {
-  return [
-    {
-      describe: `create ${bundleDir} (mode 0700)`,
-      run: async () => {
-        await mkdir(bundleDir, {recursive: true, mode: 0o700})
-      },
-    },
-    commandStep(ctx, ["tar", "-xzf", bundlePath, "-C", bundleDir]),
-    {
-      describe: `run ${script} from the extracted bundle in ${bundleDir}`,
-      run: async () => {
-        const scriptDir = findScriptDir(bundleDir, script)
-        await execute(["bash", join(scriptDir, script)], scriptDir)
-      },
-    },
-  ]
-}
-
-/** The bundle's script sits at its root or one directory down. */
-function findScriptDir(root: string, script: string): string {
-  if (existsSync(join(root, script))) return root
-  for (const entry of readdirSync(root)) {
-    const candidate = join(root, entry)
-    if (statSync(candidate).isDirectory() && existsSync(join(candidate, script))) return candidate
-  }
-  throw new Error(`the bundle extracted to ${root} contains no ${script}`)
-}
-
-function commandStep(ctx: InstallContext, argv: string[], {redact}: {redact?: string} = {}): Step {
+function commandStep(argv: string[], {redact}: {redact?: string} = {}): Step {
   const shown = argv.map((arg) => (redact && arg === redact ? "<token>" : shellQuote(arg))).join(" ")
   return {
     describe: `run: ${shown}`,
@@ -430,9 +427,13 @@ async function runPlan(ctx: InstallContext, title: string, steps: Step[]): Promi
   }
 }
 
-function execute(argv: string[], cwd?: string): Promise<void> {
+function execute(argv: string[], cwd?: string, input?: string): Promise<void> {
   return new Promise((resolveRun, rejectRun) => {
-    const child = spawn(argv[0], argv.slice(1), {cwd, stdio: "inherit"})
+    const child = spawn(argv[0], argv.slice(1), {cwd, stdio: input === undefined ? "inherit" : ["pipe", "ignore", "inherit"]})
+    if (input !== undefined) {
+      child.stdin.on("error", (error) => rejectRun(new Error(`${argv[0]} input failed: ${error.message}`)))
+      child.stdin.end(input)
+    }
     child.on("error", (error) => rejectRun(new Error(`${argv[0]} could not be started: ${error.message}`)))
     child.on("exit", (code, signal) => {
       if (code === 0) resolveRun()

@@ -66,6 +66,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
 
     # In single-deployment mode, NATS config comes from environment
     with {:ok, package} <- get_package(package_id),
+         :ok <- legacy_supported(package),
          :ok <- validate_package_status(package),
          {:ok, package} <- mark_provisioning(package),
          {:ok, nats_config} <- get_nats_config(),
@@ -74,6 +75,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
       Logger.info("Successfully provisioned credentials for collector package #{package_id}")
       :ok
     else
+      {:error, :managed_enrollment_required} ->
+        mark_failed(package_id, "BMP requires managed component enrollment")
+        {:discard, :managed_enrollment_required}
+
       {:error, :package_not_found} ->
         Logger.error("Collector package #{package_id} not found, discarding job")
         {:discard, :package_not_found}
@@ -119,6 +124,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionCollectorWorker do
   end
 
   # Private helpers
+
+  defp legacy_supported(%{collector_type: :bmp}), do: {:error, :managed_enrollment_required}
+  defp legacy_supported(_), do: :ok
 
   defp get_package(package_id) do
     actor = SystemActor.system(:provision_collector)

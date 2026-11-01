@@ -73,7 +73,10 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   """
   @spec create_tarball(CollectorPackage.t(), String.t(), String.t() | nil, keyword()) ::
           {:ok, binary()} | {:error, term()}
-  def create_tarball(package, nats_creds, tls_key_pem, opts \\ []) do
+  def create_tarball(package, nats_creds, tls_key_pem, opts \\ [])
+  def create_tarball(%{collector_type: :bmp}, _creds, _key, _opts), do: {:error, :managed_enrollment_required}
+
+  def create_tarball(package, nats_creds, tls_key_pem, opts) do
     package_dir = "collector-package-#{short_id(package.id)}"
 
     files =
@@ -158,6 +161,152 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     end
   end
 
+  @doc "Public configuration only for managed collectors; private keys remain on the enrolled host."
+  def managed_configuration(package, component, local_leaf_binding) do
+    root = "/etc/serviceradar/managed-components/#{component.component_id}"
+
+    tls = %{
+      cert_file: "#{root}/current/client/component.pem",
+      key_file: "#{root}/current/client/component-key.pem",
+      ca_file: "#{root}/current/client/root.pem"
+    }
+
+    policy = "/etc/serviceradar/managed-components/policy.json"
+    local_file = if local_leaf_binding, do: "#{root}/local-leaf.json"
+
+    domain =
+      if Map.get(component, :edge_site_id),
+        do: ServiceRadar.Edge.ManagedComponentNatsPermissions.jetstream_domain(component.edge_site_id)
+
+    opts = [
+      managed_tls: tls,
+      policy_file: policy,
+      local_leaf_file: local_file,
+      partition: component.partition_id,
+      jetstream_domain: domain
+    ]
+
+    nats_url = get_nats_url(package)
+
+    case component.component_type do
+      "log-collector" ->
+        launcher =
+          "[flowgger]\nenabled = #{package.collector_type == :flowgger}\nconfig_file = \"/etc/serviceradar/flowgger.toml\"\n\n[otel]\nenabled = #{package.collector_type == :otel}\nconfig_file = \"/etc/serviceradar/otel.toml\"\n\n[health]\nlisten_addr = \"127.0.0.1:50044\"\n"
+
+        %{
+          "log-collector.toml" => launcher,
+          "flowgger.toml" => generate_flowgger_config(package, opts),
+          "otel.toml" => generate_otel_config(package, opts)
+        }
+
+      "flow-collector" ->
+        protocol = if package.collector_type == :sflow, do: "sflow", else: "netflow"
+        address = if protocol == "sflow", do: "0.0.0.0:6343", else: "0.0.0.0:2055"
+        security = optional(%{mode: "mtls", tls: tls, cert_policy_file: policy}, :cert_policy_local_leaf_file, local_file)
+
+        config = %{
+          nats_url: nats_url,
+          stream_name: "flows",
+          partition: component.partition_id,
+          security: security,
+          listeners: [%{protocol: protocol, listen_addr: address, subject: "flows.raw.#{protocol}"}]
+        }
+
+        %{"flow-collector.json" => Jason.encode!(optional(config, :nats_domain, domain), pretty: true)}
+
+      "trapd" ->
+        config = package |> generate_trapd_config([]) |> Jason.decode!() |> Map.delete("nats_creds_file")
+
+        security =
+          tls
+          |> Map.put(:mode, "mtls")
+          |> Map.put(:cert_policy_file, policy)
+          |> optional(:cert_policy_local_leaf_file, local_file)
+
+        config =
+          config
+          |> Map.delete("nats_domain")
+          |> optional("nats_domain", domain)
+          |> Map.put("nats_security", security)
+          |> Map.put("partition", component.partition_id)
+          |> Map.put("grpc_security", tls |> Map.put(:mode, "mtls") |> Map.put(:cert_policy_file, policy))
+
+        %{"trapd.json" => Jason.encode!(config, pretty: true)}
+
+      "bmp-collector" ->
+        config =
+          optional(
+            %{
+              nats_url: nats_url,
+              nats_tls_required: true,
+              nats_tls_first: false,
+              nats_tls_ca_cert_path: tls.ca_file,
+              nats_tls_client_cert_path: tls.cert_file,
+              nats_tls_client_key_path: tls.key_file,
+              nats_cert_policy_file: policy
+            },
+            :nats_cert_policy_local_leaf_file,
+            local_file
+          )
+
+        %{"bmp-collector.json" => Jason.encode!(optional(config, :nats_domain, domain), pretty: true)}
+    end
+  end
+
+  defp optional(map, _key, nil), do: map
+  defp optional(map, key, value), do: Map.put(map, key, value)
+
+  defp managed_flowgger_security(opts) do
+    if opts[:managed_tls] do
+      managed_output_lines(opts, :flowgger) <>
+        ~s(\n\n[grpc]\nlisten_addr = "127.0.0.1:50044"\nmode = "mtls"\n) <> managed_server_tls(opts)
+    end
+  end
+
+  defp managed_otel_security(opts) do
+    if opts[:managed_tls], do: managed_output_lines(opts, :otel) <> "\n\n[grpc_tls]\n" <> managed_server_tls(opts)
+  end
+
+  defp managed_server_tls(opts) do
+    Enum.map_join(Map.to_list(opts[:managed_tls]) ++ [{:cert_policy_file, opts[:policy_file]}], "\n", fn {key, value} ->
+      "#{key} = #{encode_toml_value(value)}"
+    end)
+  end
+
+  defp managed_output_lines(opts, kind) do
+    case opts[:managed_tls] do
+      nil ->
+        nil
+
+      tls ->
+        fields =
+          case kind do
+            :flowgger ->
+              [
+                {"nats_domain", opts[:jetstream_domain]},
+                {"nats_tls_ca_file", tls.ca_file},
+                {"nats_tls_cert", tls.cert_file},
+                {"nats_tls_key", tls.key_file},
+                {"nats_cert_policy_file", opts[:policy_file]},
+                {"nats_cert_policy_local_leaf_file", opts[:local_leaf_file]}
+              ]
+
+            :otel ->
+              [
+                {"cert_file", tls.cert_file},
+                {"key_file", tls.key_file},
+                {"ca_file", tls.ca_file},
+                {"cert_policy_file", opts[:policy_file]},
+                {"cert_policy_local_leaf_file", opts[:local_leaf_file]}
+              ]
+          end
+
+        fields
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Enum.map_join("\n", fn {key, value} -> "#{key} = #{encode_toml_value(value)}" end)
+    end
+  end
+
   defp generate_config(package, opts) do
     case package.collector_type do
       :flowgger -> generate_flowgger_config(package, opts)
@@ -172,7 +321,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp generate_flowgger_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    site = package.site || "default"
+    site = Keyword.get(opts, :partition, package.site || "default")
 
     # Apply any config overrides
     input_listen = get_in(package.config_overrides, ["input", "listen"]) || "0.0.0.0:514"
@@ -203,27 +352,17 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     nats_url = #{encode_toml_value(nats_url)}
     nats_subject = "logs.syslog"
     nats_stream = "events"
-    nats_tls_ca_file = "/etc/serviceradar/certs/ca-chain.pem"
-    nats_tls_cert = "/etc/serviceradar/certs/collector.pem"
-    nats_tls_key = "/etc/serviceradar/certs/collector-key.pem"
-    nats_creds_file = "/etc/serviceradar/creds/nats.creds"
-
-    [grpc]
-    listen_addr = "127.0.0.1:50044"
-    mode = "mtls"
-    cert_dir = "/etc/serviceradar/certs"
-    cert_file = "/etc/serviceradar/certs/collector.pem"
-    key_file = "/etc/serviceradar/certs/collector-key.pem"
-    ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    #{managed_flowgger_security(opts) || legacy_flowgger_security()}
     """
   end
 
   defp generate_otel_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    site = package.site || "default"
+    site = Keyword.get(opts, :partition, package.site || "default")
 
     # Apply any config overrides
     grpc_port = normalize_port(get_in(package.config_overrides, ["server", "port"]), 4317)
+    domain = opts[:jetstream_domain]
 
     """
     # ServiceRadar OpenTelemetry Collector Configuration
@@ -241,9 +380,33 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     logs_subject = "logs.otel"
     stream = "events"
     timeout_secs = 30
-    creds_file = "/etc/serviceradar/creds/nats.creds"
+    #{if domain, do: "domain = #{encode_toml_value(domain)}"}
+    #{if opts[:managed_tls], do: "", else: "creds_file = \"/etc/serviceradar/creds/nats.creds\""}
 
     [nats.tls]
+    #{managed_otel_security(opts) || legacy_otel_security()}
+    """
+  end
+
+  defp legacy_flowgger_security do
+    """
+    nats_tls_ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    nats_tls_cert = "/etc/serviceradar/certs/collector.pem"
+    nats_tls_key = "/etc/serviceradar/certs/collector-key.pem"
+    nats_creds_file = "/etc/serviceradar/creds/nats.creds"
+
+    [grpc]
+    listen_addr = "127.0.0.1:50044"
+    mode = "mtls"
+    cert_dir = "/etc/serviceradar/certs"
+    cert_file = "/etc/serviceradar/certs/collector.pem"
+    key_file = "/etc/serviceradar/certs/collector-key.pem"
+    ca_file = "/etc/serviceradar/certs/ca-chain.pem"
+    """
+  end
+
+  defp legacy_otel_security do
+    """
     cert_file = "/etc/serviceradar/certs/collector.pem"
     key_file = "/etc/serviceradar/certs/collector-key.pem"
     ca_file = "/etc/serviceradar/certs/ca-chain.pem"
@@ -257,7 +420,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp generate_trapd_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    site = package.site || "default"
+    site = Keyword.get(opts, :partition, package.site || "default")
 
     # Apply any config overrides
     listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:162"
@@ -292,7 +455,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp generate_netflow_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    site = package.site || "default"
+    site = Keyword.get(opts, :partition, package.site || "default")
 
     # Apply any config overrides
     listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:2055"
@@ -327,7 +490,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
 
   defp generate_sflow_config(package, opts) do
     nats_url = get_nats_url(package, opts)
-    site = package.site || "default"
+    site = Keyword.get(opts, :partition, package.site || "default")
 
     # Apply any config overrides
     listen_addr = get_in(package.config_overrides, ["listen_addr"]) || "0.0.0.0:6343"

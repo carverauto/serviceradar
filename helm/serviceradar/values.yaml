@@ -263,14 +263,14 @@ nats:
     # before changing it on a live install.
     size: 36Gi
     storageClassName: ""
-  # Edge-site NATS leaf servers dial this listener. When enabled, nats.conf
-  # gets a leafnodes {} block and the serviceradar-nats Service exposes `port`.
-  # TLS terminates in nats-server using the runtime NATS certificate (nats.pem).
-  # Leaf client certificates are verified against the internal CA (root.pem),
-  # and a leaf is bound to the SERVICERADAR platform account only when its
-  # certificate carries the role URI SAN
-  # spiffe://serviceradar.local/nats-leaf/<partitionId>, which the agent-gateway
-  # CA issues to provisioned edge-site leaves.
+  # Edge-site NATS leaf servers dial this listener. When enabled, the
+  # serviceradar-nats Service exposes `port`. TLS terminates in nats-server
+  # using the runtime NATS certificate (nats.pem). Leaf client certificates
+  # are ordinary PKIX certificates verified against the internal CA
+  # (root.pem). NATS 2.14 places a leaf that has no authorization block in
+  # the global account, so nats.conf opens the listener only when
+  # certificateAuthorization is also enabled. That callout stays disabled
+  # until operator adoption and admits a leaf from its presented certificate.
   #
   # The certificate the leaf dials must name the public host. The chart's
   # certificate generator adds hostedRuntime.publicEndpoints.natsLeafHost and
@@ -281,6 +281,18 @@ nats:
     port: 7422
     tls:
       extraDnsNames: []
+  # Hub authorization callout for managed component certificates. Leave this
+  # disabled. Turning it on before every existing infrastructure client has an
+  # explicit stored grant denies those clients. A static empty allow list is
+  # unrestricted and must be adopted as [">"] plus the same deny list. These
+  # flags do not check that adoption. Paste public nkeys only; signing seeds
+  # stay in the certificate configuration record.
+  certificateAuthorization:
+    enabled: false
+    infrastructureAdopted: false
+    issuerPublicKey: ""
+    authUserPublicKey: ""
+    systemUserPublicKey: ""
   # Do not set resources.limits.cpu by default: a CFS quota on nats-server can
   # freeze JetStream RAFT heartbeats and readloops across multiple periods after
   # a brief host/hypervisor vCPU pause (#5635).

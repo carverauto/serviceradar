@@ -4456,6 +4456,7 @@ dependencies = [
  "rustls",
  "rustls-pemfile",
  "serde",
+ "serviceradar-cert-policy",
  "serviceradar-metric-proto",
  "tempfile",
  "tokio",
@@ -6608,7 +6609,32 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "serviceradar-cert-policy",
  "tokio",
+]
+
+[[package]]
+name = "serviceradar-cert-policy"
+version = "0.1.0"
+dependencies = [
+ "async-nats",
+ "chrono",
+ "futures",
+ "hex",
+ "rcgen",
+ "rustls",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tonic",
+ "tonic-health",
+ "tracing",
+ "x509-cert",
 ]
 
 [[package]]
@@ -6688,6 +6714,7 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "serviceradar-cert-policy",
  "sha2 0.11.0",
  "tokio",
  "tokio-rustls",
@@ -6716,6 +6743,7 @@ dependencies = [
  "rustls-pemfile",
  "serde",
  "serde_json",
+ "serviceradar-cert-policy",
  "tempfile",
  "time",
  "time-tz",
@@ -6864,6 +6892,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "serviceradar-cert-policy",
  "serviceradar-metric-proto",
  "tokio",
  "tonic",
@@ -6903,6 +6932,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "serviceradar-cert-policy",
  "snmp2",
  "tokio",
  "tonic",

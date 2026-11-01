@@ -5,7 +5,7 @@ import {encodeId, edgeRequest, parseJson, rawRequest, requireEdgeSession, requir
 import {attachmentFilename, printJson, printRecord, printTable, wantsJson, writeDownload} from "./output.js"
 import {downloadError} from "./packages.js"
 
-export const COLLECTOR_TYPES = ["flowgger", "trapd", "netflow", "sflow", "otel"]
+export const COLLECTOR_TYPES = ["flowgger", "trapd", "netflow", "sflow", "otel", "bmp"]
 
 export async function dispatchCollector(subcommand: string, options: Record<string, any>): Promise<void> {
   switch (subcommand) {
@@ -67,17 +67,10 @@ async function collectorCreateCommand(options: Record<string, any>): Promise<voi
     console.log("Enrollment token (shown once; treat it like a password):")
     console.log(`  ${token}`)
     console.log("")
-    console.log("On the edge host, as root:")
-    console.log(`  serviceradar-cli edge install collector --instance ${session.instance} --id ${pkg?.id} --token '<enrollment token>'`)
-  } else {
-    console.warn(
-      "! The server did not return an enrollment token for this collector.\n" +
-        "  Copy it from Settings → Collectors in the web UI, or upgrade the instance.",
-    )
   }
-  if (pkg?.status && pkg.status !== "ready") {
-    console.log(`  Status is ${pkg.status}; the bundle downloads once it reaches ready.`)
-  }
+  console.log("On the edge host, enroll the ServiceRadar agent and sign in with `auth login`, then run as root:")
+  console.log(`  serviceradar-cli edge install collector --instance ${session.instance} --id ${pkg?.id}`)
+  console.log("Managed installation generates private keys on the host; the legacy bundle token is not used.")
 }
 
 export function enrollmentTokenOf(result: any): string {

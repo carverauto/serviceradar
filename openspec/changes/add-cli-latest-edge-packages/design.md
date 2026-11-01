@@ -30,11 +30,11 @@ address and not the platform NATS URL.
   the lookup the same way `--release-base-url` overrides the download prefix.
   The tag path is used rather than `browser_download_url`, which points at an
   untagged path for draft assets.
-- Decision: confirmation is local. `setup.sh` already exits non-zero when
-  `serviceradar-nats` does not become active. The CLI repeats
-  `systemctl is-active --quiet serviceradar-nats` as its own step, and
-  collector install runs that check before it fetches or applies a bundle
-  when the collector has an `edge_site_id`.
+- Decision (superseded): confirmation was local. `setup.sh` exited non-zero
+  when `serviceradar-nats` did not become active, and the CLI repeated
+  `systemctl is-active --quiet serviceradar-nats` before applying an
+  edge-site collector bundle. Managed install no longer does that. See
+  `js/cli/README.md`.
 - Decision: no new RBAC endpoint. Site and collector routes already require
   `settings.edge.manage`. The site payload gains `local_listen` and
   `client_url` so the operator can see the address the collectors will dial.

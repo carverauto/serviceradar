@@ -705,6 +705,10 @@ defmodule ServiceRadarWebNGWeb.Router do
   end
 
   # Admin API (session/JWT auth)
+  scope "/.well-known/serviceradar", ServiceRadarWebNGWeb do
+    get("/certificate-policy", CertificatePolicyController, :show)
+  end
+
   scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_auth)
 
@@ -874,6 +878,17 @@ defmodule ServiceRadarWebNGWeb.Router do
 
   scope "/api/admin", ServiceRadarWebNGWeb.Api do
     pipe_through(:api_key_auth)
+
+    get("/managed-components/bootstrap", ManagedComponentController, :bootstrap)
+    post("/managed-components", ManagedComponentController, :create)
+    post("/managed-components/adopt", ManagedComponentController, :adopt)
+    get("/managed-components/:id", ManagedComponentController, :show)
+    post("/managed-components/:id/rotate", ManagedComponentController, :rotate)
+    post("/managed-components/:id/revoke", ManagedComponentController, :revoke)
+    post("/managed-components/:id/reenroll", ManagedComponentController, :reenroll)
+    post("/managed-components/:id/certificates", ManagedComponentController, :record_successor)
+    post("/managed-components/:id/certificates/:fingerprint/revoke", ManagedComponentController, :revoke_certificate)
+    post("/nats/certificate-authorization/bootstrap", ManagedComponentController, :bootstrap_nats)
 
     # Collector package management
     get("/collectors", CollectorController, :index)
@@ -1433,6 +1448,7 @@ defmodule ServiceRadarWebNGWeb.Router do
         live("/cluster", Admin.ClusterLive.Index, :index)
         live("/collectors", Admin.CollectorLive.Index, :index)
         live("/collectors/:id", Admin.CollectorLive.Index, :show)
+        live("/service-certificates", Admin.ManagedComponentsLive.Index, :index)
         live("/edge-sites", Admin.EdgeSitesLive.Index, :index)
         live("/edge-sites/new", Admin.EdgeSitesLive.Index, :new)
         live("/edge-sites/:id", Admin.EdgeSitesLive.Show, :show)

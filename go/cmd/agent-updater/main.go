@@ -23,6 +23,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent"
@@ -45,6 +46,8 @@ func run() error {
 	ctx := context.Background()
 
 	switch {
+	case opts.ManagedCertificates != "":
+		return agent.RunManagedCertificateUpdater(ctx, opts.ManagedCertificates, os.Stdin, os.Stdout)
 	case opts.AddonSystemdInstall != "":
 		resources, err := parseAddonResources(opts.AddonSystemdResources)
 		if err != nil {

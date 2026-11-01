@@ -51,6 +51,7 @@ rust_library(
         cargo_only = True,
         normal = True,
     ) + [
+        "//rust/cert-policy:cert_policy",
         ":build_script",
         "@crates//:async-nats",
     ],

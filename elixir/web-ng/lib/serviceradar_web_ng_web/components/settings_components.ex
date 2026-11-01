@@ -205,6 +205,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       active:
         String.starts_with?(path, "/admin/collectors") or
           String.starts_with?(path, "/admin/edge-sites") or
+          String.starts_with?(path, "/admin/service-certificates") or
           String.starts_with?(path, "/admin/nats") or
           String.starts_with?(path, "/settings/sysmon") or
           String.starts_with?(path, "/settings/agents") or

@@ -1864,6 +1864,27 @@ defmodule Monitoring.MtrCheckResult do
   field :error, 8, type: :string
 end
 
+defmodule Monitoring.CertificatePolicyRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.CertificatePolicyRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+end
+
+defmodule Monitoring.CertificatePolicyResponse do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.CertificatePolicyResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :payload, 1, type: :bytes
+  field :signature, 2, type: :bytes
+end
+
 defmodule Monitoring.AgentService.Service do
   @moduledoc false
 
@@ -1919,6 +1940,12 @@ defmodule Monitoring.AgentGatewayService.Service do
     :RenewCertificate,
     Monitoring.CertificateRenewalRequest,
     Monitoring.CertificateRenewalResponse
+  )
+
+  rpc(
+    :GetCertificatePolicy,
+    Monitoring.CertificatePolicyRequest,
+    Monitoring.CertificatePolicyResponse
   )
 end
 

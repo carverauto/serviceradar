@@ -41,6 +41,7 @@ rust_binary(
         cargo_only = True,
         normal = True,
     ) + [
+        "//rust/cert-policy:cert_policy",
         ":build_script",
         "//rust/config-bootstrap:config_bootstrap",
         "//rust/kvutil",

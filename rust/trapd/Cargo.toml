@@ -7,6 +7,7 @@ edition = "2024"
 license = "Apache-2.0"
 
 [dependencies]
+serviceradar-cert-policy = { path = "../cert-policy" }
 anyhow = { workspace = true }
 async-nats = { workspace = true }
 clap = { workspace = true, features = ["derive", "env"] }

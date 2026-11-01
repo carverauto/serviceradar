@@ -17,6 +17,7 @@ members = [
     "elixir/web-ng/native/god_view_nif",
     "rust/kvutil",
     "rust/config-bootstrap",
+    "rust/cert-policy",
     "rust/age-to-dgraph",
     "rust/dgraph-migrate",
     "rust/network-config-downparser",
@@ -213,6 +214,7 @@ ureq = "3.3"
 urlencoding = "2"
 uuid = { version = "1", default-features = false, features = ["std"] }
 which = "8.0"
+x509-cert = { version = "=0.2.5", default-features = false, features = ["std"] }
 zen-engine = "2.0"
 zeroize = { version = "1", default-features = false }
 
