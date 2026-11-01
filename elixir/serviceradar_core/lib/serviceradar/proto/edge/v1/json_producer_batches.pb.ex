@@ -1113,8 +1113,6 @@ defmodule Serviceradar.Edge.V1.SyncDeviceRecordV1 do
   field :vlan_uid, 22, type: :string, json_name: "vlanUid"
   field :region, 23, type: :string
   field :os, 24, type: Serviceradar.Edge.V1.SyncDeviceOsV1
-  field :os_info, 25, type: :string, json_name: "osInfo"
-  field :version_info, 26, type: :string, json_name: "versionInfo"
   field :hw_info, 27, type: Serviceradar.Edge.V1.SyncDeviceHwInfoV1, json_name: "hwInfo"
   field :risk_level_id, 28, proto3_optional: true, type: :int32, json_name: "riskLevelId"
   field :risk_level, 29, type: :string, json_name: "riskLevel"
@@ -1123,9 +1121,6 @@ defmodule Serviceradar.Edge.V1.SyncDeviceRecordV1 do
   field :is_managed, 32, proto3_optional: true, type: :bool, json_name: "isManaged"
   field :is_compliant, 33, proto3_optional: true, type: :bool, json_name: "isCompliant"
   field :is_trusted, 34, proto3_optional: true, type: :bool, json_name: "isTrusted"
-  field :service_type, 35, type: :string, json_name: "serviceType"
-  field :service_status, 36, type: :string, json_name: "serviceStatus"
-  field :last_heartbeat_unix_nano, 37, type: :int64, json_name: "lastHeartbeatUnixNano"
   field :timestamp_unix_nano, 38, type: :int64, json_name: "timestampUnixNano"
   field :first_seen_unix_nano, 39, type: :int64, json_name: "firstSeenUnixNano"
   field :last_seen_unix_nano, 40, type: :int64, json_name: "lastSeenUnixNano"

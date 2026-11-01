@@ -79,7 +79,7 @@ message MapperDeviceRecordV1 {
   // `buildMapperDeviceMetadata` (`go/pkg/agent/mapper_service.go`) and/or
   // promoted by `Normalize.merge_snmp_fingerprint_metadata`:
   //
-  // Originating sync/discovery job identifier (`metadata["sync_service_id"]`).
+  // Edge agent id (`metadata["sync_service_id"]`), set when that key is missing.
   string sync_service_id = 12;
   // MAC provenance (`metadata["identity_mac_kind"]`: `"primary"`, `"management"`, `"chassis"`).
   string identity_mac_kind = 13;
@@ -1030,10 +1030,8 @@ message SyncDeviceRecordV1 {
 
   // Structured OCSF operating system information (`os`).
   SyncDeviceOsV1 os = 24;
-  // Flattened operating system summary string (`os_info`).
-  string os_info = 25;
-  // Flattened software/firmware version summary (`version_info`).
-  string version_info = 26;
+  reserved 25, 26;
+  reserved "os_info", "version_info";
   // Structured OCSF hardware information (`hw_info`).
   SyncDeviceHwInfoV1 hw_info = 27;
 
@@ -1051,13 +1049,8 @@ message SyncDeviceRecordV1 {
   optional bool is_compliant = 33;
   // Trust state (`is_trusted`).
   optional bool is_trusted = 34;
-
-  // Component service type (`service_type`, e.g. `"agent"`, `"gateway"`, `"checker"`).
-  string service_type = 35;
-  // Component service status (`service_status`).
-  string service_status = 36;
-  // Last heartbeat timestamp in Unix epoch nanoseconds (`last_heartbeat`).
-  int64 last_heartbeat_unix_nano = 37;
+  reserved 35, 36, 37;
+  reserved "service_type", "service_status", "last_heartbeat_unix_nano";
 
   // Record emission time (`timestamp`). JSON is RFC3339 UTC truncated to one second.
   int64 timestamp_unix_nano = 38;

@@ -142,7 +142,7 @@ type MapperDeviceRecordV1 struct {
 	// `buildMapperDeviceMetadata` (`go/pkg/agent/mapper_service.go`) and/or
 	// promoted by `Normalize.merge_snmp_fingerprint_metadata`:
 	//
-	// Originating sync/discovery job identifier (`metadata["sync_service_id"]`).
+	// Edge agent id (`metadata["sync_service_id"]`), set when that key is missing.
 	SyncServiceId string `protobuf:"bytes,12,opt,name=sync_service_id,json=syncServiceId,proto3" json:"sync_service_id,omitempty"`
 	// MAC provenance (`metadata["identity_mac_kind"]`: `"primary"`, `"management"`, `"chassis"`).
 	IdentityMacKind string `protobuf:"bytes,13,opt,name=identity_mac_kind,json=identityMacKind,proto3" json:"identity_mac_kind,omitempty"`
@@ -4920,10 +4920,6 @@ type SyncDeviceRecordV1 struct {
 	Region string `protobuf:"bytes,23,opt,name=region,proto3" json:"region,omitempty"`
 	// Structured OCSF operating system information (`os`).
 	Os *SyncDeviceOsV1 `protobuf:"bytes,24,opt,name=os,proto3" json:"os,omitempty"`
-	// Flattened operating system summary string (`os_info`).
-	OsInfo string `protobuf:"bytes,25,opt,name=os_info,json=osInfo,proto3" json:"os_info,omitempty"`
-	// Flattened software/firmware version summary (`version_info`).
-	VersionInfo string `protobuf:"bytes,26,opt,name=version_info,json=versionInfo,proto3" json:"version_info,omitempty"`
 	// Structured OCSF hardware information (`hw_info`).
 	HwInfo *SyncDeviceHwInfoV1 `protobuf:"bytes,27,opt,name=hw_info,json=hwInfo,proto3" json:"hw_info,omitempty"`
 	// OCSF risk level ID (`risk_level_id`).
@@ -4940,12 +4936,6 @@ type SyncDeviceRecordV1 struct {
 	IsCompliant *bool `protobuf:"varint,33,opt,name=is_compliant,json=isCompliant,proto3,oneof" json:"is_compliant,omitempty"`
 	// Trust state (`is_trusted`).
 	IsTrusted *bool `protobuf:"varint,34,opt,name=is_trusted,json=isTrusted,proto3,oneof" json:"is_trusted,omitempty"`
-	// Component service type (`service_type`, e.g. `"agent"`, `"gateway"`, `"checker"`).
-	ServiceType string `protobuf:"bytes,35,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
-	// Component service status (`service_status`).
-	ServiceStatus string `protobuf:"bytes,36,opt,name=service_status,json=serviceStatus,proto3" json:"service_status,omitempty"`
-	// Last heartbeat timestamp in Unix epoch nanoseconds (`last_heartbeat`).
-	LastHeartbeatUnixNano int64 `protobuf:"varint,37,opt,name=last_heartbeat_unix_nano,json=lastHeartbeatUnixNano,proto3" json:"last_heartbeat_unix_nano,omitempty"`
 	// Record emission time (`timestamp`). JSON is RFC3339 UTC truncated to one second.
 	TimestampUnixNano int64 `protobuf:"varint,38,opt,name=timestamp_unix_nano,json=timestampUnixNano,proto3" json:"timestamp_unix_nano,omitempty"`
 	// First seen time (`first_seen_time`). JSON is RFC3339 UTC truncated to one second.
@@ -5186,20 +5176,6 @@ func (x *SyncDeviceRecordV1) GetOs() *SyncDeviceOsV1 {
 	return nil
 }
 
-func (x *SyncDeviceRecordV1) GetOsInfo() string {
-	if x != nil {
-		return x.OsInfo
-	}
-	return ""
-}
-
-func (x *SyncDeviceRecordV1) GetVersionInfo() string {
-	if x != nil {
-		return x.VersionInfo
-	}
-	return ""
-}
-
 func (x *SyncDeviceRecordV1) GetHwInfo() *SyncDeviceHwInfoV1 {
 	if x != nil {
 		return x.HwInfo
@@ -5254,27 +5230,6 @@ func (x *SyncDeviceRecordV1) GetIsTrusted() bool {
 		return *x.IsTrusted
 	}
 	return false
-}
-
-func (x *SyncDeviceRecordV1) GetServiceType() string {
-	if x != nil {
-		return x.ServiceType
-	}
-	return ""
-}
-
-func (x *SyncDeviceRecordV1) GetServiceStatus() string {
-	if x != nil {
-		return x.ServiceStatus
-	}
-	return ""
-}
-
-func (x *SyncDeviceRecordV1) GetLastHeartbeatUnixNano() int64 {
-	if x != nil {
-		return x.LastHeartbeatUnixNano
-	}
-	return 0
 }
 
 func (x *SyncDeviceRecordV1) GetTimestampUnixNano() int64 {
@@ -6708,7 +6663,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	" \x03(\tR\x1cconflictingDuplicateExamples\"h\n" +
 	"\x13SyncControlMarkerV1\x12!\n" +
 	"\fcontrol_type\x18\x01 \x01(\tR\vcontrolType\x12.\n" +
-	"\x13timestamp_unix_nano\x18\x02 \x01(\x03R\x11timestampUnixNano\"\x8f\x14\n" +
+	"\x13timestamp_unix_nano\x18\x02 \x01(\x03R\x11timestampUnixNano\"\xbd\x13\n" +
 	"\x12SyncDeviceRecordV1\x12\x1b\n" +
 	"\tdevice_id\x18\x01 \x01(\tR\bdeviceId\x12\x10\n" +
 	"\x03uid\x18\x02 \x01(\tR\x03uid\x12\x17\n" +
@@ -6738,9 +6693,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"subnet_uid\x18\x15 \x01(\tR\tsubnetUid\x12\x19\n" +
 	"\bvlan_uid\x18\x16 \x01(\tR\avlanUid\x12\x16\n" +
 	"\x06region\x18\x17 \x01(\tR\x06region\x124\n" +
-	"\x02os\x18\x18 \x01(\v2$.serviceradar.edge.v1.SyncDeviceOsV1R\x02os\x12\x17\n" +
-	"\aos_info\x18\x19 \x01(\tR\x06osInfo\x12!\n" +
-	"\fversion_info\x18\x1a \x01(\tR\vversionInfo\x12A\n" +
+	"\x02os\x18\x18 \x01(\v2$.serviceradar.edge.v1.SyncDeviceOsV1R\x02os\x12A\n" +
 	"\ahw_info\x18\x1b \x01(\v2(.serviceradar.edge.v1.SyncDeviceHwInfoV1R\x06hwInfo\x12'\n" +
 	"\rrisk_level_id\x18\x1c \x01(\x05H\x00R\vriskLevelId\x88\x01\x01\x12\x1d\n" +
 	"\n" +
@@ -6752,10 +6705,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"is_managed\x18  \x01(\bH\x03R\tisManaged\x88\x01\x01\x12&\n" +
 	"\fis_compliant\x18! \x01(\bH\x04R\visCompliant\x88\x01\x01\x12\"\n" +
 	"\n" +
-	"is_trusted\x18\" \x01(\bH\x05R\tisTrusted\x88\x01\x01\x12!\n" +
-	"\fservice_type\x18# \x01(\tR\vserviceType\x12%\n" +
-	"\x0eservice_status\x18$ \x01(\tR\rserviceStatus\x127\n" +
-	"\x18last_heartbeat_unix_nano\x18% \x01(\x03R\x15lastHeartbeatUnixNano\x12.\n" +
+	"is_trusted\x18\" \x01(\bH\x05R\tisTrusted\x88\x01\x01\x12.\n" +
 	"\x13timestamp_unix_nano\x18& \x01(\x03R\x11timestampUnixNano\x12/\n" +
 	"\x14first_seen_unix_nano\x18' \x01(\x03R\x11firstSeenUnixNano\x12-\n" +
 	"\x13last_seen_unix_nano\x18( \x01(\x03R\x10lastSeenUnixNano\x123\n" +
@@ -6790,7 +6740,7 @@ const file_edge_v1_json_producer_batches_proto_rawDesc = "" +
 	"\r_is_availableB\r\n" +
 	"\v_is_managedB\x0f\n" +
 	"\r_is_compliantB\r\n" +
-	"\v_is_trusted\"\xc4\x02\n" +
+	"\v_is_trustedJ\x04\b\x19\x10\x1aJ\x04\b\x1a\x10\x1bJ\x04\b#\x10$J\x04\b$\x10%J\x04\b%\x10&R\aos_infoR\fversion_infoR\fservice_typeR\x0eservice_statusR\x18last_heartbeat_unix_nano\"\xc4\x02\n" +
 	"\x0eSyncDeviceOsV1\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x12\n" +
 	"\x04type\x18\x02 \x01(\tR\x04type\x12\x1c\n" +
