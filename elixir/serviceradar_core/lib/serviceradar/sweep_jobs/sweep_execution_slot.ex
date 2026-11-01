@@ -10,8 +10,8 @@ defmodule ServiceRadar.SweepJobs.SweepExecutionSlot do
 
   A slot that will not run any more (its assignment was revoked, or the group became
   ineligible) is `:dropped`, not deleted, so what was planned stays inspectable.
-  A slot whose collection window closed with no committed batch is `:missed_offline`
-  or `:missed_exhausted`; `ServiceRadar.SweepJobs.LeaseMisses` owns that mark.
+  `ServiceRadar.SweepJobs.LeaseMisses` marks a closed slot `:missed_offline` or
+  `:missed_exhausted`.
   `delivered_at` records when a lease push last carried the slot to the agent; a
   scheduled slot without one has never been sent.
 

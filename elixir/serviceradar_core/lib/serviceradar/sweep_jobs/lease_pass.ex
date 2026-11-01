@@ -31,10 +31,10 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   assignment and no delivery row it reads nothing else. A delivery row outlives its group, so
   a pass with one still revokes it.
 
-  After the horizon is refilled, `LeaseMisses.mark/1` closes any scheduled slot whose
-  collection window ended, with grace, and that still has no committed batch. That mark
-  runs even when the pass is otherwise idle, so a slot that expires after its lease was
-  withdrawn is still closed.
+  After the horizon is refilled, `LeaseMisses.mark/1` closes scheduled slots that
+  are past grace with nothing committed. That mark runs even when the pass is
+  otherwise idle, so a slot that expires after its lease was withdrawn is still
+  closed. `LeaseMisses` owns what counts as committed and which missed state applies.
   """
 
   alias Ash.Error.Query.NotFound

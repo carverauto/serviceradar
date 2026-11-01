@@ -5,9 +5,7 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
 
   The grace is 300 seconds. That is the sweep monitor's missed-sweep grace
   (`ServiceRadar.SweepJobs.SweepMonitorWorker`) and the same length as the
-  edge-record clock tolerance. The OpenSpec names "slot end plus grace" and
-  does not define a second duration, so the mark reuses this bound: a batch
-  that commits inside the skew the rest of the path already allows is not
+  edge-record clock tolerance. A batch that commits inside that skew is not
   missed.
 
   Slot end is `collection_expires`. A commit is a row in
