@@ -274,12 +274,14 @@ in `choices.md` and the chart README.
   - [x] M2.0h Enforcement and missed runs. Edge sweep records are accepted only
     with a valid source authorization that correlates with the batch
     (`ValidateSweepRecord` / `SweepCorrelate` on the live path), and core marks a
-    scheduled execution missed when no batch commits by its slot end plus grace,
-    distinguishing an agent offline inside its lease from an exhausted lease.
+    scheduled execution missed when no sweep execution row has committed by its
+    slot end plus grace. A ledger-only batch is not that commit. Offline is an
+    active assignment with a later slot; otherwise the closed slot is exhausted.
+    A refill failure leaves that assignment unmarked for this pass only.
     DONE: the mark rule is **Missed runs** in `design.md`.
     `SweepCorrelate.ingest_own_payload/1` already gates EventWriter sweep ingest.
     `ServiceRadar.SweepJobs.LeaseMisses` owns the mark, and
-    `ServiceRadar.Edge.SweepProjection` reopens a later valid batch.
+    `ServiceRadar.Edge.SweepProjection` reopens a later projecting batch.
 - [ ] M2.1 Sweep producer. Completed host windows from the agent's sweep become
   byte-bounded `SweepObservationBatchV1` records appended to the existing agent
   spool and sent by the existing sender, while the scan continues (narrows 2.1,

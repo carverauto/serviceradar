@@ -31,10 +31,12 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   assignment and no delivery row it reads nothing else. A delivery row outlives its group, so
   a pass with one still revokes it.
 
-  After the horizon is refilled, `LeaseMisses.mark/1` closes scheduled slots that
-  are past grace with nothing committed. That mark runs even when the pass is
-  otherwise idle, so a slot that expires after its lease was withdrawn is still
-  closed. `LeaseMisses` owns what counts as committed and which missed state applies.
+  After the horizon is refilled, `LeaseMisses.mark/2` closes scheduled slots that
+  are past grace with no sweep execution. Assignments whose refill failed in this
+  pass are left unmarked until a later pass refills them. The mark runs even when
+  the pass is otherwise idle, so a slot that expires after its lease was withdrawn
+  is still closed. `LeaseMisses` owns what counts as committed and which missed
+  state applies.
   """
 
   alias Ash.Error.Query.NotFound
@@ -100,6 +102,10 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   """
   @spec reconcile_group(SweepGroup.t(), DateTime.t(), delivery() | nil) :: summary()
   def reconcile_group(%SweepGroup{} = group, now \\ DateTime.utc_now(), delivery \\ nil) do
+    Map.delete(plan_group(group, now, delivery), :refill_failed)
+  end
+
+  defp plan_group(%SweepGroup{} = group, now, delivery) do
     case load_profile(group.profile_id) do
       {:ok, profile} ->
         lease_or_revoke(group, profile, now, delivery)
@@ -203,7 +209,7 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
            {:ok, groups} <- Ash.read(SweepGroup, actor: actor()) do
         summary =
           groups
-          |> Enum.reduce(empty(), &add(&2, reconcile_group(&1, now, delivery)))
+          |> Enum.reduce(empty(), &add(&2, plan_group(&1, now, delivery)))
           |> add(orphan_withdrawals(now, delivery))
 
         {:ok, summary}
@@ -218,12 +224,15 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   defp finish({:error, reason}, _now), do: {:error, reason}
 
   defp finish({:ok, planned}, now) do
-    case LeaseMisses.mark(now) do
+    {skipped, planned} = refill_failures(planned)
+    log_refill_failures(skipped)
+
+    case LeaseMisses.mark(now, skipped) do
       {:ok, %{missed_offline: 0, missed_exhausted: 0}} when planned == :idle ->
         {:ok, :idle}
 
       {:ok, misses} when planned == :idle ->
-        {:ok, add(empty(), misses)}
+        {:ok, add(Map.delete(empty(), :refill_failed), misses)}
 
       {:ok, misses} ->
         {:ok, add(planned, misses)}
@@ -439,18 +448,25 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       lease_id: lease_id
     ]
 
-    {scheduled, errors} =
+    {scheduled, errors, failed_ids} =
       desired
       |> Enum.reject(&MapSet.member?(present, key(&1.start)))
       |> Enum.take(@max_new_slots_per_assignment)
-      |> Enum.reduce({0, 0}, fn slot, {ok, failed} ->
+      |> Enum.reduce({0, 0, MapSet.new()}, fn slot, {ok, failed, ids} ->
         case ExecutionSlots.schedule(assignment, slot.start, slot.expires, opts) do
-          {:ok, _slot} -> {ok + 1, failed}
-          {:error, _reason} -> {ok, failed + 1}
+          {:ok, _slot} -> {ok + 1, failed, ids}
+          {:error, _reason} -> {ok, failed + 1, MapSet.put(ids, assignment.id)}
         end
       end)
 
-    %{empty() | leases: 1, scheduled: scheduled, dropped: dropped, errors: errors}
+    %{
+      empty()
+      | leases: 1,
+        scheduled: scheduled,
+        dropped: dropped,
+        errors: errors,
+        refill_failed: failed_ids
+    }
   end
 
   # The slots that start after `now` and before the end of the horizon.
@@ -508,10 +524,30 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
       withdrawn: 0,
       missed_offline: 0,
       missed_exhausted: 0,
-      errors: 0
+      errors: 0,
+      refill_failed: MapSet.new()
     }
 
-  defp add(a, b), do: Map.merge(a, b, fn _key, x, y -> x + y end)
+  defp refill_failures(:idle), do: {MapSet.new(), :idle}
+
+  defp refill_failures(summary), do: Map.pop(summary, :refill_failed, MapSet.new())
+
+  defp log_refill_failures(skipped) do
+    if MapSet.size(skipped) > 0 do
+      ids = skipped |> Enum.sort() |> Enum.join(", ")
+
+      Logger.warning(
+        "Sweep lease pass: refill failed for #{ids}; their closed slots stay unmarked this pass"
+      )
+    end
+  end
+
+  defp add(a, b) do
+    Map.merge(a, b, fn
+      :refill_failed, left, right -> MapSet.union(left, right)
+      _key, left, right -> left + right
+    end)
+  end
 
   defp actor, do: SystemActor.system(:sweep_lease_pass)
 end

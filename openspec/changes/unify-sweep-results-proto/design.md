@@ -351,12 +351,15 @@ against event time (the original interval), never receipt age.
 **Missed runs.** Because core minted every execution, the lease pass marks a
 scheduled slot after it refills the horizon. The slot is missed once
 `collection_expires` plus the existing 300-second sweep grace has passed and
-nothing has committed for it: neither a row in `platform.edge_sweep_batch_slots`
-nor a `sweep_group_executions` row under that slot id. While the assignment is
-still active and a later slot is scheduled, the closed slot is `missed_offline`.
-Every other closed slot is `missed_exhausted`. A later valid batch reopens that
-slot and projects. A dropped slot stays refused.
-`ServiceRadar.SweepJobs.LeaseMisses` owns the mark.
+no `sweep_group_executions` row has committed under that slot id. A ledger-only
+delivery (late-fenced or replay) writes `platform.edge_sweep_batch_slots` and
+is not a commit, so it does not keep the slot scheduled. While the assignment
+is still active and a later slot is scheduled, the closed slot is
+`missed_offline`. Every other closed slot is `missed_exhausted`. An assignment
+whose refill failed this pass is left unmarked; the next pass that refills it
+marks normally. A later projecting batch reopens a missed slot and projects.
+A dropped slot stays refused. `ServiceRadar.SweepJobs.LeaseMisses` owns the
+mark.
 
 **Plan inputs.** The ABI defines how a scheduled plan is hashed but nothing
 builds one outside a test helper, and it leaves two digests undefined. Core builds

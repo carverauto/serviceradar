@@ -1,8 +1,8 @@
 defmodule ServiceRadar.SweepJobs.LeaseMissCommitRaceDbTest do
   @moduledoc """
-  A lease mark that is already waiting on a sweep slot must see a batch or
-  execution committed by the lock holder. One statement would keep the
-  snapshot from before the wait and mark the slot missed anyway.
+  A lease mark that is already waiting on a sweep slot must see an execution
+  committed by the lock holder. One statement would keep the snapshot from
+  before the wait and mark the slot missed anyway.
   """
 
   use ServiceRadar.DataCase, async: false
@@ -22,10 +22,6 @@ defmodule ServiceRadar.SweepJobs.LeaseMissCommitRaceDbTest do
     suffix = System.unique_integer([:positive, :monotonic])
     actor = %{id: Ash.UUID.generate(), email: "operator-#{suffix}@example.test", role: :operator}
     {:ok, actor: actor, suffix: suffix}
-  end
-
-  test "a batch committed while the mark waits on the slot stays scheduled", ctx do
-    assert_commit_while_mark_waits(ctx, :batch)
   end
 
   test "an execution committed while the mark waits on the slot stays scheduled", ctx do
@@ -145,23 +141,6 @@ defmodule ServiceRadar.SweepJobs.LeaseMissCommitRaceDbTest do
     end
   end
 
-  defp commit_evidence!(:batch, _group, assignment, slot) do
-    Repo.query!(
-      """
-      INSERT INTO platform.edge_sweep_batch_slots (
-        network_scope_id, execution_id, execution_shard, assignment_epoch, batch_sequence,
-        event_id, semantic_envelope_sha256, projected_row_count, committed_row_count
-      ) VALUES ($1::uuid, $2::uuid, 0, 1, 0, $3::uuid, $4::bytea, 0, 0)
-      """,
-      [
-        Ecto.UUID.dump!(assignment.network_scope_id),
-        Ecto.UUID.dump!(slot.id),
-        Ecto.UUID.dump!(Ash.UUID.generate()),
-        :crypto.strong_rand_bytes(32)
-      ]
-    )
-  end
-
   defp commit_evidence!(:execution, group, assignment, slot) do
     Repo.query!(
       """
@@ -185,10 +164,6 @@ defmodule ServiceRadar.SweepJobs.LeaseMissCommitRaceDbTest do
   defp cleanup!(group_id, slot_id) do
     group_id = Ecto.UUID.dump!(group_id)
     slot_id = Ecto.UUID.dump!(slot_id)
-
-    Repo.query!("DELETE FROM platform.edge_sweep_batch_slots WHERE execution_id = $1::uuid", [
-      slot_id
-    ])
 
     Repo.query!("DELETE FROM platform.sweep_group_executions WHERE id = $1::uuid", [slot_id])
     Repo.query!("DELETE FROM platform.sweep_groups WHERE id = $1::uuid", [group_id])

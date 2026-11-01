@@ -5,19 +5,20 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
 
   The grace is 300 seconds. That is the sweep monitor's missed-sweep grace
   (`ServiceRadar.SweepJobs.SweepMonitorWorker`) and the same length as the
-  edge-record clock tolerance. A batch that commits inside that skew is not
-  missed.
+  edge-record clock tolerance. An execution that commits inside that skew is
+  not missed.
 
-  Slot end is `collection_expires`. A commit is a row in
-  `platform.edge_sweep_batch_slots` for the slot id, or a
-  `sweep_group_executions` row under that same id. Either one leaves the
-  slot scheduled. The mark locks the due slot rows that have no batch and no
-  execution in its snapshot, then a later statement marks only the locked rows
-  that still have neither. A batch insert takes that same slot lock before its
-  row commits, so a commit that landed while the lock was waiting is visible
-  to the later statement. A completed slot stays `scheduled`, so the first
-  statement filters on the evidence too; otherwise every historical slot would
-  be locked and rewritten on every pass.
+  Slot end is `collection_expires`. A commit is a `sweep_group_executions`
+  row under the slot id. That row leaves the slot scheduled. A ledger-only
+  delivery (late-fenced or replay) writes `platform.edge_sweep_batch_slots`
+  and is not a commit. The mark locks the due slot rows that have no
+  execution in its snapshot, then a later statement marks only the locked
+  rows that still have none. The delivery takes that same slot lock before
+  its execution row commits, so a commit that landed while the lock was
+  waiting is visible to the later statement. A completed slot stays
+  `scheduled`, so the first statement filters on the execution too;
+  otherwise every historical slot would be locked and rewritten on every
+  pass.
 
   Core does not store the agent's own lease-exhausted flag. While the
   assignment is still active and a later slot is scheduled, the closed slot
@@ -25,11 +26,13 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
   Every other closed slot is `missed_exhausted`: the horizon was not
   extended past it, or the assignment was no longer active. A pass refills
   the horizon before it marks, so an active lease that still has future
-  slots reports offline for the slot it skipped.
+  slots reports offline for the slot it skipped. Assignments whose refill
+  failed in that pass are excluded from the mark until a later pass.
 
-  A batch that commits later reopens the slot. That happens in
+  A projecting delivery that commits later reopens the slot. That happens in
   `ServiceRadar.Edge.SweepProjection`, because a record is judged by its
-  event time. A dropped slot is not marked and is not reopened.
+  event time. A ledger-only delivery does not. A dropped slot is not marked
+  and is not reopened.
   """
 
   alias ServiceRadar.Repo
@@ -59,11 +62,7 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
     AND slot.state = 'scheduled'
     AND slot.collection_expires <= $2
     AND slot.id = ANY($3::uuid[])
-    AND NOT EXISTS (
-      SELECT 1
-      FROM platform.edge_sweep_batch_slots AS batch
-      WHERE batch.execution_id = slot.id
-    )
+    AND NOT (slot.producer_assignment_id = ANY($4::text::uuid[]))
     AND NOT EXISTS (
       SELECT 1
       FROM platform.sweep_group_executions AS execution
@@ -77,11 +76,7 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
   FROM platform.sweep_execution_slots AS slot
   WHERE slot.state = 'scheduled'
     AND slot.collection_expires <= $1
-    AND NOT EXISTS (
-      SELECT 1
-      FROM platform.edge_sweep_batch_slots AS batch
-      WHERE batch.execution_id = slot.id
-    )
+    AND NOT (slot.producer_assignment_id = ANY($2::text::uuid[]))
     AND NOT EXISTS (
       SELECT 1
       FROM platform.sweep_group_executions AS execution
@@ -97,17 +92,21 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
 
   @doc """
   Marks every scheduled slot whose collection window closed before `now` by
-  `grace_seconds/0` and that has no committed batch and no sweep execution.
+  `grace_seconds/0` and that has no sweep execution.
+
+  `skipped_assignment_ids` stay scheduled for this call. The lease pass passes
+  the assignments whose horizon refill just failed.
 
   Returns how many slots moved to each missed state.
   """
-  @spec mark(DateTime.t()) :: {:ok, counts()} | {:error, term()}
-  def mark(%DateTime{} = now) do
+  @spec mark(DateTime.t(), Enumerable.t()) :: {:ok, counts()} | {:error, term()}
+  def mark(%DateTime{} = now, skipped_assignment_ids \\ MapSet.new()) do
     cutoff = DateTime.shift(now, second: -@grace_seconds)
+    skipped = assignment_array(skipped_assignment_ids)
 
     Repo.transaction(fn ->
-      with {:ok, ids} <- lock_due_slot_ids(cutoff),
-           {:ok, rows} <- mark_locked_slots(now, cutoff, ids) do
+      with {:ok, ids} <- lock_due_slot_ids(cutoff, skipped),
+           {:ok, rows} <- mark_locked_slots(now, cutoff, ids, skipped) do
         tally(rows)
       else
         {:error, reason} -> Repo.rollback(reason)
@@ -115,17 +114,27 @@ defmodule ServiceRadar.SweepJobs.LeaseMisses do
     end)
   end
 
-  defp lock_due_slot_ids(cutoff) do
-    case Repo.query(@lock_sql, [cutoff]) do
+  defp assignment_array(ids) do
+    literal =
+      ids
+      |> Enum.map(&Ecto.UUID.cast!/1)
+      |> Enum.sort()
+      |> Enum.join(",")
+
+    "{#{literal}}"
+  end
+
+  defp lock_due_slot_ids(cutoff, skipped) do
+    case Repo.query(@lock_sql, [cutoff, skipped]) do
       {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, fn [id] -> id end)}
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp mark_locked_slots(_now, _cutoff, []), do: {:ok, []}
+  defp mark_locked_slots(_now, _cutoff, [], _skipped), do: {:ok, []}
 
-  defp mark_locked_slots(now, cutoff, ids) do
-    case Repo.query(@mark_sql, [now, cutoff, ids]) do
+  defp mark_locked_slots(now, cutoff, ids, skipped) do
+    case Repo.query(@mark_sql, [now, cutoff, ids, skipped]) do
       {:ok, %{rows: rows}} -> {:ok, rows}
       {:error, reason} -> {:error, reason}
     end

@@ -242,7 +242,8 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     assert state(group, started.id) == :scheduled
   end
 
-  test "a committed batch or a sweep execution keeps the closed slot scheduled", ctx do
+  test "a ledger-only batch does not keep the closed slot scheduled, and a sweep execution does",
+       ctx do
     group = create_group!(ctx)
     batched = assign!(group, "agent-batch")
     executed = assign!(group, "agent-exec")
@@ -256,7 +257,7 @@ defmodule ServiceRadar.SweepJobs.ExecutionSlotsDbTest do
     insert_execution!(group, executed, execution_slot)
 
     assert {:ok, _} = LeaseMisses.mark(now)
-    assert state(group, batch_slot.id) == :scheduled
+    assert state(group, batch_slot.id) == :missed_exhausted
     assert state(group, execution_slot.id) == :scheduled
   end
 
