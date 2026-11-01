@@ -9,10 +9,11 @@ defmodule ServiceRadar.Edge.OutputContract do
   bulk lane; anything else means core issues no authority for it, because the gateway would
   withhold every record signed against it.
 
-  The per-record bounds belong to the contract's producer and are passed in by its caller
-  (`ServiceRadar.Edge.SweepContract`, `ServiceRadar.Edge.MetricsBatchContract`).
+  The per-record bounds are the contract's catalog entry (`ServiceRadar.Edge.ContractCatalog`);
+  a contract the catalog does not know is refused.
   """
 
+  alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.ContractRegistryDocument
 
   @type t :: %{
@@ -26,26 +27,17 @@ defmodule ServiceRadar.Edge.OutputContract do
           max_projected_write_bytes: pos_integer()
         }
 
-  @type bounds :: %{max_projected_rows: pos_integer(), write_bytes_per_row: pos_integer()}
-
   @doc "The named contract from the installation's configured registry document."
-  @spec current({String.t(), pos_integer()}, bounds()) :: {:ok, t()} | {:error, term()}
-  def current(ref, bounds) do
-    from_document(
-      Application.get_env(:serviceradar_core, :edge_record_contract_registry),
-      ref,
-      bounds
-    )
+  @spec current(ContractCatalog.ref()) :: {:ok, t()} | {:error, term()}
+  def current(ref) do
+    from_document(Application.get_env(:serviceradar_core, :edge_record_contract_registry), ref)
   end
 
   @doc "The named contract from a registry document."
-  @spec from_document(term(), {String.t(), pos_integer()}, bounds()) ::
-          {:ok, t()} | {:error, term()}
-  def from_document(raw, {_id, _version} = ref, %{
-        max_projected_rows: rows,
-        write_bytes_per_row: per_row
-      }) do
-    with {:ok, snapshot} <- ContractRegistryDocument.parse(raw),
+  @spec from_document(term(), ContractCatalog.ref()) :: {:ok, t()} | {:error, term()}
+  def from_document(raw, ref) do
+    with {:ok, %{max_projected_rows: rows, write_bytes_per_row: per_row}} <- catalog(ref),
+         {:ok, snapshot} <- ContractRegistryDocument.parse(raw),
          {:ok, entry} <- entry(snapshot, ref) do
       {:ok,
        %{
@@ -58,6 +50,13 @@ defmodule ServiceRadar.Edge.OutputContract do
          max_projected_row_count: rows,
          max_projected_write_bytes: rows * per_row
        }}
+    end
+  end
+
+  defp catalog(ref) do
+    case ContractCatalog.fetch(ref) do
+      {:ok, entry} -> {:ok, entry}
+      :error -> {:error, :contract_not_cataloged}
     end
   end
 

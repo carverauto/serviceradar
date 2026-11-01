@@ -3,11 +3,13 @@ defmodule ServiceRadar.Edge.OutputGrants do
   Issues, fences and signs standing edge-record output grants: one
   `ServiceRadar.Edge.OutputGrant` per (agent, passive output contract).
 
-  A passive producer (sysmon today) has no execution core schedules, so instead of a lease it
-  emits under a standing production capability. An agent holds a grant for a contract when:
+  A producer the agent schedules from its own config (sysmon, SNMP and ICMP metrics today) has
+  no execution core schedules, so instead of a lease it emits under a standing production
+  capability. Core issues grants for every `:standing_grant` contract in
+  `ServiceRadar.Edge.ContractCatalog`. An agent holds a grant for such a contract when:
 
     * the contract is active in the installation's registry, the same document the gateway
-      admits records against (`ServiceRadar.Edge.MetricsBatchContract.current/0`); and
+      admits records against (`ServiceRadar.Edge.OutputContract.current/1`); and
     * the agent is on the durable edge-record pipeline, which is the operator's per-agent
       leasing switch (`ServiceRadar.SweepJobs.LeaseSettings`), resolved agent, then partition,
       then global.
@@ -28,8 +30,8 @@ defmodule ServiceRadar.Edge.OutputGrants do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.IssuerKey
-  alias ServiceRadar.Edge.MetricsBatchContract
   alias ServiceRadar.Edge.OutputContract
   alias ServiceRadar.Edge.OutputGrant
   alias Serviceradar.Edge.V1.EdgeProductionClaimsV1
@@ -45,26 +47,28 @@ defmodule ServiceRadar.Edge.OutputGrants do
   # A fresh grant starts this far before its UTC day, so an agent whose clock runs a little
   # behind core can use it as soon as it arrives instead of refusing it as not yet valid.
   @clock_lead_seconds 300
-  @package_id "serviceradar.agent.metrics"
-  @package_sha256 :crypto.hash(:sha256, "serviceradar.agent.metrics.package.v1")
   @scope_domain "serviceradar.edge.output_grant_scope.v1"
   @effective_grant_domain "serviceradar.edge.output_grant.effective_grant.v1"
 
-  @doc "The package id every standing-grant metrics record names."
-  @spec package_id() :: String.t()
-  def package_id, do: @package_id
-
-  @type authority :: %{key: IssuerKey.t(), contract: OutputContract.t()}
+  @type authority :: %{key: IssuerKey.t(), contracts: [OutputContract.t()]}
 
   @doc """
-  The issuer key and metrics batch contract to sign with, or why core issues no grants: the
-  contract is not registered or not active, or no issuer key is configured.
+  The issuer key and the standing-grant contracts to sign, or why core issues no grants: no
+  issuer key is configured. A catalog contract the registry does not hold, or holds but not
+  active, is left out; a registry that cannot be read leaves every contract out.
   """
   @spec authority() :: {:ok, authority()} | {:error, term()}
   def authority do
-    with {:ok, contract} <- MetricsBatchContract.current(),
-         {:ok, key} <- IssuerKey.configured() do
-      {:ok, %{key: key, contract: contract}}
+    with {:ok, key} <- IssuerKey.configured() do
+      contracts =
+        Enum.flat_map(ContractCatalog.standing_grant_refs(), fn ref ->
+          case OutputContract.current(ref) do
+            {:ok, contract} -> [contract]
+            {:error, _reason} -> []
+          end
+        end)
+
+      {:ok, %{key: key, contracts: contracts}}
     end
   end
 
@@ -78,31 +82,47 @@ defmodule ServiceRadar.Edge.OutputGrants do
           [Monitoring.EdgeOutputGrant.t()]
   def config_grants(agent_id, partition, now \\ DateTime.utc_now(), authority \\ authority())
       when is_binary(agent_id) and is_binary(partition) do
-    with {:ok, %{key: key, contract: contract}} <- authority,
+    with {:ok, %{key: key, contracts: [_ | _] = contracts}} <- authority,
          {:ok, scope} <- ProducerAssignments.network_scope_id_for_partition(partition),
-         {:ok, %{enabled?: enabled?}} <- LeaseSettings.resolve(agent_id, scope),
-         {:ok, %OutputGrant{} = grant} <-
-           reconcile(agent_id, contract.contract_id, scope, enabled?) do
-      capability = production_capability(grant, contract, key, now)
-
-      [
-        %Monitoring.EdgeOutputGrant{
-          contract_id: contract.contract_id,
-          contract_version: contract.contract_version,
-          production_capability: EdgeSignedCapabilityV1.encode(capability)
-        }
-      ]
+         {:ok, %{enabled?: enabled?}} <- LeaseSettings.resolve(agent_id, scope) do
+      Enum.flat_map(contracts, &contract_grant(&1, agent_id, scope, enabled?, key, now))
     else
-      {:ok, nil} ->
+      {:ok, %{contracts: []}} ->
         []
 
-      {:error, reason}
-      when reason in [:contract_not_registered, :registry_not_configured, :not_configured] ->
+      {:error, :not_configured} ->
         []
 
       {:error, reason} ->
         Logger.warning("Edge output grant not issued",
           agent_id: agent_id,
+          reason: inspect(reason)
+        )
+
+        []
+    end
+  end
+
+  defp contract_grant(contract, agent_id, scope, enabled?, key, now) do
+    case reconcile(agent_id, contract.contract_id, scope, enabled?) do
+      {:ok, %OutputGrant{} = grant} ->
+        capability = production_capability(grant, contract, key, now)
+
+        [
+          %Monitoring.EdgeOutputGrant{
+            contract_id: contract.contract_id,
+            contract_version: contract.contract_version,
+            production_capability: EdgeSignedCapabilityV1.encode(capability)
+          }
+        ]
+
+      {:ok, nil} ->
+        []
+
+      {:error, reason} ->
+        Logger.warning("Edge output grant not issued",
+          agent_id: agent_id,
+          contract_id: contract.contract_id,
           reason: inspect(reason)
         )
 
@@ -236,7 +256,7 @@ defmodule ServiceRadar.Edge.OutputGrants do
 
   @doc """
   The signed production capability of a grant, valid from five minutes before `now`'s UTC day
-  until eight days after that day starts.
+  until eight days after that day starts. Its package is the contract's catalog package.
   """
   @spec production_capability(OutputGrant.t(), OutputContract.t(), IssuerKey.t(), DateTime.t()) ::
           EdgeSignedCapabilityV1.t()
@@ -249,6 +269,9 @@ defmodule ServiceRadar.Edge.OutputGrants do
     day = div(DateTime.to_unix(now), @day_seconds) * @day_seconds
     scope_sha256 = scope_sha256(grant)
     id = Ecto.UUID.dump!(grant.id)
+
+    {:ok, %{package_id: package_id}} =
+      ContractCatalog.fetch({contract.contract_id, contract.contract_version})
 
     claims = %EdgeProductionClaimsV1{
       contract_id: contract.contract_id,
@@ -267,13 +290,13 @@ defmodule ServiceRadar.Edge.OutputGrants do
       authority_epoch: grant.authority_epoch,
       scope_id: id,
       scope_sha256: scope_sha256,
-      package_sha256: @package_sha256,
+      package_sha256: :crypto.hash(:sha256, package_id <> ".package.v1"),
       registry_snapshot_sha256: contract.registry_snapshot_sha256,
       effective_grant_sha256: effective_grant_sha256(contract, scope_sha256),
       max_projected_row_count: contract.max_projected_row_count,
       max_projected_write_bytes: contract.max_projected_write_bytes,
       cost_model_version: contract.cost_model_version,
-      package_id: @package_id
+      package_id: package_id
     }
 
     IssuerKey.sign(

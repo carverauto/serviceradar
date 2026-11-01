@@ -2,26 +2,21 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   @moduledoc """
   Projects edge records delivered through the gateway and JetStream.
 
-  The record's output contract selects its family:
+  The record's output contract selects its projector from `ServiceRadar.Edge.ContractCatalog`
+  (a `ServiceRadar.Edge.Projector`); the processor names no contract, and an uncataloged
+  contract is refused. For every record it then claims the delivery slot and the event ledger
+  in one transaction, with the projector's own writes inside it.
 
-    * `serviceradar.sweep.observation` v1: scheduled sweep batches, described below;
-    * `serviceradar.metrics.batch` v1: agent metric batches under a standing output grant.
-      A fresh primary record is republished to the metrics stream by
-      `ServiceRadar.Edge.MetricsBatchProjection` BEFORE the ledger transaction (a publish never
-      runs inside a database transaction), and the transaction then claims only the delivery
-      slot and the ledger. A record the ledger already holds, or a late-fenced delivery, is not
-      published. Any other contract is refused.
+    * A projector's side effect outside the database (`publish/3`, for example a republish to
+      the metrics stream) runs BEFORE the transaction, only for a fresh primary delivery, so no
+      network call runs inside a database transaction. A replay or a late-fenced delivery is
+      not published. A refusal is returned; any other failure raises so JetStream redelivers.
+    * A projector's database writes (`project/4`) run inside the transaction, told whether the
+      delivery is primary. A replay makes no domain changes; late-fenced deliveries remain
+      ledger-only.
 
-  For sweeps, the processor validates the sweep contract and body/source correlation, then
-  claims the delivery slot, event ledger and batch coordinate in one transaction.
-  A fresh primary event projects into the ordinary sweep and inventory tables
-  through `ServiceRadar.Edge.SweepProjection`. A replay makes no domain changes;
-  late-fenced deliveries remain ledger-only. A delivery that does not project
-  still locks the sweep execution slot before its batch coordinate commits.
-  Conflicting coordinates roll back
-  the whole transaction. The gateway owns signature verification; this consumer
-  checks the persisted schedule slot and current assignment again before writing
-  authoritative domain state.
+  The gateway owns signature verification; projectors check the persisted authority again
+  before writing authoritative domain state.
 
   ## Test-only ingest hook
 
@@ -48,16 +43,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
-  alias ServiceRadar.Edge.Compression
-  alias ServiceRadar.Edge.MetricsBatchProjection
-  alias ServiceRadar.Edge.ProjectionRows
+  alias ServiceRadar.Edge.ContractCatalog
   alias ServiceRadar.Edge.PublicationIdentity
-  alias ServiceRadar.Edge.SweepCorrelate
-  alias ServiceRadar.Edge.SweepProjection
   alias Serviceradar.Edge.V1.EdgeRecordV1
-  alias Serviceradar.Edge.V1.SweepObservationBatchV1
   alias ServiceRadar.Edge.WireDecode
-  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.Repo
 
   require Logger
@@ -138,15 +127,16 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          {:edge, slot} <- {provenance.kind, provenance.slot},
          {:ok, %EdgeRecordV1{} = record} <- WireDecode.decode_record(record_bytes),
          :ok <- check_slot_matches_record(slot, record),
-         {:ok, family} <- decode_family(record),
-         :ok <- publish_fresh(repo, provenance, record, family, opts) do
+         {:ok, projector} <- projector_for(record),
+         {:ok, body} <- projector.decode(record),
+         :ok <- publish_fresh(repo, provenance, record, projector, body, opts) do
       record_sha256 = :crypto.hash(:sha256, record_bytes)
 
       run_transaction(
         repo,
         provenance,
         record,
-        family,
+        {projector, body},
         record_sha256,
         Keyword.get(opts, :test_hook)
       )
@@ -170,55 +160,45 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  defp decode_family(
-         %EdgeRecordV1{
-           output_contract: %{contract_id: "serviceradar.sweep.observation", contract_version: 1},
-           payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1
-         } = record
-       ) do
-    with {:ok, body} <- Compression.inner_payload(record),
-         {:ok, %SweepObservationBatchV1{} = batch} <- WireDecode.decode_sweep_batch(body),
-         :ok <- SweepCorrelate.ingest_own_payload(record) do
-      {:ok, {:sweep, batch}}
+  # The record's contract selects its projector from the catalog; the processor names no
+  # contract. An uncataloged contract is refused.
+  defp projector_for(%EdgeRecordV1{
+         output_contract: %{contract_id: id, contract_version: version}
+       }) do
+    case ContractCatalog.projector({id, version}) do
+      {:ok, projector} -> {:ok, projector}
+      :error -> {:error, :unsupported_payload_family}
     end
   end
 
-  defp decode_family(
-         %EdgeRecordV1{
-           output_contract: %{contract_id: "serviceradar.metrics.batch", contract_version: 1},
-           payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1
-         } = record
-       ) do
-    with {:ok, batch} <- MetricsBatchProjection.decode(record), do: {:ok, {:metrics, batch}}
-  end
+  defp projector_for(_record), do: {:error, :unsupported_payload_family}
 
-  defp decode_family(_record), do: {:error, :unsupported_payload_family}
+  # A projector's side effect outside the database runs before the ledger transaction, so the
+  # transaction never holds a connection across a network round trip. It runs only for a fresh
+  # primary delivery: not for a record the ledger already holds (a replay) and not for a
+  # late-fenced delivery. A refusal is returned like a projection refusal; any other failure
+  # raises, so the batch fails and JetStream redelivers the record.
+  defp publish_fresh(repo, provenance, record, projector, body, opts) do
+    cond do
+      not function_exported?(projector, :publish, 3) ->
+        :ok
 
-  # A metrics record is published before its ledger transaction, so the transaction never holds
-  # a connection across a network round trip. A record the ledger already holds (a replay) or a
-  # late-fenced delivery is not published. A failed publish raises, so JetStream redelivers it;
-  # an authority refusal is returned like a sweep projection refusal.
-  defp publish_fresh(repo, provenance, record, {:metrics, batch}, opts) do
-    if provenance.delivery_mode == PublicationIdentity.mode_late_fenced() or
-         fetch_ledger(repo, record.network_scope_id, record.event_id) != nil do
-      :ok
-    else
-      case MetricsBatchProjection.project(record, batch, Keyword.take(opts, [:request])) do
-        :ok ->
-          :ok
+      provenance.delivery_mode == PublicationIdentity.mode_late_fenced() ->
+        :ok
 
-        {:error, :output_grant_not_current} = error ->
-          error
+      fetch_ledger(repo, record.network_scope_id, record.event_id) != nil ->
+        :ok
 
-        {:error, reason} ->
-          raise "edge metrics publish failed: #{inspect(reason)}"
-      end
+      true ->
+        case projector.publish(record, body, Keyword.take(opts, [:request])) do
+          :ok -> :ok
+          {:refused, reason} -> {:error, reason}
+          {:error, reason} -> raise "edge record publish failed: #{inspect(reason)}"
+        end
     end
   end
 
-  defp publish_fresh(_repo, _provenance, _record, {:sweep, _batch}, _opts), do: :ok
-
-  defp run_transaction(repo, provenance, record, family, record_sha256, test_hook) do
+  defp run_transaction(repo, provenance, record, {projector, body}, record_sha256, test_hook) do
     network_scope_id = record.network_scope_id
     event_id = record.event_id
     semantic_digest = record.semantic_envelope_sha256
@@ -235,7 +215,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
                ),
              {:ok, ledger_outcome} <-
                upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
-             :ok <- project_family(repo, provenance, record, family, ledger_outcome) do
+             :ok <- project(repo, provenance, record, projector, body, ledger_outcome) do
           run_test_hook(test_hook, :before_commit, event_id, {:ok, ledger_outcome})
           ledger_outcome
         else
@@ -251,60 +231,21 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
     end
   end
 
-  # The metrics batch was published before the transaction; its ledger row is all it writes.
-  defp project_family(_repo, _provenance, _record, {:metrics, _batch}, _ledger_outcome), do: :ok
-
-  defp project_family(repo, provenance, record, {:sweep, batch}, ledger_outcome) do
-    network_scope_id = record.network_scope_id
-    event_id = record.event_id
-    semantic_digest = record.semantic_envelope_sha256
-
-    with :ok <- lock_unprojected_sweep_slot(repo, provenance, ledger_outcome, batch.execution_id),
-         {:ok, _batch_outcome} <-
-           upsert_sweep_batch_slot(
-             repo,
-             network_scope_id,
-             batch,
-             event_id,
-             semantic_digest,
-             record.projected_row_count
-           ) do
-      if projects?(provenance, ledger_outcome) do
-        case SweepProjection.project(repo, record, batch) do
-          :ok -> project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
-          {:error, reason} -> repo.rollback(reason)
-        end
-      end
-
+  defp project(repo, provenance, record, projector, body, ledger_outcome) do
+    if function_exported?(projector, :project, 4) do
+      projector.project(repo, record, body, %{
+        ledger: ledger_outcome,
+        primary?: primary?(provenance, ledger_outcome)
+      })
+    else
       :ok
     end
   end
 
-  defp projects?(provenance, ledger_outcome) do
+  # A fresh, non-late-fenced delivery is the one that writes domain state.
+  defp primary?(provenance, ledger_outcome) do
     ledger_outcome == :inserted and
       provenance.delivery_mode != PublicationIdentity.mode_late_fenced()
-  end
-
-  defp lock_unprojected_sweep_slot(repo, provenance, ledger_outcome, execution_id) do
-    if projects?(provenance, ledger_outcome) do
-      :ok
-    else
-      lock_sweep_execution_slot(repo, execution_id)
-    end
-  end
-
-  defp lock_sweep_execution_slot(repo, execution_id) do
-    repo.query!(
-      """
-      SELECT id
-      FROM platform.sweep_execution_slots
-      WHERE id = $1::uuid
-      FOR UPDATE
-      """,
-      [execution_id]
-    )
-
-    :ok
   end
 
   defp run_test_hook(nil, _point, _event_id, _result), do: :ok
@@ -407,102 +348,5 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       %{rows: []} ->
         nil
     end
-  end
-
-  defp upsert_sweep_batch_slot(
-         repo,
-         network_scope_id,
-         %SweepObservationBatchV1{} = batch,
-         event_id,
-         semantic_digest,
-         projected_row_count
-       ) do
-    committed_row_count = ProjectionRows.sweep_count(batch)
-
-    sql = """
-    INSERT INTO platform.edge_sweep_batch_slots
-      (network_scope_id, execution_id, execution_shard, assignment_epoch, batch_sequence,
-       event_id, semantic_envelope_sha256, projected_row_count, committed_row_count)
-    VALUES ($1::uuid, $2::uuid, $3::bigint, $4::bigint, $5::bigint, $6::uuid, $7::bytea, $8::integer, $9::integer)
-    ON CONFLICT (network_scope_id, execution_id, execution_shard, assignment_epoch, batch_sequence) DO UPDATE
-      SET semantic_envelope_sha256 = platform.edge_sweep_batch_slots.semantic_envelope_sha256
-    WHERE platform.edge_sweep_batch_slots.semantic_envelope_sha256 = EXCLUDED.semantic_envelope_sha256
-    RETURNING (xmax = 0) AS fresh_insert
-    """
-
-    params = [
-      network_scope_id,
-      batch.execution_id,
-      batch.execution_shard,
-      batch.assignment_epoch,
-      batch.batch_sequence,
-      event_id,
-      semantic_digest,
-      projected_row_count,
-      committed_row_count
-    ]
-
-    case repo.query!(sql, params) do
-      %{rows: [[true]]} ->
-        {:ok, :inserted}
-
-      %{rows: [[false]]} ->
-        {:ok, :replay}
-
-      %{rows: []} ->
-        batch_key =
-          {network_scope_id, batch.execution_id, batch.execution_shard, batch.assignment_epoch,
-           batch.batch_sequence}
-
-        {:error, {:sweep_batch_slot_conflict, fetch_sweep_batch_slot(repo, batch_key)}}
-    end
-  end
-
-  defp fetch_sweep_batch_slot(
-         repo,
-         {network_scope_id, execution_id, execution_shard, assignment_epoch, batch_sequence}
-       ) do
-    sql = """
-    SELECT event_id, semantic_envelope_sha256
-    FROM platform.edge_sweep_batch_slots
-    WHERE network_scope_id = $1::uuid
-      AND execution_id = $2::uuid
-      AND execution_shard = $3::bigint
-      AND assignment_epoch = $4::bigint
-      AND batch_sequence = $5::bigint
-    """
-
-    params = [network_scope_id, execution_id, execution_shard, assignment_epoch, batch_sequence]
-
-    case repo.query!(sql, params) do
-      %{rows: [[event_id, semantic_envelope_sha256]]} ->
-        %{event_id: event_id, semantic_envelope_sha256: semantic_envelope_sha256}
-
-      %{rows: []} ->
-        nil
-    end
-  end
-
-  defp project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch) do
-    rows =
-      batch
-      |> ProjectionRows.sweep()
-      |> Enum.with_index()
-      |> Enum.map(fn {{kind, batch_index, element_index}, ordinal} ->
-        %{
-          network_scope_id: network_scope_id,
-          row_key: ProjectionRows.row_key(semantic_digest, ordinal),
-          event_id: event_id,
-          kind: kind,
-          batch_index: batch_index,
-          element_index: element_index,
-          inserted_at: DateTime.utc_now()
-        }
-      end)
-
-    BulkInsert.insert_all(repo, "edge_sweep_projected_rows", rows,
-      on_conflict: :nothing,
-      returning: false
-    )
   end
 end

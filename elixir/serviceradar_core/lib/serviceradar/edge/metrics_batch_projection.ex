@@ -17,10 +17,14 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
   publishes before its ledger transaction, never inside it, and skips the publish for a replay or
   a late-fenced delivery.
 
-  This contract accepts one ingest identity source, `sysmon-metrics`, and publishes it on
-  `metrics.sysmon.<type>.<name>`. Any other source is refused. Lease-run families belong on
-  the scheduled metrics contract.
+  The batch's ingest identity source selects the family from a closed list, the same one the
+  gateway routes for these producers: `sysmon-metrics`, `snmp-metrics` and `icmp-metrics`
+  publish on `metrics.sysmon.>`, `metrics.snmp.>` and `metrics.icmp.>`. Any other source is
+  refused, never published under a guessed subject. Adding an agent-scheduled metric producer
+  is one entry in that list plus core's NATS publish permission for its subject.
   """
+
+  @behaviour ServiceRadar.Edge.Projector
 
   alias ServiceRadar.Edge.Compression
   alias ServiceRadar.Edge.OutputGrants
@@ -37,17 +41,25 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
   # header headroom; the agent caps each record's body at 512 KiB.
   @max_body_bytes 900 * 1024
 
-  @sysmon_source "sysmon-metrics"
-  @sysmon_family "sysmon"
-  @sysmon_producer "agent"
+  # ingest identity source => {subject family, producer kind}, matching the gateway publishers.
+  @families %{
+    "sysmon-metrics" => {"sysmon", "agent"},
+    "snmp-metrics" => {"snmp", "agent"},
+    "icmp-metrics" => {"icmp", "agent"}
+  }
 
   @doc """
   Decodes and validates the batch of a metrics record: no source authorization, the metric
-  schema, at least one metric, one projected row per metric, the sysmon source, and a body
-  that fits one stream message.
+  schema, at least one metric, one projected row per metric, a known source, and a body that
+  fits one stream message.
   """
-  @spec decode(EdgeRecordV1.t()) :: {:ok, MetricBatch.t()} | {:error, term()}
-  def decode(%EdgeRecordV1{source_authorization: nil} = record) do
+  @impl true
+  def decode(
+        %EdgeRecordV1{
+          source_authorization: nil,
+          payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1
+        } = record
+      ) do
     with {:ok, body} <- Compression.inner_payload(record),
          :ok <- check(byte_size(body) <= @max_body_bytes, :metrics_batch_too_large),
          {:ok, %MetricBatch{} = batch} <- WireDecode.decode_metric_batch(body),
@@ -55,23 +67,26 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
          :ok <- check(batch.metrics != [], :metrics_batch_empty),
          :ok <-
            check(length(batch.metrics) == record.projected_row_count, :metrics_batch_row_count),
-         :ok <- check(source(batch) == @sysmon_source, :metrics_batch_source) do
+         :ok <- check(Map.has_key?(@families, source(batch)), :metrics_batch_source) do
       {:ok, batch}
     end
   end
 
+  def decode(%EdgeRecordV1{source_authorization: nil}), do: {:error, :unsupported_payload_family}
   def decode(%EdgeRecordV1{}), do: {:error, :metrics_batch_source_authorization}
 
   @doc """
-  Publishes the batch of a fresh primary record, after checking its grant is still current.
-  `opts[:request]` is passed to `ServiceRadar.NATS.JetStreamPublish.publish/3`.
+  Publishes the batch of a fresh primary record, after checking its grant is still current. A
+  grant that is not current, or an unknown source, refuses the record; a failed publish is an
+  error, so the batch is redelivered. `opts[:request]` is passed to
+  `ServiceRadar.NATS.JetStreamPublish.publish/3`.
   """
-  @spec project(EdgeRecordV1.t(), MetricBatch.t(), keyword()) :: :ok | {:error, term()}
-  def project(%EdgeRecordV1{} = record, %MetricBatch{} = batch, opts \\ []) do
+  @impl true
+  def publish(%EdgeRecordV1{} = record, %MetricBatch{} = batch, opts) do
     context = record.producer_context
     agent_id = context.origin_principal_id
 
-    with :ok <- check(source(batch) == @sysmon_source, :metrics_batch_source),
+    with {:ok, {family, producer_kind}} <- family(batch),
          :ok <-
            OutputGrants.check_current(
              Ecto.UUID.load!(context.producer_assignment_id),
@@ -81,17 +96,27 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
              context.authority_epoch
            ) do
       event_id = Ecto.UUID.load!(record.event_id)
-      attested = attest(batch, agent_id, @sysmon_producer, event_id)
+      attested = attest(batch, agent_id, producer_kind, event_id)
       publish_opts = [msg_id: event_id] ++ Keyword.take(opts, [:request])
 
       case JetStreamPublish.publish(
-             subject(@sysmon_family, attested),
+             subject(family, attested),
              MetricBatch.encode(attested),
              publish_opts
            ) do
         :ok -> :ok
         {:error, reason} -> {:error, {:metrics_publish_failed, reason}}
       end
+    else
+      {:error, reason} when reason in [:output_grant_not_current, :metrics_batch_source] ->
+        {:refused, reason}
+    end
+  end
+
+  defp family(batch) do
+    case Map.fetch(@families, source(batch)) do
+      {:ok, family} -> {:ok, family}
+      :error -> {:error, :metrics_batch_source}
     end
   end
 
