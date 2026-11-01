@@ -47,6 +47,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
        subscription: nil,
        sessions: %{},
        probe: nil,
+       connz: %{offsets: %{}, turn: 0},
        reason: "not_configured"
      }}
   end
@@ -85,9 +86,10 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     end
   end
 
-  def handle_info({ref, :ok}, %{probe: ref} = state) when is_reference(ref) do
+  def handle_info({ref, {:ok, %{offsets: offsets, turn: turn}}}, %{probe: ref} = state)
+      when is_reference(ref) and is_map(offsets) and is_integer(turn) and turn >= 0 do
     Process.demonitor(ref, [:flush])
-    {:noreply, %{state | probe: nil}}
+    {:noreply, %{state | probe: nil, connz: %{offsets: offsets, turn: turn}}}
   end
 
   def handle_info({:DOWN, ref, :process, _, _}, %{probe: ref} = state),
@@ -267,10 +269,11 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
          %{probe: nil, snapshot: snapshot, config: %{account_name: account}} = state
        )
        when is_map(snapshot) and is_binary(account) do
+    progress = connz_progress(state)
+
     task =
       Task.Supervisor.async_nolink(ServiceRadar.NATS.CertificateObservationTasks, fn ->
-        observe_account(account, snapshot)
-        :ok
+        {:ok, observe_account(account, snapshot, progress)}
       end)
 
     %{state | probe: task.ref}
@@ -280,8 +283,10 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
 
   defp observe_presented(state), do: state
 
-  defp observe_account(account, snapshot) do
-    Enum.each(presented_connections(account), fn connection ->
+  defp observe_account(account, snapshot, progress) do
+    {connections, progress} = scan_presented_connections(account, progress)
+
+    Enum.each(connections, fn connection ->
       case decision(snapshot, connection.fingerprint) do
         {:allow, _} ->
           _ =
@@ -297,6 +302,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
           end
       end
     end)
+
+    progress
   end
 
   defp known_certificate?(snapshot, fingerprint) do
@@ -308,26 +315,52 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     Map.get(record, :fingerprint) || Map.get(record, "fingerprint")
   end
 
-  defp presented_connections(account) do
-    inbox = "_INBOX." <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
-    {:ok, sid} = Gnat.sub(@system, self(), inbox)
+  @doc false
+  def scan_presented_connections(account, progress \\ %{offsets: %{}, turn: 0}) do
+    progress = connz_progress(%{connz: progress})
 
     try do
-      publish_connz(inbox, "$SYS.REQ.SERVER.PING.CONNZ", account, 0)
-      first = collect_connz(sid, System.monotonic_time(:millisecond) + 800, [])
-
-      inbox
-      |> expand_connz(sid, account, first, 8)
-      |> Enum.flat_map(& &1.connections)
-      |> Enum.uniq()
-    after
-      Gnat.unsub(@system, sid)
+      read_connz(account, progress)
+    rescue
+      _ -> {[], public_connz(progress)}
+    catch
+      :exit, _ -> {[], public_connz(progress)}
     end
-  rescue
-    _ -> []
-  catch
-    :exit, _ -> []
   end
+
+  defp read_connz(account, progress) do
+    inbox = "_INBOX." <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
+
+    case Gnat.sub(@system, self(), inbox) do
+      {:ok, sid} ->
+        try do
+          publish_connz(inbox, "$SYS.REQ.SERVER.PING.CONNZ", account, 0)
+          first = collect_connz(sid, System.monotonic_time(:millisecond) + 800, [])
+          {pages, progress} = expand_connz(inbox, sid, account, first, progress, 8)
+
+          connections =
+            pages
+            |> Enum.flat_map(& &1.connections)
+            |> Enum.uniq()
+
+          {connections, finish_connz(progress, first)}
+        after
+          Gnat.unsub(@system, sid)
+        end
+
+      _ ->
+        {[], public_connz(progress)}
+    end
+  end
+
+  defp public_connz(progress), do: %{offsets: progress.offsets, turn: progress.turn}
+
+  defp connz_progress(%{connz: %{offsets: offsets, turn: turn}})
+       when is_map(offsets) and is_integer(turn) and turn >= 0 do
+    %{offsets: offsets, turn: turn, totals: %{}, seen: MapSet.new()}
+  end
+
+  defp connz_progress(_state), do: %{offsets: %{}, turn: 0, totals: %{}, seen: MapSet.new()}
 
   defp publish_connz(inbox, subject, account, offset) do
     Gnat.pub(
@@ -353,30 +386,91 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     end
   end
 
-  defp expand_connz(inbox, sid, account, bodies, rounds) do
+  defp expand_connz(inbox, sid, account, bodies, progress, remaining) do
+    {pages, progress} = absorb_connz(bodies, progress)
+
+    if remaining <= 0 do
+      {pages, progress}
+    else
+      case choose_connz_server(progress) do
+        :none ->
+          {pages, progress}
+
+        {:ok, server, offset} ->
+          publish_connz(inbox, "$SYS.REQ.SERVER.#{server}.CONNZ", account, offset)
+          more = collect_connz(sid, System.monotonic_time(:millisecond) + 400, [])
+          progress = %{progress | turn: progress.turn + 1}
+          {rest, progress} = expand_connz(inbox, sid, account, more, progress, remaining - 1)
+          {pages ++ rest, progress}
+      end
+    end
+  end
+
+  defp absorb_connz(bodies, progress) do
     pages = Enum.flat_map(bodies, &parse_connz/1)
 
-    next =
-      pages
-      |> Enum.group_by(& &1.server)
-      |> Enum.flat_map(fn {server, server_pages} ->
-        covered = server_pages |> Enum.map(& &1.next_offset) |> Enum.max()
-        total = server_pages |> Enum.map(& &1.total) |> Enum.max()
-        if covered < total, do: [{server, covered}], else: []
+    progress =
+      Enum.reduce(pages, progress, fn page, progress ->
+        current = Map.get(progress.offsets, page.server, 0)
+        current = if current > page.total, do: 0, else: current
+
+        advanced =
+          cond do
+            page.next_offset >= page.total -> 0
+            current > page.next_offset -> current
+            true -> page.next_offset
+          end
+
+        %{
+          progress
+          | offsets: Map.put(progress.offsets, page.server, advanced),
+            totals: Map.put(progress.totals, page.server, page.total),
+            seen: MapSet.put(progress.seen, page.server)
+        }
       end)
 
-    case {next, rounds} do
-      {[], _} ->
-        pages
+    {pages, progress}
+  end
 
-      {_, 0} ->
-        pages
+  defp choose_connz_server(%{offsets: offsets, totals: totals, turn: turn}) do
+    ordered = offsets |> Map.keys() |> Enum.sort()
 
-      {[{server, offset} | _], _} ->
-        publish_connz(inbox, "$SYS.REQ.SERVER.#{server}.CONNZ", account, offset)
-        more = collect_connz(sid, System.monotonic_time(:millisecond) + 400, [])
-        expand_connz(inbox, sid, account, bodies ++ more, rounds - 1)
+    case ordered do
+      [] ->
+        :none
+
+      ordered ->
+        count = length(ordered)
+        start = rem(turn, count)
+        rotated = Enum.drop(ordered, start) ++ Enum.take(ordered, start)
+
+        case Enum.find(rotated, &connz_page_outstanding?(&1, offsets, totals)) do
+          nil -> :none
+          server -> {:ok, server, Map.fetch!(offsets, server)}
+        end
     end
+  end
+
+  defp connz_page_outstanding?(server, offsets, totals) do
+    offset = Map.fetch!(offsets, server)
+
+    case Map.get(totals, server) do
+      total when is_integer(total) -> offset > 0 and offset < total
+      _ -> false
+    end
+  end
+
+  defp finish_connz(progress, ping_bodies) do
+    discovered = Enum.any?(ping_bodies, &(parse_connz(&1) != []))
+
+    offsets =
+      if discovered do
+        Map.take(progress.offsets, MapSet.to_list(progress.seen))
+      else
+        progress.offsets
+      end
+
+    %{offsets: offsets, turn: progress.turn}
   end
 
   defp parse_connz(body) when is_binary(body) do
