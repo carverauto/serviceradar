@@ -187,28 +187,20 @@ defmodule ServiceRadar.Edge.OutputGrants do
   epoch. The projector checks this again before writing, as the sweep projection does for its
   assignment.
 
-  A missing grant or one that does not match is `{:error, :output_grant_not_current}`. Any
-  other lookup failure is raised, so the EventWriter batch fails and JetStream redelivers it.
-  `opts[:grant_lookup]` replaces the row read; production leaves it unset.
+  A missing grant (`Ash.Error.Query.NotFound` or `{:ok, nil}`) or one that does not match
+  state, agent, contract, scope, or epoch is `{:error, :output_grant_not_current}`. Every
+  other Ash result is raised, so the EventWriter batch fails and JetStream redelivers it.
   """
   @spec check_current(
           Ecto.UUID.t(),
           String.t(),
           String.t(),
           Ecto.UUID.t(),
-          non_neg_integer(),
-          keyword()
+          non_neg_integer()
         ) ::
           :ok | {:error, :output_grant_not_current}
-  def check_current(
-        grant_id,
-        agent_id,
-        contract_id,
-        network_scope_id,
-        authority_epoch,
-        opts \\ []
-      ) do
-    case grant_row(grant_id, opts) do
+  def check_current(grant_id, agent_id, contract_id, network_scope_id, authority_epoch) do
+    case Ash.get(OutputGrant, grant_id, actor: actor()) do
       {:ok,
        %OutputGrant{
          state: :active,
@@ -231,13 +223,6 @@ defmodule ServiceRadar.Edge.OutputGrants do
         else
           raise error
         end
-    end
-  end
-
-  defp grant_row(grant_id, opts) do
-    case Keyword.get(opts, :grant_lookup) do
-      lookup when is_function(lookup, 1) -> lookup.(grant_id)
-      _ -> Ash.get(OutputGrant, grant_id, actor: actor())
     end
   end
 

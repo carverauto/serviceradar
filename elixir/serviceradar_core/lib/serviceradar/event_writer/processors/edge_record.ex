@@ -200,19 +200,15 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          fetch_ledger(repo, record.network_scope_id, record.event_id) != nil do
       :ok
     else
-      case MetricsBatchProjection.project(
-             record,
-             batch,
-             Keyword.take(opts, [:request, :grant_lookup])
-           ) do
+      case MetricsBatchProjection.project(record, batch, Keyword.take(opts, [:request])) do
         :ok ->
           :ok
 
-        {:error, {:metrics_publish_failed, _}} = error ->
-          raise "edge metrics publish failed: #{inspect(error)}"
-
-        {:error, _reason} = error ->
+        {:error, :output_grant_not_current} = error ->
           error
+
+        {:error, reason} ->
+          raise "edge metrics publish failed: #{inspect(reason)}"
       end
     end
   end

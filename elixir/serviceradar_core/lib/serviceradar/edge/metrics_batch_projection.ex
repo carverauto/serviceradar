@@ -65,7 +65,6 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
   @doc """
   Publishes the batch of a fresh primary record, after checking its grant is still current.
   `opts[:request]` is passed to `ServiceRadar.NATS.JetStreamPublish.publish/3`.
-  `opts[:grant_lookup]` is passed to `OutputGrants.check_current/6`.
   """
   @spec project(EdgeRecordV1.t(), MetricBatch.t(), keyword()) :: :ok | {:error, term()}
   def project(%EdgeRecordV1{} = record, %MetricBatch{} = batch, opts \\ []) do
@@ -79,8 +78,7 @@ defmodule ServiceRadar.Edge.MetricsBatchProjection do
              agent_id,
              record.output_contract.contract_id,
              Ecto.UUID.load!(record.network_scope_id),
-             context.authority_epoch,
-             Keyword.take(opts, [:grant_lookup])
+             context.authority_epoch
            ) do
       event_id = Ecto.UUID.load!(record.event_id)
       attested = attest(batch, agent_id, @sysmon_producer, event_id)

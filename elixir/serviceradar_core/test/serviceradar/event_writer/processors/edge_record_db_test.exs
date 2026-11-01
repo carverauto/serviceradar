@@ -530,16 +530,12 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert ledger_count(refused.record) == 0
     end
 
-    test "a grant lookup failure leaves no ledger row, so the redelivery publishes" do
+    test "a refused publish leaves no ledger row, so the redelivery publishes once" do
       frame = build_metrics_frame()
+      refused = fn _subject, _body, _opts -> {:error, :timeout} end
 
-      lookup_error = %RuntimeError{message: "grant lookup failed"}
-
-      assert_raise RuntimeError, ~r/grant lookup failed/, fn ->
-        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
-          request: stored_ack(),
-          grant_lookup: fn _grant_id -> {:error, lookup_error} end
-        )
+      assert_raise RuntimeError, ~r/edge metrics publish failed/, fn ->
+        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused)
       end
 
       refute_received {:metrics_published, _subject, _body, _opts}
@@ -549,23 +545,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
 
       assert_received {:metrics_published, _subject, _body, _opts}
+      refute_received {:metrics_published, _subject, _body, _opts}
       assert ledger_count(frame.record) == 1
-    end
-
-    test "a failed publish leaves no ledger row, so the redelivery publishes it" do
-      frame = build_metrics_frame()
-      refused = fn _subject, _body, _opts -> {:error, :timeout} end
-
-      assert_raise RuntimeError, ~r/edge metrics publish failed/, fn ->
-        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused)
-      end
-
-      assert ledger_count(frame.record) == 0
-
-      assert {:ok, :inserted} =
-               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
-
-      assert_received {:metrics_published, _subject, _body, _opts}
     end
   end
 
