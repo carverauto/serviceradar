@@ -7,7 +7,7 @@ ephemeral latest-wins status summaries SHALL remain on the agent-gateway status 
 interfaces.
 
 #### Scenario: A migrated producer survives a failed send
-- **GIVEN** an agent that holds the grant for a migrated data family
+- **GIVEN** a migrated producer whose agent holds that producer's contract grant
 - **WHEN** the producer emits a batch and the gateway is unreachable
 - **THEN** the batch is committed to the agent spool before the producer is told it was accepted
 - **AND** it is delivered when the gateway returns, with no loss and no duplicate domain rows
@@ -16,16 +16,18 @@ interfaces.
 - **WHEN** an agent relays an RTSP camera stream
 - **THEN** the stream does not enter the agent spool
 
-### Requirement: Each data family has one typed output contract
-Each migrated data family SHALL have exactly one output contract in the signed contract registry,
-whose payload is a typed protobuf message. A producer that emits JSON today SHALL be given a typed
-batch message before it migrates. The registry SHALL NOT admit a contract whose payload is an
-untyped status envelope.
+### Requirement: Each data family and scheduling model has one typed output contract
+Each pair of data family and scheduling model SHALL have exactly one typed output contract in the
+signed contract registry. A producer that emits JSON today SHALL be given a typed batch message
+before it migrates. The registry SHALL NOT admit a contract whose payload is an untyped status
+envelope. Every agent-scheduled `MetricBatch`, including metrics of an unleased sweep, uses
+`serviceradar.metrics.batch` and carries no source authorization. Only a leased sweep's metric
+batch uses `serviceradar.metrics.scheduled`.
 
 #### Scenario: Agent-scheduled metrics share one contract
-- **WHEN** sysmon, SNMP and ICMP producers on one agent emit metrics
-- **THEN** each emits `metric.v1.MetricBatch` records under `serviceradar.metrics.batch`
-- **AND** the records carry no source authorization
+- **WHEN** sysmon, SNMP, ICMP, rperf, MTR, or an unleased sweep emits a `MetricBatch` edge record
+- **THEN** the record names `serviceradar.metrics.batch`
+- **AND** the record carries no source authorization
 
 #### Scenario: An untyped envelope is refused
 - **WHEN** a record names a contract whose payload is a raw status chunk
@@ -50,23 +52,35 @@ switch is turned off.
 - **WHEN** the agent runs it from its config
 - **THEN** its results are delivered as edge records under the agent's sweep results grant
 - **AND** they are projected into the same sweep and inventory tables as today
+- **AND** the metric batch that rides that same status push is delivered with those results,
+  under `serviceradar.metrics.batch` with no source authorization
 
 ### Requirement: Core-scheduled sweeps keep their sweep leases
 A sweep execution that core leases SHALL keep its signed plan and its
-`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` source authorization, and the metric batch of
-that execution SHALL be emitted under `serviceradar.metrics.scheduled` with the same source
-authorization.
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` source authorization. The sweep lease delivery
+SHALL sign and carry a production capability naming `serviceradar.sweep.observation` and a second
+production capability naming `serviceradar.metrics.scheduled`. The metric batch of that execution
+SHALL name `serviceradar.metrics.scheduled`, SHALL be authorized by that second capability, and
+SHALL carry the same `SCHEDULED_SWEEP` source authorization.
 
 #### Scenario: A leased sweep's metrics carry its authorization
 - **WHEN** a leased static sweep execution emits its metric batch
 - **THEN** the record names `serviceradar.metrics.scheduled`
+- **AND** its production capability names `serviceradar.metrics.scheduled`
 - **AND** it carries the execution's `SCHEDULED_SWEEP` source authorization
+
+#### Scenario: The lease delivery carries both production capabilities
+- **WHEN** core delivers a sweep lease for a leased static sweep
+- **THEN** the delivery carries a signed capability for `serviceradar.sweep.observation`
+- **AND** a second signed capability for `serviceradar.metrics.scheduled`
 
 ### Requirement: Migrated producers append through one durable sink
 Every migrated producer SHALL append through the agent producer sink, which validates the
-producer's grant, assigns event identity, commits the record to the spool, and acknowledges the
-producer only after the commit is durable. A refused admission SHALL be returned to the producer
-as retryable backpressure, and a producer that drops a batch SHALL count the drop with its reason.
+capability that authorizes that record (its standing grant, or the leased sweep's metrics
+production capability), assigns event identity, commits the record to the spool, and acknowledges
+the producer only after the commit is durable. A refused admission SHALL be returned to the
+producer as retryable backpressure, and a producer that drops a batch SHALL count the drop with
+its reason.
 
 #### Scenario: A full spool pushes back instead of dropping silently
 - **WHEN** the spool is at its admission ceiling and a producer appends
@@ -83,13 +97,29 @@ existing stream to the configured value.
 - **WHEN** the node holding a stream leader fails after the agent reclaimed an acknowledged record
 - **THEN** the record is still delivered to its projector
 
-### Requirement: Each family emits on one path and legacy is removed at cutover
-For a given agent and data family, the agent SHALL emit on exactly one of the legacy status path
-or the edge-record path. The legacy agent emissions and the gateway publishers that serve them
-SHALL be removed in one cutover release, after every family has passed a parity soak against a
-control agent. No durable agent data SHALL remain on `StreamStatus` or `PushStatus` after it.
+### Requirement: Each producer emits on one path and legacy is removed at cutover
+A producer SHALL emit on exactly one of the legacy status path or the edge-record path. It SHALL
+stop its status-path emission only in the release where that producer emits as edge records and
+while the agent holds that contract's grant. A producer that has not yet migrated SHALL keep the
+status path even when the agent holds the grant. The legacy agent emissions and the gateway
+publishers that serve them SHALL be removed in one cutover release, after every family has passed
+a parity soak against a control agent. No durable agent data SHALL remain on `StreamStatus` or
+`PushStatus` after it.
 
-#### Scenario: An agent holding a grant stops the legacy emission
+#### Scenario: A migrated producer holding its grant stops its legacy emission
 - **GIVEN** an agent holding the `serviceradar.metrics.batch` grant
+- **AND** sysmon emits as edge records in this release
 - **WHEN** it collects sysmon metrics
 - **THEN** it emits them only as edge records and not through `StreamStatus`
+
+#### Scenario: A producer not yet migrated keeps the status path
+- **GIVEN** an agent holding the `serviceradar.metrics.batch` grant because sysmon has migrated
+- **AND** SNMP, ICMP, rperf and MTR metrics have not yet moved to edge records
+- **WHEN** the agent collects one of those metrics
+- **THEN** it still emits that producer's batch through `StreamStatus`
+
+#### Scenario: Unleased sweep metrics leave the status push with the results
+- **GIVEN** an unleased sweep whose `MetricBatch` rides the sweep-results status push
+- **WHEN** that sweep's results move onto the unleased sweep results contract
+- **THEN** its metric batch moves in the same release onto `serviceradar.metrics.batch`
+- **AND** until that release the metric batch stays on the status push

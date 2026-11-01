@@ -31,10 +31,12 @@ data family therefore moves in this change; nothing stays on a legacy fallback.
     leased (for example `target_query` groups). Core signs one production capability per
     (agent, contract, authority epoch), delivered in the agent config. These records carry no
     source authorization.
-- **One typed output contract per data family**, carrying an existing protobuf where one exists.
-  JSON producers get a typed batch message first; the registry never admits an untyped status
-  envelope. Agent-scheduled metrics share `serviceradar.metrics.batch`; sweep metric batches of a
-  leased sweep use `serviceradar.metrics.scheduled` under the sweep lease.
+- **One typed output contract per (data family, scheduling model)**, carrying an existing
+  protobuf where one exists. JSON producers get a typed batch message first; the registry never
+  admits an untyped status envelope. Every agent-scheduled `MetricBatch`, including metrics of
+  unleased sweeps, uses `serviceradar.metrics.batch` with no source authorization. A leased
+  sweep's metric batch uses `serviceradar.metrics.scheduled` under its own production capability
+  on the sweep lease, with `SCHEDULED_SWEEP`.
 - **One agent-side producer sink** that every migrated producer appends to, replacing
   drain-before-send buffers. Admission is acknowledged only after the record is durable in the
   spool; a refusal is retryable backpressure and a drop is counted with its reason.
@@ -42,8 +44,9 @@ data family therefore moves in this change; nothing stays on a legacy fallback.
   today, so storage, alerting and real-time consumers are unchanged.
 - **Durable streams.** The edge-record stream and the streams projectors publish to are
   replicated, because the agent reclaims its spool on PubAck.
-- **One cutover release.** Each family moves behind the operator's per-agent switch and passes a
-  farm01 parity soak; then the next release removes every legacy agent emission and the
+- **One cutover release.** A producer leaves the status path only in the release where that
+  producer emits edge records and while the agent holds the contract's grant. Each family then
+  passes a farm01 parity soak; the next release removes every legacy agent emission and the
   gateway's matching publishers.
 
 ## Out of Scope
