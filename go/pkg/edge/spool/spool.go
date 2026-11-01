@@ -240,7 +240,9 @@ func WithBindings(b BindingInspector) Option {
 // file in that directory and in its commit evidence directories to it with
 // Allocator.ChargeMeasured, replacing any earlier charge, so reopening a lane
 // never counts it twice; a lane Open then fails on stays charged at its size on
-// disk. Close keeps the charge, because the files are still on disk; release it
+// disk. Each committed record not yet resolved also holds its terminal evidence
+// allowance (terminalEvidenceAllowance) until it resolves. Close keeps the
+// charge, because the files are still on disk; release it, allowance included,
 // with Allocator.ReleaseOrdinary once they are physically deleted. Share one
 // allocator across every lane on the same filesystem.
 func WithAllocator(a *Allocator) Option {
@@ -282,6 +284,14 @@ func Open(dir string, opts ...Option) (*Spool, error) {
 		_ = s.closeFiles()
 		return nil, err
 	}
+	if s.alloc != nil {
+		// The first charge ran before the retained sequences were known; charge
+		// again now that every unresolved record's terminal allowance is countable.
+		if err := s.chargeLane(); err != nil {
+			_ = s.closeFiles()
+			return nil, err
+		}
+	}
 	return s, nil
 }
 
@@ -308,16 +318,41 @@ func (s *Spool) open() error {
 	return nil
 }
 
+// terminalEvidenceAllowance is the ordinary capacity a commit prepays for the
+// terminal acknowledgement evidence that will later resolve it. A full spool must
+// still be able to record the acknowledgements that let it reclaim; if that
+// evidence were admitted only when it arrived, a spool at its ceiling would refuse
+// every acknowledgement and never drain.
+//
+// The agent bounds an acknowledgement before it is persisted (edgerecord.ValidateAck):
+// the envelope (spool id, resolved-through sequence, session nonce) plus the 16
+// bytes persistResolution charges is under 100 bytes, and one disposition
+// (sequence, event id, kind, and a rejection code of at most
+// edgerecord.MaxRejectionCodeLen) is under 100 bytes. Even an acknowledgement for a
+// single record therefore fits in 256 bytes, and every additional record adds less
+// than its own allowance.
+const terminalEvidenceAllowance = 256
+
 // chargeLane charges every regular file in the lane directory to the allocator,
 // not only the segment: whatever the lane keeps beside it occupies its disk too,
-// including both commit evidence copies in their own directories.
+// including both commit evidence copies in their own directories. It also charges
+// the terminal evidence allowance of every committed record not yet resolved.
 func (s *Spool) chargeLane() error {
 	total, err := s.laneBytes()
 	if err != nil {
 		return err
 	}
-	s.alloc.ChargeMeasured(s.dir, total)
+	s.alloc.ChargeMeasured(s.dir, total+s.unresolvedAllowance())
 	return nil
+}
+
+// unresolvedAllowance is the terminal evidence allowance still held for committed
+// records above the resolved prefix.
+func (s *Spool) unresolvedAllowance() uint64 {
+	if s.nextSeq <= s.resolved+1 {
+		return 0
+	}
+	return (s.nextSeq - 1 - s.resolved) * terminalEvidenceAllowance
 }
 
 // regularFileBytes sums the sizes of the regular files directly in dir.
@@ -404,6 +439,7 @@ func (s *Spool) Commit(eventID, body []byte, b Bindings) (CommitReceipt, error) 
 		if err != nil {
 			return CommitReceipt{}, err
 		}
+		n += terminalEvidenceAllowance
 		if err := s.alloc.admit(s.dir, n); err != nil {
 			return CommitReceipt{}, err
 		}
@@ -640,14 +676,20 @@ func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 	if s.failErr != nil {
 		return s.failErr
 	}
-	charged := uint64(len(evidence) + 16)
-	if s.alloc != nil {
+	// The records this resolves prepaid their evidence when they were committed,
+	// so only evidence beyond that allowance needs new admission. A full spool can
+	// therefore always record the acknowledgement that lets it reclaim.
+	cost := uint64(len(evidence) + 16)
+	prepaid := (through - s.resolved) * terminalEvidenceAllowance
+	var charged uint64
+	if s.alloc != nil && cost > prepaid {
+		charged = cost - prepaid
 		if err := s.alloc.admit(s.dir, charged); err != nil {
 			return err
 		}
 	}
 	err := s.persistResolution(through, evidence)
-	if s.alloc != nil {
+	if s.alloc != nil && charged > 0 {
 		s.alloc.settle(charged, err)
 	}
 	if err != nil {

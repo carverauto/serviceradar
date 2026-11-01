@@ -198,6 +198,12 @@ func laneCommitLen(body string) uint64 {
 	return uint64(minRecordLen+len(body)) + evidenceCopies*2*evidenceEntryLen
 }
 
+// laneChargeLen is what one unresolved commit of body holds in the allocator:
+// its bytes on disk plus the terminal evidence allowance it prepays.
+func laneChargeLen(body string) uint64 {
+	return laneCommitLen(body) + terminalEvidenceAllowance
+}
+
 // deleteLane physically removes a lane's segment and both evidence copies.
 func deleteLane(t *testing.T, dir string) {
 	t.Helper()
@@ -432,7 +438,7 @@ func TestConcurrentRecoveriesAreBounded(t *testing.T) {
 // the grant, with the slot held, until it is deleted too, and reopening the lane
 // in between re-measures its files without dropping anything.
 func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
-	a := newTestAllocator(t, 2000, 1)
+	a := newTestAllocator(t, 2000+2*terminalEvidenceAllowance, 1)
 	dir := t.TempDir()
 	sourceLane := filepath.Join(dir, "source-lane")
 	lane := filepath.Join(dir, "new-lane")
@@ -440,9 +446,13 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	journal := filepath.Join(dir, "journal-a")
 	// The new lane's first commit takes sequence 2, past the destination's record,
 	// so each evidence copy grows to hold slot 2's entries over the hole slot 1's
-	// would occupy.
+	// would occupy. Each unresolved record also holds its terminal evidence
+	// allowance: the destination's record from the moment the lane opens, and the
+	// appended record from its commit.
+	held := uint64(terminalEvidenceAllowance)
 	appendLen := uint64(minRecordLen+len(syntheticBody)) +
-		evidenceCopies*uint64(evidencePosition(2, stateCommitted)+evidenceEntryLen)
+		evidenceCopies*uint64(evidencePosition(2, stateCommitted)+evidenceEntryLen) +
+		terminalEvidenceAllowance
 	if err := os.WriteFile(sourceSeg, []byte("synthetic source segment"), filePerm); err != nil {
 		t.Fatalf("seed source: %v", err)
 	}
@@ -493,9 +503,9 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open new lane on the destination: %v", err)
 	}
-	assertUsage(t, a, "after opening the new lane on the destination", 400, 112, 1)
+	assertUsage(t, a, "after opening the new lane on the destination", 400+held, 112, 1)
 	mustAppend(t, newLane, 2, syntheticBody)
-	assertUsage(t, a, "after the new lane appends", 400+appendLen, 112, 1)
+	assertUsage(t, a, "after the new lane appends", 400+held+appendLen, 112, 1)
 	if err := newLane.Close(); err != nil {
 		t.Fatalf("close new lane: %v", err)
 	}
@@ -506,11 +516,11 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := g.ReleaseSource(sourceLane, 401); !errors.Is(err, ErrReleaseExceedsCharge) {
 		t.Fatalf("releasing more than the source holds = %v, want ErrReleaseExceedsCharge", err)
 	}
-	assertUsage(t, a, "after a refused release", 400+appendLen, 112, 1)
+	assertUsage(t, a, "after a refused release", 400+held+appendLen, 112, 1)
 	if err := g.ReleaseSource(sourceLane, 400); err != nil {
 		t.Fatalf("release source after deleting it: %v", err)
 	}
-	assertUsage(t, a, "after releasing the source", 72+appendLen, 32, 1)
+	assertUsage(t, a, "after releasing the source", 72+held+appendLen, 32, 1)
 	if _, err := a.AcquireRecovery(testLane); !errors.Is(err, ErrRecoveryConcurrencyExhausted) {
 		t.Fatalf("second recovery while the journal is still on disk = %v, want ErrRecoveryConcurrencyExhausted", err)
 	}
@@ -525,7 +535,7 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := reopened.Close(); err != nil {
 		t.Fatalf("close reopened lane: %v", err)
 	}
-	assertUsage(t, a, "after reopening the lane", 72+appendLen, 32, 1)
+	assertUsage(t, a, "after reopening the lane", 72+held+appendLen, 32, 1)
 
 	if err := g.RunDestructive("delete journal", func() error { return os.Remove(journal) }); err != nil {
 		t.Fatalf("delete journal once the recovery resolves: %v", err)
@@ -533,7 +543,7 @@ func TestRecoveryOutputIsReleasedInTwoStages(t *testing.T) {
 	if err := g.ReleaseArtifacts(); err != nil {
 		t.Fatalf("release artifacts after deleting them: %v", err)
 	}
-	assertUsage(t, a, "after releasing the artifacts", 72+appendLen, 0, 0)
+	assertUsage(t, a, "after releasing the artifacts", 72+held+appendLen, 0, 0)
 	if err := g.ReleaseArtifacts(); !errors.Is(err, ErrRecoveryFinished) {
 		t.Fatalf("second artifact release = %v, want ErrRecoveryFinished", err)
 	}
@@ -665,7 +675,7 @@ func TestLaneArtifactOutsideTheGrantLaneIsRefused(t *testing.T) {
 	if err := s.Close(); err != nil {
 		t.Fatalf("close the lane: %v", err)
 	}
-	assertUsage(t, a, "after opening the lane on its recovery output", 0, 80, 1)
+	assertUsage(t, a, "after opening the lane on its recovery output", terminalEvidenceAllowance, 80, 1)
 }
 
 // Bytes charged but not yet on disk stay in the physically backed floor. The
@@ -687,7 +697,7 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 	a.fs = ff
 	floor := a.Usage().Floor
 	// room is the free space above the floor the lane may commit into.
-	const room = 1000
+	const room = 1000 + terminalEvidenceAllowance
 	free = floor + room
 
 	lane, err := Open(t.TempDir(), WithAllocator(a))
@@ -695,10 +705,11 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 		t.Fatalf("open lane: %v", err)
 	}
 	defer func() { _ = lane.Close() }()
-	// record returns a body whose commit to the fresh lane adds exactly n bytes: its
-	// framed record plus a PREPARED and a COMMITTED entry in each evidence copy.
+	// record returns a body whose commit to the fresh lane is admitted for exactly n
+	// bytes: its framed record, a PREPARED and a COMMITTED entry in each evidence
+	// copy, and the terminal evidence allowance it prepays.
 	record := func(n int) []byte {
-		return bytes.Repeat([]byte{'x'}, n-minRecordLen-evidenceCopies*2*evidenceEntryLen)
+		return bytes.Repeat([]byte{'x'}, n-minRecordLen-evidenceCopies*2*evidenceEntryLen-terminalEvidenceAllowance)
 	}
 
 	dir := t.TempDir()
@@ -767,7 +778,7 @@ func TestInFlightBytesStayInTheBackedFloor(t *testing.T) {
 // charged even though Open fails.
 func TestLaneIsChargedWhenOpenFails(t *testing.T) {
 	body := syntheticBody
-	commitLen := laneCommitLen(body)
+	commitLen := laneChargeLen(body)
 	dirA := t.TempDir()
 	s, err := Open(dirA)
 	if err != nil {
@@ -788,8 +799,10 @@ func TestLaneIsChargedWhenOpenFails(t *testing.T) {
 	if _, err := Open(dirA, WithAllocator(a)); err == nil {
 		t.Fatal("open lane with an unreadable resolved watermark succeeded, want an error")
 	}
-	if got := a.Usage().OrdinaryUsed; got != 2*commitLen {
-		t.Fatalf("lane Open failed on charged %d, want its on-disk %d", got, 2*commitLen)
+	// Open failed before it learned the retained sequences, so the lane is
+	// charged its bytes on disk without any terminal evidence allowance.
+	if onDisk := 2 * laneCommitLen(body); a.Usage().OrdinaryUsed != onDisk {
+		t.Fatalf("lane Open failed on charged %d, want its on-disk %d", a.Usage().OrdinaryUsed, onDisk)
 	}
 
 	laneB, err := Open(t.TempDir(), WithAllocator(a))
@@ -807,7 +820,7 @@ func TestLaneIsChargedWhenOpenFails(t *testing.T) {
 // and a release under another spelling finds it.
 func TestOwnerSpellingsOfOneDirectoryShareACharge(t *testing.T) {
 	body := syntheticBody
-	commitLen := laneCommitLen(body)
+	commitLen := laneChargeLen(body)
 	a := newTestAllocator(t, 10*commitLen, 1)
 	dir := t.TempDir()
 
@@ -1104,7 +1117,7 @@ func TestCallerWrittenOutputFailureIsFailStop(t *testing.T) {
 func TestSpoolAdmissionRefusalWritesNothing(t *testing.T) {
 	body := syntheticBody
 	recLen := uint64(headerLen + headerCRC + len(body) + bodyCRCLen)
-	commitLen := laneCommitLen(body)
+	commitLen := laneChargeLen(body)
 	a := newTestAllocator(t, 2*commitLen, 1)
 	dir := t.TempDir()
 
@@ -1151,7 +1164,7 @@ func TestSpoolAdmissionRefusalWritesNothing(t *testing.T) {
 // adding, and releasing one lane can never spend another lane's charge.
 func TestLaneChargeLastsUntilPhysicalDeletion(t *testing.T) {
 	body := syntheticBody
-	commitLen := laneCommitLen(body)
+	commitLen := laneChargeLen(body)
 	a := newTestAllocator(t, 3*commitLen, 1)
 	dirA, dirB := t.TempDir(), t.TempDir()
 
@@ -1165,7 +1178,7 @@ func TestLaneChargeLastsUntilPhysicalDeletion(t *testing.T) {
 		t.Fatalf("close lane A: %v", err)
 	}
 	if got := a.Usage().OrdinaryUsed; got != 2*commitLen {
-		t.Fatalf("after closing lane A ordinary used = %d, want its on-disk %d", got, 2*commitLen)
+		t.Fatalf("after closing lane A ordinary used = %d, want its charge %d", got, 2*commitLen)
 	}
 
 	laneB, err := Open(dirB, WithAllocator(a))
