@@ -21,20 +21,21 @@ Each pair of data family and scheduling model SHALL have exactly one typed outpu
 signed contract registry. A producer that emits JSON today SHALL be given a typed batch message
 before it migrates. The registry SHALL NOT admit a contract whose payload is an untyped status
 envelope. Every agent-scheduled `MetricBatch` SHALL use `serviceradar.metrics.batch` and SHALL
-carry no source authorization. That includes sysmon, SNMP, ICMP, rperf, MTR metrics, the periodic
-sweep summary for every group, and the per-host gauges of an unleased sweep.
+carry no source authorization. That includes sysmon, SNMP, ICMP, rperf, MTR metrics, the
+status-interval sweep summary, and the whole `MetricBatch` appended to each unleased
+sweep-results chunk. The status-interval summary SHALL remain the single newest-group sample it
+is today. The agent SHALL NOT add a per-group status-interval emitter.
 
 #### Scenario: Agent-scheduled metrics share one contract
 - **WHEN** sysmon, SNMP, ICMP, rperf, or MTR emits a `MetricBatch` edge record
 - **THEN** the record names `serviceradar.metrics.batch`
 - **AND** the record carries no source authorization
 
-#### Scenario: The sweep summary is agent-scheduled for every group
-- **WHEN** the agent emits its periodic sweep summary for a leased or unleased group
+#### Scenario: The sweep summary stays the newest-group status sample
+- **WHEN** the agent emits its periodic sweep summary for the newest group, leased or not
 - **THEN** the record names `serviceradar.metrics.batch`
 - **AND** the record carries no source authorization
-- **AND** the summary is the status-interval batch of total hosts, available hosts, sequence,
-  port counts, and banner stats
+- **AND** the agent does not emit a status-interval sample for each other group
 
 #### Scenario: An untyped envelope is refused
 - **WHEN** a record names a contract whose payload is a raw status chunk
@@ -59,8 +60,8 @@ switch is turned off.
 - **WHEN** the agent runs it from its config
 - **THEN** its results are delivered as edge records under the agent's sweep results grant
 - **AND** they are projected into the same sweep and inventory tables as today
-- **AND** the per-host gauge batch appended to that results push is delivered with those results,
-  under `serviceradar.metrics.batch` with no source authorization
+- **AND** the whole `MetricBatch` appended to each of those results chunks is delivered with
+  those results, under `serviceradar.metrics.batch` with no source authorization
 
 ### Requirement: Core-scheduled sweeps keep their sweep leases
 A sweep execution that core leases SHALL keep its signed plan and its
@@ -121,9 +122,11 @@ a parity soak against a control agent. No durable agent data SHALL remain on `St
 - **WHEN** the agent collects one of those metrics
 - **THEN** it still emits that producer's batch through `StreamStatus`
 
-#### Scenario: Unleased per-host gauges leave the results push with the results
-- **GIVEN** an unleased sweep whose per-host gauge `MetricBatch` rides the sweep-results push
+#### Scenario: An unleased results chunk moves its whole metric batch
+- **GIVEN** an unleased sweep whose results chunk carries a `MetricBatch`
 - **WHEN** that sweep's results move onto the unleased sweep results contract
-- **THEN** that gauge batch moves in the same release onto `serviceradar.metrics.batch`
-- **AND** until that release the gauge batch stays on the results push
-- **AND** the periodic sweep summary is not this batch
+- **THEN** that whole batch moves in the same release onto `serviceradar.metrics.batch`
+- **AND** it keeps every series it carries, including `sweep.total_hosts`,
+  `sweep.available_hosts`, `sweep.sequence`, `sweep.port.*`, `sweep.host.*`,
+  `sweep.scanner.*`, and `sweep.banner_grab.*`
+- **AND** until that release the batch stays on the results push

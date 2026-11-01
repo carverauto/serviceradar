@@ -34,8 +34,9 @@ data family therefore moves in this change; nothing stays on a legacy fallback.
 - **One typed output contract per (data family, scheduling model)**, carrying an existing
   protobuf where one exists. JSON producers get a typed batch message first; the registry never
   admits an untyped status envelope. Every agent `MetricBatch` uses `serviceradar.metrics.batch`
-  with no source authorization: sysmon, SNMP, ICMP, rperf, MTR, the periodic sweep summary for
-  every group, and the per-host gauges of an unleased sweep. A leased sweep execution emits no
+  with no source authorization: sysmon, SNMP, ICMP, rperf, MTR, the newest-group status-interval
+  sweep summary, and the whole `MetricBatch` on each unleased sweep-results chunk. A leased sweep
+  execution emits no
   separate metric batch. The sweep lease and its frozen ABI are unchanged.
 - **One agent-side producer sink** that every migrated producer appends to, replacing
   drain-before-send buffers. Admission is acknowledged only after the record is durable in the
