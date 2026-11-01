@@ -53,9 +53,47 @@ metric batches a sweep lease produces, SHALL keep
 
 #### Scenario: A leased sweep keeps the sweep source kind
 - **WHEN** an agent emits the sweep results and the metric batch for one sweep
-  lease execution
+  lease execution, including a `target_query` group whose lease exists
 - **THEN** both carry `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
 - **AND** neither carries `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`
+
+### Requirement: Query-resolved sweeps freeze host addresses under the sweep lease
+Core SHALL resolve a sweep group's `target_query` at lease time to individual
+host addresses and SHALL freeze that set into a signed scheduled plan for the
+execution, under the existing sweep lease and
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. Host addresses are representable
+by the plan builder. A resolved set that exceeds the plan builder's limits SHALL
+be split across executions or ranges so every host is in a signed plan. The
+group's sweep results and sweep metric batch SHALL be emitted together under
+that lease.
+
+#### Scenario: A large resolved host set is split
+- **WHEN** the host set resolved from a `target_query` exceeds the plan builder's
+  limits
+- **THEN** core splits it across executions or ranges
+- **AND** every host is included in a signed sweep plan under
+  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
+- **AND** the group's sweep results and sweep metric batch are both edge records
+
+### Requirement: Unrepresentable sweep targets are refused at configuration
+The plan builder SHALL refuse a sweep target it cannot represent, including a
+static or resolved IPv6 prefix wider than /65 (`:target_too_wide`), when the
+sweep group is configured. The refusal SHALL be an operator-visible validation
+error. An existing group with such a target SHALL be reported as not runnable.
+That group SHALL NOT emit on the legacy status path and SHALL NOT emit edge
+records.
+
+#### Scenario: A prefix wider than /65 is refused
+- **WHEN** an operator saves a sweep group whose target is an IPv6 prefix wider
+  than /65
+- **THEN** configuration returns an operator-visible validation error
+- **AND** the group does not run on the legacy status path
+
+#### Scenario: An existing unrepresentable group does not run
+- **GIVEN** a sweep group already stored with an IPv6 prefix wider than /65
+- **WHEN** core evaluates that group
+- **THEN** the group is reported as not runnable
+- **AND** it emits neither legacy status nor edge records
 
 ### Requirement: Passive producers run under standing output grants
 A producer that core does not schedule SHALL emit records only under a standing
@@ -83,12 +121,25 @@ producer that drops a batch SHALL count the drop with its reason.
 - **AND** any batch it then discards is counted with a reason
 
 ### Requirement: Each family emits on one path at a time
-For a given agent and data family, the agent SHALL emit on exactly one of the
-legacy status path or the edge-record path. The legacy emission SHALL be removed
-only in a separately gated release after a parity soak shows equal row counts and
-values against a control agent.
+For a given agent and producer, the agent SHALL emit on exactly one of the
+legacy status path or the edge-record path. A `target_query` sweep group's
+results and its sweep metric batch are one producer for this rule: they SHALL
+stay on the legacy path together until that group has a signed sweep lease, and
+SHALL move to edge records together under that lease. Per-family parity soaks
+SHALL finish before cutover. The next release SHALL remove legacy agent
+status-path emission and the gateway's matching publishers together, and only
+after every runnable sweep group has a signed sweep lease. After that release,
+no durable agent data remains on `StreamStatus` or `PushStatus`.
 
 #### Scenario: An opted-in agent stops the legacy emission
 - **GIVEN** an agent opted in for the metrics batch contract
 - **WHEN** it collects sysmon metrics
 - **THEN** it emits them only as edge records and not through `StreamStatus`
+
+#### Scenario: Query-resolved sweep output stays paired
+- **GIVEN** an agent opted in for the metrics batch contract
+- **AND** a `target_query` sweep group with no signed sweep lease yet
+- **WHEN** that group produces sweep results and a sweep metric batch
+- **THEN** both are emitted on the legacy status path
+- **AND** after the group has a signed sweep lease, both are edge records under
+  `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`

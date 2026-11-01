@@ -34,7 +34,8 @@ rperf as ONE contract, `serviceradar.metrics.batch`, because they share one sink
 and one schema; `ProducerKind` inside the batch already distinguishes them. Sweep
 metric batches on that contract are a byproduct of the sweep lease. They keep
 `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. They are not a standing grant
-and they are not `SCHEDULED_CHECK`.
+and they are not `SCHEDULED_CHECK`. A `target_query` group emits that batch only
+together with its sweep results, once its sweep lease exists.
 
 JSON producers do not get a "JSON blob" contract. Each gets a typed batch message
 first, because the pipeline's semantic digest, idempotency key and projector
@@ -85,36 +86,49 @@ transaction, so a redelivered record is a no-op. Telemetry destinations follow t
 repository rule: StarRocks when enabled, CNPG otherwise, never both. Flow and
 exposure data stay StarRocks-only.
 
-### Decision 5: Migrate one family at a time, one path per producer
+### Decision 5: One coordinated cutover after per-family parity soaks
 
-Each family moves behind a per-agent opt-in. A producer emits on exactly one path
-at a time; an opted-in agent stops the legacy emission for that producer in the
-same release. After a farm01 parity soak (row counts, values, timestamps against a
-control agent), a separately gated release removes the legacy emission and the
-gateway's matching publisher. Order, by loss exposure and payload readiness:
+Each family is soaked behind a per-agent opt-in. A producer emits on exactly one
+path at a time. Parity soaks (row counts, values, timestamps against a control
+agent) run per family before cutover. The next release removes legacy agent
+status-path emission and the gateway's matching publishers together, after every
+runnable sweep group has a signed sweep lease. There is no long-lived per-family
+legacy. Order of the soaks, by loss exposure and payload
+readiness:
 
 1. `serviceradar.metrics.batch` (sysmon, SNMP, ICMP, MTR metrics, sweep metrics,
    rperf): highest volume, typed, lossy today. Passive producers and check-leased
-   producers share this contract. Sweep metric batches keep `SCHEDULED_SWEEP`
-   under the sweep lease that produced them.
+   producers share this contract. Sweep metric batches for a leased sweep keep
+   `SCHEDULED_SWEEP` under that sweep lease. A `target_query` group's sweep
+   results and sweep metric batch move together when that group's lease exists
+   (Decision 6), not when the metrics contract is opted in.
 2. MTR traces (`MtrTraceBatchV1`, already frozen) under check leases (USP-01 M4.3).
 3. Flow attribution and OTLP relay: typed, already ack-shaped.
 4. Plugin signals and native add-on telemetry (`TelemetryBatch`), then Wasm plugin
    results via a typed result batch (USP-01 tasks 2.11, 2.12, 2.14).
 5. Inventory producers (mapper, netprobe discovery, sync pages, workload identity,
    endpoint inventory, bumblebee, k8s endpoints) after their typed batch contracts.
-6. Query-resolved sweeps, last: resolve `target_query` at lease time into a
-   signed scheduled plan under the existing sweep lease (Decision 6).
+6. Query-resolved sweeps, last, still before the cutover release: resolve
+   `target_query` at lease time into a signed scheduled plan under the existing
+   sweep lease (Decision 6).
 
-### Decision 6: Query-resolved sweeps freeze a signed plan per execution
+### Decision 6: Query-resolved sweeps freeze host addresses per execution
 
-Sweep groups with a `target_query` are in scope as the final phase. Core resolves
-the `target_query` at lease time and freezes the resolved address set into a
-signed scheduled plan for that execution. The plan uses the existing sweep lease
-machinery and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. When the resolved
-set changes, core re-plans. The frozen set must fit the plan builder's range
-limits. A group whose resolved set cannot be represented stays on the legacy
-path and is reported. It is not silently dropped.
+Sweep groups with a `target_query` are in scope as the final phase before the
+cutover release. Core resolves the `target_query` at lease time to individual
+host addresses and freezes that set into a signed scheduled plan for the
+execution. Host addresses are always representable by the plan builder. The plan
+uses the existing sweep lease machinery and
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. When the resolved set changes,
+core re-plans. A set that exceeds plan limits is split across executions or
+ranges so every host is in a signed plan. The group's sweep results and sweep
+metric batch move together once that lease exists.
+
+A target the plan builder cannot represent, including a static or resolved IPv6
+prefix wider than /65 (refused today as `:target_too_wide`), is refused when the
+sweep group is configured. The error is visible to the operator. An existing
+group of that kind is reported as not runnable. It does not run on the legacy
+path, and it does not emit edge records.
 
 ## Risks
 
@@ -123,5 +137,6 @@ path and is reported. It is not silently dropped.
 - **Spool sharing.** All producers share one spool budget. Fair interleaving across
   lanes (USP-01 task 2.7) and admission backpressure (M3.2) become required before
   high-volume families move, so metrics cannot starve sweeps or MTR.
-- **Mixed fleets.** Agents that are not opted in keep the legacy path unchanged; the
-  gateway keeps both receivers until every agent of a family has moved.
+- **Mixed fleets.** Agents that are not opted in keep the legacy path until the
+  cutover release. That release removes the legacy emission and the gateway
+  publishers together.

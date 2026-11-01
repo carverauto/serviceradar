@@ -49,15 +49,23 @@ were deferred to prove the transport on one producer first. That proof is done.
   destination the legacy path writes today (`timeseries_metrics`, `mtr_traces`,
   OTel/log processors, flow attribution in StarRocks, inventory ingestors), inside
   the existing ledger transaction so redelivery changes nothing.
-- Migrate producers one family at a time behind a per-agent opt-in, with one
-  path per producer at a time (never both), then remove each legacy emission after
-  a farm01 parity soak.
-- Move sweep groups that use a `target_query` in a final phase. Core resolves the
-  query at lease time, freezes the resolved address set into a signed scheduled
-  plan for that execution under the existing sweep lease machinery and
-  `SCHEDULED_SWEEP`, and re-plans when the resolved set changes, within the plan
-  builder's range limits. A group whose resolved set cannot be represented stays
-  on the legacy path and is reported, not silently dropped.
+- Soak producers one family at a time behind a per-agent opt-in, with one path
+  per producer at a time (never both). The next release removes legacy agent
+  status-path emission and the gateway's matching publishers together, after
+  every runnable sweep group has a signed sweep lease. There is no long-lived
+  per-family legacy.
+- Move sweep groups that use a `target_query` in a final phase, before that
+  cutover. Core resolves the query at lease time to individual host addresses,
+  which the plan builder can always represent, and freezes that set into a signed
+  scheduled plan per execution under the existing sweep lease machinery and
+  `SCHEDULED_SWEEP`. When the resolved set changes, core re-plans. A set that
+  exceeds plan limits is split across executions or ranges, and every host is
+  placed in a signed plan. The group's sweep results and sweep metric batch move
+  together once that lease exists. A target the plan builder cannot represent,
+  such as an IPv6 prefix wider than /65 (`:target_too_wide`), is refused at sweep
+  group configuration with an operator-visible validation error. An existing
+  group of that kind is reported as not runnable and does not run on the legacy
+  path.
 
 ## Out of Scope
 
