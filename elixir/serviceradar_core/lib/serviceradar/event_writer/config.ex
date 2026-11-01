@@ -95,6 +95,19 @@ defmodule ServiceRadar.EventWriter.Config do
     "trivy_reports" => @gib
   }
 
+  # Compiled default `num_replicas` for streams only EventWriter creates.
+  # Each is overridden by SERVICERADAR_JS_<STREAM>_REPLICAS, which the Helm
+  # chart renders from the profile's `replicas` table capped to `nats.replicas`.
+  @default_stream_replicas %{
+    "metrics" => 3,
+    "k8s_inventory" => 1,
+    "analytics_predictions" => 1,
+    "mtr_results" => 1,
+    "scan_results" => 3,
+    "trivy_reports" => 1,
+    "TELEMETRY_EDGE_RECORD_V1_BULK" => 3
+  }
+
   # EventWriter's fallback shape for the streams a collector may own (design D3,
   # D6): used when EventWriter creates the stream and while it owns it. Each is
   # overridden by SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES / _REPLICAS.
@@ -220,13 +233,14 @@ defmodule ServiceRadar.EventWriter.Config do
         }
 
   @typedoc """
-  JetStream sizes for the streams EventWriter creates: `max_bytes` for the
-  streams only EventWriter creates, and the fallback size and replicas for the
-  streams a collector may own. Keys are JetStream stream names.
+  JetStream sizes for the streams EventWriter creates: `max_bytes` and optional
+  `replicas` for the streams only EventWriter creates, and the fallback size and
+  replicas for the streams a collector may own. Keys are JetStream stream names.
   """
   @type jetstream_sizes :: %{
-          max_bytes: %{optional(String.t()) => pos_integer()},
-          fallbacks: %{
+          required(:max_bytes) => %{optional(String.t()) => pos_integer()},
+          optional(:replicas) => %{optional(String.t()) => pos_integer()},
+          required(:fallbacks) => %{
             optional(String.t()) => %{max_bytes: pos_integer(), replicas: pos_integer()}
           }
         }
@@ -583,7 +597,11 @@ defmodule ServiceRadar.EventWriter.Config do
   """
   @spec default_jetstream_sizes() :: jetstream_sizes()
   def default_jetstream_sizes do
-    %{max_bytes: @default_stream_max_bytes, fallbacks: @default_fallbacks}
+    %{
+      max_bytes: @default_stream_max_bytes,
+      replicas: @default_stream_replicas,
+      fallbacks: @default_fallbacks
+    }
   end
 
   @doc """
@@ -591,6 +609,9 @@ defmodule ServiceRadar.EventWriter.Config do
 
   * `SERVICERADAR_JS_<STREAM>_MAX_BYTES` for `metrics`, `k8s_inventory`,
     `analytics_predictions`, `mtr_results`, `scan_results` and `trivy_reports`;
+  * `SERVICERADAR_JS_<STREAM>_REPLICAS` for `metrics`, `k8s_inventory`,
+    `analytics_predictions`, `mtr_results`, `scan_results`, `trivy_reports` and
+    `TELEMETRY_EDGE_RECORD_V1_BULK`;
   * `SERVICERADAR_JS_<STREAM>_FALLBACK_MAX_BYTES` and `_FALLBACK_REPLICAS` for
     `events`, `flows` and `ARANCINI_CAUSAL`.
 
@@ -607,6 +628,12 @@ defmodule ServiceRadar.EventWriter.Config do
         {stream_name, StateBucketSizing.parse_bytes!(get_env.(env_name), env_name, default)}
       end)
 
+    replicas =
+      Map.new(@default_stream_replicas, fn {stream_name, default} ->
+        env_name = jetstream_env_name(stream_name, "REPLICAS")
+        {stream_name, parse_replicas!(get_env.(env_name), env_name, default)}
+      end)
+
     fallbacks =
       Map.new(@default_fallbacks, fn {stream_name, default} ->
         bytes_env = jetstream_env_name(stream_name, "FALLBACK_MAX_BYTES")
@@ -620,7 +647,7 @@ defmodule ServiceRadar.EventWriter.Config do
          }}
       end)
 
-    %{max_bytes: max_bytes, fallbacks: fallbacks}
+    %{max_bytes: max_bytes, replicas: replicas, fallbacks: fallbacks}
   end
 
   defp parse_replicas!(value, env_name, default) do
@@ -655,8 +682,10 @@ defmodule ServiceRadar.EventWriter.Config do
   its stream (`ensure_stream: false`) is left unchanged.
   """
   @spec apply_jetstream_sizes([stream_config()], jetstream_sizes()) :: [stream_config()]
-  def apply_jetstream_sizes(streams, %{max_bytes: max_bytes, fallbacks: fallbacks})
+  def apply_jetstream_sizes(streams, %{max_bytes: max_bytes, fallbacks: fallbacks} = sizes)
       when is_list(streams) do
+    replicas = Map.get(sizes, :replicas, %{})
+
     Enum.map(streams, fn stream ->
       stream_name = jetstream_stream_name(stream)
 
@@ -667,13 +696,26 @@ defmodule ServiceRadar.EventWriter.Config do
         Map.has_key?(fallbacks, stream_name) ->
           put_fallback_shape(stream, stream_name, Map.fetch!(fallbacks, stream_name))
 
-        Map.has_key?(max_bytes, stream_name) ->
-          Map.put(stream, :stream_max_bytes, Map.fetch!(max_bytes, stream_name))
-
         true ->
           stream
+          |> maybe_put_stream_max_bytes(max_bytes, stream_name)
+          |> maybe_put_stream_replicas(replicas, stream_name)
       end
     end)
+  end
+
+  defp maybe_put_stream_max_bytes(stream, max_bytes, stream_name) do
+    case Map.fetch(max_bytes, stream_name) do
+      {:ok, bytes} -> Map.put(stream, :stream_max_bytes, bytes)
+      :error -> stream
+    end
+  end
+
+  defp maybe_put_stream_replicas(stream, replicas, stream_name) do
+    case Map.fetch(replicas, stream_name) do
+      {:ok, count} -> Map.put(stream, :stream_replicas, count)
+      :error -> stream
+    end
   end
 
   defp put_fallback_shape(stream, stream_name, %{max_bytes: bytes, replicas: replicas}) do
@@ -818,6 +860,7 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_retention: "limits",
       stream_storage: "file",
       stream_discard: "old",
+      stream_replicas: 3,
       stream_max_bytes: 1_073_741_824,
       stream_max_age: 86_400_000_000_000,
       consumer_max_deliver: -1
@@ -846,6 +889,7 @@ defmodule ServiceRadar.EventWriter.Config do
       stream_retention: "limits",
       stream_storage: "file",
       stream_discard: "old",
+      stream_replicas: 3,
       stream_max_bytes: 268_435_456,
       stream_max_age: 3_600_000_000_000
     }
@@ -1016,6 +1060,7 @@ defmodule ServiceRadar.EventWriter.Config do
         stream_retention: "limits",
         stream_storage: "file",
         stream_discard: "old",
+        stream_replicas: 3,
         stream_max_bytes: 1_073_741_824,
         stream_max_age: 1_800_000_000_000,
         # fj #3788 REC4: dedup exact redeliveries (consumer_max_deliver: 5) within a

@@ -71,13 +71,28 @@ tests:
           content: {name: SERVICERADAR_OTX_RAW_MAX_BUCKET_BYTES, value: "1073741824"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES, value: "268435456"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_NOTIFICATIONS_REPLICAS, value: "3"}
       - contains:
           path: spec.template.spec.containers[0].env
-          content: {name: SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES, value: "1073741824"}
+          content: {name: SERVICERADAR_JS_METRICS_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_SCAN_RESULTS_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_RECOVERY_REPLICAS, value: "3"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_TRANSITIONS_MAX_BYTES, value: "536870912"}
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content: {name: SERVICERADAR_JS_EXPOSURE_DIMENSIONS_MAX_BYTES, value: "536870912"}
 
   - it: renders an explicit EXPOSURE_TRANSITIONS size into core
     set:

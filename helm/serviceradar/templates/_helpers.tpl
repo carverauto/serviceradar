@@ -1173,7 +1173,7 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 -}}
 {{- range $name := list "metrics" "k8s_inventory" "analytics_predictions" "mtr_results" "scan_results" "trivy_reports" -}}
 {{- $ewStream := default (dict) (index $ewStreams $name) -}}
-{{- $entries = append $entries (dict "id" $name "stream" $name "source" (printf "core.eventWriter.streams.%s.maxBytes" $name) "value" $ewStream.maxBytes "replicaSource" "" "replicaValue" nil "counted" true) -}}
+{{- $entries = append $entries (dict "id" $name "stream" $name "source" (printf "core.eventWriter.streams.%s.maxBytes" $name) "value" $ewStream.maxBytes "replicaSource" (printf "core.eventWriter.streams.%s.replicas" $name) "replicaValue" $ewStream.replicas "counted" true) -}}
 {{- end -}}
 {{- $ewFlows := default (dict) (index $ewStreams "flows") -}}
 {{- $ewArancini := default (dict) (index $ewStreams "ARANCINI_CAUSAL") -}}
@@ -1181,10 +1181,10 @@ is about the disk, and nats.jetstream.allowOvercommit does not skip it.
 {{- $ewExposureTransitions := default (dict) (index $ewStreams "exposure_transitions") -}}
 {{- $ewExposureDimensions := default (dict) (index $ewStreams "exposure_dimensions") -}}
 {{- $entries = concat $entries (list
-  (dict "id" "notifications" "stream" "NOTIFICATIONS" "source" "core.eventWriter.streams.notifications.maxBytes" "value" $ewNotifications.maxBytes "replicaSource" "" "replicaValue" nil "counted" true)
-  (dict "id" "exposureTransitions" "stream" "EXPOSURE_TRANSITIONS" "source" "core.eventWriter.streams.exposure_transitions.maxBytes" "value" $ewExposureTransitions.maxBytes "replicaSource" "" "replicaValue" nil "counted" true)
-  (dict "id" "exposureDimensions" "stream" "EXPOSURE_DIMENSIONS" "source" "core.eventWriter.streams.exposure_dimensions.maxBytes" "value" $ewExposureDimensions.maxBytes "replicaSource" "" "replicaValue" nil "counted" true)
-  (dict "id" "exposureRecovery" "stream" "EXPOSURE_RECOVERY" "source" "fixed exposure recovery reservation" "value" "64Mi" "replicaSource" "fixed exposure recovery replicas" "replicaValue" 1 "counted" true)
+  (dict "id" "notifications" "stream" "NOTIFICATIONS" "source" "core.eventWriter.streams.notifications.maxBytes" "value" $ewNotifications.maxBytes "replicaSource" "core.eventWriter.streams.notifications.replicas" "replicaValue" $ewNotifications.replicas "counted" true)
+  (dict "id" "exposureTransitions" "stream" "EXPOSURE_TRANSITIONS" "source" "core.eventWriter.streams.exposure_transitions.maxBytes" "value" $ewExposureTransitions.maxBytes "replicaSource" "core.eventWriter.streams.exposure_transitions.replicas" "replicaValue" $ewExposureTransitions.replicas "counted" true)
+  (dict "id" "exposureDimensions" "stream" "EXPOSURE_DIMENSIONS" "source" "core.eventWriter.streams.exposure_dimensions.maxBytes" "value" $ewExposureDimensions.maxBytes "replicaSource" "core.eventWriter.streams.exposure_dimensions.replicas" "replicaValue" $ewExposureDimensions.replicas "counted" true)
+  (dict "id" "exposureRecovery" "stream" "EXPOSURE_RECOVERY" "source" "fixed exposure recovery reservation" "value" "64Mi" "replicaSource" "fixed exposure recovery replicas" "replicaValue" 3 "counted" true)
   (dict "id" "fieldsurvey" "stream" (printf "OBJ_%s" (default "serviceradar_fieldsurvey" $fieldSurvey.jetstreamBucket)) "source" "webNg.fieldSurveyArtifactStore.jetstreamMaxBucketBytes" "value" $fieldSurvey.jetstreamMaxBucketBytes "replicaSource" "" "replicaValue" nil "counted" true)
   (dict "id" "threatIntel" "stream" "OBJ_serviceradar_threat_intel" "source" "core.threatIntelRawPayloadStore.jetstreamMaxBucketBytes" "value" $threatIntel.jetstreamMaxBucketBytes "replicaSource" "" "replicaValue" nil "counted" true)
   (dict "id" "flowsFallback" "stream" "flows" "source" "core.eventWriter.streams.flows.maxBytes" "value" $ewFlows.maxBytes "replicaSource" "core.eventWriter.streams.flows.replicas" "replicaValue" $ewFlows.replicas "counted" false)

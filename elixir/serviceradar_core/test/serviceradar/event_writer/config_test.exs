@@ -697,9 +697,18 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert scan.stream_name == "scan_results"
       assert scan.subject == "scans.results.>"
       assert scan.processor == ServiceRadar.EventWriter.Processors.AdhocScan
+      assert scan.stream_replicas == 3
       # Must NOT overlap the metrics stream, or the Metrics processor would
       # try to decode scan rows as protobuf metric envelopes.
       refute String.starts_with?(scan.subject, "metrics.")
+    end
+
+    test "routes edge records through an R3 stream" do
+      edge = Config.edge_record_stream()
+
+      assert edge.stream_name == "TELEMETRY_EDGE_RECORD_V1_BULK"
+      assert edge.subject == "telemetry.edge-record.v1.bulk.>"
+      assert edge.stream_replicas == 3
     end
 
     test "routes MTR trace results to the Mtr processor from a dedicated stream" do
@@ -751,6 +760,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert metrics.stream_retention == "limits"
       assert metrics.stream_storage == "file"
       assert metrics.stream_discard == "old"
+      assert metrics.stream_replicas == 3
       assert metrics.stream_max_bytes == 1_073_741_824
       assert metrics.stream_max_age == 1_800_000_000_000
       assert metrics.consumer_pull_batch_size == 64
@@ -1027,6 +1037,15 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "scan_results" => 268_435_456,
                  "trivy_reports" => @gib
                },
+               replicas: %{
+                 "metrics" => 3,
+                 "k8s_inventory" => 1,
+                 "analytics_predictions" => 1,
+                 "mtr_results" => 1,
+                 "scan_results" => 3,
+                 "trivy_reports" => 1,
+                 "TELEMETRY_EDGE_RECORD_V1_BULK" => 3
+               },
                fallbacks: %{
                  "events" => %{max_bytes: 2 * @gib, replicas: 1},
                  "flows" => %{max_bytes: @gib, replicas: 1},
@@ -1043,6 +1062,13 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
         "SERVICERADAR_JS_MTR_RESULTS_MAX_BYTES" => "14",
         "SERVICERADAR_JS_SCAN_RESULTS_MAX_BYTES" => "15",
         "SERVICERADAR_JS_TRIVY_REPORTS_MAX_BYTES" => "16",
+        "SERVICERADAR_JS_METRICS_REPLICAS" => "1",
+        "SERVICERADAR_JS_K8S_INVENTORY_REPLICAS" => "3",
+        "SERVICERADAR_JS_ANALYTICS_PREDICTIONS_REPLICAS" => "3",
+        "SERVICERADAR_JS_MTR_RESULTS_REPLICAS" => "3",
+        "SERVICERADAR_JS_SCAN_RESULTS_REPLICAS" => "1",
+        "SERVICERADAR_JS_TRIVY_REPORTS_REPLICAS" => "3",
+        "SERVICERADAR_JS_TELEMETRY_EDGE_RECORD_V1_BULK_REPLICAS" => "1",
         "SERVICERADAR_JS_EVENTS_FALLBACK_MAX_BYTES" => "21",
         "SERVICERADAR_JS_EVENTS_FALLBACK_REPLICAS" => "3",
         "SERVICERADAR_JS_FLOWS_FALLBACK_MAX_BYTES" => "22",
@@ -1059,6 +1085,15 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
                  "mtr_results" => 14,
                  "scan_results" => 15,
                  "trivy_reports" => 16
+               },
+               replicas: %{
+                 "metrics" => 1,
+                 "k8s_inventory" => 3,
+                 "analytics_predictions" => 3,
+                 "mtr_results" => 3,
+                 "scan_results" => 1,
+                 "trivy_reports" => 3,
+                 "TELEMETRY_EDGE_RECORD_V1_BULK" => 1
                },
                fallbacks: %{
                  "events" => %{max_bytes: 21, replicas: 3},

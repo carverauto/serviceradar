@@ -648,13 +648,19 @@ config :serviceradar_core, ServiceRadar.WorkloadIdentity,
   skip_guard_enabled: System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD", "1") != "0",
   skip_guard_heartbeat_ms: parse_int_env.("SERVICERADAR_WORKLOAD_IDENTITY_SKIP_GUARD_HEARTBEAT_MS", 1_800_000)
 
-# Notification firehose stream size (a discard-old buffer, reconciled on the
-# first publish per node). Unset or blank means 1 GiB; an invalid value fails boot.
+# Notification firehose stream size and replica count (a discard-old buffer,
+# reconciled on the first publish per node). Unset or blank means 1 GiB / R3;
+# an invalid value fails boot.
 config :serviceradar_core, StreamPublisher,
   max_bytes:
     StateBucketSizing.bytes_from_env!(
       "SERVICERADAR_JS_NOTIFICATIONS_MAX_BYTES",
       StreamPublisher.default_max_bytes()
+    ),
+  replicas:
+    StateBucketSizing.replicas_from_env!(
+      "SERVICERADAR_JS_NOTIFICATIONS_REPLICAS",
+      StreamPublisher.default_replicas()
     )
 
 config :serviceradar_core, ThreatIntelRawPayloadStore,
@@ -1761,6 +1767,7 @@ if config_env() == :prod do
           stream_retention: "limits",
           stream_storage: "file",
           stream_discard: "old",
+          stream_replicas: 3,
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 1_800_000_000_000,
           consumer_pull_batch_size: 4,
