@@ -2,7 +2,7 @@
 -- PostgreSQL database dump
 --
 
-\restrict DSLddQFyWZxa0dwNnQ0Th9rBtbt2SNbMxBzxhrBKE9jF6OvKPpDDvzmN7cdG4Ka
+\restrict awC9YQrxkmar0OucV6OBDZclhqbDrxmcOpW6D0jKJGM8diKi41hcVvHcgPtdqTR
 
 -- Dumped from database version 18.4 (Debian 18.4-1.pgdg12+1)
 -- Dumped by pg_dump version 18.4 (Debian 18.4-1.pgdg12+1)
@@ -20,10 +20,17 @@ SET client_min_messages = warning;
 SET row_security = off;
 
 --
+-- Name: platform; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA IF NOT EXISTS platform;
+
+
+--
 -- Name: timescaledb; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS timescaledb WITH SCHEMA platform;
 
 
 --
@@ -38,13 +45,6 @@ COMMENT ON EXTENSION timescaledb IS 'Enables scalable inserts and complex querie
 --
 
 CREATE SCHEMA IF NOT EXISTS ag_catalog;
-
-
---
--- Name: platform; Type: SCHEMA; Schema: -; Owner: -
---
-
-CREATE SCHEMA IF NOT EXISTS platform;
 
 
 --
@@ -86,7 +86,7 @@ COMMENT ON EXTENSION age IS 'AGE database extension';
 -- Name: citext; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS citext WITH SCHEMA platform;
 
 
 --
@@ -114,7 +114,7 @@ COMMENT ON EXTENSION pg_stat_statements IS 'track planning and execution statist
 -- Name: pg_trgm; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA platform;
 
 
 --
@@ -128,7 +128,7 @@ COMMENT ON EXTENSION pg_trgm IS 'text similarity measurement and index searching
 -- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
 --
 
-CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA platform;
 
 
 --
@@ -3661,14 +3661,14 @@ CREATE TABLE platform.cpu_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_23 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     avg(usage_percent) AS avg_usage_percent,
     max(usage_percent) AS max_usage_percent,
     count(*) AS sample_count
    FROM platform.cpu_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
 
 
 --
@@ -3695,7 +3695,7 @@ CREATE TABLE platform.memory_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_24 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     avg(usage_percent) AS avg_usage_percent,
@@ -3704,7 +3704,7 @@ CREATE VIEW _timescaledb_internal._direct_view_24 AS
     (avg(available_bytes))::double precision AS avg_available_bytes,
     count(*) AS sample_count
    FROM platform.memory_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
 
 
 --
@@ -3733,7 +3733,7 @@ CREATE TABLE platform.disk_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_25 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     mount_point,
@@ -3743,7 +3743,7 @@ CREATE VIEW _timescaledb_internal._direct_view_25 AS
     (avg(available_bytes))::double precision AS avg_available_bytes,
     count(*) AS sample_count
    FROM platform.disk_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point;
 
 
 --
@@ -3772,7 +3772,7 @@ CREATE TABLE platform.process_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_26 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     name,
@@ -3782,7 +3782,7 @@ CREATE VIEW _timescaledb_internal._direct_view_26 AS
     (max(memory_usage))::double precision AS max_memory_usage,
     count(*) AS sample_count
    FROM platform.process_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name;
 
 
 --
@@ -3816,7 +3816,7 @@ CREATE TABLE platform.timeseries_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_27 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     metric_type,
     metric_name,
@@ -3825,7 +3825,7 @@ CREATE VIEW _timescaledb_internal._direct_view_27 AS
     max(value) AS max_value,
     count(*) AS sample_count
    FROM platform.timeseries_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name;
 
 
 --
@@ -3864,7 +3864,7 @@ CREATE TABLE platform.otel_metrics (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_37 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE ((COALESCE(level, ''::text) = ANY (ARRAY['error'::text, 'ERROR'::text])) OR (COALESCE(http_status_code, ''::text) ~~ '4%'::text) OR (COALESCE(http_status_code, ''::text) ~~ '5%'::text) OR ((COALESCE(grpc_status_code, ''::text) <> ''::text) AND (COALESCE(grpc_status_code, ''::text) <> '0'::text)))) AS error_count,
@@ -3876,7 +3876,7 @@ CREATE VIEW _timescaledb_internal._direct_view_37 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE (duration_ms IS NOT NULL)) AS p95_duration_ms,
     max(duration_ms) AS max_duration_ms
    FROM platform.otel_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text);
 
 
 --
@@ -3928,11 +3928,11 @@ COMMENT ON TABLE platform.ocsf_events IS 'OCSF Event Log Activity entries from l
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_38 AS
- SELECT public.time_bucket('01:00:00'::interval, "time") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
     COALESCE(severity_id, 0) AS severity_id,
     count(*) AS total_count
    FROM platform.ocsf_events
-  GROUP BY (public.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
 
 
 --
@@ -3967,7 +3967,7 @@ CREATE TABLE platform.endpoint_inventory_package_count_history (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_52 AS
- SELECT public.time_bucket('01:00:00'::interval, scan_time) AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, scan_time) AS bucket,
     coordinate_hash,
     package_manager,
     COALESCE(ecosystem, ''::text) AS ecosystem,
@@ -3980,7 +3980,7 @@ CREATE VIEW _timescaledb_internal._direct_view_52 AS
     (sum(count_delta))::integer AS net_count_delta,
     count(*) AS sample_count
    FROM platform.endpoint_inventory_package_count_history
-  GROUP BY (public.time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text);
 
 
 --
@@ -4008,14 +4008,14 @@ CREATE TABLE platform.endpoint_inventory_cpe_count_history (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_53 AS
- SELECT public.time_bucket('01:00:00'::interval, scan_time) AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, scan_time) AS bucket,
     cpe,
     max(host_count) AS max_host_count,
     min(host_count) AS min_host_count,
     (sum(count_delta))::integer AS net_count_delta,
     count(*) AS sample_count
    FROM platform.endpoint_inventory_cpe_count_history
-  GROUP BY (public.time_bucket('01:00:00'::interval, scan_time)), cpe;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, scan_time)), cpe;
 
 
 --
@@ -4064,7 +4064,7 @@ CREATE TABLE platform.otel_traces (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_54 AS
- SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE (status_code = 2)) AS error_count,
@@ -4072,7 +4072,7 @@ CREATE VIEW _timescaledb_internal._direct_view_54 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS p95_duration_ms
    FROM platform.otel_traces
   WHERE (parent_span_id IS NULL)
-  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), service_name;
 
 
 --
@@ -4080,7 +4080,7 @@ CREATE VIEW _timescaledb_internal._direct_view_54 AS
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_57 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     COALESCE(service_namespace, ''::text) AS service_namespace,
     COALESCE(deployment_environment, ''::text) AS deployment_environment,
@@ -4092,7 +4092,7 @@ CREATE VIEW _timescaledb_internal._direct_view_57 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) FILTER (WHERE ((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision) IS NOT NULL)) AS p95_duration_ms,
     max((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS max_duration_ms
    FROM platform.otel_traces
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text);
 
 
 --
@@ -4100,7 +4100,7 @@ CREATE VIEW _timescaledb_internal._direct_view_57 AS
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_62 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     partition,
     device_id,
     target_device_ip,
@@ -4120,7 +4120,7 @@ CREATE VIEW _timescaledb_internal._direct_view_62 AS
     count(*) AS sample_count
    FROM platform.timeseries_metrics
   WHERE ((if_index IS NOT NULL) AND (COALESCE((metadata ->> 'kind'::text), (metadata ->> 'metric_type'::text)) = ANY (ARRAY['sum'::text, 'counter'::text])) AND ((metadata ->> 'temporality'::text) = 'cumulative'::text) AND (lower(COALESCE((metadata ->> 'is_monotonic'::text), 'false'::text)) = ANY (ARRAY['true'::text, '1'::text])) AND (metadata ? 'raw_value'::text))
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key;
 
 
 --
@@ -4162,7 +4162,7 @@ CREATE TABLE platform.logs (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_72 AS
- SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'fatal'::text)) AS fatal_count,
@@ -4171,7 +4171,7 @@ CREATE VIEW _timescaledb_internal._direct_view_72 AS
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'info'::text)) AS info_count,
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'debug'::text)) AS debug_count
    FROM platform.logs
-  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), service_name;
 
 
 --
@@ -4179,7 +4179,7 @@ CREATE VIEW _timescaledb_internal._direct_view_72 AS
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_73 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     metric_type,
     metric_name,
@@ -4191,7 +4191,7 @@ CREATE VIEW _timescaledb_internal._direct_view_73 AS
     count(*) AS sample_count
    FROM platform.timeseries_metrics
   WHERE ((metric_type = 'sysmon.disk'::text) AND (device_id IS NOT NULL) AND ((tags ->> 'mount_point'::text) IS NOT NULL))
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name, series_key, (tags ->> 'mount_point'::text);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name, series_key, (tags ->> 'mount_point'::text);
 
 
 --
@@ -4218,7 +4218,7 @@ CREATE TABLE platform.service_status (
 --
 
 CREATE VIEW _timescaledb_internal._direct_view_76 AS
- SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     gateway_id,
     agent_id,
     service_name,
@@ -4235,7 +4235,7 @@ CREATE VIEW _timescaledb_internal._direct_view_76 AS
             ELSE 0
         END)::bigint AS unavailable_count
    FROM platform.service_status
-  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), gateway_id, agent_id, service_name, service_type;
+  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), gateway_id, agent_id, service_name, service_type;
 
 
 --
@@ -4493,14 +4493,14 @@ CREATE TABLE _timescaledb_internal._materialized_hypertable_76 (
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_23 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     avg(usage_percent) AS avg_usage_percent,
     max(usage_percent) AS max_usage_percent,
     count(*) AS sample_count
    FROM platform.cpu_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
 
 
 --
@@ -4508,7 +4508,7 @@ CREATE VIEW _timescaledb_internal._partial_view_23 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_24 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     avg(usage_percent) AS avg_usage_percent,
@@ -4517,7 +4517,7 @@ CREATE VIEW _timescaledb_internal._partial_view_24 AS
     (avg(available_bytes))::double precision AS avg_available_bytes,
     count(*) AS sample_count
    FROM platform.memory_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id;
 
 
 --
@@ -4525,7 +4525,7 @@ CREATE VIEW _timescaledb_internal._partial_view_24 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_25 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     mount_point,
@@ -4535,7 +4535,7 @@ CREATE VIEW _timescaledb_internal._partial_view_25 AS
     (avg(available_bytes))::double precision AS avg_available_bytes,
     count(*) AS sample_count
    FROM platform.disk_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, mount_point;
 
 
 --
@@ -4543,7 +4543,7 @@ CREATE VIEW _timescaledb_internal._partial_view_25 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_26 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     host_id,
     name,
@@ -4553,7 +4553,7 @@ CREATE VIEW _timescaledb_internal._partial_view_26 AS
     (max(memory_usage))::double precision AS max_memory_usage,
     count(*) AS sample_count
    FROM platform.process_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, host_id, name;
 
 
 --
@@ -4561,7 +4561,7 @@ CREATE VIEW _timescaledb_internal._partial_view_26 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_27 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     metric_type,
     metric_name,
@@ -4570,7 +4570,7 @@ CREATE VIEW _timescaledb_internal._partial_view_27 AS
     max(value) AS max_value,
     count(*) AS sample_count
    FROM platform.timeseries_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name;
 
 
 --
@@ -4578,7 +4578,7 @@ CREATE VIEW _timescaledb_internal._partial_view_27 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_37 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE ((COALESCE(level, ''::text) = ANY (ARRAY['error'::text, 'ERROR'::text])) OR (COALESCE(http_status_code, ''::text) ~~ '4%'::text) OR (COALESCE(http_status_code, ''::text) ~~ '5%'::text) OR ((COALESCE(grpc_status_code, ''::text) <> ''::text) AND (COALESCE(grpc_status_code, ''::text) <> '0'::text)))) AS error_count,
@@ -4590,7 +4590,7 @@ CREATE VIEW _timescaledb_internal._partial_view_37 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY duration_ms) FILTER (WHERE (duration_ms IS NOT NULL)) AS p95_duration_ms,
     max(duration_ms) AS max_duration_ms
    FROM platform.otel_metrics
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text);
 
 
 --
@@ -4598,11 +4598,11 @@ CREATE VIEW _timescaledb_internal._partial_view_37 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_38 AS
- SELECT public.time_bucket('01:00:00'::interval, "time") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "time") AS bucket,
     COALESCE(severity_id, 0) AS severity_id,
     count(*) AS total_count
    FROM platform.ocsf_events
-  GROUP BY (public.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "time")), COALESCE(severity_id, 0);
 
 
 --
@@ -4610,7 +4610,7 @@ CREATE VIEW _timescaledb_internal._partial_view_38 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_52 AS
- SELECT public.time_bucket('01:00:00'::interval, scan_time) AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, scan_time) AS bucket,
     coordinate_hash,
     package_manager,
     COALESCE(ecosystem, ''::text) AS ecosystem,
@@ -4623,7 +4623,7 @@ CREATE VIEW _timescaledb_internal._partial_view_52 AS
     (sum(count_delta))::integer AS net_count_delta,
     count(*) AS sample_count
    FROM platform.endpoint_inventory_package_count_history
-  GROUP BY (public.time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, scan_time)), coordinate_hash, package_manager, COALESCE(ecosystem, ''::text), name, COALESCE(version, ''::text), COALESCE(architecture, ''::text), COALESCE(purl_canonical, ''::text);
 
 
 --
@@ -4631,14 +4631,14 @@ CREATE VIEW _timescaledb_internal._partial_view_52 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_53 AS
- SELECT public.time_bucket('01:00:00'::interval, scan_time) AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, scan_time) AS bucket,
     cpe,
     max(host_count) AS max_host_count,
     min(host_count) AS min_host_count,
     (sum(count_delta))::integer AS net_count_delta,
     count(*) AS sample_count
    FROM platform.endpoint_inventory_cpe_count_history
-  GROUP BY (public.time_bucket('01:00:00'::interval, scan_time)), cpe;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, scan_time)), cpe;
 
 
 --
@@ -4646,7 +4646,7 @@ CREATE VIEW _timescaledb_internal._partial_view_53 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_54 AS
- SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE (status_code = 2)) AS error_count,
@@ -4654,7 +4654,7 @@ CREATE VIEW _timescaledb_internal._partial_view_54 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS p95_duration_ms
    FROM platform.otel_traces
   WHERE (parent_span_id IS NULL)
-  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), service_name;
 
 
 --
@@ -4662,7 +4662,7 @@ CREATE VIEW _timescaledb_internal._partial_view_54 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_57 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     COALESCE(service_name, ''::text) AS service_name,
     COALESCE(service_namespace, ''::text) AS service_namespace,
     COALESCE(deployment_environment, ''::text) AS deployment_environment,
@@ -4674,7 +4674,7 @@ CREATE VIEW _timescaledb_internal._partial_view_57 AS
     percentile_cont((0.95)::double precision) WITHIN GROUP (ORDER BY (((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) FILTER (WHERE ((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision) IS NOT NULL)) AS p95_duration_ms,
     max((((end_time_unix_nano - start_time_unix_nano))::double precision / (1000000.0)::double precision)) AS max_duration_ms
    FROM platform.otel_traces
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), COALESCE(service_name, ''::text), COALESCE(service_namespace, ''::text), COALESCE(deployment_environment, ''::text);
 
 
 --
@@ -4682,7 +4682,7 @@ CREATE VIEW _timescaledb_internal._partial_view_57 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_62 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     partition,
     device_id,
     target_device_ip,
@@ -4702,7 +4702,7 @@ CREATE VIEW _timescaledb_internal._partial_view_62 AS
     count(*) AS sample_count
    FROM platform.timeseries_metrics
   WHERE ((if_index IS NOT NULL) AND (COALESCE((metadata ->> 'kind'::text), (metadata ->> 'metric_type'::text)) = ANY (ARRAY['sum'::text, 'counter'::text])) AND ((metadata ->> 'temporality'::text) = 'cumulative'::text) AND (lower(COALESCE((metadata ->> 'is_monotonic'::text), 'false'::text)) = ANY (ARRAY['true'::text, '1'::text])) AND (metadata ? 'raw_value'::text))
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key;
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), partition, device_id, target_device_ip, if_index, metric_type, metric_name, series_key;
 
 
 --
@@ -4710,7 +4710,7 @@ CREATE VIEW _timescaledb_internal._partial_view_62 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_72 AS
- SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     service_name,
     count(*) AS total_count,
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'fatal'::text)) AS fatal_count,
@@ -4719,7 +4719,7 @@ CREATE VIEW _timescaledb_internal._partial_view_72 AS
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'info'::text)) AS info_count,
     count(*) FILTER (WHERE (platform.serviceradar_log_severity_bucket(severity_text, severity_number) = 'debug'::text)) AS debug_count
    FROM platform.logs
-  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), service_name;
+  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), service_name;
 
 
 --
@@ -4727,7 +4727,7 @@ CREATE VIEW _timescaledb_internal._partial_view_72 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_73 AS
- SELECT public.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('01:00:00'::interval, "timestamp") AS bucket,
     device_id,
     metric_type,
     metric_name,
@@ -4739,7 +4739,7 @@ CREATE VIEW _timescaledb_internal._partial_view_73 AS
     count(*) AS sample_count
    FROM platform.timeseries_metrics
   WHERE ((metric_type = 'sysmon.disk'::text) AND (device_id IS NOT NULL) AND ((tags ->> 'mount_point'::text) IS NOT NULL))
-  GROUP BY (public.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name, series_key, (tags ->> 'mount_point'::text);
+  GROUP BY (platform.time_bucket('01:00:00'::interval, "timestamp")), device_id, metric_type, metric_name, series_key, (tags ->> 'mount_point'::text);
 
 
 --
@@ -4747,7 +4747,7 @@ CREATE VIEW _timescaledb_internal._partial_view_73 AS
 --
 
 CREATE VIEW _timescaledb_internal._partial_view_76 AS
- SELECT public.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
+ SELECT platform.time_bucket('00:05:00'::interval, "timestamp") AS bucket,
     gateway_id,
     agent_id,
     service_name,
@@ -4764,7 +4764,7 @@ CREATE VIEW _timescaledb_internal._partial_view_76 AS
             ELSE 0
         END)::bigint AS unavailable_count
    FROM platform.service_status
-  GROUP BY (public.time_bucket('00:05:00'::interval, "timestamp")), gateway_id, agent_id, service_name, service_type;
+  GROUP BY (platform.time_bucket('00:05:00'::interval, "timestamp")), gateway_id, agent_id, service_name, service_type;
 
 
 --
@@ -5289,7 +5289,7 @@ CREATE TABLE platform.adhoc_scan_runs (
 --
 
 CREATE TABLE platform.admin_secret_markers (
-    admin_email public.citext NOT NULL,
+    admin_email platform.citext NOT NULL,
     secret_digest text NOT NULL,
     inserted_at timestamp without time zone NOT NULL,
     updated_at timestamp without time zone NOT NULL
@@ -6516,6 +6516,16 @@ CREATE TABLE platform.api_tokens (
     metadata jsonb DEFAULT '{}'::jsonb,
     created_at timestamp(0) without time zone,
     user_id uuid NOT NULL
+);
+
+
+--
+-- Name: ash_schema_migrations; Type: TABLE; Schema: platform; Owner: -
+--
+
+CREATE TABLE platform.ash_schema_migrations (
+    version bigint NOT NULL,
+    inserted_at timestamp(0) without time zone
 );
 
 
@@ -12058,7 +12068,7 @@ ALTER SEQUENCE platform.ng_job_schedules_id_seq OWNED BY platform.ng_job_schedul
 
 CREATE TABLE platform.ng_users (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    email public.citext NOT NULL,
+    email platform.citext NOT NULL,
     hashed_password text,
     display_name text,
     role text DEFAULT 'viewer'::text NOT NULL,
@@ -14221,7 +14231,7 @@ CREATE VIEW platform.services_availability_5m AS
    FROM _timescaledb_internal._materialized_hypertable_76
   WHERE (_materialized_hypertable_76.bucket < COALESCE(_timescaledb_functions.to_timestamp(_timescaledb_functions.cagg_watermark(76)), '-infinity'::timestamp with time zone))
 UNION ALL
- SELECT public.time_bucket('00:05:00'::interval, service_status."timestamp") AS bucket,
+ SELECT platform.time_bucket('00:05:00'::interval, service_status."timestamp") AS bucket,
     service_status.gateway_id,
     service_status.agent_id,
     service_status.service_name,
@@ -14239,7 +14249,7 @@ UNION ALL
         END)::bigint AS unavailable_count
    FROM platform.service_status
   WHERE (service_status."timestamp" >= COALESCE(_timescaledb_functions.to_timestamp(_timescaledb_functions.cagg_watermark(76)), '-infinity'::timestamp with time zone))
-  GROUP BY (public.time_bucket('00:05:00'::interval, service_status."timestamp")), service_status.gateway_id, service_status.agent_id, service_status.service_name, service_status.service_type;
+  GROUP BY (platform.time_bucket('00:05:00'::interval, service_status."timestamp")), service_status.gateway_id, service_status.agent_id, service_status.service_name, service_status.service_type;
 
 
 --
@@ -17061,6 +17071,14 @@ ALTER TABLE ONLY platform.api_events
 
 ALTER TABLE ONLY platform.api_tokens
     ADD CONSTRAINT api_tokens_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: ash_schema_migrations ash_schema_migrations_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
+--
+
+ALTER TABLE ONLY platform.ash_schema_migrations
+    ADD CONSTRAINT ash_schema_migrations_pkey PRIMARY KEY (version);
 
 
 --
@@ -20973,7 +20991,7 @@ CREATE INDEX advisory_coordinates_type_value_idx ON platform.advisory_coordinate
 -- Name: advisory_coordinates_value_trgm_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX advisory_coordinates_value_trgm_idx ON platform.advisory_coordinates USING gin (value public.gin_trgm_ops);
+CREATE INDEX advisory_coordinates_value_trgm_idx ON platform.advisory_coordinates USING gin (value platform.gin_trgm_ops);
 
 
 --
@@ -22968,7 +22986,7 @@ CREATE INDEX device_source_observations_device_source_idx ON platform.device_sou
 -- Name: device_source_observations_hostname_trgm_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX device_source_observations_hostname_trgm_idx ON platform.device_source_observations USING gin (hostname public.gin_trgm_ops) WHERE (present = true);
+CREATE INDEX device_source_observations_hostname_trgm_idx ON platform.device_source_observations USING gin (hostname platform.gin_trgm_ops) WHERE (present = true);
 
 
 --
@@ -22982,7 +23000,7 @@ CREATE INDEX device_source_observations_object_lookup_idx ON platform.device_sou
 -- Name: device_source_observations_serial_trgm_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX device_source_observations_serial_trgm_idx ON platform.device_source_observations USING gin (serial_number public.gin_trgm_ops) WHERE (present = true);
+CREATE INDEX device_source_observations_serial_trgm_idx ON platform.device_source_observations USING gin (serial_number platform.gin_trgm_ops) WHERE (present = true);
 
 
 --
@@ -24606,14 +24624,14 @@ CREATE INDEX idx_trivy_findings_severity ON platform.trivy_findings USING btree 
 -- Name: idx_trivy_findings_title_trgm; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX idx_trivy_findings_title_trgm ON platform.trivy_findings USING gin (title public.gin_trgm_ops);
+CREATE INDEX idx_trivy_findings_title_trgm ON platform.trivy_findings USING gin (title platform.gin_trgm_ops);
 
 
 --
 -- Name: idx_trivy_reports_name_trgm; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX idx_trivy_reports_name_trgm ON platform.trivy_reports USING gin (name public.gin_trgm_ops);
+CREATE INDEX idx_trivy_reports_name_trgm ON platform.trivy_reports USING gin (name platform.gin_trgm_ops);
 
 
 --
@@ -26209,7 +26227,7 @@ CREATE INDEX otel_service_catalog_last_seen_at_idx ON platform.otel_service_cata
 -- Name: otel_service_catalog_service_name_trgm_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
-CREATE INDEX otel_service_catalog_service_name_trgm_idx ON platform.otel_service_catalog USING gin (service_name public.gin_trgm_ops);
+CREATE INDEX otel_service_catalog_service_name_trgm_idx ON platform.otel_service_catalog USING gin (service_name platform.gin_trgm_ops);
 
 
 --
@@ -31801,7 +31819,7 @@ ALTER TABLE ONLY platform.wifi_sites
 -- PostgreSQL database dump complete
 --
 
-\unrestrict DSLddQFyWZxa0dwNnQ0Th9rBtbt2SNbMxBzxhrBKE9jF6OvKPpDDvzmN7cdG4Ka
+\unrestrict awC9YQrxkmar0OucV6OBDZclhqbDrxmcOpW6D0jKJGM8diKi41hcVvHcgPtdqTR
 
 --
 -- ServiceRadar: restore TimescaleDB hypertable registration.
@@ -31811,35 +31829,35 @@ ALTER TABLE ONLY platform.wifi_sites
 -- this baseline has the same hypertables, on the same time column and
 -- chunk interval, as the database this baseline was generated from.
 --
-SELECT public.create_hypertable('platform.adhoc_scan_results', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.bgp_routing_info', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.bmp_routing_events', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.capacity_forecasts', 'forecasted_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.cpu_cluster_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.cpu_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.disk_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.endpoint_inventory_cpe_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.endpoint_inventory_package_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.endpoint_inventory_package_events', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.endpoint_inventory_scan_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.events', 'event_timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.logs', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.memory_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.mtr_hops', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.mtr_traces', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.ocsf_events', 'time', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.otel_metric_points', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.otel_metrics', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.otel_traces', 'timestamp', chunk_time_interval => '01:00:00'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.process_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.service_status', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.stateful_alert_rule_histories', 'event_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.survey_arrow_ipc_frames', 'received_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.survey_pose_samples', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.survey_rf_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.survey_samples', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.survey_spectrum_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
-SELECT public.create_hypertable('platform.timeseries_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.adhoc_scan_results', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.bgp_routing_info', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.bmp_routing_events', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.capacity_forecasts', 'forecasted_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.cpu_cluster_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.cpu_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.disk_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.endpoint_inventory_cpe_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.endpoint_inventory_package_count_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.endpoint_inventory_package_events', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.endpoint_inventory_scan_history', 'scan_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.events', 'event_timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.logs', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.memory_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.mtr_hops', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.mtr_traces', 'time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.ocsf_events', 'time', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.otel_metric_points', 'timestamp', chunk_time_interval => '06:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.otel_metrics', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.otel_traces', 'timestamp', chunk_time_interval => '01:00:00'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.process_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.service_status', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.stateful_alert_rule_histories', 'event_time', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_arrow_ipc_frames', 'received_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_pose_samples', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_rf_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_samples', 'timestamp', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.survey_spectrum_observations', 'captured_at', chunk_time_interval => '7 days'::interval, migrate_data => true, if_not_exists => true);
+SELECT platform.create_hypertable('platform.timeseries_metrics', 'timestamp', chunk_time_interval => '1 day'::interval, migrate_data => true, if_not_exists => true);
 
 --
 -- ServiceRadar: restore TimescaleDB continuous aggregates.
