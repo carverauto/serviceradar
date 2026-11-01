@@ -73,7 +73,8 @@ stores the execution through the sweep projection.
 #### Scenario: A leased execution emits no metric batch
 - **WHEN** a leased static sweep execution completes
 - **THEN** the agent emits no `MetricBatch` for that execution
-- **AND** the group's periodic sweep summary still uses `serviceradar.metrics.batch`
+- **AND** when that group is the agent's newest group, the existing periodic summary still uses
+  `serviceradar.metrics.batch`
 - **AND** the execution's results remain available from the sweep projection
 
 #### Scenario: The lease delivery keeps one production capability
