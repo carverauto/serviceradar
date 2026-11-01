@@ -133,6 +133,7 @@ go_library(
         "errors.go",
         "gateway_artifact_download.go",
         "host_identity.go",
+        "host_trust_linux.go",
         "icmp_checker.go",
         "interfaces.go",
         "ipv4_sorter.go",
@@ -615,6 +616,7 @@ go_test(
     srcs = [
         "managed_certificates_linux_test.go",
         "managed_certificate_policy_linux_test.go",
+        "host_trust_linux_test.go",
     ],
     embed = [":agent"],
     target_compatible_with = ["@platforms//os:linux"],

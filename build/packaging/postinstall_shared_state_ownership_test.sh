@@ -242,3 +242,37 @@ for installer in "$agent_postinstall" "$rperf_postinstall" "$rperf_checker_posti
         done
     done
 done
+
+# Agent upgrade keeps the enrolled host-trust record root-owned and leaves the
+# runtime certificate directory writable by the service account.
+prepare_fixture
+mkdir -p "$test_root/etc/serviceradar/certs" "$test_root/etc/serviceradar/host-trust" "$test_root/usr/local/bin"
+printf '%s\n' '{"agent_id":"runtime-agent","partition":"runtime-partition"}' > "$test_root/etc/serviceradar/agent.json"
+printf '%s\n' 'runtime-ca' > "$test_root/etc/serviceradar/certs/ca-chain.pem"
+printf '%s\n' 'original-cert' > "$test_root/etc/serviceradar/certs/component.pem"
+printf '%s' '{"agent_id":"trust-agent","partition":"edge-a"}' > "$test_root/etc/serviceradar/host-trust/identity.json"
+printf '%s\n' 'synthetic-ca' > "$test_root/etc/serviceradar/host-trust/ca.pem"
+chmod 0750 "$test_root/etc/serviceradar/certs"
+if [[ "$(id -u)" == 0 ]]; then
+    chown -R 65534:65534 "$test_root/etc/serviceradar/certs" "$test_root/etc/serviceradar/agent.json"
+fi
+run_agent_postinstall "$service_owner"
+[[ "$(cat "$test_root/etc/serviceradar/host-trust/identity.json")" == '{"agent_id":"trust-agent","partition":"edge-a"}' ]]
+[[ "$(cat "$test_root/etc/serviceradar/host-trust/ca.pem")" == synthetic-ca ]]
+[[ "$(stat -c '%a' "$test_root/etc/serviceradar/certs")" == 750 ]]
+printf '%s\n' 'renewed-cert' > "$test_root/etc/serviceradar/certs/component.pem"
+[[ "$(cat "$test_root/etc/serviceradar/certs/component.pem")" == renewed-cert ]]
+[[ "$(stat -c '%a' "$test_root/etc/serviceradar")" == 755 ]]
+if [[ "$(id -u)" == 0 ]]; then
+    [[ "$(stat -c '%u' "$test_root/etc/serviceradar/host-trust/identity.json")" == 0 ]]
+    [[ "$(stat -c '%u' "$test_root/etc/serviceradar/host-trust")" == 0 ]]
+    [[ "$(stat -c '%u' "$test_root/etc/serviceradar/agent.json")" == 65534 ]]
+    [[ "$(stat -c '%u' "$test_root/etc/serviceradar/certs")" == 65534 ]]
+fi
+prepare_fixture
+mkdir -p "$test_root/etc/serviceradar" "$test_root/outside"
+ln -s "$test_root/outside" "$test_root/etc/serviceradar/host-trust"
+if run_agent_postinstall "$service_owner" >/dev/null 2>&1; then
+    echo "postinstall accepted symlinked host-trust" >&2
+    exit 1
+fi

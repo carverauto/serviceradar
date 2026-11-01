@@ -78,16 +78,7 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 	if action == "local-nats-authorize" {
 		return runManagedLocalNATSAuthorization(ctx, input, output)
 	}
-	for _, path := range []string{managedCertificateRoot, "/etc/serviceradar/agent.json", "/etc/serviceradar/certs/root.pem"} {
-		if err := validatePrivilegedAddonRootOwnership(filepath.Dir(path)); err != nil {
-			return err
-		}
-	}
-	binding, err := readManagedHostConfig()
-	if err != nil {
-		return err
-	}
-	roots, err := readManagedTrustedFile("/etc/serviceradar/certs/root.pem")
+	binding, roots, err := loadManagedHostTrust(managedHostConfigRoot)
 	if err != nil {
 		return err
 	}
@@ -159,21 +150,8 @@ func RunManagedCertificateUpdater(ctx context.Context, action string, input io.R
 }
 
 func readManagedHostConfig() (ServerConfig, error) {
-	var binding ServerConfig
-	if err := validatePrivilegedAddonRootOwnership("/etc/serviceradar"); err != nil {
-		return binding, err
-	}
-	config, err := readManagedTrustedFile("/etc/serviceradar/agent.json")
-	if err != nil {
-		return binding, err
-	}
-	if err := json.Unmarshal(config, &binding); err != nil {
-		return binding, fmt.Errorf("read installed agent identity: %w", err)
-	}
-	if binding.AgentID == "" || binding.Partition == "" {
-		return binding, fmt.Errorf("%w: installed agent identity or partition is missing", errManagedCertificates)
-	}
-	return binding, nil
+	binding, _, err := loadManagedHostTrust(managedHostConfigRoot)
+	return binding, err
 }
 
 func readManagedTrustedFile(path string) ([]byte, error) {

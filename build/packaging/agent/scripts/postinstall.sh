@@ -42,8 +42,9 @@ if ! id -u serviceradar >/dev/null 2>&1; then
     useradd --system --no-create-home --shell /usr/sbin/nologin -g serviceradar serviceradar
 fi
 
-# Create required directories
-mkdir -p /etc/serviceradar
+# Create required directories. /etc/serviceradar stays root-owned so the
+# service account cannot replace the host-trust enrollment record.
+lock_runtime_dir /etc/serviceradar 0755
 mkdir -p /var/lib/serviceradar/cache
 mkdir -p /usr/lib/serviceradar/addons
 chmod 755 /usr/lib/serviceradar/addons
@@ -77,9 +78,19 @@ mkdir -p /etc/serviceradar/sidecars
 # Create checkers/sweep directory if it doesnt already exist
 mkdir -p /etc/serviceradar/checkers/sweep
 
-# Set permissions
+# Set permissions. agent.json and the certificate directory stay service-owned
+# so the agent can renew its runtime certificate. host-trust is the root-owned
+# identity and CA the privileged helper reads, and this upgrade must not chown it.
 if [ -f /etc/serviceradar/agent.json ]; then
     chown -h serviceradar:serviceradar /etc/serviceradar/agent.json
+fi
+if [ -L /etc/serviceradar/host-trust ]; then
+    echo "Error: refusing symlinked /etc/serviceradar/host-trust" >&2
+    exit 1
+fi
+if [ -d /etc/serviceradar/host-trust ]; then
+    chown -h root:root /etc/serviceradar/host-trust
+    chmod 0755 /etc/serviceradar/host-trust
 fi
 chown -R serviceradar:serviceradar /etc/serviceradar/checkers
 chown -R serviceradar:serviceradar /etc/serviceradar/sidecars

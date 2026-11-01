@@ -184,6 +184,67 @@ func TestEnrollAgentIgnoresLegacyNATSCredsFromBundle(t *testing.T) {
 	assert.NotContains(t, config, "nats_url")
 }
 
+func TestEnrollAgentPublishesRootTrustOutsideRenewableCerts(t *testing.T) {
+	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "agent.json")
+	certDir := filepath.Join(dir, "certs")
+	ca := []byte("-----BEGIN CERTIFICATE-----\nU1lOVEhFVElD\n-----END CERTIFICATE-----\n")
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, err := testAgentBundleWith(t, withAgentConfig(`{
+  "agent_id": "agent-enrolled",
+  "partition": "edge-a",
+  "host_ip": "203.0.113.10"
+}`), withCAChain(ca)).WriteTo(w)
+		if !assert.NoError(t, err) {
+			return
+		}
+	}))
+	defer server.Close()
+
+	token, err := EncodeToken("pkg-trust", "download-token", server.URL)
+	require.NoError(t, err)
+	require.NoError(t, EnrollAgentFromToken(context.Background(), EnrollOptions{
+		Token:          token,
+		ConfigPath:     configPath,
+		CertDir:        certDir,
+		HTTPClient:     server.Client(),
+		RestartService: noopRestartService,
+	}))
+
+	identity, err := os.ReadFile(filepath.Join(dir, "host-trust", "identity.json"))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"agent_id":"agent-enrolled","partition":"edge-a"}`, string(identity))
+	trustCA, err := os.ReadFile(filepath.Join(dir, "host-trust", "ca.pem"))
+	require.NoError(t, err)
+	assert.Equal(t, ca, trustCA)
+	runtimeCA, err := os.ReadFile(filepath.Join(certDir, "ca-chain.pem"))
+	require.NoError(t, err)
+	assert.Equal(t, ca, runtimeCA)
+	_, err = os.Stat(filepath.Join(certDir, "root.pem"))
+	assert.True(t, os.IsNotExist(err))
+
+	require.NoError(t, os.WriteFile(configPath, []byte(`{"agent_id":"replaced","partition":"replaced"}`), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(certDir, "ca-chain.pem"), []byte("replaced-ca"), 0o644))
+	require.NoError(t, os.WriteFile(filepath.Join(certDir, "component.pem"), []byte("renewed-cert"), 0o644))
+	identity, err = os.ReadFile(filepath.Join(dir, "host-trust", "identity.json"))
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"agent_id":"agent-enrolled","partition":"edge-a"}`, string(identity))
+	trustCA, err = os.ReadFile(filepath.Join(dir, "host-trust", "ca.pem"))
+	require.NoError(t, err)
+	assert.Equal(t, ca, trustCA)
+
+	info, err := os.Stat(filepath.Join(dir, "host-trust", "identity.json"))
+	require.NoError(t, err)
+	assert.Equal(t, os.FileMode(0o644), info.Mode().Perm())
+	dirInfo, err := os.Stat(certDir)
+	require.NoError(t, err)
+	assert.True(t, dirInfo.IsDir())
+	assert.NotEqual(t, os.FileMode(0), dirInfo.Mode().Perm()&0o200)
+}
+
 func TestEnrollAgentCoreHostOverridesEmbeddedTokenURL(t *testing.T) {
 	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
 	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
@@ -357,8 +418,14 @@ func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {
 type agentBundleOpt func(*agentBundleSpec)
 
 type agentBundleSpec struct {
+	config    string
+	caChain   []byte
 	overrides string
 	natsCreds string
+}
+
+func withAgentConfig(body string) agentBundleOpt {
+	return func(s *agentBundleSpec) { s.config = body }
 }
 
 func withOverrides(content string) agentBundleOpt {
@@ -367,6 +434,10 @@ func withOverrides(content string) agentBundleOpt {
 
 func withNATSCreds(content string) agentBundleOpt {
 	return func(s *agentBundleSpec) { s.natsCreds = content }
+}
+
+func withCAChain(body []byte) agentBundleOpt {
+	return func(s *agentBundleSpec) { s.caChain = body }
 }
 
 func testAgentBundleWith(t *testing.T, options ...agentBundleOpt) *bytes.Reader {
@@ -394,10 +465,18 @@ func testAgentBundleWith(t *testing.T, options ...agentBundleOpt) *bytes.Reader 
 		require.NoError(t, err)
 	}
 
-	writeBundleFile("edge-package-test/config/config.json", []byte(`{"agent_id":"agent-1"}`))
+	config := spec.config
+	if config == "" {
+		config = `{"agent_id":"agent-1"}`
+	}
+	writeBundleFile("edge-package-test/config/config.json", []byte(config))
 	writeBundleFile("edge-package-test/certs/component.pem", []byte("cert"))
 	writeBundleFile("edge-package-test/certs/component-key.pem", []byte("key"))
-	writeBundleFile("edge-package-test/certs/ca-chain.pem", []byte("ca"))
+	caChain := spec.caChain
+	if len(caChain) == 0 {
+		caChain = []byte("ca")
+	}
+	writeBundleFile("edge-package-test/certs/ca-chain.pem", caChain)
 
 	if spec.overrides != "" {
 		writeBundleFile(

@@ -4,6 +4,7 @@ go_library(
     name = "edgeonboarding",
     srcs = [
         "agent_enroll.go",
+        "host_trust.go",
         "bundle_request.go",
         "collector_enroll.go",
         "http_client.go",

@@ -94,7 +94,25 @@ if [ $1 -eq 1 ]; then
 else
     systemctl try-restart serviceradar-agent.service >/dev/null 2>&1 || :
 fi
-chown -R serviceradar:serviceradar /etc/serviceradar
+# Keep /etc/serviceradar and host-trust root-owned. Recursive chown would let
+# the service account rewrite the identity and CA the privileged helper trusts.
+if [ -d /etc/serviceradar ] && [ ! -L /etc/serviceradar ]; then
+    chown -h root:root /etc/serviceradar
+    chmod 0755 /etc/serviceradar
+fi
+if [ -f /etc/serviceradar/agent.json ] && [ ! -L /etc/serviceradar/agent.json ]; then
+    chown -h serviceradar:serviceradar /etc/serviceradar/agent.json
+fi
+if [ -d /etc/serviceradar/host-trust ] && [ ! -L /etc/serviceradar/host-trust ]; then
+    chown -h root:root /etc/serviceradar/host-trust
+    chmod 0755 /etc/serviceradar/host-trust
+fi
+if [ -d /etc/serviceradar/checkers ] && [ ! -L /etc/serviceradar/checkers ]; then
+    chown -R serviceradar:serviceradar /etc/serviceradar/checkers
+fi
+if [ -d /etc/serviceradar/sidecars ] && [ ! -L /etc/serviceradar/sidecars ]; then
+    chown -R serviceradar:serviceradar /etc/serviceradar/sidecars
+fi
 chmod 755 /usr/local/bin/serviceradar-agent
 chown root:serviceradar /usr/local/bin/serviceradar-agent-updater
 chmod 4750 /usr/local/bin/serviceradar-agent-updater
