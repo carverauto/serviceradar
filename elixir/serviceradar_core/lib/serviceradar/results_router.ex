@@ -141,9 +141,10 @@ defmodule ServiceRadar.ResultsRouter do
     {:noreply, %{state | active: Map.put(active, :result, result)}}
   end
 
-  def handle_info({:service_batch_timeout, pid}, %{active: %{pid: pid}} = state) do
+  def handle_info({:service_batch_timeout, pid}, %{active: %{pid: pid} = active} = state) do
+    emit(:timeout, %{count: 1}, %{reason: :execution_timeout})
     Process.exit(pid, :kill)
-    {:noreply, state}
+    {:noreply, %{state | active: Map.put(active, :timed_out, true)}}
   end
 
   def handle_info({:service_batch_timeout, _}, state), do: {:noreply, state}
@@ -154,8 +155,19 @@ defmodule ServiceRadar.ResultsRouter do
 
     if reason == :normal and active.result == :ok do
       ids = Enum.map(active.items, &elem(&1, 0))
+
+      emit(
+        :completion,
+        %{count: length(ids), outcome: :accepted},
+        %{result: :committed, outcome: :accepted}
+      )
+
       {:noreply, state |> release(ids) |> maybe_flush()}
     else
+      if Map.get(active, :timed_out) != true do
+        emit(:crash, %{count: 1}, %{reason: :worker_crash})
+      end
+
       Logger.warning("Service-state batch failed; retaining bounded batch for retry",
         reason: inspect(reason),
         result: inspect(active.result)

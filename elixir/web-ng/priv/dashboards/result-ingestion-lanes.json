@@ -11,7 +11,7 @@
   "panels": [
     {
       "title": "Pending items",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_pending_count time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_pending_count time:last_1h bucket:1m agg:max series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -22,7 +22,7 @@
     },
     {
       "title": "In-flight items",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_in_flight_count time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_in_flight_count time:last_1h bucket:1m agg:max series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -33,7 +33,7 @@
     },
     {
       "title": "Pending bytes",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_pending_bytes time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_pending_bytes time:last_1h bucket:1m agg:max series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -45,7 +45,7 @@
     },
     {
       "title": "In-flight bytes",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_in_flight_bytes time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_in_flight_bytes time:last_1h bucket:1m agg:max series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -57,7 +57,7 @@
     },
     {
       "title": "Admitted",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_admitted time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_admitted time:last_1h bucket:1m agg:sum series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -68,7 +68,7 @@
     },
     {
       "title": "Rejected",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_rejected time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_rejected time:last_1h bucket:1m agg:sum series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -79,7 +79,7 @@
     },
     {
       "title": "Accepted completions",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_terminals_accepted time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_terminals_accepted time:last_1h bucket:1m agg:sum series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -90,7 +90,7 @@
     },
     {
       "title": "Not-accepted completions",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_terminals_not_accepted time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_terminals_not_accepted time:last_1h bucket:1m agg:sum series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -101,7 +101,7 @@
     },
     {
       "title": "Crashes",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_crash time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_crash time:last_1h bucket:1m agg:sum series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -112,7 +112,7 @@
     },
     {
       "title": "Incomplete sync runs",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_incomplete_run time:last_1h bucket:1m agg:sum series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_events_incomplete_run time:last_1h bucket:1m agg:sum series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -123,7 +123,7 @@
     },
     {
       "title": "Queue wait (ms)",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_queue_wait_ms time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_queue_wait_ms time:last_1h bucket:1m agg:avg series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -135,7 +135,7 @@
     },
     {
       "title": "Execution (ms)",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_duration_ms time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_duration_ms time:last_1h bucket:1m agg:avg series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
@@ -147,7 +147,7 @@
     },
     {
       "title": "Acknowledgement (ms)",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_acknowledgement_ms time:last_1h bucket:1m agg:avg series:tags.lane limit:500",
+      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion metric_name:result_ingestion_acknowledgement_ms time:last_1h bucket:1m agg:avg series:tags.lane sort:time:desc limit:900",
       "visual_type": "line",
       "data_binding": {},
       "display_config": {

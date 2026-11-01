@@ -256,8 +256,12 @@ in-memory coordinator state:
   `ServiceRadarWebNG.Dashboards.SystemReports` from
   `elixir/web-ng/priv/dashboards/result-ingestion-lanes.json`. Each chart is one
   `in:timeseries_metrics metric_type:core.result_ingestion` metric split by the
-  lane tag (`series:tags.lane`). Depth, queue-wait, execution
-  (`result_ingestion_duration_ms`), and acknowledgement gauges use `agg:avg`.
+  lane tag (`series:tags.lane`). Occupancy gauges for pending and in-flight
+  counts and bytes use `agg:max`, so the line is the busiest core. Queue-wait,
+  execution (`result_ingestion_duration_ms`), and acknowledgement gauges use
+  `agg:avg`. Each chart uses `sort:time:desc` and a limit of one grouped row
+  per lane per minute for the result-ingestion lanes and the alert lanes that
+  share `core.result_ingestion`, so the newest hour is the part that is kept.
   Admission, rejection, terminal, crash, and incomplete-run counters use
   `agg:sum`, so a one-minute bucket does not average away the 30-second deltas.
   Lane, sweep, and sync all publish execution as `duration_ms`. Acknowledgement

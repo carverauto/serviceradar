@@ -226,12 +226,19 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
 
       # Names RuntimeMetrics publishes on metrics.ingestion_lanes. One metric per
       # chart with series:tags.lane, because a metric_name series averages every
-      # lane into a single line. Counter deltas are summed; gauges are averaged.
-      gauges = [
+      # lane into a single line. Occupancy uses max so one full core stays
+      # visible. Latency gauges stay averages. Counter deltas are summed.
+      # SRQL keeps the oldest grouped rows unless the sort is descending, and a
+      # last-hour 1m chart is one row per lane: 11 result lanes plus the 4 alert
+      # lanes that share core.result_ingestion.
+      occupancy = [
         "result_ingestion_pending_count",
         "result_ingestion_in_flight_count",
         "result_ingestion_pending_bytes",
-        "result_ingestion_in_flight_bytes",
+        "result_ingestion_in_flight_bytes"
+      ]
+
+      latency = [
         "result_ingestion_queue_wait_ms",
         "result_ingestion_duration_ms",
         "result_ingestion_acknowledgement_ms"
@@ -253,13 +260,18 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
           assert query[:entity] == "timeseries_metrics"
           assert query[:metric_type] == "core.result_ingestion"
           assert query[:series] == "tags.lane"
+          assert query[:time] == "last_1h"
+          assert query[:bucket] == "1m"
+          assert String.ends_with?(query[:sort], ":desc")
+          assert String.to_integer(query[:limit]) >= (11 + 4) * 60
           assert is_binary(query[:metric_name])
 
           {query[:metric_name], query[:agg]}
         end)
 
-      assert Enum.sort(Map.keys(by_metric)) == Enum.sort(gauges ++ counters)
-      assert Enum.all?(gauges, &(by_metric[&1] == "avg"))
+      assert Enum.sort(Map.keys(by_metric)) == Enum.sort(occupancy ++ latency ++ counters)
+      assert Enum.all?(occupancy, &(by_metric[&1] == "max"))
+      assert Enum.all?(latency, &(by_metric[&1] == "avg"))
       assert Enum.all?(counters, &(by_metric[&1] == "sum"))
     end
   end
