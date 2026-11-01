@@ -462,12 +462,17 @@ Use complete terminal ICMP/TCP host windows for this first canary. Partial-mode
 and MTR windows are not supported by this projection yet. Keep the issuer key
 and agent network scope fixed while records remain in the spool: historical
 key/scope trust and audit publication are later milestones. The sweep sender
-persists terminal resolutions. It reclaims a fully drained segment only when
-durable accepted dispositions cover every retained sequence and match each
-record's event identity. Unresolved and rejected records stay on disk, and
-partial-tail compaction is not implemented. Reaching the configured byte bound
-still stops further appends. Monitor the spool until the farm01 restart drill:
-a segment that is not fully accepted is retained.
+persists terminal resolutions. It reclaims a fully drained segment when durable
+dispositions cover every retained sequence. Permanently rejected records are
+copied into a bounded local quarantine in the lane directory before that
+reclaim; the policy, including eviction when the quarantine is full, is the
+interim local quarantine in
+`openspec/changes/unify-sweep-results-proto/design.md`. Retryable and
+unspecified dispositions, and unresolved records, stay on the segment.
+Partial-tail compaction is not implemented. Reaching the configured byte bound
+still stops further appends. Quarantine occupancy, permanent rejections, and
+quarantine drops are counted on the agent's `/metrics` endpoint beside the
+existing unresolved-byte and age gauges.
 An interrupted run remains incomplete and is not rescanned once the agent has
 durably claimed its first append attempt, even if that first append fails.
 
@@ -482,7 +487,7 @@ canary agent. To roll back, pause new leased production and keep the compatible
 agent and its PVC and spool identity. Records already spooled stay compressed.
 Drain that compressed backlog before reverting core or the gateways. Do not
 downgrade an agent that has reclaimed its spool unless a separately supported
-reverse migration exists: accepted-drain reclamation turns `lane.seg` into a
+reverse migration exists: reclamation turns `lane.seg` into a
 symlink to a data directory, and older agent binaries refuse to open that
 layout, which stops backlog delivery. Broad mixed-version rollout is not
 certified until codec negotiation exists.

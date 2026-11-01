@@ -7,6 +7,7 @@ go_library(
         "evidence.go",
         "health.go",
         "lanes.go",
+        "quarantine.go",
         "reclaim.go",
         "recover.go",
         "reserve.go",
@@ -30,6 +31,7 @@ go_test(
     srcs = [
         "health_test.go",
         "lanes_test.go",
+        "quarantine_test.go",
         "reserve_test.go",
         "restart_test.go",
         "segments_test.go",
