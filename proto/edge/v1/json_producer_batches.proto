@@ -1,0 +1,1259 @@
+// Copyright 2026 Carver Automation Corporation.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+syntax = "proto3";
+
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+// =============================================================================
+// 1. Mapper Results Typed Batch Messages
+// =============================================================================
+//
+// Typed protobuf batch messages for the SNMP/LLDP/CDP/UniFi mapper producer
+// (`go/pkg/agent/mapper_service.go`, `go/pkg/mapper/types.go`,
+// `go/pkg/mapper/discovery_topology_observation.go`) and Elixir mapper results
+// ingestor (`ServiceRadar.NetworkDiscovery.MapperResultsIngestor` and
+// `ServiceRadar.Inventory.Sync.Normalize`).
+//
+// Replaces the legacy JSON array payloads carried on `StatusResponse` with
+// `service_type: "mapper"` (`service_name` in `{"mapper_devices",
+// "mapper_interfaces", "mapper_topology"}`).
+
+// MapperDeviceBatchV1 carries a batch of discovered devices from a mapper run.
+// Replaces the JSON array payload emitted under `service_name: "mapper_devices"`.
+message MapperDeviceBatchV1 {
+  // Agent identifier stamped across the batch (`agent_id`).
+  string agent_id = 1;
+  // Gateway identifier stamped across the batch (`gateway_id`).
+  string gateway_id = 2;
+  // Network partition identifier (`partition`, defaults to `"default"`).
+  string partition = 3;
+  // Discovered device records in this batch.
+  repeated MapperDeviceRecordV1 devices = 4;
+}
+
+// MapperDeviceRecordV1 maps 100% of fields emitted per device by
+// `buildMapperResultsPayload` + `buildMapperDeviceMetadata` in
+// `go/pkg/agent/mapper_service.go` and consumed by
+// `ServiceRadar.NetworkDiscovery.MapperResultsIngestor.ingest_updates/2` and
+// `ServiceRadar.Inventory.Sync.Normalize`.
+message MapperDeviceRecordV1 {
+  // Canonical device identifier (`device_id`).
+  string device_id = 1;
+  // Primary IPv4/IPv6 management address (`ip`).
+  string ip = 2;
+  // Discovery source label (`source`, typically `"mapper"`).
+  string source = 3;
+  // Observation timestamp in Unix epoch nanoseconds (`timestamp`, RFC3339Nano in JSON).
+  int64 timestamp_unix_nano = 4;
+  // Availability flag (`is_available`, always true for discovered devices).
+  bool is_available = 5;
+  // Resolved or SNMP-reported hostname (`hostname`).
+  string hostname = 6;
+  // Primary MAC address string (`mac`).
+  string mac = 7;
+  // Originating agent identifier (`agent_id`).
+  string agent_id = 8;
+  // Originating gateway identifier (`gateway_id`).
+  string gateway_id = 9;
+  // Partition identifier (`partition`).
+  string partition = 10;
+
+  // Structured SNMP fingerprint evidence (`snmp_fingerprint`).
+  MapperSnmpFingerprintV1 snmp_fingerprint = 11;
+
+  // Promoted metadata / SNMP system & bridge fields emitted in `metadata` by
+  // `buildMapperDeviceMetadata` (`go/pkg/agent/mapper_service.go`) and/or
+  // promoted by `Normalize.merge_snmp_fingerprint_metadata`:
+  //
+  // Originating sync/discovery job identifier (`metadata["sync_service_id"]`).
+  string sync_service_id = 12;
+  // MAC provenance classification (`metadata["identity_mac_kind"]`, e.g.
+  // `"management_interface"`, `"chassis_base"`).
+  string identity_mac_kind = 13;
+  // SNMPv2-MIB::sysDescr.0 (`metadata["sys_descr"]`).
+  string sys_descr = 14;
+  // Normalized SNMP description alias (`metadata["snmp_description"]`).
+  string snmp_description = 15;
+  // SNMPv2-MIB::sysObjectID.0 (`metadata["sys_object_id"]`).
+  string sys_object_id = 16;
+  // SNMPv2-MIB::sysName.0 (`metadata["sys_name"]`).
+  string sys_name = 17;
+  // Normalized SNMP system name alias (`metadata["snmp_name"]`).
+  string snmp_name = 18;
+  // SNMPv2-MIB::sysContact.0 (`metadata["sys_contact"]`).
+  string sys_contact = 19;
+  // Normalized system owner alias (`metadata["sys_owner"]`).
+  string sys_owner = 20;
+  // Normalized SNMP owner alias (`metadata["snmp_owner"]`).
+  string snmp_owner = 21;
+  // SNMPv2-MIB::sysLocation.0 (`metadata["sys_location"]`).
+  string sys_location = 22;
+  // Normalized SNMP location alias (`metadata["snmp_location"]`).
+  string snmp_location = 23;
+  // IP-MIB::ipForwarding.0 (`metadata["ip_forwarding"]`, 1 = forwarding, 2 = not forwarding).
+  int32 ip_forwarding = 24;
+  // BRIDGE-MIB::dot1dBaseBridgeAddress (`metadata["bridge_base_mac"]`).
+  string bridge_base_mac = 25;
+  // System uptime in seconds (`metadata["uptime"]` from `device.Uptime` Duration).
+  int64 uptime = 26;
+  // First seen timestamp in Unix epoch nanoseconds (`metadata["first_seen"]`, RFC3339 in JSON).
+  int64 first_seen_unix_nano = 27;
+  // Last seen timestamp in Unix epoch nanoseconds (`metadata["last_seen"]`, RFC3339 in JSON).
+  int64 last_seen_unix_nano = 28;
+
+  // Additional device metadata key-value pairs (`metadata` map).
+  map<string, string> metadata = 29;
+}
+
+// MapperSnmpFingerprintV1 maps `mapper.SNMPFingerprint` (`snmp_fingerprint`).
+message MapperSnmpFingerprintV1 {
+  // System MIB fingerprint (`system`).
+  MapperSnmpSystemFingerprintV1 system = 1;
+  // Bridge MIB fingerprint (`bridge`).
+  MapperSnmpBridgeFingerprintV1 bridge = 2;
+  // Q-BRIDGE / VLAN MIB fingerprint (`vlan`).
+  MapperSnmpVlanFingerprintV1 vlan = 3;
+  // IF-MIB interface summary (`interface_summary`).
+  MapperSnmpInterfaceSummaryV1 interface_summary = 4;
+  // Per-subtree extraction errors (`extraction_errors`).
+  map<string, string> extraction_errors = 5;
+}
+
+// MapperSnmpSystemFingerprintV1 maps `mapper.SNMPSystemFingerprint` (`snmp_fingerprint.system`).
+message MapperSnmpSystemFingerprintV1 {
+  // SNMPv2-MIB::sysName.0 (`sys_name`).
+  string sys_name = 1;
+  // SNMPv2-MIB::sysDescr.0 (`sys_descr`).
+  string sys_descr = 2;
+  // SNMPv2-MIB::sysObjectID.0 (`sys_object_id`).
+  string sys_object_id = 3;
+  // SNMPv2-MIB::sysContact.0 (`sys_contact`).
+  string sys_contact = 4;
+  // SNMPv2-MIB::sysLocation.0 (`sys_location`).
+  string sys_location = 5;
+  // IP-MIB::ipForwarding.0 (`ip_forwarding`).
+  int32 ip_forwarding = 6;
+}
+
+// MapperSnmpBridgeFingerprintV1 maps `mapper.SNMPBridgeFingerprint` (`snmp_fingerprint.bridge`).
+message MapperSnmpBridgeFingerprintV1 {
+  // BRIDGE-MIB::dot1dBaseBridgeAddress (`bridge_base_mac`).
+  string bridge_base_mac = 1;
+  // BRIDGE-MIB::dot1dBaseNumPorts (`bridge_port_count`).
+  int32 bridge_port_count = 2;
+  // Count of ports in STP forwarding state (`stp_forwarding_port_count`).
+  int32 stp_forwarding_port_count = 3;
+}
+
+// MapperSnmpVlanFingerprintV1 maps `mapper.SNMPVLANFingerprint` (`snmp_fingerprint.vlan`).
+message MapperSnmpVlanFingerprintV1 {
+  // Distinct VLAN IDs observed on the device (`vlan_ids_seen`).
+  repeated int32 vlan_ids_seen = 1;
+  // Distribution of port PVIDs (`pvid_distribution`).
+  repeated MapperSnmpVlanPvidCountV1 pvid_distribution = 2;
+  // Per-VLAN egress/untagged port bitmaps (`port_evidence`).
+  repeated MapperSnmpVlanPortEvidenceV1 port_evidence = 3;
+}
+
+// MapperSnmpVlanPvidCountV1 maps `mapper.SNMPVLANPVIDCount` (`pvid_distribution[]`).
+message MapperSnmpVlanPvidCountV1 {
+  // Port VLAN ID (`pvid`).
+  int32 pvid = 1;
+  // Number of bridge ports assigned this PVID (`count`).
+  int32 count = 2;
+}
+
+// MapperSnmpVlanPortEvidenceV1 maps `mapper.SNMPVLANPortEvidence` (`port_evidence[]`).
+message MapperSnmpVlanPortEvidenceV1 {
+  // VLAN identifier (`vlan_id`).
+  int32 vlan_id = 1;
+  // Hex-encoded egress port bitmap (`egress_ports_hex`).
+  string egress_ports_hex = 2;
+  // Hex-encoded untagged port bitmap (`untagged_ports_hex`).
+  string untagged_ports_hex = 3;
+}
+
+// MapperSnmpInterfaceSummaryV1 maps `mapper.SNMPInterfaceSummary` (`snmp_fingerprint.interface_summary`).
+message MapperSnmpInterfaceSummaryV1 {
+  // Total interface count (`interface_count`).
+  int32 interface_count = 1;
+  // Histogram of interfaces by IANAifType (`if_type_counts`).
+  repeated MapperSnmpIfTypeCountV1 if_type_counts = 2;
+  // Count of interfaces with bridge-like names (`bridge_like_name_count`).
+  int32 bridge_like_name_count = 3;
+  // Count of interfaces with wireless-like names (`wireless_like_name_count`).
+  int32 wireless_like_name_count = 4;
+}
+
+// MapperSnmpIfTypeCountV1 maps `mapper.SNMPIfTypeCount` (`if_type_counts[]`).
+message MapperSnmpIfTypeCountV1 {
+  // IANAifType numeric value (`if_type`).
+  int32 if_type = 1;
+  // Number of interfaces with this `if_type` (`count`).
+  int32 count = 2;
+}
+
+// MapperInterfaceBatchV1 carries a batch of discovered network interfaces from a mapper run.
+// Replaces the JSON array payload emitted under `service_name: "mapper_interfaces"`.
+message MapperInterfaceBatchV1 {
+  // Agent identifier stamped across the batch (`agent_id`).
+  string agent_id = 1;
+  // Gateway identifier stamped across the batch (`gateway_id`).
+  string gateway_id = 2;
+  // Network partition identifier (`partition`).
+  string partition = 3;
+  // Discovered interface records in this batch.
+  repeated MapperInterfaceRecordV1 interfaces = 4;
+}
+
+// MapperInterfaceRecordV1 maps 100% of fields emitted per interface by
+// `PublishInterface` (`go/pkg/agent/mapper_service.go`) and `mapper.DiscoveredInterface`
+// (`go/pkg/mapper/types.go`), and consumed by
+// `ServiceRadar.NetworkDiscovery.MapperResultsIngestor.normalize_interface/1`.
+message MapperInterfaceRecordV1 {
+  // Resolved canonical device ID when known (`device_id`).
+  string device_id = 1;
+  // Management IP address of the parent device (`device_ip`).
+  string device_ip = 2;
+  // IF-MIB::ifIndex (`if_index`).
+  int32 if_index = 3;
+  // IF-MIB::ifName (`if_name`).
+  string if_name = 4;
+  // IF-MIB::ifDescr (`if_descr`).
+  string if_descr = 5;
+  // IF-MIB::ifAlias (`if_alias`).
+  string if_alias = 6;
+  // Interface speed in bits per second (`if_speed`).
+  uint64 if_speed = 7;
+  // Explicit high-speed rate in bits per second (`speed_bps`, optional in ingestor).
+  optional uint64 speed_bps = 8;
+  // Physical/MAC address of the interface (`if_phys_address`).
+  string if_phys_address = 9;
+  // IP addresses assigned to the interface (`ip_addresses`).
+  repeated string ip_addresses = 10;
+  // IF-MIB::ifAdminStatus (`if_admin_status`).
+  int32 if_admin_status = 11;
+  // IF-MIB::ifOperStatus (`if_oper_status`).
+  int32 if_oper_status = 12;
+  // IF-MIB::ifType (`if_type`).
+  int32 if_type = 13;
+  // Maximum transmission unit in bytes (`mtu`, optional in ingestor).
+  optional int32 mtu = 14;
+  // Duplex state when reported (`duplex`, e.g. `"full"`, `"half"`).
+  string duplex = 15;
+  // Discovery source (`source`, e.g. `"snmp"`, `"unifi-api"`).
+  string source = 16;
+  // Interface metadata key-value pairs (`metadata`, including UniFi controller
+  // keys `unifi_api_urls`, `unifi_api_names`, `controller_url`, `controller_name`,
+  // `site_id`, `site_name`, `unifi_device_id` and IP CIDR list `ip_cidrs`).
+  map<string, string> metadata = 17;
+  // Telemetry metrics discovered as supported on this interface (`available_metrics`).
+  repeated MapperInterfaceMetricV1 available_metrics = 18;
+  // Observation timestamp in Unix epoch nanoseconds (`timestamp`).
+  int64 timestamp_unix_nano = 19;
+  // Originating agent identifier (`agent_id`).
+  string agent_id = 20;
+  // Originating gateway identifier (`gateway_id`).
+  string gateway_id = 21;
+  // Network partition identifier (`partition`).
+  string partition = 22;
+}
+
+// MapperInterfaceMetricV1 maps `mapper.InterfaceMetric` (`available_metrics[]`).
+message MapperInterfaceMetricV1 {
+  // Human-readable metric name (`name`).
+  string name = 1;
+  // 32-bit SNMP OID (`oid`).
+  string oid = 2;
+  // Metric data type (`data_type`, e.g. `"counter"`, `"gauge"`).
+  string data_type = 3;
+  // True if a 64-bit counter OID (ifXTable) is supported (`supports_64bit`).
+  bool supports_64bit = 4;
+  // 64-bit SNMP OID when `supports_64bit` is true (`oid_64bit`).
+  string oid_64bit = 5;
+  // Metric category (`category`, e.g. `"traffic"`, `"errors"`, `"packets"`, `"environmental"`, `"status"`).
+  string category = 6;
+  // Measurement unit (`unit`, e.g. `"bytes"`, `"packets"`, `"errors"`, `"celsius"`, `"rpm"`, `"percent"`).
+  string unit = 7;
+}
+
+// MapperTopologyBatchV1 carries a batch of discovered topology links from a mapper run.
+// Replaces the JSON array payload emitted under `service_name: "mapper_topology"`.
+message MapperTopologyBatchV1 {
+  // Agent identifier stamped across the batch (`agent_id`).
+  string agent_id = 1;
+  // Gateway identifier stamped across the batch (`gateway_id`).
+  string gateway_id = 2;
+  // Network partition identifier (`partition`).
+  string partition = 3;
+  // Discovered topology link records in this batch.
+  repeated MapperTopologyLinkRecordV1 links = 4;
+}
+
+// MapperTopologyLinkRecordV1 maps 100% of fields emitted per topology link by
+// `PublishTopologyLink` (`go/pkg/agent/mapper_service.go`) and `mapper.TopologyLink`
+// (`go/pkg/mapper/types.go`, `go/pkg/mapper/discovery_topology_observation.go`),
+// and consumed by `ServiceRadar.NetworkDiscovery.MapperResultsIngestor.normalize_topology/1`.
+message MapperTopologyLinkRecordV1 {
+  // Discovery protocol (`protocol`, e.g. `"LLDP"`, `"CDP"`, `"UniFi-API"`).
+  string protocol = 1;
+  // Local device management IP (`local_device_ip`).
+  string local_device_ip = 2;
+  // Local canonical device ID (`local_device_id`).
+  string local_device_id = 3;
+  // Local SNMP ifIndex (`local_if_index`).
+  int32 local_if_index = 4;
+  // Local interface name (`local_if_name`).
+  string local_if_name = 5;
+  // Neighbor canonical device ID when known (`neighbor_device_id`).
+  string neighbor_device_id = 6;
+  // Neighbor chassis ID (`neighbor_chassis_id`).
+  string neighbor_chassis_id = 7;
+  // Neighbor port ID (`neighbor_port_id`).
+  string neighbor_port_id = 8;
+  // Neighbor port description (`neighbor_port_descr`).
+  string neighbor_port_descr = 9;
+  // Neighbor system name (`neighbor_system_name`).
+  string neighbor_system_name = 10;
+  // Neighbor management IP address (`neighbor_mgmt_addr`).
+  string neighbor_mgmt_addr = 11;
+  // Structured neighbor identity (`neighbor_identity`).
+  MapperNeighborIdentityV1 neighbor_identity = 12;
+  // Canonical v2 topology observation envelope (`observation`).
+  MapperTopologyObservationV2 observation = 13;
+  // Top-level confidence tier (`confidence_tier`, promoted from `observation.confidence_tier` or `metadata`).
+  string confidence_tier = 14;
+  // Top-level confidence score (`confidence_score`, promoted from `observation.confidence_score`).
+  int32 confidence_score = 15;
+  // Top-level confidence reason (`confidence_reason`, promoted from `observation.confidence_reason` or `metadata`).
+  string confidence_reason = 16;
+  // Link metadata key-value pairs (`metadata`).
+  map<string, string> metadata = 17;
+  // Observation timestamp in Unix epoch nanoseconds (`timestamp`).
+  int64 timestamp_unix_nano = 18;
+  // Originating agent identifier (`agent_id`).
+  string agent_id = 19;
+  // Originating gateway identifier (`gateway_id`).
+  string gateway_id = 20;
+  // Network partition identifier (`partition`).
+  string partition = 21;
+}
+
+// MapperNeighborIdentityV1 maps `mapper.TopologyNeighborIdentity` (`neighbor_identity`).
+message MapperNeighborIdentityV1 {
+  // Neighbor management IP (`management_ip`).
+  string management_ip = 1;
+  // Neighbor canonical device ID (`device_id`).
+  string device_id = 2;
+  // Neighbor chassis ID (`chassis_id`).
+  string chassis_id = 3;
+  // Neighbor port ID (`port_id`).
+  string port_id = 4;
+  // Neighbor port description (`port_descr`).
+  string port_descr = 5;
+  // Neighbor system name (`system_name`).
+  string system_name = 6;
+}
+
+// MapperTopologyObservationV2 maps `mapper.DiscoveryTopologyObservationV2` (`observation`).
+message MapperTopologyObservationV2 {
+  // Schema contract version (`contract_version`, e.g. `"topology_observation.v2"`).
+  string contract_version = 1;
+  // Observation type (`observation_type`, e.g. `"neighbor_link"`).
+  string observation_type = 2;
+  // Source protocol (`source_protocol`, e.g. `"lldp"`, `"cdp"`, `"unifi-api"`).
+  string source_protocol = 3;
+  // Source adapter identifier (`source_adapter`, e.g. `"snmp_lldp"`, `"unifi_uplink"`).
+  string source_adapter = 4;
+  // Evidence classification (`evidence_class`, e.g. `"direct-physical"`, `"inferred-segment"`).
+  string evidence_class = 5;
+  // Confidence tier (`confidence_tier`, e.g. `"high"`, `"medium"`, `"low"`).
+  string confidence_tier = 6;
+  // Numeric confidence score (`confidence_score`).
+  int32 confidence_score = 7;
+  // Confidence classification reason (`confidence_reason`).
+  string confidence_reason = 8;
+  // Observation Unix epoch seconds (`observed_at_unix`).
+  int64 observed_at_unix = 9;
+  // Discovery run/job identifier (`discovery_id`).
+  string discovery_id = 10;
+  // Local/source endpoint identity (`source_endpoint`).
+  MapperTopologyEndpointV1 source_endpoint = 11;
+  // Neighbor/target endpoint identity (`target_endpoint`).
+  MapperTopologyEndpointV1 target_endpoint = 12;
+  // Raw adapter attributes (`raw_attributes`).
+  map<string, string> raw_attributes = 13;
+  // Ingestor relation family classification (`relation_family`, e.g. `"CONNECTS_TO"`, `"INFERRED_TO"`).
+  string relation_family = 14;
+}
+
+// MapperTopologyEndpointV1 maps `mapper.DiscoveryTopologyEndpointV2`
+// (`source_endpoint` and `target_endpoint`).
+message MapperTopologyEndpointV1 {
+  // Endpoint unique identifier (`uid`).
+  string uid = 1;
+  // Canonical device ID (`device_id`).
+  string device_id = 2;
+  // Endpoint IP address (`ip`).
+  string ip = 3;
+  // Endpoint MAC / chassis address (`mac`).
+  string mac = 4;
+  // Port identifier (`port_id`).
+  string port_id = 5;
+  // Interface name (`if_name`).
+  string if_name = 6;
+  // SNMP ifIndex (`if_index`).
+  int32 if_index = 7;
+  // Endpoint hostname (`hostname`).
+  string hostname = 8;
+  // Site identifier (`site`).
+  string site = 9;
+  // SNMP system name (`sys_name`).
+  string sys_name = 10;
+}
+
+// MapperResultsBatchV1 is a unified batch envelope capable of carrying device,
+// interface, and topology link records from a mapper run in a single message.
+message MapperResultsBatchV1 {
+  // Agent identifier stamped across the batch (`agent_id`).
+  string agent_id = 1;
+  // Gateway identifier stamped across the batch (`gateway_id`).
+  string gateway_id = 2;
+  // Network partition identifier (`partition`).
+  string partition = 3;
+  // Discovered device records (`mapper_devices`).
+  repeated MapperDeviceRecordV1 devices = 4;
+  // Discovered interface records (`mapper_interfaces`).
+  repeated MapperInterfaceRecordV1 interfaces = 5;
+  // Discovered topology link records (`mapper_topology`).
+  repeated MapperTopologyLinkRecordV1 topology_links = 6;
+}
+
+// =============================================================================
+// 2. Netprobe Discovery Typed Batch Messages
+// =============================================================================
+//
+// Typed protobuf batch messages for the netprobe passive/active/DPI/process
+// discovery translator (`go/pkg/agent/netprobe/translator.go`,
+// `go/pkg/agent/push_loop_mapper_netprobe.go`) and Elixir ingestor contracts
+// (`ServiceRadar.Inventory.PassiveFingerprintPayload`,
+// `ServiceRadar.Inventory.ActiveFingerprintPayload`,
+// `ServiceRadar.Inventory.DpiPayload`, and `SyncIngestor` process snapshot
+// normalization).
+//
+// Replaces the legacy JSON array payload carried on `StatusResponse` with
+// `service_type: "netprobe"`, `service_name: "netprobe_discovery"`.
+
+// NetprobeDiscoveryBatchV1 carries a batch of netprobe discovery records.
+message NetprobeDiscoveryBatchV1 {
+  // Agent identifier (`agent_id`).
+  string agent_id = 1;
+  // Gateway identifier (`gateway_id`).
+  string gateway_id = 2;
+  // Network partition identifier (`partition`).
+  string partition = 3;
+  // Collector IP address (`collector_ip`).
+  string collector_ip = 4;
+  // Batch window start in Unix epoch nanoseconds (`batch_start_unix_nano`).
+  int64 batch_start_unix_nano = 5;
+  // Batch window end in Unix epoch nanoseconds (`batch_end_unix_nano`).
+  int64 batch_end_unix_nano = 6;
+  // Count of observations dropped since the previous batch (`dropped_since_last`).
+  uint32 dropped_since_last = 7;
+  // Discovery records in this batch.
+  repeated NetprobeDiscoveryRecordV1 records = 8;
+}
+
+// NetprobeDiscoveryRecordV1 maps a single netprobe discovery update emitted by
+// `netprobe.TranslateBatch` (`go/pkg/agent/netprobe/translator.go`).
+message NetprobeDiscoveryRecordV1 {
+  // Subject host IP address (`ip`).
+  string ip = 1;
+  // Originating agent identifier (`agent_id`).
+  string agent_id = 2;
+  // Originating gateway identifier (`gateway_id`).
+  string gateway_id = 3;
+  // Network partition identifier (`partition`).
+  string partition = 4;
+  // Top-level source tag (`source`, e.g. `"netprobe-passive"`, `"netprobe-active"`, `"netprobe-dpi"`, `"netprobe-process"`).
+  string source = 5;
+  // Discovery source metadata value (`metadata["discovery_source"]`).
+  string discovery_source = 6;
+  // Collector IP address (`metadata["_alias_collector_ip"]`).
+  string collector_ip = 7;
+  // Last-seen alias IP address (`metadata["_alias_last_seen_ip"]`).
+  string alias_last_seen_ip = 8;
+  // Last-seen alias timestamp in Unix epoch nanoseconds (`metadata["_alias_last_seen_at"]`
+  // and `metadata["ip_alias:<ip>"]`, RFC3339Nano in JSON).
+  int64 alias_last_seen_at_unix_nano = 9;
+  // Record timestamp in Unix epoch nanoseconds (`timestamp`, RFC3339Nano in JSON).
+  int64 timestamp_unix_nano = 10;
+  // Additional string metadata key-value pairs (`metadata`).
+  map<string, string> metadata = 11;
+
+  // Typed discovery observation payload (`metadata["passive_fingerprint"]`,
+  // `metadata["active_fingerprint"]`, `metadata["dpi_observation"]`, or
+  // `metadata["process_snapshot"]`).
+  oneof observation {
+    // Passive or active fingerprint observation (`passive_fingerprint` / `active_fingerprint`).
+    NetprobeFingerprintObservationV1 fingerprint = 12;
+    // Deep packet inspection application-protocol observation (`dpi_observation`).
+    NetprobeDpiObservationV1 dpi = 13;
+    // Host listening-socket / process / container / package ownership snapshot (`process_snapshot`).
+    NetprobeProcessSnapshotObservationV1 process_snapshot = 14;
+  }
+}
+
+// NetprobeFingerprintObservationV1 maps `passiveFingerprintMetadata` in
+// `go/pkg/agent/netprobe/translator.go` and the Elixir schemas
+// `ServiceRadar.Inventory.PassiveFingerprintPayload` and
+// `ServiceRadar.Inventory.ActiveFingerprintPayload`.
+message NetprobeFingerprintObservationV1 {
+  // Fingerprint source (`source`: `"netprobe-passive"` or `"netprobe-active"`).
+  string source = 1;
+  // Netprobe profile UUID (`profile_id`).
+  string profile_id = 2;
+  // Netprobe profile name (`profile_name`).
+  string profile_name = 3;
+  // Capture network interface name (`interface_name`).
+  string interface_name = 4;
+  // Observation timestamp in Unix epoch nanoseconds (`observed_at`, RFC3339Nano in JSON).
+  int64 observed_at_unix_nano = 5;
+  // Observed protocol label (`protocol`, e.g. `"tcp"`, `"tls"`, `"http"`, `"ssh"`).
+  string protocol = 6;
+  // TCP stack fingerprint evidence (`tcp`).
+  NetprobeTcpFingerprintV1 tcp = 7;
+  // TLS client/server hello fingerprint evidence (`tls`).
+  NetprobeTlsFingerprintV1 tls = 8;
+  // HTTP header fingerprint evidence (`http`).
+  NetprobeHttpFingerprintV1 http = 9;
+  // License-clean corpus fingerprint matches (`license_clean`).
+  NetprobeLicenseCleanFingerprintV1 license_clean = 10;
+}
+
+// NetprobeTcpFingerprintV1 maps `tcpFingerprintMetadata` (`tcp`).
+message NetprobeTcpFingerprintV1 {
+  // Raw TCP SYN/SYN+ACK signature string (`signature`).
+  string signature = 1;
+  // Inferred OS family (`os_family`).
+  string os_family = 2;
+  // Inferred OS name/version (`os_name`).
+  string os_name = 3;
+  // Match confidence in [0.0, 1.0] (`confidence`).
+  float confidence = 4;
+  // Observed IP TTL (`ttl`).
+  uint32 ttl = 5;
+  // Observed TCP window size (`window_size`).
+  string window_size = 6;
+  // Observed TCP maximum segment size (`mss`).
+  uint32 mss = 7;
+  // Ordered TCP option names (`options_layout`).
+  repeated string options_layout = 8;
+  // Observed TCP/IP header quirks (`quirks`).
+  repeated string quirks = 9;
+  // IP version string (`ip_version`, e.g. `"4"`, `"6"`).
+  string ip_version = 10;
+  // Observed TCP window scale factor (`window_scale`).
+  uint32 window_scale = 11;
+  // Payload size classification (`payload_class`).
+  string payload_class = 12;
+}
+
+// NetprobeTlsFingerprintV1 maps `tlsFingerprintMetadata` (`tls`).
+message NetprobeTlsFingerprintV1 {
+  // JA4 client fingerprint (`ja4`).
+  string ja4 = 1;
+  // JA4S server fingerprint (`ja4s`).
+  string ja4s = 2;
+  // Redacted SNI indicator (`sni_redacted`).
+  string sni_redacted = 3;
+}
+
+// NetprobeHttpFingerprintV1 maps `httpFingerprintMetadata` (`http`).
+message NetprobeHttpFingerprintV1 {
+  // HTTP User-Agent header (`user_agent`).
+  string user_agent = 1;
+  // HTTP Server header (`server`).
+  string server = 2;
+  // HTTP Accept-Language header (`accept_language`).
+  string accept_language = 3;
+}
+
+// NetprobeLicenseCleanFingerprintV1 maps `licenseCleanFingerprintMetadata` (`license_clean`).
+message NetprobeLicenseCleanFingerprintV1 {
+  // Raw p0f signature string (`p0f_signature`).
+  string p0f_signature = 1;
+  // Matched p0f corpus entry (`p0f_match`).
+  NetprobeP0fMatchV1 p0f_match = 2;
+  // Raw JA4 signature string (`ja4`).
+  string ja4 = 3;
+  // Matched JA4 corpus entry (`ja4_match`).
+  NetprobeFingerprintMatchV1 ja4_match = 4;
+  // Raw client HASSH signature (`hassh`).
+  string hassh = 5;
+  // Raw server HASSH signature (`hassh_server`).
+  string hassh_server = 6;
+  // Matched HASSH corpus entry (`hassh_match`).
+  NetprobeFingerprintMatchV1 hassh_match = 7;
+  // Synthesized multi-signal OS match (`os_match`).
+  NetprobeOsMatchV1 os_match = 8;
+  // Number of agreeing fingerprint signals (`agreement_count`).
+  uint32 agreement_count = 9;
+  // MuonFP TCP fingerprint match (`muonfp`).
+  NetprobeMuonFpMatchV1 muonfp = 10;
+  // Recog HTTP banner match (`recog_http`).
+  NetprobeRecogMatchV1 recog_http = 11;
+  // Recog SSH banner match (`recog_ssh`).
+  NetprobeRecogMatchV1 recog_ssh = 12;
+  // Recog SMB match (`recog_smb`).
+  NetprobeRecogMatchV1 recog_smb = 13;
+  // Recog FTP banner match (`recog_ftp`).
+  NetprobeRecogMatchV1 recog_ftp = 14;
+  // Recog Telnet banner match (`recog_telnet`).
+  NetprobeRecogMatchV1 recog_telnet = 15;
+  // Recog SNMP sysDescr match (`recog_snmp`).
+  NetprobeRecogMatchV1 recog_snmp = 16;
+  // Recog SIP banner match (`recog_sip`).
+  NetprobeRecogMatchV1 recog_sip = 17;
+  // Recog RDP match (`recog_rdp`).
+  NetprobeRecogMatchV1 recog_rdp = 18;
+  // Recog DNS version.bind match (`recog_dns`).
+  NetprobeRecogMatchV1 recog_dns = 19;
+  // Recog SMTP banner match (`recog_smtp`).
+  NetprobeRecogMatchV1 recog_smtp = 20;
+  // Recog NTP match (`recog_ntp`).
+  NetprobeRecogMatchV1 recog_ntp = 21;
+  // Satori passive fingerprint matches across axes (`satori_matches`).
+  repeated NetprobeSatoriMatchV1 satori_matches = 22;
+  // Signal observation flags (`*_observed`).
+  bool tcp_observed = 23;
+  bool ja4_observed = 24;
+  bool hassh_observed = 25;
+  bool dhcp_observed = 26;
+  bool dhcpv6_observed = 27;
+  bool http_observed = 28;
+  bool ssh_observed = 29;
+  bool smb_observed = 30;
+  bool dns_observed = 31;
+  bool icmp_observed = 32;
+  bool ntp_observed = 33;
+  bool sip_observed = 34;
+}
+
+// NetprobeP0fMatchV1 maps `p0fMatchMetadata` (`p0f_match`).
+message NetprobeP0fMatchV1 {
+  // Full p0f label (`label`).
+  string label = 1;
+  // OS/application name (`name`).
+  string name = 2;
+  // Version or flavor (`version_flavor`).
+  string version_flavor = 3;
+  // Normalized OS family (`os_family`).
+  string os_family = 4;
+}
+
+// NetprobeMuonFpMatchV1 maps `muonfpMatchMetadata` (`muonfp`).
+message NetprobeMuonFpMatchV1 {
+  // MuonFP signature string (`signature`).
+  string signature = 1;
+  // Matched label (`label`).
+  string label = 2;
+}
+
+// NetprobeRecogMatchV1 maps `recogMatchMetadata` (`recog_*`).
+message NetprobeRecogMatchV1 {
+  // Matched software product name (`product`).
+  string product = 1;
+  // Matched software version (`version`).
+  string version = 2;
+  // Matched OS family (`os_family`).
+  string os_family = 3;
+}
+
+// NetprobeSatoriMatchV1 maps `satoriMatchMetadata` (`satori_matches[]`).
+message NetprobeSatoriMatchV1 {
+  // Satori protocol axis (`axis`, e.g. `"dhcp"`, `"http"`, `"smb"`, `"tcp"`).
+  string axis = 1;
+  // Raw axis signature (`signature`).
+  string signature = 2;
+  // Satori corpus label (`label`).
+  string label = 3;
+  // Inferred device class (`device_class`).
+  string device_class = 4;
+  // Inferred OS family (`os_family`).
+  string os_family = 5;
+}
+
+// NetprobeFingerprintMatchV1 maps `fingerprintMatchMetadata` (`ja4_match`, `hassh_match`).
+message NetprobeFingerprintMatchV1 {
+  // Matched client/server name (`name`).
+  string name = 1;
+  // Matched version range (`version_range`).
+  string version_range = 2;
+  // Matched OS family (`os_family`).
+  string os_family = 3;
+}
+
+// NetprobeOsMatchV1 maps `osMatchMetadata` (`os_match`).
+message NetprobeOsMatchV1 {
+  // Synthesized OS name (`name`).
+  string name = 1;
+  // Synthesized OS version range (`version_range`).
+  string version_range = 2;
+  // Synthesized OS family (`os_family`).
+  string os_family = 3;
+  // Aggregate match confidence in [0.0, 1.0] (`confidence`).
+  float confidence = 4;
+  // Disagreements recorded across fingerprint signals (`disagreements`).
+  repeated NetprobeFingerprintDisagreementV1 disagreements = 5;
+}
+
+// NetprobeFingerprintDisagreementV1 maps `fingerprintDisagreementMetadata` (`disagreements[]`).
+message NetprobeFingerprintDisagreementV1 {
+  // Disagreement signal source (`signal`, e.g. `"ja4"`, `"hassh"`, `"p0f"`).
+  string signal = 1;
+  // Raw signature from the disagreeing signal (`signature`).
+  string signature = 2;
+  // OS family reported by the disagreeing signal (`observed_family`).
+  string observed_family = 3;
+  // OS/client name reported by the disagreeing signal (`observed_name`).
+  string observed_name = 4;
+  // Version range reported by the disagreeing signal (`version_range`).
+  string version_range = 5;
+}
+
+// NetprobeDpiObservationV1 maps `dpiObservationMetadata` in
+// `go/pkg/agent/netprobe/translator.go` and `ServiceRadar.Inventory.DpiPayload`.
+message NetprobeDpiObservationV1 {
+  // DPI source tag (`source`, `"netprobe-dpi"`).
+  string source = 1;
+  // Netprobe profile UUID (`profile_id`).
+  string profile_id = 2;
+  // Netprobe profile name (`profile_name`).
+  string profile_name = 3;
+  // Capture interface name (`interface_name`).
+  string interface_name = 4;
+  // Detected application protocol (`protocol`).
+  string protocol = 5;
+  // Observed packet/flow match count (`count`).
+  uint64 count = 6;
+  // Classification confidence in [0.0, 1.0] (`confidence`).
+  float confidence = 7;
+  // First observation timestamp in Unix epoch nanoseconds (`observed_at`, RFC3339Nano in JSON).
+  int64 observed_at_unix_nano = 8;
+  // Most recent observation timestamp in Unix epoch nanoseconds (`last_observed_at`, RFC3339Nano in JSON).
+  int64 last_observed_at_unix_nano = 9;
+  // Flow source IP address (`source_ip`).
+  string source_ip = 10;
+  // Flow destination IP address (`destination_ip`).
+  string destination_ip = 11;
+  // Flow source port (`source_port`).
+  uint32 source_port = 12;
+  // Flow destination port (`destination_port`).
+  uint32 destination_port = 13;
+  // Transport protocol (`transport_protocol`, e.g. `"tcp"`, `"udp"`).
+  string transport_protocol = 14;
+  // Dissector identifier (`dissector_id`).
+  string dissector_id = 15;
+  // Subject host IP address (`subject_ip`).
+  string subject_ip = 16;
+}
+
+// NetprobeProcessSnapshotObservationV1 maps `processSnapshotMetadata` in
+// `go/pkg/agent/netprobe/translator.go` and `SyncIngestor` process snapshot ingestion.
+message NetprobeProcessSnapshotObservationV1 {
+  // Snapshot schema identifier (`schema`, e.g. `"summary_v1"`).
+  string schema = 1;
+  // Deterministic SHA-256 content digest (`fingerprint`).
+  string fingerprint = 2;
+  // Observation timestamp in Unix epoch nanoseconds (`observed_at`, RFC3339Nano in JSON).
+  int64 observed_at_unix_nano = 3;
+  // Total listening entry count (`entry_count`).
+  uint32 entry_count = 4;
+  // Distinct process count (`process_count`).
+  uint32 process_count = 5;
+  // Distinct listening port count (`port_count`).
+  uint32 port_count = 6;
+  // Distinct container count (`container_count`).
+  uint32 container_count = 7;
+  // Sorted transport protocols observed (`protocols`).
+  repeated string protocols = 8;
+  // Listening port counts keyed by transport protocol (`protocol_port_counts`).
+  map<string, uint32> protocol_port_counts = 9;
+  // Listening socket / process entries (`entries`).
+  repeated NetprobeProcessEntryV1 entries = 10;
+}
+
+// NetprobeProcessEntryV1 maps `processSnapshotEntryMetadata` (`entries[]`).
+message NetprobeProcessEntryV1 {
+  // Bound local IP address (`local_ip`).
+  string local_ip = 1;
+  // Bound local port (`local_port`).
+  uint32 local_port = 2;
+  // Transport protocol (`transport_protocol`, `"tcp"` or `"udp"`).
+  string transport_protocol = 3;
+  // Process ID (`pid`).
+  uint32 pid = 4;
+  // Thread group ID (`tgid`).
+  uint32 tgid = 5;
+  // Effective user ID (`uid`).
+  uint32 uid = 6;
+  // Effective group ID (`gid`).
+  uint32 gid = 7;
+  // Process command name (`comm`).
+  string comm = 8;
+  // Redacted command-line argv vector (`redacted_cmdline`).
+  repeated string redacted_cmdline = 9;
+  // Container identifier when running inside a container (`container_id`).
+  string container_id = 10;
+  // Container/pod workload identity (`workload_identity`).
+  NetprobeWorkloadIdentityV1 workload_identity = 11;
+  // Package manager executable ownership (`executable_ownership`).
+  NetprobeExecutableOwnershipV1 executable_ownership = 12;
+}
+
+// NetprobeWorkloadIdentityV1 maps `workloadIdentityMetadata` (`workload_identity`).
+message NetprobeWorkloadIdentityV1 {
+  // CRI pod sandbox ID (`pod_sandbox_id`).
+  string pod_sandbox_id = 1;
+  // Kubernetes pod name (`pod_name`).
+  string pod_name = 2;
+  // Kubernetes pod namespace (`pod_namespace`).
+  string pod_namespace = 3;
+  // Kubernetes pod UID (`pod_uid`).
+  string pod_uid = 4;
+  // Container ID (`container_id`).
+  string container_id = 5;
+  // Container name (`container_name`).
+  string container_name = 6;
+  // Container image name (`image`).
+  string image = 7;
+  // Immutable container image digest/reference (`image_ref`).
+  string image_ref = 8;
+  // Host PID reported by the container runtime (`runtime_pid`).
+  uint32 runtime_pid = 9;
+  // Linux cgroup path (`cgroup_path`).
+  string cgroup_path = 10;
+  // Container runtime source (`runtime_source`, e.g. `"containerd"`, `"crio"`, `"docker"`).
+  string runtime_source = 11;
+  // Attribution confidence (`confidence`).
+  string confidence = 12;
+  // Degradation reason when runtime enrichment is partial (`degradation_reason`).
+  string degradation_reason = 13;
+  // Workload labels (`labels`).
+  map<string, string> labels = 14;
+  // Workload annotations (`annotations`).
+  map<string, string> annotations = 15;
+}
+
+// NetprobeExecutableOwnershipV1 maps `executableOwnershipMetadata` (`executable_ownership`).
+message NetprobeExecutableOwnershipV1 {
+  // Ownership resolution state (`resolution_state`, e.g. `"owned"`, `"unowned"`, `"degraded"`).
+  string resolution_state = 1;
+  // Resolution detail or error code (`detail`).
+  string detail = 2;
+  // Filesystem scope (`source_scope`, e.g. `"host"`, `"container_rootfs"`).
+  string source_scope = 3;
+  // Package type (`package_type`, e.g. `"deb"`, `"rpm"`, `"apk"`).
+  string package_type = 4;
+  // Package manager (`package_manager`, e.g. `"dpkg"`, `"rpm"`, `"apk"`).
+  string package_manager = 5;
+  // Distribution namespace (`namespace`, e.g. `"debian"`, `"ubuntu"`, `"alpine"`, `"rhel"`).
+  string namespace = 6;
+  // Distribution release (`release`).
+  string release = 7;
+  // OSV/PURL ecosystem (`ecosystem`).
+  string ecosystem = 8;
+  // Owning binary package name (`binary_package`).
+  string binary_package = 9;
+  // Owning source package name (`source_package`).
+  string source_package = 10;
+  // Package architecture (`architecture`).
+  string architecture = 11;
+  // Installed package version (`installed_version`).
+  string installed_version = 12;
+  // Resolver identifier (`resolver`).
+  string resolver = 13;
+  // Resolved executable path (`executable_path`).
+  string executable_path = 14;
+  // Executable filesystem device ID (`executable_dev`).
+  uint64 executable_dev = 15;
+  // Executable inode number (`executable_inode`).
+  uint64 executable_inode = 16;
+}
+
+// =============================================================================
+// 3. Sync Pages Typed Batch Messages
+// =============================================================================
+//
+// Typed protobuf batch messages for the sync runtime chunk/page emitter
+// (`go/pkg/agent/sync_runtime.go`, `go/pkg/agent/syncsources/**`,
+// `go/pkg/models/ocsf_device.go`) and Elixir sync ingestor pipeline
+// (`ServiceRadar.Inventory.SyncIngestorQueue`, `ServiceRadar.Inventory.SyncIngestor`,
+// `ServiceRadar.Inventory.Sync.DeviceRecords`, `ServiceRadar.Inventory.Sync.Interfaces`,
+// `ServiceRadar.Inventory.Sync.Enrichment`, `ServiceRadar.Inventory.Sync.FieldAliases`,
+// and `ServiceRadar.Inventory.ArmisSourceSnapshot`).
+//
+// Replaces the legacy JSON chunk/page arrays carried on `StatusResponse` with
+// `service_type: "sync"`.
+
+// SyncPageBatchV1 carries a single page/chunk of sync device records or a
+// completion control marker for a sync run.
+message SyncPageBatchV1 {
+  // Chunk and run tracking metadata (`_sync_meta`).
+  SyncMetaV1 sync_meta = 1;
+  // Optional completion control marker (replaces single-item `[{"_sync_control": "collection_final", ...}]` chunk).
+  optional SyncControlMarkerV1 control_marker = 2;
+  // Device updates in this page/chunk.
+  repeated SyncDeviceRecordV1 devices = 3;
+}
+
+// SyncMetaV1 maps `syncChunkMeta` (`_sync_meta`) in `go/pkg/agent/sync_runtime.go`
+// and `extract_chunk_metadata/1` in `ServiceRadar.Inventory.SyncIngestorQueue`.
+message SyncMetaV1 {
+  // Sync service configuration UUID (`sync_service_id`).
+  string sync_service_id = 1;
+  // Sync run execution UUID (`sync_run_id`).
+  string sync_run_id = 2;
+  // Zero-based chunk index (`chunk_index`).
+  int32 chunk_index = 3;
+  // Total chunks in the run when known (`total_chunks`).
+  int32 total_chunks = 4;
+  // Total devices emitted across the run (`total_devices`).
+  int32 total_devices = 5;
+  // True when this chunk concludes the sync run (`is_final`).
+  bool is_final = 6;
+  // Source population reconciliation counters (`population`).
+  SyncPopulationReportV1 population = 7;
+}
+
+// SyncPopulationReportV1 maps `syncsources.PopulationReport` (`_sync_meta.population`)
+// in `go/pkg/agent/syncsources/syncsources.go` and `normalize_population/1` in
+// `ServiceRadar.Inventory.SyncIngestorQueue`.
+message SyncPopulationReportV1 {
+  // Raw rows fetched from the upstream integration (`raw_rows`).
+  int64 raw_rows = 1;
+  // Rows excluded by filter policy (`excluded_rows`).
+  int64 excluded_rows = 2;
+  // Rows rejected as invalid (`invalid_rows`).
+  int64 invalid_rows = 3;
+  // Valid device occurrences processed (`valid_occurrences`).
+  int64 valid_occurrences = 4;
+  // Distinct upstream source IDs observed (`distinct_source_ids`).
+  int64 distinct_source_ids = 5;
+  // Duplicate occurrences of the same source ID (`duplicate_occurrences`).
+  int64 duplicate_occurrences = 6;
+  // Source IDs with conflicting identity attributes (`conflicting_duplicate_ids`).
+  int64 conflicting_duplicate_ids = 7;
+  // Bounded sample of duplicate source IDs (`duplicate_source_id_examples`).
+  repeated string duplicate_source_id_examples = 8;
+  // Bounded sample of invalid row descriptions (`invalid_row_examples`).
+  repeated string invalid_row_examples = 9;
+  // Bounded sample of conflicting duplicate descriptions (`conflicting_duplicate_examples`).
+  repeated string conflicting_duplicate_examples = 10;
+}
+
+// SyncControlMarkerV1 maps the control-only finalization record emitted by
+// `buildSyncCompletionEnvelope` (`go/pkg/agent/sync_runtime.go`).
+message SyncControlMarkerV1 {
+  // Control marker type (`_sync_control`, e.g. `"collection_final"`).
+  string control_type = 1;
+  // Control marker emission timestamp in Unix epoch nanoseconds (`timestamp`).
+  int64 timestamp_unix_nano = 2;
+}
+
+// SyncDeviceRecordV1 maps 100% of fields emitted by sync sources (Armis, NetBox,
+// Meraki, UniFi, Proxmox, etc.) via `armis.DeviceUpdate`, `models.OCSFDevice`,
+// and `syncsources` normalizers, and consumed by `SyncIngestor` (`DeviceRecords`,
+// `Interfaces`, `Enrichment`, `FieldAliases`, `ArmisSourceSnapshot`).
+message SyncDeviceRecordV1 {
+  // Canonical or provisional device ID (`device_id`).
+  string device_id = 1;
+  // OCSF primary device UID (`uid`).
+  string uid = 2;
+  // OCSF alternate device UID (`uid_alt`).
+  string uid_alt = 3;
+  // Originating agent identifier (`agent_id`).
+  string agent_id = 4;
+  // Originating gateway identifier (`gateway_id`).
+  string gateway_id = 5;
+  // Network partition identifier (`partition`).
+  string partition = 6;
+  // Primary IPv4/IPv6 address (`ip`).
+  string ip = 7;
+  // Primary MAC address (`mac`).
+  string mac = 8;
+  // Device hostname (`hostname`).
+  string hostname = 9;
+  // Display name (`name`).
+  string name = 10;
+  // Integration discovery source (`source`, e.g. `"armis"`, `"netbox"`, `"unifi"`, `"meraki"`).
+  string source = 11;
+  // Integration source instance identifier (`source_instance`).
+  string source_instance = 12;
+  // Discovery sources list (`discovery_sources`).
+  repeated string discovery_sources = 13;
+
+  // OCSF device type string (`type`).
+  string type = 14;
+  // OCSF device type numeric ID (`type_id`).
+  int32 type_id = 15;
+  // Sync source device type classification (`device_type`).
+  string device_type = 16;
+  // Hardware/software vendor name (`vendor_name`, or `vendor` / `manufacturer`).
+  string vendor_name = 17;
+  // Hardware model (`model`).
+  string model = 18;
+  // Network or AD domain (`domain`).
+  string domain = 19;
+  // Network zone (`zone`).
+  string zone = 20;
+  // Subnet UID (`subnet_uid`).
+  string subnet_uid = 21;
+  // VLAN UID (`vlan_uid`).
+  string vlan_uid = 22;
+  // Geographic or cloud region (`region`).
+  string region = 23;
+
+  // Structured OCSF operating system information (`os`).
+  SyncDeviceOsV1 os = 24;
+  // Flattened operating system summary string (`os_info`).
+  string os_info = 25;
+  // Flattened software/firmware version summary (`version_info`).
+  string version_info = 26;
+  // Structured OCSF hardware information (`hw_info`).
+  SyncDeviceHwInfoV1 hw_info = 27;
+
+  // OCSF risk level ID (`risk_level_id`).
+  optional int32 risk_level_id = 28;
+  // Risk level label (`risk_level`).
+  string risk_level = 29;
+  // Numeric risk score (`risk_score`).
+  optional int32 risk_score = 30;
+  // Availability state (`is_available`).
+  optional bool is_available = 31;
+  // Managed device state (`is_managed`).
+  optional bool is_managed = 32;
+  // Compliance state (`is_compliant`).
+  optional bool is_compliant = 33;
+  // Trust state (`is_trusted`).
+  optional bool is_trusted = 34;
+
+  // Component service type (`service_type`, e.g. `"agent"`, `"gateway"`, `"checker"`).
+  string service_type = 35;
+  // Component service status (`service_status`).
+  string service_status = 36;
+  // Last heartbeat timestamp in Unix epoch nanoseconds (`last_heartbeat`).
+  int64 last_heartbeat_unix_nano = 37;
+
+  // Record emission timestamp in Unix epoch nanoseconds (`timestamp`).
+  int64 timestamp_unix_nano = 38;
+  // First seen timestamp in Unix epoch nanoseconds (`first_seen_time` / `first_seen`).
+  int64 first_seen_unix_nano = 39;
+  // Last seen timestamp in Unix epoch nanoseconds (`last_seen_time` / `last_seen`).
+  int64 last_seen_unix_nano = 40;
+  // Record creation timestamp in Unix epoch nanoseconds (`created_time`).
+  int64 created_time_unix_nano = 41;
+  // Record modification timestamp in Unix epoch nanoseconds (`modified_time`).
+  int64 modified_time_unix_nano = 42;
+
+  // Network interfaces attached to the device (`network_interfaces` / `interfaces`).
+  repeated SyncNetworkInterfaceV1 network_interfaces = 43;
+  // Device owner user identity (`owner`).
+  SyncDeviceUserV1 owner = 44;
+  // Organization identity (`org`).
+  SyncDeviceOrganizationV1 org = 45;
+  // Device groups (`groups`).
+  repeated SyncDeviceGroupV1 groups = 46;
+  // Installed endpoint/management agents (`agent_list`).
+  repeated SyncDeviceAgentV1 agent_list = 47;
+  // Switch port attachment attributes (`switch_port_attachment`).
+  map<string, string> switch_port_attachment = 48;
+
+  // String metadata key-value pairs (`metadata`, including Armis/NetBox/UniFi
+  // enrichment keys such as `armis_device_id`, `integration_id`, `integration_type`,
+  // `sync_service_id`, `canonical_SourceID`, `collector_agent_id`, `boundaries`,
+  // `custom_properties`, `tags`, `site`, `mac_Count`, `all_macs`, `primary_mac`,
+  // `ip_addresses`, `all_ips`, `primary_ip`, `brand`, `manufacturer`, `model`,
+  // `category`, `type`, `os`, `os_version`, `operating_system`,
+  // ` operating_system_version`, `purdue_level`, `risk_level`, `visibility`,
+  // `access_switch`, `data_sources`, `user`, `business_impact`, `serial_number`).
+  map<string, string> metadata = 49;
+  // Device tags (`tags`).
+  map<string, string> tags = 50;
+  // Additional structured facts flattened as string key-values (`facts`).
+  map<string, string> facts = 51;
+  // Optional per-record sync chunk metadata (`_sync_meta` when stamped per record).
+  SyncMetaV1 sync_meta = 52;
+}
+
+// SyncDeviceOsV1 maps `models.OCSFDeviceOS` (`os`) and OS aliases in
+// `ServiceRadar.Inventory.Sync.FieldAliases`.
+message SyncDeviceOsV1 {
+  // OS name (`name`).
+  string name = 1;
+  // OS family/type (`type`).
+  string type = 2;
+  // OCSF OS type ID (`type_id`).
+  optional int32 type_id = 3;
+  // OS version (`version`).
+  string version = 4;
+  // OS build identifier (`build`).
+  string build = 5;
+  // OS edition (`edition`).
+  string edition = 6;
+  // Kernel release string (`kernel_release`).
+  string kernel_release = 7;
+  // CPU bitness (`cpu_bits`).
+  optional int32 cpu_bits = 8;
+  // Service pack name (`sp_name`).
+  string sp_name = 9;
+  // Service pack version (`sp_ver`).
+  string sp_ver = 10;
+  // OS language tag (`lang`).
+  string lang = 11;
+}
+
+// SyncDeviceHwInfoV1 maps `models.OCSFDeviceHWInfo` (`hw_info`) and hardware
+// aliases in `ServiceRadar.Inventory.Sync.FieldAliases`.
+message SyncDeviceHwInfoV1 {
+  // CPU architecture (`cpu_architecture`).
+  string cpu_architecture = 1;
+  // CPU bitness (`cpu_bits`).
+  optional int32 cpu_bits = 2;
+  // CPU core count (`cpu_cores`).
+  optional int32 cpu_cores = 3;
+  // Physical CPU socket count (`cpu_count`).
+  optional int32 cpu_count = 4;
+  // CPU clock speed in MHz (`cpu_speed_mhz`, `cpu_speed`).
+  optional int32 cpu_speed_mhz = 5;
+  // CPU model/type (`cpu_type`).
+  string cpu_type = 6;
+  // Total RAM size in bytes or MB (`ram_size`).
+  optional int64 ram_size = 7;
+  // Hardware serial number (`serial_number`).
+  string serial_number = 8;
+  // Chassis type/identifier (`chassis`).
+  string chassis = 9;
+  // BIOS manufacturer (`bios_manufacturer`).
+  string bios_manufacturer = 10;
+  // BIOS version (`bios_ver`).
+  string bios_ver = 11;
+  // BIOS release date (`bios_date`).
+  string bios_date = 12;
+  // Hardware SMBIOS UUID (`uuid`).
+  string uuid = 13;
+}
+
+// SyncNetworkInterfaceV1 maps `armis.NetworkInterface`, `models.OCSFNetworkInterface`,
+// and `ServiceRadar.Inventory.Sync.Interfaces.extract_raw_interfaces/1`.
+message SyncNetworkInterfaceV1 {
+  // Interface name (`name`, `if_name`, `interface_name`, `port_name`).
+  string name = 1;
+  // Interface description (`description`, `if_descr`, `desc`, `port_descr`).
+  string description = 2;
+  // Interface alias (`alias`, `if_alias`, `label`).
+  string alias = 3;
+  // MAC address (`mac_address`, `mac`, `if_phys_address`).
+  string mac_address = 4;
+  // Primary IPv4 address (`ipv4_address`, `ip_address`, `ip`).
+  string ipv4_address = 5;
+  // Primary IPv6 address (`ipv6_address`).
+  string ipv6_address = 6;
+  // All IP addresses assigned to the interface (`ip_addresses`, `ips`).
+  repeated string ip_addresses = 7;
+  // CIDR prefix (`cidr`).
+  string cidr = 8;
+  // Subnet identifier (`subnet`).
+  string subnet = 9;
+  // Interface hostname (`hostname`).
+  string hostname = 10;
+  // Interface UID (`uid`, `id`, `interface_uid`).
+  string uid = 11;
+  // Interface type name (`type`).
+  string type = 12;
+  // OCSF interface type ID (`type_id`, `if_type`).
+  optional int32 type_id = 13;
+  // Interface hardware brand (`brand`).
+  string brand = 14;
+  // Wireless broadcast SSID (`broadcast_ssid`, `ssid`).
+  string broadcast_ssid = 15;
+  // True when wireless broadcast SSID is hidden (`hidden_broadcast_ssid`).
+  optional bool hidden_broadcast_ssid = 16;
+  // Last connected wireless SSID (`last_connected_ssid`).
+  string last_connected_ssid = 17;
+  // Wireless channels (`channels`).
+  repeated string channels = 18;
+  // Assigned VLAN ID (`vlan`).
+  optional int32 vlan = 19;
+  // Additional interface metadata (`metadata`).
+  map<string, string> metadata = 20;
+}
+
+// SyncDeviceUserV1 maps `models.OCSFUser` (`owner`).
+message SyncDeviceUserV1 {
+  // User UID (`uid`).
+  string uid = 1;
+  // User name (`name`).
+  string name = 2;
+  // User email (`email_addr` / `email`).
+  string email = 3;
+  // User type (`type`).
+  string type = 4;
+  // OCSF user type ID (`type_id`).
+  optional int32 type_id = 5;
+}
+
+// SyncDeviceOrganizationV1 maps `models.OCSFOrganization` (`org`).
+message SyncDeviceOrganizationV1 {
+  // Organization UID (`uid`).
+  string uid = 1;
+  // Organization name (`name`).
+  string name = 2;
+  // Organizational unit UID (`ou_uid`).
+  string ou_uid = 3;
+  // Organizational unit name (`ou_name`).
+  string ou_name = 4;
+}
+
+// SyncDeviceGroupV1 maps `models.OCSFGroup` (`groups[]`).
+message SyncDeviceGroupV1 {
+  // Group UID (`uid`).
+  string uid = 1;
+  // Group name (`name`).
+  string name = 2;
+  // Group type (`type`).
+  string type = 3;
+  // Group description (`desc`).
+  string desc = 4;
+}
+
+// SyncDeviceAgentV1 maps `models.OCSFAgent` (`agent_list[]`).
+message SyncDeviceAgentV1 {
+  // Agent UID (`uid`).
+  string uid = 1;
+  // Agent name (`name`).
+  string name = 2;
+  // Agent type (`type`).
+  string type = 3;
+  // OCSF agent type ID (`type_id`).
+  optional int32 type_id = 4;
+  // Agent software version (`version`).
+  string version = 5;
+  // Agent vendor name (`vendor_name`).
+  string vendor_name = 6;
+}
