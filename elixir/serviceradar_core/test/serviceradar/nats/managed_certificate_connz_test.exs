@@ -12,6 +12,8 @@ defmodule ServiceRadar.NATS.ManagedCertificateConnzTest do
   @busy_server "hub-b"
   @quiet_fingerprint String.duplicate("ab", 32)
   @busy_fingerprint String.duplicate("cd", 32)
+  @other_busy_server "hub-c"
+  @other_busy_fingerprint String.duplicate("ef", 32)
 
   defmodule Catalog do
     @moduledoc false
@@ -187,6 +189,56 @@ defmodule ServiceRadar.NATS.ManagedCertificateConnzTest do
     assert again.offsets[@quiet_server] == 0
   end
 
+  test "an idle server does not take follow-up turns from two busy servers" do
+    # The idle server's listing fits in the opening page, so it has no unread
+    # tail. Each busy tail starts at nine pages, past one opening page and
+    # eight follow-ups given entirely to one server. A shared budget must
+    # split those follow-ups across the two servers that still have pages.
+    tail_at = @page_limit * 9
+
+    catalog = %{
+      @quiet_server => %{total: 1, marker_at: 0, fingerprint: @quiet_fingerprint},
+      @busy_server => %{
+        total: tail_at + @page_limit,
+        marker_at: tail_at,
+        fingerprint: @busy_fingerprint
+      },
+      @other_busy_server => %{
+        total: tail_at + @page_limit,
+        marker_at: tail_at,
+        fingerprint: @other_busy_fingerprint
+      }
+    }
+
+    pid = start_catalog!(catalog)
+    {first, progress} = Authorizer.scan_presented_connections("SERVICERADAR")
+    first_requests = Catalog.requests(pid)
+
+    assert @quiet_fingerprint in fingerprints(first)
+    refute @busy_fingerprint in fingerprints(first)
+    refute @other_busy_fingerprint in fingerprints(first)
+    assert progress.offsets[@quiet_server] == 0
+    assert progress.offsets[@busy_server] == progress.offsets[@other_busy_server]
+    assert progress.offsets[@busy_server] > @page_limit
+    assert balanced_followups?(first_requests, @busy_server, @other_busy_server)
+
+    {found, _progress} =
+      Enum.reduce_while(1..4, {fingerprints(first), progress}, fn _, {found, progress} ->
+        if @busy_fingerprint in found and @other_busy_fingerprint in found do
+          {:halt, {found, progress}}
+        else
+          {connections, progress} =
+            Authorizer.scan_presented_connections("SERVICERADAR", progress)
+
+          {:cont, {found ++ fingerprints(connections), progress}}
+        end
+      end)
+
+    assert @busy_fingerprint in found
+    assert @other_busy_fingerprint in found
+    assert followup_counts(Catalog.requests(pid))[@quiet_server] in [nil, 0]
+  end
+
   test "a silent listing keeps the saved cursor and a closed subscription returns no pages" do
     saved = %{offsets: %{@busy_server => @page_limit}, turn: 2}
     start_silent!(:timeout)
@@ -235,6 +287,25 @@ defmodule ServiceRadar.NATS.ManagedCertificateConnzTest do
   end
 
   defp fingerprints(connections), do: Enum.map(connections, & &1.fingerprint)
+
+  defp balanced_followups?(requests, left, right) do
+    counts = followup_counts(requests)
+    left_count = Map.get(counts, left, 0)
+    right_count = Map.get(counts, right, 0)
+
+    left_count > 0 and right_count > 0 and abs(left_count - right_count) <= 1 and
+      Map.get(counts, @quiet_server, 0) == 0
+  end
+
+  defp followup_counts(requests) do
+    requests
+    |> Enum.reject(&(&1["subject"] == "$SYS.REQ.SERVER.PING.CONNZ"))
+    |> Enum.frequencies_by(fn request ->
+      request["subject"]
+      |> String.replace_prefix("$SYS.REQ.SERVER.", "")
+      |> String.replace_suffix(".CONNZ", "")
+    end)
+  end
 
   defp requested_offset(requests, server, offset) do
     subject = "$SYS.REQ.SERVER.#{server}.CONNZ"

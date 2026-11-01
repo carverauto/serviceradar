@@ -433,21 +433,19 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
   end
 
   defp choose_connz_server(%{offsets: offsets, totals: totals, turn: turn}) do
-    ordered = offsets |> Map.keys() |> Enum.sort()
+    outstanding =
+      offsets
+      |> Map.keys()
+      |> Enum.filter(&connz_page_outstanding?(&1, offsets, totals))
+      |> Enum.sort()
 
-    case ordered do
+    case outstanding do
       [] ->
         :none
 
-      ordered ->
-        count = length(ordered)
-        start = rem(turn, count)
-        rotated = Enum.drop(ordered, start) ++ Enum.take(ordered, start)
-
-        case Enum.find(rotated, &connz_page_outstanding?(&1, offsets, totals)) do
-          nil -> :none
-          server -> {:ok, server, Map.fetch!(offsets, server)}
-        end
+      outstanding ->
+        server = Enum.at(outstanding, rem(turn, length(outstanding)))
+        {:ok, server, Map.fetch!(offsets, server)}
     end
   end
 
