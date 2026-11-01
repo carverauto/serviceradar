@@ -112,11 +112,17 @@ request in that state is answered with `nats_account_mismatch` and no user
 JWT, and the session is not remembered. A matching account is still decided
 from the certificate policy. Broker authorization callout stays disabled.
 
-`serviceradar-cli edge install` for a leaf or collector continues only when
-that bootstrap reports `nats.ready`, `auth_mode` `static_mtls`, and the
-deployment account name. It does not create the account or require a JWT
-account seed. Any other authentication mode stops before package
-installation. Broker authorization callout stays disabled.
+`serviceradar-cli edge install` for a leaf or collector continues when the
+hub authorizer is disconnected. `static_mtls` with an empty reason, or with
+reason `connecting`, `auth_connection_unavailable`,
+`auth_subscription_failed`, `policy_unavailable`, `not_configured`,
+`authorizer_unavailable`, or `core_unavailable`, continues. An unset mode
+continues while the hub is not configured. `static_mtls` still requires the
+deployment account name. The command does not create the account or require
+a JWT account seed. It stops before package installation for
+`jwt_account_signer_unconfigured`, `unsupported_auth_mode`,
+`nats_account_mismatch`, any other authentication mode, and `nats.ready`
+without `static_mtls`. Broker authorization callout stays disabled.
 
 A stored `operator_jwt` authentication mode reports readiness reason
 `jwt_account_signer_unconfigured`. The authorizer does not open a broker

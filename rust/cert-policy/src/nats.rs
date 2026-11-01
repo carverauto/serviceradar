@@ -65,7 +65,7 @@ impl Drop for Guard {
 /// Optional managed adoption. No policy file preserves existing TLS behavior.
 /// Managed peers require all TLS inputs and an agent-installed policy. Only an
 /// explicit privileged local-leaf binding permits its last verified stale policy;
-/// the exact endpoint, leaf SPIFFE identity, full fingerprint, and PKIX still apply.
+/// the exact endpoint, enrolled server DNS name, full fingerprint, and PKIX still apply.
 pub async fn connect<A: ToServerAddrs>(
     options: ConnectOptions,
     addresses: A,

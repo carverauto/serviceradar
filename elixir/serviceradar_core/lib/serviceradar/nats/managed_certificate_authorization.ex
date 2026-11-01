@@ -333,7 +333,9 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     Gnat.pub(
       @system,
       subject,
-      Jason.encode!(%{auth: true, acc: account, offset: offset, limit: 256}), reply_to: inbox)
+      Jason.encode!(%{auth: true, acc: account, offset: offset, limit: 256}),
+      reply_to: inbox
+    )
   end
 
   defp collect_connz(sid, deadline, pages) do
