@@ -958,7 +958,7 @@ core:
     #
     # Set to "" to fall back to the old existence-only check (for operators
     # running the chart against a deliberately pinned schema).
-    expectedVersion: "20261031085513"
+    expectedVersion: "20261101130000"
   # Stale device reaper settings - controls cleanup of IP-only "ghost" devices
   reaper:
     # How often to run the reaper job
@@ -1835,12 +1835,16 @@ agent:
     requests:
       cpu: 200m
       memory: 512Mi
-# Durable sweep canary. Core lease settings select participating agents/groups.
+# Durable edge-record pipeline. Core lease settings select participating agents/groups.
 # contractRegistry is the installation-static document consumed by core and gateway.
+# agentMetricsEnabled lets the in-cluster agent emit metric batches as edge records once
+# core grants it the serviceradar.metrics.batch contract (registered in contractRegistry
+# and the agent's leasing switch on); without a grant it keeps the status path.
 edgeRecords:
   enabled: false
   contractRegistry: {}
   agentSweepEnabled: false
+  agentMetricsEnabled: false
   maxSpoolBytes: 1073741824
 
 agentGateway:

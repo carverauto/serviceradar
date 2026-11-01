@@ -14,8 +14,10 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
   use ServiceRadar.DataCase, async: true
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.HashGrammar
   alias ServiceRadar.Edge.IssuerKey
+  alias ServiceRadar.Edge.OutputGrants
   alias ServiceRadar.Edge.ProjectionRows
   alias ServiceRadar.Edge.PublicationIdentity
   alias ServiceRadar.Edge.RecordValidate
@@ -34,6 +36,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseCapabilities
@@ -45,6 +52,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.SweepJobs.SweepProducerAssignment
 
   require Ecto.Query
+
+  @metrics_contract "serviceradar.metrics.batch"
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -447,6 +456,177 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       )
   end
 
+  describe "ingest/4 of metrics batch records" do
+    test "a fresh record is published once to its metrics subject under the authenticated agent" do
+      frame = build_metrics_frame()
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, subject, body, request_opts}
+      assert subject == "metrics.sysmon.cpu.cpu_usage_percent"
+      assert {"Nats-Msg-Id", Ecto.UUID.load!(frame.record.event_id)} in request_opts[:headers]
+
+      published = MetricBatch.decode(body)
+      assert published.resource.agent_id == frame.agent_id
+      assert published.ingest_identity.producer_id == frame.agent_id
+      assert length(published.metrics) == 2
+      assert ledger_count(frame.record) == 1
+    end
+
+    test "a redelivered record is a replay and is not published again" do
+      frame = build_metrics_frame()
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, _subject, _body, _opts}
+
+      assert {:ok, :replay} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+    end
+
+    test "a record whose grant was revoked is refused and not published" do
+      frame = build_metrics_frame()
+
+      {:ok, nil} =
+        OutputGrants.reconcile(frame.agent_id, @metrics_contract, frame.partition_id, false)
+
+      assert {:error, :output_grant_not_current} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(frame.record) == 0
+    end
+
+    test "a failed publish leaves no ledger row, so the redelivery publishes it" do
+      frame = build_metrics_frame()
+      refused = fn _subject, _body, _opts -> {:error, :timeout} end
+
+      assert_raise RuntimeError, ~r/edge metrics publish failed/, fn ->
+        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: refused)
+      end
+
+      assert ledger_count(frame.record) == 0
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, _subject, _body, _opts}
+    end
+  end
+
+  defp stored_ack do
+    test = self()
+
+    fn subject, body, request_opts ->
+      send(test, {:metrics_published, subject, body, request_opts})
+      {:ok, %{body: ~s({"stream":"metrics","seq":1})}}
+    end
+  end
+
+  defp build_metrics_frame do
+    actor = SystemActor.system(:edge_record_test)
+    partition = partition!(random_uuid(4), actor)
+    agent_id = "agent-#{System.unique_integer([:positive])}"
+    ensure_agent!(agent_id, partition, actor)
+
+    {:ok, grant} = OutputGrants.reconcile(agent_id, @metrics_contract, partition.id, true)
+    key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
+    now = DateTime.utc_now()
+
+    contract = %{
+      contract_id: @metrics_contract,
+      contract_version: 1,
+      contract_bundle_sha256: :crypto.hash(:sha256, "metrics-bundle"),
+      registry_epoch: 1,
+      registry_snapshot_sha256: :crypto.hash(:sha256, "registry"),
+      cost_model_version: 1,
+      max_projected_row_count: 10_000,
+      max_projected_write_bytes: 20_480_000
+    }
+
+    production = OutputGrants.production_capability(grant, contract, key, now)
+    {:production, claims} = production.claims
+    observed = DateTime.to_unix(now, :nanosecond)
+
+    batch = %MetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %MetricResource{agent_id: "agent-claimed-by-body", service_name: "sysmon"},
+      ingest_identity: %IngestIdentity{source: "sysmon-metrics", producer_kind: "agent-sysmon"},
+      metrics: [
+        sysmon_metric("cpu_usage_percent", 12.5, observed),
+        sysmon_metric("cpu_usage_percent", 13.0, observed)
+      ]
+    }
+
+    payload = MetricBatch.encode(batch)
+
+    record = %EdgeRecordV1{
+      event_id: Ecto.UUID.dump!(ExecutionSlots.mint_id(now)),
+      output_contract:
+        struct(
+          EdgeOutputContractRef,
+          Map.take(claims, [
+            :contract_id,
+            :contract_version,
+            :contract_bundle_sha256,
+            :registry_epoch,
+            :registry_snapshot_sha256,
+            :effective_grant_sha256
+          ])
+        ),
+      production_capability: production,
+      payload_family: :EDGE_RECORD_PAYLOAD_FAMILY_RECORD_BATCH_V1,
+      compression: :EDGE_RECORD_COMPRESSION_NONE,
+      encoded_size: byte_size(payload),
+      uncompressed_size: byte_size(payload),
+      payload_sha256: :crypto.hash(:sha256, payload),
+      producer_context: %EdgeProducerContext{
+        origin_kind: :EDGE_ORIGIN_KIND_AGENT,
+        origin_principal_id: agent_id,
+        producer_instance_id: agent_id,
+        producer_assignment_id: claims.producer_assignment_id,
+        authority_epoch: claims.authority_epoch,
+        run_id: claims.run_id,
+        run_shard: 0,
+        scope_id: claims.scope_id,
+        scope_sha256: claims.scope_sha256,
+        package_id: claims.package_id,
+        package_sha256: claims.package_sha256
+      },
+      route_profile: :EDGE_RECORD_ROUTE_PROFILE_DURABLE_RECORDS_V1,
+      traffic_class: :EDGE_RECORD_TRAFFIC_CLASS_BULK,
+      network_scope_id: Ecto.UUID.dump!(partition.id),
+      projected_row_count: length(batch.metrics),
+      projected_write_bytes: 0,
+      cost_model_version: 1,
+      payload: payload
+    }
+
+    slot = %{
+      network_scope_id: record.network_scope_id,
+      authenticated_agent_id: agent_id,
+      spool_id: random_uuid(7),
+      sequence: 1
+    }
+
+    record
+    |> encode_frame(batch, slot)
+    |> Map.merge(%{agent_id: agent_id, partition_id: partition.id})
+  end
+
+  defp sysmon_metric(name, value, observed) do
+    %Metric{
+      name: name,
+      metric_type: "cpu",
+      kind: :METRIC_KIND_GAUGE,
+      points: [%MetricPoint{value: value, observed_at_unix_nano: observed}]
+    }
+  end
+
   defp build_frame(opts \\ []) do
     slot_override = Keyword.get(opts, :slot)
 
@@ -460,7 +640,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
            Keyword.get(opts, :agent_id, "agent-#{System.unique_integer([:positive])}")}
       end
 
-    actor = ServiceRadar.Actors.SystemActor.system(:edge_record_test)
+    actor = SystemActor.system(:edge_record_test)
     partition = partition!(network_scope_id, actor)
     network_scope_id = Ecto.UUID.dump!(partition.id)
     ensure_agent!(agent_id, partition, actor)
