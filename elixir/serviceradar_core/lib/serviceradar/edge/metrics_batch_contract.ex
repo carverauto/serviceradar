@@ -1,9 +1,11 @@
 defmodule ServiceRadar.Edge.MetricsBatchContract do
   @moduledoc """
-  The agent metrics batch output contract (`serviceradar.metrics.batch` v1) as this installation
-  admits it. Its payload is a `metric.v1.MetricBatch`; one contract carries sysmon, SNMP, ICMP,
-  MTR, sweep and rperf metrics, which the batch's ingest identity tells apart. The lookup and its
-  refusals are `ServiceRadar.Edge.OutputContract`'s.
+  The passive agent metrics output contract (`serviceradar.metrics.batch` v1) as this
+  installation admits it. Its payload is a `metric.v1.MetricBatch` from a producer core does not
+  schedule (sysmon), emitted under a standing output grant, so its records carry no source
+  authorization. Metrics from lease-run producers (SNMP, ICMP, MTR, rperf, sweeps) use the
+  separate scheduled metrics contract, with the same payload. The lookup and its refusals are
+  `ServiceRadar.Edge.OutputContract`'s.
 
   A record projects one row per metric point, with a 1 KiB write budget per row, and at most
   10000 rows.
