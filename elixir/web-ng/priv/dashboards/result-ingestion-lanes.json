@@ -156,17 +156,6 @@
       },
       "layout": { "x": 8, "y": 25, "w": 4, "h": 5 },
       "position": 12
-    },
-    {
-      "title": "Recent lane telemetry samples",
-      "srql_query": "in:timeseries_metrics metric_type:core.result_ingestion time:last_1h sort:timestamp:desc limit:200",
-      "visual_type": "table",
-      "data_binding": {},
-      "display_config": {
-        "caption": "Latest per-lane metric samples persisted from metrics.ingestion_lanes."
-      },
-      "layout": { "x": 0, "y": 30, "w": 12, "h": 5 },
-      "position": 13
     }
   ]
 }

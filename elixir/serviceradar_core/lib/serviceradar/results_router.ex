@@ -164,7 +164,7 @@ defmodule ServiceRadar.ResultsRouter do
 
       {:noreply, state |> release(ids) |> maybe_flush()}
     else
-      if Map.get(active, :timed_out) != true do
+      if reason != :normal and Map.get(active, :timed_out) != true do
         emit(:crash, %{count: 1}, %{reason: :worker_crash})
       end
 

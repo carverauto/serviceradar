@@ -216,13 +216,8 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReportsTest do
 
       assert ingestion.enabled_by_default
 
-      {charts, tables} = Enum.split_with(ingestion.panels, &(&1.visual_type != :table))
-      assert [table] = tables
-
-      table_query = srql_clauses(table.srql_query)
-      assert table_query[:entity] == "timeseries_metrics"
-      assert table_query[:metric_type] == "core.result_ingestion"
-      refute Map.has_key?(table_query, :series)
+      assert Enum.all?(ingestion.panels, &(&1.visual_type != :table))
+      charts = ingestion.panels
 
       # Names RuntimeMetrics publishes on metrics.ingestion_lanes. One metric per
       # chart with series:tags.lane, because a metric_name series averages every

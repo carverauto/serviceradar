@@ -1473,6 +1473,42 @@ defmodule ServiceRadar.ResultsRouterTest do
       pid =
         spawn(fn ->
           receive do
+            :fail -> send(router, {:service_batch_result, self(), {:error, :upsert_failed}})
+          end
+        end)
+
+      send(parent, {:worker, pid})
+
+      %{
+        state
+        | buffer: :queue.new(),
+          timer: nil,
+          active: %{
+            pid: pid,
+            ref: Process.monitor(pid),
+            timer: make_ref(),
+            items: [item],
+            result: nil
+          }
+      }
+    end)
+
+    assert_receive {:worker, failed}
+    send(failed, :fail)
+
+    assert_eventually(fn ->
+      state = :sys.get_state(router)
+      :queue.to_list(state.buffer) == [item] and is_nil(state.active)
+    end)
+
+    refute_receive {:lane, :crash, _, _}, 0
+    refute_receive {:lane, :completion, _, _}, 0
+    refute_receive {:lane, :timeout, _, _}, 0
+
+    :sys.replace_state(router, fn state ->
+      pid =
+        spawn(fn ->
+          receive do
             :commit -> send(router, {:service_batch_result, self(), :ok})
           end
         end)
