@@ -372,3 +372,75 @@ func TestEdgeSweepSeparatesRangeAuthorityAndSharesBatchSequence(t *testing.T) {
 		require.Equal(t, uint64(i+1), batch.BatchSequence)
 	}
 }
+
+// fullEdgeSweepSpool returns a spool that shares one allocator with a filler lane
+// that has taken every ordinary byte, so the spool's next append is refused, and
+// a release func that returns the filler's bytes to the allocator.
+func fullEdgeSweepSpool(t *testing.T) (*spool.Spool, func()) {
+	t.Helper()
+	footprint := spool.Footprint{DestinationSegment: 1024, AttributionSidecar: 64, JournalCopy: 64, ManifestPages: 64, Mapping: 64, FilesystemMetadata: 64}
+	perRecovery, err := footprint.PerRecovery()
+	require.NoError(t, err)
+	const minFree = 4096
+	alloc, err := spool.NewAllocator(spool.AllocatorConfig{Capacity: perRecovery + minFree + 64<<10, Recovery: footprint, MaxConcurrentRecoveries: 1, MinFree: minFree})
+	require.NoError(t, err)
+
+	sp, err := spool.Open(t.TempDir(), spool.WithAllocator(alloc))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sp.Close() })
+	fillerDir := t.TempDir()
+	filler, err := spool.Open(fillerDir, spool.WithAllocator(alloc))
+	require.NoError(t, err)
+	before := alloc.Usage().OrdinaryUsed
+	for i := 0; ; i++ {
+		id, err := edgerecord.NewUUIDv7()
+		require.NoError(t, err)
+		if _, err := filler.Append(id, []byte("synthetic filler record")); errors.Is(err, spool.ErrAdmissionRefused) {
+			break
+		}
+		require.NoError(t, err)
+		require.Less(t, i, 10_000, "the filler never filled the allocator")
+	}
+	held := alloc.Usage().OrdinaryUsed - before
+	require.NoError(t, filler.Close())
+	return sp, func() { require.NoError(t, alloc.ReleaseOrdinary(fillerDir, held)) }
+}
+
+// A full spool pauses a leased sweep instead of failing it. Once the sender frees
+// space, the run completes with every record an unconstrained run writes.
+func TestEdgeSweepWaitsForSpoolAdmissionInsteadOfFailing(t *testing.T) {
+	cfg, lease, slot, baseline := edgeSweepFixture(t)
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, baseline, func() error { return nil }))
+	want, err := baseline.Unresolved()
+	require.NoError(t, err)
+	require.NotEmpty(t, want)
+
+	sp, release := fullEdgeSweepSpool(t)
+	go func() {
+		time.Sleep(600 * time.Millisecond)
+		release()
+	}()
+	scanner = &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	svc = &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	require.NoError(t, svc.runLeaseToSpool(context.Background(), lease, slot, sp, func() error { return nil }))
+	got, err := sp.Unresolved()
+	require.NoError(t, err)
+	require.Len(t, got, len(want))
+}
+
+// A spool that never frees ends the wait with the run, reporting the refusal.
+func TestEdgeSweepAdmissionWaitEndsWithTheRun(t *testing.T) {
+	cfg, lease, slot, _ := edgeSweepFixture(t)
+	sp, _ := fullEdgeSweepSpool(t)
+	scanner := &observingSweep{mockSweeper: &mockSweeper{}, results: edgeSweepResults()}
+	svc := &SweepService{config: cfg, sweeper: scanner, logger: logger.NewTestLogger()}
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
+	defer cancel()
+	err := svc.runLeaseToSpool(ctx, lease, slot, sp, func() error { return nil })
+	require.ErrorIs(t, err, spool.ErrAdmissionRefused)
+	records, readErr := sp.Unresolved()
+	require.NoError(t, readErr)
+	require.Empty(t, records)
+}

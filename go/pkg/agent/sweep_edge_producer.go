@@ -68,6 +68,15 @@ var (
 const maxPendingSweepHosts = 4096
 const sweepProjectedRowBytes = 2048
 
+// A full spool refuses an append until the sender drains and reclaims it. The
+// producer waits for that, backing off between attempts, instead of failing the
+// execution: the scanner calls emit synchronously, so a waiting emit pauses the
+// scan. The wait ends when the collection window closes.
+const (
+	sweepAdmissionInitialBackoff = 250 * time.Millisecond
+	sweepAdmissionMaxBackoff     = 5 * time.Second
+)
+
 // SetEdgeSweepSpool connects leased sweep producers to the sender's one open
 // spool. Call before Start; a nil spool keeps the legacy result path.
 func (p *PushLoop) SetEdgeSweepSpool(sp *spool.Spool) { p.edgeSweepSpool = sp }
@@ -131,6 +140,7 @@ func (s *SweepService) runLeaseToSpool(ctx context.Context, lease *edgev1.SweepL
 
 	runCtx, cancel := context.WithDeadline(ctx, time.Unix(0, slot.GetCollectionExpiresUnixNano()))
 	defer cancel()
+	producer.ctx = runCtx
 	err = runner.RunOnceWithObserver(runCtx, executionID, func(result *models.Result) error {
 		if err := producer.observe(result); err != nil {
 			cancel()
@@ -203,6 +213,8 @@ type sweepEdgeProducer struct {
 	completed  uint64
 	err        error
 	claim      func() error
+	// ctx bounds admission waits; its deadline is the slot's collection expiry.
+	ctx context.Context
 }
 
 func newSweepEdgeProducer(cfg *models.Config, lease *edgev1.SweepLeaseV1, slot *edgev1.SweepLeaseSlotV1, sp *spool.Spool, now time.Time) (*sweepEdgeProducer, error) {
@@ -541,6 +553,30 @@ func (p *sweepEdgeProducer) emit(batch *edgev1.SweepObservationBatchV1, source *
 		}
 		p.claim = nil
 	}
-	_, err = p.spool.Append(eventID, body)
-	return err
+	return p.appendWithBackpressure(eventID, body)
+}
+
+// appendWithBackpressure appends body, waiting out admission refusals until the
+// spool has room or the run's context ends. Any other append error is returned
+// at once.
+func (p *sweepEdgeProducer) appendWithBackpressure(eventID, body []byte) error {
+	ctx := p.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	backoff := sweepAdmissionInitialBackoff
+	for {
+		_, err := p.spool.Append(eventID, body)
+		if !errors.Is(err, spool.ErrAdmissionRefused) {
+			return err
+		}
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return fmt.Errorf("%w: %w", err, ctx.Err())
+		case <-timer.C:
+		}
+		backoff = min(backoff*2, sweepAdmissionMaxBackoff)
+	}
 }
