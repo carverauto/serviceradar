@@ -60,7 +60,8 @@ were deferred to prove the transport on one producer first. That proof is done.
 - Soak producers one family at a time behind a per-agent opt-in, with one path
   per producer at a time (never both). The next release removes legacy agent
   status-path emission and the gateway's matching publishers together, after
-  every runnable sweep group has a signed sweep lease. There is no long-lived
+  every sweep group that has hosts and an ICMP or TCP check has a signed sweep
+  lease. A nothing-to-scan group counts as satisfied. There is no long-lived
   per-family legacy.
 - Move sweep groups that use a `target_query` in a final phase, before that
   cutover. The signed plan is `SweepCompiler`'s target resolution for that group,
@@ -72,19 +73,29 @@ were deferred to prove the transport on one producer first. That proof is done.
   `sweep_max_alias_targets_per_device`), per-row drops of non-address values (a
   CIDR in the ip column is not planned as a prefix), plus the group's static
   targets, under the existing sweep lease and `SCHEDULED_SWEEP`. A successful
-  read whose targets differ re-plans. A set that exceeds plan limits is split
+  read whose targets differ, and that still has hosts and an ICMP or TCP check,
+  re-plans. A set that exceeds plan limits is split
   across executions or ranges. A failed device read, including a later page error
   or an alias-table error, keeps the last signed plan and does not sign a partial
   page set or a plan that omits aliases. An unparseable query, and a query that
   parses but cannot be translated or cast, contributes no hosts and does not keep
-  the last plan; static targets still run. Sweep results and the sweep metric
-  batch move together once that lease exists.
-- Give every other runnable sweep group a lease before that same cutover. Lower
-  the lease schedule minimum from 300 seconds to 1 second, so a whole-second
-  interval leases; the cost is more slots per horizon. A group whose modes
-  include mtr keeps reachability and port results on the sweep lease. Its traces
-  are `MtrTraceBatchV1` under the MTR check lease when MTR checks move, with no
-  dependency on that group's sweep lease. Banner results are a new typed output
+  the last plan; static targets still run when an ICMP or TCP check remains.
+  When that leaves no hosts, or a successful resolution plus static
+  targets yields no hosts, or modes leave no ICMP or TCP sweep check
+  (mtr only, tcp or tcp_connect with no ports, or only modes SweepCompiler
+  drops), core does not sign an empty plan: it withdraws the sweep lease with a
+  revoked SweepLeaseV1, records an operator-visible nothing-to-scan state, and
+  signs again when a later resolution or edit yields hosts and an ICMP or TCP
+  check. A failed read still keeps the last signed plan. An mtr-only group's
+  traces run under MTR check leases with no sweep lease. Sweep results and the
+  sweep metric batch move together once a sweep lease exists.
+- Give every sweep group that has hosts and an ICMP or TCP check a lease before
+  that same cutover. Lower the lease schedule minimum from 300 seconds to 1
+  second, so a whole-second interval leases; the cost is more slots per horizon.
+  A group whose modes include mtr is not refused. When an ICMP or TCP check
+  remains, reachability and port results stay on the sweep lease. An mtr-only
+  group has no sweep lease; its traces are `MtrTraceBatchV1` under MTR check
+  leases. Banner results are a new typed output
   contract under that same sweep lease and `SCHEDULED_SWEEP`;
   `EdgeRecordV1` and the frozen payloads stay unchanged. A CIDR in a query ip
   column is dropped for that row. A static target the plan builder cannot
@@ -109,7 +120,8 @@ were deferred to prove the transport on one producer first. That proof is done.
 - Affected code: `go/pkg/agent` push loops and buffers, `go/pkg/edge` (sink,
   contracts), `go/cmd/agent` sender wiring, agent-gateway contract registry and
   authorization, core issuer/lease/grant modules, `LeaseSchedule` minimum,
-  SweepPlan mtr handling, the banner-results contract, EventWriter projectors,
+  SweepPlan mtr handling, sweep-lease withdrawal when nothing remains to scan,
+  the banner-results contract, EventWriter projectors,
   Helm contract registry values.
 - Depends on: `unify-sweep-results-proto` (pipeline, spool, sender, gateway relay,
   ledger), which stays the runtime change of record for the shared transport.

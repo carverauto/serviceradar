@@ -66,7 +66,8 @@ metric batches and banner results a sweep lease produces, SHALL keep
 `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under the existing sweep lease.
 Traces from a sweep whose modes include mtr SHALL be `MtrTraceBatchV1` under
 `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK` when MTR checks move, with no
-dependency on that group's sweep lease.
+dependency on that group's sweep lease. An mtr-only group SHALL have no sweep
+lease; its traces SHALL run entirely under those MTR check leases.
 
 #### Scenario: A scheduled MTR check is authorized per execution
 - **WHEN** core schedules an MTR check for an agent
@@ -99,13 +100,17 @@ and SHALL NOT be planned as a prefix. The group's static targets are included.
 A set that exceeds the plan builder's limits SHALL be split across executions
 or ranges so every member is in a signed plan. The group's sweep results and
 sweep metric batch SHALL be emitted together under that lease. A successful
-read whose targets differ from the last signed plan SHALL cause a re-plan. A
-failed device read, including a later page error or an alias-table error, SHALL
-keep the last signed plan, SHALL NOT sign the pages already fetched, and SHALL
-NOT sign a plan that omits aliases. When no signed plan exists yet, the group
-waits for a successful read. An unparseable query, and a query that parses but
-cannot be translated or cast, SHALL contribute no hosts and SHALL NOT keep the
-last plan, and the group's static targets SHALL still run.
+read whose targets differ from the last signed plan, and that still has hosts
+and an ICMP or TCP check, SHALL cause a re-plan. A failed device read, including
+a later page error or an alias-table error, SHALL keep the last signed plan,
+SHALL NOT sign the pages already fetched, and SHALL NOT sign a plan that omits
+aliases. When a failed read has no signed plan yet, the group waits for a
+successful read. An unparseable query, and a query that parses but cannot be
+translated or cast, SHALL contribute no hosts and SHALL NOT keep the last plan,
+and the group's static targets SHALL still run when an ICMP or TCP check
+remains. When that leaves no hosts, or a successful read plus static targets
+yields no hosts, the nothing-to-scan requirement applies and core SHALL NOT keep
+the last signed plan.
 
 #### Scenario: The signed plan is the compiler scan set
 - **GIVEN** a sweep group whose `target_query` matches 10.0.0.5, whose matched
@@ -172,19 +177,67 @@ last plan, and the group's static targets SHALL still run.
 - **THEN** the next signed plan contains 10.0.0.6
 - **AND** it does not contain 10.0.0.5
 
+### Requirement: Nothing to scan withdraws the sweep lease
+When a group has nothing to plan, core SHALL NOT sign an empty plan. Nothing to
+plan means a successful target_query resolution plus static targets yields no
+hosts, a query that cannot be parsed, translated, or cast plus static targets
+yields no hosts, or the modes leave no ICMP or TCP sweep check: mtr only, tcp or
+tcp_connect with no ports, or only modes SweepCompiler drops. Core SHALL withdraw
+the group's sweep lease with a revoked SweepLeaseV1 push, so the agent drops
+unrun slots and stops scanning previously selected targets. Core SHALL record an
+operator-visible nothing-to-scan state, and SHALL sign a sweep lease again when a
+later resolution or edit yields hosts and an ICMP or TCP check. Closure SHALL
+count a nothing-to-scan group as satisfied because it emits no durable sweep
+data. An mtr-only group's traces SHALL be `MtrTraceBatchV1` under MTR check
+leases, and that group SHALL have no sweep lease. A failed device read SHALL
+still keep the last signed plan.
+
+#### Scenario: An empty successful resolution withdraws the lease
+- **GIVEN** a query-only group whose last signed plan contains 10.0.0.5
+- **WHEN** a successful read matches no devices
+- **THEN** core pushes a revoked SweepLeaseV1
+- **AND** it does not sign an empty plan
+- **AND** the agent stops scanning 10.0.0.5
+- **AND** the group is recorded as nothing to scan
+- **AND** a later read that matches 10.0.0.6 signs a sweep lease for 10.0.0.6
+
+#### Scenario: An mtr-only group has no sweep lease
+- **WHEN** a sweep group's only mode is mtr
+- **THEN** the group has no sweep lease
+- **AND** its traces are `MtrTraceBatchV1` under MTR check leases
+- **AND** the group is not refused
+- **AND** closure counts the group as satisfied
+
+#### Scenario: TCP with no ports is nothing to scan
+- **GIVEN** a sweep group whose last signed plan contains 10.0.0.5
+- **WHEN** its only mode is tcp and it has no ports
+- **THEN** core pushes a revoked SweepLeaseV1
+- **AND** the group is recorded as nothing to scan
+- **AND** the group is not refused at configuration
+
+#### Scenario: Only dropped modes are nothing to scan
+- **GIVEN** a sweep group whose last signed plan contains 10.0.0.5
+- **WHEN** its only mode is arp
+- **THEN** core pushes a revoked SweepLeaseV1
+- **AND** the group is recorded as nothing to scan
+- **AND** the group is not refused at configuration
+
 ### Requirement: Sweep groups the lease skipped get a home before cutover
-Before legacy status-path emission is removed, core SHALL lease every runnable
-sweep group.
+Before legacy status-path emission is removed, core SHALL lease every sweep
+group that has hosts and an ICMP or TCP sweep check. A nothing-to-scan group
+SHALL count as satisfied and SHALL NOT block that removal.
 
 The lease schedule minimum SHALL be 1 second. A whole-second interval, and a
-cron whose closest fires are at least one second apart, SHALL be leased. A
-schedule denser than one second SHALL be refused at configuration with an
-operator-visible validation error.
+cron whose closest fires are at least one second apart, SHALL be leased when
+the group has hosts and an ICMP or TCP check. A schedule denser than one second
+SHALL be refused at configuration with an operator-visible validation error.
 
-A sweep group whose modes include mtr SHALL be leased. Its reachability and port
-results SHALL carry `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. Its traces
-SHALL be `MtrTraceBatchV1` under `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`.
-The group SHALL NOT be refused for mtr mode.
+A sweep group whose modes include mtr SHALL NOT be refused for mtr mode. When an
+ICMP or TCP check remains, its reachability and port results SHALL carry
+`EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP` under a sweep lease. Its traces
+SHALL be `MtrTraceBatchV1` under `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_CHECK`
+when MTR checks move, with no dependency on that group's sweep lease. An mtr-only
+group SHALL have no sweep lease; the nothing-to-scan requirement applies.
 
 Banner results SHALL use a new typed banner-results batch and its own output
 contract in the signed registry. `EdgeRecordV1` and the frozen payloads SHALL
@@ -192,11 +245,12 @@ stay unchanged. Banner results for an execution SHALL carry that execution's
 sweep lease and `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`.
 
 #### Scenario: A one-minute sweep is leased
-- **WHEN** a sweep group runs on a 60 second interval
+- **GIVEN** a sweep group with host 10.0.0.5 and mode icmp
+- **WHEN** that group runs on a 60 second interval
 - **THEN** core signs a sweep lease for it
 
 #### Scenario: An mtr-mode sweep splits traces from reachability
-- **WHEN** a sweep group's modes include mtr
+- **WHEN** a sweep group's modes include mtr and icmp
 - **THEN** its reachability and port results carry
   `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`
 - **AND** its traces are `MtrTraceBatchV1` records under
@@ -219,8 +273,10 @@ an operator-visible validation error. An existing group of that kind SHALL be
 reported as not runnable. That group SHALL NOT emit on the legacy status path
 and SHALL NOT emit edge records. `SweepCompiler` mode handling SHALL NOT refuse
 the group: TCP modes with no ports are dropped, modes outside icmp, tcp,
-tcp_connect, and mtr are dropped, and the remaining modes still run. A CIDR
-dropped from a query row SHALL NOT refuse the group.
+tcp_connect, and mtr are dropped, and the remaining ICMP or TCP modes still run.
+When no ICMP or TCP check remains, the nothing-to-scan requirement applies and
+the group SHALL NOT be a configuration refusal. A CIDR dropped from a query row
+SHALL NOT refuse the group.
 
 #### Scenario: A prefix wider than /65 is refused
 - **WHEN** an operator saves a sweep group whose static target is an IPv6 prefix
@@ -271,11 +327,13 @@ metric batch, and its banner results are one producer for this rule until that
 group has a signed sweep lease: they SHALL stay on the legacy path together,
 and SHALL move to edge records together under that lease. Traces from a group
 whose modes include mtr SHALL move as `MtrTraceBatchV1` under MTR check leases
-when MTR checks move, with no dependency on that group's sweep lease.
-Per-family parity soaks SHALL finish before cutover. The next release SHALL remove legacy agent
-status-path emission and the gateway's matching publishers together, and only
-after every runnable sweep group has a signed sweep lease. After that release,
-no durable agent data remains on `StreamStatus` or `PushStatus`.
+when MTR checks move, with no dependency on that group's sweep lease. An
+mtr-only group SHALL have no sweep lease. Per-family parity soaks SHALL finish
+before cutover. The next release SHALL remove legacy agent status-path emission
+and the gateway's matching publishers together, and only after every sweep group
+that has hosts and an ICMP or TCP check has a signed sweep lease. A
+nothing-to-scan group SHALL count as satisfied. After that release, no durable
+agent data remains on `StreamStatus` or `PushStatus`.
 
 #### Scenario: An opted-in agent stops the legacy emission
 - **GIVEN** an agent opted in for the metrics batch contract

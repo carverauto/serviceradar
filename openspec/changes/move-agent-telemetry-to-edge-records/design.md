@@ -38,9 +38,10 @@ passive metric producer.
 `serviceradar.metrics.scheduled` v1 is the lease-run contract. Records carry a
 source authorization: `SCHEDULED_CHECK` for SNMP, ICMP, and MTR metrics and for
 rperf, and `SCHEDULED_SWEEP` for a sweep metric batch under the sweep lease.
-A sweep group with no lease yet emits that batch only together with its sweep
-results, once its sweep lease exists. Banner results are not part of either
-metrics contract.
+A sweep group that has hosts and an ICMP or TCP check, and no lease yet, emits
+that batch only together with its sweep results, once its sweep lease exists.
+A nothing-to-scan group emits no sweep metric batch. Banner results are not
+part of either metrics contract.
 
 JSON producers do not get a "JSON blob" contract. Each gets a typed batch message
 first, because the pipeline's semantic digest, idempotency key and projector
@@ -104,7 +105,8 @@ Each family is soaked behind a per-agent opt-in. A producer emits on exactly one
 path at a time. Parity soaks (row counts, values, timestamps against a control
 agent) run per family before cutover. The next release removes legacy agent
 status-path emission and the gateway's matching publishers together, after every
-runnable sweep group has a signed sweep lease. There is no long-lived per-family
+sweep group that has hosts and an ICMP or TCP check has a signed sweep lease.
+A nothing-to-scan group counts as satisfied. There is no long-lived per-family
 legacy. Order of the soaks, by loss exposure and payload
 readiness:
 
@@ -113,8 +115,9 @@ readiness:
 2. Lease-run metrics, `serviceradar.metrics.scheduled` v1 (SNMP, ICMP, and MTR
    metrics and rperf under `SCHEDULED_CHECK`; sweep metric batches under
    `SCHEDULED_SWEEP`). Same `MetricBatch` payload, projector, and destination as
-   item 1. A group with no lease yet keeps its sweep metric batch with its sweep
-   results until that lease exists (Decision 6 and Decision 7).
+   item 1. A group that still has hosts and an ICMP or TCP check, and no lease
+   yet, keeps its sweep metric batch with its sweep results until that lease
+   exists (Decision 6 and Decision 7). A nothing-to-scan group emits neither.
 3. MTR traces (`MtrTraceBatchV1`, already frozen) under check leases (USP-01 M4.3).
 4. Flow attribution and OTLP relay: typed, already ack-shaped.
 5. Plugin signals and native add-on telemetry (`TelemetryBatch`), then Wasm plugin
@@ -142,16 +145,30 @@ primary, and capped at `sweep_max_alias_targets_per_device`, drops a non-address
 value for that row (a CIDR in the ip column is not planned as a prefix), and
 includes the group's static targets. The plan uses the existing sweep lease and
 `EDGE_SOURCE_AUTHORIZATION_KIND_SCHEDULED_SWEEP`. A successful read whose targets
-differ re-plans. A set that exceeds plan limits is split across executions or
-ranges so every returned member is in a signed plan. The group's sweep results
-and sweep metric batch move together once that lease exists.
+differ, and that still has hosts and an ICMP or TCP check, re-plans. A set that
+exceeds plan limits is split across executions or ranges so every returned
+member is in a signed plan. The group's sweep results and sweep metric batch
+move together once that lease exists.
 
 A failed device read, including a later page error or an alias-table error,
 keeps the last signed plan. Core does not sign the pages already fetched, a plan
-that omits aliases, or an empty plan. When no signed plan exists yet, the group
-waits for a successful read. An unparseable query, and a query that parses but
-cannot be translated or cast, contributes no hosts and does not keep the last
-plan. The group's static targets still run.
+that omits aliases, or an empty plan. When a failed read has no signed plan yet,
+the group waits for a successful read. An unparseable query, and a query that
+parses but cannot be translated or cast, contributes no hosts and does not keep
+the last plan. The group's static targets still run when an ICMP or TCP check
+remains. When that leaves no hosts, the withdrawal below applies.
+
+When a successful resolution plus static targets yields no hosts, a query that
+cannot be parsed, translated, or cast plus static targets yields no hosts, or
+the modes leave no ICMP or TCP sweep check (mtr only, tcp or tcp_connect with no
+ports, or only modes SweepCompiler drops), core does not sign an empty plan. It
+withdraws the group's sweep lease with a revoked SweepLeaseV1 push, so the agent
+drops unrun slots and stops scanning previously selected targets. Core records
+an operator-visible nothing-to-scan state and signs a lease again when a later
+resolution or edit yields hosts and an ICMP or TCP check. Closure counts that
+group as satisfied because it emits no durable sweep data. An mtr-only group's
+traces run as `MtrTraceBatchV1` under MTR check leases and that group has no
+sweep lease. A failed read still keeps the last signed plan.
 
 A static target the plan builder cannot represent, including an IPv6 prefix wider
 than /65 (refused today as `:target_too_wide`), is refused when the sweep group
@@ -162,9 +179,10 @@ path, and it does not emit edge records.
 
 ### Decision 7: Groups the sweep lease skips today get a home before cutover
 
-Closure still requires every runnable sweep group to hold a signed sweep lease.
-Three eligibility gaps are closed before that, without changing `EdgeRecordV1`
-or any frozen payload.
+Closure still requires every sweep group that has hosts and an ICMP or TCP check
+to hold a signed sweep lease. A nothing-to-scan group counts as satisfied
+(Decision 6). Three eligibility gaps are closed before cutover, without changing
+`EdgeRecordV1` or any frozen payload.
 
 - **Short intervals.** `LeaseSchedule.min_interval_seconds` drops from 300 to 1,
   so every whole-second interval leases, and so does a cron whose closest fires
@@ -172,19 +190,24 @@ or any frozen payload.
   group over seven days is about 604800 executions, 300 times the about 2000
   executions of the five-minute floor, and each execution still signs once per
   target. A schedule denser than one second is refused at configuration.
-- **MTR mode.** A sweep group whose modes include mtr is leased. Reachability and
-  port results stay on that sweep lease under `SCHEDULED_SWEEP`. Traces are
-  `MtrTraceBatchV1` under the MTR check lease (`SCHEDULED_CHECK`) when MTR checks
-  move, with no dependency on that group's sweep lease. SweepPlan no longer
+- **MTR mode.** A sweep group whose modes include mtr is not refused. When an
+  ICMP or TCP check remains, reachability and port results stay on that sweep
+  lease under `SCHEDULED_SWEEP`. Traces are `MtrTraceBatchV1` under the MTR check
+  lease (`SCHEDULED_CHECK`) when MTR checks move, with no dependency on that
+  group's sweep lease. An mtr-only group has no sweep lease; its traces run
+  entirely under those MTR check leases (Decision 6). SweepPlan no longer
   refuses the group for mtr mode. TCP modes with no ports, and modes outside
-  icmp, tcp, tcp_connect, and mtr, are dropped and the remaining modes still run.
+  icmp, tcp, tcp_connect, and mtr, are dropped. Remaining ICMP or TCP checks
+  still run. When none remain, the group is nothing to scan, not a refusal.
 - **Banner grab.** Banner results are a new typed batch on their own registry
   contract. The contract is additive. Banner results for an execution carry that
   execution's sweep lease and `SCHEDULED_SWEEP`.
 
-Anything still unrepresentable after those three is refused at sweep group
-configuration with an operator-visible error. An existing group is reported as
-not runnable and does not run on the legacy path.
+Anything still unrepresentable after those three, which is a static target the
+plan builder cannot represent or a schedule denser than one second, is refused
+at sweep group configuration with an operator-visible error. An existing group
+is reported as not runnable and does not run on the legacy path. Nothing to scan
+is not that refusal.
 
 ## Risks
 
