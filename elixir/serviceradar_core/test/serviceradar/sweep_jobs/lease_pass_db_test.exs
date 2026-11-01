@@ -1,10 +1,12 @@
 defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   use ServiceRadar.DataCase, async: true
 
+  alias ServiceRadar.Actors.SystemActor
   alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeasePass
   alias ServiceRadar.SweepJobs.LeasePassWorker
@@ -224,6 +226,74 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     assert {:ok, nil} = ProducerAssignments.get(group.id, outsider)
   end
 
+  test "a failed refill leaves the closed slot unmarked until the next pass has the later slot",
+       ctx do
+    import ExUnit.CaptureLog
+
+    interval = 900
+    horizon = 800
+    lease_on!(ctx, horizon)
+    group = leased_group!(ctx, static_targets: ["192.0.2.0/24"])
+    enable_group!(group)
+
+    assert {:ok, assignment} =
+             ProducerAssignments.ensure(group.id, ctx.agent, ctx.partition.id)
+
+    wall = DateTime.truncate(DateTime.utc_now(), :second)
+    boundary = div(DateTime.to_unix(wall), interval) * interval
+    desired_start = DateTime.from_unix!(boundary - interval)
+    pass_now = DateTime.shift(desired_start, second: -30)
+
+    [desired] =
+      {:interval, interval}
+      |> LeaseSchedule.slots(pass_now, DateTime.shift(pass_now, second: horizon))
+      |> Enum.filter(&DateTime.after?(&1.start, pass_now))
+
+    # The blocker has already started on the wall clock, so this pass cannot drop it.
+    assert DateTime.before?(desired.start, wall)
+    assert desired.start == desired_start
+
+    closed_expires = DateTime.shift(pass_now, second: -301)
+
+    closed =
+      schedule_window!(
+        assignment,
+        DateTime.shift(closed_expires, second: -interval),
+        closed_expires,
+        ["192.0.2.0/24"]
+      )
+
+    blocker =
+      schedule_window!(
+        assignment,
+        desired.start,
+        desired.expires,
+        ["198.51.100.0/24"]
+      )
+
+    log =
+      capture_log(fn ->
+        assert {:ok, _summary} = LeasePass.run(pass_now, nil)
+        assert slot_state(group, closed.id) == :scheduled
+      end)
+
+    assert log =~ "planning failed for groups #{group.id}"
+
+    blocker
+    |> Ash.Changeset.for_update(:drop, %{}, actor: SystemActor.system(:sweep_execution_slots))
+    |> Ash.update!()
+
+    assert {:ok, _} = LeasePass.run(pass_now, nil)
+    assert slot_state(group, closed.id) == :missed_offline
+
+    assert {:ok, slots} = ExecutionSlots.list_for_group(group.id)
+
+    assert Enum.any?(
+             slots,
+             &(&1.state == :scheduled and DateTime.after?(&1.slot_start, closed.slot_start))
+           )
+  end
+
   test "an agent without a device is not leased", ctx do
     lease_on!(ctx, 3_600)
     deviceless = "deviceless-#{ctx.suffix}"
@@ -254,7 +324,8 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
                  interval: "15m",
                  enabled: false,
                  agent_ids: Keyword.get(overrides, :agent_ids, [ctx.agent]),
-                 static_targets: ["192.0.2.0/28", "198.51.100.7"],
+                 static_targets:
+                   Keyword.get(overrides, :static_targets, ["192.0.2.0/28", "198.51.100.7"]),
                  sweep_modes: ["icmp"]
                },
                actor: ctx.admin
@@ -311,6 +382,28 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
              |> Ash.create()
 
     uid
+  end
+
+  defp enable_group!(group) do
+    Repo.query!("UPDATE platform.sweep_groups SET enabled = true WHERE id = $1::uuid", [
+      Ecto.UUID.dump!(group.id)
+    ])
+  end
+
+  defp schedule_window!(assignment, slot_start, expires, targets) do
+    assert {:ok, slot} =
+             ExecutionSlots.schedule(assignment, slot_start, expires,
+               targets: targets,
+               check_set_sha256: :crypto.hash(:sha256, "checks"),
+               lease_id: Ash.UUID.generate()
+             )
+
+    slot
+  end
+
+  defp slot_state(group, slot_id) do
+    assert {:ok, slots} = ExecutionSlots.list_for_group(group.id)
+    Enum.find(slots, &(&1.id == slot_id)).state
   end
 
   defp assignment!(group, agent_id) do

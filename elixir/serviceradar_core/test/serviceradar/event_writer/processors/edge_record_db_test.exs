@@ -38,6 +38,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
   alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.LeaseCapabilities
   alias ServiceRadar.SweepJobs.ProducerAssignments
+  alias ServiceRadar.SweepJobs.SweepExecutionSlot
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepHostResult
@@ -94,6 +95,36 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
                Repo.one!(
                  Ecto.Query.from(a in DeviceAgentAvailability, where: a.device_uid == ^device.uid)
                )
+    end
+
+    test "a batch that commits after the slot was marked missed reopens the slot" do
+      %{record_bytes: record_bytes, headers: headers, batch: batch} = build_frame()
+      execution_id = Ecto.UUID.cast!(batch.execution_id)
+      set_slot_state!(execution_id, "missed_offline")
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(record_bytes, headers, Repo)
+      assert Repo.get!(SweepExecutionSlot, execution_id).state == :scheduled
+      assert Repo.get!(SweepGroupExecution, execution_id).status == :completed
+    end
+
+    test "a batch for a dropped slot is refused" do
+      %{record_bytes: record_bytes, headers: headers, batch: batch} = build_frame()
+      execution_id = Ecto.UUID.cast!(batch.execution_id)
+      set_slot_state!(execution_id, "dropped")
+
+      assert {:error, :sweep_slot_mismatch} = EdgeRecord.ingest(record_bytes, headers, Repo)
+      refute Repo.get(SweepGroupExecution, execution_id)
+    end
+
+    test "a late-fenced batch records its batch coordinate and does not project" do
+      frame = build_frame(delivery_mode: PublicationIdentity.mode_late_fenced())
+      execution_id = Ecto.UUID.cast!(frame.batch.execution_id)
+
+      assert {:ok, :inserted} = EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo)
+
+      assert sweep_batch_slot_count(frame.record, frame.batch) == 1
+      refute Repo.get(SweepGroupExecution, execution_id)
+      assert Repo.get!(SweepExecutionSlot, execution_id).state == :scheduled
     end
 
     test "a ZSTD-compressed frame passes gateway admission and projects its decoded batch" do
@@ -404,7 +435,17 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     end
   end
 
-  # --- fixture construction -------------------------------------------------
+  defp set_slot_state!(execution_id, state) do
+    %{num_rows: 1} =
+      Repo.query!(
+        """
+        UPDATE platform.sweep_execution_slots
+        SET state = $2
+        WHERE id = $1::uuid
+        """,
+        [Ecto.UUID.dump!(execution_id), state]
+      )
+  end
 
   defp build_frame(opts \\ []) do
     slot_override = Keyword.get(opts, :slot)
@@ -481,6 +522,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     execution_id = Ecto.UUID.dump!(execution_slot.id)
     key = IssuerKey.from_seed(:binary.copy(<<0x5A>>, 32))
+    # --- fixture construction -------------------------------------------------
     {:ok, [source]} = LeaseCapabilities.source_authorizations(assignment, execution_slot, key)
 
     contract = %{
@@ -589,7 +631,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       payload: payload
     }
 
-    encode_frame(record, batch, slot)
+    encode_frame(record, batch, slot, opts)
   end
 
   defp next_frame(frame, batch) do
@@ -613,7 +655,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     encode_frame(record, batch, %{frame.slot | sequence: frame.slot.sequence + 1})
   end
 
-  defp encode_frame(record, batch, slot) do
+  defp encode_frame(record, batch, slot, opts \\ []) do
     record = %{record | projected_write_bytes: record.projected_row_count * 2_048}
     record = %{record | semantic_envelope_sha256: SemanticDigest.compute(record)}
     record_bytes = EdgeRecordV1.encode(record)
@@ -625,11 +667,18 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     {:ok, delivery_id} = PublicationIdentity.delivery_id(slot)
 
+    delivery_mode = Keyword.get(opts, :delivery_mode, PublicationIdentity.mode_fresh())
+
+    delivery_proof =
+      if delivery_mode == PublicationIdentity.mode_fresh(),
+        do: nil,
+        else: :crypto.hash(:sha256, "delivery-proof")
+
     {:ok, provenance} =
       PublicationIdentity.transport_provenance(%{
         edge: slot,
-        delivery_mode: PublicationIdentity.mode_fresh(),
-        delivery_proof: nil,
+        delivery_mode: delivery_mode,
+        delivery_proof: delivery_proof,
         record_sha256: record_sha256,
         route_map_version: 1
       })
@@ -691,8 +740,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
     new_var = Bitwise.bor(0x80, Bitwise.band(var, 0x3F))
     <<b0::binary, new_v::8, b1::8, new_var::8, b2::binary>>
   end
-
-  # --- database assertions ---------------------------------------------------
 
   defp ledger_row(record) do
     %{rows: [[semantic_envelope_sha256, record_sha256]]} =
@@ -764,4 +811,6 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
 
     Enum.map(rows, fn [row_key] -> row_key end)
   end
+
+  # --- database assertions ---------------------------------------------------
 end

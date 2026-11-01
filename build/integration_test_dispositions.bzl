@@ -434,6 +434,7 @@ SERIAL_INTEGRATION_MODULE_COUNTS = {
     "test/serviceradar/snmp_profiles/snmp_profile_lifecycle_db_test.exs": 1,
     "test/serviceradar/snmp_profiles/snmp_profile_test.exs": 1,
     "test/serviceradar/snmp_profiles/srql_target_resolver_test.exs": 1,
+    "test/serviceradar/sweep_jobs/lease_miss_commit_race_db_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_coverage_rollup_worker_db_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_data_cleanup_watermark_db_test.exs": 1,
     "test/serviceradar/sweep_jobs/sweep_group_agent_ids_migration_db_test.exs": 1,

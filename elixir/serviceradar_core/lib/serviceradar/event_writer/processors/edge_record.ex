@@ -6,7 +6,9 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
   claims the delivery slot, event ledger and batch coordinate in one transaction.
   A fresh primary event projects into the ordinary sweep and inventory tables
   through `ServiceRadar.Edge.SweepProjection`. A replay makes no domain changes;
-  late-fenced deliveries remain ledger-only. Conflicting coordinates roll back
+  late-fenced deliveries remain ledger-only. A delivery that does not project
+  still locks the sweep execution slot before its batch coordinate commits.
+  Conflicting coordinates roll back
   the whole transaction. The gateway owns signature verification; this consumer
   checks the persisted schedule slot and current assignment again before writing
   authoritative domain state.
@@ -184,6 +186,8 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
                ),
              {:ok, ledger_outcome} <-
                upsert_ledger(repo, network_scope_id, event_id, semantic_digest, record_sha256),
+             :ok <-
+               lock_unprojected_sweep_slot(repo, provenance, ledger_outcome, batch.execution_id),
              {:ok, _batch_outcome} <-
                upsert_sweep_batch_slot(
                  repo,
@@ -193,8 +197,7 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
                  semantic_digest,
                  record.projected_row_count
                ) do
-          if ledger_outcome == :inserted and
-               provenance.delivery_mode != PublicationIdentity.mode_late_fenced() do
+          if projects?(provenance, ledger_outcome) do
             case SweepProjection.project(repo, record, batch) do
               :ok -> project_domain_rows(repo, network_scope_id, event_id, semantic_digest, batch)
               {:error, reason} -> repo.rollback(reason)
@@ -214,6 +217,33 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
       {:error, :rollback} -> raise "edge record transaction #{inspect(event_id)} rolled back"
       result -> result
     end
+  end
+
+  defp projects?(provenance, ledger_outcome) do
+    ledger_outcome == :inserted and
+      provenance.delivery_mode != PublicationIdentity.mode_late_fenced()
+  end
+
+  defp lock_unprojected_sweep_slot(repo, provenance, ledger_outcome, execution_id) do
+    if projects?(provenance, ledger_outcome) do
+      :ok
+    else
+      lock_sweep_execution_slot(repo, execution_id)
+    end
+  end
+
+  defp lock_sweep_execution_slot(repo, execution_id) do
+    repo.query!(
+      """
+      SELECT id
+      FROM platform.sweep_execution_slots
+      WHERE id = $1::uuid
+      FOR UPDATE
+      """,
+      [execution_id]
+    )
+
+    :ok
   end
 
   defp run_test_hook(nil, _point, _event_id, _result), do: :ok
