@@ -185,6 +185,38 @@ defmodule ServiceRadar.Edge.SweepPlanTest do
       assert a.header.execution_plan_sha256 == b.header.execution_plan_sha256
     end
 
+    test "contained or overlapping ranges merge into the containing range in deterministic order" do
+      targets_a = [
+        "198.51.100.0/24",
+        "198.51.100.5/32",
+        "198.51.100.128/25",
+        "198.51.100.9",
+        "192.0.2.10",
+        "2001:db8::1",
+        "2001:db8::/120"
+      ]
+
+      targets_b = Enum.reverse(targets_a)
+
+      assert {:ok, %{header: header_a, pages: [page_a]}} = SweepPlan.build(targets_a, opts())
+      assert {:ok, %{header: header_b, pages: [page_b]}} = SweepPlan.build(targets_b, opts())
+
+      assert Enum.map(page_a.ranges, & &1.cidr) == [
+               "192.0.2.10/32",
+               "198.51.100.0/24",
+               "2001:db8::/120"
+             ]
+
+      assert Enum.map(page_b.ranges, & &1.cidr) == [
+               "192.0.2.10/32",
+               "198.51.100.0/24",
+               "2001:db8::/120"
+             ]
+
+      assert header_a.total_target_count == 1 + 256 + 256
+      assert header_a.execution_plan_sha256 == header_b.execution_plan_sha256
+    end
+
     test "refuses a plan it cannot represent, and returns no plan" do
       assert {:error, :no_targets} = SweepPlan.build([], opts())
       assert {:error, {:invalid_target, "nope"}} = SweepPlan.build(["10.0.0.1", "nope"], opts())
@@ -203,6 +235,46 @@ defmodule ServiceRadar.Edge.SweepPlanTest do
 
       assert {:error, {:invalid_plan, :header_identity}} =
                SweepPlan.build(["10.0.0.1"], opts(plan_id: v4))
+    end
+  end
+
+  describe "merge_static_targets/1" do
+    test "merges contained targets into their containing CIDR while preserving standalone bare IPs" do
+      assert {:ok, ["192.0.2.21", "198.51.100.0/24", "2001:db8::/120"]} =
+               SweepPlan.merge_static_targets([
+                 "198.51.100.5/32",
+                 "198.51.100.0/24",
+                 "198.51.100.10-198.51.100.50",
+                 "192.0.2.21",
+                 "2001:db8::1",
+                 "2001:DB8::ff/120"
+               ])
+    end
+
+    test "refuses overlapping ranges that cannot merge into a CIDR" do
+      assert {:error,
+              {:unmergeable_targets, "198.51.100.10-198.51.100.50", "198.51.100.30-198.51.100.80"}} =
+               SweepPlan.merge_static_targets([
+                 "198.51.100.10-198.51.100.50",
+                 "198.51.100.30-198.51.100.80"
+               ])
+
+      assert {:error, {:unmergeable_targets, "198.51.100.0/25", "198.51.100.64-198.51.100.192"}} =
+               SweepPlan.merge_static_targets([
+                 "198.51.100.0/25",
+                 "198.51.100.64-198.51.100.192"
+               ])
+    end
+
+    test "refuses invalid or inverted ranges" do
+      assert {:error, {:invalid_target, "198.51.100.50-198.51.100.10"}} =
+               SweepPlan.merge_static_targets(["198.51.100.50-198.51.100.10"])
+
+      assert {:error, {:invalid_target, "not-an-ip"}} =
+               SweepPlan.merge_static_targets(["not-an-ip"])
+
+      assert {:error, {:target_too_wide, "2001:db8::/48"}} =
+               SweepPlan.merge_static_targets(["2001:db8::/48"])
     end
   end
 end

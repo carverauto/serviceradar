@@ -11,16 +11,17 @@ defmodule ServiceRadar.Edge.SweepPlan do
 
   ## Ranges
 
-  One `TargetRangeV1` per configured static target, never merged with another. A static
-  target is a bare address or a CIDR; any other form makes the group ineligible. A bare IP
-  becomes a `/32` or `/128` CIDR; a CIDR is committed as its canonical prefix (`10.1.2.3/24`
-  is `10.1.2.0/24`). IPv4 is dotted-quad. IPv6 is RFC 5952 (lowercase, no leading zeros, the
-  longest run of two or more zero groups compressed, the first such run on a tie) and is
-  refused when that spelling differs from `:inet.ntoa/1`, so a returned plan is one both
-  validators accept. An IPv6 prefix shorter than `/65` holds more addresses than a
-  `target_count` can carry and is refused. Two spellings of the same target are one range.
-  Ranges are ordered by address family, network address and prefix length, so the same
-  targets always give the same plan for the same ids.
+  One `TargetRangeV1` per canonical CIDR range after merging any contained or overlapping
+  targets. A static target is a bare address or a CIDR; any other form makes the group
+  ineligible. A bare IP becomes a `/32` or `/128` CIDR; a CIDR is committed as its canonical
+  prefix (`10.1.2.3/24` is `10.1.2.0/24`). IPv4 is dotted-quad. IPv6 is RFC 5952 (lowercase,
+  no leading zeros, the longest run of two or more zero groups compressed, the first such run
+  on a tie) and is refused when that spelling differs from `:inet.ntoa/1`, so a returned plan
+  is one both validators accept. An IPv6 prefix shorter than `/65` holds more addresses than a
+  `target_count` can carry and is refused. Two spellings of the same target, or a narrower
+  target contained in a wider CIDR, merge into the containing range. Ranges are ordered by
+  address family, network address and prefix length, so the same targets always give the same
+  plan for the same ids.
 
   A page holds at most 256 ranges (`MaxRangesPerPage`); a plan uses as many pages as it
   needs. Checks are ICMP and TCP only, so the MTR fields are zero.
@@ -67,6 +68,7 @@ defmodule ServiceRadar.Edge.SweepPlan do
           | {:invalid_port, term()}
           | {:invalid_target, String.t()}
           | {:target_too_wide, String.t()}
+          | {:unmergeable_targets, String.t(), String.t()}
           | {:invalid_plan, atom()}
 
   @doc "The availability policy of a plan: a host is available when any of its checks succeeded."
@@ -130,6 +132,36 @@ defmodule ServiceRadar.Edge.SweepPlan do
       end
     else
       _ -> {:error, {:invalid_target, trimmed}}
+    end
+  end
+
+  @doc """
+  The canonical, merged, deterministically ordered CIDR strings for `targets`.
+  """
+  @spec canonical_targets([String.t()]) :: {:ok, [String.t()]} | {:error, reason()}
+  def canonical_targets(targets) when is_list(targets) do
+    with {:ok, canonical} <- canonicalize(targets) do
+      {:ok, Enum.map(canonical, & &1.cidr)}
+    end
+  end
+
+  @doc """
+  Merges contained or overlapping static targets into deterministic `(address family, network
+  address, prefix length)` order, preserving bare-address spelling when a single IP is not
+  contained in a wider CIDR. Returns `{:error, {:unmergeable_targets, left, right}}` when two
+  targets overlap in a way that cannot merge into a CIDR range, or `{:error, reason()}` when a
+  target is invalid or too wide.
+  """
+  @spec merge_static_targets([String.t()]) :: {:ok, [String.t()]} | {:error, reason()}
+  def merge_static_targets(targets) when is_list(targets) do
+    trimmed =
+      targets
+      |> Enum.map(&(&1 |> to_string() |> String.trim()))
+      |> Enum.reject(&(&1 == ""))
+
+    with {:ok, parsed} <- parse_static_targets(trimmed),
+         {:ok, merged} <- parsed |> Enum.sort_by(& &1.order) |> merge_parsed_static_targets() do
+      {:ok, Enum.map(merged, & &1.text)}
     end
   end
 
@@ -301,7 +333,124 @@ defmodule ServiceRadar.Edge.SweepPlan do
       end)
 
     case result do
-      {:ok, canonical} -> {:ok, canonical |> Enum.uniq_by(& &1.cidr) |> Enum.sort_by(& &1.order)}
+      {:ok, canonical} -> {:ok, canonical |> Enum.sort_by(& &1.order) |> merge_overlapping()}
+      error -> error
+    end
+  end
+
+  defp merge_overlapping(sorted) do
+    sorted
+    |> Enum.reduce([], fn
+      target, [] ->
+        [target]
+
+      %{order: {family, net, _}, count: count} = target,
+      [%{order: {prev_family, prev_net, _}, count: prev_count} | _] = acc ->
+        if family == prev_family and net + count <= prev_net + prev_count do
+          acc
+        else
+          [target | acc]
+        end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp parse_static_targets(targets) do
+    Enum.reduce_while(targets, {:ok, []}, fn raw, {:ok, acc} ->
+      case parse_static_target(raw) do
+        {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
+        {:error, _} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp parse_static_target(raw) do
+    if String.contains?(raw, "-") and not String.contains?(raw, "/") do
+      parse_static_range(raw)
+    else
+      case canonical_target(raw) do
+        {:ok, %{cidr: cidr, count: count, order: {family_bits, net, _bits}}} ->
+          {text, kind_rank} =
+            if String.contains?(raw, "/") do
+              {cidr, 0}
+            else
+              [addr, _] = String.split(cidr, "/", parts: 2)
+              {addr, 1}
+            end
+
+          {:ok,
+           %{
+             raw: raw,
+             text: text,
+             kind: :cidr,
+             family: family_bits,
+             first: net,
+             last: net + count - 1,
+             order: {family_bits, net, -count, kind_rank}
+           }}
+
+        {:error, _} = error ->
+          error
+      end
+    end
+  end
+
+  defp parse_static_range(raw) do
+    with false <- String.contains?(raw, "%"),
+         [first_text, last_text] <- String.split(raw, "-", parts: 2),
+         {:ok, first_tuple} <- parse_address(String.trim(first_text)),
+         {:ok, last_tuple} <- parse_address(String.trim(last_text)),
+         {family_bits, first} = to_integer(first_tuple),
+         {^family_bits, last} <- to_integer(last_tuple),
+         true <- first <= last,
+         {:ok, first_canonical} <- to_text(family_bits, first),
+         {:ok, last_canonical} <- to_text(family_bits, last) do
+      count = last - first + 1
+
+      if family_bits == 128 and count > 1 <<< @max_ipv6_host_bits do
+        {:error, {:target_too_wide, raw}}
+      else
+        {:ok,
+         %{
+           raw: raw,
+           text: first_canonical <> "-" <> last_canonical,
+           kind: :range,
+           family: family_bits,
+           first: first,
+           last: last,
+           order: {family_bits, first, -count, 2}
+         }}
+      end
+    else
+      _ -> {:error, {:invalid_target, raw}}
+    end
+  end
+
+  defp merge_parsed_static_targets(sorted) do
+    result =
+      Enum.reduce_while(sorted, {:ok, []}, fn
+        target, {:ok, []} ->
+          {:cont, {:ok, [target]}}
+
+        curr, {:ok, [prev | _] = acc} ->
+          cond do
+            curr.family != prev.family or curr.first > prev.last ->
+              {:cont, {:ok, [curr | acc]}}
+
+            prev.kind == :cidr and curr.last <= prev.last ->
+              {:cont, {:ok, acc}}
+
+            prev.kind == :range and curr.kind == :range and curr.first == prev.first and
+                curr.last == prev.last ->
+              {:cont, {:ok, acc}}
+
+            true ->
+              {:halt, {:error, {:unmergeable_targets, prev.raw, curr.raw}}}
+          end
+      end)
+
+    case result do
+      {:ok, merged} -> {:ok, Enum.reverse(merged)}
       error -> error
     end
   end

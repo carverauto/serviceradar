@@ -58,6 +58,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
 
   alias AshPaperTrail.Resource.Changes.CreateNewVersion
   alias ServiceRadar.SweepJobs.Changes.NormalizeAgentAssignment
+  alias ServiceRadar.SweepJobs.Changes.NormalizeStaticTargets
   alias ServiceRadar.SweepJobs.Changes.ReconcileProducerAssignments
   alias ServiceRadar.SweepJobs.Changes.ScheduleSweepMonitor
   alias ServiceRadar.SweepJobs.Changes.ValidateSrqlQuery
@@ -131,6 +132,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       accept @group_fields
 
       change NormalizeAgentAssignment
+      change NormalizeStaticTargets
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
@@ -143,6 +145,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
       accept @group_fields
 
       change NormalizeAgentAssignment
+      change NormalizeStaticTargets
       validate AgentAssignment
       change ScheduleSweepMonitor
       change ValidateSrqlQuery
@@ -196,6 +199,7 @@ defmodule ServiceRadar.SweepJobs.SweepGroup do
         Ash.Changeset.change_attribute(changeset, :static_targets, merged_targets)
       end
 
+      change NormalizeStaticTargets
       change ReconcileProducerAssignments
     end
 
