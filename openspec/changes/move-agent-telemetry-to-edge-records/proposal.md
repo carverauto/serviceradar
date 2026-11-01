@@ -24,13 +24,17 @@ data family therefore moves in this change; nothing stays on a legacy fallback.
 
 - **Two authority models, chosen by who schedules each run.**
   - **Sweep leases (unchanged)** for runs core schedules: leased static sweeps keep their per-run
-    signed plans and `SCHEDULED_SWEEP` source authorization exactly as USP-01 shipped them.
+    signed plans and `SCHEDULED_SWEEP` source authorization exactly as USP-01 shipped them. Their
+    results stay `SweepObservationBatchV1` under `serviceradar.sweep.observation`, authorized by
+    the lease's production capability.
   - **Standing output grants** for everything the agent runs from its own config: sysmon, SNMP
     polls, ICMP checks, rperf, MTR checks, plugin runs, add-on telemetry, OTLP relay, flow
     attribution, discovery, mapper jobs, sync runs, inventory producers, and sweeps that are not
     leased (for example `target_query` groups). Core signs one production capability per
-    (agent, contract, authority epoch), delivered in the agent config. These records carry no
-    source authorization.
+    (agent, contract, authority epoch), delivered in the agent config. Records emitted under a
+    standing grant carry no source authorization. That rule does not apply to a lease-signed
+    record. Every MTR trace, including one from a sweep group whose modes include mtr, is one of
+    these grant records and does not move with a sweep lease.
 - **One typed output contract per (data family, scheduling model)**, carrying an existing
   protobuf where one exists. JSON producers get a typed batch message first; the registry never
   admits an untyped status envelope. Every agent `MetricBatch` uses `serviceradar.metrics.batch`
@@ -47,8 +51,10 @@ data family therefore moves in this change; nothing stays on a legacy fallback.
   replicated, because the agent reclaims its spool on PubAck.
 - **One cutover release.** A producer leaves the status path only in the release where that
   producer emits edge records and while the agent holds the contract's grant. Each family then
-  passes a farm01 parity soak; the next release removes every legacy agent emission and the
-  gateway's matching publishers.
+  passes a farm01 parity soak. The unleased sweep results contract and its payload are defined,
+  shipped, and soaked before that release. Until then, cutover does not remove `GetSweepResults`,
+  the sweep results KV, `serviceradar.sweep` on `StreamStatus`, or the gateway sweep publisher.
+  The release then removes every legacy agent emission and the gateway's matching publishers.
 
 ## Out of Scope
 

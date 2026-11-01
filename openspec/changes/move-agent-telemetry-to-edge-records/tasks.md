@@ -4,6 +4,9 @@
 
 - [ ] 1.1 Standing output grants: core issues, renews and revokes one capability per (agent,
   contract, epoch); delivered in the agent config; gateway trust snapshot carries the fences.
+  Records under a grant carry no source authorization. Lease-signed `SweepObservationBatchV1`
+  records stay on `serviceradar.sweep.observation` with the lease capability and
+  `SCHEDULED_SWEEP`, and are not grant records.
 - [ ] 1.2 Agent producer sink: shared record builder, spool append with durable acknowledgement,
   retryable backpressure, counted drops.
 - [ ] 1.3 Spool admission backpressure (USP-01 M3.2) and byte-fair lane interleaving (USP-01 2.7)
@@ -30,7 +33,9 @@
 ## 3. MTR traces
 
 - [ ] 3.1 Agent-scheduled MTR trace contract reusing the frozen trace messages without a
-  per-run source join; producer and projector into `mtr_traces`; parity soak.
+  per-run source join. Every MTR trace, including a trace from a sweep group whose modes include
+  mtr, moves here under the standing grant, with no sweep-lease dependency. Producer and projector
+  into `mtr_traces`; parity soak.
 
 ## 4. Flow attribution and OTLP relay
 
@@ -50,7 +55,8 @@
   `MetricBatch` appended to each of those unleased results chunks moves in this same task onto
   `serviceradar.metrics.batch` with no source authorization, keeping every series it carries:
   `sweep.total_hosts`, `sweep.available_hosts`, `sweep.sequence`, `sweep.port.*`, `sweep.host.*`,
-  `sweep.scanner.*`, and `sweep.banner_grab.*`. Parity soak.
+  `sweep.scanner.*`, and `sweep.banner_grab.*`. Define the contract and its payload, ship them,
+  and pass the farm01 parity soak before cutover task 8.1.
 
 ## 7. Inventory producers
 
@@ -61,6 +67,8 @@
 ## 8. Cutover
 
 - [ ] 8.1 One release removes every legacy agent emission and the gateway publishers that serve
-  them.
+  them. It follows task 6.1. It does not remove `GetSweepResults`, the sweep results KV,
+  `serviceradar.sweep` on `StreamStatus`, or the gateway sweep publisher until the unleased sweep
+  results contract and its payload are defined, shipped, and have passed the farm01 parity soak.
 - [ ] 8.2 Confirm no durable agent data remains on `StreamStatus`/`PushStatus`; only control
   traffic and ephemeral status summaries stay there.

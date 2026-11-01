@@ -36,6 +36,9 @@ those runs would mean a core-planned slot and a database row per poll for work t
 authorizes, so they emit under a **standing output grant** instead: one production capability per
 (agent, contract, authority epoch), fenced like a sweep producer assignment. Records under a
 standing grant carry no source authorization, and each such contract's payload rules state that.
+A lease-signed record is outside that rule. Leased static sweep results stay
+`SweepObservationBatchV1` on `serviceradar.sweep.observation`, authorized by the lease capability
+and `SCHEDULED_SWEEP`.
 
 Trade-off: a standing-grant record is not checked against a signed per-run plan, so core cannot
 prove an unleased sweep scanned exactly what its config asked. That is the trust level the legacy
@@ -69,8 +72,11 @@ before it moves. The registry never admits an untyped status envelope.
   execution through the sweep projection. If per-host gauges for a leased sweep are needed later,
   core derives them from those projected results. That derivation is a follow-up, not this change.
 - The frozen `SweepObservationBatchV1` and `MtrTraceBatchV1` bind each body to a per-run source
-  authorization, so unleased sweep results and agent-scheduled MTR traces get their own contracts
-  that reuse the frozen host and trace sub-messages without that join.
+  authorization. Leased static sweep results keep `SweepObservationBatchV1` and that join.
+  Unleased sweep results and agent-scheduled MTR traces get their own contracts that reuse the
+  frozen host and trace sub-messages without that join. Every MTR trace, including a trace from
+  a sweep group whose modes include mtr, is one of those agent-scheduled traces under the
+  standing grant. It does not move with a sweep lease.
 
 ### Decision 4: One agent-side producer sink
 
@@ -102,7 +108,10 @@ agent already holds the grant, which is how the in-flight sysmon slice behaves. 
 `serviceradar.metrics.batch` for sysmon does not take SNMP, ICMP, rperf, MTR, the periodic sweep
 summary, or unleased sweep-results chunk batches off the status path. After each family's farm01
 parity soak, the next release removes every legacy agent emission and the gateway's matching
-publishers.
+publishers. The unleased sweep results contract and its payload are defined, shipped, and soaked
+on farm01 before that release. Until then, cutover leaves `GetSweepResults`, the sweep results
+KV, `serviceradar.sweep` on `StreamStatus`, and the gateway sweep publisher in place. Task 6
+precedes task 8.
 Order, by loss exposure and readiness:
 
 1. Metrics: sysmon, then SNMP, ICMP, rperf and MTR metrics, then the newest-group status-interval
