@@ -277,7 +277,8 @@ in `choices.md` and the chart README.
     scheduled execution missed when no sweep execution row has committed by its
     slot end plus grace. A ledger-only batch is not that commit. Offline is an
     active assignment with a later slot; otherwise the closed slot is exhausted.
-    A refill failure leaves that assignment unmarked for this pass only.
+    A planning error leaves that group's slots unmarked for this pass only.
+    A slot older than 24 hours stays scheduled.
     DONE: the mark rule is **Missed runs** in `design.md`.
     `SweepCorrelate.ingest_own_payload/1` already gates EventWriter sweep ingest.
     `ServiceRadar.SweepJobs.LeaseMisses` owns the mark, and
