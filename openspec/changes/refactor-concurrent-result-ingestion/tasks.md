@@ -48,10 +48,11 @@
   and the ledger and population guards across a `SyncIngestorQueue` process
   restart and chunk replay
   ("preserves ledger incompleteness and the population guard across SyncIngestorQueue restart and replay").
-  BazelCI invocation 878fccce-5905-46db-ac09-0ccfa6d910d9 recorded a transient
-  CNPG pool checkout timeout in `integration_tests_serial_3`
-  (`ExposureAssessmentTransitionsDbTest`); `integration_tests_serial_2`
-  (`SyncIngestorQueueDbTest`) passed in 150.9s and stays an RBE cache hit.
+  BazelCI invocation a1070b9f-3fa1-41a3-9309-5bec02868576 recorded a transient
+  DirectSession 4000ms connection queue timeout in `integration_tests_serial_3`
+  (`ExposureAssessmentTransitionsDbTest`) while srql-fixtures was under
+  concurrent load; `integration_tests_serial_2` (`SyncIngestorQueueDbTest`)
+  passed in 133.6s and stays an RBE cache hit.
 - [x] 4.5 Add stale-tick, queue-full-while-in-flight, byte-cap, malformed payload, interleaved incomplete/complete run, and no-retirement-on-overflow regressions.
 
 ## 5. JetStream telemetry
