@@ -62,13 +62,14 @@ func TestPackagedHostTrustRejectsRuntimeIdentityAndKeepsRenewalWritable(t *testi
 		}
 	}
 
-	if os.Geteuid() != 0 {
+	if os.Getuid() != 0 {
 		if _, _, err := loadManagedHostTrust(root); err == nil {
 			t.Fatal("caller-owned host trust was accepted")
 		}
 		renew()
-		return
+		t.Fatalf("host-trust root acceptance requires uid 0; got uid=%d euid=%d", os.Getuid(), os.Geteuid())
 	}
+	t.Logf("host-trust root acceptance running as uid=%d euid=%d", os.Getuid(), os.Geteuid())
 
 	for _, path := range []string{filepath.Join(root, "agent.json"), certDir, filepath.Join(certDir, "ca-chain.pem"), filepath.Join(certDir, "root.pem"), filepath.Join(certDir, "component.pem"), filepath.Join(certDir, "component-key.pem")} {
 		if err := os.Chown(path, 65534, 65534); err != nil {

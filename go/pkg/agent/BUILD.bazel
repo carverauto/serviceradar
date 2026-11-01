@@ -611,6 +611,8 @@ go_benchmark(
     binary = ":agent_test",
 )
 
+# Host-trust acceptance has to chown and read root-owned files. The RBE action
+# user is not uid 0 unless this test asks for it. Only the test action changes.
 go_test(
     name = "managed_certificates_test",
     srcs = [
@@ -619,5 +621,6 @@ go_test(
         "host_trust_linux_test.go",
     ],
     embed = [":agent"],
+    exec_properties = {"test.dockerUser": "0"},
     target_compatible_with = ["@platforms//os:linux"],
 )
