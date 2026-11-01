@@ -139,6 +139,43 @@ async function installLeaf(options: Record<string, any>): Promise<void> {
   })
 }
 
+const HUB_AUTHORIZER_DISCONNECTED = new Set([
+  "connecting",
+  "auth_connection_unavailable",
+  "auth_subscription_failed",
+  "policy_unavailable",
+  "not_configured",
+  "authorizer_unavailable",
+  "core_unavailable",
+])
+
+function acceptLocalOnboarding(nats: any): void {
+  const mode = nats?.auth_mode
+  const reason = typeof nats?.reason === "string" ? nats.reason : ""
+  const presented = typeof mode === "string" && mode && mode !== "static_mtls" ? mode : (reason || "no authentication mode")
+  if (reason === "jwt_account_signer_unconfigured" || reason.startsWith("unsupported_auth_mode") || (mode != null && mode !== "static_mtls")) {
+    throw new Error(`NATS managed certificate onboarding requires static mTLS; got ${presented}`)
+  }
+  if (reason === "nats_account_mismatch") throw new Error(`NATS managed certificate authorization is not ready: ${reason}`)
+  const disconnected = reason === "" || HUB_AUTHORIZER_DISCONNECTED.has(reason)
+  if (mode === "static_mtls") {
+    const account = nats?.account_name
+    if (typeof account !== "string" || !/^[A-Za-z0-9_-]+$/.test(account)) throw new Error("NATS managed certificate onboarding requires the deployment account name")
+    if (nats?.ready === true) {
+      console.log(`NATS certificate authorization: static mTLS account ${account}`)
+      return
+    }
+    if (disconnected) {
+      console.log(`NATS certificate authorization: hub enforcement is not connected (${reason || "readiness not confirmed"}); local onboarding continues and hub enforcement stays unconfirmed`)
+      return
+    }
+    throw new Error(`NATS managed certificate authorization is not ready: ${reason || "readiness not confirmed"}`)
+  }
+  if (nats?.ready === true) throw new Error("NATS managed certificate onboarding requires static mTLS; got no authentication mode")
+  if (!disconnected) throw new Error(`NATS managed certificate authorization is not ready: ${reason || "readiness not confirmed"}`)
+  console.log("NATS certificate authorization: hub enforcement is not configured; local onboarding continues and hub enforcement stays unconfirmed")
+}
+
 // ---------------------------------------------------------------- collector
 
 async function installCollector(options: Record<string, any>): Promise<void> {
@@ -169,14 +206,7 @@ async function installManaged(
   const payload = await edgeRequest(session, "GET", "/api/admin/managed-components/bootstrap")
   const bootstrap = payload?.data || payload
   const publicKey = decodePolicyPublicKey(bootstrap?.policy_public_key)
-  if (bootstrap?.nats?.ready !== true) throw new Error(`NATS managed certificate authorization is not ready: ${bootstrap?.nats?.reason || "readiness not confirmed"}`)
-  if (bootstrap?.nats?.auth_mode !== "static_mtls") {
-    const mode = bootstrap?.nats?.auth_mode
-    throw new Error(`NATS managed certificate onboarding requires static mTLS; got ${typeof mode === "string" && mode ? mode : "no authentication mode"}`)
-  }
-  const account = bootstrap?.nats?.account_name
-  if (typeof account !== "string" || !/^[A-Za-z0-9_-]+$/.test(account)) throw new Error("NATS managed certificate onboarding requires the deployment account name")
-  console.log(`NATS certificate authorization: static mTLS account ${account}`)
+  acceptLocalOnboarding(bootstrap?.nats)
   const asset = await resolvePackage(ctx, target.packageName)
   const local = join(ctx.workDir, asset.file)
   const previous = ctx.dryRun ? {} : await readManagedConfiguration(target.service)

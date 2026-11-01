@@ -709,6 +709,49 @@ test("edge install leaf stops before packaging unless static mTLS names the depl
   })
 })
 
+test("edge install leaf onboards locally while the hub authorizer is disconnected", async () => {
+  const leaf = ["edge", "install", "leaf", "--advertise-url", "tls://leaf.example:4222", "--site", "site-1", "--version", "1.4.81", ...DRY]
+  const bootstrap = (nats) => (req, res) => {
+    if (req.path === "/api/admin/managed-components/bootstrap") {
+      json(res, 200, {data: {policy_public_key: Buffer.alloc(32, 7).toString("base64"), nats}})
+      return
+    }
+    if (req.path === "/api/admin/edge-sites/site-1") return json(res, 200, {data: SITE})
+    return json(res, 404, {})
+  }
+
+  await withServer(bootstrap({ready: false, reason: "connecting", auth_mode: "static_mtls", account_name: "EDGE"}), async (instance) => {
+    const pending = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.equal(pending.code, 0, pending.stderr)
+    assert.match(pending.stdout, /hub enforcement is not connected \(connecting\)/)
+    assert.match(pending.stdout, /local onboarding continues/)
+    assert.equal(pending.stdout.includes("static mTLS account EDGE"), false)
+    assert.match(pending.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+  })
+
+  await withServer(bootstrap({ready: false, reason: "not_configured"}), async (instance) => {
+    const unconfigured = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.equal(unconfigured.code, 0, unconfigured.stderr)
+    assert.match(unconfigured.stdout, /hub enforcement is not configured/)
+    assert.equal(unconfigured.stdout.includes("static mTLS account"), false)
+    assert.match(unconfigured.stdout, /serviceradar-nats-1\.4\.81-1\.x86_64\.rpm/)
+  })
+
+  await withServer(bootstrap({ready: false, reason: "unsupported_auth_mode:token"}), async (instance) => {
+    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.notEqual(refused.code, 0)
+    assert.match(refused.stderr, /requires static mTLS; got unsupported_auth_mode:token/)
+    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+  })
+
+  await withServer(bootstrap({ready: false, reason: "jwt_account_signer_unconfigured", auth_mode: "operator_jwt", account_name: "EDGE"}), async (instance) => {
+    const refused = await runCli([...leaf, "--instance", instance], {env: TOKEN_ENV})
+    assert.notEqual(refused.code, 0)
+    assert.match(refused.stderr, /requires static mTLS; got operator_jwt/)
+    assert.equal(refused.stdout.includes("serviceradar-nats"), false)
+  })
+})
+
 test("edge install leaf --dry-run checks the site exists and plans managed NATS onboarding", async () => {
   await withServer(
     (req, res) => {

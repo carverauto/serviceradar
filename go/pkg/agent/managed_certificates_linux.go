@@ -362,16 +362,8 @@ func (s managedCertificateStore) validateIssued(p *managedPendingCertificate, ro
 		return nil, nil, err
 	}
 	expected := managedCertificateIdentity(p.Assignment, role)
-	if leaf.Subject.CommonName != expected.Subject.CommonName || len(leaf.URIs) != 1 || leaf.URIs[0].String() != expected.URIs[0].String() {
-		return nil, nil, fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
-	}
-	if !slices.Equal(slices.Sorted(slices.Values(leaf.DNSNames)), slices.Sorted(slices.Values(expected.DNSNames))) || len(leaf.IPAddresses) != len(expected.IPAddresses) {
-		return nil, nil, fmt.Errorf("%w: issued managed certificate hosts differ from its assignment", errManagedCertificates)
-	}
-	for _, ip := range expected.IPAddresses {
-		if !slices.ContainsFunc(leaf.IPAddresses, func(actual net.IP) bool { return actual.Equal(ip) }) {
-			return nil, nil, fmt.Errorf("%w: issued managed certificate IP differs from its assignment", errManagedCertificates)
-		}
+	if err := issuedIdentityMatches(role, p.Assignment, leaf, expected); err != nil {
+		return nil, nil, err
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM(s.roots) {
@@ -405,6 +397,76 @@ func (s managedCertificateStore) validateIssued(p *managedPendingCertificate, ro
 		certificatePEM = append(certificatePEM, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert.Raw})...)
 	}
 	return leaf, certificatePEM, nil
+}
+
+func issuedIdentityMatches(role string, assignment ManagedCertificateAssignment, leaf *x509.Certificate, expected *x509.CertificateRequest) error {
+	if leaf.Subject.CommonName != expected.Subject.CommonName {
+		return fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
+	}
+	allowed := map[string]struct{}{expected.URIs[0].String(): {}}
+	if role == "upstream_client" {
+		allowed["spiffe://serviceradar.local/nats-leaf/"+assignment.PartitionID] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(leaf.URIs))
+	for _, uri := range leaf.URIs {
+		value := uri.String()
+		if _, ok := allowed[value]; !ok {
+			return fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
+		}
+		seen[value] = struct{}{}
+	}
+	if len(seen) != len(allowed) {
+		return fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
+	}
+	names := append(append([]string{}, expected.DNSNames...), expected.Subject.CommonName)
+	if !sameCertificateNames(leaf.DNSNames, names) || !sameCertificateIPs(leaf.IPAddresses, expected.IPAddresses) {
+		return fmt.Errorf("%w: issued managed certificate hosts differ from its assignment", errManagedCertificates)
+	}
+	return nil
+}
+
+func sameCertificateNames(actual, expected []string) bool {
+	return slices.Equal(certificateNameSet(actual), certificateNameSet(expected))
+}
+
+func certificateNameSet(names []string) []string {
+	seen := make(map[string]struct{}, len(names))
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		out = append(out, name)
+	}
+	slices.Sort(out)
+	return out
+}
+
+func sameCertificateIPs(actual, expected []net.IP) bool {
+	if len(certificateIPSet(actual)) != len(certificateIPSet(expected)) {
+		return false
+	}
+	for _, ip := range expected {
+		if !slices.ContainsFunc(actual, func(candidate net.IP) bool { return candidate.Equal(ip) }) {
+			return false
+		}
+	}
+	return true
+}
+
+func certificateIPSet(ips []net.IP) []string {
+	seen := make(map[string]struct{}, len(ips))
+	out := make([]string, 0, len(ips))
+	for _, ip := range ips {
+		value := ip.String()
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+	}
+	return out
 }
 
 func (s managedCertificateStore) install(ctx context.Context, req ManagedCertificateInstallRequest) (*ManagedCertificateInstallation, error) {

@@ -4,6 +4,7 @@ use tonic::transport::{Identity, ServerTlsConfig};
 
 use crate::config::{ClientAuthMode, Config};
 
+#[derive(Clone)]
 pub enum GrpcTlsConfig {
     Standard(ServerTlsConfig),
     Managed(serviceradar_cert_policy::server::Config),

@@ -696,6 +696,22 @@
     "reason": null
   },
   {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/managed_component_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 1,
+    "fingerprint": "03b86c7a072176968e4476600d1c172277033ec73e05c0e4c7f7542840262a14",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
+    "path": "lib/serviceradar_web_ng_web/controllers/api/managed_component_controller.ex",
+    "matcher": "datetime_iso8601",
+    "occurrence": 2,
+    "fingerprint": "cab608aed6b325c099ff63cd65bd86e7f62869ae2ba1e199e83395159e0335ea",
+    "classification": "canonical_machine",
+    "reason": null
+  },
+  {
     "path": "lib/serviceradar_web_ng_web/controllers/api/device_controller.ex",
     "matcher": "datetime_iso8601",
     "occurrence": 1,

@@ -12,9 +12,12 @@ import (
 	"errors"
 	"math/big"
 	"net"
+	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
+	"strings"
 	"syscall"
 	"testing"
 	"time"
@@ -79,7 +82,8 @@ func (f *managedCertificateFixture) issue(t *testing.T, p *ManagedCertificatePre
 		if role == "local_server" {
 			usage = x509.ExtKeyUsageServerAuth
 		}
-		cert := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: csr.Subject, URIs: csr.URIs, DNSNames: csr.DNSNames, IPAddresses: csr.IPAddresses, NotBefore: f.store.now().Add(-time.Minute), NotAfter: f.store.now().Add(24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage}}
+		cert := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: csr.Subject, NotBefore: f.store.now().Add(-time.Minute), NotAfter: f.store.now().Add(24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage}}
+		applyGatewayIssuerSANs(t, role, csr, cert)
 		if mutate != nil {
 			mutate(role, cert)
 		}
@@ -355,9 +359,125 @@ func TestManagedCertificatesCollectorServerIdentity(t *testing.T) {
 			t.Fatalf("installed collector cannot serve approved host: %v", err)
 		}
 	}
-	if len(leaf.DNSNames) != 1 || len(leaf.IPAddresses) != 1 || !result.Activated {
+	if !sameSorted(leaf.DNSNames, []string{"collector.example.test", "component-synthetic.default.serviceradar"}) || len(leaf.IPAddresses) != 1 || !leaf.IPAddresses[0].Equal(net.ParseIP("192.0.2.21")) || !result.Activated {
 		t.Fatal("collector installation changed approved hosts or did not activate")
 	}
+}
+
+func TestManagedCertificatesAcceptExactIssuerSANs(t *testing.T) {
+	f := newManagedCertificateFixture(t)
+	p, _ := f.prepare(t, "issuer-sans", "nats-leaf")
+	result, err := f.store.install(context.Background(), f.issue(t, p, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	upstream := installedManagedLeaf(t, result.Files["upstream_client"])
+	if !sameSorted(certificateURIStrings(upstream.URIs), []string{"spiffe://serviceradar.local/nats-leaf/default", "spiffe://serviceradar.local/nats_leaf/default/component-synthetic"}) || !sameSorted(upstream.DNSNames, []string{"component-synthetic.default.serviceradar"}) || len(upstream.IPAddresses) != 0 {
+		t.Fatalf("upstream certificate is not the gateway extfile set: uris=%v dns=%v", certificateURIStrings(upstream.URIs), upstream.DNSNames)
+	}
+	server := installedManagedLeaf(t, result.Files["local_server"])
+	if !sameSorted(certificateURIStrings(server.URIs), []string{"spiffe://serviceradar.local/nats_leaf_server/default/component-synthetic-server"}) || !sameSorted(server.DNSNames, []string{"component-synthetic-server.default.serviceradar", "leaf.example.test", "localhost"}) {
+		t.Fatalf("server certificate is not the gateway extfile set: uris=%v dns=%v", certificateURIStrings(server.URIs), server.DNSNames)
+	}
+}
+
+func TestManagedCertificatesRejectIssuerSANOutsideExtfile(t *testing.T) {
+	cases := []struct {
+		name    string
+		service string
+		hosts   []string
+		role    string
+		edit    func(*x509.Certificate)
+	}{
+		{name: "missing-hub-role", service: "nats-leaf", role: "upstream_client", edit: func(c *x509.Certificate) { c.URIs = c.URIs[:1] }},
+		{name: "extra-uri", service: "nats-leaf", role: "upstream_client", edit: func(c *x509.Certificate) {
+			extra, _ := url.Parse("spiffe://serviceradar.local/other/default")
+			c.URIs = append(c.URIs, extra)
+		}},
+		{name: "hub-uri-on-server", service: "nats-leaf", role: "local_server", edit: func(c *x509.Certificate) {
+			extra, _ := url.Parse("spiffe://serviceradar.local/nats-leaf/default")
+			c.URIs = append(c.URIs, extra)
+		}},
+		{name: "missing-cn", service: "nats-leaf", role: "local_server", edit: func(c *x509.Certificate) {
+			c.DNSNames = []string{"localhost", "leaf.example.test"}
+		}},
+		{name: "extra-dns", service: "trapd", hosts: []string{"collector.example.test"}, role: "client", edit: func(c *x509.Certificate) {
+			c.DNSNames = append(c.DNSNames, "extra.example.test")
+		}},
+		{name: "extra-ip", service: "trapd", hosts: []string{"192.0.2.21"}, role: "client", edit: func(c *x509.Certificate) {
+			c.IPAddresses = append(c.IPAddresses, net.ParseIP("192.0.2.99"))
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newManagedCertificateFixture(t)
+			hosts := tc.hosts
+			if tc.service == "nats-leaf" {
+				hosts = []string{"leaf.example.test", "192.0.2.10"}
+			}
+			a := ManagedCertificateAssignment{RequestID: "issuer-san", ComponentID: "component-synthetic", HostAgentID: "agent-synthetic", PartitionID: "default", Generation: 1, Service: tc.service, ServerHosts: hosts}
+			p, err := f.store.prepare(a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = f.store.install(context.Background(), f.issue(t, p, func(role string, cert *x509.Certificate) {
+				if role == tc.role {
+					tc.edit(cert)
+				}
+			}))
+			if err == nil || (!strings.Contains(err.Error(), "identity differs") && !strings.Contains(err.Error(), "hosts differ")) {
+				t.Fatalf("got %v", err)
+			}
+		})
+	}
+}
+
+func applyGatewayIssuerSANs(t *testing.T, role string, csr *x509.CertificateRequest, cert *x509.Certificate) {
+	t.Helper()
+	if len(csr.URIs) != 1 {
+		t.Fatal("assignment CSR must carry one SPIFFE URI")
+	}
+	assignment := *csr.URIs[0]
+	cert.URIs = []*url.URL{&assignment}
+	cert.DNSNames = append([]string{csr.Subject.CommonName}, csr.DNSNames...)
+	cert.IPAddresses = append([]net.IP(nil), csr.IPAddresses...)
+	if role != "upstream_client" {
+		return
+	}
+	parts := strings.Split(strings.Trim(csr.URIs[0].Path, "/"), "/")
+	if len(parts) != 3 || parts[0] != "nats_leaf" || parts[1] == "" {
+		t.Fatalf("upstream CSR SPIFFE path is not a leaf assignment: %s", csr.URIs[0].Path)
+	}
+	hub, err := url.Parse("spiffe://serviceradar.local/nats-leaf/" + parts[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert.URIs = append(cert.URIs, hub)
+}
+
+func installedManagedLeaf(t *testing.T, files ManagedCertificateFiles) *x509.Certificate {
+	t.Helper()
+	pair, err := tls.LoadX509KeyPair(files.CertificatePath, files.KeyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	leaf, err := x509.ParseCertificate(pair.Certificate[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	return leaf
+}
+
+func certificateURIStrings(uris []*url.URL) []string {
+	out := make([]string, len(uris))
+	for i, uri := range uris {
+		out[i] = uri.String()
+	}
+	return out
+}
+
+func sameSorted(actual, expected []string) bool {
+	return slices.Equal(slices.Sorted(slices.Values(actual)), slices.Sorted(slices.Values(expected)))
 }
 
 func TestManagedCertificatesInstallBMPIdentity(t *testing.T) {
