@@ -94,7 +94,7 @@
       "visual_type": "line",
       "data_binding": {},
       "display_config": {
-        "caption": "Not-accepted completions per lane, including queue-wait timeouts, sweep cancellations, worker failures, and persistence failures."
+        "caption": "Not-accepted completions per lane, including queue-wait timeouts, lane execution timeouts, sweep execution timeouts that exhaust retries, sweep cancellations, worker failures, and persistence failures."
       },
       "layout": { "x": 6, "y": 15, "w": 6, "h": 5 },
       "position": 7

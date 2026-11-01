@@ -221,7 +221,8 @@ subject, a reason class, and a count.
 
 Interval non-accepted counts are the
 `result_ingestion_terminals_not_accepted` completion outcomes: queue-wait
-timeouts, sweep cancellations, worker failures, and persistence failures.
+timeouts, lane execution timeouts, sweep execution timeouts that exhaust
+retries, sweep cancellations, worker failures, and persistence failures.
 Admission
 refusals (`result_ingestion_rejections_*`) are caller-side rejections, never
 agent NACKs. `result_ingestion_events_incomplete_run` (lane `sync`) counts
@@ -273,7 +274,8 @@ in-memory coordinator state:
   Lane, sweep, and sync all publish execution as `duration_ms`. Acknowledgement
   is enqueue-to-done from lane and sweep only. A
   `result_ingestion_terminals_not_accepted` delta is any non-accepted
-  completion: queue-wait timeouts, sweep cancellations, worker failures, and
+  completion: queue-wait timeouts, lane execution timeouts, sweep execution
+  timeouts that exhaust retries, sweep cancellations, worker failures, and
   persistence failures.
 - **Cluster Status (`Settings -> Cluster Status`)**: Queries
   `ServiceRadar.Ingestion.RuntimeMetrics.lane_stats/0` on connected mount and
