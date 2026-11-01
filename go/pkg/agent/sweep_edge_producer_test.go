@@ -530,7 +530,7 @@ func TestEdgeSweepReturnsOtherAppendErrorsWithoutWaiting(t *testing.T) {
 	elapsed := time.Since(start)
 	t.Logf("closed-spool append returned in %s with %d claim(s): %v", elapsed, claims, err)
 	require.ErrorIs(t, err, os.ErrClosed)
-	require.False(t, errors.Is(err, spool.ErrAdmissionRefused))
+	require.NotErrorIs(t, err, spool.ErrAdmissionRefused)
 	require.Equal(t, 1, claims)
 	require.Less(t, elapsed, sweepAdmissionInitialBackoff, "a non-admission append error must not enter the backoff")
 }
