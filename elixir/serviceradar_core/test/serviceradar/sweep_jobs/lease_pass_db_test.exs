@@ -1,8 +1,8 @@
 defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
   use ServiceRadar.DataCase, async: true
 
-  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.Actors.SystemActor
+  alias Serviceradar.Edge.V1.ScheduledPlanPageV1
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Infrastructure.Partition
   alias ServiceRadar.Inventory.Device
@@ -242,7 +242,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
     wall = DateTime.truncate(DateTime.utc_now(), :second)
     boundary = div(DateTime.to_unix(wall), interval) * interval
     desired_start = DateTime.from_unix!(boundary - interval)
-    pass_now = DateTime.add(desired_start, -30, :second)
+    pass_now = DateTime.shift(desired_start, second: -30)
 
     [desired] =
       {:interval, interval}
@@ -250,15 +250,15 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
       |> Enum.filter(&DateTime.after?(&1.start, pass_now))
 
     # The blocker has already started on the wall clock, so this pass cannot drop it.
-    assert DateTime.compare(desired.start, wall) == :lt
+    assert DateTime.before?(desired.start, wall)
     assert desired.start == desired_start
 
-    closed_expires = DateTime.add(pass_now, -301, :second)
+    closed_expires = DateTime.shift(pass_now, second: -301)
 
     closed =
       schedule_window!(
         assignment,
-        DateTime.add(closed_expires, -interval, :second),
+        DateTime.shift(closed_expires, second: -interval),
         closed_expires,
         ["192.0.2.0/24"]
       )
@@ -290,7 +290,7 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
 
     assert Enum.any?(
              slots,
-             &(&1.state == :scheduled and DateTime.compare(&1.slot_start, closed.slot_start) == :gt)
+             &(&1.state == :scheduled and DateTime.after?(&1.slot_start, closed.slot_start))
            )
   end
 
