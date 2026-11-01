@@ -120,9 +120,10 @@ func (s *NetworkSweeper) RunOnceWithExecution(ctx context.Context, executionID s
 }
 
 // RunOnceWithObserver delivers each final scanner result during this cycle.
-// The observer may be called concurrently by different scan modes. These signed
-// plan runs enumerate every configured CIDR address, including IPv4 endpoints.
-func (s *NetworkSweeper) RunOnceWithObserver(ctx context.Context, executionID string, observer func(*models.Result) error) error {
+// The observer receives the scan context and may be called concurrently by
+// different scan modes. These signed plan runs enumerate every configured CIDR
+// address, including IPv4 endpoints.
+func (s *NetworkSweeper) RunOnceWithObserver(ctx context.Context, executionID string, observer func(context.Context, *models.Result) error) error {
 	done := s.ensureControlChannels()
 
 	select {

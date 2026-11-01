@@ -205,7 +205,8 @@ integration secrets. Existing OpenBao bootstrap uses options/environment tokens 
 Kubernetes login; this is a legacy limitation, not implemented canonical
 `internal_credential` lookup or a recommendation for new adapters.
 
-Consumer migrations, lease/renewal, audit, and UI/API coverage remain partial.
+Provider lease renewal and revocation, and Credentials UI coverage for external
+provider records, remain partial.
 Some legacy scheduled paths still materialize runtime parameters, so the broker
 foundation does not mean every plugin already receives only references. Follow-up
 acceptance must verify compatibility, rotation, revocation, provider outages,

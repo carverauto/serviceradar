@@ -28,7 +28,10 @@
 // sender; every other allocated sequence is reported for rollover coverage and is
 // never reused.
 //
-// This slice reclaims fully drained segments after durable accepted dispositions.
+// This slice reclaims a fully drained segment after durable dispositions that
+// accept every record or permanently reject it. Permanently rejected records
+// are copied into the lane's bounded quarantine before the checkpoint
+// (quarantine.go). Retryable and unspecified dispositions keep the segment.
 // Partial-tail compaction, corrupt-segment quarantine, and loss-manifest/recovery
 // generation rollover remain follow-on slices within task 2.4. Per-segment bounds on distinct
 // attribution keys, same-key runs, and projected manifest size live in
@@ -162,6 +165,9 @@ const (
 	barrierReclaimPrepared
 	barrierReclaimPublished
 	barrierReclaimCleaned
+	// barrierQuarantined is crossed once every permanently rejected record a
+	// reclaim drops is durable in local quarantine, before the reclaim checkpoint.
+	barrierQuarantined
 )
 
 func dirBarrier(c int) barrier     { return barrierEvidenceDirA + barrier(c) }
@@ -213,6 +219,11 @@ type Spool struct {
 	// with it: the interrupted slot's durable state is unknown until restart
 	// resolution classifies it, so the spool does not append past it.
 	failErr error
+	// quarantined, quarantineEvicted and quarantineDropped count what this handle's
+	// reclaims did with permanently rejected records (see QuarantineHealth).
+	quarantined       uint64
+	quarantineEvicted uint64
+	quarantineDropped uint64
 
 	// copyOrder is the order evidence copies are written in, and beforeBarrier is
 	// crossed immediately before each durability barrier. Both exist so tests can
@@ -659,7 +670,8 @@ func (s *Spool) Resolve(through uint64) error {
 // ResolveWithEvidence persists the caller's validated terminal acknowledgement
 // before advancing the local resolved prefix. Evidence is retained for every
 // advancement; a remote watermark alone is not durable local disposition proof.
-// A fully accepted drain checkpoints its sequence base and reclaims segment bytes.
+// A drain whose every record is accepted or permanently rejected checkpoints its
+// sequence base and reclaims segment bytes, quarantining permanent rejections first.
 func (s *Spool) ResolveWithEvidence(through uint64, evidence []byte) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

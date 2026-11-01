@@ -85,10 +85,25 @@ type Server struct {
 	edgeSpoolSampler atomic.Value // EdgeSpoolSampler
 }
 
-// EdgeSpoolSampler reads unresolved edge-spool health. ok is false when the
-// spool cannot be read. reportAge is false when unresolved records exist and
-// none carry a UUIDv7 event time.
-type EdgeSpoolSampler func(now time.Time) (bytes uint64, oldestAge time.Duration, reportAge bool, ok bool)
+// EdgeSpoolHealth is one sample of the edge spool. ReportAge is false when
+// unresolved records exist and none carry a UUIDv7 event time. The quarantine
+// fields describe permanently rejected records: QuarantinedRecords and
+// QuarantinedBytes are on disk now; PermanentRejections, QuarantineEvicted and
+// QuarantineDropped count since the process opened the spool.
+type EdgeSpoolHealth struct {
+	UnresolvedBytes     uint64
+	OldestUnresolvedAge time.Duration
+	ReportAge           bool
+	QuarantinedRecords  int
+	QuarantinedBytes    uint64
+	PermanentRejections uint64
+	QuarantineEvicted   uint64
+	QuarantineDropped   uint64
+}
+
+// EdgeSpoolSampler reads edge-spool health. ok is false when the spool cannot
+// be read.
+type EdgeSpoolSampler func(now time.Time) (health EdgeSpoolHealth, ok bool)
 
 type sidecarStatusProvider interface {
 	Status() []sidecar.Status

@@ -736,6 +736,21 @@ Bytes are never overwritten or silently expired, so a bad rollout cannot hide a
 fleet-wide rejection storm by filling agent disks while the normal spool appears
 healthy.
 
+Interim local quarantine (what the agent implements today). Reclaim copies each
+permanently rejected record, with the gateway's disposition, into a quarantine
+entry in the lane directory and makes it durable before the reclaim checkpoint,
+so a crash at any point leaves either the old segment or a durable entry. The
+copy is written under the reclaim's recovery grant, never through ordinary
+admission, and only within the grant's remaining destination-segment budget, so
+a spool at its ordinary ceiling still reclaims and quarantine cannot exhaust the
+reserve. The quarantine is bounded by entry count and bytes. Newer rejections
+evict the oldest entries, and a rejection that cannot fit is reclaimed without a
+copy. Both outcomes are counted in the agent's metrics and the gateway's
+rejection codes are logged. This deliberately departs from the "never overwritten
+or silently expired" and high-water admission stop rules above until task 2.6
+lands them: stopping admission at quarantine high-water would recreate the
+reclaim stall this interim exists to remove, for every producer on the spool.
+
 After a gateway protocol fix, fleet orchestration may issue an audited
 reclassification instruction scoped to agent, rejection code/version, frame
 fingerprint, and time cohort. The agent revalidates each selected quarantined

@@ -222,7 +222,7 @@ func TestNetworkSweeper_GetStatusReturnsCompletedSnapshotDuringSweep(t *testing.
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now(),
 	}
-	require.NoError(t, sweeper.processBasicResult(context.Background(), partialResult))
+	require.NoError(t, sweeper.processBasicResult(context.Background(), context.Background(), partialResult))
 
 	inProgress, err := sweeper.GetStatus(context.Background())
 	require.NoError(t, err)
@@ -262,7 +262,7 @@ func TestNetworkSweeper_GetStatusHidesInitialInProgressPartialResults(t *testing
 		FirstSeen: time.Now(),
 		LastSeen:  time.Now(),
 	}
-	require.NoError(t, sweeper.processBasicResult(context.Background(), partialResult))
+	require.NoError(t, sweeper.processBasicResult(context.Background(), context.Background(), partialResult))
 
 	status, err := sweeper.GetStatus(context.Background())
 	require.NoError(t, err)

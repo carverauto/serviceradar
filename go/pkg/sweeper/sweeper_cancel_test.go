@@ -217,3 +217,72 @@ func TestNetworkSweeper_CancelRunRacesRunCompletion(t *testing.T) {
 
 	t.Logf("%d of %d runs were cancelled in flight", cancelledRuns, runs)
 }
+
+// TestNetworkSweeper_CancelRunEndsTheObserverContext is the operator-cancel
+// half of spool admission backpressure. The result callback blocks the way an
+// admission wait does, after the scanner has already delivered its result. The
+// caller context stays open. CancelRun must cancel the context that callback
+// is holding, and the run must not publish.
+func TestNetworkSweeper_CancelRunEndsTheObserverContext(t *testing.T) {
+	scanner := newStubScanner(false)
+	sweeper := newCancelTestSweeper(t, scanner)
+	parent, stopParent := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopParent()
+
+	sweeper.mu.Lock()
+	before := sweeper.lastSweep
+	sweeper.mu.Unlock()
+
+	type delivery struct {
+		ctx  context.Context
+		host string
+	}
+	entered := make(chan delivery, 1)
+	runErr := make(chan error, 1)
+	go func() {
+		runErr <- sweeper.RunOnceWithObserver(parent, "exec-cancel-observer", func(scanCtx context.Context, result *models.Result) error {
+			seen := delivery{ctx: scanCtx}
+			if result != nil {
+				seen.host = result.Target.Host
+			}
+			entered <- seen
+			<-scanCtx.Done()
+			return scanCtx.Err()
+		})
+	}()
+	defer sweeper.CancelRun()
+
+	var scanCtx context.Context
+	var host string
+	select {
+	case seen := <-entered:
+		scanCtx = seen.ctx
+		host = seen.host
+	case err := <-runErr:
+		t.Fatalf("sweep finished before the observer ran: %v", err)
+	case <-parent.Done():
+		t.Fatal("observer was never called")
+	}
+	require.Equal(t, "192.0.2.10", host)
+	require.NoError(t, scanCtx.Err(), "the observer context is still open when the result arrives")
+	require.NoError(t, parent.Err())
+
+	start := time.Now()
+	require.True(t, sweeper.CancelRun(), "the observer is inside the in-flight run")
+	select {
+	case err := <-runErr:
+		elapsed := time.Since(start)
+		t.Logf("CancelRun unblocked the observer in %s: %v", elapsed, err)
+		require.Less(t, elapsed, time.Second, "CancelRun left the observer waiting")
+		require.ErrorIs(t, err, ErrSweepCancelled)
+		require.ErrorIs(t, scanCtx.Err(), context.Canceled)
+		require.NoError(t, parent.Err(), "the caller context stays open")
+	case <-parent.Done():
+		t.Fatal("CancelRun left the observer context open")
+	}
+
+	sweeper.mu.RLock()
+	lastSweep := sweeper.lastSweep
+	sweeper.mu.RUnlock()
+	require.True(t, lastSweep.Equal(before), "a cancel during the observer must not publish the sweep")
+}

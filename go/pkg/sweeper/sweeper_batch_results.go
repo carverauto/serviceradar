@@ -43,7 +43,7 @@ func (s *NetworkSweeper) processBatchedResults(ctx context.Context, batch []mode
 		result := &batch[i]
 
 		// Process basic result handling (store, processor)
-		if err := s.processBasicResult(batchCtx, result); err != nil {
+		if err := s.processBasicResult(ctx, batchCtx, result); err != nil {
 			s.logger.Error().Err(err).
 				Str("host", result.Target.Host).
 				Msg("Failed to process basic result in batch")

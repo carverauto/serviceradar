@@ -792,6 +792,18 @@ func (g *RecoveryGrant) Err() error {
 	return g.stopCauseLocked()
 }
 
+// Remaining returns the bytes of art this grant may still charge before the
+// request that asks for more exhausts its budget and stops the grant.
+func (g *RecoveryGrant) Remaining(art Artifact) uint64 {
+	a := g.alloc
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if art >= artifactCount {
+		return 0
+	}
+	return a.budgets[art] - g.used[art]
+}
+
 // Used returns the bytes of art this grant has charged.
 func (g *RecoveryGrant) Used(art Artifact) uint64 {
 	g.alloc.mu.Lock()

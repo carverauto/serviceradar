@@ -37,13 +37,22 @@
 - [x] 4.1 Token ResultsRouter flush messages; invalidate before threshold flush/rearm, ignore stale ticks, arm only while pending, and bound both buffered and in-flight service-state batches.
 - [x] 4.2 Move actual batch writes into workers and preserve persistence-before-completion publication.
 - [x] 4.3 Give SyncIngestorQueue bounded reply-bearing raw-payload admission, in-worker decoding, caller rejection handling, and run/chunk ordering.
-- [ ] 4.4 Prove rejected or unattributable chunks cannot activate partial snapshots; persist available incompleteness outside callbacks and preserve the existing population guard across restart/replay. (Tracked in #6159)
+- [x] 4.4 Prove rejected or unattributable chunks cannot activate partial snapshots; persist available incompleteness outside callbacks and preserve the existing population guard across restart/replay. (Tracked in #6159)
   `sync_ingestor_queue_db_test.exs` covers a rejected middle chunk
-  ("a rejected middle chunk cannot activate or retire an earlier collection")
-  and a receipt replay that leaves the run incomplete
-  ("receipt replay does not clear rejection and a missing index fails closed").
-  Still open (tracked in #6159): an unattributable chunk, and the population
-  guard across a process restart.
+  ("a rejected middle chunk cannot activate or retire an earlier collection"),
+  a receipt replay that leaves the run incomplete
+  ("receipt replay does not clear rejection and a missing index fails closed"),
+  an unattributable rejected chunk whose available incompleteness is persisted
+  outside queue callbacks
+  ("an unattributable rejected chunk cannot activate a partial snapshot and persists available incompleteness outside queue callbacks"),
+  and the ledger and population guards across a `SyncIngestorQueue` process
+  restart and chunk replay
+  ("preserves ledger incompleteness and the population guard across SyncIngestorQueue restart and replay").
+  BazelCI invocation a1070b9f-3fa1-41a3-9309-5bec02868576 recorded a transient
+  DirectSession 4000ms connection queue timeout in `integration_tests_serial_3`
+  (`ExposureAssessmentTransitionsDbTest`) while srql-fixtures was under
+  concurrent load; `integration_tests_serial_2` (`SyncIngestorQueueDbTest`)
+  passed in 133.6s and stays an RBE cache hit.
 - [x] 4.5 Add stale-tick, queue-full-while-in-flight, byte-cap, malformed payload, interleaved incomplete/complete run, and no-retirement-on-overflow regressions.
 
 ## 5. JetStream telemetry
@@ -86,12 +95,14 @@
 The 2026-10-28 reconciliation against staging and demo records tasks 5.3 and
 6.1-6.4 as complete, including published synthetic measurements and the
 identical-input comparison, persistence verification, implementation CI, and
-the coordinated rollout. Tasks 7.3-7.5 (#6160) are implemented with Prometheus
-metrics/alerts, Grafana panels, the built-in `result-ingestion-lanes` SRQL
-dashboard, and the non-blocking `Settings -> Cluster Status` ingestion lane
-table. The earlier failures below are historical evidence,
-not pending gates for those completed tasks. Remaining evidence work is task
-4.4 (#6159) and synthetic-fleet load evidence in task 6.7 (#5642 and #6129).
+the coordinated rollout. Task 4.4 (#6159) is covered in
+`sync_ingestor_queue_db_test.exs`, and tasks 7.3-7.5 (#6160) are implemented
+with Prometheus metrics/alerts, Grafana panels, the built-in
+`result-ingestion-lanes` SRQL dashboard, and the non-blocking
+`Settings -> Cluster Status` ingestion lane table. The earlier failures below
+are historical evidence, not pending gates for those completed tasks. Remaining
+evidence work before archiving is synthetic-fleet load evidence in task 6.7
+(#5642 and #6129).
 
 The per-key baseline regression
 failed at the intended scheduling assertion in invocation

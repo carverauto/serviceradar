@@ -344,16 +344,18 @@ in `choices.md` and the chart README.
   of 3.2 and 3.8), and the agent spool directory and size bound.
 - [ ] M2.5 Bounded spool. The agent reclaims a spool record only after its
   terminal disposition is durable at the gateway, so a long-running agent's
-  spool stays within its configured bound. The canary sender now persists
-  validated terminal acknowledgements and advances its local resolved prefix,
-  and reclaims fully drained segments only when durable accepted dispositions
-  cover every retained sequence and match each record's event identity. A
-  checksummed checkpoint preserves the absolute sequence base across restart;
-  rejected records and unresolved tails remain on disk. Focused tests cover
-  repeated capacity reuse and interruption during
+  spool stays within its configured bound. The canary sender persists
+  validated terminal acknowledgements, advances its local resolved prefix, and
+  reclaims a fully drained segment once those dispositions cover every retained
+  sequence. Permanently rejected records are copied into the bounded local
+  quarantine first (design, "Interim local quarantine"); retryable and
+  unspecified dispositions still keep the segment. A checksummed checkpoint
+  preserves the absolute sequence base across restart. Unresolved tails remain
+  on disk. Focused tests cover repeated capacity reuse and interruption during
   checkpoint publication and cleanup. This item stays unchecked until live
-  restart/reclamation verification; partial-tail compaction, local rejection
-  quarantine, and coverage/rollover coordination of 2.27-2.28 remain in the backlog.
+  restart/reclamation verification. Partial-tail compaction and the
+  coverage/rollover coordination of 2.27-2.28 remain in the backlog. Task 2.6
+  replaces the interim quarantine's eviction policy.
 - [ ] M2.6 Parallel run on farm01. One canary agent on the edge path and one
   control agent on the legacy path sweep the same target set for at least 24
   hours. Per execution, host count, availability and open ports match between
@@ -959,8 +961,11 @@ change together with the requirements they implement.
   PARTIALLY LANDED: commit `2c816c114e` added
   `go/pkg/edge/sender`, a minimum single-lane sender over the spool with
   credit-based flow control, wired into `go/cmd/agent`. Per-lane RPCs and pools,
-  reconnect/replay, capability renewal, and quarantine are not implemented, so
-  this task stays unchecked.
+  reconnect/replay and capability renewal are not implemented, so this task
+  stays unchecked. Permanent-rejection quarantine landed in its interim form
+  (see design "Interim local quarantine"): reclaim copies each permanently
+  rejected record into a bounded lane quarantine before it checkpoints past the
+  segment, so one rejection no longer stops the spool from reclaiming.
 - [ ] 2.6 Connect scanner admission to spool and network pressure: pause/defer
   lower-priority or overlapping work at high-water, reserve worst-case bytes per
   target window, cap active result state by bytes, use high/low-water hysteresis,
@@ -968,7 +973,9 @@ change together with the requirements they implement.
   completed durably while required frames remain unresolved. Give raw rejection
   quarantine separate bulk/interactive accounting with an unborrowable
   interactive floor, high-water admission stop, crash-safe move, explicit
-  retention/export/operator-deletion workflow, and no silent overwrite.
+  retention/export/operator-deletion workflow, and no silent overwrite. The
+  interim quarantine (task 2.5) evicts its oldest entries instead and counts
+  every eviction and drop; this task replaces that policy.
 - [ ] 2.7 Add byte-based fair interleaving across network/site scopes, agents,
   producer assignments, runs/executions, and control-plane-attested traffic classes
   at the agent and site scheduler. Use a finite platform-owned set of bulk,

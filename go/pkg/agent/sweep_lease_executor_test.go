@@ -901,13 +901,13 @@ func (*snapshotBlockingSweeper) EffectiveSweepModes(_ string, modes []models.Swe
 	return modes, nil
 }
 
-func (s *snapshotBlockingSweeper) RunOnceWithObserver(ctx context.Context, id string, observe func(*models.Result) error) error {
+func (s *snapshotBlockingSweeper) RunOnceWithObserver(ctx context.Context, id string, observe func(context.Context, *models.Result) error) error {
 	if err := s.RunOnceWithExecution(ctx, id); err != nil {
 		return err
 	}
 	results := edgeSweepResults()
 	for i := range results {
-		if err := observe(&results[i]); err != nil {
+		if err := observe(ctx, &results[i]); err != nil {
 			return err
 		}
 	}
