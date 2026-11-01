@@ -34,6 +34,7 @@ import (
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -144,10 +145,18 @@ type PushLoop struct {
 	configSectionFailures map[string]configSectionFailure // persistent config-section apply failure, by section name (drives skip + escalate-once + per-section ack)
 
 	edgeSweepSpool *spool.Spool
-	sweepLeaseMu   sync.Mutex
-	sweepLeases    *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
-	sweepLeaseDir  string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
-	sweepLeaseWake chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
+	// edgeMetricsSpool receives metrics batch records while the agent holds a
+	// standing grant for that contract; nil keeps every metric on its legacy path.
+	edgeMetricsSpool *spool.Spool
+	edgeOutputGrants edgeOutputGrants
+	sysmonEdgeMu     sync.Mutex
+	// sysmonEdgePending holds drained sysmon samples whose records the spool has
+	// not yet admitted, oldest first, bounded by maxPendingSysmonEdgeSamples.
+	sysmonEdgePending []*sysmon.MetricSample
+	sweepLeaseMu      sync.Mutex
+	sweepLeases       *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
+	sweepLeaseDir     string           // lease store dir override for tests; empty means defaultSweepLeaseDir()
+	sweepLeaseWake    chan struct{}    // wakes the lease executor on install; created under sweepLeaseMu at Start
 
 	hostNetworkVisibilitySupported func() bool
 	uninstallSystemdAddonUnits     func(context.Context, []string) error

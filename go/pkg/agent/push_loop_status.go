@@ -138,17 +138,26 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	gatewayID := p.gateway.GetGatewayID()
 	runtimeMetadata := currentRuntimeMetadata()
 
+	var samples []*sysmon.MetricSample
+	if sysmonSvc != nil {
+		samples = sysmonSvc.DrainMetrics()
+	}
+
+	// One path at a time: while the agent holds a metrics grant, sysmon samples go
+	// only to the edge spool. Without one, samples the spool never admitted take
+	// the legacy path with the new ones.
+	if capability := p.edgeMetricsCapability(time.Now()); capability != nil {
+		return p.spoolSysmonSamples(samples, capability)
+	}
+	samples = append(p.takeSysmonEdgePending(), samples...)
+
 	var statuses []*proto.GatewayServiceStatus
 	sampleCount := 0
-
-	// If service is available, drain buffered metrics for transmission
-	if sysmonSvc != nil {
-		if samples := sysmonSvc.DrainMetrics(); len(samples) > 0 {
-			statuses = p.convertToSysmonGatewayStatusesFromSamples(samples)
-			for _, sample := range samples {
-				if sample != nil {
-					sampleCount++
-				}
+	if len(samples) > 0 {
+		statuses = p.convertToSysmonGatewayStatusesFromSamples(samples)
+		for _, sample := range samples {
+			if sample != nil {
+				sampleCount++
 			}
 		}
 	}
@@ -207,19 +216,8 @@ func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.M
 		return nil
 	}
 
-	p.server.mu.RLock()
-	agentID := p.server.config.AgentID
-	partition := p.server.config.Partition
-	kvStoreID := p.server.config.KVAddress
-	p.server.mu.RUnlock()
-	gatewayID := p.gateway.GetGatewayID()
-
-	ctx := metricEnvelopeContext{
-		AgentID:   agentID,
-		GatewayID: gatewayID,
-		Partition: partition,
-		KvStoreID: kvStoreID,
-	}
+	ctx := p.metricEnvelopeContext()
+	agentID, gatewayID, partition, kvStoreID := ctx.AgentID, ctx.GatewayID, ctx.Partition, ctx.KvStoreID
 
 	current := make([]*sysmon.MetricSample, 0, len(samples))
 	var currentPayload []byte

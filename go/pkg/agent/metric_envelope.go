@@ -87,6 +87,17 @@ func marshalSysmonMetricEnvelope(sample *sysmon.MetricSample, ctx metricEnvelope
 }
 
 func marshalSysmonMetricEnvelopeBatch(samples []*sysmon.MetricSample, ctx metricEnvelopeContext) ([]byte, error) {
+	batch, err := buildSysmonMetricBatch(samples, ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return gproto.Marshal(batch)
+}
+
+// buildSysmonMetricBatch is the canonical sysmon metric envelope of samples,
+// shared by the legacy status push and the edge-record producer.
+func buildSysmonMetricBatch(samples []*sysmon.MetricSample, ctx metricEnvelopeContext) (*metricpb.MetricBatch, error) {
 	sample := firstSysmonMetricSample(samples)
 	if sample == nil {
 		return nil, errSysmonSampleBatchEmpty
@@ -131,7 +142,7 @@ func marshalSysmonMetricEnvelopeBatch(samples []*sysmon.MetricSample, ctx metric
 		return nil, errSysmonNoScalarMetrics
 	}
 
-	return gproto.Marshal(batch)
+	return batch, nil
 }
 
 func firstSysmonMetricSample(samples []*sysmon.MetricSample) *sysmon.MetricSample {
