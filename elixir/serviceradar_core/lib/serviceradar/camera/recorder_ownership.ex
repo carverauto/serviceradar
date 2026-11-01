@@ -170,9 +170,8 @@ defmodule ServiceRadar.Camera.RecorderOwnership do
       fn owner ->
         with {:ok, locked} <- lock_handle(claim, owner, opts),
              :ok <- IngestOwnership.release_consumer(owner, locked.consumer_id, opts),
-             {:ok, _released} <- transition(locked, %{state: :released, consumer_id: nil}, opts),
-             {:ok, now} <- Ash.load(locked, :database_now, opts),
-             true <- live?(locked, now.database_now) || {:error, :recorder_claim_lost} do
+             {:ok, released} <- transition(locked, %{state: :released, consumer_id: nil}, opts),
+             true <- live?(locked, released.database_now) || {:error, :recorder_claim_lost} do
           {:ok, :released}
         end
       end,

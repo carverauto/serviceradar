@@ -568,6 +568,7 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
 
     File.write!(Path.join(ctx.root, ".storage-id"), "00000000-0000-4000-8000-000000000012\n")
     assert {:error, :storage_identity_mismatch} = Worker.status(worker)
+    release_hook = capture_slow_recorder_release(1_100)
     # A burst of the remaining units can fill the finite inbox and stop as
     # queue_full before persistence reaches the storage guard. Renewal is the
     # scheduled production event that checks storage first.
@@ -578,6 +579,8 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
                    5_000
 
     assert_receive {:DOWN, ^ref, :process, ^worker, :normal}, 5_000
+    detach_freeze_hook(release_hook)
+    assert_receive {:recorder_claim_released_by, ^worker}, 1_000
 
     assert Map.new(
              File.ls!(snapshot.directory),
@@ -853,6 +856,34 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
     handler_id
   end
 
+  defp capture_slow_recorder_release(delay_ms) do
+    handler_id = {__MODULE__, make_ref()}
+    parent = self()
+    {:ok, once} = Agent.start_link(fn -> false end)
+
+    on_exit(fn ->
+      detach_freeze_hook(handler_id)
+      if Process.alive?(once), do: Agent.stop(once)
+    end)
+
+    event = ServiceRadar.Repo.config() |> Keyword.fetch!(:telemetry_prefix) |> Kernel.++([:query])
+
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn _event, _measurements, metadata, _config ->
+          if recorder_claim_release_update?(metadata) and claim_once(once) do
+            Process.sleep(delay_ms)
+            send(parent, {:recorder_claim_released_by, self()})
+          end
+        end,
+        nil
+      )
+
+    handler_id
+  end
+
   defp detach_freeze_hook(handler_id) do
     _ = :telemetry.detach(handler_id)
     :ok
@@ -861,6 +892,18 @@ defmodule ServiceRadar.Camera.RecordingWorkerIntegrationTest do
   defp claim_once(agent) do
     Agent.get_and_update(agent, fn seen -> {not seen, true} end)
   end
+
+  defp recorder_claim_release_update?(%{query: query} = metadata) do
+    sql = query |> query_text() |> String.downcase()
+    source = metadata[:source]
+
+    claims? =
+      source == "camera_recorder_claims" or String.contains?(sql, "camera_recorder_claims")
+
+    successful_query?(metadata) and claims? and update_statement?(sql)
+  end
+
+  defp recorder_claim_release_update?(_metadata), do: false
 
   defp freeze_update?(%{query: query} = metadata) do
     sql = query |> query_text() |> String.downcase()
