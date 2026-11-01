@@ -59,6 +59,7 @@ RestartPreventExitStatus=77 78
 )
 
 var errReleaseCurrentLinkMissing = errors.New("release current symlink is missing")
+var errReleaseVersionPruneIncomplete = errors.New("release activation completed but old versions were not all removed")
 var errReleaseActivationPreviousTargetMissing = errors.New("release activation state missing previous target")
 var errReleaseSymlinkTargetInvalid = errors.New("release symlink target is invalid")
 var errReleaseUpdaterOwnershipUnknown = errors.New("release updater ownership could not be determined")
@@ -257,7 +258,81 @@ func CompleteReleaseActivation(runtimeRoot, currentVersion string) (bool, error)
 		return false, fmt.Errorf("remove activation state: %w", err)
 	}
 
+	if err := pruneReleaseVersions(root, state.PreviousTarget); err != nil {
+		return true, fmt.Errorf("%w: %w", errReleaseVersionPruneIncomplete, err)
+	}
+
 	return true, nil
+}
+
+// pruneReleaseVersions keeps the release the current symlink points at, the
+// release it replaced, and the package seed, and removes every other staged
+// version directory. It runs only after an activation is confirmed healthy, so
+// rollback always has the previous release on disk. A directory that cannot be
+// removed is reported and the rest are still pruned.
+func pruneReleaseVersions(root, previousTarget string) error {
+	currentTarget, err := os.Readlink(filepath.Join(root, releaseCurrentLinkName))
+	if err != nil {
+		return fmt.Errorf("read current release symlink: %w", err)
+	}
+	currentTarget, err = normalizeExistingReleaseSymlinkTarget(root, currentTarget)
+	if err != nil {
+		return err
+	}
+
+	versionsDir := filepath.Join(root, releaseVersionsDirName)
+	keep := map[string]bool{releaseSeedVersionDir: true}
+	targets := []string{currentTarget}
+	if previous, err := normalizeExistingReleaseSymlinkTarget(root, previousTarget); err == nil {
+		targets = append(targets, previous)
+	}
+	for _, target := range targets {
+		if err := keepReleaseTarget(keep, versionsDir, filepath.Base(target)); err != nil {
+			return err
+		}
+	}
+
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		return fmt.Errorf("read release versions dir: %w", err)
+	}
+
+	var errs []error
+	for _, entry := range entries {
+		if !entry.IsDir() || keep[entry.Name()] {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(versionsDir, entry.Name())); err != nil {
+			errs = append(errs, fmt.Errorf("remove release version %q: %w", entry.Name(), err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
+// keepReleaseTarget keeps the version entry name and, when that entry is an
+// alias, the version directory it finally resolves to, so a retained alias never
+// outlives its release. An entry that cannot be resolved stops pruning: without
+// knowing what it needs, nothing is safe to remove.
+func keepReleaseTarget(keep map[string]bool, versionsDir, name string) error {
+	keep[name] = true
+
+	realVersions, err := filepath.EvalSymlinks(versionsDir)
+	if err != nil {
+		return fmt.Errorf("resolve release versions dir: %w", err)
+	}
+	resolved, err := filepath.EvalSymlinks(filepath.Join(versionsDir, name))
+	if err != nil {
+		return fmt.Errorf("resolve retained release %q: %w", name, err)
+	}
+	rel, err := filepath.Rel(realVersions, resolved)
+	if err != nil {
+		return fmt.Errorf("resolve retained release %q: %w", name, err)
+	}
+	if rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		keep[strings.SplitN(rel, string(filepath.Separator), 2)[0]] = true
+	}
+	return nil
 }
 
 func RollbackReleaseActivation(runtimeRoot, reason string) (bool, error) {

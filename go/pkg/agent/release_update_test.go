@@ -40,14 +40,27 @@ func TestStageAgentReleaseStagesBinaryArtifact(t *testing.T) {
 		Arch:   runtime.GOARCH,
 	})
 
+	runtimeRoot := t.TempDir()
+	oldRelease := filepath.Join(runtimeRoot, releaseVersionsDirName, "manual-20260101000000", "serviceradar-agent")
+	if err := os.MkdirAll(filepath.Dir(oldRelease), 0o755); err != nil {
+		t.Fatalf("MkdirAll(%q) error = %v", oldRelease, err)
+	}
+	if err := os.WriteFile(oldRelease, []byte("previous"), 0o755); err != nil {
+		t.Fatalf("WriteFile(%q) error = %v", oldRelease, err)
+	}
+
 	result, err := stageAgentRelease(context.Background(), payload, releaseStageConfig{
 		SigningPublicKey: signingKey,
-		RuntimeRoot:      t.TempDir(),
+		RuntimeRoot:      runtimeRoot,
 		HTTPClient:       server.Client(),
 	})
 	if err != nil {
 		t.Fatalf("stageAgentRelease() error = %v", err)
 	}
+	if _, err := os.Stat(oldRelease); err != nil {
+		t.Fatalf("staging removed an older release: %v", err)
+	}
+	t.Logf("older release still present after stage: %s", oldRelease)
 
 	if got, want := result.Version, payload.Version; got != want {
 		t.Fatalf("result.Version = %q, want %q", got, want)

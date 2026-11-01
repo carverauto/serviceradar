@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -14,17 +15,38 @@ import (
 
 func TestActivateAndCompleteReleaseActivation(t *testing.T) {
 	runtimeRoot := t.TempDir()
-	seedDir := filepath.Join(runtimeRoot, releaseVersionsDirName, releaseSeedVersionDir)
-	nextDir := filepath.Join(runtimeRoot, releaseVersionsDirName, "1.2.3")
+	versionsDir := filepath.Join(runtimeRoot, releaseVersionsDirName)
 
-	for _, dir := range []string{seedDir, nextDir} {
+	// A long-lived host: the package seed, two releases that are no longer
+	// needed, the running release, and the release being activated.
+	for _, name := range []string{releaseSeedVersionDir, "1.2.1", "manual-20260101000000", "1.2.2", "1.2.3"} {
+		dir := filepath.Join(versionsDir, name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 		}
+		if err := os.WriteFile(filepath.Join(dir, "serviceradar-agent"), []byte("synthetic"), 0o755); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", dir, err)
+		}
 	}
-	if err := os.Symlink(filepath.Join(releaseVersionsDirName, releaseSeedVersionDir), filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
+	// Files and symlinks in versions/ are operator notes or hand-made aliases.
+	// They are not release directories and must survive a healthy activation.
+	if err := os.WriteFile(filepath.Join(versionsDir, "release-notes.txt"), []byte("keep"), 0o644); err != nil {
+		t.Fatalf("WriteFile(release-notes.txt) error = %v", err)
+	}
+	if err := os.Symlink("1.2.2", filepath.Join(versionsDir, "kept-link")); err != nil {
+		t.Fatalf("Symlink(kept-link) error = %v", err)
+	}
+	addonBinary := filepath.Join(runtimeRoot, addonsDirName, "netprobe", addonVersionsDir, "0.1.0", "serviceradar-netprobe")
+	if err := os.MkdirAll(filepath.Dir(addonBinary), 0o755); err != nil {
+		t.Fatalf("MkdirAll(addon) error = %v", err)
+	}
+	if err := os.WriteFile(addonBinary, []byte("addon"), 0o755); err != nil {
+		t.Fatalf("WriteFile(addon) error = %v", err)
+	}
+	if err := os.Symlink(filepath.Join(releaseVersionsDirName, "1.2.2"), filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
 		t.Fatalf("Symlink() error = %v", err)
 	}
+	beforeActivation := releaseVersionNames(t, versionsDir)
 
 	if err := ActivateStagedRelease(ReleaseActivationConfig{
 		RuntimeRoot:      runtimeRoot,
@@ -43,8 +65,21 @@ func TestActivateAndCompleteReleaseActivation(t *testing.T) {
 	if got, want := currentTarget, filepath.Join(releaseVersionsDirName, "1.2.3"); got != want {
 		t.Fatalf("current target = %q, want %q", got, want)
 	}
+	// Prune waits until the activation is confirmed healthy. The rollback
+	// deadline still has every previously staged release on disk.
+	if got := releaseVersionNames(t, versionsDir); !reflect.DeepEqual(got, beforeActivation) {
+		t.Fatalf("versions after activate = %v, want %v", got, beforeActivation)
+	}
 
-	completed, err := CompleteReleaseActivation(runtimeRoot, "1.2.3")
+	completed, err := CompleteReleaseActivation(runtimeRoot, "9.9.9")
+	if err != nil || completed {
+		t.Fatalf("CompleteReleaseActivation(mismatched version) = %v, %v; want false, nil", completed, err)
+	}
+	if got := releaseVersionNames(t, versionsDir); !reflect.DeepEqual(got, beforeActivation) {
+		t.Fatalf("versions after declined completion = %v, want %v", got, beforeActivation)
+	}
+
+	completed, err = CompleteReleaseActivation(runtimeRoot, "1.2.3")
 	if err != nil {
 		t.Fatalf("CompleteReleaseActivation() error = %v", err)
 	}
@@ -61,6 +96,144 @@ func TestActivateAndCompleteReleaseActivation(t *testing.T) {
 	}
 	if report.Payload["status"] != "healthy" {
 		t.Fatalf("expected healthy status, got %#v", report.Payload)
+	}
+
+	// Only the seed, the release it replaced (the rollback target), the running
+	// release, and non-directories stay on disk.
+	want := []string{"1.2.2", "1.2.3", "kept-link", "release-notes.txt", releaseSeedVersionDir}
+	got := releaseVersionNames(t, versionsDir)
+	t.Logf("versions after healthy completion: %v", got)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("versions after completion = %v, want %v", got, want)
+	}
+	linkInfo, err := os.Lstat(filepath.Join(versionsDir, "kept-link"))
+	if err != nil {
+		t.Fatalf("Lstat(kept-link) error = %v", err)
+	}
+	if linkInfo.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("kept-link mode = %v, want a symlink", linkInfo.Mode())
+	}
+	notes, err := os.ReadFile(filepath.Join(versionsDir, "release-notes.txt"))
+	if err != nil {
+		t.Fatalf("ReadFile(release-notes.txt) error = %v", err)
+	}
+	if string(notes) != "keep" {
+		t.Fatalf("release-notes.txt = %q, want keep", notes)
+	}
+	if _, err := os.Stat(addonBinary); err != nil {
+		t.Fatalf("add-on version was removed with the agent releases: %v", err)
+	}
+}
+
+func releaseVersionNames(t *testing.T, versionsDir string) []string {
+	t.Helper()
+
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		t.Fatalf("ReadDir(%q) error = %v", versionsDir, err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	slices.Sort(names)
+	return names
+}
+
+// The release an activation replaced may be reached through an alias in
+// versions/. Pruning keeps the alias and the release it resolves to, so the
+// rollback target never dangles; an unrelated release is still removed.
+func TestCompleteReleaseActivationKeepsTheReleaseBehindARollbackAlias(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	versionsDir := filepath.Join(runtimeRoot, releaseVersionsDirName)
+	for _, name := range []string{releaseSeedVersionDir, "1.2.1", "1.2.2", "1.2.3"} {
+		if err := os.MkdirAll(filepath.Join(versionsDir, name), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", name, err)
+		}
+	}
+	if err := os.Symlink("1.2.2", filepath.Join(versionsDir, "rollback-alias")); err != nil {
+		t.Fatalf("Symlink(rollback-alias) error = %v", err)
+	}
+	if err := os.Symlink(filepath.Join(releaseVersionsDirName, "rollback-alias"), filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
+		t.Fatalf("Symlink(current) error = %v", err)
+	}
+
+	if err := activateStagedRelease(ReleaseActivationConfig{
+		RuntimeRoot:      runtimeRoot,
+		Version:          "1.2.3",
+		CommandID:        "7c1b9a0e-4f2d-4d8a-9b6e-2a1f0c3d5e7b",
+		CommandType:      commandTypeAgentUpdate,
+		RollbackDeadline: time.Minute,
+	}, nil); err != nil {
+		t.Fatalf("activateStagedRelease() error = %v", err)
+	}
+	completed, err := CompleteReleaseActivation(runtimeRoot, "1.2.3")
+	if err != nil || !completed {
+		t.Fatalf("CompleteReleaseActivation() = %v, %v; want true, nil", completed, err)
+	}
+
+	want := []string{"1.2.2", "1.2.3", "rollback-alias", releaseSeedVersionDir}
+	if got := releaseVersionNames(t, versionsDir); !reflect.DeepEqual(got, want) {
+		t.Fatalf("versions after completion = %v, want %v", got, want)
+	}
+	if _, err := os.Stat(filepath.Join(versionsDir, "rollback-alias")); err != nil {
+		t.Fatalf("rollback alias no longer resolves: %v", err)
+	}
+}
+
+// A hand-made alias that is retained but does not resolve must stop pruning.
+// Guessing would delete the releases still needed to repair the alias.
+func TestCompleteReleaseActivationStopsPruningWhenRollbackAliasDangles(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	versionsDir := filepath.Join(runtimeRoot, releaseVersionsDirName)
+	for _, name := range []string{releaseSeedVersionDir, "1.2.1", "1.2.3"} {
+		if err := os.MkdirAll(filepath.Join(versionsDir, name), 0o755); err != nil {
+			t.Fatalf("MkdirAll(%q) error = %v", name, err)
+		}
+	}
+	if err := os.Symlink("1.2.2", filepath.Join(versionsDir, "rollback-alias")); err != nil {
+		t.Fatalf("Symlink(rollback-alias) error = %v", err)
+	}
+	if err := os.Symlink(filepath.Join(releaseVersionsDirName, "rollback-alias"), filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
+		t.Fatalf("Symlink(current) error = %v", err)
+	}
+	beforeCompletion := releaseVersionNames(t, versionsDir)
+
+	if err := activateStagedRelease(ReleaseActivationConfig{
+		RuntimeRoot:      runtimeRoot,
+		Version:          "1.2.3",
+		CommandID:        "a4e8c1d2-6b70-4f19-8c35-9d0e2f7a1b64",
+		CommandType:      commandTypeAgentUpdate,
+		RollbackDeadline: time.Minute,
+	}, nil); err != nil {
+		t.Fatalf("activateStagedRelease() error = %v", err)
+	}
+	completed, err := CompleteReleaseActivation(runtimeRoot, "1.2.3")
+	if !completed {
+		t.Fatal("CompleteReleaseActivation() completed = false, want true while reporting the prune failure")
+	}
+	if !errors.Is(err, errReleaseVersionPruneIncomplete) {
+		t.Fatalf("CompleteReleaseActivation() error = %v, want prune incomplete", err)
+	}
+	if !strings.Contains(err.Error(), "rollback-alias") {
+		t.Fatalf("CompleteReleaseActivation() error = %v, want the dangling alias name", err)
+	}
+
+	if got := releaseVersionNames(t, versionsDir); !reflect.DeepEqual(got, beforeCompletion) {
+		t.Fatalf("versions after refused prune = %v, want %v", got, beforeCompletion)
+	}
+	if _, err := os.Lstat(filepath.Join(versionsDir, "rollback-alias")); err != nil {
+		t.Fatalf("dangling rollback alias was removed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(runtimeRoot, releaseActivationState)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("activation state still present after completed activation: %v", err)
+	}
+	report, err := LoadReleaseActivationReport(runtimeRoot)
+	if err != nil {
+		t.Fatalf("LoadReleaseActivationReport() error = %v", err)
+	}
+	if report == nil || !report.Success || report.Payload["status"] != "healthy" {
+		t.Fatalf("activation report = %#v, want a healthy success", report)
 	}
 }
 
@@ -166,11 +339,17 @@ func TestRollbackReleaseActivationRestoresPreviousTarget(t *testing.T) {
 	runtimeRoot := t.TempDir()
 	seedDir := filepath.Join(runtimeRoot, releaseVersionsDirName, releaseSeedVersionDir)
 	nextDir := filepath.Join(runtimeRoot, releaseVersionsDirName, "1.2.3")
+	oldDir := filepath.Join(runtimeRoot, releaseVersionsDirName, "1.2.1")
+	manualDir := filepath.Join(runtimeRoot, releaseVersionsDirName, "manual-20260101000000")
+	notePath := filepath.Join(runtimeRoot, releaseVersionsDirName, "release-notes.txt")
 
-	for _, dir := range []string{seedDir, nextDir} {
+	for _, dir := range []string{seedDir, nextDir, oldDir, manualDir} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 		}
+	}
+	if err := os.WriteFile(notePath, []byte("keep"), 0o644); err != nil {
+		t.Fatalf("WriteFile(release-notes.txt) error = %v", err)
 	}
 	if err := os.Symlink(filepath.Join(releaseVersionsDirName, releaseSeedVersionDir), filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
 		t.Fatalf("Symlink() error = %v", err)
@@ -211,6 +390,16 @@ func TestRollbackReleaseActivationRestoresPreviousTarget(t *testing.T) {
 	}
 	if report.Payload["status"] != "rolled_back" {
 		t.Fatalf("expected rolled_back status, got %#v", report.Payload)
+	}
+
+	// Rollback restores the symlink and leaves the version tree alone, including
+	// releases that a later healthy activation would delete.
+	remaining := releaseVersionNames(t, filepath.Join(runtimeRoot, releaseVersionsDirName))
+	t.Logf("versions after rollback: %v", remaining)
+	for _, path := range []string{seedDir, nextDir, oldDir, manualDir, notePath} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("rollback removed %s: %v", path, err)
+		}
 	}
 }
 
