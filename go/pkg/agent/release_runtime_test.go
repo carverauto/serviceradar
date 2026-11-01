@@ -14,15 +14,20 @@ import (
 
 func TestActivateAndCompleteReleaseActivation(t *testing.T) {
 	runtimeRoot := t.TempDir()
-	seedDir := filepath.Join(runtimeRoot, releaseVersionsDirName, releaseSeedVersionDir)
-	nextDir := filepath.Join(runtimeRoot, releaseVersionsDirName, "1.2.3")
+	versionsDir := filepath.Join(runtimeRoot, releaseVersionsDirName)
 
-	for _, dir := range []string{seedDir, nextDir} {
+	// A long-lived host: the package seed, two releases that are no longer
+	// needed, the running release, and the release being activated.
+	for _, name := range []string{releaseSeedVersionDir, "1.2.1", "manual-20260101000000", "1.2.2", "1.2.3"} {
+		dir := filepath.Join(versionsDir, name)
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("MkdirAll(%q) error = %v", dir, err)
 		}
+		if err := os.WriteFile(filepath.Join(dir, "serviceradar-agent"), []byte("synthetic"), 0o755); err != nil {
+			t.Fatalf("WriteFile(%q) error = %v", dir, err)
+		}
 	}
-	if err := os.Symlink(filepath.Join(releaseVersionsDirName, releaseSeedVersionDir), filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
+	if err := os.Symlink(filepath.Join(releaseVersionsDirName, "1.2.2"), filepath.Join(runtimeRoot, releaseCurrentLinkName)); err != nil {
 		t.Fatalf("Symlink() error = %v", err)
 	}
 
@@ -61,6 +66,20 @@ func TestActivateAndCompleteReleaseActivation(t *testing.T) {
 	}
 	if report.Payload["status"] != "healthy" {
 		t.Fatalf("expected healthy status, got %#v", report.Payload)
+	}
+
+	// Only the seed, the release it replaced (the rollback target) and the
+	// running release stay on disk.
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	var remaining []string
+	for _, entry := range entries {
+		remaining = append(remaining, entry.Name())
+	}
+	if want := []string{"1.2.2", "1.2.3", releaseSeedVersionDir}; !reflect.DeepEqual(remaining, want) {
+		t.Fatalf("versions after completion = %v, want %v", remaining, want)
 	}
 }
 

@@ -258,7 +258,8 @@ func (p *PushLoop) monitorReleaseActivation(ctx context.Context) {
 			completed, err := CompleteReleaseActivation("", Version)
 			if err != nil {
 				p.logger.Warn().Err(err).Msg("Failed to finalize release activation")
-			} else if completed {
+			}
+			if completed {
 				p.logger.Info().
 					Str("version", Version).
 					Msg("Release activation marked healthy after gateway enrollment")

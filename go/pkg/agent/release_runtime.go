@@ -59,6 +59,7 @@ RestartPreventExitStatus=77 78
 )
 
 var errReleaseCurrentLinkMissing = errors.New("release current symlink is missing")
+var errReleaseVersionPruneIncomplete = errors.New("release activation completed but old versions were not all removed")
 var errReleaseActivationPreviousTargetMissing = errors.New("release activation state missing previous target")
 var errReleaseSymlinkTargetInvalid = errors.New("release symlink target is invalid")
 var errReleaseUpdaterOwnershipUnknown = errors.New("release updater ownership could not be determined")
@@ -257,7 +258,53 @@ func CompleteReleaseActivation(runtimeRoot, currentVersion string) (bool, error)
 		return false, fmt.Errorf("remove activation state: %w", err)
 	}
 
+	if err := pruneReleaseVersions(root, state.PreviousTarget); err != nil {
+		return true, fmt.Errorf("%w: %w", errReleaseVersionPruneIncomplete, err)
+	}
+
 	return true, nil
+}
+
+// pruneReleaseVersions keeps the release the current symlink points at, the
+// release it replaced, and the package seed, and removes every other staged
+// version directory. It runs only after an activation is confirmed healthy, so
+// rollback always has the previous release on disk. A directory that cannot be
+// removed is reported and the rest are still pruned.
+func pruneReleaseVersions(root, previousTarget string) error {
+	currentTarget, err := os.Readlink(filepath.Join(root, releaseCurrentLinkName))
+	if err != nil {
+		return fmt.Errorf("read current release symlink: %w", err)
+	}
+	currentTarget, err = normalizeExistingReleaseSymlinkTarget(root, currentTarget)
+	if err != nil {
+		return err
+	}
+
+	keep := map[string]bool{
+		releaseSeedVersionDir:        true,
+		filepath.Base(currentTarget): true,
+	}
+	if previous, err := normalizeExistingReleaseSymlinkTarget(root, previousTarget); err == nil {
+		keep[filepath.Base(previous)] = true
+	}
+
+	versionsDir := filepath.Join(root, releaseVersionsDirName)
+	entries, err := os.ReadDir(versionsDir)
+	if err != nil {
+		return fmt.Errorf("read release versions dir: %w", err)
+	}
+
+	var errs []error
+	for _, entry := range entries {
+		if !entry.IsDir() || keep[entry.Name()] {
+			continue
+		}
+		if err := os.RemoveAll(filepath.Join(versionsDir, entry.Name())); err != nil {
+			errs = append(errs, fmt.Errorf("remove release version %q: %w", entry.Name(), err))
+		}
+	}
+
+	return errors.Join(errs...)
 }
 
 func RollbackReleaseActivation(runtimeRoot, reason string) (bool, error) {
