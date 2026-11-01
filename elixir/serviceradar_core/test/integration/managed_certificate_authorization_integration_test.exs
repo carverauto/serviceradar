@@ -193,8 +193,10 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
 
     left_component = enroll_leaf!("left", opts)
     right_component = enroll_leaf!("right", opts)
-    record_leaf!(left_component, left, opts)
-    record_leaf!(right_component, right, opts)
+    left_issuance = leaf_issuance(left_component, left)
+    right_issuance = leaf_issuance(right_component, right)
+    record_leaf!(left_component, left_issuance, opts)
+    record_leaf!(right_component, right_issuance, opts)
     activate_upstream!(left_component, left.fingerprint, opts)
 
     Application.put_env(:serviceradar_core, Connection,
@@ -239,7 +241,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
     assert {:error, :certificate_revoked} =
              Authority.record_issuance(
                left_component.component_id,
-               leaf_issuance(left_component, left),
+               left_issuance,
                opts
              )
 
@@ -611,11 +613,11 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
     component
   end
 
-  defp record_leaf!(component, material, opts) do
+  defp record_leaf!(component, issuance, opts) do
     assert {:ok, _} =
              Authority.record_issuance(
                component.component_id,
-               leaf_issuance(component, material),
+               issuance,
                opts
              )
   end
