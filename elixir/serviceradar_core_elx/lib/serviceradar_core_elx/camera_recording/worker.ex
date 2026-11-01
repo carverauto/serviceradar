@@ -35,10 +35,11 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   renewal never extends the capture budget. Only a committed freeze supplies
   `block_id` in the stopped notification.
 
-  Teardown attempts consumer release and captured-relay idle close for at most
-  one second of external work. This is separate from sealing and never upgrades
-  a failed media outcome. Lease expiry/reaping remains the fallback after timeout,
-  task start failure, or forced process termination.
+  Teardown attempts consumer release and captured-relay idle close on the
+  stopping worker process before it exits. Running database cleanup on the
+  worker avoids killing a spawned task while it holds a checked-out connection.
+  This is separate from sealing and never upgrades a failed media outcome.
+  Lease expiry/reaping remains the fallback after errors or forced termination.
   """
   use GenServer, restart: :temporary
 
@@ -338,25 +339,9 @@ defmodule ServiceRadarCoreElx.CameraRecording.Worker do
   defp release_consumer(%{claim: nil}), do: :ok
 
   defp release_consumer(state) do
-    owner = state.owner
-    claim = state.claim
-    actor = state.actor
-
-    # This one linked task belongs only to the stopping worker (which traps
-    # exits). The worker cap bounds concurrency; a Task.Supervisor start call
-    # itself waits indefinitely in Elixir 1.19.1, so it cannot bound teardown.
-    task = Task.async(fn -> release_and_close(owner, claim, actor) end)
-
-    try do
-      case Task.yield(task, 1_000) do
-        {:ok, result} -> result
-        _ -> {:error, :cleanup_incomplete}
-      end
-    after
-      Task.shutdown(task, :brutal_kill)
-    end
+    release_and_close(state.owner, state.claim, state.actor)
   catch
-    _kind, _reason -> {:error, :cleanup_start_failed}
+    _kind, _reason -> {:error, :cleanup_failed}
   end
 
   defp release_and_close(owner, claim, actor) do

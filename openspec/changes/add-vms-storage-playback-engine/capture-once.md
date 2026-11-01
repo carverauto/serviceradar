@@ -57,11 +57,12 @@ receipt while its request budget is still current. It returns a bounded error
 otherwise. A status snapshot, file on disk or incomplete journal cannot produce
 this success. Capture UTC remains explicitly unknown.
 
-A success is a frozen local receipt. The worker's existing consumer-release and
-idle-close teardown follows the notification and has its own one-second external
-work budget. Success does not assert that teardown has already completed; lease
-expiry and reaping remain the fallback if cleanup cannot finish. An independent
-viewer retains its consumer and live stream. Cancellation, timeout or an
+A success is a frozen local receipt. Consumer release and captured-relay idle
+close follow the stopped notification on the worker;
+`ServiceRadarCoreElx.CameraRecording.Worker` owns that teardown. Success does
+not assert that teardown has already completed; lease expiry and reaping remain
+the fallback if cleanup cannot finish. An independent viewer retains its
+consumer and live stream. Cancellation, timeout or an
 ambiguous result can leave local bytes, or a previously committed block, for
 reconciliation. This entry point never deletes those bytes or retries them.
 
