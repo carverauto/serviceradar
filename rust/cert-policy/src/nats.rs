@@ -275,6 +275,21 @@ async fn connect_managed<A: ToServerAddrs>(
     ))
 }
 
+fn restored_enforcement(
+    current: EnforcementStatus,
+    admission: Admission,
+    transport_connected: bool,
+) -> Option<EnforcementStatus> {
+    if !transport_connected {
+        return None;
+    }
+    let next = match admission {
+        Admission::Fresh => EnforcementStatus::Connected,
+        Admission::StaleLocal => EnforcementStatus::StaleLocal,
+    };
+    (current != next).then_some(next)
+}
+
 async fn monitor(
     client: Client,
     store: Arc<Store>,
@@ -301,17 +316,19 @@ async fn monitor(
             .ok_or(crate::Error::Unavailable)
             .and_then(|peer| store.authorize_peer(&peer));
         if let Ok(admission) = admission {
-            let next = match admission {
-                Admission::Fresh => EnforcementStatus::Connected,
-                Admission::StaleLocal => EnforcementStatus::StaleLocal,
-            };
-            if matches!(
-                *status.borrow(),
-                EnforcementStatus::Connected | EnforcementStatus::StaleLocal
-            ) && *status.borrow() != next
-            {
+            let transport_connected =
+                matches!(client.connection_state(), async_nats::connection::State::Connected);
+            let current = *status.borrow();
+            if let Some(next) = restored_enforcement(current, admission, transport_connected) {
                 status.send_replace(next);
-                tracing::warn!(?next, "local leaf certificate policy freshness changed");
+                if matches!(
+                    current,
+                    EnforcementStatus::Connected | EnforcementStatus::StaleLocal
+                ) {
+                    tracing::warn!(?next, "local leaf certificate policy freshness changed");
+                } else {
+                    tracing::warn!(?next, "managed certificate publishing restored");
+                }
             }
             disconnected_for_policy = false;
             continue;

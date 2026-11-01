@@ -246,6 +246,48 @@ fn policy_retains_webpki_and_hostname_checks_and_rejects_stale_refresh() {
     );
 }
 
+#[test]
+fn fresh_admission_restores_publishing_after_unconfirmed_only_while_transport_is_up() {
+    use crate::Admission;
+    use nats::EnforcementStatus;
+
+    // Oracle: async-nats `connection_state` is the transport fact. A valid
+    // snapshot must not report Connected after the socket has dropped, and an
+    // Unconfirmed client whose socket never left must publish again.
+    assert_eq!(
+        super::restored_enforcement(EnforcementStatus::Unconfirmed, Admission::Fresh, true),
+        Some(EnforcementStatus::Connected)
+    );
+    assert_eq!(
+        super::restored_enforcement(EnforcementStatus::Disconnecting, Admission::Fresh, true),
+        Some(EnforcementStatus::Connected)
+    );
+    assert_eq!(
+        super::restored_enforcement(EnforcementStatus::Disconnected, Admission::Fresh, true),
+        Some(EnforcementStatus::Connected)
+    );
+    assert_eq!(
+        super::restored_enforcement(EnforcementStatus::Unconfirmed, Admission::Fresh, false),
+        None
+    );
+    assert_eq!(
+        super::restored_enforcement(EnforcementStatus::Disconnected, Admission::StaleLocal, false),
+        None
+    );
+    assert_eq!(
+        super::restored_enforcement(EnforcementStatus::Connected, Admission::StaleLocal, true),
+        Some(EnforcementStatus::StaleLocal)
+    );
+    assert_eq!(
+        super::restored_enforcement(EnforcementStatus::StaleLocal, Admission::StaleLocal, true),
+        None
+    );
+    assert_eq!(
+        super::restored_enforcement(EnforcementStatus::StaleLocal, Admission::Fresh, true),
+        Some(EnforcementStatus::Connected)
+    );
+}
+
 #[tokio::test]
 async fn enrolled_local_leaf_survives_stale_policy_but_closes_on_revocation_and_certificate_expiry()
 {
