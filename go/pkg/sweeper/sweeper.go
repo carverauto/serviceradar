@@ -17,6 +17,7 @@
 package sweeper
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -45,7 +46,7 @@ type NetworkSweeper struct {
 	// agent running core-leased sweep slots at their signed times.
 	manualSchedule atomic.Bool
 	lastSweep      time.Time
-	resultObserver func(*models.Result) error
+	resultObserver func(context.Context, *models.Result) error
 	// runExecutionID is the core-minted id of the sweep holding runMu. It is
 	// copied onto the summary in the same update that publishes LastSweep,
 	// then cleared. GetStatus must not report it while that sweep is still

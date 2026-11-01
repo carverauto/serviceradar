@@ -24,11 +24,11 @@ import (
 )
 
 func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Result) error {
-	ctx, cancel := context.WithTimeout(ctx, defaultResultTimeout)
+	saveCtx, cancel := context.WithTimeout(ctx, defaultResultTimeout)
 	defer cancel()
 
 	// Process basic result handling
-	if err := s.processBasicResult(ctx, result); err != nil {
+	if err := s.processBasicResult(ctx, saveCtx, result); err != nil {
 		return err
 	}
 
@@ -50,13 +50,13 @@ func (s *NetworkSweeper) processResult(ctx context.Context, result *models.Resul
 }
 
 // processBasicResult handles the basic processing and saving of the result.
-func (s *NetworkSweeper) processBasicResult(ctx context.Context, result *models.Result) error {
+func (s *NetworkSweeper) processBasicResult(scanCtx, saveCtx context.Context, result *models.Result) error {
 	// Process through existing pipeline
 	if err := s.processor.Process(result); err != nil {
 		return fmt.Errorf("processor error: %w", err)
 	}
 
-	if err := s.store.SaveResult(ctx, result); err != nil {
+	if err := s.store.SaveResult(saveCtx, result); err != nil {
 		return fmt.Errorf("store error: %w", err)
 	}
 
@@ -64,7 +64,7 @@ func (s *NetworkSweeper) processBasicResult(ctx context.Context, result *models.
 	observer := s.resultObserver
 	s.mu.RUnlock()
 	if observer != nil {
-		return observer(result)
+		return observer(scanCtx, result)
 	}
 
 	return nil
