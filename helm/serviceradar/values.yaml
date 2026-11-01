@@ -384,6 +384,12 @@ observability:
         restartWarning: 1
       core:
         scrapeDownFor: 5m
+        admissionLaneNotAcceptedMax: 0
+        admissionLaneNotAcceptedWindow: 5m
+        admissionLaneNotAcceptedFor: 1m
+        syncIncompleteRunMax: 0
+        syncIncompleteRunWindow: 15m
+        syncIncompleteRunFor: 1m
       agentGateway:
         scrapeDownFor: 5m
         resultsBufferDroppedWindow: 5m

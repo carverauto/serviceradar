@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadar.AgentTracker
+  alias ServiceRadar.Ingestion.RuntimeMetrics
   alias ServiceRadarWebNG.AccountsFixtures
 
   @moduletag :web_ng_shared_fixture_db
@@ -253,5 +254,59 @@ defmodule ServiceRadarWebNGWeb.Settings.ClusterLiveTest do
       |> LazyHTML.query(~s(#cluster-agents tr[id^="cluster-agent-agent-heartbeat-"]))
 
     assert Enum.count(rows) == 3
+  end
+
+  test "renders unavailable ingestion lane state when RuntimeMetrics is not running", %{conn: conn} do
+    if Process.whereis(RuntimeMetrics) do
+      stop_supervised!(RuntimeMetrics)
+    end
+
+    {:ok, view, html} = live(conn, ~p"/settings/cluster")
+
+    assert html =~ "Ingestion"
+    assert html =~ "Unavailable"
+    assert has_element?(view, "#cluster-ingestion-lanes-unavailable")
+    refute has_element?(view, "#cluster-ingestion-lanes-table")
+    assert has_element?(view, ~s(a[href="/dashboard/result-ingestion-lanes"]))
+  end
+
+  test "disconnected mount skips RuntimeMetrics while connected mount renders populated lane stats", %{
+    conn: conn
+  } do
+    start_supervised!({RuntimeMetrics, interval_ms: 60_000, publish_opts: [request: fn _, _, _ -> :ok end]})
+
+    RuntimeMetrics.record(:retained_plugin_result, :state, %{
+      pending_count: 3,
+      pending_bytes: 6_144,
+      in_flight_count: 1,
+      in_flight_bytes: 2_048
+    })
+
+    RuntimeMetrics.record(:retained_plugin_result, :admitted, %{count: 5})
+
+    RuntimeMetrics.record(:retained_plugin_result, :rejected, %{
+      count: 2,
+      reason: :count_full
+    })
+
+    RuntimeMetrics.record(:retained_plugin_result, :completion, %{
+      count: 1,
+      outcome: :not_accepted
+    })
+
+    RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
+
+    disconnected_conn = get(conn, ~p"/settings/cluster")
+    disconnected_html = html_response(disconnected_conn, 200)
+    assert disconnected_html =~ "cluster-ingestion-lanes-unavailable"
+    refute disconnected_html =~ "cluster-ingestion-lanes-table"
+    refute disconnected_html =~ "3 queued / 1 active"
+
+    {:ok, view, connected_html} = live(conn, ~p"/settings/cluster")
+    assert connected_html =~ "3 queued / 1 active"
+    assert has_element?(view, "#cluster-ingestion-lanes-table")
+    assert has_element?(view, "#cluster-ingestion-lane-retained_plugin_result", "3 / 32")
+    assert has_element?(view, "#cluster-ingestion-lane-retained_plugin_result", "8.0 KiB / 64.0 MiB")
+    assert has_element?(view, "#cluster-ingestion-lane-sync", "1")
   end
 end

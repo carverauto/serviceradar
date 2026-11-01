@@ -1126,12 +1126,17 @@ defmodule ServiceRadar.Admission.Lane do
         measurements -> measurements
       end
 
-    runtime_measurements =
+    {runtime_measurements, telemetry_metadata} =
       if suffix == :completion do
         accepted = metadata[:result] in [:committed, :ok] or match?({:ok, _}, metadata[:result])
-        Map.put(runtime_measurements, :outcome, if(accepted, do: :accepted, else: :not_accepted))
+        outcome = if(accepted, do: :accepted, else: :not_accepted)
+
+        {
+          Map.put(runtime_measurements, :outcome, outcome),
+          metadata |> Map.put(:lane, lane) |> Map.put_new(:outcome, outcome)
+        }
       else
-        runtime_measurements
+        {runtime_measurements, Map.put(metadata, :lane, lane)}
       end
 
     ServiceRadar.Ingestion.RuntimeMetrics.record(
@@ -1143,7 +1148,7 @@ defmodule ServiceRadar.Admission.Lane do
     :telemetry.execute(
       [:serviceradar, :admission_lane, suffix],
       measurements,
-      Map.put(metadata, :lane, lane)
+      telemetry_metadata
     )
   end
 

@@ -519,6 +519,9 @@ _TEST_RUNTIME_DATA = glob(
     # It belongs in this tier, not the database-backed one: it reads two files and
     # asserts on their text.
     "//helm/serviceradar:values",
+    # Read by test/serviceradar/telemetry_test.exs to check the ingestion
+    # Grafana panels chart each admission-lane gauge and counter by lane.
+    "//helm/serviceradar:ingestion_edge_dashboard",
     # StarRocks schema SQL lives in a nested package, so priv/** does not
     # stage it. Attribution load_columns coverage reads these files.
     "//elixir/serviceradar_core/priv/starrocks:schema_sql",

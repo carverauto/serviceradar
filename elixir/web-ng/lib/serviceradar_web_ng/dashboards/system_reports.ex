@@ -68,6 +68,7 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
 
   @new_devices_slug "new-devices"
   @mtr_path_analytics_slug "mtr-path-analytics"
+  @result_ingestion_lanes_slug "result-ingestion-lanes"
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -136,6 +137,9 @@ defmodule ServiceRadarWebNG.Dashboards.SystemReports do
 
   @spec mtr_path_analytics_slug() :: String.t()
   def mtr_path_analytics_slug, do: @mtr_path_analytics_slug
+
+  @spec result_ingestion_lanes_slug() :: String.t()
+  def result_ingestion_lanes_slug, do: @result_ingestion_lanes_slug
 
   @spec seed_all(keyword()) :: {:ok, [AuthoredDashboard.t()]} | {:error, term()}
   def seed_all(opts \\ []) do

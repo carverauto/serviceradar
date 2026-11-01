@@ -219,9 +219,11 @@ minute of consecutive failure (scaled with the publish interval), and
 recovery is logged once. Log fields carry only the
 subject, a reason class, and a count.
 
-Interval negatively-acknowledged counts are the
-`result_ingestion_terminals_not_accepted` completion outcomes: worker errors,
-timeouts, and persistence failures surfaced as not-accepted replies. Admission
+Interval non-accepted counts are the
+`result_ingestion_terminals_not_accepted` completion outcomes: queue-wait
+timeouts, lane execution timeouts, sweep execution timeouts that exhaust
+retries, sweep cancellations, worker failures, and persistence failures.
+Admission
 refusals (`result_ingestion_rejections_*`) are caller-side rejections, never
 agent NACKs. `result_ingestion_events_incomplete_run` (lane `sync`) counts
 final validation attempts that found the ledger incomplete: one per activation
@@ -231,6 +233,63 @@ again.
 Core has an exact publish permission for this subject, and the METRICS stream
 covers `metrics.>`. EventWriter owns persistence, selecting StarRocks exclusively
 when enabled and CNPG when disabled. Local telemetry remains supplementary.
+
+Operator visibility surfaces expose both the JetStream-persisted metrics and live
+in-memory coordinator state:
+
+- **Prometheus & Grafana**: `ServiceRadar.Telemetry.admission_lane_metrics/0`
+  exports `serviceradar_admission_lane_pending_count`,
+  `serviceradar_admission_lane_pending_bytes`,
+  `serviceradar_admission_lane_in_flight_count`,
+  `serviceradar_admission_lane_in_flight_bytes`,
+  `serviceradar_admission_lane_admitted_count`,
+  `serviceradar_admission_lane_rejected_count`,
+  `serviceradar_admission_lane_completion_count` (tags `lane`, `result`, and
+  `outcome`), `serviceradar_admission_lane_incomplete_run_count` (tag `lane`),
+  `serviceradar_admission_lane_timeout_count` (tags `lane` and `reason`), and
+  `serviceradar_admission_lane_crash_count` (tags `lane`, `reason`, and
+  `exit_reason`). Pending, in-flight, and admitted series use tag `lane`.
+  The rejected counter uses `lane` and `reason`. No agent, device, or run id
+  is a tag.
+  `helm/serviceradar/dashboards/serviceradar-ingestion-edge.json` charts lane
+  queue depth, admissions vs rejections, non-accepted completions, incomplete
+  runs, timeouts, and crashes. Gauges use `max by (lane)`. Admitted and
+  incomplete-run increases use `sum by (lane)`. Rejections, timeouts, and
+  crashes use `sum by (lane, reason)`. Non-accepted completions use
+  `sum by (lane, result)`.
+  `helm/serviceradar/templates/serviceradar-prometheus-rules.yaml` defines
+  `ServiceRadarAdmissionLaneNotAccepted` and `ServiceRadarSyncIncompleteRun`.
+- **ServiceRadar Dashboard (`result-ingestion-lanes`)**: Seeded by
+  `ServiceRadarWebNG.Dashboards.SystemReports` from
+  `elixir/web-ng/priv/dashboards/result-ingestion-lanes.json`. Each chart is one
+  `in:timeseries_metrics metric_type:core.result_ingestion` metric split by the
+  lane tag (`series:tags.lane`). Occupancy gauges for pending and in-flight
+  counts and bytes use `agg:max`, so the line is the busiest core. Queue-wait,
+  execution (`result_ingestion_duration_ms`), and acknowledgement gauges use
+  `agg:avg`. Each chart uses `sort:time:desc` and a limit of one grouped row
+  per lane per minute for the result-ingestion lanes and the alert lanes that
+  share `core.result_ingestion`, so the newest hour is the part that is kept.
+  Admission, rejection, terminal, crash, and incomplete-run counters use
+  `agg:sum`, so a one-minute bucket does not average away the 30-second deltas.
+  Lane, sweep, and sync all publish execution as `duration_ms`. Acknowledgement
+  is enqueue-to-done from lane and sweep only. A
+  `result_ingestion_terminals_not_accepted` delta is any non-accepted
+  completion: queue-wait timeouts, lane execution timeouts, sweep execution
+  timeouts that exhaust retries, sweep cancellations, worker failures, and
+  persistence failures.
+- **Cluster Status (`Settings -> Cluster Status`)**: Queries
+  `ServiceRadar.Ingestion.RuntimeMetrics.lane_stats/0` on connected mount and
+  refresh (never in disconnected mount) to render the **Ingestion** summary card
+  and the **Ingestion Lanes** table directly from ETS without calling any lane
+  GenServer or touching the database. The card shows current queued and in-flight
+  depth (`N queued / M active`) and shows Unavailable when no core coordinator
+  is reachable. The table shows one row per lane. Pending depth, in-flight work,
+  byte occupancy, and both caps are
+  summed across connected cores, so pending / max is cluster occupancy over
+  cluster capacity. Admitted, rejected, accepted, not-accepted, timeout, crash,
+  and incomplete-run totals are summed the same way. Those outcome columns are
+  cumulative for the life of each core process; the summary card does not use
+  them.
 
 Two synthetic harnesses are selected by ordinary PR BazelCI:
 

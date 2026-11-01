@@ -81,7 +81,7 @@ the new pre-mailbox byte bound; retained default enablement requires the new pai
   through `ServiceRadar.NATS.JetStreamPublish`, exactly as
   `ServiceRadar.FlowAttribution.PassMetrics` publishes `metrics.flow_attribution`.
   The batch carries per lane or class: queue depth and bytes, admitted, rejected
-  (by reason), NACKed, timed-out counts for the interval, and incomplete sync
+  (by reason), not-accepted, timed-out counts for the interval, and incomplete sync
   runs. EventWriter's existing METRICS stream and `Metrics` processor persist it
   to whichever telemetry backend is active, so no new consumer and no direct
   database write. The subject does not collide with `metrics.ingest` or
@@ -95,9 +95,11 @@ the new pre-mailbox byte bound; retained default enablement requires the new pai
   scrape and adding panels to the chart's ingestion dashboards; (2) a seeded
   ServiceRadar dashboard charting the JetStream-persisted lane metrics from
   `timeseries_metrics` via SRQL; (3) an "Ingestion" card on Settings -> Cluster
-  Status showing current per-lane depth and capacity and recent rejects/NACKs
-  from a cheap lane-stats call (no database query), linking to the dashboard.
-  No alert consumes these metrics in this change.
+  Status showing current queued and in-flight depth, with the Ingestion Lanes
+  table showing pending depth against capacity and cumulative outcome totals,
+  from a lane-stats call (no database query), linking to the dashboard.
+  `ServiceRadarAdmissionLaneNotAccepted` and `ServiceRadarSyncIncompleteRun`
+  alert on non-accepted completions and incomplete sync runs.
 
 ### 2. Use independent bounded keyed workers
 

@@ -459,10 +459,25 @@ defmodule ServiceRadar.Telemetry do
         tags: [:lane, :result],
         reporter_options: [buckets: payload_buckets_bytes]
       ),
+      counter("serviceradar.admission_lane.admitted.count",
+        event_name: [:serviceradar, :admission_lane, :admitted],
+        measurement: :count,
+        tags: [:lane]
+      ),
       counter("serviceradar.admission_lane.rejected.count",
         event_name: [:serviceradar, :admission_lane, :rejected],
         measurement: :count,
         tags: [:lane, :reason]
+      ),
+      counter("serviceradar.admission_lane.completion.count",
+        event_name: completion_event,
+        measurement: :count,
+        tags: [:lane, :result, :outcome]
+      ),
+      counter("serviceradar.admission_lane.incomplete_run.count",
+        event_name: [:serviceradar, :admission_lane, :incomplete_run],
+        measurement: :count,
+        tags: [:lane]
       ),
       counter("serviceradar.admission_lane.timeout.count",
         event_name: [:serviceradar, :admission_lane, :timeout],

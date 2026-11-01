@@ -700,12 +700,16 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
         measurements -> measurements
       end
 
-    runtime_measurements =
+    {runtime_measurements, telemetry_metadata} =
       if event == :completion do
         outcome = if metadata[:result] == :committed, do: :accepted, else: :not_accepted
-        Map.put(runtime_measurements, :outcome, outcome)
+
+        {
+          Map.put(runtime_measurements, :outcome, outcome),
+          metadata |> Map.put(:lane, @lane) |> Map.put_new(:outcome, outcome)
+        }
       else
-        runtime_measurements
+        {runtime_measurements, Map.put(metadata, :lane, @lane)}
       end
 
     RuntimeMetrics.record(@lane, event, Map.put(runtime_measurements, :reason, metadata[:reason]))
@@ -713,7 +717,7 @@ defmodule ServiceRadar.Ingestion.SweepQueue do
     :telemetry.execute(
       [:serviceradar, :admission_lane, event],
       measurements,
-      Map.put(metadata, :lane, @lane)
+      telemetry_metadata
     )
   end
 

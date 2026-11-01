@@ -1373,6 +1373,183 @@ defmodule ServiceRadar.ResultsRouterTest do
     }
   end
 
+  test "a service-state deadline counts as a timeout and a commit counts as a completion" do
+    router = Process.whereis(ResultsRouter) || start_supervised!(ResultsRouter)
+    previous_flush = Application.get_env(:serviceradar_core, :results_router_flush_interval_ms)
+    Application.put_env(:serviceradar_core, :results_router_flush_interval_ms, 60_000)
+    parent = self()
+
+    :ok =
+      :telemetry.attach_many(
+        "service-state-batch-lane",
+        [
+          [:serviceradar, :admission_lane, :timeout],
+          [:serviceradar, :admission_lane, :crash],
+          [:serviceradar, :admission_lane, :completion]
+        ],
+        fn event, measurements, metadata, _config ->
+          send(parent, {:lane, List.last(event), measurements, metadata})
+        end,
+        nil
+      )
+
+    on_exit(fn ->
+      :telemetry.detach("service-state-batch-lane")
+      restore_env(:results_router_flush_interval_ms, previous_flush)
+
+      if Process.whereis(ResultsRouter) do
+        :sys.replace_state(ResultsRouter, fn state ->
+          %{state | active: nil, buffer: :queue.new(), timer: nil}
+        end)
+      end
+    end)
+
+    item = {make_ref(), %{}}
+
+    :sys.replace_state(router, fn state ->
+      pid = spawn(fn -> Process.sleep(:infinity) end)
+      send(parent, {:worker, pid})
+
+      %{
+        state
+        | buffer: :queue.new(),
+          timer: nil,
+          active: %{
+            pid: pid,
+            ref: Process.monitor(pid),
+            timer: make_ref(),
+            items: [item],
+            result: nil
+          }
+      }
+    end)
+
+    assert_receive {:worker, timed_out}
+    send(router, {:service_batch_timeout, timed_out})
+
+    assert_receive {:lane, :timeout, %{count: 1},
+                    %{reason: :execution_timeout, lane: :service_state}},
+                   1_000
+
+    refute_receive {:lane, :crash, _, _}, 50
+    refute_receive {:lane, :completion, _, _}, 0
+    assert :queue.to_list(:sys.get_state(router).buffer) == [item]
+    assert :sys.get_state(router).active == nil
+
+    :sys.replace_state(router, fn state ->
+      pid =
+        spawn(fn ->
+          receive do
+            :crash -> exit(:boom)
+          end
+        end)
+
+      send(parent, {:worker, pid})
+
+      %{
+        state
+        | buffer: :queue.new(),
+          timer: nil,
+          active: %{
+            pid: pid,
+            ref: Process.monitor(pid),
+            timer: make_ref(),
+            items: [item],
+            result: nil
+          }
+      }
+    end)
+
+    assert_receive {:worker, crashed}
+    send(crashed, :crash)
+
+    assert_receive {:lane, :crash, %{count: 1},
+                    %{
+                      reason: :worker_crash,
+                      exit_reason: :unexpected,
+                      lane: :service_state
+                    }},
+                   1_000
+
+    refute_receive {:lane, :timeout, _, _}, 0
+    refute_receive {:lane, :completion, _, _}, 0
+
+    :sys.replace_state(router, fn state ->
+      pid =
+        spawn(fn ->
+          receive do
+            :fail -> send(router, {:service_batch_result, self(), {:error, :upsert_failed}})
+          end
+        end)
+
+      send(parent, {:worker, pid})
+
+      %{
+        state
+        | buffer: :queue.new(),
+          timer: nil,
+          active: %{
+            pid: pid,
+            ref: Process.monitor(pid),
+            timer: make_ref(),
+            items: [item],
+            result: nil
+          }
+      }
+    end)
+
+    assert_receive {:worker, failed}
+    send(failed, :fail)
+
+    assert_receive {:lane, :completion, measurements, metadata}, 1_000
+    assert measurements.count == 1
+    assert measurements.outcome == :not_accepted
+    assert metadata.result == :failed
+    assert metadata.outcome == :not_accepted
+    assert metadata.lane == :service_state
+    refute_receive {:lane, :crash, _, _}, 0
+    refute_receive {:lane, :timeout, _, _}, 0
+    assert :queue.to_list(:sys.get_state(router).buffer) == [item]
+    assert :sys.get_state(router).active == nil
+
+    :sys.replace_state(router, fn state ->
+      pid =
+        spawn(fn ->
+          receive do
+            :commit -> send(router, {:service_batch_result, self(), :ok})
+          end
+        end)
+
+      send(parent, {:worker, pid})
+
+      %{
+        state
+        | buffer: :queue.new(),
+          timer: nil,
+          active: %{
+            pid: pid,
+            ref: Process.monitor(pid),
+            timer: make_ref(),
+            items: [item],
+            result: nil
+          }
+      }
+    end)
+
+    assert_receive {:worker, committed}
+    send(committed, :commit)
+
+    assert_receive {:lane, :completion, measurements, metadata}, 1_000
+    assert measurements.count == 1
+    assert measurements.outcome == :accepted
+    assert metadata.result == :committed
+    assert metadata.outcome == :accepted
+    assert metadata.lane == :service_state
+    refute_receive {:lane, :crash, _, _}, 50
+    refute_receive {:lane, :timeout, _, _}, 0
+    assert :queue.to_list(:sys.get_state(router).buffer) == []
+  end
+
   defp assert_eventually(predicate, attempts \\ 40)
 
   defp assert_eventually(predicate, attempts) when attempts > 0 do

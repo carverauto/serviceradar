@@ -38,7 +38,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     bytes = if is_binary(message), do: byte_size(message), else: 0
 
     if bytes > @max_bytes do
-      RuntimeMetrics.record(:sync, :rejected, %{reason: :wire_payload_too_large})
+      emit(:rejected, %{count: 1, payload_bytes: bytes}, %{reason: :wire_payload_too_large})
       {:error, :sync_ingest_queue_full}
     else
       headers =
@@ -102,7 +102,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     if :erlang.external_size(key) > 4_096 or map_size(state.jobs) >= state.max_items or
          state.bytes + bytes > state.max_bytes or
          per_run >= max_per_run() do
-      RuntimeMetrics.record(:sync, :rejected, %{reason: :sync_ingest_queue_full})
+      emit(:rejected, %{count: 1, payload_bytes: bytes}, %{reason: :sync_ingest_queue_full})
       {:reply, {:error, :sync_ingest_queue_full}, state}
     else
       id = make_ref()
@@ -117,7 +117,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
         timer: timer
       }
 
-      RuntimeMetrics.record(:sync, :admitted, %{})
+      emit(:admitted, %{count: 1, payload_bytes: bytes})
 
       {:reply, {:ok, id},
        record_state(%{state | jobs: Map.put(state.jobs, id, job), bytes: state.bytes + bytes})}
@@ -166,10 +166,10 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   def handle_info({:worker_result, pid, result}, %{active: %{pid: pid} = active} = state),
     do: {:noreply, %{state | active: Map.put(active, :result, result)}}
 
-  def handle_info({:worker_timeout, pid}, %{active: %{pid: pid}} = state) do
-    RuntimeMetrics.record(:sync, :worker_timeout, %{count: 1})
+  def handle_info({:worker_timeout, pid}, %{active: %{pid: pid} = active} = state) do
+    emit(:timeout, %{count: 1}, %{reason: :execution_timeout})
     Process.exit(pid, :kill)
-    {:noreply, state}
+    {:noreply, %{state | active: Map.put(active, :timed_out, true)}}
   end
 
   def handle_info({:worker_timeout, _}, state), do: {:noreply, state}
@@ -180,20 +180,29 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
     if reason == :normal and active.result != nil do
       accepted = Enum.all?(active.result, &(&1 == :ok or match?({:ok, _}, &1)))
+      outcome = if(accepted, do: :accepted, else: :not_accepted)
+      result = if(accepted, do: :committed, else: :execution_failed)
+      duration_ms = System.monotonic_time(:millisecond) - active.started_at
 
-      RuntimeMetrics.record(:sync, :completion, %{
-        count: length(active.ids),
-        outcome: if(accepted, do: :accepted, else: :not_accepted),
-        execution_ms: System.monotonic_time(:millisecond) - active.started_at
-      })
+      emit(
+        :completion,
+        %{
+          count: length(active.ids),
+          outcome: outcome,
+          duration_ms: duration_ms
+        },
+        %{result: result, outcome: outcome}
+      )
 
       {:noreply, state |> release(active.ids) |> maybe_flush()}
     else
-      RuntimeMetrics.record(:sync, :worker_crash, %{count: 1})
+      if Map.get(active, :timed_out) != true do
+        emit(:crash, %{count: 1}, %{reason: :worker_crash, exit_reason: bounded_reason(reason)})
 
-      Logger.warning("Sync ingestion worker exited; retrying retained bounded batch",
-        reason: inspect(reason)
-      )
+        Logger.warning("Sync ingestion worker exited; retrying retained bounded batch",
+          reason: inspect(reason)
+        )
+      end
 
       pending = :queue.join(:queue.from_list(active.ids), state.pending)
       {:noreply, arm(%{state | pending: pending})}
@@ -241,7 +250,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
 
               {:error, reason} ->
                 Logger.warning("Sync result decode rejected: #{inspect(reason)}")
-                RuntimeMetrics.record(:sync, :rejected, %{reason: :malformed_payload})
+                emit(:rejected, %{count: 1}, %{reason: :malformed_payload})
                 []
             end
           end)
@@ -326,7 +335,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
     active_bytes =
       Enum.reduce(active_ids, 0, fn id, acc -> acc + (state.jobs[id] || %{bytes: 0}).bytes end)
 
-    RuntimeMetrics.record(:sync, :state, %{
+    emit(:state, %{
       pending_count: map_size(state.jobs) - length(active_ids),
       pending_bytes: state.bytes - active_bytes,
       in_flight_count: length(active_ids),
@@ -735,7 +744,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
         :ok
 
       {:error, :sync_run_incomplete} ->
-        RuntimeMetrics.record(:sync, :incomplete_run, %{count: 1})
+        emit(:incomplete_run, %{count: 1})
         {:error, {:source_snapshot_activation_failed, :sync_run_incomplete}}
 
       {:error, reason} ->
@@ -811,4 +820,17 @@ defmodule ServiceRadar.Inventory.SyncIngestorQueue do
   defp sync_ingestor do
     Application.get_env(:serviceradar_core, :sync_ingestor, SyncIngestor)
   end
+
+  defp emit(event, measurements, metadata \\ %{}) do
+    RuntimeMetrics.record(:sync, event, Map.put(measurements, :reason, metadata[:reason]))
+
+    :telemetry.execute(
+      [:serviceradar, :admission_lane, event],
+      measurements,
+      Map.put(metadata, :lane, :sync)
+    )
+  end
+
+  defp bounded_reason(reason) when reason in [:normal, :shutdown, :killed, :noproc], do: reason
+  defp bounded_reason(_reason), do: :unexpected
 end
