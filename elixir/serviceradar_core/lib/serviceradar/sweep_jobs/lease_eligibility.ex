@@ -7,7 +7,8 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
 
     * every target is a bare address or CIDR that a plan range can hold;
     * its effective modes and ports (profile as base, group overrides on top, exactly as the
-      sweep compiler computes them) reduce to ICMP and TCP checks, with no MTR;
+      sweep compiler computes them) reduce to at least one ICMP or TCP check (`mtr` is ignored
+      here so reachability and port modes run under the sweep lease);
     * banner grabbing is off, since the format has nowhere to put banner results;
     * its schedule is an interval of at least `LeaseSchedule.min_interval_seconds/0`, or cron.
 

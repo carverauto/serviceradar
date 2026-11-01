@@ -45,13 +45,31 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibilityTest do
              LeaseEligibility.evaluate(group(%{sweep_modes: ["icmp", "tcp"], ports: []}))
   end
 
+  test "a group whose modes include MTR is eligible and plans reachability and port checks" do
+    assert {:ok, icmp_inputs} =
+             LeaseEligibility.evaluate(group(%{sweep_modes: ["icmp", "mtr"], ports: []}))
+
+    assert icmp_inputs.checks == [{1, 1, 0}]
+    assert icmp_inputs.check_set_sha256 == SweepPlan.check_set_sha256([{1, 1, 0}])
+
+    assert {:ok, tcp_inputs} =
+             LeaseEligibility.evaluate(
+               group(%{sweep_modes: ["icmp", "tcp", "mtr"], ports: [22, 443]})
+             )
+
+    assert tcp_inputs.checks == [{1, 1, 0}, {2, 2, 22}, {2, 2, 443}]
+
+    assert tcp_inputs.check_set_sha256 ==
+             SweepPlan.check_set_sha256([{1, 1, 0}, {2, 2, 22}, {2, 2, 443}])
+  end
+
   for {label, change, reason} <- [
         {"disabled", %{enabled: false}, :disabled},
         {"an SRQL target query", %{target_query: "in:devices tags:web"}, :has_target_query},
         {"a static target and an SRQL query", %{target_query: "in:devices"}, :has_target_query},
         {"no static targets", %{static_targets: []}, :no_static_targets},
         {"only blank static targets", %{static_targets: ["", "  "]}, :no_static_targets},
-        {"MTR mode", %{sweep_modes: ["icmp", "mtr"]}, :mtr_unsupported},
+        {"MTR mode only", %{sweep_modes: ["mtr"]}, :no_checks},
         {"an interval under five minutes", %{interval: "2m"}, :interval_too_short},
         {"an unreadable interval", %{interval: "often"}, :invalid_interval},
         {"a bad cron expression", %{schedule_type: :cron, cron_expression: "x"}, :invalid_cron}

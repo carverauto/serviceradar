@@ -294,6 +294,37 @@ defmodule ServiceRadar.SweepJobs.LeasePassDbTest do
            )
   end
 
+  test "a group whose modes include MTR leases its reachability and port checks with MTR fields zero",
+       ctx do
+    alias ServiceRadar.Edge.SweepPlan
+    alias Serviceradar.Edge.V1.ScheduledPlanHeaderV1
+
+    lease_on!(ctx, 3_600)
+
+    group =
+      ctx
+      |> leased_group!()
+      |> Map.put(:sweep_modes, ["icmp", "tcp", "mtr"])
+      |> Map.put(:ports, [443])
+
+    now = DateTime.utc_now()
+
+    assert %{leases: 1, scheduled: scheduled, errors: 0} = LeasePass.reconcile_group(group, now)
+    assert scheduled > 0
+
+    assignment = assignment!(group, ctx.agent)
+    [slot | _] = unrun!(assignment, now)
+    header = ScheduledPlanHeaderV1.decode(slot.plan_header)
+    [page] = Enum.map(slot.plan_pages, &ScheduledPlanPageV1.decode/1)
+
+    expected_checks = [{1, 1, 0}, {2, 2, 443}]
+    assert header.check_set_sha256 == SweepPlan.check_set_sha256(expected_checks)
+    assert Enum.all?(page.ranges, &(&1.mtr_admission_budget == 0 and &1.mtr_ordinal_count == 0))
+
+    assert %{revoked: 1, leases: 0} =
+             LeasePass.reconcile_group(%{group | sweep_modes: ["mtr"]}, now)
+  end
+
   test "an agent without a device is not leased", ctx do
     lease_on!(ctx, 3_600)
     deviceless = "deviceless-#{ctx.suffix}"

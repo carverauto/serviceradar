@@ -60,7 +60,6 @@ defmodule ServiceRadar.Edge.SweepPlan do
           :no_targets
           | :no_checks
           | :no_ports
-          | :mtr_unsupported
           | :plan_total_overflow
           | {:invalid_option, atom()}
           | {:unsupported_mode, String.t()}
@@ -74,9 +73,11 @@ defmodule ServiceRadar.Edge.SweepPlan do
   def availability_policy_id, do: @availability_policy_id
 
   @doc """
-  The checks a group's effective modes and ports run: ICMP once, and each TCP mode on every
-  port. `arp` and blank modes are ignored, as the agent ignores them; `mtr` is refused because
-  a plan built here admits no MTR.
+  The checks a group's effective modes and ports run under a sweep lease: ICMP once, and each
+  TCP mode on every port. `arp` and blank modes are ignored, as the agent ignores them; `mtr`
+  is ignored here because a sweep plan carries reachability and port checks only (MTR traces
+  run under MTR check leases). If no reachability or port checks remain, `{:error, :no_checks}`
+  is returned.
   """
   @spec checks([String.t()], [integer()]) :: {:ok, [check()]} | {:error, reason()}
   def checks(modes, ports) when is_list(modes) and is_list(ports) do
@@ -169,8 +170,7 @@ defmodule ServiceRadar.Edge.SweepPlan do
         "icmp" -> {:cont, {:ok, [:icmp | acc]}}
         "tcp" -> {:cont, {:ok, [:tcp_syn | acc]}}
         "tcp_connect" -> {:cont, {:ok, [:tcp_connect | acc]}}
-        "mtr" -> {:halt, {:error, :mtr_unsupported}}
-        blank when blank in ["", "arp"] -> {:cont, {:ok, acc}}
+        ignored when ignored in ["", "arp", "mtr"] -> {:cont, {:ok, acc}}
         other -> {:halt, {:error, {:unsupported_mode, other}}}
       end
     end)
