@@ -21,6 +21,9 @@ package(default_visibility = ["//visibility:public"])
         ("awx_metadata", "artifacts/awx.metadata.json", "//build/wasm_plugins:awx_bundle_metadata"),
         ("agent_deb", "artifacts/agent.deb", "//build/packaging/agent:agent_deb"),
         ("agent_rpm", "artifacts/agent.rpm", "//build/packaging/agent:agent_rpm"),
+        ("nats_rpm", "artifacts/nats.rpm", "//build/packaging/nats:nats_rpm"),
+        ("log_collector_rpm", "artifacts/log-collector.rpm", "//build/packaging/log-collector:log-collector_rpm"),
+        ("cli_rpm", "artifacts/cli.rpm", "//build/packaging/cli:cli_rpm"),
         ("agent_release", "artifacts/agent-release.tar.gz", "//build/packaging/agent:agent_release_runtime_archive"),
     ]
 ]
