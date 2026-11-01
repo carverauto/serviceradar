@@ -93,6 +93,10 @@ defmodule ServiceRadarWebNGWeb.Plugs.ConfineNarrowScopeTest do
             {"POST", "/api/admin/collectors/#{id}/revoke"},
             {"GET", "/api/admin/nats/account"},
             {"GET", "/api/admin/nats/credentials"},
+            {"GET", "/api/admin/managed-components/bootstrap"},
+            {"POST", "/api/admin/managed-components"},
+            {"GET", "/api/admin/managed-components/#{id}"},
+            {"POST", "/api/admin/managed-components/#{id}/rotate"},
             {"GET", "/api/admin/edge-sites"},
             {"POST", "/api/admin/edge-sites"},
             {"GET", "/api/admin/edge-sites/#{id}"},
@@ -114,6 +118,24 @@ defmodule ServiceRadarWebNGWeb.Plugs.ConfineNarrowScopeTest do
           ] do
         conn = run(method, path, "edge.manage")
         assert conn.halted, "expected #{method} #{path} to be refused for edge.manage"
+        assert conn.status == 403
+      end
+    end
+
+    test "managed certificate routes remain confined by method, action, and scope" do
+      for {method, path, scope} <- [
+            {"DELETE", "/api/admin/managed-components/example-client", "edge.manage"},
+            {"POST", "/api/admin/managed-components/example-client/unknown", "edge.manage"},
+            {"POST", "/api/admin/nats/certificate-authorization/unknown", "edge.manage"},
+            {"POST", "/api/admin/nats/certificate-authorization/bootstrap", "edge.manage"},
+            {"POST", "/api/admin/managed-components/adopt", "edge.manage"},
+            {"POST", "/api/admin/managed-components/example-client/revoke", "edge.manage"},
+            {"POST", "/api/admin/managed-components/example-client/reenroll", "edge.manage"},
+            {"GET", "/api/admin/managed-components/bootstrap", "plugin.publish"},
+            {"POST", "/api/admin/managed-components/adopt", "plugins.manage"}
+          ] do
+        conn = run(method, path, scope)
+        assert conn.halted
         assert conn.status == 403
       end
     end

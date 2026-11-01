@@ -6,11 +6,15 @@ defmodule ServiceRadar.Edge.InfrastructureCertificateAdoptionTest do
 
   @validity {{2026, 1, 1}, {2027, 6, 1}}
 
-  test "projects an empty static allow and reads a self-signed public certificate" do
+  test "adopts a static NATS client with its existing grant and public certificate" do
     %{pem: pem, der: der} = self_signed(@validity)
 
-    assert {:ok, prepared} = Adoption.prepare(attrs(pem, empty_subscribe()))
-    assert prepared.component.component_type == "agent-gateway"
+    assert {:ok, prepared} =
+             Adoption.prepare(
+               Map.put(attrs(pem, empty_subscribe()), :component_type, "nats-client")
+             )
+
+    assert prepared.component.component_type == "nats-client"
     assert prepared.component.server_hosts == []
     assert prepared.component.permissions["publish"] == ["metrics.example.>"]
     assert prepared.component.permissions["publish_deny"] == []
