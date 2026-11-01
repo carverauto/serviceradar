@@ -153,28 +153,38 @@ defmodule ServiceRadar.ResultsRouter do
     Process.cancel_timer(active.timer)
     state = %{state | active: nil}
 
-    if reason == :normal and active.result == :ok do
-      ids = Enum.map(active.items, &elem(&1, 0))
+    cond do
+      reason == :normal and active.result == :ok ->
+        ids = Enum.map(active.items, &elem(&1, 0))
 
-      emit(
-        :completion,
-        %{count: length(ids), outcome: :accepted},
-        %{result: :committed, outcome: :accepted}
-      )
+        emit(
+          :completion,
+          %{count: length(ids), outcome: :accepted},
+          %{result: :committed, outcome: :accepted}
+        )
 
-      {:noreply, state |> release(ids) |> maybe_flush()}
-    else
-      if reason != :normal and Map.get(active, :timed_out) != true do
-        emit(:crash, %{count: 1}, %{reason: :worker_crash})
-      end
+        {:noreply, state |> release(ids) |> maybe_flush()}
 
-      Logger.warning("Service-state batch failed; retaining bounded batch for retry",
-        reason: inspect(reason),
-        result: inspect(active.result)
-      )
+      reason == :normal and active.result != nil ->
+        emit(
+          :completion,
+          %{count: length(active.items), outcome: :not_accepted},
+          %{result: result_label(active.result), outcome: :not_accepted}
+        )
 
-      buffer = :queue.join(:queue.from_list(active.items), state.buffer)
-      {:noreply, arm(%{state | buffer: buffer})}
+        {:noreply, requeue_batch(state, active, reason)}
+
+      reason != :normal and Map.get(active, :timed_out) != true ->
+        emit(
+          :crash,
+          %{count: 1},
+          %{reason: :worker_crash, exit_reason: bounded_reason(reason)}
+        )
+
+        {:noreply, requeue_batch(state, active, reason)}
+
+      true ->
+        {:noreply, requeue_batch(state, active, reason)}
     end
   end
 
@@ -357,6 +367,22 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp flush_interval_ms,
     do: Application.get_env(:serviceradar_core, :results_router_flush_interval_ms, 250)
+
+  defp requeue_batch(state, active, reason) do
+    Logger.warning("Service-state batch failed; retaining bounded batch for retry",
+      reason: inspect(reason),
+      result: inspect(active.result)
+    )
+
+    buffer = :queue.join(:queue.from_list(active.items), state.buffer)
+    arm(%{state | buffer: buffer})
+  end
+
+  defp result_label({:error, _}), do: :failed
+  defp result_label(_result), do: :unexpected
+
+  defp bounded_reason(reason) when reason in [:normal, :shutdown, :killed, :noproc], do: reason
+  defp bounded_reason(_reason), do: :unexpected
 
   defp max_bytes,
     do: Application.get_env(:serviceradar_core, :results_router_max_bytes, @max_bytes)

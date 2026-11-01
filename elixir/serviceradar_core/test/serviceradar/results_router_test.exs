@@ -1463,7 +1463,12 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert_receive {:worker, crashed}
     send(crashed, :crash)
 
-    assert_receive {:lane, :crash, %{count: 1}, %{reason: :worker_crash, lane: :service_state}},
+    assert_receive {:lane, :crash, %{count: 1},
+                    %{
+                      reason: :worker_crash,
+                      exit_reason: :unexpected,
+                      lane: :service_state
+                    }},
                    1_000
 
     refute_receive {:lane, :timeout, _, _}, 0
@@ -1496,14 +1501,16 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert_receive {:worker, failed}
     send(failed, :fail)
 
-    assert_eventually(fn ->
-      state = :sys.get_state(router)
-      :queue.to_list(state.buffer) == [item] and is_nil(state.active)
-    end)
-
+    assert_receive {:lane, :completion, measurements, metadata}, 1_000
+    assert measurements.count == 1
+    assert measurements.outcome == :not_accepted
+    assert metadata.result == :failed
+    assert metadata.outcome == :not_accepted
+    assert metadata.lane == :service_state
     refute_receive {:lane, :crash, _, _}, 0
-    refute_receive {:lane, :completion, _, _}, 0
     refute_receive {:lane, :timeout, _, _}, 0
+    assert :queue.to_list(:sys.get_state(router).buffer) == [item]
+    assert :sys.get_state(router).active == nil
 
     :sys.replace_state(router, fn state ->
       pid =
