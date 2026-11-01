@@ -31,6 +31,11 @@ that alone is not evidence that NATS rejects an issued credential.
 - Add certificate inventory and scoped Revoke, Rotate, and Re-enroll UI actions,
   with pending/enforced/failed status rather than success based on a DB update.
 - Prove isolated revocation and rotation end to end before beta signoff.
+- Managed leaf and collector certificates are ordinary PKIX certificates,
+  identified by stored fingerprints and explicit permissions. This path does
+  not use SPIRE or a required SPIFFE URI. Hub observation of a presented leaf
+  certificate comes from an authenticated NATS connection listing. The chart
+  keeps authorization callout disabled until operator adoption.
 
 ## Impact
 

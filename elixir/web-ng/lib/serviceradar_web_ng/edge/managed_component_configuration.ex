@@ -51,7 +51,7 @@ defmodule ServiceRadarWebNG.Edge.ManagedComponentConfiguration do
        %{
          version: 1,
          endpoint: URI.to_string(%{uri | scheme: "tls", port: uri.port || 4222}),
-         server_spiffe_id: "spiffe://serviceradar.local/nats_leaf_server/#{leaf.partition_id}/#{leaf.component_id}-server"
+         server_dns_name: "#{leaf.component_id}-server.#{leaf.partition_id}.serviceradar"
        }}
     else
       {:error, _} = error -> error

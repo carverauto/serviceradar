@@ -43,6 +43,20 @@ for name <- ~w(SPIFFE_MODE DATASVC_SEC_MODE) do
   end
 end
 
+# Keep in sync with elixir/serviceradar_core_elx/config/runtime.exs. Unset
+# selects the chart hub account. An empty or illegal value stays unusable so
+# bootstrap returns nats_account_unconfigured.
+nats_account_name =
+  case System.get_env("SERVICERADAR_NATS_ACCOUNT_NAME") do
+    nil ->
+      "SERVICERADAR"
+
+    value ->
+      name = String.trim(value)
+
+      if name != "" and Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, name), do: name, else: ""
+  end
+
 # Fail closed on invalid ingestion bounds; do not silently enable a larger queue.
 ingestion_positive_env = fn name, default ->
   case System.get_env(name) do
@@ -100,6 +114,8 @@ callback_deployment =
     injector_digest: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_AWX_INJECTOR_DIGEST"),
     response_policy_file: System.get_env("SERVICERADAR_AUTOMATION_CALLBACK_RESPONSE_POLICY_FILE")
   })
+
+config :serviceradar, :nats_account_name, nats_account_name
 
 config :serviceradar_core, ServiceRadar.Admission.FlowLane,
   max_bytes: ingestion_positive_env.("SERVICERADAR_FLOW_INGESTION_MAX_BYTES", 64 * 1_024 * 1_024)

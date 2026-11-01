@@ -187,19 +187,19 @@ impl VerifiedPeer {
     fn from_certificates(
         end_entity: &CertificateDer<'_>,
         intermediates: &[CertificateDer<'_>],
-        local_leaf_spiffe_id: Option<&str>,
+        local_leaf_dns_name: Option<&str>,
     ) -> Result<VerifiedPeer, rustls::Error> {
         let invalid =
             || rustls::Error::General("managed peer certificate identity is invalid".into());
         let certificate =
             x509_cert::Certificate::from_der(end_entity.as_ref()).map_err(|_| invalid())?;
-        let bound_local_leaf = if let Some(expected) = local_leaf_spiffe_id {
+        let bound_local_leaf = if let Some(expected) = local_leaf_dns_name {
             let (_, names) = certificate
                 .tbs_certificate
                 .get::<SubjectAltName>()
                 .map_err(|_| invalid())?
                 .ok_or_else(invalid)?;
-            if !names.0.iter().any(|name| matches!(name, GeneralName::UniformResourceIdentifier(uri) if uri.as_str() == expected)) {
+            if !names.0.iter().any(|name| matches!(name, GeneralName::DnsName(dns) if dns.as_str() == expected)) {
                 return Err(invalid());
             }
             true
@@ -242,7 +242,7 @@ pub struct PolicyVerifier {
     verifier: Arc<dyn ServerCertVerifier>,
     store: Arc<Store>,
     peer: Arc<Mutex<Option<VerifiedPeer>>>,
-    local_leaf_spiffe_id: Option<String>,
+    local_leaf_dns_name: Option<String>,
 }
 
 impl PolicyVerifier {
@@ -251,12 +251,12 @@ impl PolicyVerifier {
             verifier,
             store,
             peer: Arc::default(),
-            local_leaf_spiffe_id: None,
+            local_leaf_dns_name: None,
         }
     }
 
-    pub(crate) fn for_local_leaf(mut self, spiffe_id: String) -> Self {
-        self.local_leaf_spiffe_id = Some(spiffe_id);
+    pub(crate) fn for_local_leaf(mut self, dns_name: String) -> Self {
+        self.local_leaf_dns_name = Some(dns_name);
         self
     }
 
@@ -280,7 +280,7 @@ impl ServerCertVerifier for PolicyVerifier {
         let peer = VerifiedPeer::from_certificates(
             end_entity,
             intermediates,
-            self.local_leaf_spiffe_id.as_deref(),
+            self.local_leaf_dns_name.as_deref(),
         )?;
         self.store
             .authorize_peer(&peer)

@@ -254,13 +254,13 @@ func localNATSTLS(binding ServerConfig, metadata *managedLocalNATSMetadata) (*tl
 	if err != nil {
 		return nil, err
 	}
-	identity := "spiffe://serviceradar.local/nats_leaf_server/" + metadata.PartitionID + "/" + metadata.ComponentID + "-server"
+	identity := metadata.ComponentID + "-server." + metadata.PartitionID + ".serviceradar"
 	config.VerifyConnection = func(state tls.ConnectionState) error {
 		if len(state.VerifiedChains) == 0 || len(state.PeerCertificates) == 0 {
 			return errors.New("local NATS server did not pass PKIX verification")
 		}
 		server := state.PeerCertificates[0]
-		if len(server.URIs) != 1 || server.URIs[0].String() != identity {
+		if server.Subject.CommonName != identity || !slices.Contains(server.DNSNames, identity) || len(server.URIs) != 0 {
 			return errors.New("local NATS server has the wrong managed identity")
 		}
 		policy, err := readLocalNATSPolicy()

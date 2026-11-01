@@ -106,8 +106,13 @@ means the service changed identity.
 The broker verifies TLS and sends a signed authorization request to a protected
 authorization account. Core checks the certificate fingerprint and issues the
 scoped user response. Existing connections are addressed by server and connection
-IDs for targeted disconnect. The packaged broker proves both client and leaf
-disconnect support. Dynamic leaf TLS pin reload is not the selected mechanism.
+IDs for targeted disconnect. On NATS 2.14, `DisconnectClientByID` closes a leaf
+as well as a client, and an authenticated CONNZ listing includes both. A CONNZ
+lookup by connection id omits leaves, and LEAFZ has no peer certificate, so hub
+observation reads `cert_sha256` from the authenticated listing. The packaged
+broker proves both client and leaf disconnect support. Dynamic leaf TLS pin
+reload is not the selected mechanism. The callout remains disabled in the
+chart until an operator adopts it.
 
 The plan explicitly required a compatibility proof before choosing this adapter.
 This choice fits the tested hub boundary; it does not establish local leaf
@@ -124,11 +129,15 @@ contains no private keys or component, host or site names.
 
 ### Bind offline permission to a stable leaf identity and endpoint
 
-The root-owned collector binding names one endpoint and its leaf SPIFFE identity.
-Each actual certificate must also appear in the last verified policy and pass
-normal TLS verification. Pinning one certificate fingerprint in the binding
-would break legitimate rotation; trusting every discovered server would widen
-the offline exception. Discovery cannot silently switch this binding.
+The root-owned collector binding names one endpoint and the leaf server DNS
+name `<component-id>-server.<partition>.serviceradar`. Managed component
+certificates are ordinary PKIX certificates: common name, DNS and IP names,
+chain, expiry, and the stored fingerprint. This path does not require a
+SPIFFE URI or a SPIRE runtime. Each actual certificate must also appear in
+the last verified policy and pass normal TLS verification. Pinning one
+certificate fingerprint in the binding would break legitimate rotation;
+trusting every discovered server would widen the offline exception.
+Discovery cannot silently switch this binding.
 
 ### Scope host identity to the packaged service instance
 

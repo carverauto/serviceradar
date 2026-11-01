@@ -100,15 +100,11 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
   def issue_from_csr(_, _, _, _, _), do: {:error, :invalid_identity}
 
-  @doc """
-  The URI SAN every edge-site NATS leaf client certificate in `partition_id`
-  carries. The hub's leafnode listener maps exactly this URI to the platform
-  account, so only leaf certificates issued here can bind as leaves.
-  """
-  @spec nats_leaf_role_uri(String.t()) :: String.t()
-  def nats_leaf_role_uri(partition_id), do: "spiffe://serviceradar.local/nats-leaf/#{partition_id}"
+  @managed_pkix_types [:nats_leaf, :nats_leaf_server, :log_collector, :flow_collector, :bmp_collector, :trapd]
 
-  defp extra_sans(:nats_leaf, partition_id, _opts), do: {:ok, ["URI:" <> nats_leaf_role_uri(partition_id)]}
+  defp managed_pkix?(component_type), do: component_type in @managed_pkix_types
+
+  defp extra_sans(:nats_leaf, _partition_id, _opts), do: {:ok, []}
 
   defp extra_sans(:nats_leaf_server, _partition_id, opts) do
     server_host_sans(["localhost", "127.0.0.1" | List.wrap(Keyword.get(opts, :server_hosts, []))])
@@ -367,7 +363,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
         key_pem = File.read!(key_path)
         ca_chain_pem = File.read!(ca_cert)
 
-        spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
+        spiffe_id = identity_reference(component_type, partition_id, component_id)
         certificate_fingerprint = certificate_fingerprint(cert_pem)
         predecessor_revocation = revoke_predecessor_certificate(opts)
 
@@ -612,8 +608,13 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
 
   defp verify_csr_identity(subject, attributes, component_id, partition_id, component_type, extra_sans) do
     expected_cn = "#{component_id}.#{partition_id}.serviceradar"
-    expected_spiffe = build_spiffe_id(component_type, partition_id, component_id)
-    allowed_sans = MapSet.new(["URI:" <> expected_spiffe, "DNS:" <> expected_cn | extra_sans])
+
+    identity_sans =
+      if managed_pkix?(component_type),
+        do: ["DNS:" <> expected_cn],
+        else: ["URI:" <> build_spiffe_id(component_type, partition_id, component_id), "DNS:" <> expected_cn]
+
+    allowed_sans = MapSet.new(identity_sans ++ extra_sans)
 
     with :ok <- verify_csr_subject(subject, expected_cn) do
       verify_csr_attributes(attributes, allowed_sans)
@@ -812,7 +813,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
            cert_pem = File.read!(cert_path),
            ca_chain_pem = File.read!(ca_cert),
            {:ok, cert_meta} <- extract_issued_cert_metadata(cert_pem) do
-        spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
+        spiffe_id = identity_reference(component_type, partition_id, component_id)
 
         predecessor_info = %{
           fingerprint: normalize_fingerprint(Keyword.get(opts, :predecessor_certificate_fingerprint)),
@@ -1045,11 +1046,23 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     if validity_days > CertificateLifetimePolicy.default_validity_days(), do: :medium, else: :informational
   end
 
+  defp identity_reference(component_type, partition_id, component_id) do
+    if managed_pkix?(component_type),
+      do: nil,
+      else: build_spiffe_id(component_type, partition_id, component_id)
+  end
+
   defp write_extfile(path, component_type, partition_id, component_id, cn, extra_sans) do
-    spiffe_id = build_spiffe_id(component_type, partition_id, component_id)
+    {names, counters} =
+      if managed_pkix?(component_type) do
+        {"DNS.1 = #{cn}\n", %{"URI" => 0, "DNS" => 1, "IP" => 0}}
+      else
+        {"URI.1 = #{build_spiffe_id(component_type, partition_id, component_id)}\nDNS.1 = #{cn}\n",
+         %{"URI" => 1, "DNS" => 1, "IP" => 0}}
+      end
 
     {extra_lines, _counters} =
-      Enum.map_reduce(extra_sans, %{"URI" => 1, "DNS" => 1, "IP" => 0}, fn san, counters ->
+      Enum.map_reduce(extra_sans, counters, fn san, counters ->
         [kind, value] = String.split(san, ":", parts: 2)
         index = Map.fetch!(counters, kind) + 1
         {"#{kind}.#{index} = #{value}", Map.put(counters, kind, index)}
@@ -1060,9 +1073,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
     subjectAltName = @alt_names
 
     [ alt_names ]
-    URI.1 = #{spiffe_id}
-    DNS.1 = #{cn}
-    #{Enum.join(extra_lines, "\n")}
+    #{names}#{Enum.join(extra_lines, "\n")}
     """
 
     File.write(path, contents)

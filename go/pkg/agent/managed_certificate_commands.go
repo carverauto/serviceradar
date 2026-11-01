@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/proto"
@@ -94,13 +95,13 @@ func (p *PushLoop) refreshManagedCertificatePolicy(ctx context.Context) error {
 	if observed != "" {
 		ctx = metadata.AppendToOutgoingContext(ctx, "x-serviceradar-observed-certs", observed)
 	}
-	response, err := p.gateway.GetCertificatePolicy(ctx, &proto.CertificatePolicyRequest{})
+	response, trailer, err := p.gateway.GetCertificatePolicy(ctx, &proto.CertificatePolicyRequest{})
 	if err != nil {
 		return err
 	}
 	if _, err = InstallManagedCertificatePolicy(ctx, ManagedCertificatePolicyEnvelope{Payload: response.GetPayload(), Signature: response.GetSignature()}); err != nil {
 		return err
 	}
-	ackLocalReceiverFingerprints(observed)
+	ackLocalReceiverFingerprints(strings.Join(trailer.Get("x-serviceradar-recorded-certs"), ","))
 	return nil
 }

@@ -1655,7 +1655,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
                agent_id,
                fingerprints
              ]) do
-          {:ok, :ok} ->
+          {:ok, {:ok, recorded}} when is_list(recorded) ->
+            GRPC.Server.set_trailers(stream, %{"x-serviceradar-recorded-certs" => Enum.join(recorded, ",")})
             :ok
 
           other ->

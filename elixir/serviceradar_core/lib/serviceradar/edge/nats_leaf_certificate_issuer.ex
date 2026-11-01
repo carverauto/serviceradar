@@ -5,9 +5,9 @@ defmodule ServiceRadar.Edge.NatsLeafCertificateIssuer do
   that the hub's NATS `root.pem` trusts):
 
     * a **leaf client** certificate (`:nats_leaf`) the leaf presents to the hub's
-      leafnode listener. It carries the partition role URI SAN
-      `spiffe://serviceradar.local/nats-leaf/<partition>`, which the chart's
-      `leafnodes { authorization }` block maps to the platform account.
+      leafnode listener. It is an ordinary PKIX certificate. The hub admits it
+      by the presented certificate fingerprint through the authorization
+      callout, not by a URI name mapped to an account.
     * a **local server** certificate (`:nats_leaf_server`) for collectors that
       connect to the leaf, with SANs for `localhost`, `127.0.0.1` and the site's
       local NATS host.

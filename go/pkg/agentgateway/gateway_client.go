@@ -34,6 +34,7 @@ import (
 	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	goproto "google.golang.org/protobuf/proto"
 
@@ -635,24 +636,25 @@ func (g *GatewayClient) RenewCertificate(ctx context.Context, req *proto.Certifi
 }
 
 // GetCertificatePolicy retrieves a signed, short-lived policy using the existing mTLS channel.
-func (g *GatewayClient) GetCertificatePolicy(ctx context.Context, req *proto.CertificatePolicyRequest) (*proto.CertificatePolicyResponse, error) {
+func (g *GatewayClient) GetCertificatePolicy(ctx context.Context, req *proto.CertificatePolicyRequest) (*proto.CertificatePolicyResponse, metadata.MD, error) {
 	g.mu.RLock()
 	client, connected := g.client, g.connected
 	g.mu.RUnlock()
 
 	if !connected || client == nil {
-		return nil, ErrGatewayNotConnected
+		return nil, nil, ErrGatewayNotConnected
 	}
 
 	policyCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	resp, err := client.GetCertificatePolicy(policyCtx, req)
+	var recorded metadata.MD
+	resp, err := client.GetCertificatePolicy(policyCtx, req, grpc.Trailer(&recorded))
 	if err != nil {
-		return nil, fmt.Errorf("failed to fetch certificate policy: %w", err)
+		return nil, nil, fmt.Errorf("failed to fetch certificate policy: %w", err)
 	}
 
-	return resp, nil
+	return resp, recorded, nil
 }
 
 // GetConfig fetches the agent's configuration from the gateway.

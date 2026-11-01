@@ -62,7 +62,15 @@ as a working adapter. Per-service reload behavior still needs executable proof.
    component enrollment creates scoped user access within that existing account.
    Any deployment-account bootstrap is a separate privileged setup operation,
    idempotent and visible, not an implicit side effect on an edge host.
-6. **Honest operational state.** UI shows desired revocation and enforcement
+6. **Plain PKIX for managed components.** Managed leaf and collector
+   certificates carry DNS and IP names only. Hub admission and revocation use
+   the stored fingerprint. NATS 2.14 leaf observation uses an authenticated
+   CONNZ listing of the presented certificate (`kind` Leafnode, `cert_sha256`).
+   LEAFZ does not carry the certificate, and a CONNZ lookup by connection id
+   omits leaves. `KICK` closes the leaf. The chart leaves callout disabled
+   and does not open a leaf listener that would fall through to the global
+   account. SPIRE is not part of this path.
+7. **Honest operational state.** UI shows desired revocation and enforcement
    acknowledgements separately, including failures and offline enforcement points.
    Proposed online enforcement bound: 60 seconds from accepted revoke to rejection
    of reconnect/renewal and termination of affected sessions. Validate that bound

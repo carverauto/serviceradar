@@ -85,19 +85,9 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
     end
   end
 
-  def handle_info({ref, fingerprints}, %{probe: ref} = state) when is_reference(ref) do
+  def handle_info({ref, :ok}, %{probe: ref} = state) when is_reference(ref) do
     Process.demonitor(ref, [:flush])
-
-    sessions =
-      Map.new(state.sessions, fn {key, session} ->
-        {key,
-         %{
-           session
-           | observed: session.observed or MapSet.member?(fingerprints, session.fingerprint)
-         }}
-      end)
-
-    {:noreply, %{state | probe: nil, sessions: sessions}}
+    {:noreply, %{state | probe: nil}}
   end
 
   def handle_info({:DOWN, ref, :process, _, _}, %{probe: ref} = state),
@@ -206,7 +196,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
       {:ok, snapshot} ->
         sessions = reconcile_sessions(state.sessions, snapshot)
         reason = if state.subscription && Process.whereis(@system), do: nil, else: "connecting"
-        observe_sessions(%{state | snapshot: snapshot, sessions: sessions, reason: reason})
+        observe_presented(%{state | snapshot: snapshot, sessions: sessions, reason: reason})
 
       _ ->
         %{state | reason: "policy_unavailable"}
@@ -262,9 +252,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
 
     value = %{
       fingerprint: request.fingerprint,
-      expires_at: expires_at,
-      observed: false,
-      last_probe: System.monotonic_time(:millisecond)
+      expires_at: expires_at
     }
 
     %{state | sessions: Map.put(state.sessions, key, value)}
@@ -272,66 +260,162 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorization do
 
   defp remember_session(state, _, _), do: state
 
-  defp observe_sessions(%{probe: nil} = state) do
-    candidates =
-      state.sessions
-      |> Enum.reject(fn {_, session} -> session.observed end)
-      |> Enum.sort_by(fn {_, session} -> session.last_probe end)
-      |> Enum.uniq_by(fn {_, session} -> session.fingerprint end)
-      |> Enum.take(32)
+  # NATS 2.14 puts leaf connections in an authenticated CONNZ listing and omits
+  # them from a CID lookup. LEAFZ has no peer certificate. The scan is the
+  # presented-certificate evidence and does not consult callout sessions.
+  defp observe_presented(
+         %{probe: nil, snapshot: snapshot, config: %{account_name: account}} = state
+       )
+       when is_map(snapshot) and is_binary(account) do
+    task =
+      Task.Supervisor.async_nolink(ServiceRadar.NATS.CertificateObservationTasks, fn ->
+        observe_account(account, snapshot)
+        :ok
+      end)
 
-    if candidates == [] do
-      state
-    else
-      account = state.config.account_name
-
-      task =
-        Task.Supervisor.async_nolink(ServiceRadar.NATS.CertificateObservationTasks, fn ->
-          Enum.reduce(candidates, MapSet.new(), fn {{server, _cid}, session}, confirmed ->
-            if confirm_observation(server, account, session.fingerprint),
-              do: MapSet.put(confirmed, session.fingerprint),
-              else: confirmed
-          end)
-        end)
-
-      now = System.monotonic_time(:millisecond)
-
-      sessions =
-        Enum.reduce(candidates, state.sessions, fn {key, _}, sessions ->
-          Map.update!(sessions, key, &%{&1 | last_probe: now})
-        end)
-
-      %{state | probe: task.ref, sessions: sessions}
-    end
+    %{state | probe: task.ref}
   catch
     :exit, _ -> state
   end
 
-  defp observe_sessions(state), do: state
+  defp observe_presented(state), do: state
 
-  defp confirm_observation(server, account, fingerprint) do
-    # NATS 2.14's CID lookup omits leaves. The authorization response names the
-    # user by fingerprint, so this query finds an actual accepted client or leaf
-    # without scanning the account's entire connection inventory.
-    body = Jason.encode!(%{auth: true, acc: account, user: fingerprint, limit: 1})
+  defp observe_account(account, snapshot) do
+    Enum.each(presented_connections(account), fn connection ->
+      case decision(snapshot, connection.fingerprint) do
+        {:allow, _} ->
+          _ =
+            ManagedCertificateLifecycle.confirm_use(
+              connection.fingerprint,
+              "nats:" <> connection.server,
+              actor: SystemActor.system(:managed_certificate_nats)
+            )
 
-    with {:ok, %{body: response}} <-
-           Gnat.request(@system, "$SYS.REQ.SERVER.#{server}.CONNZ", body, receive_timeout: 1_000),
-         {:ok, %{"data" => %{"connections" => [connection]}}} <- Jason.decode(response),
-         [%{"cert_sha256" => ^fingerprint} | _] <- connection["tls_peer_certs"],
-         {:ok, _} <-
-           ManagedCertificateLifecycle.confirm_use(fingerprint, "nats:" <> server,
-             actor: SystemActor.system(:managed_certificate_nats)
-           ) do
-      true
-    else
-      _ -> false
+        {:deny, _} ->
+          if known_certificate?(snapshot, connection.fingerprint) do
+            kick(connection.server, connection.cid)
+          end
+      end
+    end)
+  end
+
+  defp known_certificate?(snapshot, fingerprint) do
+    Enum.any?(snapshot.certificates, &(certificate_fingerprint(&1) == fingerprint)) or
+      Enum.any?(snapshot.revocations, &(certificate_fingerprint(&1) == fingerprint))
+  end
+
+  defp certificate_fingerprint(record) when is_map(record) do
+    Map.get(record, :fingerprint) || Map.get(record, "fingerprint")
+  end
+
+  defp presented_connections(account) do
+    inbox = "_INBOX." <> Base.encode16(:crypto.strong_rand_bytes(12), case: :lower)
+    {:ok, sid} = Gnat.sub(@system, self(), inbox)
+
+    try do
+      publish_connz(inbox, "$SYS.REQ.SERVER.PING.CONNZ", account, 0)
+      first = collect_connz(sid, System.monotonic_time(:millisecond) + 800, [])
+
+      inbox
+      |> expand_connz(sid, account, first, 8)
+      |> Enum.flat_map(& &1.connections)
+      |> Enum.uniq()
+    after
+      Gnat.unsub(@system, sid)
     end
   rescue
-    _ -> false
+    _ -> []
   catch
-    :exit, _ -> false
+    :exit, _ -> []
   end
+
+  defp publish_connz(inbox, subject, account, offset) do
+    Gnat.pub(
+      @system,
+      subject,
+      Jason.encode!(%{auth: true, acc: account, offset: offset, limit: 256}), reply_to: inbox)
+  end
+
+  defp collect_connz(sid, deadline, pages) do
+    remaining = deadline - System.monotonic_time(:millisecond)
+
+    if remaining <= 0 do
+      pages
+    else
+      receive do
+        {:msg, %{sid: ^sid, body: body}} ->
+          collect_connz(sid, deadline, [body | pages])
+      after
+        remaining -> pages
+      end
+    end
+  end
+
+  defp expand_connz(inbox, sid, account, bodies, rounds) do
+    pages = Enum.flat_map(bodies, &parse_connz/1)
+
+    next =
+      pages
+      |> Enum.group_by(& &1.server)
+      |> Enum.flat_map(fn {server, server_pages} ->
+        covered = server_pages |> Enum.map(& &1.next_offset) |> Enum.max()
+        total = server_pages |> Enum.map(& &1.total) |> Enum.max()
+        if covered < total, do: [{server, covered}], else: []
+      end)
+
+    case {next, rounds} do
+      {[], _} ->
+        pages
+
+      {_, 0} ->
+        pages
+
+      {[{server, offset} | _], _} ->
+        publish_connz(inbox, "$SYS.REQ.SERVER.#{server}.CONNZ", account, offset)
+        more = collect_connz(sid, System.monotonic_time(:millisecond) + 400, [])
+        expand_connz(inbox, sid, account, bodies ++ more, rounds - 1)
+    end
+  end
+
+  defp parse_connz(body) when is_binary(body) do
+    with {:ok, decoded} <- Jason.decode(body),
+         %{"connections" => connections, "total" => total, "offset" => offset} <- decoded["data"],
+         true <- is_list(connections) and is_integer(total) and is_integer(offset),
+         server when is_binary(server) and server != "" <- get_in(decoded, ["server", "id"]) do
+      found = Enum.flat_map(connections, &presented_connection(&1, server))
+
+      [
+        %{
+          server: server,
+          total: total,
+          next_offset: offset + length(connections),
+          connections: found
+        }
+      ]
+    else
+      _ -> []
+    end
+  end
+
+  defp parse_connz(_), do: []
+
+  defp presented_connection(%{"kind" => kind, "cid" => cid} = connection, server)
+       when kind in ["Leafnode", "Client"] do
+    with certs when is_list(certs) <- connection["tls_peer_certs"],
+         %{"cert_sha256" => fingerprint} <- List.first(certs),
+         true <- is_binary(fingerprint),
+         cid when is_integer(cid) and cid > 0 <- connection_id(cid) do
+      [%{server: server, cid: cid, fingerprint: String.downcase(fingerprint), kind: kind}]
+    else
+      _ -> []
+    end
+  end
+
+  defp presented_connection(_, _), do: []
+
+  defp connection_id(id) when is_integer(id), do: id
+  defp connection_id(id) when is_float(id) and id > 0, do: trunc(id)
+  defp connection_id(_), do: 0
 
   defp reconcile_sessions(sessions, snapshot) do
     now = System.system_time(:second)

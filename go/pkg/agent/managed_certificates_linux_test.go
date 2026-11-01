@@ -85,7 +85,7 @@ func (f *managedCertificateFixture) issue(t *testing.T, p *ManagedCertificatePre
 			usage = x509.ExtKeyUsageServerAuth
 		}
 		cert := &x509.Certificate{SerialNumber: big.NewInt(2), Subject: csr.Subject, NotBefore: f.store.now().Add(-time.Minute), NotAfter: f.store.now().Add(24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{usage}}
-		applyGatewayIssuerSANs(t, role, csr, cert)
+		applyPlainIssuerNames(csr, cert)
 		if mutate != nil {
 			mutate(role, cert)
 		}
@@ -127,7 +127,7 @@ func TestManagedCertificatesPrepareAndInstallAcrossRestart(t *testing.T) {
 	if reflect.DeepEqual(client.RawSubjectPublicKeyInfo, server.RawSubjectPublicKeyInfo) {
 		t.Fatal("leaf roles reused private key")
 	}
-	if client.URIs[0].String() != "spiffe://serviceradar.local/nats_leaf/default/component-synthetic" || server.URIs[0].String() != "spiffe://serviceradar.local/nats_leaf_server/default/component-synthetic-server" {
+	if len(client.URIs) != 0 || client.Subject.CommonName != "component-synthetic.default.serviceradar" || len(server.URIs) != 0 || server.Subject.CommonName != "component-synthetic-server.default.serviceradar" {
 		t.Fatal("wrong certificate identities")
 	}
 	if !reflect.DeepEqual(server.DNSNames, []string{"localhost", "leaf.example.test"}) || !server.IPAddresses[1].Equal(net.ParseIP("192.0.2.10")) {
@@ -374,12 +374,12 @@ func TestManagedCertificatesAcceptExactIssuerSANs(t *testing.T) {
 		t.Fatal(err)
 	}
 	upstream := installedManagedLeaf(t, result.Files["upstream_client"])
-	if !sameSorted(certificateURIStrings(upstream.URIs), []string{"spiffe://serviceradar.local/nats-leaf/default", "spiffe://serviceradar.local/nats_leaf/default/component-synthetic"}) || !sameSorted(upstream.DNSNames, []string{"component-synthetic.default.serviceradar"}) || len(upstream.IPAddresses) != 0 {
-		t.Fatalf("upstream certificate is not the gateway extfile set: uris=%v dns=%v", certificateURIStrings(upstream.URIs), upstream.DNSNames)
+	if len(upstream.URIs) != 0 || !sameSorted(upstream.DNSNames, []string{"component-synthetic.default.serviceradar"}) || len(upstream.IPAddresses) != 0 {
+		t.Fatalf("upstream certificate is not the plain X509 name set: uris=%v dns=%v", certificateURIStrings(upstream.URIs), upstream.DNSNames)
 	}
 	server := installedManagedLeaf(t, result.Files["local_server"])
-	if !sameSorted(certificateURIStrings(server.URIs), []string{"spiffe://serviceradar.local/nats_leaf_server/default/component-synthetic-server"}) || !sameSorted(server.DNSNames, []string{"component-synthetic-server.default.serviceradar", "leaf.example.test", "localhost"}) || !sameCertificateIPs(server.IPAddresses, []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.10")}) {
-		t.Fatalf("server certificate is not the gateway extfile set: uris=%v dns=%v ips=%v", certificateURIStrings(server.URIs), server.DNSNames, server.IPAddresses)
+	if len(server.URIs) != 0 || !sameSorted(server.DNSNames, []string{"component-synthetic-server.default.serviceradar", "leaf.example.test", "localhost"}) || !sameCertificateIPs(server.IPAddresses, []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("192.0.2.10")}) {
+		t.Fatalf("server certificate is not the plain X509 name set: uris=%v dns=%v ips=%v", certificateURIStrings(server.URIs), server.DNSNames, server.IPAddresses)
 	}
 }
 
@@ -412,7 +412,6 @@ func TestManagedCertificatesRejectIssuerSANOutsideExtfile(t *testing.T) {
 		role    string
 		edit    func(*x509.Certificate)
 	}{
-		{name: "missing-hub-role", service: "nats-leaf", role: "upstream_client", edit: func(c *x509.Certificate) { c.URIs = c.URIs[:1] }},
 		{name: "extra-uri", service: "nats-leaf", role: "upstream_client", edit: func(c *x509.Certificate) {
 			extra, _ := url.Parse("spiffe://serviceradar.local/other/default")
 			c.URIs = append(c.URIs, extra)
@@ -455,27 +454,10 @@ func TestManagedCertificatesRejectIssuerSANOutsideExtfile(t *testing.T) {
 	}
 }
 
-func applyGatewayIssuerSANs(t *testing.T, role string, csr *x509.CertificateRequest, cert *x509.Certificate) {
-	t.Helper()
-	if len(csr.URIs) != 1 {
-		t.Fatal("assignment CSR must carry one SPIFFE URI")
-	}
-	assignment := *csr.URIs[0]
-	cert.URIs = []*url.URL{&assignment}
+func applyPlainIssuerNames(csr *x509.CertificateRequest, cert *x509.Certificate) {
+	cert.URIs = nil
 	cert.DNSNames = append([]string{csr.Subject.CommonName}, csr.DNSNames...)
 	cert.IPAddresses = append([]net.IP(nil), csr.IPAddresses...)
-	if role != "upstream_client" {
-		return
-	}
-	parts := strings.Split(strings.Trim(csr.URIs[0].Path, "/"), "/")
-	if len(parts) != 3 || parts[0] != "nats_leaf" || parts[1] == "" {
-		t.Fatalf("upstream CSR SPIFFE path is not a leaf assignment: %s", csr.URIs[0].Path)
-	}
-	hub, err := url.Parse("spiffe://serviceradar.local/nats-leaf/" + parts[1])
-	if err != nil {
-		t.Fatal(err)
-	}
-	cert.URIs = append(cert.URIs, hub)
 }
 
 func installedManagedLeaf(t *testing.T, files ManagedCertificateFiles) *x509.Certificate {
@@ -510,7 +492,7 @@ func TestManagedCertificatesInstallBMPIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if csr.URIs[0].String() != "spiffe://serviceradar.local/bmp_collector/default/component-synthetic" {
+	if len(csr.URIs) != 0 || csr.Subject.CommonName != "component-synthetic.default.serviceradar" {
 		t.Fatal("BMP certificate has the wrong service identity")
 	}
 	result, err := f.store.install(context.Background(), f.issue(t, p, nil))

@@ -12,7 +12,7 @@ for example `/etc/serviceradar/managed-components/synthetic-collector/local-leaf
 {
   "version": 1,
   "endpoint": "tls://localhost:4222",
-  "server_spiffe_id": "spiffe://example.com/nats-leaf/synthetic"
+  "server_dns_name": "synthetic-server.default.serviceradar"
 }
 ```
 
@@ -42,8 +42,8 @@ additional endpoints, and discovered-server fallback are not accepted in local
 binding mode. The binding itself uses `tls://`.
 
 After ordinary certificate-chain and hostname verification, the receiver checks
-the exact SPIFFE URI and full-DER SHA256 fingerprint. The fingerprint must still
-be allowed by the last authenticated policy. The stable SPIFFE binding permits
+the exact DNS name and full-DER SHA256 fingerprint. The fingerprint must still
+be allowed by the last authenticated policy. The stable DNS binding permits
 normal certificate rotation only when the new certificate has also been
 introduced by authenticated policy. Known revocations remain effective during
 an outage; unsigned, invalid, expired updates cannot add permissions.
@@ -63,7 +63,7 @@ its previous local identity in memory.
 
 The focused `//rust/cert-policy:cert_policy_test` target uses real rustls and
 async-nats sockets to verify stale restart, revocation, active certificate
-expiry, endpoint and SPIFFE mismatch rejection, and unaffected control traffic.
+expiry, endpoint and DNS-name mismatch rejection, and unaffected control traffic.
 
 An enrolled leaf also selects its server-owned JetStream domain explicitly:
 

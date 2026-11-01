@@ -92,29 +92,35 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycle do
     receiver = "local-nats:" <> agent_id
     opts = [actor: SystemActor.system(:managed_certificate_local_nats), host_agent_id: agent_id]
 
-    fingerprints
-    |> Enum.filter(&is_binary/1)
-    |> Enum.take(32)
-    |> Enum.reduce_while(:ok, fn fingerprint, :ok ->
-      case confirm_use(fingerprint, receiver, opts) do
-        {:ok, _} ->
-          {:cont, :ok}
+    recorded =
+      fingerprints
+      |> Enum.filter(&is_binary/1)
+      |> Enum.take(32)
+      |> Enum.reduce_while([], fn fingerprint, recorded ->
+        case confirm_use(fingerprint, receiver, opts) do
+          {:ok, _} ->
+            {:cont, [fingerprint | recorded]}
 
-        {:error, reason}
-        when reason in [
-               :activation_unconfirmed,
-               :successor_not_current,
-               :not_found,
-               :host_mismatch,
-               :invalid_receiver,
-               :forbidden
-             ] ->
-          {:cont, :ok}
+          {:error, reason}
+          when reason in [
+                 :activation_unconfirmed,
+                 :successor_not_current,
+                 :not_found,
+                 :host_mismatch,
+                 :invalid_receiver,
+                 :forbidden
+               ] ->
+            {:cont, recorded}
 
-        error ->
-          {:halt, error}
-      end
-    end)
+          error ->
+            {:halt, error}
+        end
+      end)
+
+    case recorded do
+      fingerprints when is_list(fingerprints) -> {:ok, Enum.reverse(fingerprints)}
+      error -> error
+    end
   end
 
   def accept_local_receiver(_, _), do: {:error, :invalid_receiver}

@@ -175,15 +175,15 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycleIntegrationTest do
     issue_pair(ctx, old, new, "client")
     activate(ctx, %{"client" => new})
 
-    assert :ok = Lifecycle.accept_local_receiver("other-host", [new])
+    assert {:ok, []} = Lifecycle.accept_local_receiver("other-host", [new])
     assert {:ok, untouched} = Lifecycle.current(ctx.component.component_id, ctx.opts)
     assert untouched.observed_roles == %{}
 
-    assert :ok = Lifecycle.accept_local_receiver(host, [old])
+    assert {:ok, []} = Lifecycle.accept_local_receiver(host, [old])
     assert {:ok, still} = Lifecycle.current(ctx.component.component_id, ctx.opts)
     assert still.observed_roles == %{}
 
-    assert :ok = Lifecycle.accept_local_receiver(host, [new])
+    assert {:ok, [^new]} = Lifecycle.accept_local_receiver(host, [new])
     assert {:ok, observed} = Lifecycle.current(ctx.component.component_id, ctx.opts)
     assert observed.observed_roles["client"]["receiver_id"] == "local-nats:" <> host
     assert {:ok, policy} = Authority.snapshot()
@@ -213,9 +213,30 @@ defmodule ServiceRadar.Edge.ManagedCertificateLifecycleIntegrationTest do
 
     issue_pair(leaf_ctx, server_old, server_new, "local_server")
     issue_pair(leaf_ctx, upstream_old, upstream_new, "upstream_client")
-    activate(leaf_ctx, %{"local_server" => server_new, "upstream_client" => upstream_new})
+    {:ok, preparing} = Lifecycle.rotate(leaf.component_id, ctx.opts)
 
-    assert :ok = Lifecycle.accept_local_receiver(host, [server_new])
+    installing =
+      preparing
+      |> Ash.Changeset.for_update(
+        :progress,
+        %{
+          status: :installing,
+          fingerprints: %{"local_server" => server_new, "upstream_client" => upstream_new},
+          renew_after: DateTime.shift(DateTime.utc_now(), hour: 1)
+        },
+        ctx.opts
+      )
+      |> Ash.update!(ctx.opts)
+
+    assert {:ok, []} = Lifecycle.accept_local_receiver(host, [server_new])
+    assert {:ok, unconfirmed} = Lifecycle.current(leaf.component_id, ctx.opts)
+    assert unconfirmed.observed_roles == %{}
+
+    installing
+    |> Ash.Changeset.for_update(:progress, %{status: :activated}, ctx.opts)
+    |> Ash.update!(ctx.opts)
+
+    assert {:ok, [^server_new]} = Lifecycle.accept_local_receiver(host, [server_new])
     assert {:ok, partial} = Lifecycle.current(leaf.component_id, ctx.opts)
     assert Map.keys(partial.observed_roles) == ["local_server"]
     assert {:ok, waiting} = Authority.snapshot()

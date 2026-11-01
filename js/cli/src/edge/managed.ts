@@ -23,7 +23,7 @@ export const MANAGED_SERVICES: Record<string, {unit: string; files: Record<strin
 export interface LocalLeafBinding {
   version: number
   endpoint: string
-  server_spiffe_id: string
+  server_dns_name: string
 }
 
 export interface ManagedComponent {
@@ -73,12 +73,12 @@ export function managedConfigurationFiles(component: ManagedComponent, allowLoca
 
 function validateLocalLeafBinding(binding: LocalLeafBinding, partition: string): void {
   const endpoint = new URL(binding.endpoint)
-  const identity = new URL(binding.server_spiffe_id)
-  const parts = identity.pathname.split("/")
+  const suffix = `-server.${partition}.serviceradar`
+  const component = binding.server_dns_name.endsWith(suffix) ? binding.server_dns_name.slice(0, -suffix.length) : ""
   if (binding.version !== 1 || endpoint.protocol !== "tls:" || !endpoint.hostname || !endpoint.port || endpoint.username || endpoint.password || (endpoint.pathname && endpoint.pathname !== "/") || endpoint.search || endpoint.hash || binding.endpoint.includes(",")) {
     throw new Error("invalid managed local leaf endpoint binding")
   }
-  if (identity.protocol !== "spiffe:" || identity.host !== "serviceradar.local" || parts.length !== 4 || parts[1] !== "nats_leaf_server" || parts[2] !== partition || !/^[A-Za-z0-9_-]+-server$/.test(parts[3]) || identity.search || identity.hash) {
+  if (!/^[A-Za-z0-9_-]+$/.test(component)) {
     throw new Error("local policy binding does not identify this partition's managed leaf server")
   }
 }

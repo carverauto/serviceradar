@@ -114,6 +114,7 @@ go_library(
         "managed_certificates.go",
         "managed_local_nats_linux.go",
         "managed_certificate_commands.go",
+        "managed_certificate_commands_other.go",
         "managed_certificate_policy.go",
         "managed_certificate_policy_linux.go",
         "managed_certificates_linux.go",

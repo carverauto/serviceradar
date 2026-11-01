@@ -137,7 +137,7 @@ pub async fn connect_with_store<A: ToServerAddrs>(
 struct LocalLeafBinding {
     version: u32,
     endpoint: String,
-    server_spiffe_id: String,
+    server_dns_name: String,
 }
 
 impl LocalLeafBinding {
@@ -151,7 +151,7 @@ impl LocalLeafBinding {
             || !matches!(endpoint.path(), "" | "/")
             || endpoint.query().is_some()
             || endpoint.fragment().is_some()
-            || !self.server_spiffe_id.starts_with("spiffe://")
+            || !valid_dns_name(&self.server_dns_name)
             || addresses.len() != 1
         {
             return Err("invalid enrolled local leaf binding".into());
@@ -170,6 +170,18 @@ impl LocalLeafBinding {
         }
         Ok(())
     }
+}
+
+fn valid_dns_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 253
+        && !name.contains("://")
+        && !name.contains('/')
+        && !name.contains(' ')
+        && name.contains('.')
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'.' || byte == b'-')
 }
 
 struct ManagedPolicy {
@@ -205,7 +217,7 @@ async fn connect_managed<A: ToServerAddrs>(
         WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider.clone()).build()?;
     let verifier = PolicyVerifier::new(base, store.clone());
     let verifier = match local_leaf {
-        Some(binding) => verifier.for_local_leaf(binding.server_spiffe_id),
+        Some(binding) => verifier.for_local_leaf(binding.server_dns_name),
         None => verifier,
     };
     let peer = verifier.peer();

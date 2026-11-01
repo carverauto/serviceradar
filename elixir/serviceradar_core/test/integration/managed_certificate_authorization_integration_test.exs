@@ -10,6 +10,7 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Edge.ComponentCertificateAuthority, as: Authority
+  alias ServiceRadar.Edge.ManagedCertificateLifecycle, as: Lifecycle
   alias ServiceRadar.NATS.CertificateAuthorizationToken, as: Token
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NATS.ManagedCertificateAuthorization, as: Authorizer
@@ -125,6 +126,127 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
 
     issued = System.system_time(:second)
     assert user["exp"] > issued and user["exp"] < issued + 60
+  end
+
+  @tag timeout: 180_000
+  test "hub observes presented leaf certificates and revocation drops only that leaf" do
+    previous = Application.get_env(:serviceradar_core, Connection)
+    previous_account = Application.get_env(:serviceradar, :nats_account_name)
+    on_exit(fn -> restore_connection(previous) end)
+    on_exit(fn -> restore_account(previous_account) end)
+    Application.put_env(:serviceradar, :nats_account_name, @account)
+
+    actor =
+      :component_certificate_test
+      |> SystemActor.system()
+      |> Map.put(:permissions, MapSet.new(["settings.edge.manage"]))
+
+    opts = [actor: actor]
+
+    assert {:ok, %{issuer_nkey: issuer, auth_nkey: auth, system_nkey: system}} =
+             Configuration.bootstrap(@account, actor)
+
+    assert {:ok, %{system_seed: system_seed}} = Configuration.credentials()
+
+    dir = Path.join(System.tmp_dir!(), "managed-leaf-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf(dir) end)
+    ca = issue_material!(dir, "ca", nil, nil)
+
+    hub =
+      issue_material!(
+        dir,
+        "hub",
+        ca,
+        "subjectAltName=IP:127.0.0.1,DNS:localhost\nextendedKeyUsage=serverAuth\n"
+      )
+
+    left =
+      issue_material!(
+        dir,
+        "left",
+        ca,
+        "subjectAltName=DNS:left.synthetic.example\nextendedKeyUsage=clientAuth\n"
+      )
+
+    right =
+      issue_material!(
+        dir,
+        "right",
+        ca,
+        "subjectAltName=DNS:right.synthetic.example\nextendedKeyUsage=clientAuth\n"
+      )
+
+    client_port = free_port()
+    leaf_port = free_port()
+    log_path = Path.join(dir, "hub.log")
+    hub_config = Path.join(dir, "hub.conf")
+
+    File.write!(hub_config, hub_config(client_port, leaf_port, issuer, auth, system, hub, ca))
+
+    executable = nats_server!()
+    broker = open_broker(executable, ["-c", hub_config, "-l", log_path])
+    {:os_pid, os_pid} = Port.info(broker, :os_pid)
+    on_exit(fn -> stop_broker(broker, executable, os_pid) end)
+    await_broker(client_port)
+
+    left_component = enroll_leaf!("left", opts)
+    right_component = enroll_leaf!("right", opts)
+    record_leaf!(left_component, left, opts)
+    record_leaf!(right_component, right, opts)
+    activate_upstream!(left_component, left.fingerprint, opts)
+
+    Application.put_env(:serviceradar_core, Connection,
+      host: "127.0.0.1",
+      port: client_port,
+      tls: false
+    )
+
+    start_supervised_authorizer!()
+    assert %{ready: true, reason: nil, account_name: @account} = await_ready()
+
+    {:ok, sys} =
+      Gnat.start_link(%{
+        host: "127.0.0.1",
+        port: client_port,
+        nkey_seed: fn -> system_seed end,
+        auth_required: true
+      })
+
+    on_exit(fn -> stop_client(sys) end)
+
+    left_spoke = start_spoke!(executable, dir, "spoke-left", leaf_port, left, ca)
+    right_spoke = start_spoke!(executable, dir, "spoke-right", leaf_port, right, ca)
+    on_exit(fn -> stop_broker(left_spoke.broker, executable, left_spoke.os_pid) end)
+    on_exit(fn -> stop_broker(right_spoke.broker, executable, right_spoke.os_pid) end)
+
+    assert await_leaf_members(sys, [left.fingerprint, right.fingerprint], log_path)
+    assert await_upstream_observation(left_component.component_id, opts)
+
+    {:ok, bridge_left} = Gnat.start_link(%{host: "127.0.0.1", port: left_spoke.port})
+    {:ok, bridge_right} = Gnat.start_link(%{host: "127.0.0.1", port: right_spoke.port})
+    on_exit(fn -> stop_client(bridge_left) end)
+    on_exit(fn -> stop_client(bridge_right) end)
+    {:ok, _sid} = Gnat.sub(bridge_right, self(), "example.managed.leaf")
+    Process.sleep(300)
+    :ok = Gnat.pub(bridge_left, "example.managed.leaf", "before")
+    assert_receive {:msg, %{body: "before", topic: "example.managed.leaf"}}, 5_000
+
+    assert {:ok, _} =
+             Authority.revoke_certificate(left.fingerprint, "operator-revoke", opts)
+
+    assert {:error, :certificate_revoked} =
+             Authority.record_issuance(
+               left_component.component_id,
+               leaf_issuance(left_component, left),
+               opts
+             )
+
+    assert await_leaf_members(sys, [right.fingerprint], log_path, [left.fingerprint])
+    assert stable_leaf_split(sys, left.fingerprint, right.fingerprint, log_path)
+    :ok = Gnat.pub(bridge_left, "example.managed.leaf", "after")
+    refute_receive {:msg, %{body: "after", topic: "example.managed.leaf"}}, 1_000
+    assert right.fingerprint in leaf_fingerprints!(sys, log_path)
   end
 
   defp start_supervised_authorizer! do
@@ -335,4 +457,303 @@ defmodule ServiceRadar.NATS.ManagedCertificateAuthorizationIntegrationTest do
   defp restore_account(nil), do: Application.delete_env(:serviceradar, :nats_account_name)
 
   defp restore_account(value), do: Application.put_env(:serviceradar, :nats_account_name, value)
+
+  defp issue_material!(dir, name, nil, _extension) do
+    openssl!(
+      [
+        "req",
+        "-x509",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:prime256v1",
+        "-nodes",
+        "-keyout",
+        "#{name}.key",
+        "-out",
+        "#{name}.pem",
+        "-days",
+        "2",
+        "-subj",
+        "/CN=synthetic-managed-ca"
+      ],
+      dir
+    )
+
+    pem = File.read!(Path.join(dir, "#{name}.pem"))
+    [{:Certificate, der, :not_encrypted}] = :public_key.pem_decode(pem)
+
+    %{
+      pem: pem,
+      der: der,
+      key: Path.join(dir, "#{name}.key"),
+      cert: Path.join(dir, "#{name}.pem"),
+      fingerprint: fingerprint(der)
+    }
+  end
+
+  defp issue_material!(dir, name, ca, extension) do
+    openssl!(
+      [
+        "req",
+        "-newkey",
+        "ec",
+        "-pkeyopt",
+        "ec_paramgen_curve:prime256v1",
+        "-nodes",
+        "-keyout",
+        "#{name}.key",
+        "-out",
+        "#{name}.csr",
+        "-subj",
+        "/CN=#{name}.synthetic.example"
+      ],
+      dir
+    )
+
+    File.write!(Path.join(dir, "#{name}.ext"), "basicConstraints=CA:FALSE\n#{extension}")
+
+    openssl!(
+      [
+        "x509",
+        "-req",
+        "-in",
+        "#{name}.csr",
+        "-CA",
+        ca.cert,
+        "-CAkey",
+        ca.key,
+        "-CAserial",
+        "ca.srl",
+        "-CAcreateserial",
+        "-out",
+        "#{name}.pem",
+        "-days",
+        "2",
+        "-extfile",
+        "#{name}.ext"
+      ],
+      dir
+    )
+
+    pem = File.read!(Path.join(dir, "#{name}.pem"))
+    [{:Certificate, der, :not_encrypted}] = :public_key.pem_decode(pem)
+
+    %{
+      pem: pem,
+      der: der,
+      key: Path.join(dir, "#{name}.key"),
+      cert: Path.join(dir, "#{name}.pem"),
+      fingerprint: fingerprint(der)
+    }
+  end
+
+  defp openssl!(args, dir) do
+    executable = System.find_executable("openssl") || flunk("openssl is not on PATH")
+
+    case System.cmd(executable, args, cd: dir, stderr_to_stdout: true) do
+      {_output, 0} -> :ok
+      {output, status} -> flunk("openssl failed (#{status}): #{output}")
+    end
+  end
+
+  defp hub_config(client_port, leaf_port, issuer, auth, system, hub, ca) do
+    """
+    server_name: hub-synthetic
+    listen: 127.0.0.1:#{client_port}
+    accounts {
+      SYS: {
+        users: [
+          {nkey: #{Jason.encode!(system)}, permissions: {publish: {allow: ["$SYS.REQ.SERVER.*.CONNZ", "$SYS.REQ.SERVER.*.KICK"]}, subscribe: {allow: ["_INBOX.>"]}}}
+        ]
+      }
+      AUTH: {
+        users: [
+          {nkey: #{Jason.encode!(auth)}, permissions: {subscribe: ["$SYS.REQ.USER.AUTH"], publish: ["$SYS._INBOX.>"]}}
+        ]
+      }
+      EDGE: {}
+    }
+    system_account: SYS
+    authorization: {auth_callout: {issuer: #{Jason.encode!(issuer)}, account: AUTH, auth_users: [#{Jason.encode!(auth)}, #{Jason.encode!(system)}]}}
+    leafnodes {
+      listen: 127.0.0.1:#{leaf_port}
+      tls {
+        cert_file: #{Jason.encode!(hub.cert)}
+        key_file: #{Jason.encode!(hub.key)}
+        ca_file: #{Jason.encode!(ca.cert)}
+        verify: true
+        timeout: 5
+      }
+    }
+    """
+  end
+
+  defp enroll_leaf!(name, opts) do
+    assert {:ok, component} =
+             Authority.enroll_component(
+               %{
+                 component_id: "#{name}-#{System.unique_integer([:positive])}",
+                 component_type: "nats-leaf",
+                 partition_id: "example-partition",
+                 host_agent_id: "host-#{name}-#{System.unique_integer([:positive])}"
+               },
+               opts
+             )
+
+    component
+  end
+
+  defp record_leaf!(component, material, opts) do
+    assert {:ok, _} =
+             Authority.record_issuance(
+               component.component_id,
+               leaf_issuance(component, material),
+               opts
+             )
+  end
+
+  defp leaf_issuance(component, material) do
+    now = DateTime.truncate(DateTime.utc_now(), :microsecond)
+
+    %{
+      fingerprint: material.fingerprint,
+      issuer_fingerprint: fingerprint("synthetic-issuer"),
+      serial_number: "71",
+      role: "upstream_client",
+      expected_generation: 1,
+      host_agent_id: component.host_agent_id,
+      not_before: DateTime.shift(now, minute: -1),
+      not_after: DateTime.shift(now, hour: 2)
+    }
+  end
+
+  defp activate_upstream!(component, fingerprint, opts) do
+    {:ok, preparing} = Lifecycle.rotate(component.component_id, opts)
+
+    preparing
+    |> Ash.Changeset.for_update(
+      :progress,
+      %{
+        status: :installing,
+        fingerprints: %{"upstream_client" => fingerprint},
+        renew_after: DateTime.shift(DateTime.utc_now(), hour: 1)
+      },
+      opts
+    )
+    |> Ash.update!(opts)
+    |> Ash.Changeset.for_update(:progress, %{status: :activated}, opts)
+    |> Ash.update!(opts)
+  end
+
+  defp start_spoke!(executable, dir, name, leaf_port, material, ca) do
+    port = free_port()
+    config = Path.join(dir, "#{name}.conf")
+
+    File.write!(config, """
+    server_name: #{name}
+    listen: 127.0.0.1:#{port}
+    leafnodes {
+      remotes: [
+        {
+          url: "tls://127.0.0.1:#{leaf_port}"
+          tls {
+            cert_file: #{Jason.encode!(material.cert)}
+            key_file: #{Jason.encode!(material.key)}
+            ca_file: #{Jason.encode!(ca.cert)}
+          }
+        }
+      ]
+    }
+    """)
+
+    broker = open_broker(executable, ["-c", config, "-l", Path.join(dir, "#{name}.log")])
+    {:os_pid, os_pid} = Port.info(broker, :os_pid)
+    await_broker(port)
+    %{broker: broker, os_pid: os_pid, port: port}
+  end
+
+  defp await_leaf_members(client, required, log_path, absent \\ [], attempts \\ 40) do
+    present =
+      case leaf_fingerprints(client) do
+        {:ok, found} -> found
+        {:error, reason} -> flunk("CONNZ failed: #{inspect(reason)}\n#{log_tail(log_path)}")
+      end
+
+    cond do
+      Enum.all?(required, &(&1 in present)) and Enum.all?(absent, &(&1 not in present)) ->
+        true
+
+      attempts == 0 ->
+        flunk(
+          "leaf certificates were #{inspect(present)}, wanted #{inspect(required)} without #{inspect(absent)}\n#{log_tail(log_path)}"
+        )
+
+      true ->
+        Process.sleep(500)
+        await_leaf_members(client, required, log_path, absent, attempts - 1)
+    end
+  end
+
+  defp stable_leaf_split(client, revoked, peer, log_path) do
+    Enum.each(1..6, fn _ ->
+      assert {:ok, present} = leaf_fingerprints(client)
+      refute revoked in present, log_tail(log_path)
+      assert peer in present
+      Process.sleep(500)
+    end)
+  end
+
+  defp await_upstream_observation(component_id, opts, attempts \\ 40) do
+    {:ok, operation} = Lifecycle.current(component_id, opts)
+    receiver = get_in(operation.observed_roles, ["upstream_client", "receiver_id"])
+
+    cond do
+      is_binary(receiver) and String.starts_with?(receiver, "nats:") and
+          receiver != "nats:hub-synthetic" ->
+        true
+
+      attempts == 0 ->
+        flunk(
+          "upstream certificate was not observed by a hub server: #{inspect(operation && operation.observed_roles)}"
+        )
+
+      true ->
+        Process.sleep(500)
+        await_upstream_observation(component_id, opts, attempts - 1)
+    end
+  end
+
+  defp leaf_fingerprints!(client, log_path) do
+    case leaf_fingerprints(client) do
+      {:ok, found} -> found
+      {:error, reason} -> flunk("CONNZ failed: #{inspect(reason)}\n#{log_tail(log_path)}")
+    end
+  end
+
+  defp leaf_fingerprints(client) do
+    body = Jason.encode!(%{auth: true, acc: @account, offset: 0, limit: 256})
+
+    case Gnat.request(client, "$SYS.REQ.SERVER.PING.CONNZ", body, receive_timeout: 2_000) do
+      {:ok, %{body: response}} ->
+        decoded = Jason.decode!(response)
+
+        found =
+          for %{"kind" => "Leafnode", "tls_peer_certs" => [%{"cert_sha256" => fingerprint} | _]} <-
+                get_in(decoded, ["data", "connections"]) || [],
+              do: String.downcase(fingerprint)
+
+        {:ok, found}
+
+      other ->
+        {:error, other}
+    end
+  end
+
+  defp log_tail(path) do
+    case File.read(path) do
+      {:ok, body} -> String.slice(body, -4_000, 4_000)
+      _ -> ""
+    end
+  end
 end

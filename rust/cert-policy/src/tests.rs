@@ -253,12 +253,12 @@ async fn enrolled_local_leaf_survives_stale_policy_but_closes_on_revocation_and_
     let mut ca_params = CertificateParams::default();
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     let ca = Certificate::from_params(ca_params).unwrap();
-    let spiffe = "spiffe://example.com/nats-leaf/synthetic";
+    let dns_name = "leaf-synthetic-server.default.serviceradar";
     let certificate = |short_lived: bool| {
         let mut params = CertificateParams::new(vec!["localhost".into()]);
         params
             .subject_alt_names
-            .push(rcgen::SanType::URI(spiffe.into()));
+            .push(rcgen::SanType::DnsName(dns_name.to_string()));
         if short_lived {
             let now = Utc::now();
             params.not_after = rcgen::date_time_ymd(now.year(), now.month() as u8, now.day() as u8)
@@ -300,7 +300,7 @@ async fn enrolled_local_leaf_survives_stale_policy_but_closes_on_revocation_and_
         local_leaf: Some(super::LocalLeafBinding {
             version: 1,
             endpoint: address.replace("nats://", "tls://"),
-            server_spiffe_id: spiffe.into(),
+            server_dns_name: dns_name.into(),
         }),
     };
     let (client_a, guard_a) = super::connect_managed(
@@ -351,7 +351,7 @@ async fn enrolled_local_leaf_survives_stale_policy_but_closes_on_revocation_and_
 }
 
 #[tokio::test]
-async fn local_leaf_binding_rejects_another_endpoint_and_another_spiffe_identity() {
+async fn local_leaf_binding_rejects_another_endpoint_and_another_dns_name() {
     use rustls::client::WebPkiServerVerifier;
     use rustls::client::danger::ServerCertVerifier;
     use rustls::pki_types::{ServerName, UnixTime};
@@ -359,8 +359,8 @@ async fn local_leaf_binding_rejects_another_endpoint_and_another_spiffe_identity
     ca_params.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
     let ca = Certificate::from_params(ca_params).unwrap();
     let mut params = CertificateParams::new(vec!["localhost".into()]);
-    params.subject_alt_names.push(rcgen::SanType::URI(
-        "spiffe://example.com/nats-leaf/other".into(),
+    params.subject_alt_names.push(rcgen::SanType::DnsName(
+        "other-server.default.serviceradar".to_string(),
     ));
     let leaf = Certificate::from_params(params).unwrap();
     let der = CertificateDer::from(leaf.serialize_der_with_signer(&ca).unwrap());
@@ -377,7 +377,7 @@ async fn local_leaf_binding_rejects_another_endpoint_and_another_spiffe_identity
     .build()
     .unwrap();
     let verifier = crate::PolicyVerifier::new(base, store.clone())
-        .for_local_leaf("spiffe://example.com/nats-leaf/enrolled".into());
+        .for_local_leaf("enrolled-server.default.serviceradar".into());
     assert!(
         verifier
             .verify_server_cert(
@@ -395,7 +395,7 @@ async fn local_leaf_binding_rejects_another_endpoint_and_another_spiffe_identity
         local_leaf: Some(super::LocalLeafBinding {
             version: 1,
             endpoint: "tls://localhost:4222".into(),
-            server_spiffe_id: "spiffe://example.com/nats-leaf/enrolled".into(),
+            server_dns_name: "enrolled-server.default.serviceradar".into(),
         }),
     };
     let missing = std::path::Path::new("synthetic-unused.pem");

@@ -208,6 +208,22 @@ read_secret_env = fn env_name, file_env_name ->
   end
 end
 
+# Keep in sync with elixir/serviceradar_core/config/runtime.exs. Unset selects
+# the chart hub account. An empty or illegal value stays unusable so bootstrap
+# returns nats_account_unconfigured. This release does not load the library runtime.
+nats_account_name =
+  case System.get_env("SERVICERADAR_NATS_ACCOUNT_NAME") do
+    nil ->
+      "SERVICERADAR"
+
+    value ->
+      name = String.trim(value)
+
+      if name != "" and Regex.match?(~r/\A[A-Za-z0-9_-]+\z/, name), do: name, else: ""
+  end
+
+config :serviceradar, :nats_account_name, nats_account_name
+
 # The installation's edge-record contract registry document: the same JSON the agent gateway
 # reads from AGENT_GATEWAY_EDGE_RECORD_CONTRACT_REGISTRY. Core signs sweep lease capabilities
 # against its sweep contract entry (ServiceRadar.Edge.SweepContract).

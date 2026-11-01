@@ -11,7 +11,7 @@ test("managed configuration uses fixed destinations and binds offline access to 
   const component = {
     component_id: "component-a", service: "bmp-collector", partition_id: "default", blocked: false,
     configuration: {"bmp-collector.json": JSON.stringify({nats_url: "tls://localhost:4222"})},
-    local_leaf_binding: {version: 1, endpoint: "tls://localhost:4222", server_spiffe_id: "spiffe://serviceradar.local/nats_leaf_server/default/leaf-a-server"},
+    local_leaf_binding: {version: 1, endpoint: "tls://localhost:4222", server_dns_name: "leaf-a-server.default.serviceradar"},
   }
   const files = managedConfigurationFiles(component, true)
   const binding = files.find((file) => file.path.endsWith("/local-leaf.json"))
@@ -22,7 +22,7 @@ test("managed configuration uses fixed destinations and binds offline access to 
   assert.throws(() => managedConfigurationFiles(component, false), /only valid for collectors/)
   assert.throws(() => managedConfigurationFiles({...component, component_id: "../other"}, true), /invalid managed/)
   assert.throws(() => managedConfigurationFiles({...component, configuration: {...component.configuration, "../../other": "bad"}}, true), /unsupported managed/)
-  assert.throws(() => managedConfigurationFiles({...component, local_leaf_binding: {...component.local_leaf_binding, server_spiffe_id: "spiffe://serviceradar.local/nats_leaf_server/other/leaf-a-server"}}, true), /does not identify/)
+  assert.throws(() => managedConfigurationFiles({...component, local_leaf_binding: {...component.local_leaf_binding, server_dns_name: "leaf-a-server.other.serviceradar"}}, true), /does not identify/)
 })
 
 test("adoption retains enabled log pipelines and input settings while replacing NATS credentials and policy", () => {

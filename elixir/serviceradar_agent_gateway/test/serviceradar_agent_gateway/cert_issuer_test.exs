@@ -83,13 +83,12 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       %{opts: [ca_cert_file: ca_cert, ca_key_file: ca_key, temp_parent_dir: parent_dir]}
     end
 
-    test "leaf client certificates carry the partition role URI the hub maps", %{opts: opts} do
+    test "leaf client certificates name the component and carry no URI SAN", %{opts: opts} do
       assert {:ok, bundle} = CertIssuer.issue_agent_bundle("leaf-nyc", "acme", :nats_leaf, opts)
 
+      assert bundle.spiffe_id == nil
       sans = subject_alt_names(bundle.certificate_pem)
-      assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats-leaf/acme"} in sans
-      assert {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats_leaf/acme/leaf-nyc"} in sans
-      assert CertIssuer.nats_leaf_role_uri("acme") == "spiffe://serviceradar.local/nats-leaf/acme"
+      assert sans == [{:dNSName, ~c"leaf-nyc.acme.serviceradar"}]
     end
 
     test "agent certificates never carry the leaf role URI", %{opts: opts} do
@@ -114,7 +113,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       assert {:dNSName, ~c"nats.nyc.example.com"} in sans
       assert {:iPAddress, <<127, 0, 0, 1>>} in sans
       assert {:iPAddress, <<10, 0, 1, 50>>} in sans
-      refute {:uniformResourceIdentifier, ~c"spiffe://serviceradar.local/nats-leaf/acme"} in sans
+      refute Enum.any?(sans, &match?({:uniformResourceIdentifier, _}, &1))
     end
 
     test "rejects a server host that is neither an IP nor a DNS name", %{opts: opts} do
@@ -430,7 +429,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
         generate_csr_der!(
           ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
           "/CN=example-collector.example.serviceradar",
-          "URI:spiffe://serviceradar.local/#{type}/example/example-collector,DNS:example-collector.example.serviceradar,DNS:collector.example.test"
+          "DNS:example-collector.example.serviceradar,DNS:collector.example.test"
         )
 
       options = [
@@ -445,14 +444,25 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       assert {:ok, issued} = CertIssuer.issue_from_csr(csr, "example-collector", "example", type, options)
       assert issued.issuer_fingerprint == Base.encode16(:crypto.hash(:sha256, issuer_der), case: :lower)
 
+      assert issued.spiffe_id == nil
+
       assert normalized_sans(issued.certificate_pem) ==
                Enum.sort([
                  {:dns, "collector.example.test"},
-                 {:dns, "example-collector.example.serviceradar"},
-                 {:uri, "spiffe://serviceradar.local/#{type}/example/example-collector"}
+                 {:dns, "example-collector.example.serviceradar"}
                ])
 
       refute Map.has_key?(issued, :private_key_pem)
+
+      extra_uri =
+        generate_csr_der!(
+          ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
+          "/CN=example-collector.example.serviceradar",
+          "DNS:example-collector.example.serviceradar,URI:spiffe://serviceradar.local/#{type}/example/example-collector"
+        )
+
+      assert {:error, :csr_identity_mismatch} =
+               CertIssuer.issue_from_csr(extra_uri, "example-collector", "example", type, options)
 
       assert {:error, :csr_identity_mismatch} =
                CertIssuer.issue_from_csr(
@@ -476,7 +486,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
       generate_csr_der!(
         ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
         "/CN=example-leaf.example.serviceradar",
-        "URI:spiffe://serviceradar.local/nats_leaf/example/example-leaf,DNS:example-leaf.example.serviceradar,URI:spiffe://serviceradar.local/nats-leaf/example"
+        "DNS:example-leaf.example.serviceradar"
       )
 
     assert {:ok, client} =
@@ -488,18 +498,17 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                authorized_partition_id: "example"
              )
 
-    assert normalized_sans(client.certificate_pem) ==
-             Enum.sort([
-               {:dns, "example-leaf.example.serviceradar"},
-               {:uri, "spiffe://serviceradar.local/nats-leaf/example"},
-               {:uri, "spiffe://serviceradar.local/nats_leaf/example/example-leaf"}
-             ])
+    assert client.spiffe_id == nil
+
+    assert normalized_sans(client.certificate_pem) == [
+             {:dns, "example-leaf.example.serviceradar"}
+           ]
 
     server =
       generate_csr_der!(
         ["req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes", "-keyout", "/dev/null"],
         "/CN=example-leaf-server.example.serviceradar",
-        "URI:spiffe://serviceradar.local/nats_leaf_server/example/example-leaf-server,DNS:example-leaf-server.example.serviceradar,DNS:leaf.example.test,IP:192.0.2.10"
+        "DNS:example-leaf-server.example.serviceradar,DNS:leaf.example.test,IP:192.0.2.10"
       )
 
     assert {:ok, listening} =
@@ -518,8 +527,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
                {:dns, "leaf.example.test"},
                {:dns, "localhost"},
                {:ip, "127.0.0.1"},
-               {:ip, "192.0.2.10"},
-               {:uri, "spiffe://serviceradar.local/nats_leaf_server/example/example-leaf-server"}
+               {:ip, "192.0.2.10"}
              ])
   end
 

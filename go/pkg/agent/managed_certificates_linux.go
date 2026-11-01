@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -249,13 +248,11 @@ func (s managedCertificateStore) validateAssignment(a ManagedCertificateAssignme
 }
 
 func managedCertificateIdentity(a ManagedCertificateAssignment, role string) *x509.CertificateRequest {
-	typ := strings.ReplaceAll(a.Service, "-", "_")
 	id := a.ComponentID
 	if role == "local_server" {
-		typ, id = "nats_leaf_server", id+"-server"
+		id += "-server"
 	}
-	uri := &url.URL{Scheme: "spiffe", Host: "serviceradar.local", Path: "/" + typ + "/" + a.PartitionID + "/" + id}
-	csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: id + "." + a.PartitionID + ".serviceradar"}, URIs: []*url.URL{uri}}
+	csr := &x509.CertificateRequest{Subject: pkix.Name{CommonName: id + "." + a.PartitionID + ".serviceradar"}}
 	if role == "local_server" {
 		csr.DNSNames = []string{"localhost"}
 		csr.IPAddresses = []net.IP{net.ParseIP("127.0.0.1")}
@@ -362,7 +359,7 @@ func (s managedCertificateStore) validateIssued(p *managedPendingCertificate, ro
 		return nil, nil, err
 	}
 	expected := managedCertificateIdentity(p.Assignment, role)
-	if err := issuedIdentityMatches(role, p.Assignment, leaf, expected); err != nil {
+	if err := issuedIdentityMatches(leaf, expected); err != nil {
 		return nil, nil, err
 	}
 	roots := x509.NewCertPool()
@@ -399,23 +396,11 @@ func (s managedCertificateStore) validateIssued(p *managedPendingCertificate, ro
 	return leaf, certificatePEM, nil
 }
 
-func issuedIdentityMatches(role string, assignment ManagedCertificateAssignment, leaf *x509.Certificate, expected *x509.CertificateRequest) error {
+func issuedIdentityMatches(leaf *x509.Certificate, expected *x509.CertificateRequest) error {
 	if leaf.Subject.CommonName != expected.Subject.CommonName {
 		return fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
 	}
-	allowed := map[string]struct{}{expected.URIs[0].String(): {}}
-	if role == "upstream_client" {
-		allowed["spiffe://serviceradar.local/nats-leaf/"+assignment.PartitionID] = struct{}{}
-	}
-	seen := make(map[string]struct{}, len(leaf.URIs))
-	for _, uri := range leaf.URIs {
-		value := uri.String()
-		if _, ok := allowed[value]; !ok {
-			return fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
-		}
-		seen[value] = struct{}{}
-	}
-	if len(seen) != len(allowed) {
+	if len(leaf.URIs) != 0 {
 		return fmt.Errorf("%w: issued managed certificate identity differs from its assignment", errManagedCertificates)
 	}
 	names := append(append([]string{}, expected.DNSNames...), expected.Subject.CommonName)

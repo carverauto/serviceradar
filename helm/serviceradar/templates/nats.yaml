@@ -200,25 +200,21 @@ spec:
           {{- if $certAuthEnabled }}
           authorization: {auth_callout: {issuer: {{ $certAuthIssuer | quote }}, account: AUTH, auth_users: [{{ $certAuthUser | quote }}, {{ $certAuthSystem | quote }}]}}
           {{- end }}
-          {{- if $leafnodesEnabled }}
+          {{- if and $leafnodesEnabled $certAuthEnabled }}
 
           # Edge-site leaf servers. TLS terminates here (a Gateway API route,
-          # when enabled, passes raw TCP). verify_and_map requires a client
-          # certificate from the internal CA and binds only certificates that
-          # carry the partition leaf role URI SAN to the platform account.
+          # when enabled, passes raw TCP). The presented certificate is an
+          # ordinary PKIX certificate checked against the internal CA. NATS
+          # 2.14 places a leaf with no authorization block in the global
+          # account, so this listener exists only with the callout above.
           leafnodes {
             port: {{ $leafnodesPort }}
             tls {
               cert_file: "/etc/serviceradar/certs/nats.pem"
               key_file: "/etc/serviceradar/certs/nats-key.pem"
               ca_file: "/etc/serviceradar/certs/root.pem"
-              verify_and_map: true
+              verify: true
               timeout: 5
-            }
-            authorization {
-              users: [
-                { user: "spiffe://serviceradar.local/nats-leaf/{{ $partitionId }}", account: SERVICERADAR }
-              ]
             }
           }
           {{- end }}

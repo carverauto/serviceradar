@@ -149,7 +149,12 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountTest do
     assert [{_key, session}] = Map.to_list(allowed.sessions)
     assert session.fingerprint == allowed.fingerprint
     assert session.expires_at == allowed.expires_at
-    assert session.observed == false
+    assert Enum.sort(Map.keys(session)) == [:expires_at, :fingerprint]
+  end
+
+  test "uses the shipped hub account and rejects the local leaf account name" do
+    assert Configuration.deployment_account() == "SERVICERADAR"
+    assert {:error, :nats_account_mismatch} = Configuration.bootstrap("EDGE", actor())
   end
 
   defp actor(permissions \\ ["settings.edge.manage"]) do

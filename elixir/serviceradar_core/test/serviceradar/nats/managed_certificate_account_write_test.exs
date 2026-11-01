@@ -26,6 +26,21 @@ defmodule ServiceRadar.NATS.ManagedCertificateAccountWriteTest do
     :ok
   end
 
+  test "bootstraps the shipped hub account and rejects the local leaf account" do
+    actor = %{permissions: MapSet.new(["settings.edge.manage"])}
+
+    assert Configuration.deployment_account() == "SERVICERADAR"
+    assert {:ok, stored} = Configuration.bootstrap("SERVICERADAR", actor)
+    assert stored.auth_mode == "static_mtls"
+    assert stored.account_name == "SERVICERADAR"
+    assert public_nkey?(stored.issuer_nkey, "A")
+
+    assert {:error, :nats_account_mismatch} = Configuration.bootstrap("EDGE", actor)
+
+    assert {:ok, kept} = Configuration.bootstrap("SERVICERADAR", actor)
+    assert same_material?(kept, stored)
+  end
+
   test "stores the deployment account once and keeps it when a later account disagrees" do
     actor = %{permissions: MapSet.new(["settings.edge.manage"])}
     Application.put_env(:serviceradar, :nats_account_name, "EDGE")

@@ -23,8 +23,14 @@ Priority order:
    Helm/Compose upstream advertisement, and bind all names to certificate SANs.
 5. Run the complete host and cluster acceptance matrix in tasks.md.
 
-Local leaf listener enforcement is distinct from hub enforcement. NATS
-operator/JWT mode and direct Rust gRPC receiver integration remain unproved.
+Managed component certificates are ordinary PKIX names plus stored
+fingerprints. SPIRE is not used on this path. Hub leaf observation reads the
+presented certificate from an authenticated CONNZ listing; LEAFZ has no peer
+certificate on NATS 2.14. Revocation sends KICK, which closes a leaf, and the
+callout rejects the same certificate on reconnect. The chart leaves that
+callout disabled until operator adoption and does not open an unbound leaf
+listener. Local leaf listener enforcement is distinct from hub enforcement.
+NATS operator/JWT mode and direct Rust gRPC receiver integration remain unproved.
 Deployment must explicitly enable TLS for the Erlang peer mesh before claiming
 certificate revocation covers that transport. Installation and service activation
 are not receiver-confirmed certificate use.
