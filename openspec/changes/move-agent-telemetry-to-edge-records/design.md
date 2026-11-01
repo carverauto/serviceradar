@@ -124,6 +124,31 @@ Order, by loss exposure and readiness:
 6. Inventory producers: mapper, netprobe discovery, sync pages, workload identity, endpoint
    inventory, bumblebee, k8s endpoints.
 
+### Decision 8: Adding a payload never touches the generic pipeline
+
+The spool, sender, gateway authorization, JetStream route and EventWriter ledger are payload
+agnostic and SHALL stay that way: the gateway never decodes a payload. The per-payload pieces are
+kept to data plus, only where a destination is genuinely new, one projector module:
+
+- **Projectors register by contract.** EventWriter selects a projector from a registry keyed by
+  `{contract_id, contract_version}`; each projector implements one behaviour (decode and
+  validate, authority re-check, project). There is no per-contract clause in the processor.
+- **Republish projectors are configuration.** Metrics, logs and OTel all follow one pattern:
+  re-check authority, attest from the authenticated record, republish to the subject the gateway
+  uses today with PubAck. One generic republish projector, configured per contract (subject
+  rule, attestation fields, accepted sources), serves them.
+- **Grants follow the registry.** Core issues standing grants for every registry entry marked as
+  agent-scheduled, rather than naming contracts in code.
+- **Plugins and add-ons never get their own contract.** Native add-ons and Wasm plugins emit
+  through the plugin telemetry contract (`TelemetryBatch`) and the plugin result contract, using
+  the signal kinds the SDK manifest already closes (`signal_schemas`). One projector routes each
+  declared signal kind to its existing destination. A plugin author declares signals in the
+  manifest and touches no core, gateway or registry code; a new signal kind is an SDK and core
+  change reviewed like any other contract.
+
+So a new built-in family is a typed protobuf message, a registry entry and an agent producer,
+plus a projector module only when its destination is new.
+
 ## Risks
 
 - **Spool sharing.** All producers share one spool budget; admission backpressure and byte-fair
