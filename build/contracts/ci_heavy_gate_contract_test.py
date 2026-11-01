@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 import yaml
@@ -313,14 +314,69 @@ bazel() {
 """
 
 
-def run_lifecycle(lifecycle: str, tmp: str, **env: str) -> subprocess.CompletedProcess:
-    defaults = {"MIGRATE_FAILURE": "0", "BUILD_FAILURE": "0", "TEARDOWN_FAILURE": "0",
-                "RELEASE_FAILURE": "0", "OBSERVER_FAILURE": "0", "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": ""}
+SCRUBBED_BASH_ENV_KEYS = (
+    "BASH_ENV",
+    "ENV",
+    "PROMPT_COMMAND",
+    "SHELLOPTS",
+    "BASHOPTS",
+    "CDPATH",
+    "GLOBIGNORE",
+    "IFS",
+    "PS1",
+    "PS2",
+    "PS4",
+    "SSH_CLIENT",
+    "SSH2_CLIENT",
+    "SSH_CONNECTION",
+    "SSH_TTY",
+)
+
+
+def hermetic_bash_env(**overrides: str) -> dict[str, str]:
+    env = {
+        "PATH": os.environ["PATH"],
+        "HOME": os.environ.get("HOME", "/tmp"),
+    }
+    if "TMPDIR" in os.environ:
+        env["TMPDIR"] = os.environ["TMPDIR"]
+    env.update(overrides)
+    for key in SCRUBBED_BASH_ENV_KEYS:
+        env.pop(key, None)
+    return env
+
+
+def run_hermetic_bash(
+    script: str,
+    *,
+    timeout: float = 5,
+    **env: str,
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["bash", "-euc", LIFECYCLE_STUBS + lifecycle + "\nexit 0\n"],
-        text=True, capture_output=True, timeout=20,
-        env={"PATH": os.environ["PATH"], "TMPDIR": tmp, "TEST_TMP": tmp,
-             "LIFECYCLE_LOG": str(Path(tmp, "lifecycle.log")), **defaults, **env},
+        ["bash", "--noprofile", "--norc", "-euc", script],
+        text=True,
+        capture_output=True,
+        timeout=timeout,
+        env=hermetic_bash_env(**env),
+    )
+
+
+def run_lifecycle(lifecycle: str, tmp: str, **env: str) -> subprocess.CompletedProcess[str]:
+    defaults = {
+        "MIGRATE_FAILURE": "0",
+        "BUILD_FAILURE": "0",
+        "TEARDOWN_FAILURE": "0",
+        "RELEASE_FAILURE": "0",
+        "OBSERVER_FAILURE": "0",
+        "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "",
+    }
+    return run_hermetic_bash(
+        LIFECYCLE_STUBS + lifecycle + "\nexit 0\n",
+        timeout=20,
+        TMPDIR=tmp,
+        TEST_TMP=tmp,
+        LIFECYCLE_LOG=str(Path(tmp, "lifecycle.log")),
+        **{**defaults, **env},
     )
 
 
@@ -1813,9 +1869,9 @@ wait_for_observer_ready() { return 0; }
         )
         for selected in ("", "0", "compact", "sparse"):
             with self.subTest(selected=selected):
-                result = subprocess.run(
-                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
-                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": selected},
+                result = run_hermetic_bash(
+                    script,
+                    SERVICERADAR_TOPOLOGY_BITMAP_SCALE=selected,
                 )
                 self.assertEqual(0, result.returncode, result.stderr)
                 enabled = selected in ("compact", "sparse")
@@ -1840,10 +1896,10 @@ wait_for_observer_ready() { return 0; }
                                     ("compact", "//rust/integration-db:provision_generation_serial_1"),
                                     ("sparse", "//rust/integration-db:provision_generation_serial_1")):
             with self.subTest(selected=selected, bad_clone=bad_clone):
-                result = subprocess.run(
-                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
-                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": selected,
-                         "SCALE_BAD_CLONE": bad_clone},
+                result = run_hermetic_bash(
+                    script,
+                    SERVICERADAR_TOPOLOGY_BITMAP_SCALE=selected,
+                    SCALE_BAD_CLONE=bad_clone,
                 )
                 self.assertNotEqual(0, result.returncode)
                 self.assertNotIn("test //elixir/web-ng:topology_bitmap_scale_", result.stdout)
@@ -1858,10 +1914,11 @@ wait_for_observer_ready() { return 0; }
             (310, 609, False),
         ):
             with self.subTest(action_start=action_start, observer_start=observer_start):
-                result = subprocess.run(
-                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
-                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
-                         "SCALE_ACTION_START": str(action_start), "SCALE_OBSERVER_START": str(observer_start)},
+                result = run_hermetic_bash(
+                    script,
+                    SERVICERADAR_TOPOLOGY_BITMAP_SCALE="compact",
+                    SCALE_ACTION_START=str(action_start),
+                    SCALE_OBSERVER_START=str(observer_start),
                 )
                 self.assertEqual(admitted, result.returncode == 0, result.stderr)
                 self.assertEqual(admitted, "test //elixir/web-ng:topology_bitmap_scale_compact_acceptance" in result.stdout)
@@ -1879,10 +1936,11 @@ wait_for_observer_ready() { return 0; }
             (3082, 0, [], 0),
         ):
             with self.subTest(scale_seconds=scale_seconds, network_seconds=network_seconds):
-                result = subprocess.run(
-                    ["bash", "-euc", script], text=True, capture_output=True, timeout=5,
-                    env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
-                         "SCALE_SECONDS": str(scale_seconds), "NETWORK_SECONDS": str(network_seconds)},
+                result = run_hermetic_bash(
+                    script,
+                    SERVICERADAR_TOPOLOGY_BITMAP_SCALE="compact",
+                    SCALE_SECONDS=str(scale_seconds),
+                    NETWORK_SECONDS=str(network_seconds),
                 )
                 lines = result.stdout.splitlines()
                 self.assertIn("test //elixir/web-ng:topology_bitmap_scale_compact_acceptance", lines)
@@ -1893,12 +1951,11 @@ wait_for_observer_ready() { return 0; }
                     self.assertIn("Diagnostic budget exhausted after scale", result.stderr)
 
         for action_start, expected in ((900, "3300 3295s"), (400, "2990 2985s")):
-            result = subprocess.run(
-                ["bash", "-euc", recorder + selection + admission + selector +
-                 '\nwait\nlimit_scale_observer\necho "$OBSERVER_MAX_SECONDS ${OBSERVER_TIMEOUT[3]}"'],
-                text=True, capture_output=True, timeout=5,
-                env={"PATH": os.environ["PATH"], "SERVICERADAR_TOPOLOGY_BITMAP_SCALE": "compact",
-                     "SCALE_ACTION_START": str(action_start)},
+            result = run_hermetic_bash(
+                recorder + selection + admission + selector +
+                '\nwait\nlimit_scale_observer\necho "$OBSERVER_MAX_SECONDS ${OBSERVER_TIMEOUT[3]}"',
+                SERVICERADAR_TOPOLOGY_BITMAP_SCALE="compact",
+                SCALE_ACTION_START=str(action_start),
             )
             self.assertEqual(0, result.returncode, result.stderr)
             self.assertEqual(expected, result.stdout.splitlines()[-1])
@@ -1974,7 +2031,12 @@ env = dict(os.environ)
 env["BUILDBUDDY_CI_RUNNER_ABSPATH"] = sys.executable
 env["SERVICERADAR_TOPOLOGY_BITMAP_SCALE"] = "compact"
 env["SERVICERADAR_DIAGNOSTIC_START_FILE"] = sys.argv[2]
-result = subprocess.run(["bash", "-euc", sys.argv[1]], env=env, text=True, capture_output=True)
+result = subprocess.run(
+    ["bash", "--noprofile", "--norc", "-euc", sys.argv[1]],
+    env=env,
+    text=True,
+    capture_output=True,
+)
 if result.returncode:
     raise SystemExit(result.stderr)
 print(started)
@@ -1987,21 +2049,83 @@ print(open(sys.argv[2]).read().strip())
                 text=True,
                 capture_output=True,
                 timeout=8,
+                env=hermetic_bash_env(TMPDIR=tmp),
             )
             self.assertEqual(0, result.returncode, result.stderr)
             started, measured = map(int, result.stdout.splitlines())
             self.assertLessEqual(measured, started)
             self.assertLessEqual(started - measured, 2)
             absent = Path(tmp) / "ordinary-start"
-            ordinary = subprocess.run(
-                ["bash", "-euc", capture],
-                text=True,
-                capture_output=True,
+            ordinary = run_hermetic_bash(
+                capture,
                 timeout=5,
-                env={**os.environ, "SERVICERADAR_DIAGNOSTIC_START_FILE": str(absent)},
+                TMPDIR=tmp,
+                SERVICERADAR_DIAGNOSTIC_START_FILE=str(absent),
             )
             self.assertEqual(0, ordinary.returncode, ordinary.stderr)
             self.assertFalse(absent.exists())
+
+    def test_lifecycle_and_scale_shells_ignore_noisy_shell_profiles_and_bash_env(self):
+        noisy_script = (
+            'echo "noisy profile stdout"\n'
+            'echo "noisy profile stderr" >&2\n'
+            "atuin_missing_command || true\n"
+        )
+        action = named_action("WebNgDbDiagnostic")
+        capture = action[action.index("          set -euo pipefail"):action.index("          bazel run")]
+        capture = "\n".join(line[10:] for line in capture.splitlines())
+        with tempfile.TemporaryDirectory() as tmp:
+            home = Path(tmp, "home")
+            home.mkdir()
+            for name in (".bashrc", ".bash_profile", ".profile"):
+                Path(home, name).write_text(noisy_script, encoding="utf-8")
+            bash_env = Path(tmp, "bash_env.sh")
+            bash_env.write_text(noisy_script, encoding="utf-8")
+            noisy_env = {
+                "HOME": str(home),
+                "BASH_ENV": str(bash_env),
+                "ENV": str(bash_env),
+                "PROMPT_COMMAND": 'echo "noisy prompt stdout"; echo "noisy prompt stderr" >&2',
+                "SSH_CLIENT": "192.0.2.1 12345 22",
+                "SSH_CONNECTION": "192.0.2.1 12345 192.0.2.2 22",
+            }
+            unguarded = subprocess.run(
+                ["bash", "--noprofile", "--norc", "-euc", "true"],
+                text=True,
+                capture_output=True,
+                timeout=5,
+                env={**os.environ, **noisy_env},
+            )
+            self.assertIn("noisy profile stdout", unguarded.stdout)
+            self.assertIn("noisy profile stderr", unguarded.stderr)
+            self.assertIn("atuin_missing_command", unguarded.stderr)
+
+            with mock.patch.dict(os.environ, noisy_env, clear=False):
+                lifecycle_tmp = Path(tmp, "lifecycle")
+                lifecycle_tmp.mkdir()
+                shell = database_lifecycle_shell(named_action("WorldWorkerScale"))
+                lifecycle = shell[shell.index("\nRUN_ID=") + 1:]
+                lifecycle_result = run_lifecycle(lifecycle, str(lifecycle_tmp))
+                self.assertEqual(0, lifecycle_result.returncode, lifecycle_result.stderr)
+                self.assertNotIn("noisy", lifecycle_result.stdout)
+                self.assertNotIn("noisy", lifecycle_result.stderr)
+                self.assertNotIn("atuin_missing_command", lifecycle_result.stderr)
+
+                self.test_scale_opt_in_uses_the_existing_dispatch_only_diagnostic_lifecycle()
+
+                absent = Path(tmp, "ordinary-start")
+                ordinary = run_hermetic_bash(
+                    capture,
+                    timeout=5,
+                    TMPDIR=str(lifecycle_tmp),
+                    SERVICERADAR_DIAGNOSTIC_START_FILE=str(absent),
+                )
+                self.assertEqual(0, ordinary.returncode, ordinary.stderr)
+                self.assertEqual("", ordinary.stdout)
+                self.assertEqual("", ordinary.stderr)
+                self.assertFalse(absent.exists())
+                if sys.platform.startswith("linux"):
+                    self.test_scale_action_clock_includes_runner_work_before_the_first_step()
 
     def test_go_race_step_uses_a_private_output_base_and_shuts_it_down(self):
         """Race flags stay off the parked default Bazel server.
