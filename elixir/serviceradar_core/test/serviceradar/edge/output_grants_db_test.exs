@@ -34,6 +34,47 @@ defmodule ServiceRadar.Edge.OutputGrantsDbTest do
      key: IssuerKey.from_seed(:binary.copy(<<0x42>>, 32))}
   end
 
+  test "a missing or mismatched grant is refused and any other lookup failure is raised", ctx do
+    scope = ctx.partition.id
+
+    assert {:ok, grant} = OutputGrants.reconcile(ctx.agent, @contract, scope, true)
+
+    assert :ok ==
+             OutputGrants.check_current(
+               grant.id,
+               ctx.agent,
+               @contract,
+               scope,
+               grant.authority_epoch
+             )
+
+    assert {:error, :output_grant_not_current} =
+             OutputGrants.check_current(Ash.UUID.generate(), ctx.agent, @contract, scope, 1)
+
+    assert {:error, :output_grant_not_current} =
+             OutputGrants.check_current(
+               grant.id,
+               "other-#{ctx.agent}",
+               @contract,
+               scope,
+               grant.authority_epoch
+             )
+
+    assert {:error, :output_grant_not_current} =
+             OutputGrants.check_current(
+               grant.id,
+               ctx.agent,
+               @contract,
+               scope,
+               grant.authority_epoch + 1
+             )
+
+    # A primary key Ash cannot cast is a lookup failure, not a missing grant.
+    assert_raise Ash.Error.Invalid, fn ->
+      OutputGrants.check_current("not-a-uuid", ctx.agent, @contract, scope, 1)
+    end
+  end
+
   test "a grant's epoch moves only when it is revoked, reissued or moved to another scope", ctx do
     scope = ctx.partition.id
     other_scope = Ash.UUID.generate()

@@ -200,7 +200,11 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecord do
          fetch_ledger(repo, record.network_scope_id, record.event_id) != nil do
       :ok
     else
-      case MetricsBatchProjection.project(record, batch, Keyword.take(opts, [:request])) do
+      case MetricsBatchProjection.project(
+             record,
+             batch,
+             Keyword.take(opts, [:request, :grant_lookup])
+           ) do
         :ok ->
           :ok
 

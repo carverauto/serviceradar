@@ -27,11 +27,19 @@ import (
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 )
 
-// metricBatchRecord is a valid metrics batch record carrying a synthetic batch
-// of `metrics` gauges, with its projected row count equal to rows.
+// metricBatchRecord is a valid sysmon metrics batch record carrying a synthetic
+// batch of `metrics` gauges, with its projected row count equal to rows.
 func metricBatchRecord(t *testing.T, metrics int, rows uint32) *edgev1.EdgeRecordV1 {
 	t.Helper()
-	batch := &metricpb.MetricBatch{SchemaVersion: MetricBatchSchemaVersion}
+	return metricBatchRecordSource(t, metrics, rows, MetricsBatchSource)
+}
+
+func metricBatchRecordSource(t *testing.T, metrics int, rows uint32, source string) *edgev1.EdgeRecordV1 {
+	t.Helper()
+	batch := &metricpb.MetricBatch{
+		SchemaVersion:  MetricBatchSchemaVersion,
+		IngestIdentity: &metricpb.IngestIdentity{Source: source},
+	}
 	for range metrics {
 		batch.Metrics = append(batch.Metrics, &metricpb.Metric{Name: "cpu.usage_percent", MetricType: "sysmon.cpu"})
 	}
@@ -76,6 +84,7 @@ func TestValidateMetricBatchRecord(t *testing.T) {
 	}{
 		"another contract":                 {sweep, ErrContractDispatch},
 		"a source authorization":           {sourced, ErrMetricBatchSourceAuthorization},
+		"a non-sysmon source":              {metricBatchRecordSource(t, 3, 3, "snmp-metrics"), ErrMetricBatch},
 		"rows that disagree with the body": {metricBatchRecord(t, 3, 2), ErrMetricBatch},
 		"an empty batch":                   {metricBatchRecord(t, 0, 1), ErrMetricBatch},
 	}

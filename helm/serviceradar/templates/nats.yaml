@@ -371,6 +371,13 @@ spec:
                       # a PubAck, so a missing entry denies every sample and
                       # the broker logs a permissions violation.
                       "metrics.event_writer.warehouse",
+                      # Sysmon batches republished from edge records
+                      # (MetricsBatchProjection) onto the same subjects the
+                      # gateway uses. The publish waits for a PubAck, so a
+                      # missing entry redelivers the edge-record batch forever.
+                      # Passive sysmon only; scheduled families stay off this
+                      # identity until that contract exists.
+                      "metrics.sysmon.>",
                       # Exposure transitions and CVE/package dimensions, relayed
                       # from their outboxes into EXPOSURE_TRANSITIONS and
                       # EXPOSURE_DIMENSIONS, plus each relay's health metrics.

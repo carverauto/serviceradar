@@ -24,14 +24,15 @@ import (
 	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 )
 
-// The metrics batch output contract: one contract for every agent producer that
-// emits the canonical protobuf metric envelope (sysmon, SNMP, ICMP, MTR and sweep
-// scalars, rperf), told apart by the batch's own ingest identity. Its records run
-// under a standing output grant and carry no source authorization.
+// The passive metrics batch output contract. Sysmon emits the canonical protobuf
+// metric envelope under a standing output grant and carries no source
+// authorization. Lease-run producers (SNMP, ICMP, MTR, rperf, and sweep) belong
+// on the scheduled metrics contract.
 const (
 	MetricsBatchContractID             = "serviceradar.metrics.batch"
 	MetricsBatchContractVersion uint32 = 1
 	MetricBatchSchemaVersion           = "serviceradar.metric.v1"
+	MetricsBatchSource                 = "sysmon-metrics"
 )
 
 var (
@@ -44,13 +45,16 @@ var (
 )
 
 // ValidateMetricBatch enforces the metrics batch payload rules: the canonical
-// metric envelope schema and at least one metric.
+// metric envelope schema, the passive sysmon source, and at least one metric.
 func ValidateMetricBatch(batch *metricpb.MetricBatch) error {
 	if batch == nil {
 		return fmt.Errorf("%w: empty batch", ErrMetricBatch)
 	}
 	if batch.GetSchemaVersion() != MetricBatchSchemaVersion {
 		return fmt.Errorf("%w: schema_version %q", ErrMetricBatch, batch.GetSchemaVersion())
+	}
+	if batch.GetIngestIdentity().GetSource() != MetricsBatchSource {
+		return fmt.Errorf("%w: source %q", ErrMetricBatch, batch.GetIngestIdentity().GetSource())
 	}
 	if len(batch.GetMetrics()) == 0 {
 		return fmt.Errorf("%w: no metrics", ErrMetricBatch)
@@ -61,7 +65,7 @@ func ValidateMetricBatch(batch *metricpb.MetricBatch) error {
 // ValidateMetricBatchRecord is the composed validator a producer runs before it
 // spools a metrics batch record: the whole record (ValidateRecord), the exact
 // metrics batch contract, RECORD_BATCH_V1 framing, no source authorization, the
-// decoded body, and a projected row count equal to the body's metric count.
+// decoded sysmon body, and a projected row count equal to the body's metric count.
 // Signatures are verified by the gateway, which holds the trust snapshot.
 func ValidateMetricBatchRecord(r *edgev1.EdgeRecordV1) error {
 	if err := ValidateRecord(r); err != nil {

@@ -186,11 +186,29 @@ defmodule ServiceRadar.Edge.OutputGrants do
   active, belongs to the record's agent, contract and network scope, and is at the record's
   epoch. The projector checks this again before writing, as the sweep projection does for its
   assignment.
+
+  A missing grant or one that does not match is `{:error, :output_grant_not_current}`. Any
+  other lookup failure is raised, so the EventWriter batch fails and JetStream redelivers it.
+  `opts[:grant_lookup]` replaces the row read; production leaves it unset.
   """
-  @spec check_current(Ecto.UUID.t(), String.t(), String.t(), Ecto.UUID.t(), non_neg_integer()) ::
+  @spec check_current(
+          Ecto.UUID.t(),
+          String.t(),
+          String.t(),
+          Ecto.UUID.t(),
+          non_neg_integer(),
+          keyword()
+        ) ::
           :ok | {:error, :output_grant_not_current}
-  def check_current(grant_id, agent_id, contract_id, network_scope_id, authority_epoch) do
-    case Ash.get(OutputGrant, grant_id, actor: actor()) do
+  def check_current(
+        grant_id,
+        agent_id,
+        contract_id,
+        network_scope_id,
+        authority_epoch,
+        opts \\ []
+      ) do
+    case grant_row(grant_id, opts) do
       {:ok,
        %OutputGrant{
          state: :active,
@@ -201,10 +219,35 @@ defmodule ServiceRadar.Edge.OutputGrants do
        }} ->
         :ok
 
-      _ ->
+      {:ok, %OutputGrant{}} ->
         {:error, :output_grant_not_current}
+
+      {:ok, nil} ->
+        {:error, :output_grant_not_current}
+
+      {:error, error} ->
+        if grant_not_found?(error) do
+          {:error, :output_grant_not_current}
+        else
+          raise error
+        end
     end
   end
+
+  defp grant_row(grant_id, opts) do
+    case Keyword.get(opts, :grant_lookup) do
+      lookup when is_function(lookup, 1) -> lookup.(grant_id)
+      _ -> Ash.get(OutputGrant, grant_id, actor: actor())
+    end
+  end
+
+  defp grant_not_found?(%Ash.Error.Query.NotFound{}), do: true
+
+  defp grant_not_found?(%{errors: errors}) when is_list(errors) do
+    errors != [] and Enum.all?(errors, &grant_not_found?/1)
+  end
+
+  defp grant_not_found?(_error), do: false
 
   @doc """
   The signed production capability of a grant, valid from five minutes before `now`'s UTC day

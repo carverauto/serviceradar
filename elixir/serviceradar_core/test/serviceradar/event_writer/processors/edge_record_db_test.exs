@@ -501,6 +501,57 @@ defmodule ServiceRadar.EventWriter.Processors.EdgeRecordDbTest do
       assert ledger_count(frame.record) == 0
     end
 
+    test "a non-sysmon source is refused and not published" do
+      frame = build_metrics_frame()
+
+      snmp_batch = %{
+        frame.batch
+        | ingest_identity: %{frame.batch.ingest_identity | source: "snmp-metrics"}
+      }
+
+      payload = MetricBatch.encode(snmp_batch)
+
+      record = %{
+        frame.record
+        | payload: payload,
+          encoded_size: byte_size(payload),
+          uncompressed_size: byte_size(payload),
+          payload_sha256: :crypto.hash(:sha256, payload)
+      }
+
+      refused = encode_frame(record, snmp_batch, frame.slot)
+
+      assert {:error, :metrics_batch_source} =
+               EdgeRecord.ingest(refused.record_bytes, refused.headers, Repo,
+                 request: stored_ack()
+               )
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(refused.record) == 0
+    end
+
+    test "a grant lookup failure leaves no ledger row, so the redelivery publishes" do
+      frame = build_metrics_frame()
+
+      lookup_error = %RuntimeError{message: "grant lookup failed"}
+
+      assert_raise RuntimeError, ~r/grant lookup failed/, fn ->
+        EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo,
+          request: stored_ack(),
+          grant_lookup: fn _grant_id -> {:error, lookup_error} end
+        )
+      end
+
+      refute_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(frame.record) == 0
+
+      assert {:ok, :inserted} =
+               EdgeRecord.ingest(frame.record_bytes, frame.headers, Repo, request: stored_ack())
+
+      assert_received {:metrics_published, _subject, _body, _opts}
+      assert ledger_count(frame.record) == 1
+    end
+
     test "a failed publish leaves no ledger row, so the redelivery publishes it" do
       frame = build_metrics_frame()
       refused = fn _subject, _body, _opts -> {:error, :timeout} end
