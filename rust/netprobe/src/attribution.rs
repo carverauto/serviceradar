@@ -1625,6 +1625,7 @@ fn record_ownership_metrics(metrics: &Metrics, procfs: &ProcfsEnricher) {
         ("ownership_resolved", counters.resolutions),
         ("ownership_cache_hit", counters.cache_hits),
         ("ownership_index_build", counters.index_builds),
+        ("ownership_malformed_path", counters.malformed_paths),
     ] {
         if count > 0 {
             metrics.inc_attribution_backend_events("executable_ownership", outcome, count);

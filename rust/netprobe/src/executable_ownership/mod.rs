@@ -50,16 +50,19 @@ const MIN_REINDEX_INTERVAL: Duration = Duration::from_secs(30);
 
 const EXECUTE_BITS: u32 = 0o111;
 const DELETED_SUFFIX: &str = " (deleted)";
-/// `flow_process_attribution_observations.executable_ownership` is VARCHAR(65533).
-/// Cut the readlink target to that width so the path itself stays within the
-/// column and within the 512 KiB edge-record cap.
-const MAX_EXECUTABLE_PATH_BYTES: usize = 65_533;
+/// Maximum `/proc/<pid>/exe` readlink target length (`PATH_MAX` = 4096 bytes).
+/// A target longer than `PATH_MAX` is malformed and is rejected as `Unknown`
+/// ([`DETAIL_EXECUTABLE_PATH_TOO_LONG`]) rather than truncated. Because 4096 << 65,533,
+/// the `VARCHAR(65533)` `flow_process_attribution_observations.executable_ownership`
+/// column needs no separate guard.
+const MAX_EXECUTABLE_PATH_BYTES: usize = 4096;
 
 pub const DETAIL_PROCESS_EXITED: &str = "process_exited";
 pub const DETAIL_PROCFS_DENIED: &str = "procfs_denied";
 pub const DETAIL_PROCFS_UNREADABLE: &str = "procfs_unreadable";
 pub const DETAIL_RESOLVER_UNAVAILABLE: &str = "resolver_unavailable";
 pub const DETAIL_EXECUTABLE_DELETED: &str = "executable_deleted";
+pub const DETAIL_EXECUTABLE_PATH_TOO_LONG: &str = "executable_path_too_long";
 pub const DETAIL_NOT_OWNED: &str = "not_owned";
 pub const DETAIL_NO_PACKAGE_DATABASE: &str = "no_package_database";
 pub const DETAIL_PACKAGE_DATABASE_UNREADABLE: &str = "package_database_unreadable";
@@ -179,6 +182,8 @@ pub struct ResolverCounters {
     pub cache_hits: u64,
     /// Package-database indexes built.
     pub index_builds: u64,
+    /// `/proc/<pid>/exe` readlink targets rejected as longer than `PATH_MAX` (4096 bytes).
+    pub malformed_paths: u64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -460,11 +465,15 @@ impl ExecutableOwnershipResolver {
             Err(err) => return procfs_error(&err),
         };
         let root_link = process.join("root");
+        let (executable_path, deleted) =
+            match self.resolve_executable_path(&link_target, &root_link) {
+                Ok(resolved) => resolved,
+                Err(record) => return record,
+            };
         let root = match fs::metadata(&root_link) {
             Ok(metadata) => FileId::of(&metadata),
             Err(err) => return procfs_error(&err),
         };
-        let (executable_path, deleted) = in_root_executable_path(&link_target, &root_link);
         let source_scope = if Some(root) == self.host_root() {
             SCOPE_HOST
         } else {
@@ -599,12 +608,41 @@ impl ExecutableOwnershipResolver {
         }
         self.cache.insert(key, entry);
     }
+
+    fn resolve_executable_path(
+        &mut self,
+        link_target: &Path,
+        root_link: &Path,
+    ) -> Result<(String, bool), ExecutableOwnershipRecord> {
+        match in_root_executable_path(link_target, root_link) {
+            Ok(resolved) => Ok(resolved),
+            Err(detail) => {
+                self.counters.malformed_paths += 1;
+                Err(ExecutableOwnershipRecord::unresolved(
+                    OwnershipState::Unknown,
+                    detail,
+                ))
+            }
+        }
+    }
 }
 
 /// The executable path as the process root sees it, and whether the kernel marked the
 /// file deleted. When the root is itself visible from netprobe's root (a chroot, or a
 /// test fixture), its prefix is removed.
-fn in_root_executable_path(link_target: &Path, root_link: &Path) -> (String, bool) {
+///
+/// A `readlink` target longer than [`MAX_EXECUTABLE_PATH_BYTES`] (`PATH_MAX` = 4096 bytes)
+/// is malformed and rejected with [`DETAIL_EXECUTABLE_PATH_TOO_LONG`] rather than
+/// truncated. Because 4096 << 65,533, the `VARCHAR(65533)`
+/// `flow_process_attribution_observations.executable_ownership` column needs no separate
+/// guard.
+fn in_root_executable_path(
+    link_target: &Path,
+    root_link: &Path,
+) -> Result<(String, bool), &'static str> {
+    if link_target.as_os_str().len() > MAX_EXECUTABLE_PATH_BYTES {
+        return Err(DETAIL_EXECUTABLE_PATH_TOO_LONG);
+    }
     let raw = link_target.to_string_lossy();
     let (path, deleted) = match raw.strip_suffix(DELETED_SUFFIX) {
         Some(path) => (path.to_string(), true),
@@ -617,18 +655,7 @@ fn in_root_executable_path(link_target: &Path, root_link: &Path) -> (String, boo
         .and_then(|prefix| path.strip_prefix(prefix))
         .filter(|rest| rest.starts_with('/'))
         .map(str::to_string);
-    (cap_executable_path(in_root.unwrap_or(path)), deleted)
-}
-
-fn cap_executable_path(path: String) -> String {
-    if path.len() <= MAX_EXECUTABLE_PATH_BYTES {
-        return path;
-    }
-    let mut cut = MAX_EXECUTABLE_PATH_BYTES;
-    while cut > 0 && !path.is_char_boundary(cut) {
-        cut -= 1;
-    }
-    path[..cut].to_string()
+    Ok((in_root.unwrap_or(path), deleted))
 }
 
 fn procfs_error(err: &io::Error) -> ExecutableOwnershipRecord {
@@ -668,37 +695,76 @@ fn mode(_metadata: &Metadata) -> u32 {
 mod path_cap {
     use std::path::Path;
 
-    use super::in_root_executable_path;
+    use super::{
+        DETAIL_EXECUTABLE_PATH_TOO_LONG, ExecutableOwnershipResolver, MAX_EXECUTABLE_PATH_BYTES,
+        OwnershipState, ResolverCounters,
+    };
 
     #[test]
-    fn overlong_readlink_stays_within_one_observation() {
-        let link = format!("/usr/bin/{}", "a".repeat(80_000));
-        let (path, deleted) =
-            in_root_executable_path(Path::new(&link), Path::new("/no-such-process-root"));
-        assert!(!deleted);
-        assert!(path.len() <= 65_533);
-        assert!(path.len() <= 512 * 1024);
-        assert!(path.len() > 65_533 - 4);
-        assert!(path.is_char_boundary(path.len()));
+    fn oversized_readlink_is_unknown_with_reason_and_increments_counter() {
+        let mut resolver = ExecutableOwnershipResolver::new("/no-such-proc");
 
-        let multibyte = format!("/bin/{}", "é".repeat(40_000));
-        let (path, deleted) =
-            in_root_executable_path(Path::new(&multibyte), Path::new("/no-such-process-root"));
-        assert!(!deleted);
-        assert!(path.len() <= 65_533);
-        assert!(path.len() <= 512 * 1024);
-        assert!(path.is_char_boundary(path.len()));
-        assert!(std::str::from_utf8(path.as_bytes()).is_ok());
+        let just_over = format!("/{}", "a".repeat(MAX_EXECUTABLE_PATH_BYTES));
+        assert_eq!(just_over.len(), MAX_EXECUTABLE_PATH_BYTES + 1);
+        let record = resolver
+            .resolve_executable_path(Path::new(&just_over), Path::new("/no-such-process-root"))
+            .expect_err("readlink target over PATH_MAX must be rejected");
+        assert_eq!(record.state, OwnershipState::Unknown);
+        assert_eq!(record.detail, DETAIL_EXECUTABLE_PATH_TOO_LONG);
+        assert!(record.executable_path.is_empty());
+        assert_eq!(record.package, None);
+
+        let huge = format!("/usr/bin/{}", "a".repeat(80_000));
+        let record = resolver
+            .resolve_executable_path(Path::new(&huge), Path::new("/no-such-process-root"))
+            .expect_err("huge readlink target must be rejected, never truncated");
+        assert_eq!(record.state, OwnershipState::Unknown);
+        assert_eq!(record.detail, DETAIL_EXECUTABLE_PATH_TOO_LONG);
+        assert!(record.executable_path.is_empty());
+        assert_eq!(record.package, None);
+
+        assert_eq!(
+            resolver.take_counters(),
+            ResolverCounters {
+                resolutions: 0,
+                cache_hits: 0,
+                index_builds: 0,
+                malformed_paths: 2,
+            }
+        );
     }
 
     #[test]
-    fn short_path_and_deleted_suffix_are_unchanged() {
-        let (path, deleted) = in_root_executable_path(
-            Path::new("/usr/sbin/exampled (deleted)"),
-            Path::new("/no-such-process-root"),
-        );
-        assert_eq!(path, "/usr/sbin/exampled");
+    fn normal_and_deleted_paths_are_unchanged() {
+        let mut resolver = ExecutableOwnershipResolver::new("/no-such-proc");
+
+        let (normal, deleted) = resolver
+            .resolve_executable_path(
+                Path::new("/usr/sbin/exampled"),
+                Path::new("/no-such-process-root"),
+            )
+            .expect("normal path within PATH_MAX must succeed");
+        assert_eq!(normal, "/usr/sbin/exampled");
+        assert!(!deleted);
+
+        let at_limit = format!("/{}", "a".repeat(MAX_EXECUTABLE_PATH_BYTES - 1));
+        assert_eq!(at_limit.len(), MAX_EXECUTABLE_PATH_BYTES);
+        let (exact, deleted) = resolver
+            .resolve_executable_path(Path::new(&at_limit), Path::new("/no-such-process-root"))
+            .expect("path of exactly PATH_MAX bytes must succeed");
+        assert_eq!(exact, at_limit);
+        assert!(!deleted);
+
+        let (deleted_path, deleted) = resolver
+            .resolve_executable_path(
+                Path::new("/usr/sbin/exampled (deleted)"),
+                Path::new("/no-such-process-root"),
+            )
+            .expect("deleted path within PATH_MAX must succeed");
+        assert_eq!(deleted_path, "/usr/sbin/exampled");
         assert!(deleted);
+
+        assert_eq!(resolver.take_counters().malformed_paths, 0);
     }
 }
 
