@@ -19,7 +19,12 @@ defmodule ServiceRadar.Edge.InventoryBatchProtosTest do
 
   test "explicit false detected is distinct non-empty wire bytes from unset" do
     unset = %EndpointInventorySourceSummaryV1{name: "trivy"}
-    explicit = %EndpointInventorySourceSummaryV1{name: "trivy", detected: false, has_detected: true}
+
+    explicit = %EndpointInventorySourceSummaryV1{
+      name: "trivy",
+      detected: false,
+      has_detected: true
+    }
 
     unset_bytes = <<0x0A, 0x05, "trivy">>
     explicit_bytes = <<0x0A, 0x05, "trivy", 0x50, 0x01>>
