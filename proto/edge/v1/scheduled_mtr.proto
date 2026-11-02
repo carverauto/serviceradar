@@ -1,0 +1,92 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+// Agent-scheduled and non-leased MTR trace output contract.
+//
+// `MtrTraceBatchV1` in `sweep.proto` binds leased sweep executions through
+// `MtrSweepContextV1` (`execution_plan_id` / `target_range_id`). Agent-scheduled
+// MTR checks, unleased sweep-triggered MTR runs, and on-demand/bulk MTR jobs
+// emit traces under a standing production grant without a leased plan/range
+// join, while reusing the frozen `MtrTraceEventV1`, `MtrTraceHopV1`, and
+// `MtrMplsLabelV1` structures from `sweep.proto`.
+package serviceradar.edge.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/edge/v1;edgev1";
+
+import "edge/v1/sweep.proto";
+
+// AgentScheduledMtrTraceBatchV1 is the payload of an EdgeRecordV1 record for
+// the agent-scheduled MTR output contract (`serviceradar.mtr.scheduled_trace`,
+// version 1).
+message AgentScheduledMtrTraceBatchV1 {
+  repeated AgentScheduledMtrTraceV1 traces = 1;
+}
+
+// AgentScheduledMtrTraceV1 wraps one complete `MtrTraceEventV1` with the check,
+// sweep-group, or command metadata and TCP/ICMP diagnostic counters consumed by
+// `MtrMetricsIngestor` and `MtrGraph`.
+message AgentScheduledMtrTraceV1 {
+  MtrTraceEventV1 trace = 1;
+  string check_id = 2;
+  string check_name = 3;
+  string device_id = 4;
+  bytes sweep_group_id = 5;
+  bytes execution_id = 6;
+  string command_id = 7;
+  SweepExecutionSource execution_source = 8;
+  uint32 probed_hops = 9;
+  uint32 last_responding_hop = 10;
+  uint32 tcp_port = 11;
+  string tcp_probe_mode = 12;
+  string error_message = 13;
+  MtrTcpHandshakeDiagnosticsV1 tcp_handshake = 14;
+  repeated MtrHopReplyDiagnosticsV1 hop_diagnostics = 15;
+}
+
+// MtrTcpHandshakeDiagnosticsV1 carries destination TCP SYN handshake metrics
+// collected alongside a TCP MTR trace.
+message MtrTcpHandshakeDiagnosticsV1 {
+  uint32 ttl = 1;
+  uint32 attempts = 2;
+  uint32 syn_sent = 3;
+  uint32 synack_received = 4;
+  uint32 rst_received = 5;
+  uint32 unanswered = 6;
+  double syn_drop_pct = 7;
+  uint32 syn_retransmits = 8;
+  uint32 answered_after_retx = 9;
+  uint32 ack_mismatch = 10;
+  uint32 synack_duplicates = 11;
+  int64 rtt_min_us = 12;
+  int64 rtt_avg_us = 13;
+  int64 rtt_max_us = 14;
+  int64 server_response_us = 15;
+  bool has_server_response_us = 16;
+}
+
+// MtrHopReplyDiagnosticsV1 carries supplementary per-hop ICMP/TCP reply
+// classification counters paired with `MtrTraceHopV1` by `hop_number`.
+message MtrHopReplyDiagnosticsV1 {
+  uint32 hop_number = 1;
+  bool has_unreachable_code = 2;
+  uint32 unreachable_code = 3;
+  uint32 reply_time_exceeded = 4;
+  uint32 reply_unreachable = 5;
+  uint32 reply_synack = 6;
+  uint32 reply_rst = 7;
+}

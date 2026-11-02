@@ -18,6 +18,7 @@ proto_library(
     name = "edgev1_proto",
     srcs = [
         "record.proto",
+        "scheduled_mtr.proto",
         "sweep.proto",
     ],
     # Match the Makefile's `protoc -I=proto`: the descriptor source path (and the
@@ -31,6 +32,7 @@ filegroup(
     name = "edge_proto_src",
     srcs = [
         "record.proto",
+        "scheduled_mtr.proto",
         "sweep.proto",
     ],
     visibility = ["//visibility:public"],
@@ -41,6 +43,7 @@ go_library(
     srcs = [
         "record.pb.go",
         "record_grpc.pb.go",
+        "scheduled_mtr.pb.go",
         "sweep.pb.go",
     ],
     importpath = "github.com/carverauto/serviceradar/proto/edge/v1",
@@ -74,6 +77,7 @@ go_test(
         "lane_bounds_corpus_test.go",
         "ack_bounds_corpus_test.go",
         "freeze_coverage_test.go",
+        "scheduled_mtr_test.go",
         # The SHARED corpus builder and its gate assertions. Without this Bazel stages the
         # fixtures as data but never EXECUTES the code that writes or checks them, so the
         # required shard would verify nothing about the corpus.
@@ -89,6 +93,12 @@ go_test(
         "@org_golang_google_protobuf//proto",
         "@org_golang_google_protobuf//reflect/protoreflect",
     ],
+)
+
+test_suite(
+    name = "edgev1_test",
+    tests = [":edgev1_golden_test"],
+    visibility = ["//visibility:public"],
 )
 
 go_test_inventory_test(
