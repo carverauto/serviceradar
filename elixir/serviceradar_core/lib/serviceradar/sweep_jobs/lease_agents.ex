@@ -15,9 +15,16 @@ defmodule ServiceRadar.SweepJobs.LeaseAgents do
 
   require Ash.Query
 
-  @type candidate :: %{agent_id: String.t(), partition: String.t()}
+  @type candidate :: %{
+          agent_id: String.t(),
+          partition: String.t(),
+          capabilities: [String.t()] | nil
+        }
 
-  @doc "The agents the group runs on, sorted by agent id."
+  @doc """
+  The agents the group runs on, sorted by agent id, each with the capabilities it last
+  reported (which decide the checks its sweep config carries for the group).
+  """
   @spec candidates(SweepGroup.t()) :: {:ok, [candidate()]} | {:error, term()}
   def candidates(%SweepGroup{} = group) do
     query =
@@ -33,7 +40,9 @@ defmodule ServiceRadar.SweepJobs.LeaseAgents do
            |> Ash.read(actor: actor()) do
       {:ok,
        agents
-       |> Enum.map(&%{agent_id: &1.uid, partition: &1.device.partition})
+       |> Enum.map(
+         &%{agent_id: &1.uid, partition: &1.device.partition, capabilities: &1.capabilities}
+       )
        |> Enum.sort_by(& &1.agent_id)}
     end
   end
