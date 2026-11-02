@@ -22,8 +22,11 @@ defmodule ServiceRadar.SweepJobs.LeasePass do
   An unrun slot that no longer matches (its epoch was bumped, its check set, network scope or
   planned targets changed, or the schedule or horizon moved) is dropped and planned again, so
   the next pass re-plans a lease rather than leaving it on the old targets. A slot that has
-  started is never touched. Becoming eligible again after a revoke reissues the assignment
-  under a new epoch, which is a new lease.
+  started is never touched. While a delivered slot for that agent and group is still in its
+  collection window and has not been completed, the sweep config keeps the modes of that
+  slot's signed plan header. Once the slot is completed, dropped, missed, or expired, the
+  capability-adjusted set applies and the next pass re-plans unrun slots onto it. Becoming
+  eligible again after a revoke reissues the assignment under a new epoch, which is a new lease.
 
   The lease id is derived from the assignment and its epoch, so every pass names the same lease
   without storing it, and a bump starts a new one.

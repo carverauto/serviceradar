@@ -15,8 +15,11 @@ defmodule ServiceRadar.SweepJobs.LeaseEligibility do
   group overrides on top, and the modes the agent reports it cannot run withheld), which must
   reduce to ICMP and TCP checks with no MTR. The agent compares that config's check set with
   the plan's `check_set_sha256` and refuses a slot whose sets differ, so the plan is built
-  from the same function and never from the group's modes alone. An agent that can run none
-  of the group's modes is not leased the group, as it is not sent the group at all.
+  from the same function and never from the group's modes alone. While one of that agent's
+  delivered slots for the group is still in its collection window, the compiled config keeps
+  the modes of that slot's signed header; the capability-adjusted set applies once the slot
+  is finished. An agent that can run none of the group's modes is not leased the group, as
+  it is not sent the group at all.
 
   A group that fails any of these stays on the legacy path, for that agent or, for a group
   property, for every agent. One execution is never split across the two paths.

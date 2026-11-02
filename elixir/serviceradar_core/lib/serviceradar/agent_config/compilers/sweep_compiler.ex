@@ -43,6 +43,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   alias ServiceRadar.SRQLQuery
   alias ServiceRadar.SweepJobs.AliasRecency
   alias ServiceRadar.SweepJobs.DeclaredTargets
+  alias ServiceRadar.SweepJobs.ExecutionSlots
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
@@ -162,8 +163,10 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # replaces the active `:ip` alias lookup for matched device uids; when only
   # `:query_page_fn` is given, no aliases are loaded. `:agent_capabilities`
   # is the compiling agent's capability list (nil when unknown), which
-  # withholds the modes the agent reports it cannot run; `:agent_id` names the
-  # agent in the resulting log lines. `:format` selects the emitted shape:
+  # withholds the modes the agent reports it cannot run. A delivered slot whose
+  # collection window is still open keeps the modes of its signed plan header
+  # instead, until that slot is completed, dropped, missed, or expired.
+  # `:agent_id` names the agent in the resulting log lines. `:format` selects the emitted shape:
   # `:legacy` (default) returns the compiled groups, `:shared_targets_v1`
   # returns `{:shared_targets_v1, document, compiled_groups}` with the
   # shared-targets document derived from the same groups, and any other value
@@ -626,29 +629,89 @@ defmodule ServiceRadar.AgentConfig.Compilers.SweepCompiler do
   # The modes this agent can run. A group left with none is not sent to the
   # agent at all, and the warning is the diagnostic for a group whose only
   # agent cannot run it: such a group otherwise just never reports results.
+  # A delivered slot still in its collection window keeps the modes of its
+  # signed header, so the config matches the slot the agent is running.
   defp agent_modes(group, profile, agent) do
-    case agent_scan_modes(group, profile, agent.capabilities) do
-      {:ok, %{withheld: []} = scan} ->
-        {:ok, scan}
+    with {:ok, capabilities} <- capabilities_for(group, profile, agent) do
+      case agent_scan_modes(group, profile, capabilities) do
+        {:ok, %{withheld: []} = scan} ->
+          {:ok, scan}
 
-      {:withheld, withheld} ->
-        Logger.warning(
-          "SweepCompiler: group #{inspect(group.name)} (#{group.id}) not sent to agent_id=#{inspect(agent.id)}: " <>
-            "the agent reports #{Enum.map_join(withheld, ", ", &unavailable_marker/1)} " <>
-            "and the group has no other sweep mode"
-        )
+        {:withheld, withheld} ->
+          Logger.warning(
+            "SweepCompiler: group #{inspect(group.name)} (#{group.id}) not sent to agent_id=#{inspect(agent.id)}: " <>
+              "the agent reports #{Enum.map_join(withheld, ", ", &unavailable_marker/1)} " <>
+              "and the group has no other sweep mode"
+          )
 
-        :withheld
+          :withheld
 
-      {:ok, %{withheld: withheld} = scan} ->
-        Logger.debug(
-          "SweepCompiler: withholding modes #{inspect(withheld)} of group #{group.name} (#{group.id}) " <>
-            "from agent_id=#{inspect(agent.id)}"
-        )
+        {:ok, %{withheld: withheld} = scan} ->
+          Logger.debug(
+            "SweepCompiler: withholding modes #{inspect(withheld)} of group #{group.name} (#{group.id}) " <>
+              "from agent_id=#{inspect(agent.id)}"
+          )
 
-        {:ok, scan}
+          {:ok, scan}
+      end
     end
   end
+
+  # Capability markers whose withholding reproduces a signed check set. `nil`
+  # withholds nothing. ICMP and MTR are the only modes a marker can add or remove.
+  @signed_header_capabilities [
+    nil,
+    ["icmp.unavailable"],
+    ["mtr.unavailable"],
+    ["icmp.unavailable", "mtr.unavailable"]
+  ]
+
+  defp capabilities_for(group, profile, agent) do
+    case running_check_set(group, agent) do
+      :none ->
+        {:ok, agent.capabilities}
+
+      {:ok, check_set} ->
+        case signed_capabilities(group, profile, check_set) do
+          {:signed, capabilities} -> {:ok, capabilities}
+          :none -> {:ok, agent.capabilities}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # `nil` is a real match: it withholds nothing, which is the signed set when the header
+  # still includes a mode the agent has since reported unavailable.
+  defp signed_capabilities(group, profile, check_set) do
+    Enum.find_value(@signed_header_capabilities, fn capabilities ->
+      if check_set_matches?(group, profile, capabilities, check_set),
+        do: {:signed, capabilities}
+    end) || :none
+  end
+
+  defp check_set_matches?(group, profile, capabilities, check_set) do
+    case agent_scan_modes(group, profile, capabilities) do
+      {:ok, %{modes: modes, ports: ports}} ->
+        case SweepPlan.checks(modes, ports) do
+          {:ok, checks} -> SweepPlan.check_set_sha256(checks) == check_set
+          _ -> false
+        end
+
+      _ ->
+        false
+    end
+  end
+
+  defp running_check_set(%{id: group_id}, %{id: agent_id}) when is_binary(agent_id) do
+    case Ecto.UUID.cast(group_id) do
+      {:ok, group_id} -> ExecutionSlots.delivered_running_check_set(agent_id, group_id)
+      :error -> :none
+    end
+  end
+
+  defp running_check_set(_group, _agent), do: :none
 
   defp maybe_put_device_targets(compiled, []), do: compiled
 
