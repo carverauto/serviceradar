@@ -34,7 +34,6 @@ import (
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
 	"github.com/carverauto/serviceradar/go/pkg/edge/spool"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
-	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -147,12 +146,13 @@ type PushLoop struct {
 	edgeSweepSpool *spool.Spool
 	// edgeMetricsSpool receives metrics batch records while the agent holds a
 	// standing grant for that contract; nil keeps every metric on its legacy path.
-	edgeMetricsSpool *spool.Spool
+	edgeMetricsSpool edgeMetricsAppender
 	edgeOutputGrants edgeOutputGrants
 	sysmonEdgeMu     sync.Mutex
-	// sysmonEdgePending holds drained sysmon samples whose records the spool has
-	// not yet admitted, oldest first, bounded by maxPendingSysmonEdgeSamples.
-	sysmonEdgePending []*sysmon.MetricSample
+	// sysmonEdgePending is the bounded retry queue, oldest first. An entry is
+	// either a sample no part of which has been admitted, or one built record
+	// from a sample that already has a part in the spool.
+	sysmonEdgePending []sysmonEdgeQueued
 	sweepLeaseMu      sync.Mutex
 	sweepLeases       *sweepLeaseStore // installed sweep schedule leases, opened lazily under sweepLeaseMu
 	sweepLeaseDir     string           // lease store dir override for tests; empty means defaultSweepLeaseDir()

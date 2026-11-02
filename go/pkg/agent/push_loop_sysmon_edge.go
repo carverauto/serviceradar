@@ -108,9 +108,20 @@ func (t *edgeProducerDropTelemetry) write(w io.Writer) error {
 	return nil
 }
 
+// edgeMetricsAppender is the spool surface a metrics producer writes.
+type edgeMetricsAppender interface {
+	Append(eventID, body []byte) (uint64, error)
+}
+
 // SetEdgeMetricsSpool connects metric producers to the sender's one open spool.
 // Call before Start; a nil spool keeps every metric on its legacy path.
-func (p *PushLoop) SetEdgeMetricsSpool(sp *spool.Spool) { p.edgeMetricsSpool = sp }
+func (p *PushLoop) SetEdgeMetricsSpool(sp *spool.Spool) {
+	if sp == nil {
+		p.edgeMetricsSpool = nil
+		return
+	}
+	p.edgeMetricsSpool = sp
+}
 
 // edgeMetricsCapability is the standing grant new metrics batch records are
 // emitted under at now, or nil when metrics take the legacy path.
@@ -121,69 +132,86 @@ func (p *PushLoop) edgeMetricsCapability(now time.Time) *edgev1.EdgeSignedCapabi
 	return p.edgeOutputGrants.current(edgerecord.MetricsBatchContractID, now)
 }
 
-// takeSysmonEdgePending returns and clears the samples the spool never admitted,
-// so they can take the legacy path once the agent no longer holds a grant. None
-// of them was spooled, so nothing is sent twice.
+// sysmonEdgeQueued is one entry in the bounded sysmon retry queue.
+// A sample with ready records was built once and is still wholly unadmitted.
+// A nil sample is one built record whose earlier parts are already in the spool,
+// so that record must not be rebuilt and must not take the legacy path.
+type sysmonEdgeQueued struct {
+	sample *sysmon.MetricSample
+	ready  []sysmonEdgeBuilt
+}
+
+// takeSysmonEdgePending returns samples the spool has not admitted any part of,
+// so they can take the legacy path once the grant is gone. Partly admitted
+// samples stay queued as their unsent records.
 func (p *PushLoop) takeSysmonEdgePending() []*sysmon.MetricSample {
 	p.sysmonEdgeMu.Lock()
 	defer p.sysmonEdgeMu.Unlock()
-	pending := p.sysmonEdgePending
-	p.sysmonEdgePending = nil
-	return pending
+	var samples []*sysmon.MetricSample
+	kept := make([]sysmonEdgeQueued, 0, len(p.sysmonEdgePending))
+	for _, item := range p.sysmonEdgePending {
+		if item.sample != nil {
+			samples = append(samples, item.sample)
+			continue
+		}
+		kept = append(kept, item)
+	}
+	p.sysmonEdgePending = kept
+	return samples
 }
 
-// spoolSysmonSamples appends the pending and newly drained samples, oldest first,
-// as metrics batch records under capability. Samples behind a retryable refusal
-// stay pending for the next push; they never take the legacy path while the grant
-// holds. It reports whether any record was appended.
+// spoolSysmonSamples appends the pending queue and newly drained samples, oldest
+// first, as metrics batch records under capability. A retryable refusal leaves
+// the unsent records queued. It reports whether any record was appended.
 func (p *PushLoop) spoolSysmonSamples(drained []*sysmon.MetricSample, capability *edgev1.EdgeSignedCapabilityV1) bool {
 	p.sysmonEdgeMu.Lock()
 	defer p.sysmonEdgeMu.Unlock()
 
-	pending := append([]*sysmon.MetricSample(nil), p.sysmonEdgePending...)
+	pending := append([]sysmonEdgeQueued(nil), p.sysmonEdgePending...)
 	for _, sample := range drained {
 		if sample != nil {
-			pending = append(pending, sample)
+			pending = append(pending, sysmonEdgeQueued{sample: sample})
 		}
 	}
 
-	ctx := p.metricEnvelopeContext()
-	appended := 0
-	for len(pending) > 0 {
-		taken, built, droppedPoints, err := nextSysmonEdgeRecord(pending, capability, ctx)
-		if err != nil {
-			p.dropSysmonEdgeSamples(edgeDropInvalidRecord, taken, err)
-			pending = pending[taken:]
-			continue
-		}
-		if droppedPoints > 0 {
-			p.dropSysmonEdgeSamples(edgeDropInvalidRecord, droppedPoints, errEdgeMetricsRecordTooLarge)
-		}
-		wrote, retry, appendErr := p.appendSysmonEdgeRecords(built, len(pending))
-		if retry {
-			break
-		}
-		if appendErr != nil {
-			p.dropSysmonEdgeSamples(edgeDropRefused, taken, appendErr)
-			pending = pending[taken:]
-			continue
-		}
-		if wrote {
-			appended += taken
-			pending = pending[taken:]
-		}
-	}
-
-	if over := len(pending) - maxPendingSysmonEdgeSamples; over > 0 {
-		p.dropSysmonEdgeSamples(edgeDropRetryBufferFull, over, nil)
-		pending = pending[over:]
-	}
+	appended, pending := p.admitSysmonEdgePending(pending, capability, p.metricEnvelopeContext())
+	pending = p.trimSysmonEdgePending(pending)
 	p.sysmonEdgePending = pending
 
 	if appended > 0 {
 		p.logger.Debug().Int("sample_count", appended).Msg("Spooled sysmon metrics as edge records")
 	}
 	return appended > 0
+}
+
+func (p *PushLoop) trimSysmonEdgePending(pending []sysmonEdgeQueued) []sysmonEdgeQueued {
+	if over := len(pending) - maxPendingSysmonEdgeSamples; over > 0 {
+		p.dropSysmonEdgeSamples(edgeDropRetryBufferFull, over, nil)
+		return pending[over:]
+	}
+	return pending
+}
+
+func (p *PushLoop) admitSysmonEdgePending(
+	pending []sysmonEdgeQueued,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	ctx metricEnvelopeContext,
+) (int, []sysmonEdgeQueued) {
+	appended := 0
+	for len(pending) > 0 {
+		var stepAppended int
+		var stop bool
+		if pending[0].sample != nil && len(pending[0].ready) == 0 {
+			stepAppended, pending, stop = p.buildAndAdmitSysmon(pending, capability, ctx)
+		} else {
+			stepAppended, pending, stop = p.admitQueuedSysmon(pending)
+		}
+		appended += stepAppended
+		if stop {
+			break
+		}
+	}
+	return appended, pending
 }
 
 func (p *PushLoop) dropSysmonEdgeSamples(reason edgeDropReason, samples int, err error) {
@@ -203,25 +231,113 @@ type sysmonEdgeBuilt struct {
 	payload []byte
 }
 
-// appendSysmonEdgeRecords writes built in order. A retryable refusal stops the
-// caller with the samples still pending. wrote is false when nothing was admitted.
-func (p *PushLoop) appendSysmonEdgeRecords(built []sysmonEdgeBuilt, pending int) (bool, bool, error) {
-	for _, piece := range built {
-		body, err := edgerecord.CanonicalRecordBytes(piece.record)
-		if err != nil {
-			return false, false, err
-		}
-		if _, err = p.edgeMetricsSpool.Append(piece.record.GetEventId(), body); err != nil {
-			if !permanentSpoolRefusal(err) {
-				p.logger.Warn().Err(err).Int("pending_samples", pending).
-					Msg("Edge spool refused sysmon metrics; retrying on the next push")
-				return false, true, err
-			}
-			return false, false, err
-		}
-		p.publishAddonMetricFeed("sysmon", piece.payload)
+func (p *PushLoop) buildAndAdmitSysmon(
+	pending []sysmonEdgeQueued,
+	capability *edgev1.EdgeSignedCapabilityV1,
+	ctx metricEnvelopeContext,
+) (int, []sysmonEdgeQueued, bool) {
+	raw := unbuiltSysmonSamples(pending)
+	taken, built, dropped, err := nextSysmonEdgeRecord(raw, capability, ctx)
+	if err != nil {
+		p.dropSysmonEdgeSamples(edgeDropInvalidRecord, taken, err)
+		return 0, pending[taken:], false
 	}
-	return true, false, nil
+	if dropped > 0 {
+		p.dropSysmonEdgeSamples(edgeDropInvalidRecord, dropped, errEdgeMetricsRecordTooLarge)
+	}
+	admitted, rest, retry := p.admitSysmonParts(built, len(pending))
+	if admitted == 0 && retry && taken == 1 {
+		pending[0].ready = built
+		return 0, pending, true
+	}
+	return finishSysmonAdmit(pending, taken, admitted, rest, retry)
+}
+
+func (p *PushLoop) admitQueuedSysmon(pending []sysmonEdgeQueued) (int, []sysmonEdgeQueued, bool) {
+	admitted, rest, retry := p.admitSysmonParts(pending[0].ready, len(pending))
+	return finishSysmonAdmit(pending, 1, admitted, rest, retry)
+}
+
+func finishSysmonAdmit(
+	pending []sysmonEdgeQueued,
+	taken, admitted int,
+	rest []sysmonEdgeBuilt,
+	retry bool,
+) (int, []sysmonEdgeQueued, bool) {
+	if admitted == 0 && retry {
+		return 0, pending, true
+	}
+	if admitted == 0 {
+		return 0, pending[taken:], false
+	}
+	tail := pending[taken:]
+	if len(rest) == 0 {
+		return taken, tail, false
+	}
+	return taken, append(sysmonEdgeRecordItems(rest), tail...), retry
+}
+
+func unbuiltSysmonSamples(pending []sysmonEdgeQueued) []*sysmon.MetricSample {
+	raw := make([]*sysmon.MetricSample, 0, len(pending))
+	for _, item := range pending {
+		if item.sample == nil || len(item.ready) > 0 {
+			break
+		}
+		raw = append(raw, item.sample)
+	}
+	return raw
+}
+
+func sysmonEdgeRecordItems(parts []sysmonEdgeBuilt) []sysmonEdgeQueued {
+	items := make([]sysmonEdgeQueued, len(parts))
+	for i, part := range parts {
+		items[i] = sysmonEdgeQueued{ready: []sysmonEdgeBuilt{part}}
+	}
+	return items
+}
+
+// admitSysmonParts appends built in order. A retryable refusal returns the
+// unsent suffix, including the refused part, with the event ids already on
+// those records. A permanent refusal drops that part and continues.
+func (p *PushLoop) admitSysmonParts(built []sysmonEdgeBuilt, pending int) (int, []sysmonEdgeBuilt, bool) {
+	admitted := 0
+	for i, piece := range built {
+		switch p.appendSysmonEdgeRecord(piece, pending) {
+		case admitOK:
+			admitted++
+		case admitRetry:
+			return admitted, built[i:], true
+		case admitDrop:
+		}
+	}
+	return admitted, nil, false
+}
+
+type sysmonAdmit int
+
+const (
+	admitOK sysmonAdmit = iota
+	admitRetry
+	admitDrop
+)
+
+func (p *PushLoop) appendSysmonEdgeRecord(piece sysmonEdgeBuilt, pending int) sysmonAdmit {
+	body, err := edgerecord.CanonicalRecordBytes(piece.record)
+	if err != nil {
+		p.dropSysmonEdgeSamples(edgeDropRefused, 1, err)
+		return admitDrop
+	}
+	if _, err = p.edgeMetricsSpool.Append(piece.record.GetEventId(), body); err != nil {
+		if permanentSpoolRefusal(err) {
+			p.dropSysmonEdgeSamples(edgeDropRefused, 1, err)
+			return admitDrop
+		}
+		p.logger.Warn().Err(err).Int("pending_samples", pending).
+			Msg("Edge spool refused sysmon metrics; retrying on the next push")
+		return admitRetry
+	}
+	p.publishAddonMetricFeed("sysmon", piece.payload)
+	return admitOK
 }
 
 // nextSysmonEdgeRecord packs the longest prefix of pending that fits one metrics

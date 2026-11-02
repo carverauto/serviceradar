@@ -17,6 +17,7 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -24,6 +25,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -500,6 +502,224 @@ func flattenedMetricPoints(batches []*metricpb.MetricBatch) []string {
 		}
 	}
 	return keys
+}
+
+// appendScript is a spool that accepts a fixed number of appends and then
+// refuses. permanentOn is the 1-based append in this phase that is permanent;
+// 0 means none. refuseAfter is how many appends succeed before a retryable
+// refusal; negative means every non-permanent append is admitted.
+type appendScript struct {
+	inner       *spool.Spool
+	refuseAfter int
+	permanentOn int
+	ids         [][]byte
+	bodies      [][]byte
+}
+
+func (a *appendScript) Append(eventID, body []byte) (uint64, error) {
+	n := len(a.ids) + 1
+	a.ids = append(a.ids, bytes.Clone(eventID))
+	a.bodies = append(a.bodies, bytes.Clone(body))
+	if a.permanentOn == n {
+		return 0, spool.ErrPermanent
+	}
+	if a.refuseAfter >= 0 && n > a.refuseAfter {
+		return 0, spool.ErrAdmissionRefused
+	}
+	return a.inner.Append(eventID, body)
+}
+
+func (a *appendScript) reset(refuseAfter, permanentOn int) {
+	a.refuseAfter = refuseAfter
+	a.permanentOn = permanentOn
+	a.ids = nil
+	a.bodies = nil
+}
+
+func TestSysmonSplitRetryAppendsEachPartOnce(t *testing.T) {
+	inner := openTestEdgeSpool(t)
+	script := &appendScript{inner: inner, refuseAfter: 1}
+	loop, gw, collector := sysmonEdgeLoop(t, nil)
+	loop.edgeMetricsSpool = script
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+
+	sample, original := sysmonSampleOverPayloadCap(t, loop.metricEnvelopeContext())
+	collector.queued = []*sysmon.MetricSample{sample}
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.GreaterOrEqual(t, len(script.ids), 2, "the spool refused after admitting one part")
+	require.Len(t, spooledMetricBatches(t, inner), 1)
+	require.NotEmpty(t, loop.sysmonEdgePending)
+	require.Nil(t, loop.sysmonEdgePending[0].sample, "the unsent tail is queued as built records")
+	refused := bytes.Clone(script.ids[1])
+	admitted := bytes.Clone(script.ids[0])
+
+	script.reset(-1, 0)
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+
+	require.NotEmpty(t, script.ids)
+	require.Equal(t, refused, script.ids[0], "the refused part keeps its event id")
+	for _, id := range script.ids {
+		require.NotEqual(t, admitted, id, "an admitted part is not appended again")
+	}
+	require.Zero(t, gw.sysmonStatuses())
+	require.Empty(t, loop.sysmonEdgePending)
+	batches := spooledMetricBatches(t, inner)
+	require.Equal(t, flattenedMetricPoints([]*metricpb.MetricBatch{original}), flattenedMetricPoints(batches))
+	require.Len(t, uniqueEventIDs(t, inner), len(batches))
+}
+
+func TestSysmonSplitRemainderStaysOffStreamStatusWithoutAGrant(t *testing.T) {
+	inner := openTestEdgeSpool(t)
+	script := &appendScript{inner: inner, refuseAfter: 1}
+	loop, gw, collector := sysmonEdgeLoop(t, nil)
+	loop.edgeMetricsSpool = script
+	now := time.Now()
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, now)
+
+	sample, original := sysmonSampleOverPayloadCap(t, loop.metricEnvelopeContext())
+	collector.queued = []*sysmon.MetricSample{sample}
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.GreaterOrEqual(t, len(script.ids), 2)
+	queued := len(loop.sysmonEdgePending)
+	require.Positive(t, queued)
+	stored := len(spooledMetricBatches(t, inner))
+
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, nil, now)
+	require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+
+	require.Zero(t, gw.sysmonStatuses(), "a partly admitted sample does not take StreamStatus")
+	require.Len(t, loop.sysmonEdgePending, queued)
+	require.Len(t, spooledMetricBatches(t, inner), stored)
+
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, now)
+	script.reset(-1, 0)
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.Zero(t, gw.sysmonStatuses())
+	require.Empty(t, loop.sysmonEdgePending)
+	require.Equal(t, flattenedMetricPoints([]*metricpb.MetricBatch{original}), flattenedMetricPoints(spooledMetricBatches(t, inner)))
+}
+
+func TestSysmonSplitPermanentRefusalDropsOnlyThatPart(t *testing.T) {
+	inner := openTestEdgeSpool(t)
+	script := &appendScript{inner: inner, refuseAfter: -1, permanentOn: 2}
+	loop, gw, collector := sysmonEdgeLoop(t, nil)
+	loop.edgeMetricsSpool = script
+	now := time.Now()
+	grant := metricsGrantRows(t, sysmonEdgeAgentID, now.Add(-time.Hour), now.Add(8*24*time.Hour), 1)
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{grant}, now)
+
+	sample := syntheticSysmonSamples(1)[0]
+	original, err := buildSysmonMetricBatch([]*sysmon.MetricSample{sample}, loop.metricEnvelopeContext())
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(original.GetMetrics()), 3)
+	collector.queued = []*sysmon.MetricSample{sample}
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+
+	require.GreaterOrEqual(t, len(script.ids), 3, "parts after the permanent refusal are still admitted")
+	require.Zero(t, gw.sysmonStatuses())
+	require.Empty(t, loop.sysmonEdgePending)
+	require.Equal(t, uint64(1), sysmonEdgeDrops(loop, edgeDropRefused))
+	require.Len(t, spooledMetricBatches(t, inner), len(script.ids)-1)
+
+	permanent := flattenedMetricPoints([]*metricpb.MetricBatch{batchFromCanonical(t, script.bodies[1])})
+	want, ok := spliceOut(flattenedMetricPoints([]*metricpb.MetricBatch{original}), permanent)
+	require.True(t, ok, "the refused part is a contiguous slice of the original points")
+	require.Equal(t, want, flattenedMetricPoints(spooledMetricBatches(t, inner)))
+}
+
+func TestSysmonUnsplittablePointIsCountedOnceAcrossRetries(t *testing.T) {
+	inner := openTestEdgeSpool(t)
+	script := &appendScript{inner: inner, refuseAfter: 0}
+	loop, gw, collector := sysmonEdgeLoop(t, nil)
+	loop.edgeMetricsSpool = script
+	loop.edgeOutputGrants.replace(sysmonEdgeAgentID, []*proto.EdgeOutputGrant{currentMetricsGrant(t)}, time.Now())
+
+	sample, original := sysmonSampleWithUnsplittablePoint(t, loop.metricEnvelopeContext())
+	collector.queued = []*sysmon.MetricSample{sample}
+	require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+	drops := sysmonEdgeDrops(loop, edgeDropInvalidRecord)
+	require.Equal(t, uint64(1), drops)
+	require.Zero(t, gw.sysmonStatuses())
+	require.Empty(t, spooledMetricBatches(t, inner))
+
+	require.False(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.Equal(t, drops, sysmonEdgeDrops(loop, edgeDropInvalidRecord), "a retry does not count the unsplittable point again")
+
+	script.reset(-1, 0)
+	require.True(t, loop.pushSysmonStatus(context.Background(), nil))
+	require.Equal(t, drops, sysmonEdgeDrops(loop, edgeDropInvalidRecord))
+	require.Zero(t, gw.sysmonStatuses())
+	got := flattenedMetricPoints(spooledMetricBatches(t, inner))
+	originalPoints := flattenedMetricPoints([]*metricpb.MetricBatch{original})
+	require.True(t, metricNamed(originalPoints, "disk.used_percent"))
+	require.False(t, metricNamed(got, "disk.used_percent"))
+	require.True(t, metricNamed(got, "memory.used_percent"))
+}
+
+func metricNamed(keys []string, name string) bool {
+	prefix := name + "\t"
+	for _, key := range keys {
+		if key == name || strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+func sysmonSampleWithUnsplittablePoint(t *testing.T, ctx metricEnvelopeContext) (*sysmon.MetricSample, *metricpb.MetricBatch) {
+	t.Helper()
+	sample := syntheticSysmonSamples(1)[0]
+	sample.Disks = []sysmon.DiskMetric{{
+		MountPoint: asciiNoise(edgeMetricsMaxPayloadBytes+4096, 7),
+		UsedBytes:  1,
+		TotalBytes: 2,
+	}}
+	batch, err := buildSysmonMetricBatch([]*sysmon.MetricSample{sample}, ctx)
+	require.NoError(t, err)
+	require.Greater(t, gproto.Size(batch), edgeMetricsMaxPayloadBytes)
+	return sample, batch
+}
+
+func batchFromCanonical(t *testing.T, body []byte) *metricpb.MetricBatch {
+	t.Helper()
+	record := &edgev1.EdgeRecordV1{}
+	require.NoError(t, gproto.Unmarshal(body, record))
+	batch := &metricpb.MetricBatch{}
+	require.NoError(t, gproto.Unmarshal(recordBody(t, record), batch))
+	return batch
+}
+
+func uniqueEventIDs(t *testing.T, sp *spool.Spool) [][]byte {
+	t.Helper()
+	stored, err := sp.Unresolved()
+	require.NoError(t, err)
+	ids := make([][]byte, 0, len(stored))
+	seen := map[string]struct{}{}
+	for _, s := range stored {
+		record := &edgev1.EdgeRecordV1{}
+		require.NoError(t, gproto.Unmarshal(s.Body, record))
+		id := string(record.GetEventId())
+		require.NotContains(t, seen, id)
+		seen[id] = struct{}{}
+		ids = append(ids, record.GetEventId())
+	}
+	return ids
+}
+
+func spliceOut(all, gap []string) ([]string, bool) {
+	if len(gap) == 0 || len(gap) > len(all) {
+		return nil, false
+	}
+	for i := 0; i+len(gap) <= len(all); i++ {
+		if !slices.Equal(all[i:i+len(gap)], gap) {
+			continue
+		}
+		out := make([]string, 0, len(all)-len(gap))
+		out = append(out, all[:i]...)
+		out = append(out, all[i+len(gap):]...)
+		return out, true
+	}
+	return nil, false
 }
 
 func assertSysmonRecordsWithinCaps(t *testing.T, sp *spool.Spool, batches []*metricpb.MetricBatch, maxRows int) {
